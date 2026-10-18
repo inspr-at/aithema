@@ -1,92 +1,92 @@
 {
-  "seconds": 182.418,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 251.33,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "4d2cee9575bdd7b50801af54d5bc9819cb775464f20f71af6533f185068848dd",
+    "workload": "4ff07b029b77854968b0d79dac74a1304f47a692ba9f5212e4eb42b6744264bb",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39114014147",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:46.140Z",
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:34.458Z",
         "tests": [
           {
             "name": "AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 px shift",
-            "seconds": 18.303553209
+            "seconds": 21.791002654
           },
           {
             "name": "AIT-131 populated canvas regressions and the orb hit area",
-            "seconds": 13.814762314
+            "seconds": 16.735599195
           },
           {
             "name": "AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, light/dark",
-            "seconds": 2.185500637
+            "seconds": 3.89439692
           },
           {
             "name": "AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls without layout shift",
-            "seconds": 9.984463994
+            "seconds": 11.598544217
           },
           {
             "name": "AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips in all viewports",
-            "seconds": 3.991052442
+            "seconds": 5.5667734620000004
           },
           {
             "name": "AIT-147 Settings footer wraps without moving controls: verification off/unverified/pending/verified, DE/EN, 1440/390, light/dark",
-            "seconds": 4.640698343
+            "seconds": 6.951807407
           },
           {
             "name": "AIT-149: reveal exit clock survives delayed browser round trips",
-            "seconds": 3.605729587
+            "seconds": 3.952637203
           },
           {
             "name": "AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout shift, DE/EN light/dark 390/1024/1440",
-            "seconds": 3.247063521
+            "seconds": 4.807106919
           },
           {
             "name": "AIT-192: a disconnected cached Chrome is relaunched for the next fixture",
-            "seconds": 0.130431341
+            "seconds": 0.199368862
           },
           {
             "name": "AIT-192: closing a fixture preserves Chrome and isolates cookies and page storage",
-            "seconds": 0.474970484
+            "seconds": 0.706486667
           },
           {
             "name": "AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, export, pointer hints and appearance",
-            "seconds": 5.915626066
+            "seconds": 8.193286337
           },
           {
             "name": "AIT-246 round 2 regressions: visible export reason, device preset destination and existing drafts without a quote",
-            "seconds": 0.7205946
+            "seconds": 1.128023553
           },
           {
             "name": "AIT-246 round 3: person-facing visual options and provider description, DE/EN light/dark desktop/phone",
-            "seconds": 6.043398704
+            "seconds": 2.506921367
           },
           {
             "name": "AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE/EN at 390/320",
-            "seconds": 5.672516980999999
+            "seconds": 6.814102625
           },
           {
             "name": "AIT-246 visitor header has two icons for guest, pending and verified email identities",
-            "seconds": 2.5841395269999996
+            "seconds": 3.621220363
           },
           {
             "name": "AIT-260: host chrome without voice, visible brand/legal and host version, DE/EN",
-            "seconds": 22.949231911
+            "seconds": 45.906811700999995
           },
           {
             "name": "AIT-265/AIT-267: curated option labels and generic unknown served routes, DE/EN",
-            "seconds": 1.945815425
+            "seconds": 2.558192306
           },
           {
             "name": "AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390",
-            "seconds": 38.694995762
+            "seconds": 52.308878421
           },
           {
             "name": "AIT-270: host-country wording and usable privacy-policy links, DE/EN",
-            "seconds": 1.02901171
+            "seconds": 1.8221383530000002
           }
         ]
       }

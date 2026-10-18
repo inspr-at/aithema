@@ -154,6 +154,6 @@ export function updateMeasurement(previous, observations, workload) {
     samples.set(key, sample);
   }
   const latest = [...samples.values()].sort((a, b) => compare(a.observedAt, b.observedAt) || Number(a.runId) - Number(b.runId) || a.attempt - b.attempt).slice(-timingWindow);
-  return { seconds: plannedSeconds(latest), evidence: `Sum of top-level test rolling p95 (nearest rank, latest ${timingWindow} successful CI executions per workload); ${latest.length < timingMinimumSamples ? '25% warmup margin until 5 samples; ' : ''}runs ${latest.map(sample => `${sample.runId}-${sample.attempt}`).join(', ')}. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.`,
+  return { seconds: plannedSeconds(latest), evidence: `Sum of top-level test rolling p95 (nearest rank, latest ${timingWindow} successful CI executions per workload); ${latest.length < timingMinimumSamples ? '25% warmup margin until 5 samples; ' : ''}runs ${latest.map(sample => `${sample.runId}-${sample.attempt}`).join(', ')}. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.`,
     timing: { schema: 1, window: timingWindow, workload, samples: latest } };
 }

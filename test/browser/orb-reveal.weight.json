@@ -1,40 +1,104 @@
 {
-  "seconds": 81.752,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 82.829,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "1b8dbbba3446d89c5e9535f560967cd7196a5807dd0ddfc83a3b9f7cbb818536",
+    "workload": "3a70e9ee06c992fdc229ac35f03039a55b278c2b80c3bb26276829097a66f417",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39112261287",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:50.422Z",
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:25.944Z",
         "tests": [
           {
             "name": "AIT-140 glass orb and reveal evidence: de, light/dark, 1440/1024/390",
-            "seconds": 24.718952215
+            "seconds": 24.720869942
           },
           {
             "name": "AIT-140 glass orb and reveal evidence: en, light/dark, 1440/1024/390",
-            "seconds": 24.61613535
+            "seconds": 24.732804548
           },
           {
             "name": "AIT-140: early leave holds the circle; live exit colour samples every 50ms",
-            "seconds": 13.580913812
+            "seconds": 13.59881283
           },
           {
             "name": "AIT-140: monotonic RGB checks reject excursions with equal endpoints",
-            "seconds": 0.001986762
+            "seconds": 0.002120402
           },
           {
             "name": "AIT-140: real keyboard navigation, reduced-motion preference, hidden tab and existing component",
-            "seconds": 1.75651986
+            "seconds": 1.817930591
           },
           {
             "name": "AIT-153: contrast waits for delayed entry and still rejects a settled contrast defect",
-            "seconds": 0.725859943
+            "seconds": 0.7210847260000001
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:57.005Z",
+        "tests": [
+          {
+            "name": "AIT-140 glass orb and reveal evidence: de, light/dark, 1440/1024/390",
+            "seconds": 24.338656367
+          },
+          {
+            "name": "AIT-140 glass orb and reveal evidence: en, light/dark, 1440/1024/390",
+            "seconds": 24.26773883
+          },
+          {
+            "name": "AIT-140: early leave holds the circle; live exit colour samples every 50ms",
+            "seconds": 13.530483963
+          },
+          {
+            "name": "AIT-140: monotonic RGB checks reject excursions with equal endpoints",
+            "seconds": 0.001510238
+          },
+          {
+            "name": "AIT-140: real keyboard navigation, reduced-motion preference, hidden tab and existing component",
+            "seconds": 1.7098688930000001
+          },
+          {
+            "name": "AIT-153: contrast waits for delayed entry and still rejects a settled contrast defect",
+            "seconds": 0.549308857
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:38.266Z",
+        "tests": [
+          {
+            "name": "AIT-140 glass orb and reveal evidence: de, light/dark, 1440/1024/390",
+            "seconds": 25.020183837
+          },
+          {
+            "name": "AIT-140 glass orb and reveal evidence: en, light/dark, 1440/1024/390",
+            "seconds": 25.031253608
+          },
+          {
+            "name": "AIT-140: early leave holds the circle; live exit colour samples every 50ms",
+            "seconds": 13.636789945
+          },
+          {
+            "name": "AIT-140: monotonic RGB checks reject excursions with equal endpoints",
+            "seconds": 0.0020743339999999997
+          },
+          {
+            "name": "AIT-140: real keyboard navigation, reduced-motion preference, hidden tab and existing component",
+            "seconds": 1.850804304
+          },
+          {
+            "name": "AIT-153: contrast waits for delayed entry and still rejects a settled contrast defect",
+            "seconds": 0.6580718849999999
           }
         ]
       }

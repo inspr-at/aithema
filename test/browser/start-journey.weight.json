@@ -1,67 +1,11 @@
 {
-  "seconds": 22.365,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1, 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 17.777,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39009665180-1, 39013248459-1, 39013642167-1, 39013889487-1, 39023622869-1, 39023698636-1, 39037005434-1, 39038781216-1, 39039445872-1, 39042299729-1, 39043853700-1, 39045777435-1, 39053533603-1, 39062644384-1, 39063200371-1, 39067382504-1, 39107139388-1, 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
     "workload": "4965be776e24400ebde2c38867f8c7a0c691532a36841285d64b05b37bb88428",
     "samples": [
-      {
-        "runId": "38911873685",
-        "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:41.549Z",
-        "tests": [
-          {
-            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
-            "seconds": 3.147315153
-          },
-          {
-            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
-            "seconds": 2.250305621
-          },
-          {
-            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
-            "seconds": 2.813089648
-          },
-          {
-            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
-            "seconds": 2.118749534
-          },
-          {
-            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
-            "seconds": 7.562436826
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:36.430Z",
-        "tests": [
-          {
-            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
-            "seconds": 2.647516196
-          },
-          {
-            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
-            "seconds": 1.916153596
-          },
-          {
-            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
-            "seconds": 2.469569768
-          },
-          {
-            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
-            "seconds": 2.089709602
-          },
-          {
-            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
-            "seconds": 7.4527821560000005
-          }
-        ]
-      },
       {
         "runId": "39009665180",
         "attempt": 1,
@@ -87,6 +31,538 @@
           {
             "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
             "seconds": 5.583164446
+          }
+        ]
+      },
+      {
+        "runId": "39013248459",
+        "attempt": 1,
+        "sha": "75acb3cc7b32a324cda01c3654937568f232f8f8",
+        "observedAt": "2026-10-17T07:20:30.481Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.430302545
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.899609128
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.443792384
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.057693623
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.3610202
+          }
+        ]
+      },
+      {
+        "runId": "39013642167",
+        "attempt": 1,
+        "sha": "9e123986be8135f3637e703dd95a780a36a376c9",
+        "observedAt": "2026-10-17T07:26:56.131Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.649541277
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.013123482
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.652902966
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.15775532
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.814602762000001
+          }
+        ]
+      },
+      {
+        "runId": "39013889487",
+        "attempt": 1,
+        "sha": "e9ab64d92474d1b984778ea05b6e19ef557f891a",
+        "observedAt": "2026-10-17T07:32:38.772Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 1.995649713
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.423558729
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 1.869854919
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 1.5944812609999999
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 5.855653438
+          }
+        ]
+      },
+      {
+        "runId": "39023622869",
+        "attempt": 1,
+        "sha": "22f8f7dd6767356d4711ff86e39b1987bed423ab",
+        "observedAt": "2026-10-17T10:06:35.833Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.571369393
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.9041974720000001
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.479490414
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.164816691
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.569289061
+          }
+        ]
+      },
+      {
+        "runId": "39023698636",
+        "attempt": 1,
+        "sha": "c285d36041d3378423b41646b66aea8c3846552b",
+        "observedAt": "2026-10-17T10:12:26.025Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.713367114
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.049059095
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.631159311
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.257679084
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.736266162
+          }
+        ]
+      },
+      {
+        "runId": "39037005434",
+        "attempt": 1,
+        "sha": "9dd785036bd427744cb7e2f63a496bd5b8acec96",
+        "observedAt": "2026-10-17T13:33:03.972Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.619280744
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.039267134
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.5756163489999997
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.164571977
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.588000699999999
+          }
+        ]
+      },
+      {
+        "runId": "39038781216",
+        "attempt": 1,
+        "sha": "394abbcbb6aba7a9006ba566b31cf5139e63f0ad",
+        "observedAt": "2026-10-17T13:59:02.965Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.615564058
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.062676904
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.5400614900000003
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.152125656
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.56736381
+          }
+        ]
+      },
+      {
+        "runId": "39039445872",
+        "attempt": 1,
+        "sha": "49bf93cc180d7700e28f99ff57eb4841ffbdf6d2",
+        "observedAt": "2026-10-17T14:08:24.795Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.754535575
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.29767243
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.517356006
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.88590684
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.835753668000001
+          }
+        ]
+      },
+      {
+        "runId": "39042299729",
+        "attempt": 1,
+        "sha": "3fca08988a4d46e2e88aaf94374acd8f252ec727",
+        "observedAt": "2026-10-17T14:48:35.398Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 1.765147105
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.3090122510000002
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 1.6706998149999999
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 1.485511846
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 5.574040996
+          }
+        ]
+      },
+      {
+        "runId": "39043853700",
+        "attempt": 1,
+        "sha": "fd60b642adc4ac75e786f24a49bf21ad320271d0",
+        "observedAt": "2026-10-17T15:10:29.330Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.534335329
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.982856281
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.5879841700000004
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.1526408839999998
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.52016148
+          }
+        ]
+      },
+      {
+        "runId": "39045777435",
+        "attempt": 1,
+        "sha": "19f77faa5fcbd4b290ffd57f970bdfd28ac244d8",
+        "observedAt": "2026-10-17T15:36:41.310Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.5842685889999997
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.961188127
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.5045493700000003
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.147771637
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.4964509040000005
+          }
+        ]
+      },
+      {
+        "runId": "39053533603",
+        "attempt": 1,
+        "sha": "4acfbf36bd041f3670888814cc6f9dbd53a464cc",
+        "observedAt": "2026-10-17T17:23:39.992Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.6771758599999997
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.011302896
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.58872745
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.208149355
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.692054536
+          }
+        ]
+      },
+      {
+        "runId": "39062644384",
+        "attempt": 1,
+        "sha": "0f428437d479a4ebd2a5c60e11a9ba7eae9d10b2",
+        "observedAt": "2026-10-17T19:29:15.106Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.715272027
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.1455688100000003
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.772730262
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.3882019580000002
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.987112519999999
+          }
+        ]
+      },
+      {
+        "runId": "39063200371",
+        "attempt": 1,
+        "sha": "45cd69959b485ddc6162bc529ae37709391fec5e",
+        "observedAt": "2026-10-17T19:36:56.754Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.695129653
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.09138359
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.652165902
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.2562442590000003
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.715524970000001
+          }
+        ]
+      },
+      {
+        "runId": "39067382504",
+        "attempt": 1,
+        "sha": "04f3376c65a04f93c2f7942e54e27bb62b74cfd7",
+        "observedAt": "2026-10-17T20:36:02.070Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.060133679
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.575056867
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.0572456999999997
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 1.7213739499999998
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 6.448072199
+          }
+        ]
+      },
+      {
+        "runId": "39107139388",
+        "attempt": 1,
+        "sha": "1530d90e8859651dfddf67bc6f3af892e1bc7de8",
+        "observedAt": "2026-10-18T07:18:23.699Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.592996512
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.997311746
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.504017521
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.1864012830000004
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.550249922
+          }
+        ]
+      },
+      {
+        "runId": "39112261287",
+        "attempt": 1,
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:27.857Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.550418128
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.9552913799999998
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.454920017
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.078307523
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.363900244000001
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:52.992Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 3.0934982300000002
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.0755035630000003
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.401372764
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 1.7384091330000002
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 6.479999509000001
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:40.037Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.69406361
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.078098103
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.5640943000000003
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.335052368
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.753615595
           }
         ]
       }

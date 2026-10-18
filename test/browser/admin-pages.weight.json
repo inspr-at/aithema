@@ -1,24 +1,56 @@
 {
-  "seconds": 41.843,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 41.585,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "2483c89c017a12566d7c9031b92f067774aa87a23684c7095ed419043f4e5d2b",
+    "workload": "46013df90032e7ea238cd22a9fb82788733ef6dbacc041966d9a89280af6d91b",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39112261287",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:49.554Z",
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:24.417Z",
         "tests": [
           {
             "name": "AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark with rotating widths (full evidence matrix)",
-            "seconds": 32.659162065000004
+            "seconds": 31.715234849
           },
           {
             "name": "AIT-169 independent edits survive a save in another section, then each section can save with the new revision",
-            "seconds": 0.8148247169999999
+            "seconds": 0.698464927
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:57.005Z",
+        "tests": [
+          {
+            "name": "AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark with rotating widths (full evidence matrix)",
+            "seconds": 30.143661363
+          },
+          {
+            "name": "AIT-169 independent edits survive a save in another section, then each section can save with the new revision",
+            "seconds": 0.679697021
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:34.458Z",
+        "tests": [
+          {
+            "name": "AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark with rotating widths (full evidence matrix)",
+            "seconds": 32.458816082
+          },
+          {
+            "name": "AIT-169 independent edits survive a save in another section, then each section can save with the new revision",
+            "seconds": 0.808916762
           }
         ]
       }

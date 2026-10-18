@@ -1,44 +1,24 @@
 {
-  "seconds": 35.487,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1, 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 48.053,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "a240363ec76db5bfb969e466882721801c632e2aeab26dd06448b4aad18db281",
+    "workload": "6f393b991a3fd90e1ad82629f0ced5f83cd2de5df7212744ab302d1743bdaa13",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39114014147",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:41.914Z",
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:42.795Z",
         "tests": [
           {
-            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 28.388441857
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:34.094Z",
-        "tests": [
+            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
+            "seconds": 10.080487354999999
+          },
           {
             "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 25.539057122
-          }
-        ]
-      },
-      {
-        "runId": "39009665180",
-        "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:50.422Z",
-        "tests": [
-          {
-            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 27.612610171
+            "seconds": 28.360916905
           }
         ]
       }
