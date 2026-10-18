@@ -21,6 +21,7 @@ const measure = page => shadow(page, c => {
     '.host-credits__track', '.footer-right', '.preset-panel', '.host-legal', '.engine__flag', '.status__dot'];
   return { rects: Object.fromEntries(selectors.map(s => [s, box(root.querySelector(s))])),
     legal: [...c.querySelectorAll('#demo-legal a')].map(box),
+    legalLabels: [...c.querySelectorAll('#demo-legal a')].map(link => link.textContent),
     value: amount.textContent, reserved: amount.dataset.creditMeasure,
     numeric: getComputedStyle(amount).fontVariantNumeric, align: getComputedStyle(amount.firstElementChild).textAlign,
     gap: getComputedStyle(root.querySelector('.display-foot__row')).columnGap,
@@ -71,7 +72,9 @@ export async function creditsFirstReceiptCheck(t) {
   for (const width of [320, 390, 1024, 1440]) for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const limitMicro of [100_000_000, 24_000_000, 980_000]) {
     await page.setViewport({ width, height: 844 });
     await shadow(page, async (c, { width, locale, theme, limitMicro }) => {
-      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { [locale]: baseCopy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { withDemoConsentCopy } = await import('/demo/consent-copy.js');
+      const copy = withDemoConsentCopy(baseCopy);
       const session = structuredClone(window.ait357Base); session.locale = locale;
       window.ait357 = { limitMicro };
       c.setAttribute('motion', 'off');
@@ -96,6 +99,7 @@ export async function creditsFirstReceiptCheck(t) {
     await settle(page);
     const before = await measure(page), label = `${width}/${locale}/${theme}/${limitMicro / 10_000}`;
     assert.equal(before.value, '…', `${label}: receipt held pending`);
+    if (width < 600) assert.deepEqual(before.legalLabels, ['AGPL-3.0', locale === 'de' ? 'Quellcode' : 'Source'], `${label}: real demo legal labels are present`);
     if (locale === 'de' && theme === 'light' && width < 400 && limitMicro === 24_000_000) await capture(width, 'before');
     const target = before.rects['.host-credits__button'];
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
@@ -108,6 +112,7 @@ export async function creditsFirstReceiptCheck(t) {
     checks.push({ width, locale, theme, limitMicro, before, after, maxMovementPx: Math.max(...Object.keys(before.rects).flatMap(s => Object.keys(before.rects[s]).map(k => Math.abs(after.rects[s][k] - before.rects[s][k])))) });
     // Exact rectangles, including width/height: no tolerance can hide a refit.
     assert.deepEqual(after.rects, before.rects, `${label}: first receipt moves credits or neighbours (0px required)`);
+    assert.deepEqual(after.legalLabels, before.legalLabels, `${label}: legal labels remain present`);
     assert.deepEqual(after.legal, before.legal, `${label}: first receipt moves legal neighbours`);
     assert.equal(after.fit, before.fit, `${label}: first receipt must not refit`);
     assert.equal(before.numeric, 'tabular-nums'); assert.equal(before.align, 'end');
