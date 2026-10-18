@@ -191,3 +191,16 @@ test('AIT-348: input meter derives RMS from captured PCM, expires, and stops wit
   at = 151; assert.equal(recording.audioLevel(), 0);
   recording.stop(); assert.equal(recording.audioLevel(), 0); assert.equal(trackStopped, true);
 });
+
+test('AIT-348: typed ingress reserves order before delayed authorization and concurrent speech', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(); let checks = 0;
+  const h = fixture(t, { authorize: async () => { if (++checks === 1) { entered.resolve(); await release.promise; } return true; } });
+  t.after(() => release.resolve());
+  const typed = h.coordinator.sendText('Zuerst getippt', receipt('typed-first'));
+  await entered.promise;
+  const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i);
+  const spoken = h.coordinator.receiveAudio(bytes);
+  await tick(); release.resolve(); await Promise.all([typed, spoken]);
+  await h.coordinator.receiveAudio(Buffer.alloc(16000)); await h.coordinator.idle();
+  assert.deepEqual(h.commits.map(x => x.payload.callbackBody.messages.filter(m => m.role === 'user').at(-1).content), ['Zuerst getippt', 'Gesprochen']);
+});
