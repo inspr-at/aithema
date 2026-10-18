@@ -101,12 +101,14 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 6);
 
-// AIT-349: mbp2606 committed-head run 01b1dfa8e0-87584, 3/3 PASS.
-// Physical media 1.901025334s + lifecycle 1.816452167s + interruption
-// matrix 1.559656084s = 5.277133585s; ceil(*1.25) = 7s. Keep this
-// diagnostic floor outside trusted rolling-main history; capacity is unchanged.
+// AIT-349: mbp2606 run 01b1dfa8e0-87584, 3/3 PASS, 5.277133585s.
+// PR #314 CI 39170857897 at 41ca2db7, successful shard 2/7: physical
+// 1.161735508s + lifecycle 3.074188813s + interruption 2.85613558s
+// = 7.092059901s; ceil(*1.25) = 9s, superseding the 7s remote floor.
+// Source: browser-timings-2-of-7/batch-0.jsonl. Keep this diagnostic
+// floor outside trusted rolling-main history; capacity is unchanged.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 7);
+  browserTestWeights['test/browser/composed-media.test.js'], 9);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
