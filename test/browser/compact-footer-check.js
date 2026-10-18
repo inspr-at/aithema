@@ -74,8 +74,8 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
           if ((clipX && (rect.left < bounds.left || rect.right > bounds.right)) ||
               (clipY && (rect.top < bounds.top || rect.bottom > bounds.bottom))) clipping.push(node.className || node.localName);
         }
-        const points = [[rect.left + .5, rect.top + .5], [rect.right - .5, rect.top + .5],
-          [rect.left + .5, rect.bottom - .5], [rect.right - .5, rect.bottom - .5]];
+        const points = [[rect.left + 1, rect.top + 1], [rect.right - 1, rect.top + 1],
+          [rect.left + 1, rect.bottom - 1], [rect.right - 1, rect.bottom - 1]];
         return { text: link.textContent, rect, visible: link.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
           hidden, clipping, insideRow: inside(rect, row), insideFooter: inside(rect, footer), insideViewport: inside(rect, viewport),
           hits: points.map(([x, y]) => {
