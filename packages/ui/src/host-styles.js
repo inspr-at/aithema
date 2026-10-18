@@ -199,6 +199,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
 .host-credits__stack { display:grid; justify-items:center; }
 .host-credits__stack > * { grid-area:1/1; }
+/* Total text arrives with the receipt; keep the value at the reserved start. */
+.host-credits__text { justify-self:start; }
 .host-credits__amount { display:inline-grid; min-width:6ch; font-variant-numeric:tabular-nums; }
 /* Match the hidden line reservation even when a receipt has fewer digits. */
 .host-credits__measure-amount { display:inline-block; min-width:6ch; }
