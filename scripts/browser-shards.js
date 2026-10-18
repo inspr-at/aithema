@@ -73,10 +73,13 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 // AIT-341 P1: mbp2606 committed-head run b7727c6d05-67262, 2026-10-18:
 // 6.228956916s isolation + 19.702862417s backdrop + 5.178417708s strict-host
 // = 31.110237041s top-level work (5 pass, 2 executing todos, zero skips).
-// ceil(observed * 1.25) = 39s. Keep this diagnostic floor outside trusted
-// rolling-main history until matching successful main samples can replace it.
+// PR #300 CI 39142459751, head ba53e5ee, shard 1/7: 7.923580988s isolation
+// + 19.621596825s backdrop + 5.233819894s strict-host = 32.778997707s.
+// ceil(CI observed * 1.25) = 41s, superseding the 39s remote floor. Keep
+// this diagnostic floor outside trusted rolling-main history until matching
+// successful main samples can replace it.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 39);
+  browserTestWeights['test/browser/html-preview.test.js'], 41);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
