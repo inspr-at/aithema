@@ -220,7 +220,9 @@ unresolved children available to recovery after logical-call closure.
 `sendText(text, options)` now uses the supported authenticated network relay.
 Text must be nonblank and at most 16,384 UTF-16 code units, matching ElevenLabs.
 The browser supplies a fresh `deliveryId` for each submission; an explicit retry
-may reuse that id within the same admitted segment. Repeated delivery returns
+may reuse that id within the same admitted segment. The shared composer forwards
+its persisted `clientEventId`, so a retry after a lost response keeps that same
+delivery identity. Repeated delivery returns
 the same server turn id. Reusing an id with different text is refused; identical
 text with distinct ids creates distinct turns. Provider session/epoch checks,
 current consent/ownership authorization and pause holds fence every delivery.
