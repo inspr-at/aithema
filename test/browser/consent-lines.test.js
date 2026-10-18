@@ -26,16 +26,16 @@ async function record(t, page, label, values) {
   await writeFile(join(dir, label + '.json'), JSON.stringify({ head: evidenceCommit, viewportOnly: true, label, ...values, pass: true }, null, 2));
   await appendFile(join(dir, 'pass-lines.txt'), line + '\n');
 }
-async function fixture(t, real = false, purpose = false) {
+async function fixture(t, real = false, purpose = false, revision = false) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-consent-lines-'));
   const demo = await startChild(new URL(real ? '../fixtures/consent-lines-server.js' : '../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
-    ...(purpose ? { AITHEMA_PURPOSE_FIXTURE: '1' } : {}), AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+    ...(purpose ? { AITHEMA_PURPOSE_FIXTURE: '1' } : {}), ...(revision ? { AITHEMA_CONSENT_REVISION_FIXTURE: '1' } : {}), AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   const browser = await browserForFile();
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await browser.close(); await demo.kill(); };
   t.after(close);
-  const page = await browser.newPage(); page.closeFixture = close;
+  const page = await browser.newPage(); page.closeFixture = close; page.fixtureBrowser = browser;
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -1052,4 +1052,33 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
       await writeFile(join(dir, 'audit.json'), JSON.stringify({ head: evidenceCommit, ...audit }, null, 2));
     }
   }
+});
+
+
+test('AIT-321: two pages on one session refuse a stale image grant', { timeout: 60_000 }, async t => {
+  const page = await fixture(t, true, false, true);
+  const other = await page.fixtureBrowser.newPage();
+  await other.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  const id = await shadow(page, c => c.session.id);
+  const decide = (target, granted, revision, items) => target.evaluate(async ({ id, granted, revision, items }) => {
+    const { postJson } = await import('/packages/ui/src/post-json.js');
+    const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
+    const response = await postJson(`/api/sessions/${id}/consent`, { granted, processing: { contract: doc.contract, revision, items } });
+    return { status: response.status, body: await response.json() };
+  }, { id, granted, revision, items });
+  assert.equal((await decide(page, true, 0, ['images'])).status, 200);
+  const tabA = await page.evaluate(id => fetch(`/api/sessions/${id}/consent`).then(r => r.json()), id);
+  assert.deepEqual(tabA.selected, ['images']);
+  assert.equal((await decide(other, false, 1, [])).status, 200);
+  const before = await other.evaluate(() => fetch('/fixture/consent-stats').then(r => r.json()));
+  const response = await page.evaluate(async ({ id, tabA }) => {
+    const { postJson } = await import('/packages/ui/src/post-json.js');
+    const response = await postJson(`/api/sessions/${id}/consent`, { granted: true, processing: { contract: tabA.contract, revision: 1, items: tabA.selected } });
+    return { status: response.status, body: await response.json() };
+  }, { id, tabA });
+  const current = await page.evaluate(id => fetch(`/api/sessions/${id}/consent`).then(r => r.json()), id);
+  assert.equal(response.status, 409, 'a stale tab must not restore the withdrawn image item');
+  assert.deepEqual(response.body, { error: 'consent-stale', consentRevision: 2 });
+  assert.deepEqual(current.selected, []);
+  assert.deepEqual(await other.evaluate(() => fetch('/fixture/consent-stats').then(r => r.json())), before, 'no grant reaches host ledger');
 });

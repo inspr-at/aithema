@@ -18,7 +18,16 @@ import { HTML_PREVIEW_HOST_CSP } from '../../packages/core/src/ui-html.js';
 
 globalThis.fetch = async () => assert.fail('Continuity fixture must never contact a provider');
 const root = fileURLToPath(new URL('../../', import.meta.url)), storage = new SQLiteStorage(process.env.AITHEMA_DB);
-const consent = createMockConsent(storage);
+const revisionFixture = Boolean(process.env.AITHEMA_CONSENT_REVISION_FIXTURE);
+const consentStats = { grants: 0, withdrawals: 0 };
+const selections = new Map();
+const consent = revisionFixture ? {
+  coverage: () => ({ covered: false }),
+  describe: id => ({ contract: `images-v${storage.get(id).consentRevision}`, selected: selections.get(id) ?? [],
+    items: [{ id: 'images', version: 1, title: 'Images', recipients: 'Local image processor', text: 'Generate images for this conversation.' }] }),
+  grant: ({ sessionId, decision }) => { consentStats.grants++; selections.set(sessionId, [...decision.items]); return true; },
+  withdraw: ({ sessionId }) => { consentStats.withdrawals++; selections.set(sessionId, []); },
+} : createMockConsent(storage);
 const admitted = { reaction: 0, understanding: 0 };
 const assessmentMessages = [];
 let release; const pending = new Promise(resolve => { release = resolve; });
@@ -28,6 +37,7 @@ const presets = demoPresets({ provider: 'mock', reaction: { plugin: 'mock', mode
   rates: { inputMicro: 0, outputMicro: 0 } }, voicePlugin, voiceBinding: localVoiceBinding, policy: { endpoints: [] } });
 const registry = new PluginRegistry().register(reasoning).register(voicePlugin);
 const pluginRuntime = createPluginRuntime({ storage, registry, presets, consent });
+if (revisionFixture) pluginRuntime.scopes = () => [{ purpose: 'images' }];
 const admit = pluginRuntime.admit.bind(pluginRuntime);
 pluginRuntime.admit = async args => {
   const result = await admit(args);
@@ -50,6 +60,7 @@ const handle = async request => {
     }
     const session = storage.get(id); return Response.json({ ...session, operations: { inputRevision: inputRevision(session), running: [], lastFailure: null }, visualsBound: pluginRuntime.visualsBound(), featureMatrix: await pluginRuntime.matrix(session) });
   }
+  if (path === '/fixture/consent-stats' && revisionFixture) return Response.json(consentStats);
   if (path === '/fixture/stats') return Response.json(admitted);
   if (path === '/fixture/release') { release(); return Response.json({ ok: true }); }
   if (path === '/fixture/turn') {
