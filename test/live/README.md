@@ -8,7 +8,7 @@ No dependencies were added. `npm run test:voice-soak -- ...` uses the existing
 Puppeteer Core installation. All execution, including offline audio generation,
 is restricted to mbp2606. There is no local fallback. CI runs only the fast model
 tests in `test/soak-harness.test.js`; the five-minute soak is deliberately outside
-both the unit glob and the four browser shards.
+both the unit glob and the seven browser shards.
 
 ## Fake run on mbp2606
 

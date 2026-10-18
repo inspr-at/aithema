@@ -1,24 +1,56 @@
 {
-  "seconds": 79.72,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 82.722,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "786342f7b796dfeaf99004d269bf4b521c87af409de0ba5be4a805ca0a4adad6",
+    "workload": "8ea71ca97c8baea1ba88c6ebe8edf3948984af82c4176bbb7cafb9fc250fc1fb",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39112261287",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:49.554Z",
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:24.417Z",
         "tests": [
           {
             "name": "AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement",
-            "seconds": 61.263963334
+            "seconds": 61.359971123
           },
           {
             "name": "AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript",
-            "seconds": 2.51113825
+            "seconds": 2.4587799070000003
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:52.992Z",
+        "tests": [
+          {
+            "name": "AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement",
+            "seconds": 58.853111688
+          },
+          {
+            "name": "AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript",
+            "seconds": 2.426628343
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:40.037Z",
+        "tests": [
+          {
+            "name": "AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement",
+            "seconds": 63.414923273
+          },
+          {
+            "name": "AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript",
+            "seconds": 2.761107321
           }
         ]
       }

@@ -1,20 +1,44 @@
 {
-  "seconds": 65.325,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 67.184,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "9702fd70853aca8ef546356bea6e4058e229458f672402b1cbfe7b0eaf07e521",
+    "workload": "2515770f2c24472a1c203db9af4b2fd0ed299ea786160b9f1c6f9403dc759940",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39112261287",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:50.422Z",
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:22.258Z",
         "tests": [
           {
             "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 52.259123262
+            "seconds": 47.839182158
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:56.283Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 49.73785903
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:42.795Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 53.746456408
           }
         ]
       }
