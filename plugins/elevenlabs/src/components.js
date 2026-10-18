@@ -207,7 +207,9 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
       await invocation.finish(completed);
     }
   };
-  return Object.freeze({ ...hooks('stt', STT_MODEL, config, reconcileReceipt), negotiateAudioFormat: negotiate(STT_FORMAT), stream,
+  return Object.freeze({ ...hooks('stt', STT_MODEL, config, reconcileReceipt),
+    capabilities: deepFreeze({ streaming: true, languages: componentManifest.models[0].languages, partialTranscripts: true }),
+    negotiateAudioFormat: negotiate(STT_FORMAT), stream,
     health: async () => ({ available: enabled && typeof connect === 'function', reason: 'offline-unqualified' }),
     async transcribe({ audio, format }, options) {
       let text; for await (const event of stream({ audio: (async function* () { yield audio; })(), format }, options)) if (event.final) text = event.text;
@@ -217,18 +219,21 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
 
 export function createElevenLabsTTS({ enabled = false, config: raw, consent, resolveSecret, connect, reconcileReceipt } = {}) {
   const config = configuration(raw);
-  return Object.freeze({ ...hooks('tts', TTS_MODEL, config, reconcileReceipt), negotiateAudioFormat: negotiate(TTS_FORMAT),
+  return Object.freeze({ ...hooks('tts', TTS_MODEL, config, reconcileReceipt),
+    capabilities: deepFreeze({ streaming: true, languages: componentManifest.models[1].languages, heardPrefix: 'unavailable' }),
+    negotiateAudioFormat: negotiate(TTS_FORMAT),
     health: async () => ({ available: enabled && typeof connect === 'function', reason: 'offline-unqualified' }),
     async *speak({ text, voice = config.voiceId, format }, options) {
       if (!enabled || typeof connect !== 'function') throw new PluginError('unavailable');
       const wireText = speechText(text), characters = [...wireText].length + 1, amount = cost(characters, config.ttsMicroPerCharacter);
       if (typeof voice !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(voice) || format !== TTS_FORMAT.encoding) throw new TypeError('Saved voice and PCM16 24 kHz required');
-      if (amount > options?.attempt?.maxMicro) throw new PluginError('not-admitted');
       const invocation = await identifiedInvocation(options, { role: 'tts', unit: 'characters', model: TTS_MODEL,
         matchingKey: { voiceId: voice, modelId: TTS_MODEL, characterCount: characters,
           textSha256: createHash('sha256').update(` ${wireText}`).digest('hex') } });
       const opts = { ...options, signal: invocation.signal }; let socket, stop, completed = false, total = 0;
       try {
+        // Settle an admitted claim even when the tariff refuses dispatch.
+        if (amount > options.attempt.maxMicro) throw new PluginError('not-admitted');
         await coverage(consent, TTS_MODEL, config, 'speak', opts);
         const auth = await headers(config, resolveSecret, opts);
         const url = new URL(`/v1/text-to-speech/${voice}/stream-input`, config.endpoint); url.protocol = 'wss:';
