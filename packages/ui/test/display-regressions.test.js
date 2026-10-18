@@ -445,3 +445,27 @@ test('AIT-353: a saturated mint registry respects Retry-After before a fresh exp
   assert.equal(attempts, 2, 'an explicit reopen after Retry-After requests a fresh capability');
   assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false);
 });
+
+test('AIT-358: Reload honours a saturated registry Retry-After and never requests generation', async t => {
+  let attempts = 0, now = Date.now(); t.mock.method(Date, 'now', () => now);
+  const { root, calls } = fixture(t, { htmlResponse: () => {
+    attempts++;
+    return attempts < 3 ? new Response('Unavailable', { status: 503, headers: { 'retry-after': '60' } }) :
+      Response.json({ url: previewURL + '?cap=' + 's'.repeat(43), expiresInMs: 60000 });
+  } });
+  root.querySelector('.concept-tab').click(); await tick();
+  if (document.querySelector('[data-aithema-html-policy-probe]')) {
+    const proof = new window.Event('securitypolicyviolation');
+    Object.assign(proof, { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP }); document.dispatchEvent(proof);
+  }
+  await tick(); const preview = root.querySelector('.concept-html'), button = preview.shadowRoot.querySelector('.reload');
+  assert.ok(button); assert.equal(preview.state, 'failure');
+  for (let i = 0; i < 3; i++) { button.click(); await tick(); }
+  assert.equal(attempts, 1); assert.equal(preview.state, 'failure');
+  now += 60_000; button.click(); await tick();
+  assert.equal(attempts, 2); assert.equal(preview.state, 'failure', 'a second 503 stays retryable without a loop');
+  button.click(); await tick(); assert.equal(attempts, 2);
+  now += 60_000; button.click(); await ready(preview);
+  assert.equal(attempts, 3); assert.equal(preview.shadowRoot.activeElement, preview.shadowRoot.querySelector('iframe'));
+  assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false);
+});
