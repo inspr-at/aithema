@@ -1301,3 +1301,20 @@ for (const copy of [de, en]) test(`AIT-310: ${copy.display.locale} credit owners
     assert.equal(status.getAttribute('aria-live'), rail.usedUp() ? 'off' : 'polite');
   }
 });
+
+for (const copy of [de, en]) for (const ledgerFirst of [false, true]) {
+  test(`AIT-347 b2: ${copy.display.locale} composed visitor charge says measured by Aithema (ledger first: ${ledgerFirst})`, async t => {
+    const { rail, root } = fixture(t); rail.copy = copy;
+    await rail.start(); await rail.close();
+    const ended = rail.endedCall;
+    if (ledgerFirst) rail.settleLedger(ended);
+    rail.settlement({ ...ended, terminal: { closureConfirmed: true,
+      usage: { costEstimated: false, visitorDurationSource: 'aithema-measured' } } });
+    const status = root.querySelector('.voice-state');
+    assert.equal(status.textContent, copy.voiceEndedAithemaMeasured);
+    assert.match(status.textContent, copy === de ? /von Aithema gemessen/ : /measured by Aithema/);
+    assert.equal(status.querySelector('.consent-narrow').dataset.copy, copy.voiceMessagesNarrow.voiceEndedAithemaMeasured);
+    assert.doesNotMatch(status.textContent, /provider.confirmed|anbieterbestätigt/i);
+    assert.equal(root.querySelectorAll('.voice-state').length, 1, 'reuse the existing charge status');
+  });
+}

@@ -1555,6 +1555,41 @@ ceiling, such as 3600 for a one-hour call. The coordinator caps the spend deadli
 by this ceiling. This export does not release a composed or Grok pipeline: both
 are **not yet qualified in live use**. Grok publication is deferred to package 8.
 
+### Voice charge measurement and confirmation (AIT-347)
+
+ElevenLabs owns the live call and reports its duration in the conversation
+receipt (`metadata.call_duration_secs`). Aithema records only server-acknowledged
+pause intervals and deducts those from visitor time. Its upstream charge remains
+`costEstimated: true` with `costSource: 'duration-estimate'` until that receipt
+contains a usable money total (USD or credits with the host conversion rate).
+A duration alone does not confirm provider money. See the
+[ElevenLabs accounting rules](../plugins/elevenlabs/README.md).
+
+For the composed path, Aithema's server coordinator owns and measures the call.
+At close, the visitor tariff is `ceil(activeSeconds / 60 * visitorMicroPerMinute)`:
+server close time minus coordinator start time, excluding only acknowledged
+pause intervals, including an acknowledged pause still open at close. Failed or
+pending pause commands exclude nothing; an unacknowledged resume does not end
+an acknowledged pause. Browser duration, timestamps, pause intervals and lifetime
+configuration have no measurement authority. The coordinator accepts only request
+identity and context, with timing configured by trusted server ports.
+
+The composed parent confirms **Aithema's visitor tariff** at close
+(`closureConfirmed: true`, `costEstimated: false`,
+`visitorDurationSource: 'aithema-measured'`); no upstream provider owns or
+confirms this duration. Parent upstream cost stays zero, with
+`costSource: 'separate-component-claims'`. STT/TTS children retain their own
+`estimated: true` provider-money receipts until independently reconciled;
+confirming the parent neither confirms nor releases child spend.
+Decision 3's “estimated until a receipt” applies to that upstream money.
+
+The shared visitor charge status lives in `packages/ui/src/audio-rail.js`, using
+`voiceClosureUncertain` / `voiceEnded` from the DE/EN bundles for the ElevenLabs
+path. Composed provenance selects `voiceEndedAithemaMeasured` in that same status:
+“Anruf beendet. Sprachgebühr von Aithema gemessen.” / “Call ended. Voice charge
+measured by Aithema.” Its compact label also says “Von Aithema gemessen” /
+“Measured by Aithema”; it never calls this charge provider-confirmed.
+
 ### Supported STT/TTS component API (AIT-316)
 
 ```js
