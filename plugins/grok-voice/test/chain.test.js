@@ -72,7 +72,7 @@ test('AIT-346: normal start receipt runs actual Grok fixtures through admitted r
   t.after(() => session.close());
   await h.audio(pcm()); await h.audio(Buffer.alloc(16000));
   for (let i = 0; i < 200 && !h.played.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
-  if (h.consumed.length !== 3) t.diagnostic(JSON.stringify({ reports: h.reports, transcript: h.storage.get(h.session.id).transcript, calls: h.storage.voiceCalls(h.session.id) }));
+  if (h.consumed.length !== 3) t.diagnostic(JSON.stringify({ reports: h.reports, transcript: h.storage.get(h.session.id).transcript, calls: h.storage.voiceCalls(h.session.id), operations: h.storage.voiceOperations(h.session.id) }));
   assert.deepEqual(h.consumed, ['stt', 'reasoning', 'tts']);
   assert.equal(h.played.length, 1); assert.equal(h.played[0].format, 'pcm_s16le'); assert.equal(h.played[0].sampleRateHz, 24000);
   assert.deepEqual(h.storage.get(h.session.id).transcript.filter(turn => !turn.erased).map(turn => [turn.role, turn.content]),
