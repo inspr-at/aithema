@@ -1147,12 +1147,16 @@ import { createOOXMLExtractor } from '@inspr/aithema-plugin-extract-ooxml';
 import { createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
 import { createZitadelOIDC } from '@inspr/aithema-plugin-zitadel-oidc';
 import { manifest as elevenLabsManifest } from '@inspr/aithema-plugin-elevenlabs/manifest';
+import { createGrokVoiceProvider } from '@inspr/aithema-plugin-grok-voice';
 ```
 
 OpenRouter/Mistral are server reasoning adapters; device is browser-only.
 ElevenLabs has separate server/client exports behind neutral live-voice ports;
 the adapter owns STT, TTS and turn-taking, with delegated reasoning. The shipped
 fake-voice sources are deterministic fixtures, not another qualified pipeline.
+Grok uses xAI speech components with Aithema's separately admitted reasoning;
+it remains **not yet qualified in live use**. See the
+[Grok host setup](#grok-voice-host-setup-and-release-imports-ait-351).
 OpenAI images, Claude HTML and Codex image generation preserve artifact
 provenance and their distinct lifetime/cost contracts. Text/PDF/OOXML extractors
 run bounded offline workers. SMTP and Zitadel implement host integration,

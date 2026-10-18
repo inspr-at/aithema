@@ -164,7 +164,7 @@ The component never exposes a playback cursor: `heardPrefix: unavailable`.
 
 | Export | Purpose |
 | --- | --- |
-| `@inspr/aithema-plugin-grok-voice` and `/server` | Component factories plus `createGrokComponents`, a guarded STT/TTS pair with offline `preflight` |
+| `@inspr/aithema-plugin-grok-voice` and `/server` | `createGrokVoiceProvider`, component factories and `createGrokComponents`, a guarded STT/TTS pair with offline `preflight` |
 | `/components` | `createGrokSTT`, `createGrokStreamingSTT`, `createGrokBatchSTT`, `createGrokTTS`, validator, PCM constants and manifest |
 | `/client` | `createGrokVoiceClient` and browser-safe manifest; host control/network/media ports, no credential path |
 | `/manifest` | Public STT/TTS metadata; empty, closed public config schema because private account configuration belongs in the host binding |
