@@ -32,3 +32,4 @@ export * from './ai-notice.js';
 export * from './voice-lifecycle.js';
 export * from './operator-session.js';
 export * from './safeguards.js';
+export * from './voice-components.js';

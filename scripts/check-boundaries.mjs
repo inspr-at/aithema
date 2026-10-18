@@ -29,10 +29,6 @@ export const proofEdges = [
   { from: 'demo/server.js', target: 'plugins/composed-voice/ops/qualification-server.mjs', reason: 'AIT-160: explicitly flagged source-only qualification host' },
   { from: 'plugins/composed-voice/src/server.js', target: 'packages/server/src/composed-voice.js' },
   { from: 'plugins/composed-voice/src/qualification.js', target: 'packages/server/src/composed-voice.js' },
-  { from: 'packages/server/src/composed-voice.js', target: 'packages/core/src/voice-components.js' },
-  { from: 'plugins/composed-voice/src/component.js', target: 'packages/core/src/voice-components.js' },
-  { from: 'plugins/elevenlabs/src/components.js', target: 'packages/core/src/voice-components.js' },
-  { from: 'plugins/voxtral/src/index.js', target: 'packages/core/src/voice-components.js' },
   { from: 'plugins/composed-voice/src/configuration.js', target: 'plugins/elevenlabs/src/components.js' },
   { from: 'plugins/composed-voice/src/configuration.js', target: 'plugins/voxtral/src/index.js' },
 ];

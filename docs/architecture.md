@@ -94,10 +94,6 @@ The browser-facing core root does not import these Node artifact constructors.
 | `demo/server.js` | `plugins/composed-voice/ops/qualification-server.mjs` | AIT-160: explicitly flagged source-only qualification host |
 | `plugins/composed-voice/src/server.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/qualification.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
-| `packages/server/src/composed-voice.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
-| `plugins/composed-voice/src/component.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
-| `plugins/elevenlabs/src/components.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
-| `plugins/voxtral/src/index.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/elevenlabs/src/components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
 | `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION host-module expressions | #173 / AIT-160: injected host entrypoints |
@@ -128,8 +124,10 @@ preserve the candidate layout. The public `local-voice-identity` subpath exposes
 recognition only; no package subpath exports enrollment or implementation access.
 The obsolete `packages/server/src/local-voice.js` shim is removed.
 
-The composed coordinator and generic core component helpers remain source-only
-proof code. Neither `/composed-voice` nor `/voice-components` is public or packed.
+The composed coordinator remains source-only proof code.
+`@inspr/aithema-server/composed-voice` remains private and unpacked. AIT-316
+publishes the core `/voice-components` contract and generic helpers; provider
+prototypes stay source-only.
 The exact proof edges above permit their unpublished consumers without admitting
 new consumers. Next-release migration notes are in `release/next-notes.md`.
 

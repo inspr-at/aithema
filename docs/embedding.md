@@ -1,11 +1,13 @@
 # Embedding Aithema
 
-The first reset candidate uses **INSPR-CalVer3**; `release/version.json` is the
+Aithema uses **INSPR-CalVer3**; `release/version.json` is the
 single version authority. The root workspace is private. The release packer
 emits independently installable core, server, UI and twelve provider/integration
 plugin tarballs, with exact dependency pins, plus a retained workspace archive.
-No reset package has been published. Node.js 24 or newer is required.
-See [candidate notes](../release/notes.md) and the [GitHub release route](../release/README.md).
+Aithema is published as immutable [GitHub releases](https://github.com/inspr-at/aithema/releases)
+with signed, attested tarballs. Hosts pin a release with `deployment-pin.json`
+and `release-set.json`. Node.js 24 or newer is required.
+See [release notes](../release/notes.md) and the [GitHub release route](../release/README.md).
 
 ## Consume Aithema as a module (START or another thin host)
 
@@ -14,7 +16,8 @@ is the living reference for a thin host consuming Aithema’s release tarballs.
 Follow that host’s current integration when wiring storage, consent and runtime
 lifecycle into a consuming application.
 
-On the build runner, retain the candidate directory and its manifest digest.
+For candidate validation on the build runner, retain the candidate directory
+and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
 From a separate host directory, install **all fifteen** module tarballs so npm
 can resolve their exact mutual dependencies without a registry publication:
@@ -29,9 +32,8 @@ bundler resolves the UI and its core dependency; an unbundled browser needs an
 import map for each exported package subpath. Workspace source browser URLs
 are converted to declared package subpaths by `release:pack`.
 
-After OPS publishes the immutable GitHub release following Markus's Desk go,
-install the same fifteen modules by release URL in one invocation, rather than
-from a package registry. The URL pattern is:
+For a published release, install the same fifteen modules by release URL in
+one invocation, rather than from a package registry. The URL pattern is:
 
 ```sh
 npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<tag>/<pkg>.tgz
@@ -1004,7 +1006,7 @@ retain their exact lock closure.
 The historical release-order mapping is in `release/history.json`: the 11
 legacy v0.x releases, ending `0.10.1`, followed by the first October release,
 `261015164601.0.0` at ordinal 12. The migration anchor keeps that first calendar
-coordinate fixed; AIT-278 reserves the next release at ordinal 13. Mixed-era
+coordinate fixed; subsequent releases extend the mapping by ordinal. Mixed-era
 ordering requires the explicit anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
 identifier; v1 dates and legacy stable SemVer remain tagged types. No old tag,
 release, artifact or signed attestation is renamed, rewritten or republished.
@@ -1028,8 +1030,8 @@ digests, package coordinates, version scheme/channel/sequence and the packing
 run. The commit checks page references real CI/merge-queue validation; packing
 is not a validation run. Canonical runtime metadata is also generated inside
 the server package, so it does not depend on the repository-level `release/`
-directory when distributed separately. Preserve the tarball, manifest and later signatures together. Runtime
-metadata and exported ZIP generator provenance use the artifact's source commit,
+directory when distributed separately. Preserve the tarball, manifest and signed
+attestations together. Runtime metadata and exported ZIP generator provenance use the artifact's source commit,
 not a caller-supplied replacement. AI notice, text producer identity,
 AI-generated/manipulated disclosure and image/HTML sidecars stay intact.
 
@@ -1040,22 +1042,28 @@ decrementing, reusing, or moving the release coordinate. A rollback fix is a new
 later release. Dry-runs cannot serve as production rollback evidence. Existing
 legacy rollback continues through the original immutable v0.x artifacts.
 
-## Qualification checklist — pending release inputs
+## Historical qualification checklist — first reset candidate
+
+This checklist records the first candidate's preparation state. Unchecked items
+describe that checkpoint, not the current publication status. For published
+releases and their limits, see the [releases page](https://github.com/inspr-at/aithema/releases)
+and [release notes](../release/notes.md).
 
 Merged implementation and deterministic tests prove code delivery. They do not
 prove measured provider performance, exchangeability, live deployment or adoption.
-The independent cross-family review remains pending and is not run by the builder.
+At that checkpoint, independent cross-family review remained pending and was
+not run by the builder.
 The value-free migration inventory is `release/inventory.json`, owned by AIT-32.
 
 - [ ] Controller review of the version inventory, consumers, legacy anchor and compatibility window.
 - [ ] Independent review of the exact shared presentation source/config/manifest pins in `release/presentation.json`; reproduce the closure with upstream `scripts/versioning-bundle.mjs <full-source-commit> <config-sha256> <new-directory>` on the build runner. The source repository is private: public PR CI verifies the pinned offline closure, and never obtains broader source access or new credentials. A build runner with that exact source checkout can use `node release/verify-upstream-presentation.mjs <source-checkout>` to regenerate and compare all bytes. That independent source re-export/pin review remains pending, and the payload is not adoption evidence.
 - [x] Reserve the first candidate coordinate; build all package tarballs twice and verify identical digests (`release/candidate.mjs`).
 - [x] External consumer imports every documented symbol and runtime export, mounts handlers and web components, locks dependencies, updates the dependency pin and rolls back retained candidate bytes (`release/consumer.mjs`). This is scratch-host evidence, not a START production deployment.
-- [x] Wire tag-only GitHub artifact attestation (`.github/workflows/release.yml`); signed bundles are produced only by a future authorized tag build.
+- [x] Wire tag-only GitHub artifact attestation (`.github/workflows/release.yml`); at that checkpoint, signed bundles awaited an authorized tag build.
 - [x] AIT-139: **60-minute soak not measured** (Markus: “Kein Test”); explicitly stated in the release notes, not a release blocker.
 - [x] AIT-160: **second voice pipeline not yet proven** (parked); explicitly stated in the release notes, not a release blocker.
 - [ ] Independent presentation pin review stays with the cross-family gate.
-- [ ] Markus's separate Desk publish go; no tag, GitHub release or registry publication is performed here.
+- [ ] Markus's separate Desk publish go; candidate preparation itself performed no tag, GitHub release or registry publication.
 
 Public code remains **AGPL-3.0-only** throughout core/server/UI/contract/plugins.
 D3 revised (2026-10-09) retains INSPR's rights and allows the planned special
@@ -1178,19 +1186,110 @@ Round 5 integration keeps consent coverage on the existing core root export:
 `plugins/elevenlabs/src/components.js` and
 `plugins/composed-voice/src/configuration.js` import `consentCoverage` directly from
 `@inspr/aithema-core`, whose index already re-exports it; no `./consent` subpath or new public symbol is added.
-The composed-voice adapter remains an internal proof without a package manifest.
-The AIT-200 external-plugin fixture uses public core/server imports and its own
-relative adapter import; it is served by a separate test host, outside the demo
-module graph. The new ElevenLabs components are internal package implementation
-files, and the demo does not import them directly. Neither needs a demo guard
-exception or a new public export.
-The unexported ElevenLabs `components.js`, server composed coordinator and core
-component helpers remain in the workspace/source archive alongside the Voxtral
-proof. They are omitted from module tarballs. Exact source-to-target proof edges
-in the boundary checker retain their internal imports while avoiding a public
-composed-component API. Neither `/composed-voice` nor `/voice-components` is
-exported. The packer rejects admitted runtime modules that import unpublished
-code. See [release notes](../release/notes.md) for the identity API change.
+The composed-voice adapter, server composed coordinator, Voxtral adapters and
+ElevenLabs `components.js` remain source-only prototypes, omitted from module
+tarballs. The installed ElevenLabs live-voice provider is unchanged. The generic
+component contract and helpers below are supported and included in core tarballs.
+`@inspr/aithema-server/composed-voice` remains unexported; a third-party pipeline
+implements the public live-voice/session ports using its own coordinator.
+
+### Supported STT/TTS component API (AIT-316)
+
+```js
+import {
+  assertSTTComponent, assertTTSComponent, voiceCompositionCapabilities,
+  componentInvocation, assertComponentUsage, boundedEvents, audioQueue,
+  TTS_SPEAK_BYTES, TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS,
+} from '@inspr/aithema-core/voice-components';
+```
+
+These runtime symbols are also available from `@inspr/aithema-core`. Types live
+beside `plugin-contract.d.ts` in `voice-components.d.ts` and resolve through the
+`@inspr/aithema-core/voice-components` subpath. `STTComponent`, `TTSComponent`,
+`ComponentOperationOptions`, `ComponentTerminal` and `ComponentUsage` remain
+available from the types-only `@inspr/aithema-core/plugin-contract` subpath too.
+No additional server export is needed.
+
+| Port | Signature and semantics |
+| --- | --- |
+| Both | `negotiateAudioFormat(offered, { signal, deadlineAt }): Promise<AudioFormat>` selects an offered encoding, sample rate and channel count, or rejects with `unavailable`. Negotiation performs no billable provider work. Request `format` is that selected encoding; the bound component retains the full selected format. |
+| STT | `transcribe({ audio: Uint8Array, format, language }, options): Promise<{ text }>` transcribes one utterance. |
+| STT streaming | `stream({ audio: AsyncIterable<Uint8Array>, format, language? }, options): AsyncIterable<{ text, final }>` emits replacement hypotheses, then exactly one final. No event follows final; transport exhaustion alone is never finality. |
+| TTS | `speak({ text, voice, format, language? }, options): AsyncIterable<Uint8Array>` yields audio in the negotiated format. Even a nonstreaming provider uses this iterator, yielding its completed payload. Exhaustion includes terminal settlement. |
+| Aligned TTS | Optional `speakAligned(request, options): AsyncIterable<{ audio, textEnd }>` replaces `speak` for that invocation. `textEnd` is a nondecreasing UTF-16 offset into the exact request text, never inside a surrogate pair. After the entire chunk is confirmed played, `text.slice(0, textEnd)` is a conservative heard prefix. A chunk may advance no text. |
+
+STT declares `capabilities: { streaming, partialTranscripts, languages }`;
+`streaming: true` requires `stream`, and partial transcripts require streaming.
+TTS declares `{ streaming, languages, heardPrefix: 'unavailable' | 'aligned' }`;
+`aligned` requires `speakAligned`. Languages are explicit case-insensitive tags
+such as `de` and `de-AT`, with no wildcards, duplicates or automatic regional
+fallback. Empty languages promise no language support. Validators check port
+shape and declaration consistency; they do not establish provider qualification.
+`voiceCompositionCapabilities(stt, tts)` returns their language intersection,
+separate STT/TTS streaming flags, partial transcript support and the TTS
+heard-prefix ceiling. It makes no claim about transport or playback behaviour.
+
+A composed pipeline binds these ports through `VoicePorts.components`, delegates
+reasoning through `VoiceReplyExecutor`, and implements the existing `LiveVoice`
+and `VoiceSession` contract. It publishes all live-voice command capabilities in
+its `LiveVoiceDeclaration`: unsupported commands reject with `unavailable`.
+It must declare `heard: 'unavailable'` when alignment or trusted playback receipts
+are missing, and must never turn generated or merely delivered audio into a
+`heard` event. The prototype's `sendText` and `heard` remain unavailable. Losses
+such as no partial transcripts, buffered TTS or fewer languages must be reflected
+in the pipeline's model/host declarations; component support is an upper bound.
+Only trusted server transcript finality may authorize delegated reasoning;
+browser transcript receipts carry no admission authority.
+
+Every transcription, synthesis fragment and retry receives a fresh
+`ComponentOperationOptions` with `{ signal, deadlineAt, attempt, report }`.
+`attempt` contains nonempty `attemptId` and `claimId`, a nonnegative safe-integer
+`maxMicro`, and `consume()`. Claims and whole USD micro-dollar charges are
+separate from the aggregate duration claim and from reasoning token accounting.
+A host admits each request against its own budget and current consent, then
+`componentInvocation(options, { role, unit, model })` awaits `consume()` before
+returning permission to `dispatch()` exactly once immediately before outbound
+provider work. The host's consume callback checks fresh ownership/consent;
+this helper does not grant consent or reserve money itself. Retries cannot reuse
+an attempt. A composed call must not charge the same component spend again as
+an aggregate duration cost.
+
+Call `usage(quantity, upstreamMicro, source, estimated = true)` only after
+dispatch, with finite nonnegative quantity and safe-integer nonnegative cost.
+`assertComponentUsage` also validates attempt identity, role (`stt`, `reasoning`,
+`tts`), unit (`seconds`, `tokens`, `characters`, `bytes`, `credits`), source and
+estimate flag. `finish(true)` reports completed usage at that cost; all other
+after-dispatch outcomes, including missing completion evidence, cancellation,
+timeout and invalid usage, report `uncertain` with `chargedMicro` at least
+`attempt.maxMicro` (and at least any observed valid higher cost). Over-ceiling
+usage throws `limit` and retains uncertainty. Never replace unknown cost with
+zero. Before dispatch, finish/abort/failed consume reports cancelled zero usage.
+Only `rejectWithoutUsage(status)` for a transport-observed 4xx rejection with no
+usage, excluding 408 and 499, releases a dispatched reservation. A provider error
+payload alone is insufficient evidence. A host must retain the admitted maximum
+for missing/uncertain terminals until trusted reconciliation; report errors do
+not authorize re-dispatch or another terminal.
+
+`finish(completed)` is idempotent and returns the same promise; first settlement
+wins, including abort/deadline and synchronous report callbacks. Signals and
+absolute deadlines bound consume and iterator reads even when injected ports
+ignore cancellation. Providers must close their transports in `finally` and
+finish accounting when consumers return early. `boundedEvents(source, options)`
+bounds each read and attempts iterator cleanup under a separate one-second
+lease; it cannot force an uncooperative upstream to close.
+`audioQueue(limit = 960_000)` is a single-consumer byte-bounded producer queue:
+`push(entry)` transfers ownership of bytes or a host-owned playback envelope
+with a positive safe-integer `byteLength`; the caller declares the full retained
+audio size. The generic `AudioQueue<T>` preserves envelope metadata.
+`end()` drains pending bytes,
+`clear()`/iterator return discard them, and overflow throws `limit`. It does not
+resample, frame audio or pace playback. `TTS_MESSAGE_BYTES` (1 MiB decoded),
+`TTS_WIRE_CHARACTERS` (base64 plus metadata) and `TTS_SPEAK_BYTES` (16,000,000)
+are independent ceilings that adapters enforce. Hosts enforce smaller transport
+and playback bounds where needed.
+
+AIT-319 adds reusable conformance kits separately. This API's fake-only unit
+coverage is not provider qualification or evidence of a second released pipeline.
 
 
 ### Core subpath decisions (AIT-202)

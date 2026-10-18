@@ -507,5 +507,6 @@ before deciding whether the latter floors can go. Also confirm the eight
 mature-file floor removals in the first post-merge main packing, particularly
 start2-display, consent-lines and host-surface. PR timings are diagnostic only.
 If the 400s guard trips before landing, escalate to the separate eighth-shard
-capacity decision; do not raise the target. This PR must remain unmerged until
-the coordinator confirms the AIT-315 release has been published.
+capacity decision; do not raise the target. Historical merge constraint for
+AIT-314: the PR required coordinator confirmation that the AIT-315 release had
+been published before merging.
