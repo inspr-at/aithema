@@ -14,7 +14,7 @@ export async function testGrokConsumer() {
       approvalRef: 'private:approval', contractRef: 'private:contract' } };
   const binding = (model = 'grok-voice') => ({ plugin: 'grok-voice', model, endpoint: 'https://api.x.ai', effort: 'none',
     secretRef: config.secretRef, accountRef: config.accountRef, maxMicro: 0, maxTokens: 1,
-    rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60,
+    rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 900,
     upstreamMicroPerMinute: 0, visitorMicroPerMinute: 600, adapterConfig: {},
     legal: { approved: true, purpose: 'voice-xai', consentVersion: 1, recipient: 'SpaceXAI LLC', processors: [],
       countries: ['US'], training: false, retention: 'private account ZDR',
