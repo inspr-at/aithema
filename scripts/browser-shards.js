@@ -122,6 +122,17 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
   browserTestWeights['test/browser/email-mail-space.test.js'], 83);
 
+// AIT-309: PR #278 CI 39109940156, head 7b4a488a4c, shards 2/6 and 3/6.
+// Geometry: five passing tests total 153.615841488s; the 64-state legal-fit
+// matrix accounts for 33.080272039s. ceil(total * 1.25) = 193s.
+// Footer sweep: two passing tests total 36.694525912s; ceil(total * 1.25) = 46s.
+// PR measurements remain diagnostic; trusted rolling-main history and the
+// six-bin/420s capacity policy stay intact.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 193);
+browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
+  browserTestWeights['test/browser/footer-width-sweep.test.js'], 46);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
@@ -182,6 +193,34 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
     shards[from].push(...b);
     shards[to].push(...a);
     totals.splice(0, totals.length, ...candidate);
+  }
+  // A local optimum can still miss the planning target. Try a bounded,
+  // deterministic whole-file placement before asking for capacity changes.
+  // If it cannot find a fit, retain the plan so the guard reports its files.
+  if (Math.max(...totals) > browserShardHeadroomTarget &&
+      totals.reduce((sum, total) => sum + total, 0) <= shardCount * browserShardHeadroomTarget) {
+    const fitted = Array.from({ length: shardCount }, () => []);
+    const loads = Array(shardCount).fill(0);
+    const milliseconds = file => Math.ceil(weightOf(file) * 1000 - 1e-9);
+    let remainingNodes = 100_000;
+    function place(index) {
+      if (--remainingNodes < 0) return false;
+      if (index === sortedFiles.length) return true;
+      const file = sortedFiles[index], seenLoads = new Set();
+      const bins = loads.map((_, bin) => bin).sort((a, b) => loads[a] - loads[b] || a - b);
+      for (const bin of bins) {
+        if (seenLoads.has(loads[bin]) || loads[bin] + milliseconds(file) > browserShardHeadroomTarget * 1000) continue;
+        seenLoads.add(loads[bin]);
+        loads[bin] += milliseconds(file);
+        fitted[bin].push(file);
+        if (place(index + 1)) return true;
+        fitted[bin].pop();
+        loads[bin] -= milliseconds(file);
+        if (remainingNodes < 0) return false;
+      }
+      return false;
+    }
+    if (place(0)) return { shards: fitted, totals: loads.map(load => load / 1000) };
   }
   return { shards, totals };
 }

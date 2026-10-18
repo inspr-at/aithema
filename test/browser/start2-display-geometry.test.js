@@ -16,3 +16,7 @@ test('AIT-276: classic scrollbars and wider actions reserve the mounted rail on 
 import { compactFooterCheck } from './compact-footer-check.js';
 test('AIT-299: hidden footer labels restore full fit without moving controls under the pointer',
   { timeout: 90_000 }, compactFooterCheck);
+
+import { legalFooterFitCheck } from './compact-footer-check.js';
+test('AIT-309: legal hosts without credits respect every compact fit at 900/1024/1180/1440, DE/EN, light/dark',
+  { timeout: 90_000 }, legalFooterFitCheck);

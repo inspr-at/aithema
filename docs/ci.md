@@ -52,11 +52,16 @@ runs, hashes, per-test samples and rolling p95. Lower generated values are
 supported by those main observations (including retirement of the warmup
 margin where applicable); every provisional floor in the packer is retained.
 
-With refreshed weights, the old six-bin greedy plan would be
-`429.282 / 435.232 / 433.079 / 439.709 / 428.849 / 431.821` s, exceeding the 420 s ceiling.
+Main advanced to `c5d6aa28` (AIT-309) during PR creation. Its new geometry
+and footer floors are retained in the signed merge. With those floors and the
+base weights, the six-bin plan matches LEAD's decision:
+`411.191 / 412.845 / 412.618 / 413.178 / 415.380 / 411.078` s.
+
+With refreshed weights and both incoming floors, the old six-bin greedy plan would be
+`438.036 / 442.292 / 443.210 / 439.969 / 436.426 / 437.999` s, exceeding the 420 s ceiling.
 Seven bins plus deterministic whole-file refinement produce
-`370.214 / 371.921 / 371.632 / 370.561 / 372.474 / 370.489 / 370.681` s.
-The maximum is **372.474 s**, leaving **47.526 s** below the hard ceiling.
+`377.070 / 377.456 / 376.192 / 375.703 / 377.409 / 377.769 / 376.333` s.
+The maximum is **377.769 s**, leaving **42.231 s** below the hard ceiling.
 
 The base main CI run `39114014147` measured summed top-level file work of
 `351.270 / 348.941 / 303.716 / 335.940 / 342.441 / 367.104` s in its six
@@ -97,7 +102,10 @@ with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
 deterministic LPT across **seven** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
-makespan bound. Equal candidates keep stable iteration order. `npm run test:browser-shards` checks
+makespan bound. Equal candidates keep stable iteration order. If local
+refinement still exceeds 380 s, a deterministic whole-file placement search
+tries at most 100,000 nodes to meet that target. On failure it retains the
+original plan for the guard's diagnostics. `npm run test:browser-shards` checks
 complete, exactly-once coverage, a separate **380 s headroom target**, and the
 unchanged **420 s per-bin ceiling**; this leaves
 headroom for installation, Chrome startup, process cleanup and artifact upload
