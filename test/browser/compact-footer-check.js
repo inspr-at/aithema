@@ -30,6 +30,15 @@ async function footerFixture(t) {
   await page.goto(`${demo.url}/ait299`, { waitUntil: 'domcontentloaded' });
   await page.evaluate(async () => {
     const now = Date.now(); Date.now = () => now;
+    // A frozen clock still lets paint() overwrite injected host timer copy.
+    // Use the exported timer's teardown seam after its initial connected paint,
+    // for every mount/reconnect in both the AIT-299/301 and legal-fit paths.
+    const { ConnectionTimer } = await import('/packages/ui/src/layout.js');
+    const setConnected = ConnectionTimer.prototype.setConnected;
+    ConnectionTimer.prototype.setConnected = function (on) {
+      setConnected.call(this, on);
+      this.destroy();
+    };
     window.footerSession = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locale: 'en' }) }).then(r => r.json());
     await import('/packages/ui/src/session-element.js');
     window.footerBoxes = () => {
@@ -211,14 +220,15 @@ export async function compactFooterCheck(t) {
 // AIT-309: exercise the real fit loop with host copy, never a forced data-fit.
 // Reuse AIT-299's no-provider page and AIT-164's painted/text-range geometry.
 export async function legalFooterFitCheck(t) {
-  const { page, errors, evidence } = await footerFixture(t), checks = [];
+  const { page, errors, evidence } = await footerFixture(t), checks = [], qaShots = [];
+  const fullFonts = new Map();
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   const head = event?.pull_request?.head.sha ?? evidenceCommit;
   const fonts = 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; Georgia,"Iowan Old Style","Palatino Linotype",serif';
   // Retain completed full-fit baselines even in the expected red-before run.
   t.after(async () => {
     if (evidence) await writeFile(join(evidence, 'ait309-footer-checks.json'), JSON.stringify({
-      head, capture: 'viewport', reducedMotion: true, blurredControls: true, fonts, checks,
+      head, capture: 'viewport', reducedMotion: true, blurredControls: true, fonts, checks, qaShots,
       passLines: checks.map(check => check.line),
     }, null, 2) + '\n');
   });
@@ -289,10 +299,11 @@ export async function legalFooterFitCheck(t) {
         const shown = selector => { const node = root.querySelector(selector); return Boolean(node?.checkVisibility({ visibilityProperty: true, opacityProperty: true })); };
         const zones = [...root.querySelector('.display-foot__row').children].filter(n => !n.hidden && n.getClientRects().length).map(box);
         const status = getComputedStyle(root.querySelector('.status'));
+        const aiFont = getComputedStyle(root.querySelector('.ai-notice')).fontSize;
         return { fit: footer.dataset.fit, creditsHidden: root.querySelector('.host-credits').hidden, row, zones, links,
           label: shown('.ai-notice__label'), voice: shown('.ai-notice__voice'), timer: shown('.status .connection-timer'),
           role: shown('.actor-role'), flag: shown('.engine__flag'), dot: shown('.status__dot'),
-          statusColumns: status.gridTemplateColumns.split(' ').length, statusFont: status.fontSize,
+          statusColumns: status.gridTemplateColumns.split(' ').length, statusFont: status.fontSize, aiFont,
           boxes: window.footerBoxes(), legalBoxes: links.map(link => link.rect),
           zonesClear: zones.every((b, i) => inside(b, row) && (!i || zones[i - 1].right <= b.left)) };
       });
@@ -305,6 +316,46 @@ export async function legalFooterFitCheck(t) {
       assert.equal(state.timer, ['full', 'identity'].includes(fit), `${name}: timer yields in timer/role`);
       assert.equal(state.statusColumns, ['full', 'identity'].includes(fit) ? 3 : 2, `${name}: status grid follows the fit`);
       assert.equal(state.statusFont, '12.5px', `${name}: approved legal-host type size`);
+      assert.equal(state.aiFont, '12.5px', `${name}: AI notice keeps approved legal-host type size in every fit`);
+      const fontKey = `${width}-${theme}-${locale}`, typeSizes = [state.aiFont, state.statusFont];
+      if (fit === 'full') fullFonts.set(fontKey, typeSizes);
+      assert.deepEqual(typeSizes, fullFonts.get(fontKey), `${name}: AI/status font sizes equal full fit`);
+      console.log(`${name}: PASS AI/status font sizes 12.5px, identical to full fit`);
+      if (fit === 'full' && [900, 1024, 1440].includes(width)) {
+        const baseline = await shadow(page, c => {
+          const root = c.shadowRoot;
+          const snapshot = () => {
+            const selectors = ['.ai-notice', '.ai-notice__label', '.ai-notice__voice', '.status',
+              '.status__group', '.status__sizer', '.status__label', '.status__placeholder', '.connection-timer'];
+            const styles = Object.fromEntries(selectors.map(selector => {
+              const style = getComputedStyle(root.querySelector(selector));
+              return [selector, Object.fromEntries(['font-size', 'display', 'grid-template-columns', 'grid-column', 'gap']
+                .map(property => [property, style.getPropertyValue(property)]))];
+            }));
+            const zones = ['.display-foot__row', '.footer-left', '.footer-right', '.host-legal', '.engine-info', '.status__dot']
+              .map(selector => { const b = root.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; });
+            return { styles, zones };
+          };
+          const actual = snapshot(), reference = document.createElement('style');
+          // Exact legal-host declarations from base 1530d90e, before fit scoping.
+          // Compare synchronously: the observer never gets a temporary fit state.
+          // Extra specificity makes the reference independent of current fit scoping.
+          const host = '.display-foot.display-foot.display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden])';
+          reference.textContent = `
+            ${host} :is(.ai-notice,.status) { font-size:12.5px; }
+            ${host} .ai-notice__label { display:inline; }
+            ${host} .status { grid-template-columns:6px auto minmax(8ch,max-content); gap:6px; }
+            ${host} .status__group { grid-column:1/3; }
+            ${host} .status__sizer, ${host} :is(.status__label,.status__placeholder) { display:grid; }
+            ${host} .connection-timer { grid-column:3; }`;
+          root.append(reference);
+          try { return { actual, base: snapshot() }; } finally { reference.remove(); }
+        });
+        assert.deepEqual(baseline.actual.styles, baseline.base.styles, `${name}: full-fit computed font/display/grid styles match base 1530d90e`);
+        assert.deepEqual(baseline.actual.zones, baseline.base.zones, `${name}: full-fit zone boxes match base 1530d90e exactly`);
+        state.fullFitBaseline = baseline;
+        console.log(`${name}: PASS full-fit computed styles and zone boxes match base 1530d90e`);
+      }
       assert.equal(state.role, false, `${name}: optional long role yields`);
       assert.equal(state.flag, true, `${name}: flag stays visible`);
       assert.equal(state.dot, true, `${name}: dot stays visible`);
@@ -338,6 +389,23 @@ export async function legalFooterFitCheck(t) {
       const line = `${name}: PASS zones clear; legal visible/unclipped/unobscured >=44px; flag/dot visible; held movement 0px`;
       checks.push({ head, width, theme, locale, fit, ...state, measurement, pass: true, line });
       console.log(line);
+      if (evidence && fit === 'full' && width === 1024 && theme === 'light' && locale === 'de') {
+        // Tick's long-copy QA pair, using the real fit loop in both viewports.
+        await shadow(page, c => { c.shadowRoot.querySelector('.ai-notice__label').textContent += ' – ausführliche Hinweise zur KI'; });
+        for (const qaFit of ['full', 'timer']) {
+          if (qaFit === 'timer') await shadow(page, c => {
+            c.shadowRoot.querySelector('.connection-timer').textContent = 'Lange Verbindungsdauer '.repeat(20);
+          });
+          await settleEvidenceFrame(page);
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.display-foot').dataset.fit), qaFit,
+            `Tick 1024 light DE long copy: real ${qaFit} fit`);
+          assertFits(await shadow(page, measureFooterGeometry, { visibleZonesOnly: true }), `Tick long-copy ${qaFit}`);
+          const shot = `ait309-tick-1024-light-de-long-copy-${qaFit}.png`;
+          await page.screenshot({ path: join(evidence, shot), fullPage: false, captureBeyondViewport: false });
+          qaShots.push({ head, fit: qaFit, shot, longCopy: true });
+          console.log(`Tick 1024 light DE long copy: PASS ${qaFit} viewport ${shot}`);
+        }
+      }
     }
   }
   assert.deepEqual(errors, []);
