@@ -264,6 +264,10 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 
 /* AIT-321: reserve the tallest consent status in the existing footer cell at
    every width, including before the refusal. Measurements never announce. */
+.general-consent-state { display:grid; }
+.general-consent-state>p { grid-area:1/1; }
+.general-consent-measure { display:none; visibility:hidden; pointer-events:none; user-select:none; }
+.settings[data-consent-editor=true] .general-consent-measure { display:block; }
 .consent-state-measure { display:none; }
 .settings[data-consent-editor=true] .save-state { width:26rem; max-width:100%; }
 .settings[data-consent-editor=true] .save-status,

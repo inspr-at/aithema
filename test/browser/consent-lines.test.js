@@ -1102,10 +1102,6 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     en: 'Not saved: your consent was changed in another window. The current state is loaded.',
   };
   const geometry = ['.done', '.consent-items', '.consent-item input', '.save-state'];
-  const metrics = () => shadow(page, c => Object.fromEntries(['.settings__body', '.general', '.consent-editor', '.consent-intro', '.consent-withdrawal', '.consent-status', '.general-consent'].map(selector => {
-    const n = c.shadowRoot.querySelector(selector), b = n.getBoundingClientRect(), css = getComputedStyle(n);
-    return [selector, { y: b.y, height: b.height, scrollTop: n.scrollTop, scrollHeight: n.scrollHeight, lineHeight: css.lineHeight, font: css.font, text: n.textContent }];
-  })));
   for (const locale of ['de', 'en']) for (const width of [320, 390, 1440]) {
     await otherDecision(true);
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', 'light');
@@ -1123,9 +1119,7 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     await shadow(page, c => { const pane = c.shadowRoot.querySelector('.settings__body'); pane.scrollTop = pane.scrollHeight; });
     await frame(page);
     const before = await boxes(page, geometry), label = await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent);
-    const beforeMetrics = await metrics();
     await otherDecision(false);
-    const otherMetrics = await metrics();
     const count = posts.length;
     page.heldConsentReload = null; page.holdConsentReload = true;
     await page.locator('aithema-session >>> .done').click();
@@ -1139,7 +1133,6 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
         visible: items.checkVisibility(), selected: items.querySelector('input').checked, focus: r.activeElement === button };
     });
     assert.deepEqual(busy, { disabled: 'true', label, busy: 'true', form: 'form', inert: true, fieldsetDisabled: true, visible: true, selected: true, focus: true });
-    t.diagnostic(JSON.stringify({ beforeMetrics, otherMetrics, busyMetrics: await metrics() }));
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px during reload`);
     await page.heldConsentReload.continue();
     await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.save-status').textContent === text, notice[locale]);
@@ -1157,6 +1150,7 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     }, notice[locale]);
     assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
     assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
+    t.diagnostic(JSON.stringify({ locale, width, state }));
     if (locale === 'de' && width === 320) assert.equal(state.lines, 2, 'binding 320 DE two-line notice');
     assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
@@ -1172,7 +1166,7 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
       });
       await page.mouse.move(-10, -10); await frame(page);
       await page.screenshot({ path: join(dir, `ait321-${width}-light-${locale}-stale.png`), fullPage: false, captureBeyondViewport: false });
-      await writeFile(join(dir, 'ait321-checks.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
+      await writeFile(join(dir, 'ait321-checks.json'), JSON.stringify({ head: evidenceCommit, passes, passLines: passes.map(pass => `PASS AIT-321 ${JSON.stringify(pass)}`) }, null, 2));
     }
     // The next visitor change removes the notice and is the only way to save again.
     await shadow(page, c => c.shadowRoot.querySelector('.consent-items input').click());

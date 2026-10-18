@@ -173,7 +173,7 @@ export class SettingsDialog {
         <section class="settings-panel" role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" data-panel="general" hidden>
           <div class="general"><section><h3 data-text="conversationTitle"></h3><p class="note" data-text="newConversationHint"></p>
               <button type="button" class="general-new" data-text="newConversation"></button></section>
-            <section data-help="consent"><h3 data-text="consentTitle"></h3><p class="status-line general-consent"></p>
+            <section data-help="consent"><h3 data-text="consentTitle"></h3><div class="general-consent-state"><p class="status-line general-consent"></p></div>
               <button type="button" class="general-consent-manage" data-text="manageConsent"></button></section>
             <section><h3 data-text="defaultsTitle"></h3><p class="note" data-text="defaultsHint"></p>
               <button type="button" class="general-recommended" data-text="recommended"></button></section>
@@ -194,6 +194,7 @@ export class SettingsDialog {
     const measure = (parent, texts, className) => parent.append(...texts.map(text => {
       const node = document.createElement('p'); node.className = className; node.setAttribute('aria-hidden', 'true'); node.textContent = text; return node;
     }));
+    measure(this.#q('.general-consent-state'), Object.values(c.consentStates), 'status-line general-consent-measure');
     measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
     measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
@@ -212,6 +213,7 @@ export class SettingsDialog {
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
     this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
     this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
+    this.#all('.general-consent-measure').forEach((n, i) => { n.textContent = Object.values(copy.settings.consentStates)[i]; });
     this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed][i]; });
     const measurements = helpMeasurements(copy);
     this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
