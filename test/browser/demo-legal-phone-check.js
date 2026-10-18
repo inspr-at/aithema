@@ -21,7 +21,6 @@ const baseLegalCSS = `
 @media(width < 360px) { #demo-legal a { min-height:max(44px,5lh); } }
 `;
 const settle = page => shadow(page, async c => {
-  c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
   await document.fonts.ready;
   for (const root of [document, c.shadowRoot]) for (const animation of root.getAnimations()) {
     if (animation.effect?.getTiming().iterations !== Infinity) await animation.finished.catch(() => {});
@@ -33,7 +32,9 @@ const measure = page => shadow(page, c => {
   const box = node => { const b = node.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
   const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height;
   const overlap = (a, b) => Math.min(a.x + a.width, b.x + b.width) > Math.max(a.x, b.x) && Math.min(a.y + a.height, b.y + b.height) > Math.max(a.y, b.y);
-  const zones = ['.footer-info', '.host-credits', '.footer-right'].map(s => root.querySelector(s))
+  // The legal slot is inside footer-right; compare its sibling zones rather
+  // than treating its containing zone as an overlap with itself.
+  const zones = ['.footer-info', '.actor-role', '.host-credits', '.preset-panel', '.footer-right > .status'].map(s => root.querySelector(s))
     .filter(n => n.checkVisibility({ visibilityProperty: true, opacityProperty: true })).map(box);
   const row = box(root.querySelector('.display-foot__row')), footer = box(root.querySelector('.display-foot'));
   return {
@@ -93,6 +94,7 @@ export async function demoLegalPhoneCheck(t) {
   if (evidence) await mkdir(evidence, { recursive: true });
   const capture = async (width, theme, locale) => {
     const file = `ait304-${width}-${theme}-${locale}-footer.png`;
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
     await page.mouse.move(-1, -1); await settle(page);
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
     shots.push({ file, viewport: true, reducedMotion: true, blurred: true });
