@@ -165,3 +165,17 @@ test('AIT-349: real Grok chain interrupts synthesis locally, persists full reply
   assert.match(h.reasoningRequests[1].system, /heard length is unknown/u);
   assert.ok(h.reasoningRequests[1].messages.some(message => message.content.includes('Which company?')));
 });
+
+test('AIT-349: an authenticated browser cannot invent a Grok heard prefix or truncate the generated record', async t => {
+  const h = fixture(t), session = await h.client.start({ callId: 'unavailable-heard' }, { deadlineAt: Date.now() + 5000 });
+  t.after(() => session.close());
+  await h.audio(pcm()); await h.audio(Buffer.alloc(16000));
+  for (let i = 0; i < 200 && !h.played.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  const reply = h.storage.get(h.session.id).transcript.find(turn => turn.role === 'assistant');
+  assert.ok(reply);
+  const response = await h.post(`/${session.callId}/events`, { providerSessionId: session.providerSessionId, epoch: session.epoch, tabId: 'tab',
+    event: { type: 'heard', callId: session.callId, providerSessionId: session.providerSessionId, turnId: reply.id, prefix: 'Which' } });
+  assert.equal(response.status, 403);
+  assert.equal(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).content, 'Which company?');
+  assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
+});
