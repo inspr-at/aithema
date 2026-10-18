@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
 import audit from '../fixtures/consent-copy-audit.json' with { type: 'json' };
+import { comparePhoneConsentBase } from '../consent-base-comparison.js';
 import { CONSENT_ITEMS } from '../../demo/processing-consent.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
@@ -1188,16 +1189,7 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     assert.equal(posts.length - count, 1, 'exactly one POST; no silent re-save');
     if (width === 390) {
       // Remove only AIT-327's additive wide-width rules to compare with the base.
-      const phoneBase = await shadow(page, c => {
-        const style = c.shadowRoot.querySelector('style'), current = style.textContent;
-        style.textContent = current.replace(/\/\* AIT-327: wide footer start \*\/[\s\S]*?\/\* AIT-327: wide footer end \*\//u, '');
-        const selectors = ['.settings__footer', '.footer-links', '.save-state', '.save-status', '.done', '.consent-items', '.consent-item', '.consent-item input'];
-        const measure = () => selectors.flatMap(selector => [...c.shadowRoot.querySelectorAll(selector)].map(n => {
-          const b = n.getBoundingClientRect(); return { selector, x: b.x, y: b.y, width: b.width, height: b.height };
-        }));
-        const base = measure(); style.textContent = current;
-        return { base, current: measure() };
-      });
+      const phoneBase = await shadow(page, comparePhoneConsentBase);
       assert.deepEqual(phoneBase.current, phoneBase.base, `${locale}/390: phone geometry matches base 3369a9a5`);
     }
     const pass = { head: evidenceCommit, locale, width, ...state, viewportOnly: true, reducedMotion: true, baselineFonts: true, layoutShiftPx: 0, posts: 1, pass: true };
