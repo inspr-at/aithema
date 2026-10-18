@@ -30,7 +30,7 @@ export async function testGrokConsumer() {
     return { ...scope, scope, covered: true, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60000 };
   } };
   const reasoningBinding = { plugin: 'fixture-reasoning', model: 'fixture-model', endpoint: 'https://reasoning.test', effort: 'none',
-    accountRef: 'private:fixture-reasoning', secretRef: 'private:fixture-reasoning-secret', maxMicro: 1000, maxTokens: 100,
+    accountRef: 'private:fixture-reasoning', secretRef: 'private:fixture-reasoning-secret', maxMicro: 100000, maxTokens: 100,
     rates: { inputMicro: 1, outputMicro: 1 } };
   const voiceLegal = binding().legal;
   reasoningBinding.legal = { ...voiceLegal, purpose: 'models-international', recipient: 'Fixture reasoning', countries: ['AT'],
@@ -101,7 +101,11 @@ export async function testGrokConsumer() {
     await captureAudio(pcm); await captureAudio(Buffer.alloc(16000));
     const deadline = Date.now() + 5000;
     while (!played.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
-    assert.deepEqual(dispatched, ['stt', 'reasoning', 'tts']);
+    assert.deepEqual(dispatched, ['stt', 'reasoning', 'tts'], JSON.stringify({
+      calls: storage.voiceCalls(record.id).map(call => ({ reason: call.reason, terminalReason: call.terminalReason })),
+      attempts: storage.db.prepare('SELECT lane,state,settled_micro FROM budget_attempts WHERE session_id=?').all(record.id),
+      operations: storage.voiceOperations(record.id),
+    }));
     assert.equal(played.length, 1); assert.equal(played[0].format.format, 'pcm_s16le');
     assert.deepEqual(storage.get(record.id).transcript.map(turn => [turn.role, turn.content]),
       [['user', 'Hello world.'], ['assistant', answer]]);
