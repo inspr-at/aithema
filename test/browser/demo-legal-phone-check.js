@@ -39,6 +39,11 @@ const measure = page => shadow(page, c => {
   const row = box(root.querySelector('.display-foot__row')), footer = box(root.querySelector('.display-foot'));
   const flagBounds = box(root.querySelector('.engine__flag'));
   return {
+    readiness: { at: performance.now(), fonts: document.fonts.status, fit: root.querySelector('.display-foot').dataset.fit,
+      credits: root.querySelector('.host-credits__value').textContent,
+      creditMeasure: root.querySelector('.host-credits__amount').getAttribute('data-credit-measure'),
+      creditFont: getComputedStyle(root.querySelector('.host-credits')).font,
+      creditWidth: box(root.querySelector('.host-credits')).width },
     flagBounds,
     flagLegalGap: box(links[0]).x - (flagBounds.x + flagBounds.width),
     fixed: ['.display-foot', '.display-foot__row', '.footer-info', '.host-credits', '.footer-right', '.host-legal', '.engine__flag', '.status__dot'].map(s => box(root.querySelector(s))),
@@ -86,6 +91,19 @@ export async function demoLegalPhoneCheck(t) {
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.evaluateOnNewDocument(() => localStorage.setItem('aithema-demo-locale', 'de'));
   await page.setViewport({ width: 390, height: 844 });
+  // AIT-355 diagnosis: hold only the initial local credits read until after
+  // the first baseline; this reproduces a slow receipt without arbitrary sleeps.
+  let releaseCredits;
+  const creditsGate = new Promise(resolve => { releaseCredits = resolve; });
+  let interceptedCredits = false;
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    if (!interceptedCredits && /\/api\/sessions\/[^/]+\/credits$/u.test(new URL(request.url()).pathname)) {
+      interceptedCredits = true;
+      void creditsGate.then(() => request.continue());
+    } else void request.continue();
+  });
+  t.after(() => releaseCredits());
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.documentElement.hasAttribute('data-host-ready'));
   await shadow(page, c => {
@@ -147,12 +165,18 @@ export async function demoLegalPhoneCheck(t) {
         assert.deepEqual(state.fixed, base.fixed, `${label}: footer geometry unchanged from beb35ba2`);
         assert.deepEqual(state.links, base.links, `${label}: desktop labels/geometry/visibility/text extents unchanged from beb35ba2`);
       }
+      if (width === 390 && theme === 'light' && locale === 'de') {
+        t.diagnostic(`AIT-355 baseline: ${JSON.stringify(state.readiness)}`);
+        releaseCredits();
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent !== '…');
+      }
       // Keep the pointer on each actual anchor while hover/focus/theme paints settle.
       for (const [i, link] of state.links.entries()) {
         await page.mouse.move(link.bounds.x + link.bounds.width / 2, link.bounds.y + link.bounds.height / 2);
         await page.select('#theme', theme === 'light' ? 'dark' : 'light');
         await page.focus(i === 0 ? '#demo-license' : '#demo-legal-source'); await settle(page);
         const held = await measure(page);
+        t.diagnostic(`AIT-355 samples ${label}: ${JSON.stringify({ baseline: state.readiness, held: held.readiness })}`);
         assert.deepEqual(held.fixed, state.fixed, `${label}: module footer movement exactly 0px under resting pointer`);
         assert.deepEqual(held.links.map(a => a.bounds), state.links.map(a => a.bounds), `${label}: legal movement exactly 0px under resting pointer`);
         assert.equal(held.links[i].unobscured, true);
