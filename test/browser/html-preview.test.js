@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -423,4 +424,98 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
   assert.ok(reads.length>0);assert.ok(reads.every(r=>r.path.startsWith('/api/sessions/backdrop-owner/concepts/')&&r.token==='fixture-owner'&&r.cache==='no-store'));
   if(evidence)await writeFile(join(evidence,'checks.json'),JSON.stringify({head,shots,guardShots,passes,security:['PASS authenticated active-conversation loader only','PASS immediate withdrawal redaction','PASS no generation calls'],errors},null,2));
   console.log(`PASS AIT-282: ${passes.length} state comparisons, 0 px; authenticated bytes and immediate revocation`);
+});
+
+test('AIT-341: HTML preview under START strict host script policy', { timeout: 30_000 }, async t => {
+  const template = await readFile(new URL('../fixtures/html-preview-strict-host.html', import.meta.url), 'utf8');
+  const startup = await readFile(new URL('../fixtures/html-preview-strict-host-startup.js', import.meta.url), 'utf8');
+  const importMap = /<script type="importmap">([^<]+)<\/script>/u.exec(template)[1];
+  const hash = createHash('sha256').update(importMap).digest('base64');
+  const policy = `script-src 'self' 'sha256-${hash}'`;
+  const server = createServer(async (req, res) => {
+    const path = new URL(req.url, 'http://localhost').pathname;
+    if (['/strict-header-only', '/strict-header-and-meta'].includes(path)) {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': policy });
+      return res.end(template.replace('<!-- HOST_POLICY_DECLARATION -->', path === '/strict-header-and-meta' ? declaration : ''));
+    }
+    if (path === '/strict-host-startup.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }); return res.end(startup);
+    }
+    if (!/^\/packages\/(?:ui|core)\/src\/[\w-]+\.js$/u.test(path)) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+    res.end(await readFile(join(root, path)));
+  });
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-strict-preview-'));
+  let browser;
+  t.after(async () => {
+    await browser?.close(); server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve)); await rm(directory, { recursive: true, force: true });
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+    userDataDir: join(directory, 'chrome'), args: process.platform === 'linux' && isCI ? ['--no-sandbox'] : [] });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 1000 });
+  assert.equal(inspectHTML(new TextEncoder().encode(dummy)).ok, true, 'the unchanged click-dummy is a valid draft');
+  for (const variant of ['header-only', 'header-and-meta']) {
+    const errors = [];
+    const record = message => { if (message.type() === 'error') errors.push(message.text()); };
+    page.on('console', record);
+    const response = await page.goto(`http://127.0.0.1:${server.address().port}/strict-${variant}`);
+    assert.equal(response.headers()['content-security-policy'], policy, 'strict script CSP is an enforcing response header');
+    // These prerequisites are outside the todos: broken fixtures must fail CI.
+    // Importing the bare specifier also proves the hash-approved map executed.
+    await page.waitForFunction(() => window.ready === true, { timeout: 5000 });
+    assert.equal(await page.evaluate(() => Boolean(customElements.get('aithema-html-preview'))), true);
+    assert.equal(await page.evaluate(() => document.head.querySelectorAll('meta[http-equiv="Content-Security-Policy"]').length), variant === 'header-only' ? 0 : 1);
+
+    await t.test(`${variant}: unapproved host inline script stays blocked`, async () => {
+      await page.evaluate(() => {
+        const script = document.createElement('script');
+        script.textContent = 'window.unapprovedInlineRan = true'; document.body.append(script);
+      });
+      await page.waitForFunction(() => window.violations.some(v => v.trusted && v.disposition === 'enforce' &&
+        v.directive === 'script-src-elem' && v.blocked === 'inline'), { timeout: 3000 });
+      assert.equal(await page.evaluate(() => window.unapprovedInlineRan), undefined, 'host inline code has no effect');
+      const violations = await page.evaluate(() => window.violations);
+      assert.ok(violations.some(v => v.policy === policy && v.blocked === 'inline' && v.trusted && v.disposition === 'enforce'));
+      t.diagnostic(`${variant} control PASS: ${JSON.stringify(violations)}`);
+    });
+
+    await t.test(`${variant}: valid draft mounts, answers readiness and changes state on click`,
+      { todo: 'AIT-341 P4: preview route' }, async () => {
+        await page.evaluate(() => { window.violations.length = 0; }); errors.length = 0;
+        await page.evaluate(html => window.show(html), dummy);
+        try {
+          await page.waitForFunction(() => Boolean(document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), { timeout: 2500 });
+        } catch (cause) {
+          const evidence = await page.evaluate(() => ({
+            state: document.querySelector('aithema-html-preview').state,
+            iframe: Boolean(document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')),
+            violations: window.violations,
+          }));
+          throw new Error(`${variant}: expected a mounted draft iframe; ${JSON.stringify({ ...evidence, console: errors })}`, { cause });
+        }
+        const element = await page.evaluateHandle(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe'));
+        const frame = await element.asElement().contentFrame();
+        assert.ok(frame, 'the mounted iframe has a browsing context');
+        await frame.waitForSelector('#new', { timeout: 3000 });
+        const answered = await page.evaluate(() => new Promise(resolve => {
+          const channel = new MessageChannel();
+          const timer = setTimeout(() => { channel.port1.close(); resolve(false); }, 1500);
+          channel.port1.onmessage = event => {
+            clearTimeout(timer); channel.port1.close(); resolve(event.data === 'aithema-html-preview-ready');
+          };
+          document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe').contentWindow
+            .postMessage('aithema-html-preview-ready', '*', [channel.port2]);
+        }));
+        assert.equal(answered, true, 'the draft answers readiness through the private reply port');
+        assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').state), 'ready');
+        assert.equal(await frame.evaluate(() => document.getElementById('dialog').open), false);
+        await frame.click('#new');
+        assert.equal(await frame.evaluate(() => document.getElementById('dialog').open), true, 'a real click changes draft state');
+        await element.dispose();
+      });
+    page.off('console', record);
+  }
 });
