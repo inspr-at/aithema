@@ -392,3 +392,30 @@ test('AIT-228: fractional quotes gate Retry and Regenerate exactly like missing 
     root.activeElement?.blur();
   }
 });
+
+for (const surface of ['modal', 'canvas']) for (const cause of ['close', 'switch', 'consent', 'source', 'erasure']) {
+  test(`AIT-353: ${surface} rejects a late minted source after ${cause}`, async t => {
+    let finish;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const { c, root, calls } = fixture(t, { htmlResponse: () => pending });
+    const preview = root.querySelector(surface === 'modal' ? '.concept-html' : '.canvas-html');
+    root.querySelector(surface === 'modal' ? '.concept-tab' : '.fold').click();
+    await tick();
+    if (document.querySelector('[data-aithema-html-policy-probe]')) {
+      const proof = new window.Event('securitypolicyviolation');
+      Object.assign(proof, { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP });
+      document.dispatchEvent(proof);
+    }
+    await tick();
+    assert.equal(preview.state, 'loading');
+    assert.equal(calls.filter(url => url.endsWith('/preview')).length, 1, 'the scoped owner mint is actually pending');
+    if (cause === 'close') root.querySelector(surface === 'modal' ? '.concept-close' : '.fold-strip').click();
+    else if (cause === 'switch') c.configure({ copy: en, session: createSession({ demo: true }), concepts: { previewURL } });
+    else if (cause === 'erasure') receive(c, 'session.erased', {});
+    else revoke(c, cause === 'source' ? 'source' : 'consent');
+    finish(Response.json({ url: previewURL + '?cap=' + 'z'.repeat(43), expiresInMs: 60000 })); await tick(); await tick();
+    assert.equal(preview.artifact, null);
+    assert.equal(preview.shadowRoot.querySelector('iframe'), null, 'late capabilities never mount after scope termination');
+    assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false, 'viewing makes no generation or spend call');
+  });
+}

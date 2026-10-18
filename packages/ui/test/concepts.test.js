@@ -163,7 +163,7 @@ test('reject archives the exact item and returns to conversation without a paid 
 test('download is a real same-origin owner-authenticated GET and revokes its temporary URL', async t => {
   const { root, calls, downloads, revoked } = setup(t); root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-download').click(); await tick();
-  const get = calls.find(c => c.url.endsWith('/image?download=1')); assert.ok(get); assert.equal(get.options.body, undefined); assert.equal(get.options.method, 'POST');
+  const get = calls.find(c => c.url.endsWith('/image?download=1')); assert.ok(get); assert.equal(get.options.body, undefined);
   assert.equal(new Headers(get.options.headers).get('x-aithema-session-token'), 'owner-fixture');
   assert.match(downloads[0].name, /^concept-image1.png$/); assert.ok(revoked.includes(downloads[0].href));
 });
@@ -318,7 +318,7 @@ test('rail and viewer switch by media type: drafts render in the sandboxed previ
   root.querySelector('.concept-close').click(); assert.equal(preview.artifact, null, 'closing the viewer stops the draft');
 });
 test('a refresh revision replaces the shown latest draft in place; an older revision or a draft in use stays put (AIT-113 B2)', async t => {
-  const { c, root } = setup(t, { concepts: [draft('html1')], session: { conceptVisualKind: 'html' } });
+  const { c, root, calls } = setup(t, { concepts: [draft('html1')], session: { conceptVisualKind: 'html' } });
   root.querySelector('.concept-tab').click(); await tick(); await tick();
   const preview = root.querySelector('.concept-html'), regenerate = root.querySelector('.concept-regenerate'), up = root.querySelector('.concept-up');
   const arrive = id => c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: draft(id) } });

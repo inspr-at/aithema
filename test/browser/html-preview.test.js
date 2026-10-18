@@ -449,7 +449,7 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     if (path === '/strict-host-startup.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }); return res.end(startup);
     }
-    if (!/^\/packages\/(?:ui|core)\/src\/[\w-]+\.js$/u.test(path)) { res.writeHead(404); return res.end(); }
+    if (!/^\/packages\/(?:ui|core)\/src\/(?:i18n\/)?[\w-]+\.js$/u.test(path)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
     res.end(await readFile(join(root, path)));
   });
@@ -526,4 +526,83 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       });
     page.off('console', record);
   }
+  for (const variant of ['none', 'overbroad', 'report-only']) {
+    await t.test(`${variant}: START frame policy fails closed`, async () => {
+      await page.goto(`http://127.0.0.1:${server.address().port}/strict-${variant}`);
+      await page.waitForFunction(() => window.ready === true);
+      await page.evaluate(html => window.show(html), dummy);
+      await page.waitForFunction(() => !document.querySelector('[data-aithema-html-policy-probe]'));
+      assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').state), 'policy');
+      assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
+    });
+  }
+  // Reuse one page for the complete Tick matrix. Viewport-only shots, reduced
+  // motion and the baseline system font keep evidence deterministic and cheap.
+  await page.goto(`http://127.0.0.1:${server.address().port}/strict-header-only`);
+  await page.waitForFunction(() => window.ready === true);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, shots = [], checks = [], focus = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const geometry = () => page.evaluate(() => {
+    const root = document.querySelector('aithema-html-preview').shadowRoot;
+    return ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]'].map(selector => {
+      const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+    });
+  });
+  for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
+    await page.setViewport({ width, height: 1000 });
+    await page.evaluate(async ({ theme, locale }) => {
+      document.documentElement.dataset.theme = theme; document.documentElement.lang = locale;
+      const { [locale]: copy } = await import('/packages/ui/src/i18n/' + locale + '.js');
+      const preview = document.querySelector('aithema-html-preview'); preview.copy = copy.conceptPreview;
+      preview.artifact = { mediaType: 'text/html', previewURL: location.origin + '/_aithema/html-preview',
+        mint: () => new Promise((resolve, reject) => { window.finishMint = resolve; window.failMint = reject; }) };
+    }, { theme, locale });
+    await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'loading');
+    const baseline = await geometry();
+    const capture = async state => {
+      await page.evaluate(async () => {
+        const preview = document.querySelector('aithema-html-preview');
+        preview.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+        await Promise.all(document.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      await page.mouse.move(-10, -10);
+      const boxes = await geometry(); assert.deepEqual(boxes, baseline, `${width}/${theme}/${locale}/${state}: 0 px`);
+      checks.push({ width, theme, locale, state, boxes, movementPx: 0 });
+      if (evidence) {
+        const file = `ait353-${width}-${theme}-${locale}-${state}.png`;
+        await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
+      }
+    };
+    await capture('loading');
+    await page.evaluate(async html => window.finishMint(await (await fetch('/fixture/mint', { method: 'POST', body: html })).json()), dummy);
+    await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'ready');
+    const handle = await page.$('aithema-html-preview >>> iframe'), frame = await handle.contentFrame();
+    await frame.waitForSelector('#new'); await frame.click('#new');
+    assert.equal(await frame.evaluate(() => document.querySelector('#dialog').open), true);
+    const beforeWidth = await handle.evaluate(n => n.src);
+    await page.evaluate(() => { document.querySelector('aithema-html-preview').width = 'phone'; });
+    assert.equal(await handle.evaluate(n => n.src), beforeWidth, 'width changes never reload');
+    await capture('ready');
+    // Replacing a focused draft transfers focus; a mint failure returns to the width control.
+    await handle.focus();
+    await page.evaluate(() => {
+      const preview = document.querySelector('aithema-html-preview');
+      preview.artifact = { ...preview.artifact, mint: async () => { throw new Error('fixture 503'); } };
+    });
+    await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'failure');
+    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.activeElement?.dataset.width), 'phone');
+    focus.push({ width, theme, locale, restoredTo: 'phone', pass: true }); await capture('failure');
+    await page.evaluate(() => {
+      const preview = document.querySelector('aithema-html-preview'); preview.artifact = { ...preview.artifact, previewURL: undefined };
+    });
+    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').state), 'policy'); await capture('policy');
+    await handle.dispose();
+  }
+  if (evidence) await writeFile(join(evidence, 'ait353-checks.json'), JSON.stringify({ shots, checks, focus, movementPx: 0,
+    strictHost: ['header-only: handshake and click/dialog PASS', 'header-and-meta: handshake and click/dialog PASS'],
+    refusedPolicies: ['none', 'overbroad', 'report-only'], offline: true }, null, 2));
+  console.log(`PASS AIT-353: ${checks.length} geometry states, 0 px; ${focus.length} focus checks; strict host todos removed`);
+
 });

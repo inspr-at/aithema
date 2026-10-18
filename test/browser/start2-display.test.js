@@ -11,6 +11,8 @@ import { assertMatrixCaseCount, fullMatrix, a11yEvidenceMode, matrixWidths } fro
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
+import { htmlPreviewHostPolicy, previewDocument } from '../../packages/core/src/ui-html.js';
+import { previewConfiguration } from '../../packages/server/src/html-preview.js';
 import { pixels, samePaint } from './png-pixels.js';
 import { mockIdentityReads, shadow, until, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 
@@ -685,10 +687,26 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     <label>${copy === de ? 'Ihr Motiv' : 'Your design'} <input id="design" value="Blumen"></label>
     <p><button id="count">${copy === de ? 'Entwurf ausprobieren' : 'Try the draft'}</button> <output id="value">0</output></p>
     <script>document.querySelector('#count').addEventListener('click',()=>{document.querySelector('#value').textContent=String(Number(document.querySelector('#value').textContent)+1)});</script></body></html>`;
-  let copy = de;
+  let copy = de, sequence = 0; const sources = new Set();
   await page.setRequestInterception(true);
-  page.on('request', request => {
+  page.on('request', async request => {
     const url = new URL(request.url());
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      const response = await fetch(request.url());
+      return request.respond({ status: response.status, headers: { ...Object.fromEntries(response.headers),
+        'content-security-policy': htmlPreviewHostPolicy(url.origin + '/_aithema/html-preview') }, body: await response.text() });
+    }
+    if (url.pathname.endsWith('/concepts/canvas1/preview')) {
+      const cap = String(++sequence).padStart(43, 'a'); sources.add(cap);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ url: url.origin + '/_aithema/html-preview?cap=' + cap, expiresInMs: 60000 }) });
+    }
+    if (url.pathname === '/_aithema/html-preview') {
+      const valid = sources.delete(url.searchParams.get('cap'));
+      return request.respond({ status: valid ? 200 : 403, headers: { 'content-type': 'text/html',
+        'content-security-policy': previewConfiguration(url.origin + url.pathname).csp,
+        'cache-control': 'private, no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' },
+        body: valid ? previewDocument(draft(copy)) : 'Forbidden' });
+    }
     if (url.pathname.endsWith('/concepts/canvas1/html')) return request.respond({ status: 200, contentType: 'application/octet-stream', body: draft(copy) });
     if (url.pathname === '/api/library' && request.method() === 'GET') return request.respond({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ items: Array.from({ length: 5 }, (_, i) => ({ id: `menu-${i}`, title: `${copy.hostSurface.library.open} ${i + 1}`, updatedAt: '2026-10-12T09:00:00Z' })), total: 5 }) });
@@ -709,7 +727,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       s.inputRevision = 1; s.concepts = [{ id: 'canvas1', mediaType: 'text/html', turnIds: ['source'], referenceIds: [], archived: false,
         feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } }];
       s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'html', 'images'].map(key => [key, { available: true }]));
-      c.configure({ copy: { en, de }[locale], session: s }); document.documentElement.lang = locale;
+      c.configure({ copy: { en, de }[locale], session: s, concepts: { previewURL: location.origin + '/_aithema/html-preview' } }); document.documentElement.lang = locale;
       c.shadowRoot.querySelector('.fold').click();
     }, locale);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.canvas-html').state === 'ready');

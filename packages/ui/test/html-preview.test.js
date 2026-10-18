@@ -183,6 +183,7 @@ test('only the preview reply port confirms a first load; late probe events canno
   t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
   const owner = testDocument(), element = setup(owner); await render(element, source());
   const frame = element.shadowRoot.querySelector('iframe'); let ping;
+  if (!frame.contentWindow) { const target = { postMessage() {} }; t.mock.getter(frame, 'contentWindow', () => target); }
   t.mock.method(frame.contentWindow, 'postMessage', (message, target, ports) => {
     ping = message; assert.equal(target, '*'); assert.deepEqual(ports, [channels[0].port2]);
   });
@@ -202,7 +203,8 @@ test('blocked navigation is visible both before first load and after load, with 
     const owner = testDocument(), element = setup(owner), root = element.shadowRoot;
     element.width = 'phone'; await render(element, source());
     const frame = root.querySelector('iframe');
-    t.mock.method(frame.contentWindow, 'postMessage', message => {
+    if (!frame.contentWindow) { const target = { postMessage() {} }; t.mock.getter(frame, 'contentWindow', () => target); }
+  t.mock.method(frame.contentWindow, 'postMessage', message => {
       if (loaded) channels.at(-1).port1.onmessage({ data: message });
     });
     frame.dispatchEvent(new window.FocusEvent('focus'));
@@ -220,6 +222,7 @@ test('clearing a draft during its first-load check cancels the timeout and close
   t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
   const owner = testDocument(), element = setup(owner); await render(element, source());
   const frame = element.shadowRoot.querySelector('iframe');
+  if (!frame.contentWindow) { const target = { postMessage() {} }; t.mock.getter(frame, 'contentWindow', () => target); }
   t.mock.method(frame.contentWindow, 'postMessage', () => {}); frame.dispatchEvent(new window.Event('load'));
   element.artifact = null; t.mock.timers.tick(1500); channels[0].port1.onmessage({ data: 'aithema-html-preview-ready' });
   assert.equal(channels[0].port1.closed, true); assert.equal(element.state, 'empty'); element.remove();
@@ -235,8 +238,8 @@ test('fresh sources on replacement/reconnect; stale mint responses never mount a
   const result = { url: previewURL + '?cap=' + 'b'.repeat(43), expiresInMs: 60_000 };
   pending[0].resolve(result); for (let i = 0; i < 8; i++) await Promise.resolve();
   assert.equal(element.shadowRoot.querySelector('iframe'), null);
-  element.remove(); assert.equal(pending[1].signal.aborted, true);
-  owner.body.append(element); for (let i = 0; i < 8; i++) await Promise.resolve();
+  element.remove(); element.disconnectedCallback(); assert.equal(pending[1].signal.aborted, true);
+  owner.body.append(element); element.connectedCallback(); for (let i = 0; i < 8; i++) await Promise.resolve();
   assert.equal(pending.length, 3);
   pending[1].resolve(result); for (let i = 0; i < 8; i++) await Promise.resolve();
   assert.equal(element.shadowRoot.querySelector('iframe'), null);
