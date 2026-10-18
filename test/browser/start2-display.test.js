@@ -441,10 +441,21 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     await shadow(page, c => c.shadowRoot.querySelector('.band').removeAttribute('data-scrolled'));
     assert.deepEqual(await boxes(page, selectors), scrolled, `${label}: opaque surface and fade cause 0 px layout shift`);
     await shadow(page, c => c.shadowRoot.querySelector('.band').setAttribute('data-scrolled', ''));
+    // The relocated phone status is intentional foreground over this backing probe.
+    const statusVisibility = await shadow(page, c => {
+      const status = c.shadowRoot.querySelector('.voice-state');
+      const saved = [status.style.getPropertyValue('visibility'), status.style.getPropertyPriority('visibility')];
+      if (innerWidth < 600) status.style.setProperty('visibility', 'hidden');
+      return saved;
+    });
     const painted = pixels(Buffer.from(await page.screenshot()));
     await shadow(page, c => { c.shadowRoot.querySelector('.band').style.visibility = 'hidden'; });
     const exposed = pixels(Buffer.from(await page.screenshot()));
-    await shadow(page, c => c.shadowRoot.querySelector('.band').style.removeProperty('visibility'));
+    await shadow(page, (c, [value, priority]) => {
+      c.shadowRoot.querySelector('.band').style.removeProperty('visibility');
+      const status = c.shadowRoot.querySelector('.voice-state');
+      value ? status.style.setProperty('visibility', value, priority) : status.style.removeProperty('visibility');
+    }, statusVisibility);
     const expected = metrics.rgb.match(/[\d.]+/gu).slice(0, 3).map(value => Math.round(Number(value) * 255));
     const ink = metrics.ink.match(/\d+/gu).slice(0, 3).map(Number);
     const rgbAt = (png, x, y) => [...png.result.subarray((y * png.width + x) * png.channels, (y * png.width + x) * png.channels + 3)];

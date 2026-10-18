@@ -1,4 +1,4 @@
-import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, PluginError, isUIArtifact, imageInfo, MAX_IMAGE_BYTES, validateUIReferences, usdCostMicro, providerUsage } from '@inspr/aithema-core';
+import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, PluginError, isUIArtifact, imageInfo, MAX_IMAGE_BYTES, validateUIReferences, usdCostMicro, providerUsage, generationId } from '@inspr/aithema-core';
 import { decodeImage, imageArtifact } from './image-artifact.js';
 // Wire contract: https://developers.openai.com/api/reference/resources/images/methods/generate
 // Edits use private multipart bytes as in START providers/openai-image.ts.
@@ -49,7 +49,7 @@ function fieldsFor(spec, feedback) {
     !['png', 'webp'].includes(fields.output_format)) throw new PluginError('invalid-output');
   return fields;
 }
-export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch } = {}) {
+export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch, spendCap } = {}) {
   binding = createBinding(binding);
   if (binding.plugin !== manifest.id || !['gpt-image-2', 'openai/gpt-image-2'].includes(binding.model) || binding.effort !== 'none') throw new TypeError('OpenAI Images binding requires gpt-image-2 or openai/gpt-image-2 and effort none');
   const base = new URL(baseUrl ?? binding.endpoint);
@@ -70,8 +70,21 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
   const configured = () => { const key = resolveSecret(binding.secretRef); return typeof key === 'string' && key.length > 0 && !/[\r\n]/u.test(key) ? key : null; };
   async function run(operation, spec, feedback, options, artifact) {
     const scope = operationScope(options); let invocation, completed = false, reporting;
+    const cap = gateway ? spendCap : undefined;
+    let reservation, dispatched = false, chargedMicro = null;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
+    const observe = payload => {
+      const id = generationId(payload?.id);
+      chargedMicro = usdCostMicro(payload?.usage?.cost);
+      invocation.usage(usageOf(payload?.usage) ?? providerUsage(payload?.usage));
+      invocation.cost(chargedMicro); invocation.generationId(id);
+      const evidence = { ...(id ? { generationId: id } : {}), ...(chargedMicro !== null ? { chargedMicro } : {}) };
+      if (id || chargedMicro !== null) {
+        cap.record?.(reservation, evidence);
+        options.attempt?.observeCost?.(evidence);
+      }
+    };
     try {
       invocation = await beginInvocation(scoped, { authoritativeCost: gateway, retainUncertainUsage: gateway });
       checkLifetime();
@@ -99,19 +112,40 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
           body.append('image[]', new Blob([reference.bytes], { type: reference.mediaType }), `reference-${index}.${extension}`);
         }
       } else { headers['content-type'] = 'application/json'; body = JSON.stringify(fields); }
-      checkLifetime(); invocation.dispatch();
+      checkLifetime();
+      if (cap) {
+        reservation = cap.reserve(binding.maxMicro, { attemptId: options.attempt?.attemptId, provider: 'openrouter' });
+        checkLifetime();
+      }
+      invocation.dispatch();
+      dispatched = true;
+      if (cap) { options.attempt?.dispatchCost?.(); cap.dispatch?.(reservation); }
       const response = await abortable(Promise.resolve().then(() => fetchImpl(endpoint(wireOperation), { method: 'POST', headers, body,
         signal: scope.signal, redirect: 'error' })), scope.signal);
       checkLifetime();
       if (!response.ok) {
-        void response.body?.cancel().catch(() => {});
+        if (cap) {
+          // Only a fully received rejection can release a dispatched hold.
+          // Usage-bearing errors, 408/499 and 5xx need an explicit cost receipt.
+          try {
+            const text = response.body ? (await readBytes(response, scope.signal, 18 * 1024 * 1024)).toString('utf8') : '';
+            let payload; try { payload = JSON.parse(text); } catch { /* Plain-text rejections are allowed. */ }
+            observe(payload);
+            if (response.status >= 400 && response.status < 500 && ![408, 499].includes(response.status) && payload?.usage == null) {
+              invocation.usage({ inputTokens: 0, outputTokens: 0 }); observe({ usage: { cost: 0 } });
+            }
+          } catch { /* Unknown dispatched cost retains the ceiling. */ }
+        } else void response.body?.cancel().catch(() => {});
         throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider');
       }
       let payload;
       try { payload = JSON.parse((await readBytes(response, scope.signal, 18 * 1024 * 1024)).toString('utf8')); }
       catch (error) { if (error instanceof PluginError || scope.signal.aborted) throw error; throw new PluginError('invalid-output'); }
-      invocation.usage(usageOf(payload?.usage) ?? (gateway ? providerUsage(payload?.usage) : null));
-      if (gateway) invocation.cost(usdCostMicro(payload?.usage?.cost));
+      if (cap) observe(payload);
+      else {
+        invocation.usage(usageOf(payload?.usage) ?? (gateway ? providerUsage(payload?.usage) : null));
+        if (gateway) invocation.cost(usdCostMicro(payload?.usage?.cost));
+      }
       if (!Array.isArray(payload?.data) || payload.data.length !== 1) throw new PluginError('invalid-output');
       const item = payload.data[0]; let bytes;
       if (item?.b64_json !== undefined) bytes = decodeImage(item.b64_json);
@@ -136,10 +170,19 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       checkLifetime();
       completed = true; return result;
     } catch (error) { throw normalizedError(error, scope.signal); }
-    finally { try { if (invocation) await invocation.finish(completed); if (reporting) await reporting; } finally { scope.dispose(); } }
+    finally {
+      try {
+        try {
+          if (reservation) {
+            if (!dispatched || chargedMicro !== null) cap.settle(reservation, dispatched ? chargedMicro : 0);
+            else cap.uncertain?.(reservation);
+          }
+        } finally { if (invocation) await invocation.finish(completed); if (reporting) await reporting; }
+      } finally { scope.dispose(); }
+    }
   }
   return { id: manifest.id, manifest, binding, billable: true, label: `OpenAI Images${gateway ? ' via OpenRouter' : ''} — gpt-image-2`,
-    bind: next => createOpenAIImages({ binding: next, resolveSecret, fetchImpl }),
+    bind: next => createOpenAIImages({ binding: next, resolveSecret, fetchImpl, spendCap }),
     generate: (spec, feedback, options) => run('generate', spec, feedback, options),
     edit: (artifact, spec, feedback, options) => run('edit', spec, feedback, options, artifact),
     async health(options) {

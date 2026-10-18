@@ -177,7 +177,7 @@ they are not test coverage switches.
 | `test/browser-matrix-coverage.test.js` | `process.env` ×2 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/browser/admin-pages.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/audio-replay.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/compact-footer-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-301 legal evidence identifies the PR head from the GitHub event payload |
+| `test/browser/compact-footer-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-301/309 footer evidence identifies the PR head from the GitHub event payload |
 | `test/browser/composed-media.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/composed-qualification.test.js` | `CI` ×3 | Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe |
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
@@ -192,11 +192,11 @@ they are not test coverage switches.
 | `test/browser/question-card.test.js` | `CI` ×1, `GITHUB_SHA` ×1 | Linux headless Chrome sandbox selection; Evidence/source provenance; release test matches the run identifier |
 | `test/browser/safeguards.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/start-journey.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/start-look.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
+| `test/browser/start-look.test.js` | `CI` ×1, `GITHUB_EVENT_PATH` ×2 | Linux headless Chrome sandbox selection; evidence binds PR branch head from the GitHub event payload |
 | `test/browser/start2-display-helpers.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/tick-followups.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload |
-| `test/browser/voice-presentation.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
+| `test/browser/voice-presentation.test.js` | `CI` ×3, `GITHUB_EVENT_PATH` ×2 | Linux headless Chrome sandbox selection and PR-head evidence provenance |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/fixtures/lane-race-ait197-proof.js` | `process.env` ×1 | AIT-201 legacy-lane red proof forwards the child environment after removing NODE_TEST_CONTEXT |
 | `test/fixtures/lane-race-proof.js` | `process.env` ×1 | AIT-201 lane-race red proof forwards the child environment after removing NODE_TEST_CONTEXT |

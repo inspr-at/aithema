@@ -116,6 +116,9 @@ export const en = {
   voiceProvisional: 'Transcribing…',
   voiceStates: { low: 'Credit running low', idle: 'Ready to talk', connecting: 'Connecting voice…', listening: 'Listening', speaking: 'Speaking the reply',
     paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: "Voice paused. Resume when you're ready.", closing: 'Settling call…', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending the call…' },
+  voiceStatesNarrow: { low: 'Low credit', idle: 'Ready', connecting: 'Connecting …', listening: 'Listening', speaking: 'Replying', paused: 'Paused', recovering: 'Reconnecting …', waiting: 'Paused', closing: 'Ending …', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending …' },
+  voiceMessagesNarrow: { voiceMicDenied: 'Microphone blocked', voiceMicMissing: 'No microphone', voiceAdmissionDenied: 'Unavailable', voiceConflict: 'Call in another tab', voiceDeadline: 'Time limit reached', voiceConnectionFailed: 'Connection failed', voiceRecoveryFailed: 'Reconnect failed', voiceMoved: 'In another tab', voiceClosureUncertain: 'Reconciling costs …', voiceEnded: 'Call ended', voicePauseFailed: 'Pause unconfirmed', voicePlaybackBlocked: 'Sound blocked' },
+  voiceReasonsNarrow: { unavailable: 'Unavailable', consent: 'Consent needed', paused: 'Paused', credits: 'Credits used up', checking: 'Reconciling costs …', off: 'Voice off', setup: 'Not configured', provider: 'Provider unavailable', ended: 'Call ended', permission: 'Permission expired', verification: 'Confirm email', providerLimit: 'Provider limit reached', voiceLimit: 'Voice limit reached', consentWithdrawn: 'Consent withdrawn', consentRevised: 'Consent changed', sessionRevoked: 'Permission withdrawn', cancelled: 'Cancelled', disconnected: 'Connection lost', connectionExpired: 'Connection expired', notSaved: 'Not saved', transcriptFull: 'Transcript full', storageFull: 'Storage full', renderLimit: 'Limit reached', erased: 'Conversation deleted' },
   voiceMicDenied: 'Microphone access denied. Allow access, then retry.', voiceMicMissing: 'No microphone found. Connect one, then retry.',
   voiceAdmissionDenied: 'Voice is unavailable. Check consent and available credits.',
   voiceConflict: 'This conversation already has a call in another tab or window. End it there, or wait a moment and select Retry call.',
@@ -250,7 +253,7 @@ export const en = {
     granted: 'Granted', missing: 'Consent needed', notNeeded: 'Not needed on this device', off: 'Off', on: 'On',
     checkOnStart: 'Check when starting', onOnStart: 'On when starting', notConnected: 'Connect under Settings › Advanced',
     micGranted: `Allowed${reasonSeparator}not yet active`, micDenied: 'Blocked in browser', micPrompt: 'Allow when starting',
-    change: 'Change settings', inputMode: 'Input mode', voice: 'Voice input', type: 'Text input', start: 'Start conversation',
+    change: 'Change settings', inputMode: 'Input mode', textOnly: 'Input: Text', voice: 'Voice input', type: 'Text input', start: 'Start conversation',
   },
   local: {
     title: 'Local', intro: 'Connect an AI model running on the device you are using.', connection: 'Connection', textBadge: 'Text only',
