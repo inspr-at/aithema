@@ -340,7 +340,7 @@ async function checkPhoneVoiceHeader(t, widths) {
       let baseline;
       const capturedShorts = new Map();
       // Full coverage below 600; desktop compares the legacy paint directly.
-      const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
+      const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent' || s.creditCase);
       for (const sample of samples) {
         const short = narrowVoiceStatus(copy, sample.full);
         // Tick's copy-table evidence: each named status, then only new short forms
@@ -358,6 +358,10 @@ async function checkPhoneVoiceHeader(t, widths) {
           if (sample.id === 'low') { rail.state = 'listening'; rail.session = {}; }
           rail.feature = () => sample.kind === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: copy.featureConsent.voice }
             : ['reason', 'unavailable'].includes(sample.kind) ? { available: false, reason: sample.full, rawReason: sample.reason } : { available: true };
+          if (sample.creditCase) {
+            const { applyCreditStatusCase } = await import('/test/voice-status-cases.js');
+            applyCreditStatusCase(rail, sample);
+          }
           rail.render(); rail.waveform.baseline();
           const c = document.querySelector('aithema-session');
           c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
@@ -400,7 +404,7 @@ async function checkPhoneVoiceHeader(t, widths) {
         }, { sample, capture });
         const label = `${width}-${theme}-${locale}-${sample.id}`;
         assert.equal(geometry.accessibleName, sample.full, `${label}: accessible name keeps full sentence`);
-        assert.equal(geometry.live, ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id) ? 'off' : 'polite', `${label}: existing live-region policy`);
+        assert.equal(geometry.live, (sample.creditCase ? sample.exhausted : ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id)) ? 'off' : 'polite', `${label}: existing live-region policy`);
         assert.equal(geometry.text, sample.full + (sample.kind === 'consent' ? `\u00a0· ${copy.featureConsent.action}` : ''), `${label}: live announcement keeps full sentence`);
         if (width < 600) {
           assert.equal(geometry.font, geometry.captionFont, `${label}: existing phone type scale`);
@@ -412,13 +416,13 @@ async function checkPhoneVoiceHeader(t, widths) {
           assert.ok(geometry.lines.every(line => !/^·|·$/u.test(line.trim())), `${label}: no dangling separator`);
           baseline ??= geometry.boxes; assert.deepEqual(geometry.boxes, baseline, `${label}: controls shift 0 px`);
         }
-        const name = `ait302-${label}.png`;
+        const name = `${sample.creditCase ? 'ait310' : 'ait302'}-${label}.png`;
         if (width < 600 && capture) {
           await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
           capturedShorts.set(short, name);
         }
         if (width >= 600) {
-          assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
+          if (sample.id === 'consent') assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
           const before = await stableViewport(`${label}/current`);
           if (width !== 600 && evidence) await writeFile(join(evidence, name), before);
           // Restore precisely the old inline nodes, leaving the accepted desktop CSS untouched.
@@ -441,7 +445,7 @@ async function checkPhoneVoiceHeader(t, widths) {
           }
           assert.ok(after.equals(before), `${label}: byte-identical legacy desktop viewport`);
         }
-        const passLine = `PASS AIT-302 ${head} ${label}: ${width < 600 ? '<=2 lines; no separator at line edges; controls shift 0 px; short <=22 characters' : 'byte-identical legacy desktop viewport'}; full accessible name and live announcement`;
+        const passLine = `PASS ${sample.creditCase ? 'AIT-310' : 'AIT-302'} ${head} ${label}: ${width < 600 ? '<=2 lines; no separator at line edges; controls shift 0 px; short <=22 characters' : 'byte-identical legacy desktop viewport'}; full accessible name and live announcement`;
         passLines.push(passLine);
         checks.push({ label, pass: true, passLine, lines: geometry.lines, layoutShiftPx: 0,
           accessibleName: geometry.accessibleName, liveText: geometry.text,
@@ -452,6 +456,8 @@ async function checkPhoneVoiceHeader(t, widths) {
       passLines.push(pass); t.diagnostic(pass);
     }
   }
+  if (evidence && widths[0] < 600) await writeFile(join(evidence, 'ait310-checks.json'), JSON.stringify({ ticket: 'AIT-310', head, testedCommit: evidenceCommit, capture: 'viewport', reducedMotion: true,
+    passLines: passLines.filter(line => line.startsWith('PASS AIT-310 ')), checks: checks.filter(check => check.passLine.startsWith('PASS AIT-310 ')) }, null, 2));
   if (evidence) await writeFile(join(evidence, widths[0] < 600 ? 'ait302-checks.json' : 'ait302-desktop-checks.json'), JSON.stringify({ ticket: 'AIT-302', head, testedCommit: evidenceCommit, capture: 'viewport', reducedMotion: true, passLines, checks }, null, 2));
 }
 
