@@ -4,6 +4,30 @@ const hash = value => createHash('sha256').update(JSON.stringify(value)).digest(
 const refused = reason => { throw new PluginError('not-admitted', reason); };
 const paid = operation => operation.attempts.some(attempt => attempt.attemptId);
 
+/** Speech operations share the budget row's atomic boundary. Persist only scope
+ * and cost evidence here, never PCM, transcripts, credentials or request text. */
+export function createVoiceComponentStore(storage) {
+  const db = storage.db;
+  const get = attemptId => {
+    const row = db.prepare('SELECT component_json FROM budget_attempts WHERE attempt_id=?').get(attemptId);
+    return row?.component_json ? JSON.parse(row.component_json) : null;
+  };
+  return {
+    get,
+    attach(attemptId, component) {
+      db.prepare('UPDATE budget_attempts SET component_json=? WHERE attempt_id=? AND component_json IS NULL')
+        .run(JSON.stringify({ ...component, observedMicro: 0 }), attemptId);
+    },
+    observe(attemptId, upstreamMicro) {
+      const result = db.prepare(`UPDATE budget_attempts SET component_json=json_set(component_json,'$.observedMicro',
+        MAX(json_extract(component_json,'$.observedMicro'),?)) WHERE attempt_id=? AND component_json IS NOT NULL`)
+        .run(upstreamMicro, attemptId);
+      if (!result.changes) refused('component-not-admitted');
+      return get(attemptId);
+    },
+  };
+}
+
 /** Private durable operations. Reply bytes use the ordinary erasable content store. */
 export function createVoiceOperationStore(storage) {
   const db = storage.db;

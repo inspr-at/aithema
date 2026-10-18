@@ -310,6 +310,16 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   const buildVoiceRequest = (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, purposePolicy, hostPrompt,
     offTopicTurns: storage.safeguards(session.id).offTopicTurns });
   const callbackOperations = { secrets, staticSecretRef, presentation, timeoutMs: turnTimeoutMs, log,
+    async admitComponent(request) {
+      if (!await callbackOperations.authorizeComposition(request, request)) throw new PluginError('not-admitted');
+      const entry = calls.get(request.callId);
+      if (request.epoch !== entry.call?.snapshot().epoch) throw new PluginError('not-admitted');
+      const admission = await runtime.admitVoiceComponent(request), consume = admission.attempt.consume;
+      return { ...admission, attempt: { ...admission.attempt, async consume() {
+        if (!await callbackOperations.authorizeComposition(request, request)) throw new PluginError('not-admitted');
+        await consume();
+      } } };
+    },
     async authorizeComposition(request, options) {
       const entry = calls.get(request.callId);
       if (!entry || entry.closing || request.sessionId !== entry.sessionId ||

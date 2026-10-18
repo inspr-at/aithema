@@ -25,7 +25,7 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
         JSON.stringify(part.legal.countries) !== '["US"]' || part.legal.processingCountries !== undefined)) {
         unavailable = 'Grok requires voice-xai v1 direct-recipient binding';
       } else if (!binding || binding.plugin !== 'grok-voice' || binding.model !== 'grok-voice' ||
-        binding.maxMicro !== 0 || binding.upstreamMicroPerMinute !== 0 || binding.visitorMicroPerMinute !== 0 ||
+        binding.maxMicro !== 0 || binding.upstreamMicroPerMinute !== 0 ||
         [binding, ...['stt', 'tts'].map(role => componentBindings?.[role])].some((part, index) =>
           !part || part.plugin !== 'grok-voice' || part.accountRef !== config.accountRef || part.secretRef !== config.secretRef ||
           part.endpoint !== config.endpoint || index && part.model !== ['grok-voice-transcribe-2.0', 'grok-voice-tts'][index - 1])) {
@@ -42,7 +42,7 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
       return { available: false, reason: 'Invalid Grok Voice private configuration (private ZDR/DPA account evidence required)' };
     }
     const available = enabled && typeof resolveSecret === 'function' && typeof connect === 'function' &&
-      typeof admitComponent === 'function' && typeof storage?.saveVoiceCall === 'function';
+      typeof storage?.saveVoiceCall === 'function';
     return { available, reason: available ? 'not yet qualified in live use' : 'Grok components unavailable' };
   }
   const composed = createComposedVoice({ enabled, config: binding?.adapterConfig ?? {}, binding, storage,
@@ -53,7 +53,10 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
     replyExecutor: { execute: (envelope, options) => authority.replyExecutor.execute(envelope, options) },
     admitComponent: async request => {
       if (!authority || !await authority.authorize(request, request)) throw new PluginError('not-admitted');
-      return admitComponent({ ...request, binding: componentBindings[request.role] });
+      const maxMicro = request.role === 'stt'
+        ? Math.ceil(request.request.maxDurationMs / 3_600_000 * config.streamingMicroPerHour)
+        : Math.ceil([...request.request.text].length * config.ttsMicroPerMillionCharacters / 1_000_000);
+      return (admitComponent ?? authority.admitComponent)({ ...request, maxMicro, binding: componentBindings[request.role] });
     } });
   const adapter = Object.freeze({ ...composed.ports.serverAdapter,
     processingScopes: () => unavailable ? [] : scopes(),

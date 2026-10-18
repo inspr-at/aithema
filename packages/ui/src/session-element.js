@@ -2373,7 +2373,7 @@ export class AithemaSession extends HTMLElement {
       this.receive(event);
       const voiceText = voiceSession && voiceSession === this.#rail.session && event.data.voiceCallId === voiceSession.callId;
       if (voiceText) {
-        await this.#rail.sendText(content);
+        await this.#rail.sendText(content, { deliveryId: this.#pending.clientEventId });
         if (sessionId !== this.#session.id) return;
       }
       if (!option && input.value === content) input.value = '';

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
 import { startChild } from '../helpers.js';
+
+const chromeSandboxArgs = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [];
+const evidence = process.env.AITHEMA_EVIDENCE_DIR;
 
 test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery', { timeout: 90_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'composed-browser-'));
@@ -14,7 +17,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   t.after(async () => { await browser?.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
-      '--autoplay-policy=no-user-gesture-required', ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])] });
+      '--autoplay-policy=no-user-gesture-required', ...chromeSandboxArgs] });
   const context = browser.defaultBrowserContext(); await context.overridePermissions(fixture.url, ['microphone']);
   const page = await browser.newPage(), problems = [], external = [];
   await page.setViewport({ width: 1100, height: 760 });
@@ -122,7 +125,6 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
     try { const unexpected = await createPCMCapture()({ onAudio() {} }); unexpected.stop(); return 'unexpected-grant'; } catch (error) { return error.name; }
   });
   assert.equal(permission, 'NotAllowedError'); assert.deepEqual(external, []); assert.deepEqual(problems, []);
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) {
     await mkdir(evidence, { recursive: true });
     const report = { physical, immediate, pause, permission, latePermission, grok, external, problems };
@@ -136,4 +138,154 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
     await page.mouse.move(-10, -10);
     await page.screenshot({ path: join(evidence, 'ait-160-physical-media.png'), fullPage: false });
   }
+});
+
+// AIT-348 uses the real composer/rail with the supported Grok browser factory.
+// Media/transport are synthetic; this fixture has no provider ports or credentials.
+test('AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'grok-lifecycle-ui-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: chromeSandboxArgs });
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  const page = await browser.newPage(), problems = [], sent = [], checks = [];
+  page.on('pageerror', error => problems.push(error.message));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', async request => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/(?:packages\/server\/src\/composed|plugins\/grok-voice\/src)\/[a-z-]+\.js$/u.test(path)) {
+      return request.respond({ status: 200, contentType: 'text/javascript', body: await readFile(new URL('../..' + path, import.meta.url), 'utf8') });
+    }
+    if (path.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: '{}' });
+    if (path.endsWith('/turns') && request.method() === 'POST') {
+      const body = JSON.parse(request.postData()); sent.push(body);
+      const seq = await page.evaluate(() => document.querySelector('aithema-session').session.seq + 1);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'turn.final', seq,
+        data: { id: 'fixture-typed', role: 'user', content: body.content, at: '2026-10-18T20:00:00Z',
+          voiceCallId: body.voiceCallId, voiceProviderId: body.providerSessionId } }) });
+    }
+    return request.continue();
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  await page.select('#theme', 'light');
+  await page.evaluate(async () => {
+    const map = document.createElement('script'); map.type = 'importmap'; map.textContent = JSON.stringify({ imports: {
+      '@inspr/aithema-core/invocation': '/packages/core/src/invocation.js',
+      '@inspr/aithema-core/live-voice': '/packages/core/src/live-voice.js',
+      '@inspr/aithema-core/plugins': '/packages/core/src/plugins.js',
+      '@inspr/aithema-core/voice-lifecycle-controller': '/packages/core/src/voice-lifecycle-controller.js',
+      '@inspr/aithema-server/composed-voice/client': '/packages/server/src/composed/client.js',
+      '@inspr/aithema-server/composed-voice/network-client': '/packages/server/src/composed/network-client.js',
+      '@inspr/aithema-server/composed-voice/browser-audio': '/packages/server/src/composed/browser-audio.js',
+    } }); document.head.append(map);
+    const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+    const render = AudioRail.prototype.render;
+    AudioRail.prototype.render = function () { window.ait348Rail = this; return render.call(this); };
+    const { createGrokVoiceClient, manifest } = await import('/plugins/grok-voice/src/client.js');
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+    const c = document.querySelector('aithema-session'), session = structuredClone(c.session);
+    session.locale = 'de'; session.settings.origin = 'chosen'; session.settings.voice = 'grok-voice';
+    session.engine.voice = { id: 'grok-voice', label: 'Grok Voice (xAI)', offered: true };
+    session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'images', 'html'].map(key => [key, { available: true, reason: null }]));
+    session.transcript = [{ id: 'fixture-user', role: 'user', content: 'Ich möchte eine Website.' }];
+    window.ait348Typed = []; const until = Date.now() + 120000;
+    const grant = { callId: 'fixture-call', providerSessionId: 'fixture-generation', expiresAt: until,
+      opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } };
+    let finish;
+    const client = createGrokVoiceClient({ control: {
+      start: async () => ({ ...grant, epoch: 1, mediaGrant: grant }), recover() { throw new Error('offline fixture'); },
+      pause: async () => ({ acknowledged: true, paused: true }), resume: async () => ({ acknowledged: true, paused: false }),
+      heartbeat: async () => ({ acknowledged: true, browserLivenessDeadlineAt: until }), close: async () => { finish?.({ done: true }); },
+    }, capture: async () => ({ stop() {}, audioLevel: () => 0 }), player: { play() {}, stop() {}, retry() {}, audioLevel: () => 0 },
+    openRelay: async () => ({ frames: { [Symbol.asyncIterator]() { return this; }, next: () => new Promise(resolve => { finish = resolve; }) },
+      command(name, text, opts) { if (name === 'sendText') window.ait348Typed.push({ text, opts }); return Promise.resolve({ acknowledged: true }); },
+      disconnect() { finish?.({ done: true }); } }) });
+    c.configure({ copy, session, voiceClient: client, voicePresentation: manifest.presentation });
+    window.ait348Session = await client.start({ callId: grant.callId });
+    const rail = window.ait348Rail; rail.session = window.ait348Session; rail.state = 'listening'; rail.render();
+    window.ait348State = state => {
+      rail.session = state === 'failure-mic' ? null : window.ait348Session;
+      rail.state = state === 'failure-mic' ? 'failed' : state === 'failure-playback' ? 'listening' : state;
+      rail.paused = state === 'paused'; rail.playbackBlocked = state === 'failure-playback';
+      rail.errorKey = state === 'failure-mic' ? 'voiceMicDenied' : state === 'failure-playback' ? 'voicePlaybackBlocked' : null;
+      rail.render(); rail.waveform.baseline();
+    };
+    document.documentElement.lang = 'de'; scrollTo(0, 0);
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const width of [1440, 390]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.evaluate(() => window.ait348State('listening'));
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    let baseline;
+    for (const state of ['listening', 'speaking', 'paused', 'recovering', 'failure-mic', 'failure-playback']) {
+      const observed = await page.evaluate(async state => {
+        const root = document.querySelector('aithema-session').shadowRoot, input = root.querySelector('textarea');
+        input.focus({ preventScroll: true }); window.ait348State(state);
+        await document.fonts.ready;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const focus = root.activeElement === input;
+        input.blur();
+        await Promise.all(root.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        const selectors = ['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', 'textarea', '.send'];
+        const boxes = Object.fromEntries(selectors.map(selector => {
+          const r = root.querySelector(selector).getBoundingClientRect(); return [selector, [r.x, r.y, r.width, r.height]];
+        }));
+        return { boxes, focus, placeholder: input.placeholder, status: root.querySelector('.voice-state').getAttribute('aria-label'),
+          expected: state === 'failure-mic' ? window.ait348Rail.copy.voiceMicDenied : state === 'failure-playback' ? window.ait348Rail.copy.voicePlaybackBlocked : window.ait348Rail.copy.voiceStates[state] };
+      }, state);
+      baseline ??= observed.boxes;
+      assert.deepEqual(observed.boxes, baseline, `${width} ${state}: 0 px control movement`);
+      assert.equal(observed.focus, true, `${width} ${state}: composer focus retained`);
+      assert.equal(observed.status, observed.expected, `${width} ${state}: existing ElevenLabs copy`);
+      checks.push({ width, state, movementPx: 0, ...observed });
+      await page.mouse.move(-1, -1);
+      if (evidence) await page.screenshot({ path: join(evidence, `ait348-${width}-light-de-${state}.png`), fullPage: false });
+    }
+  }
+  await page.evaluate(() => window.ait348State('listening'));
+  await page.evaluate(() => {
+    const root = document.querySelector('aithema-session').shadowRoot, input = root.querySelector('textarea');
+    input.value = 'Ja, bitte als Text.'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    root.querySelector('form').requestSubmit();
+  });
+  await page.waitForFunction(() => window.ait348Typed.length === 1 && !document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value);
+  const typed = await page.evaluate(() => ({ delivery: window.ait348Typed[0],
+    composer: document.querySelector('aithema-session').shadowRoot.querySelector('textarea').placeholder,
+    persisted: document.querySelector('aithema-session').session.transcript.some(turn => turn.id === 'fixture-typed' && turn.content === 'Ja, bitte als Text.') }));
+  assert.equal(typed.delivery.text, 'Ja, bitte als Text.'); assert.equal(sent.length, 1);
+  assert.equal(sent[0].voiceCallId, 'fixture-call'); assert.equal(typed.delivery.opts.epoch, 1);
+  assert.ok(typed.delivery.opts.deliveryId); assert.equal(typed.persisted, true);
+  await page.evaluate(() => { const root = document.querySelector('aithema-session').shadowRoot; root.activeElement?.blur(); });
+  await page.mouse.move(-1, -1);
+  await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+  if (evidence) {
+    await page.screenshot({ path: join(evidence, 'ait348-390-light-de-typed-sent.png'), fullPage: false });
+    await writeFile(join(evidence, 'ait348-checks.json'), JSON.stringify({ ticket: 'AIT-348', qualification: 'not yet qualified in live use',
+      transport: 'synthetic', providerCalls: 0, checks, typed, problems }, null, 2));
+  }
+  const visibility = await page.evaluate(async () => {
+    const rail = window.ait348Rail;
+    dispatchEvent(new Event('blur'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const blurredVisibleContinues = !rail.paused;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const hiddenHeld = rail.paused && window.ait348Session.audioLevels().input === 0;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return { blurredVisibleContinues, hiddenHeld, remainsHeldWhenVisible: rail.paused };
+  });
+  assert.deepEqual(visibility, { blurredVisibleContinues: true, hiddenHeld: true, remainsHeldWhenVisible: true });
+  if (evidence) {
+    const file = join(evidence, 'ait348-checks.json'), report = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...report, visibility }, null, 2));
+  }
+  assert.deepEqual(problems, []);
+  await page.evaluate(() => window.ait348Session.close());
 });
