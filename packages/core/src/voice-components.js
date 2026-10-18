@@ -55,7 +55,8 @@ export class VoiceCompositionError extends TypeError {
 /** Offline preflight only: negotiation and optional voice validation must never
  * consume claims, resolve credentials or access transports. No synthesis probes.
  * Requested languages are a preference set; at least one must be shared. */
-export async function preflightVoiceComposition({ stt, tts, capture, playback, languages, voice, capabilities } = {}, options = {}) {
+export async function preflightVoiceComposition(configuration = {}, options = {}) {
+  const { stt, tts, capture, playback, languages, voice, capabilities } = configuration ?? {};
   const fail = (code, message, cause) => { throw new VoiceCompositionError(code, message, cause ? { cause } : undefined); };
   for (const [role, component, check] of [['stt', stt, assertSTTComponent], ['tts', tts, assertTTSComponent]]) {
     try { check(component); }
@@ -75,7 +76,7 @@ export async function preflightVoiceComposition({ stt, tts, capture, playback, l
     try { if (tts.validateVoice(voice) !== true) fail('composition-voice-invalid', 'TTS voice policy rejected the configured voice'); }
     catch (error) { fail('composition-voice-invalid', 'TTS voice policy rejected the configured voice', error); }
   }
-  const selected = capabilities ?? { ...ceiling, languages: shared };
+  const selected = capabilities === undefined ? { ...ceiling, languages: shared } : capabilities;
   if (!selected || typeof selected !== 'object' || Object.keys(selected).some(key => !['languages', 'streaming', 'partialTranscripts', 'heardPrefix'].includes(key)) ||
     !validLanguages(selected.languages) || !selected.languages.length || selected.languages.some(language => !shared.some(other => language.toLowerCase() === other.toLowerCase())) ||
     !selected.streaming || Object.keys(selected.streaming).some(key => !['stt', 'tts'].includes(key)) ||

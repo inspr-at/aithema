@@ -23,6 +23,54 @@ playback synchronously and cancels TTS while admitted reasoning remains intact.
 Pause revokes current media/work until authorization and acknowledgement permit
 resume. Lease expiry waits; the independent spend deadline remains absolute.
 
+### AIT-328: offline composition preflight
+
+`preflightVoiceComposition` is exported from `@inspr/aithema-core/voice-components`
+with matching TypeScript declarations. Supply `stt`, `tts`, the actual `capture`
+and `playback` audio formats, a requested `languages` preference set, a saved
+`voice` identifier, and optionally a complete composition `capabilities` declaration.
+It returns a promise of the checked formats, voice, and effective capabilities.
+At least one requested language must be supported by both components; matching
+is case insensitive. Omitted capabilities select the component ceiling restricted
+to those shared requested languages. Explicit capabilities may reduce that ceiling,
+and cannot introduce extra capability keys, languages, streaming, partials or alignment.
+Alignment remains an upper bound requiring trusted playback confirmation.
+
+Voice identifiers must be nonblank, trimmed strings without control characters.
+Components may declare an offline `capabilities.voices` allowlist and/or a synchronous
+`validateVoice(id)` policy; preflight enforces both when present. These validate
+configuration without claiming that a remote voice catalog is available or qualified.
+A later component package must declare any additional voice restrictions through
+these hooks. Negotiation offers exactly the host format and verifies encoding,
+sample rate and channel count in the returned format. Negotiation and voice policy
+must be offline and cannot consume claims, resolve secrets or open transports.
+Negotiation has a one-second default deadline; callers can supply cancellation and
+an absolute deadline through the second argument.
+
+| Check | Stable error code |
+| --- | --- |
+| STT contract | `composition-stt-invalid` |
+| TTS contract | `composition-tts-invalid` |
+| Capture/STT negotiation | `composition-capture-format` |
+| TTS/playback negotiation | `composition-playback-format` |
+| Requested language syntax | `composition-languages-invalid` |
+| Empty shared requested languages | `composition-languages-empty` |
+| Missing or rejected voice | `composition-voice-invalid` |
+| Malformed or overstated composition capabilities | `composition-capabilities-exceeded` |
+
+Cancellation and deadline errors retain `cancelled` and `deadline`.
+
+`configureComposedComponents` keeps its synchronous factory API and exposes a
+`preflight` promise. It starts the check after building the configured ports.
+Authorization and guarded component operations await that same promise, and
+`createComposedVoice.start` awaits it before consuming the parent claim. Factory
+construction itself must remain offline. The host may inject a `componentFactories`
+registry and an explicit `composition` object with all the preflight settings above
+(except the ports, which always come from the selected factories). Without that
+object, settings use the current host's PCM16 mono 16 kHz capture, existing selected
+playback format, current host languages, and the selected saved voice. The installed
+live-voice agent and its factory are outside this path.
+
 ### AIT-258: eager provider reader and bounded reply playback
 
 The server drains each `tts.speak()` eagerly into one owned queue per reply.
