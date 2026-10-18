@@ -70,7 +70,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
           visitorDurationSource: 'aithema-measured',
           costSource: 'separate-component-claims', costEstimated: false } };
     }
-    function close(reason = 'closed', outcome = 'completed') {
+    function close(reason = 'closed', outcome = reason === 'closed' ? 'completed' : 'cancelled') {
       if (closing) return closing;
       const flight = Promise.withResolvers(); closing = flight.promise;
       coordinator.signal.removeEventListener('abort', cancel);
@@ -110,7 +110,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
         record = next; return { acknowledged: true, paused };
       });
     }
-    const segment = { ...coordinator, signal: coordinator.signal, providerSessionId, grant: relay.grant,
+    const segment = { ...coordinator, get state() { return coordinator.state; }, signal: coordinator.signal, providerSessionId, grant: relay.grant,
       spendDeadlineAt: end, browserLivenessDeadlineAt: record.browserLivenessDeadlineAt, close,
       snapshot: () => structuredClone({ ...record, ...coordinator.snapshot() }),
       pause: opts => hold(true, opts), resume: opts => hold(false, opts),

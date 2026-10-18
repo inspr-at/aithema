@@ -18,6 +18,7 @@ for (const locale of ['de', 'en']) test(`AIT-349: ${locale} joined public sessio
   const stt = createGrokSTT({ enabled: true, config, resolveSecret: () => 'synthetic-only', connect: sttWire.connect });
   const tts = createGrokTTS({ enabled: true, config, resolveSecret: () => 'synthetic-only', connect: ttsWire.connect });
   const answer = locale === 'de' ? 'Die vollständige Antwort bleibt erhalten.' : 'The complete reply remains in the transcript.';
+  let relayClosed = true;
   let starts = 0, segment, inputOn = true, captureStops = 0, stops = 0, plays = 0, replyNo = 0;
   const liveManifest = { ...manifest, kinds: ['live-voice'], models: manifest.models.filter(m => m.operations.includes('start')) };
   const server = createComposedVoice({ enabled: true, storage, stt, tts, manifest: liveManifest, authorize: () => true,
@@ -39,7 +40,13 @@ for (const locale of ['de', 'en']) test(`AIT-349: ${locale} joined public sessio
         turnId: `${envelope.payload.providerSessionId}:${replyId}`, text: answer });
       yield { type: 'completion', replyId, text: answer };
     } } });
-  const media = createComposedBrowserMedia({ openRelay: grant => server.connectRelay(grant),
+  const media = createComposedBrowserMedia({ async openRelay(grant) {
+    const transport = await server.connectRelay(grant); relayClosed = false;
+    const frames = transport.frames;
+    return { ...transport, frames: { [Symbol.asyncIterator]() { return this; }, async next() {
+      const item = await frames.next(); if (item.done) relayClosed = true; return item;
+    }, return: () => frames.return() } };
+  },
     capture: async () => { inputOn = true; return { stop() { inputOn = false; captureStops++; } }; },
     player: { play() { plays++; }, stop() { stops++; } } });
   const plugin = { manifest: liveManifest, health: server.health, async start(request, options) {
@@ -60,7 +67,10 @@ for (const locale of ['de', 'en']) test(`AIT-349: ${locale} joined public sessio
   });
   const result = await liveVoiceConformance(plugin, { callId: `joined-${locale}` }, { parentMaxMicro: 0, timeoutMs: 2000,
     requestCount: () => starts, persistedEvents,
-    providerOpen: () => segment?.state.state !== 'ended' || sttWire.fixtures.activeCount() + ttsWire.fixtures.activeCount() !== 0,
+    async providerOpen() {
+      await new Promise(resolve => setImmediate(resolve));
+      return !relayClosed || inputOn || sttWire.fixtures.activeCount() + ttsWire.fixtures.activeCount() !== 0;
+    },
     async probe(command, session, { phase, before } = {}) {
       if (phase === 'before') return { stops, captureStops, context: segment.snapshot().context, played: plays };
       if (command === 'sendText') await segment.idle();

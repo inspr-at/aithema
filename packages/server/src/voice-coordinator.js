@@ -57,10 +57,12 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   const replies = new Set();
   let interruptionTail = Promise.resolve();
   function persistInterruption(reply) {
-    if (!reply.interrupted || !reply.id || reply.persisted) return;
+    if (tts.capabilities?.heardPrefix !== 'unavailable' || !reply.interrupted || !reply.id || reply.persisted) return;
     reply.persisted = true;
-    const saved = Promise.resolve(commitUtterance(reply.envelope, { ...options(revocation.signal),
-      role: 'interrupted', replyId: reply.id, heardLength: 'unknown' }));
+    let saved;
+    try { saved = Promise.resolve(commitUtterance(reply.envelope, { ...options(revocation.signal),
+      role: 'interrupted', replyId: reply.id, heardLength: 'unknown' })); }
+    catch (error) { saved = Promise.reject(error); }
     interruptionTail = Promise.all([interruptionTail, saved]).then(() => {});
     interruptionTail.catch(error => failTurn(error, revocation.signal));
   }

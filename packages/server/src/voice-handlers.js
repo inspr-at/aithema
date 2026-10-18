@@ -334,7 +334,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (envelope?.source !== 'server-coordinator') throw new PluginError('not-admitted');
       const { sessionId, callId, providerSessionId, callbackBody } = envelope.payload;
       const entry = calls.get(callId), fresh = sessionFor(entry);
-      if (entry.closing || entry.sessionId !== sessionId || entry.call?.providerSessionId !== providerSessionId || fresh.paused) throw new PluginError('not-admitted');
+      if (entry.sessionId !== sessionId || entry.call?.providerSessionId !== providerSessionId || fresh.paused) throw new PluginError('not-admitted');
       if (options.role === 'interrupted') {
         const result = storage.postVoiceEvent(sessionId, callId, providerSessionId, { type: 'interrupted', callId,
           providerSessionId, turnId: `${providerSessionId}:${options.replyId}`, heardLength: 'unknown' },
@@ -342,6 +342,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (!result.replayed) publish(sessionId, result.event);
         return result;
       }
+      if (entry.closing) throw new PluginError('not-admitted');
       const role = options.role ?? 'user', text = role === 'assistant' ? options.text : callbackBody.messages.at(-1)?.content;
       const turnId = `${providerSessionId}:${role === 'assistant' ? options.replyId : callbackBody.metadata?.utteranceId}`;
       const result = storage.postVoiceEvent(sessionId, callId, providerSessionId,

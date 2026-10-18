@@ -77,7 +77,10 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
             events.push(frame.event);
           }
         }
-        if (!stopped && source === transport) await lifecycle.recover();
+        if (!stopped && source === transport) {
+          if (now() >= lifecycle.state.spendDeadlineAt) await session.close({ reason: 'spend-deadline' });
+          else await lifecycle.recover();
+        }
       } catch (error) {
         if (!stopped && source === transport) {
           if (error?.code === 'deadline') await session.close({ reason: 'spend-deadline' });

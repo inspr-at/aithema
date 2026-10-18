@@ -13,9 +13,9 @@ import { ttsHarness } from './tts-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const pcm = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 
-function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0 } = {}) {
+function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0, ttsMode = 'completed' } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'owner' });
-  const voice = binding(), stt = sttHarness(), tts = ttsHarness(), consumed = [], reports = [], coverage = [], played = [], persisted = [];
+  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode }), consumed = [], reports = [], coverage = [], played = [], persisted = [];
   const budget = new SQLiteBudgetLedger(storage), accounting = createComposedComponentAccounting({ storage, budget });
   voice.visitorMicroPerMinute = visitorMicroPerMinute;
   const reasoning = { plugin: 'fixture-reasoning', model: 'admitted-answer', endpoint: 'https://reasoning.test',
@@ -135,4 +135,27 @@ test('AIT-346: withdrawal fences queued output and stops browser media', async t
   for (let i = 0; i < 15; i++) await tick();
   assert.equal(h.played.length, 0); assert.ok(h.captureStops > 0); assert.ok(h.stops > 0);
   await session.close().catch(() => {});
+});
+
+
+test('AIT-349: real Grok chain interrupts synthesis locally, persists full reply once, and recovers with model awareness', async t => {
+  const h = fixture(t, { ttsMode: 'stalled-after-audio' });
+  const session = await h.client.start({ callId: 'truthful-chain' }, { deadlineAt: Date.now() + 5000 });
+  t.after(() => session.close().catch(() => {}));
+  await h.audio(pcm()); await h.audio(Buffer.alloc(16000));
+  for (let i = 0; i < 200 && !h.played.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(h.played.length, 1);
+  const before = h.stops, interrupt = session.interrupt();
+  assert.ok(h.stops > before, 'browser silence precedes remote acknowledgement');
+  await interrupt; await session.interrupt();
+  for (let i = 0; i < 15; i++) await tick();
+  const reply = h.storage.get(h.session.id).transcript.find(turn => turn.role === 'assistant');
+  assert.equal(reply.content, 'Which company?'); assert.deepEqual(reply.interruption, { heardLength: 'unknown' });
+  assert.equal(h.persisted.filter(event => event.type === 'voice.interrupted').length, 1);
+  const original = session.providerSessionId;
+  await session.pause(); await session.resume();
+  assert.notEqual(session.providerSessionId, original);
+  assert.deepEqual(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).interruption, { heardLength: 'unknown' });
+  assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
+  assert.equal(h.played.length, 1, 'recovery never replays old synthesis');
 });
