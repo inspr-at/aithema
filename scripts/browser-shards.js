@@ -112,6 +112,14 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 13);
 
+// AIT-351: stacking #314/#315 retains all four tests. PR #316 CI
+// 39175441154 at b7fa21db passed 4/4: 1.214326536 + 3.040660964 +
+// 2.783250456 + 7.988266255 = 15.026504211s; ceil(*1.25) = 19s.
+// Source: browser-timings-2-of-7/batch-0.jsonl; the browser file is
+// byte-identical at 60bd1706. No shard count, ceiling or name changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 19);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
