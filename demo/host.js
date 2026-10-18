@@ -37,9 +37,11 @@ function paintDemoLegal() {
   for (const [id, full, short] of [['demo-license', slots.license, slots.licenseShort], ['demo-legal-source', slots.legalSource, slots.legalSourceShort]]) {
     const link = document.getElementById(id);
     if (!link) continue;
-    const visible = narrowLegal.matches ? short : full;
     link.setAttribute('aria-label', full); link.title = full;
-    if (id === 'demo-license') paintLicenseLabel(link, visible, narrowLegal.matches ? short : undefined); else link.textContent = visible;
+    if (narrowLegal.matches) {
+      const label = document.createElement('span'); label.className = 'demo-legal-short'; label.textContent = short;
+      link.replaceChildren(label);
+    } else if (id === 'demo-license') paintLicenseLabel(link, full); else link.textContent = full;
   }
 }
 // The page always speaks the current conversation's language.

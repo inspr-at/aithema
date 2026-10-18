@@ -155,12 +155,13 @@ browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
 // evidence: 11.498745042s + 9.048550042s + 15.648984333s = 36.196279417s.
 // Preserve the existing 48.544s trusted-main floor and add the new phone
 // matrix's observed work with 25% margin: ceil(48.544 + 11.498745042*1.25)
-// = 63s. The display file only reads full legal names from aria-label instead
-// of textContent; retain its existing 251.330s floor with no workload removed.
+// = 63s. PR CI 39120378507 at c12e5bbb, shard 1/7, also passed all 19
+// display tests: 205.342187533s; ceil(observed * 1.25) = 257s. Retain that
+// floor for the unchanged full-wording assertions' accessible-name extraction.
 // PR/remote samples remain diagnostic, outside trusted rolling-main history.
 for (const [file, seconds] of Object.entries({
   'test/browser/footer-width-sweep.test.js': 63,
-  'test/browser/start2-display.test.js': 251.330,
+  'test/browser/start2-display.test.js': 257,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.

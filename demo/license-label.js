@@ -1,6 +1,6 @@
 // Keep the SPDX identifier atomic while the translated prefix can wrap.
-export function paintLicenseLabel(link, value, identifier = 'AGPL-3.0-only') {
-  const start = value.indexOf(identifier);
+export function paintLicenseLabel(link, value) {
+  const identifier = 'AGPL-3.0-only', start = value.indexOf(identifier);
   if (start < 0) { link.textContent = value; return; }
   const label = link.ownerDocument.createElement('span');
   const token = link.ownerDocument.createElement('span');
