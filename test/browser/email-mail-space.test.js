@@ -214,8 +214,6 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
       });
       const check = async state => {
         const temporarilyOpen = await shadow(page, c => { const r = c.shadowRoot, closed = !r.querySelector('dialog.settings').open; if (closed) c.openSettings(undefined, { tab: 'general', anchor: '#email' }); const body = r.querySelector('.settings__body'); body.scrollTop = body.scrollHeight; return closed; });
-        // Temporary sensitivity proof; removed after the remote red run.
-        if (label === 'en-light-390' && state === 'mail-failed') await shadow(page, c => { c.shadowRoot.querySelector('.operator-section').style.transform = 'translateY(1px)'; });
         await settleSettings(page); const after = await geometry(page);
         const shift = Math.max(...before.boxes.flatMap((box, i) => box.map((v, j) => Math.abs(v - after.boxes[i][j]))));
         if (shift !== 0) t.diagnostic(`Settings shift: ${JSON.stringify({ before: before.boxes, after: after.boxes,
