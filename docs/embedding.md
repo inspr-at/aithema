@@ -1513,8 +1513,91 @@ resample, frame audio or pace playback. `TTS_MESSAGE_BYTES` (1 MiB decoded),
 are independent ceilings that adapters enforce. Hosts enforce smaller transport
 and playback bounds where needed.
 
-AIT-319 adds reusable conformance kits separately. This API's fake-only unit
-coverage is not provider qualification or evidence of a second released pipeline.
+Run the reusable offline kits from the same core root export as the other
+conformance kits:
+
+```js
+import { sttConformance, ttsConformance } from '@inspr/aithema-core';
+const result = await sttConformance(stt, {
+  audio: new Uint8Array(3200), language: 'en',
+}, {
+  formats: [{ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 }],
+  incompatibleFormats: [[{ encoding: 'unsupported-fixture', sampleRateHz: 1, channels: 99 }]],
+  expectedText: 'Hello',
+  expectedTranscripts: [{ text: 'Hullo', final: false }, { text: 'Hello', final: true }],
+  prepare: ({ operation, mode, request }) => localFixture.select({ operation, mode, request }),
+  requestCount: () => localFixture.dispatches,
+  activeCount: () => localFixture.openResources,
+  observedMicro: () => localFixture.observedUpstreamMicro,
+});
+if (!result.ok) throw new Error(result.failures.join('\n'));
+// TTS uses the same fixture options, plus a synthesis request:
+const speech = await ttsConformance(tts, {
+  text: 'A😀 B', voice: 'fixture-voice', language: 'en',
+}, ttsFixtures);
+```
+
+Both return `{ ok, failures }`, with operation/mode and the violated rule in
+each failure. Inject only local fake transports: the kits do not provide a
+network transport or provider credentials. `prepare` must configure the actual
+component's injected transport before each invocation. Supply `formats` with a
+supported offer and `incompatibleFormats` with nonempty arrays of offers known
+to be unsupported by this provider (including rate/channel mismatches when
+applicable); providers may legitimately support resampling. The kit also tests
+an empty offer. Counters independently
+observe outbound dispatch and open resources, including cancelled requests;
+`observedMicro` returns the highest authoritative cost observed in that case,
+not the component's reported charge. Preparation must reset this observation.
+Do not wrap or repair the component's declarations, events or terminals.
+
+Fixture modes are `completed`, `provider-error`, `retry`, `fragment` (TTS),
+`cancelled`, `deadline`, `consume-refused`, `pending-consume`, `active-cancelled`,
+`active-deadline`, `return` (iterators), `missing-final`, `overflow`,
+`overflow-total` (TTS), `overflow-input` (STT), `overflow-input-total` (STT stream),
+`over-ceiling` and `report-rejected`. Normal modes produce the expected text or
+nonempty audio and authoritative completion evidence. `provider-error` fails
+after dispatch without completion evidence; `retry` then repeats the request
+with fresh authority. `fragment` synthesizes a shorter text with another claim.
+Active fixtures leave a provider read pending and ignore its signal, so the
+component must bound that read and close its resources. `missing-final` ends
+transport without a final; `overflow` supplies oversized transcript/audio;
+`overflow-total` sends individually valid audio chunks past the synthesis total;
+input overflow cases exercise the STT chunk and cumulative byte limits.
+`over-ceiling` supplies usage above a one-micro claim (or rejects before work).
+The kit itself refuses consume or rejects report in the corresponding modes.
+Every other mode uses the normal wire fixture. No mode invokes a live service.
+
+Rules cover offered encoding/rate/channels and free negotiation, replacement
+transcripts with exactly one final and no following event, UTF-16 alignment,
+fresh retry/fragment claims, cancellation/source cleanup, consume before
+outbound work, once-only settlement before exhaustion, deadlines, typed errors,
+and uncertain charge at least `max(maxMicro, observed)`. Default bounds are
+64,000 bytes per STT input chunk, 1,920,000 input bytes per utterance, 32,768 transcript characters, 1 MiB per decoded audio chunk and 16,000,000 audio
+bytes per synthesis; configure `maxInputChunkBytes`, `maxInputBytes`,
+`maxTranscriptCharacters`, `maxChunkBytes` and
+`maxAudioBytes` to the provider's documented smaller limits. `timeoutMs`
+(default 1000, minimum 100) bounds bad fixtures; `maxMicro` defaults to 1,000,000.
+A harness timeout fails conformance and does not prove abandoned work stopped.
+An opened STT source must be exhausted or receive `return()` when abandoned;
+normal exhaustion through `for await` does not require a redundant `return()`.
+Fresh-claim checks observe exactly one consume per supplied attempt, including
+retries and fragments; generating unique fixture IDs alone proves nothing
+about component claim reuse.
+
+For `heardPrefix: 'aligned'`, supply a `playback` fixture with `reset(request)`,
+`deliver(chunk)`, `confirm(cumulativePlayedBytes)` and `heardPrefix()` methods.
+It observes the host playback adapter: delivery must retain the prior prefix,
+a partial chunk confirmation must retain it too, and confirmation of the entire
+chunk may advance to `request.text.slice(0, textEnd)`. Use text with a surrogate
+pair and multiple chunks so the fixture exercises offset boundaries and partial
+playback. Pure synthesis output never establishes heard evidence; a passing
+provider kit alone cannot qualify a host's playback trust boundary.
+
+The fake STT/TTS components pass; deliberately broken fixtures demonstrate each
+rule failing. Source-only Voxtral and ElevenLabs helpers run diagnostically in
+CI and currently fail the required capability declaration check; their full
+failure lists appear in TAP diagnostics. These offline checks do not establish
+provider qualification, live billing, latency or a second released pipeline.
 
 
 ### Core subpath decisions (AIT-202)
