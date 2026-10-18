@@ -114,7 +114,8 @@ export async function demoLegalPhoneCheck(t) {
       }
       for (const [i, link] of state.links.entries()) {
         assert.ok(link.bounds.width >= 44 && link.bounds.height >= 44, `${label}: >=44px target`);
-        assert.equal(link.visible && link.inside && link.textInside && link.unobscured && !link.overlap, true, `${label}: legal visible/unclipped/unobscured/no overlap ${JSON.stringify(link)}`);
+        assert.equal(link.visible && link.inside && link.unobscured && !link.overlap, true, `${label}: legal visible/unobscured/no overlap ${JSON.stringify(link)}`);
+        if (width < 600) assert.equal(link.textInside, true, `${label}: phone text stays inside its target`);
         assert.deepEqual(link.clipping, [], `${label}: no clipping ancestor`);
         assert.equal(link.name, full[i], `${label}: full accessible name`); assert.equal(link.title, full[i], `${label}: full title`);
         const accessible = await page.$(`::-p-aria([name="${full[i]}"][role="link"])`);
@@ -134,7 +135,7 @@ export async function demoLegalPhoneCheck(t) {
           document.querySelector('#ait304-base-css').remove(); [...c.querySelectorAll('#demo-legal a')].forEach((a, i) => { a.innerHTML = original[i]; });
         }, original);
         assert.deepEqual(state.fixed, base.fixed, `${label}: footer geometry unchanged from beb35ba2`);
-        assert.deepEqual(state.links.map(a => [a.text, a.bounds]), base.links.map(a => [a.text, a.bounds]), `${label}: desktop labels/geometry unchanged from beb35ba2`);
+        assert.deepEqual(state.links, base.links, `${label}: desktop labels/geometry/visibility/text extents unchanged from beb35ba2`);
       }
       // Keep the pointer on each actual anchor while hover/focus/theme paints settle.
       for (const [i, link] of state.links.entries()) {
