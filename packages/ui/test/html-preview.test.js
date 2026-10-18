@@ -286,10 +286,47 @@ test('a delayed first load gets its own full 1.5 s readiness ping budget', async
   const element = setup(testDocument()); await render(element, source());
   const frame = element.shadowRoot.querySelector('iframe');
   t.mock.timers.tick(3500);
+  assert.equal(element.state, 'ready', 'network time cannot be classified as navigation');
   assert.equal(element.shadowRoot.querySelector('iframe'), frame, 'a slow route response must survive past 1.5 s');
   if (!frame.contentWindow) { const target = { postMessage() {} }; t.mock.getter(frame, 'contentWindow', () => target); }
   t.mock.method(frame.contentWindow, 'postMessage', () => {}); frame.dispatchEvent(new window.Event('load'));
   t.mock.timers.tick(1499); assert.equal(element.state, 'ready');
   channels[0].port1.onmessage({ data: 'aithema-html-preview-ready' });
   t.mock.timers.tick(60_000); assert.equal(element.state, 'ready'); element.remove();
+});
+
+
+test('only the current frame first message starts a single readiness ping; cleanup retires its listener', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
+  const owner = testDocument(), element = setup(owner); let listener, removed;
+  const host = {
+    addEventListener(type, fn) { assert.equal(type, 'message'); listener = fn; },
+    removeEventListener(type, fn) { assert.equal(type, 'message'); removed = fn; },
+  };
+  t.mock.getter(owner, 'defaultView', () => host);
+  await render(element, source()); const frame = element.shadowRoot.querySelector('iframe');
+  if (!frame.contentWindow) { const target = { postMessage() {} }; t.mock.getter(frame, 'contentWindow', () => target); }
+  t.mock.method(frame.contentWindow, 'postMessage', () => {});
+  const early = listener;
+  early({ isTrusted: false, source: frame.contentWindow }); early({ isTrusted: true, source: {} });
+  assert.equal(channels.length, 0, 'synthetic and foreign messages leave the pre-load budget alone');
+  t.mock.timers.tick(3500); early({ isTrusted: true, source: frame.contentWindow });
+  assert.equal(channels.length, 1);
+  t.mock.timers.tick(1499); assert.equal(element.state, 'ready');
+  frame.dispatchEvent(new window.Event('load')); assert.equal(channels.length, 1, 'load cannot restart a ping begun by a message');
+  channels[0].port1.onmessage({ data: 'aithema-html-preview-ready' });
+  t.mock.timers.tick(30_000); assert.equal(element.state, 'ready', 'readiness clears both phase timers');
+  element.artifact = null; assert.equal(removed, early);
+  early({ isTrusted: true, source: frame.contentWindow }); frame.dispatchEvent(new window.Event('load'));
+  t.mock.timers.tick(30_000); assert.equal(channels.length, 1); assert.equal(element.state, 'empty'); element.remove();
+});
+
+test('a replaced pre-load timer cannot discard a newer generation', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); mockChannels(t);
+  const element = setup(testDocument()); await render(element, source());
+  const oldFrame = element.shadowRoot.querySelector('iframe'); t.mock.timers.tick(29_000);
+  await render(element, source()); const currentFrame = element.shadowRoot.querySelector('iframe');
+  oldFrame.dispatchEvent(new window.Event('load')); t.mock.timers.tick(1000);
+  assert.equal(element.state, 'ready'); assert.equal(element.shadowRoot.querySelector('iframe'), currentFrame);
+  element.remove(); t.mock.timers.tick(30_000); assert.equal(element.shadowRoot.querySelector('iframe'), null);
 });

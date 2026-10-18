@@ -243,6 +243,33 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     assert.equal(await frame.evaluate(() => document.querySelector('#dialog').open), true);
     assert.equal(await state(), 'ready'); routeDelayMs = 0;
   });
+
+  await t.test('AIT-353: a route slower than the capability pre-load budget shows failure without reminting', async () => {
+    routeDelayMs = 3500;
+    await page.goto(`http://127.0.0.1:${port}/`); await page.waitForFunction(() => window.ready === true);
+    const request = page.waitForRequest(r => r.url().includes('/_aithema/html-preview?'));
+    await page.evaluate(html => {
+      window.mintCalls = 0;
+      document.querySelector('aithema-html-preview').artifact = { mediaType: 'text/html', previewURL: location.origin + '/_aithema/html-preview',
+        mint: async signal => {
+          window.mintCalls++;
+          const cap = await (await fetch('/fixture/mint', { method: 'POST', body: html, signal })).json();
+          // Advertise a short-lived capability while the real route takes 3.5 s.
+          return { ...cap, expiresInMs: 2000 };
+        } };
+    }, dummy);
+    await request;
+    await page.waitForFunction(() => ['failure', 'navigated'].includes(document.querySelector('aithema-html-preview').state), { timeout: 5000 });
+    assert.equal(await state(), 'failure');
+    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent),
+      'The draft could not be loaded. Try closing and reopening it later.');
+    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
+    await page.evaluate(() => { const preview = document.querySelector('aithema-html-preview'); preview.width = 'phone'; preview.copy = {}; });
+    // Let the original delayed response finish; it cannot revive the discarded frame.
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    assert.equal(await state(), 'failure'); assert.equal(await page.evaluate(() => window.mintCalls), 1);
+    routeDelayMs = 0;
+  });
 });
 
 // AIT-282 stays in this small existing shard workload: one page, state changes
