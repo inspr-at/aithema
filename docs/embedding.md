@@ -622,7 +622,8 @@ consent GET response adds `features: { [feature]: string[] }` for `text`,
 `analysis`, `voice`, `transcription`, `images`, `html` and `uploads`. Empty arrays
 mean no matching described processing. Settings requires a non-empty mapping
 for the requested feature, focuses its first missing item and preserves the
-other selections. Saving sends `{ granted, processing: { contract, items } }`;
+other selections. Saving sends
+`{ granted, processing: { contract, items, revision: consentRevision } }`;
 the ledger must validate the contract, IDs and current revision authoritatively.
 
 The existing one-item mock shorthand `{ mock: true, selected: [] }` remains
