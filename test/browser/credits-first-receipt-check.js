@@ -16,7 +16,7 @@ const settle = page => shadow(page, async c => {
 const measure = page => shadow(page, c => {
   const root = c.shadowRoot, amount = root.querySelector('.host-credits__amount');
   const box = n => { const b = n.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
-  const selectors = ['.display-foot', '.display-foot__row', '.footer-info', '.ai-notice', '.actor-role',
+  const selectors = ['.display-foot', '.display-foot__row', '.footer-info', '.ai-notice',
     '.host-credits', '.host-credits__button', '.host-credits__amount', '.host-credits__value',
     '.host-credits__track', '.footer-right', '.preset-panel', '.host-legal', '.engine__flag', '.status__dot'];
   return { rects: Object.fromEntries(selectors.map(s => [s, box(root.querySelector(s))])),
