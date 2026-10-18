@@ -200,6 +200,68 @@ test('unknown cost and 5xx keep the full ceiling; 4xx without usage release at z
   assert.equal(costMicro(0.1), 100_000); assert.equal(costMicro(0.0000001), 1); assert.equal(costMicro(-1), null); assert.equal(costMicro('1'), null);
   assert.equal(costMicro(1e-12), 1); assert.equal(costMicro(Number.MAX_VALUE), null);
 });
+for (const status of [408, 499]) test(`AIT-340: ${status} without usage retains the ceiling and refuses the next draft under the cap`, async t => {
+  const f = await fake(t, { capMicro: 1_000_000 }), first = options();
+  assert.ok(f.ceiling() <= 1_000_000 && 2 * f.ceiling() > 1_000_000, 'the cap fits one ceiling only');
+  f.respond((_req, res) => { res.writeHead(status); res.end('request timed out'); });
+  await assert.rejects(f.plugin.generate(spec, '', first), { code: 'provider' });
+  const second = options();
+  await assert.rejects(f.plugin.generate(spec, '', second), { code: 'limit' });
+  assert.equal(f.requests.length, 1, 'an uncertain paid hold must prevent a second dispatch');
+  assert.deepEqual(first.reports, [{ attemptId: first.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
+  assert.deepEqual(f.plugin.spend.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: f.ceiling(),
+    totalMicro: f.ceiling(), costCeilingBreached: false });
+  assert.deepEqual(f.plugin.costEvidence(first.attempt.attemptId), {}, 'no cost receipt was invented');
+  await assert.rejects(f.make().generate(spec, '', options()), { code: 'limit' });
+  assert.equal(f.requests.length, 1, 'the hold survives reopening the ledger');
+});
+test('AIT-340: plain 400 without usage settles at zero and permits another draft', async t => {
+  const f = await fake(t, { capMicro: 1_000_000 });
+  f.respond((_req, res) => { res.writeHead(400); res.end('invalid request'); });
+  for (let i = 0; i < 2; i++) {
+    const o = options();
+    await assert.rejects(f.plugin.generate(spec, '', o), { code: 'provider' });
+    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'cancelled',
+      usage: { inputTokens: 0, outputTokens: 0 }, chargedMicro: 0 }]);
+    assert.equal(f.plugin.costEvidence(o.attempt.attemptId).chargedMicro, 0);
+  }
+  assert.equal(f.requests.length, 2);
+  assert.deepEqual(f.plugin.spend.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 0,
+    totalMicro: 0, costCeilingBreached: false });
+});
+test('AIT-340: 400 with usage but no cost retains the ceiling and needs a receipt', async t => {
+  const f = await fake(t, { capMicro: 1_000_000 }), o = options();
+  f.respond((_req, res) => { res.writeHead(400); res.end(JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 6 } })); });
+  await assert.rejects(f.plugin.generate(spec, '', o), { code: 'provider' });
+  assert.equal(f.plugin.spend.snapshot().uncertainMicro, f.ceiling());
+  assert.deepEqual(f.plugin.costEvidence(o.attempt.attemptId), {}, 'usage alone is not a cost receipt');
+  assert.equal(o.reports[0].chargedMicro, f.ceiling());
+  await assert.rejects(f.plugin.generate(spec, '', options()), { code: 'limit' });
+  assert.equal(f.requests.length, 1);
+});
+test('AIT-340: a late 408 without usage cannot reconcile the uncertain hold to zero', async t => {
+  const f = await fake(t, { capMicro: 1_000_000 }), controller = new AbortController();
+  let dispatched, respond, fetches = 0;
+  const started = new Promise(resolve => { dispatched = resolve; });
+  const plugin = f.make({ fetchImpl() {
+    fetches++; dispatched(); return new Promise(resolve => { respond = resolve; });
+  } });
+  const o = options({ signal: controller.signal }), pending = plugin.generate(spec, '', o);
+  await started; controller.abort();
+  await assert.rejects(pending, { code: 'cancelled' });
+  assert.equal(plugin.spend.snapshot().uncertainMicro, f.ceiling());
+  const response = new Response('request timed out', { status: 408 });
+  respond(response);
+  // Drain the in-memory response and its receipt microtasks after checkedResponse.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(response.bodyUsed, true, 'the late response was observed');
+  assert.equal(response.body.locked, false, 'the late response finished reading');
+  assert.equal(plugin.spend.snapshot().uncertainMicro, f.ceiling());
+  assert.deepEqual(plugin.costEvidence(o.attempt.attemptId), {}, 'the late timeout supplies no cost receipt');
+  assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
+  await assert.rejects(plugin.generate(spec, '', options()), { code: 'limit' });
+  assert.equal(fetches, 1, 'a late timeout must not reopen admission');
+});
 test('preflight cancellation and deadlines settle once at zero without dispatch or spend', async t => {
   const f = await fake(t), controller = new AbortController(); controller.abort();
   for (const extra of [{ signal: controller.signal }, { deadlineAt: Date.now() - 1 }]) {
