@@ -1236,9 +1236,10 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
   });
   t.diagnostic('round 3: model changed');
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed');
+  t.diagnostic('round 3: settings autosave failed');
   assert.equal(page.failedSettingsSaves, 1, 'a real settings save failed before the editor opens');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.save-retry').checkVisibility()), true);
-  await page.locator('aithema-session >>> .footer-consent').click();
+  await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').click());
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input'));
   for (const width of [320, 390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await frame(page);
@@ -1278,7 +1279,7 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
     });
     assert.deepEqual(closed, { editor: 'false', failed: 'failed', retryVisible: true }, `${width}: Retry returns after the editor closes`);
     t.diagnostic(`PASS AIT-321 round 3 width=${width} failedAutosave=1 retryHidden=true overlap=false slotGrowthPx=0 retryRestored=true`);
-    await page.locator('aithema-session >>> .footer-consent').click();
+    await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').click());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input'));
   }
 });
