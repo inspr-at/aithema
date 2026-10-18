@@ -169,11 +169,11 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       opts.epoch !== undefined && opts.epoch !== epoch) throw new PluginError('not-admitted');
     const signal = AbortSignal.any([revocation.signal, pauseController.signal, ...(opts.signal ? [opts.signal] : [])]);
     const bounded = { ...options(signal), deadlineAt: Math.min(opts.deadlineAt ?? Infinity, spendDeadlineAt) };
-    // Validate duplicates against current authority too; an old delivery is no permission to resume.
-    await permitted(bounded);
     const previous = textDeliveries.get(opts.deliveryId);
     if (previous) {
       if (previous.text !== text) throw new PluginError('not-admitted');
+      // A cached delivery still requires current consent/ownership and an active segment.
+      await permitted(bounded);
       return previous.receipt;
     }
     if (textDeliveries.size >= 4096 || jobs.size + typedPending >= maxPendingTurns) throw new PluginError('limit');

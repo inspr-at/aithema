@@ -7,6 +7,9 @@ import puppeteer from './launch.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
 import { startChild } from '../helpers.js';
 
+const chromeSandboxArgs = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [];
+const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+
 test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery', { timeout: 90_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'composed-browser-'));
   const fixture = await startChild(new URL('../fixtures/composed-media-server.js', import.meta.url), join(directory, 'unused.sqlite'));
@@ -14,7 +17,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   t.after(async () => { await browser?.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
-      '--autoplay-policy=no-user-gesture-required', ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])] });
+      '--autoplay-policy=no-user-gesture-required', ...chromeSandboxArgs] });
   const context = browser.defaultBrowserContext(); await context.overridePermissions(fixture.url, ['microphone']);
   const page = await browser.newPage(), problems = [], external = [];
   await page.setViewport({ width: 1100, height: 760 });
@@ -122,7 +125,6 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
     try { const unexpected = await createPCMCapture()({ onAudio() {} }); unexpected.stop(); return 'unexpected-grant'; } catch (error) { return error.name; }
   });
   assert.equal(permission, 'NotAllowedError'); assert.deepEqual(external, []); assert.deepEqual(problems, []);
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) {
     await mkdir(evidence, { recursive: true });
     const report = { physical, immediate, pause, permission, latePermission, grok, external, problems };
@@ -146,9 +148,9 @@ test('AIT-348: Grok DE light lifecycle viewports and typed composer keep control
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: chromeSandboxArgs });
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
-  const page = await browser.newPage(), problems = [], sent = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const page = await browser.newPage(), problems = [], sent = [], checks = [];
   page.on('pageerror', error => problems.push(error.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
