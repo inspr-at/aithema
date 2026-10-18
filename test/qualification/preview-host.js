@@ -9,6 +9,7 @@ import { createConceptHandlers } from '../../packages/server/src/concept-handler
 import { NotFoundError } from '../../packages/server/src/storage.js';
 
 const root = new URL('../../', import.meta.url);
+const mintHash = url => createHash('sha256').update(url).digest('hex');
 const digest = bytes => `sha-256=:${createHash('sha256').update(bytes).digest('base64')}:`;
 export async function qualificationHost() {
   const template = await readFile(new URL('test/fixtures/html-preview-strict-host.html', root), 'utf8');
@@ -27,7 +28,7 @@ export async function qualificationHost() {
         if (!response) response = new Response('Not Found', { status: 404 });
         if (path === '/_aithema/html-preview') {
           // Keep capability values out of evidence: assign an ordinal per mint.
-          const index = mints.findIndex(url => url === request.url);
+          const index = mints.indexOf(mintHash(request.url));
           redemptions.push({ mint: index + 1, method: req.method, status: response.status,
             ...(response.status === 403 ? { plainDenial: await response.clone().text() === 'Forbidden' &&
               response.headers.get('content-type') === 'text/plain; charset=utf-8' &&
@@ -37,7 +38,7 @@ export async function qualificationHost() {
             const headers = new Headers(response.headers); headers.delete('content-length'); headers.delete('content-digest');
             response = new Response(html, { headers }); // Deliberately missing private-port reply: readiness negative control.
           }
-        } else if (response.status === 200) mints.push((await response.clone().json()).url);
+        } else if (response.status === 200) mints.push(mintHash((await response.clone().json()).url));
         res.writeHead(response.status, Object.fromEntries(response.headers)); return res.end(Buffer.from(await response.arrayBuffer()));
       }
       if (path === '/strict-header-only') {
