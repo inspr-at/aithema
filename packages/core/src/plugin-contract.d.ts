@@ -191,21 +191,10 @@ export interface AudioFormat {
 export interface AudioFormatPort {
   negotiateAudioFormat(offered: readonly AudioFormat[], options: VoiceCommandOptions): Promise<AudioFormat>;
 }
-export interface ComponentUsage {
-  attemptId: string; role: 'stt' | 'reasoning' | 'tts';
-  unit: 'seconds' | 'tokens' | 'characters' | 'bytes' | 'credits'; quantity: number;
-  upstreamMicro: number; source: string; estimated: boolean;
-}
-export type ComponentTerminal = { attemptId: string; servedModel?: string; chargedMicro?: number } &
-  ({ outcome: 'completed' | 'cancelled'; usage: ComponentUsage } | { outcome: 'uncertain'; usage?: ComponentUsage });
-export type ComponentOperationOptions = Omit<OperationOptions, 'report'> & { report(terminal: ComponentTerminal): Promise<void> | void };
-export interface STTComponent extends AudioFormatPort {
-  transcribe(request: { audio: Uint8Array; format: string; language: string }, options: ComponentOperationOptions): Promise<{ text: string }>;
-  stream?(request: { audio: AsyncIterable<Uint8Array>; format: string }, options: ComponentOperationOptions): AsyncIterable<{ text: string; final: boolean }>;
-}
-export interface TTSComponent extends AudioFormatPort {
-  speak(request: { text: string; voice: string; format: string }, options: ComponentOperationOptions): AsyncIterable<Uint8Array>;
-}
+export type { ComponentUsage, ComponentTerminal, ComponentOperationOptions, STTComponent, TTSComponent,
+  STTComponentCapabilities, TTSComponentCapabilities, STTRequest, STTStreamRequest, STTTranscript,
+  TTSRequest, TTSAlignedChunk, VoiceCompositionCapabilities, ComponentInvocation, AudioQueue } from './voice-components.js';
+import type { STTComponent, TTSComponent } from './voice-components.js';
 export interface VoicePorts {
   serverAdapter?: VoiceServerAdapter;
   browserMedia?: VoiceBrowserMedia;

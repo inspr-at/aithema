@@ -35,7 +35,11 @@
     "./chat-completions": "./src/chat-completions.js",
     "./ui-html-prompt": "./src/ui-html-prompt.js",
     "./ui-html-artifact": "./src/ui-html-artifact.js",
-    "./ui-image-artifact": "./src/ui-image-artifact.js"
+    "./ui-image-artifact": "./src/ui-image-artifact.js",
+    "./voice-components": {
+      "types": "./src/voice-components.d.ts",
+      "default": "./src/voice-components.js"
+    }
   },
   "engines": {
     "node": ">=24"
@@ -43,8 +47,7 @@
   "version": "261018104037.0.0",
   "license": "AGPL-3.0-only",
   "files": [
-    "src/",
-    "!src/voice-components.js"
+    "src/"
   ],
   "repository": {
     "type": "git",

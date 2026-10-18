@@ -372,6 +372,8 @@ in their linked source modules.
 <!-- contract-symbols:start -->
 - `AudioFormat`
 - `AudioFormatPort`
+- `AudioQueue`
+- `ComponentInvocation`
 - `ComponentOperationOptions`
 - `ComponentTerminal`
 - `ComponentUsage`
@@ -398,8 +400,15 @@ in their linked source modules.
 - `Reasoning`
 - `STT`
 - `STTComponent`
+- `STTComponentCapabilities`
+- `STTRequest`
+- `STTStreamRequest`
+- `STTTranscript`
 - `TTS`
+- `TTSAlignedChunk`
 - `TTSComponent`
+- `TTSComponentCapabilities`
+- `TTSRequest`
 - `Terminal`
 - `UIArtifact`
 - `UIFeedback`
@@ -415,6 +424,7 @@ in their linked source modules.
 - `VoiceCallbackRoute`
 - `VoiceCapability`
 - `VoiceCommandOptions`
+- `VoiceCompositionCapabilities`
 - `VoiceEvent`
 - `VoiceMediaGrant`
 - `VoiceMediaOptions`

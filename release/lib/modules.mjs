@@ -3,9 +3,7 @@ import { posix } from 'node:path';
 // Composed voice coordinators/adapters are retained only in the source archive.
 const excluded = new Set(['packages/server/src/local-voice.js', 'packages/server/src/composed-voice.js',
   // The unexported ElevenLabs component adapter remains a source-only proof.
-  'plugins/elevenlabs/src/components.js',
-  // AIT-202: the unexported core composition contracts remain a source-only proof.
-  'packages/core/src/voice-components.js']);
+  'plugins/elevenlabs/src/components.js']);
 
 const json = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
 export function moduleFiles(files, pkg) {
