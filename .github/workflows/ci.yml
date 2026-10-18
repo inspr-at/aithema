@@ -175,3 +175,33 @@ jobs:
     steps:
       - name: Require every browser shard
         run: test '${{ needs.browser.result }}' = 'success'
+
+  # AIT-354: isolated qualification; no changes to browser shard names/count/budgets.
+  # One sequential three-engine loop, loopback fixtures only, no provider credentials.
+  preview-security:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Install pinned qualification engines outside the workspace
+        run: |
+          npm install --prefix "$RUNNER_TEMP/preview-engines" --no-save --ignore-scripts --no-audit --no-fund playwright-core@1.56.1
+          node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install --with-deps chromium webkit firefox
+      - name: Qualify the strict host and demo with local fixtures
+        timeout-minutes: 2
+        run: node scripts/qualify-html-preview.mjs "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/index.mjs" "$RUNNER_TEMP/preview-security.json" "$GITHUB_SHA"
+      - name: Retain engine matrix and independent socket counts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: preview-security
+          path: ${{ runner.temp }}/preview-security.json
+          if-no-files-found: error
+          retention-days: 14

@@ -247,7 +247,7 @@ async function handle(request, context) {
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
       'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
-      ...(file.endsWith('.html') ? { 'content-security-policy': previewHostPolicy } : {}),
+      ...(file.endsWith('.html') ? { 'content-security-policy': `script-src 'self'; ${previewHostPolicy}` } : {}),
     } });
   } catch { return new Response(null, { status: 404 }); }
 }
