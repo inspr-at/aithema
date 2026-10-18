@@ -249,20 +249,20 @@ for (const copy of [de, en]) test(`AIT-307: ${copy.display.locale} text-only rea
   j.root.querySelector('.chooser__continue').click(); await tick(6);
   assert.equal(j.stage(), 'ready');
   const start = j.root.querySelector('.ready__start'), line = j.root.querySelector('.ready__input');
-  assert.equal(j.root.activeElement, start, 'Start receives the first focus after Continue');
+  assert.ok(j.root.activeElement === start, 'Start receives the first focus after Continue');
   assert.equal(j.root.querySelector('.ready__modes, .ready__mode, .ready [role="group"], .ready [role="radiogroup"]'), null);
   assert.equal(line.textContent, copy === de ? 'Eingabe: Text' : 'Input: Text');
   assert.ok(line.querySelector('.ready__icon[aria-hidden="true"] svg[aria-hidden="true"] rect[width="20"][height="16"]'));
   assert.ok(line.querySelector('svg path[d="M7 16h10"]'), 'the existing keyboard icon includes its space bar');
   assert.equal(line.tabIndex, -1); assert.equal(line.querySelector('button,a,input,[tabindex]'), null);
-  line.focus(); assert.equal(j.root.activeElement, start, 'the static line adds no focus stop');
+  line.focus(); assert.ok(j.root.activeElement === start, 'the static line adds no focus stop');
   const other = copy === de ? en : de;
   j.c.receive({ seq: j.c.session.seq + 1, type: 'session.locale-changed', data: { locale: other.display.locale } });
-  assert.equal(j.root.querySelector('.ready__input'), line, 'locale repaint retains the line');
+  assert.ok(j.root.querySelector('.ready__input') === line, 'locale repaint retains the line');
   assert.equal(line.textContent, other === de ? 'Eingabe: Text' : 'Input: Text');
-  assert.equal(j.root.activeElement, start);
+  assert.ok(j.root.activeElement === start);
   start.click(); await tick();
-  assert.equal(j.stage(), 'live'); assert.equal(j.root.activeElement, j.root.querySelector('textarea'));
+  assert.equal(j.stage(), 'live'); assert.ok(j.root.activeElement === j.root.querySelector('textarea'));
   assert.deepEqual(j.starts, []); assert.deepEqual(j.media, []);
 });
 
