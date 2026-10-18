@@ -383,7 +383,7 @@ test('AIT-306: exhausted image spend cap refuses with not-admitted and zero fetc
   let fetches = 0;
   const spendCap = { reserve() { throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted'); } };
   const binding = { plugin: manifest.id, model: 'openai/gpt-image-2', effort: 'none', endpoint: 'https://openrouter.ai/api/v1',
-    accountRef: 'fixture-account', secretRef: 'fixture-secret-ref', maxMicro: 100, maxTokens: 4096 };
+    accountRef: 'fixture-account', secretRef: 'fixture-secret-ref', maxMicro: 100, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } };
   const plugin = createOpenAIImages({ binding, spendCap, resolveSecret: () => 'local-fixture', fetchImpl: async () => {
     fetches++; return Response.json({ data: [{ b64_json: png.toString('base64') }], usage: { cost: 0.00001 } });
   } });
