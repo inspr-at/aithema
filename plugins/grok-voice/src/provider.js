@@ -33,6 +33,7 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
       } else components = createGrokComponents({ enabled, config, resolveSecret, connect });
     }
   } catch { unavailable = 'Invalid Grok Voice private configuration (private ZDR/DPA account evidence required)'; }
+  const liveManifest = deepFreeze({ ...manifest, kinds: ['live-voice'], models: manifest.models.filter(model => model.operations.includes('start')) });
   let authority;
   const scopes = () => ['stt', 'tts'].map(role => processingScope(componentBindings[role], role === 'stt' ? 'stream' : 'speak'));
   async function health() {
@@ -45,7 +46,7 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
     return { available, reason: available ? 'not yet qualified in live use' : 'Grok components unavailable' };
   }
   const composed = createComposedVoice({ enabled, config: binding?.adapterConfig ?? {}, binding, storage,
-    manifest: { ...manifest, kinds: ['live-voice'] }, stt: components?.stt, tts: components?.tts,
+    manifest: liveManifest, stt: components?.stt, tts: components?.tts,
     componentsReady: components?.preflight, authenticateRelay, relayOrigin, now,
     authorize: (request, options) => authority?.authorize(request, options) ?? false,
     commitUtterance: (envelope, options) => authority.commitUtterance(envelope, options),
@@ -59,6 +60,7 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
     async admissionReason({ session, preset, policy }, options) {
       const state = await health(); if (!state.available) return state.reason;
       await voiceOperation(options, () => components.preflight);
+      if (preset === 'eu') return 'recipient seat outside eu';
       for (const role of ['stt', 'tts']) {
         const reason = bindingReason({ binding: componentBindings[role], plugin: components[role], preset, policy, now: now() });
         if (reason) return reason;
@@ -81,6 +83,6 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
     const epoch = storage.voiceLifecycle?.(request.sessionId, request.callId)?.epoch ?? 0;
     return composed.start({ ...request, epoch, voice: config.voice, language: session.locale }, options);
   };
-  return Object.freeze({ ...composed, manifest: deepFreeze({ ...manifest, kinds: ['live-voice'] }), binding, health, start,
+  return Object.freeze({ ...composed, manifest: liveManifest, binding, health, start,
     ports: Object.freeze({ ...composed.ports, serverAdapter: Object.freeze({ ...adapter, startSegment: start }) }) });
 }

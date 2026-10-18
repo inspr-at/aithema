@@ -120,6 +120,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
       options.holdSignal?.addEventListener('abort', retainHold, { once: true });
       if (options.holdSignal?.aborted) await session.pause(options);
+      lifecycle.startHeartbeat();
       void read(transport); await captureOn(); return session;
     } catch (error) {
       stop(); lifecycle.end('start-failed'); options.signal?.removeEventListener('abort', cancel);
