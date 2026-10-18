@@ -117,3 +117,29 @@ test('imports, construction, negotiation and health perform no transport or secr
   }
   assert.equal(secrets, 0); assert.equal(transports, 0);
 });
+
+test(`stitched replacement hypotheses preserve word boundaries across chunks and utterances (${STREAM_DOC})`, async () => {
+  const op = operation();
+  const stt = createGrokSTT({ enabled: true, config, resolveSecret: () => 'synthetic-only', connect: async () => {
+    let endpoint; const ended = new Promise(resolve => { endpoint = resolve; });
+    return { close() { endpoint(); }, send(value) { if (typeof value === 'string') endpoint(); },
+      events: (async function* () {
+        yield JSON.stringify({ type: 'transcript.created' });
+        const partial = (text, start, is_final, speech_final = false) => JSON.stringify({ type: 'transcript.partial', text, start, duration: 1, is_final, speech_final });
+        yield partial('Hello', 0, true);
+        yield partial('world.', 1, false);
+        yield partial('Hello world.', 0, true, true);
+        yield partial('Again.', 2, true, true);
+        await ended; yield JSON.stringify({ type: 'transcript.done', text: 'Hello world. Again.', duration: 3 });
+      })() };
+  } });
+  const values = await collect(stt.stream({ ...request(), audio: (async function* () { yield request().audio; })() }, op.options));
+  assert.deepEqual(values.map(value => value.text), ['Hello', 'Hello world.', 'Hello world.', 'Hello world. Again.', 'Hello world. Again.']);
+  assert.equal(values.filter(value => value.final).length, 1);
+});
+test('malformed socket is closed even when it lacks a send or events port', async () => {
+  let closes = 0; const op = operation();
+  const stt = createGrokSTT({ enabled: true, config, resolveSecret: () => 'synthetic-only', connect: async () => ({ close() { closes++; } }) });
+  await assert.rejects(stt.transcribe(request(), op.options), { code: 'invalid-output' });
+  assert.equal(closes, 1); assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
+});
