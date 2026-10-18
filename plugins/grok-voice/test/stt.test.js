@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGrokSTT, createGrokBatchSTT, STT_FORMAT } from '../src/stt.js';
+import { validateManifest } from '../../../packages/core/src/plugins.js';
 import { config, harness, operation, expectedTranscripts, text, STREAM_DOC, STT_DOC } from './fixtures.js';
 const request = () => ({ audio: new Uint8Array(64000), format: 'pcm_s16le', language: 'en' });
 const component = (h, batch = false) => (batch ? createGrokBatchSTT : createGrokSTT)({ enabled: true, config,
@@ -111,7 +112,8 @@ test('imports, construction, negotiation and health perform no transport or secr
     const stt = factory(ports); await stt.health();
     assert.deepEqual(await stt.negotiateAudioFormat([STT_FORMAT], {}), STT_FORMAT);
     assert.deepEqual(stt.capabilities.languages, ['de', 'en']); assert.deepEqual(stt.formats, [STT_FORMAT]);
-    assert.equal(stt.manifest.qualificationNote, 'not yet qualified in live use');
+    assert.equal(stt.manifest.presentation.label, 'Grok Voice (xAI): not yet qualified in live use');
+    assert.deepEqual(validateManifest(stt.manifest), { ok: true, errors: [] });
   }
   assert.equal(secrets, 0); assert.equal(transports, 0);
 });
