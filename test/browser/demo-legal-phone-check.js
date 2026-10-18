@@ -35,7 +35,7 @@ const measure = page => shadow(page, c => {
   // The legal slot is inside footer-right; compare its sibling zones rather
   // than treating its containing zone as an overlap with itself.
   const zones = ['.footer-info', '.actor-role', '.host-credits', '.preset-panel', '.footer-right > .status'].map(s => root.querySelector(s))
-    .filter(n => n.checkVisibility({ visibilityProperty: true, opacityProperty: true })).map(box);
+    .filter(n => n?.checkVisibility({ visibilityProperty: true, opacityProperty: true })).map(box);
   const row = box(root.querySelector('.display-foot__row')), footer = box(root.querySelector('.display-foot'));
   return {
     fixed: ['.display-foot', '.display-foot__row', '.footer-info', '.host-credits', '.footer-right', '.host-legal', '.engine__flag', '.status__dot'].map(s => box(root.querySelector(s))),
@@ -139,8 +139,8 @@ export async function demoLegalPhoneCheck(t) {
       // Keep the pointer on each actual anchor while hover/focus/theme paints settle.
       for (const [i, link] of state.links.entries()) {
         await page.mouse.move(link.bounds.x + link.bounds.width / 2, link.bounds.y + link.bounds.height / 2);
-        await page.focus(i === 0 ? '#demo-license' : '#demo-legal-source');
-        await page.select('#theme', theme === 'light' ? 'dark' : 'light'); await settle(page);
+        await page.select('#theme', theme === 'light' ? 'dark' : 'light');
+        await page.focus(i === 0 ? '#demo-license' : '#demo-legal-source'); await settle(page);
         const held = await measure(page);
         assert.deepEqual(held.fixed, state.fixed, `${label}: module footer movement exactly 0px under resting pointer`);
         assert.deepEqual(held.links.map(a => a.bounds), state.links.map(a => a.bounds), `${label}: legal movement exactly 0px under resting pointer`);
