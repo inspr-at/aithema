@@ -1435,8 +1435,9 @@ for (const mode of ['grant', 'withdraw', 'wrong-contract', 'wrong-items']) test(
     if (String(url).endsWith('/features')) return Response.json({ featureMatrix: c.session.featureMatrix });
     return Response.json({});
   });
-  c.session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
-  c.configure({ session: c.session, copy: en });
+  const session = c.session;
+  session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+  c.configure({ session, copy: en });
   root.querySelector('.composer-reason .consent-action').click();
   await new Promise(resolve => setImmediate(resolve));
   const box = root.querySelector('.consent-items input'); assert.ok(box);
