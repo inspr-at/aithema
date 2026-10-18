@@ -30,7 +30,7 @@ for (const response of ['deferred', 'limit', 'http-429']) test(`AIT-346: ${respo
   assert.equal(controller.state.browserLivenessDeadlineAt, 130_000, 'deferral cannot extend the unrenewed lease');
   assert.equal(replacements, 0); assert.equal(stops, 0); assert.equal(terminals, 0);
   await controller.heartbeat(); assert.equal(controller.state.browserLivenessDeadlineAt, 140_000);
-  t.mock.timers.tick(40_000);
+  for (let i = 0; i < 4; i++) t.mock.timers.tick(10_000);
   assert.equal(controller.state.needsRecovery, true, 'the actual lease deadline still stops media');
   assert.equal(stops, 1); assert.equal(replacements, 0); assert.equal(terminals, 0);
 });

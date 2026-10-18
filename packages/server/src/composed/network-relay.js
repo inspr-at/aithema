@@ -111,6 +111,14 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
           const { name, args = [] } = JSON.parse(Buffer.from(await boundedBody(request, 8192)).toString());
           await assertActive(entry, owner);
           if (!Array.isArray(args) || !['pause', 'resume', 'interrupt', 'setInput', 'setOutput', 'updateContext', 'heartbeat', 'close'].includes(name)) throw new PluginError('not-admitted');
+          // Lease maintenance never occupies the ordered command slot. Drop it
+          // during commands and coalesce concurrent renewals, still charging rate limits above.
+          if (name === 'heartbeat') {
+            if (entry.command || entry.heartbeat) return json({ result: { acknowledged: true, deferred: true } });
+            entry.heartbeat = true;
+            try { return json({ result: await entry.transport.command(name, ...args) }); }
+            finally { entry.heartbeat = false; }
+          }
           // A paused network grant is revoked. Resume obtains a new admitted segment via AIT-138.
           if (entry.command) throw new PluginError('limit');
           entry.command = true;
