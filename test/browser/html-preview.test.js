@@ -626,6 +626,10 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       document.body.append(c);
       window.keyboardSession = c;
     });
+    const backTab = async () => {
+      await page.keyboard.down('Shift');
+      try { await page.keyboard.press('Tab'); } finally { await page.keyboard.up('Shift'); }
+    };
     const focusAt = () => page.evaluate(() => {
       const root = window.keyboardSession.shadowRoot, preview = root.querySelector('.concept-html');
       return root.activeElement === preview ? preview.shadowRoot.activeElement?.className || preview.shadowRoot.activeElement?.dataset.width || preview.shadowRoot.activeElement?.tagName : root.activeElement?.className;
@@ -657,12 +661,12 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
         return { visible: button.matches(':focus-visible'), outline: style.outlineStyle, width: style.outlineWidth };
       });
       assert.equal(ring.visible, true); assert.equal(ring.outline, 'solid'); assert.equal(ring.width, '2px');
-      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'wide', 'Shift+Tab returns to width');
-      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'concept-close', 'Shift+Tab leaves the preview for Close');
+      await backTab(); assert.equal(await focusAt(), 'wide', 'Shift+Tab returns to width');
+      await backTab(); assert.equal(await focusAt(), 'concept-close', 'Shift+Tab leaves the preview for Close');
       await page.keyboard.press('Tab'); await page.keyboard.press('Tab');
       await page.keyboard.press('Tab');
       assert.equal(await focusAt(), 'concept-download', 'Tab leaves Reload for the next enabled dialog action');
-      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'reload', 'backwards entry reaches Reload before width');
+      await backTab(); assert.equal(await focusAt(), 'reload', 'backwards entry reaches Reload before width');
       await page.keyboard.press(key);
       await page.waitForFunction(() => window.keyboardSession.shadowRoot.querySelector('.concept-html').state === 'loading');
       assert.equal(await focusAt(), 'state', `${key}: focus stays on the pending status`);
@@ -695,8 +699,8 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       }), { state: 'policy', hidden: 'true', disabled: true });
       await page.keyboard.press('Tab'); assert.equal(await focusAt(), 'wide');
       await page.keyboard.press('Tab'); assert.equal(await focusAt(), 'concept-download', 'policy Tab skips the unavailable Reload');
-      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'wide', 'policy backwards entry returns to width');
-      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'concept-close');
+      await backTab(); assert.equal(await focusAt(), 'wide', 'policy backwards entry returns to width');
+      await backTab(); assert.equal(await focusAt(), 'concept-close');
       assert.equal(await page.evaluate(() => window.keyboardMints), 2, 'policy navigation never mints');
       await page.keyboard.press('Escape');
     }
