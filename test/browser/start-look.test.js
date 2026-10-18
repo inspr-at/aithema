@@ -203,7 +203,7 @@ test('AIT-307: readiness has a static text input line without voice; binding and
   { timeout: 120_000 }, async t => {
     const { startChild } = await import('../helpers.js');
     const { browserForFile } = await import('./shared-browser.js');
-    const { execFileSync } = await import('node:child_process');
+    const { evidenceCommit } = await import('./start2-display-helpers.js');
     const { writeFile } = await import('node:fs/promises');
     const directory = await mkdtemp(join(tmpdir(), 'aithema-ait307-'));
     const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -300,6 +300,6 @@ test('AIT-307: readiness has a static text input line without voice; binding and
     assert.equal(checks.length, 12);
     const passLines = ['AIT-307 PASS: 1440/1024/390 × light/dark × DE/EN; static localized keyboard line without input group/buttons; two-mode switch retained; Start/card/input slot 0 px across bind/unbind.'];
     console.log(passLines[0]);
-    if (evidence) await writeFile(join(evidence, 'ait307-ready-checks.json'), JSON.stringify({ head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    if (evidence) await writeFile(join(evidence, 'ait307-ready-checks.json'), JSON.stringify({ head: evidenceCommit,
       capture: 'viewport', reducedMotion: true, blurredControls: true, pinnedFontStack: true, passLines, checks }, null, 2));
   });
