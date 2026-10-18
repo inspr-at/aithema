@@ -203,16 +203,16 @@ export class SQLiteBudgetLedger {
       const row = this.db.prepare('SELECT * FROM budget_attempts WHERE claim_id=?').get(claimId);
       const component = row && this.components.get(row.attempt_id);
       if (!component || terminal.attemptId !== row.attempt_id) throw new PluginError('not-admitted');
-      if (terminal.usage) {
-        assertComponentUsage(terminal.usage);
-        if (terminal.usage.attemptId !== row.attempt_id || terminal.usage.role !== component.role || terminal.usage.unit !== component.unit) throw new PluginError('not-admitted');
-      } else if (terminal.outcome !== 'uncertain') throw new TypeError('Component usage required');
-      if (terminal.outcome !== 'uncertain' && terminal.chargedMicro !== undefined && terminal.chargedMicro !== terminal.usage.upstreamMicro) throw new TypeError('Component cost mismatch');
       const bytes = JSON.stringify(terminal);
       if (row.state === 'settled') {
         if (row.terminal_json !== bytes) throw new PluginError('already-claimed');
         return row;
       }
+      if (terminal.usage) {
+        assertComponentUsage(terminal.usage);
+        if (terminal.usage.attemptId !== row.attempt_id || terminal.usage.role !== component.role || terminal.usage.unit !== component.unit) throw new PluginError('not-admitted');
+      } else if (terminal.outcome !== 'uncertain') throw new TypeError('Component usage required');
+      if (terminal.outcome !== 'uncertain' && terminal.chargedMicro !== undefined && terminal.chargedMicro !== terminal.usage.upstreamMicro) throw new TypeError('Component cost mismatch');
       const dispatched = row.state === 'dispatched';
       const observed = Math.max(component.observedMicro, terminal.usage?.upstreamMicro ?? 0);
       const actual = !dispatched ? 0 : terminal.outcome === 'uncertain'

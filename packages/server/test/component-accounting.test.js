@@ -5,6 +5,8 @@ import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server
 import { componentInvocation } from '@inspr/aithema-core/voice-components';
 import { SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
 import { temporaryDb } from '../../../test/helpers.js';
+import { fork } from 'node:child_process';
+import { once } from 'node:events';
 
 const digest = 'a'.repeat(64);
 function fixture(t, path) {
@@ -88,6 +90,36 @@ test('AIT-347 P7/P8: parent closure never releases an unresolved child; restart 
   assert.equal(budget.get(options.attempt.attemptId).settled_micro, 1700);
   assert.equal(budget.get(h.parent.attemptId).settled_micro, 0);
   assert.equal(budget.visitorUsed(h.session.id), 400);
+});
+
+for (const [phase, exposure] of [['claimed', 0], ['dispatched', 90], ['observed', 130]]) {
+  test(`AIT-347 P7: SIGKILL at ${phase} recovers durable child exposure ${exposure}`, { timeout: 10000 }, async t => {
+    const path = await temporaryDb();
+    const child = fork(new URL('../../../test/fixtures/component-accounting-crash.mjs', import.meta.url), [path, phase], {
+      env: { PATH: process.env.PATH }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+    t.after(() => child.kill('SIGKILL'));
+    let errors = ''; child.stderr.on('data', bytes => { errors += bytes; });
+    const message = await Promise.race([once(child, 'message').then(([value]) => value),
+      once(child, 'exit').then(() => { throw new Error(errors || 'crash fixture exited before dispatch'); })]);
+    const exited = once(child, 'exit'); child.kill('SIGKILL'); await exited;
+    const storage = new SQLiteStorage(path), budget = new SQLiteBudgetLedger(storage);
+    t.after(() => storage.close()); budget.recover(); budget.recover();
+    assert.equal(budget.get(message.attemptId).settled_micro, exposure);
+    assert.equal(budget.get(message.attemptId).outcome, phase === 'claimed' ? 'cancelled' : 'uncertain');
+    assert.equal(budget.used(message.sessionId), exposure);
+  });
+}
+
+for (const reason of ['cancel', 'deadline', 'abandon']) test(`AIT-347 P7: ${reason} retains the consumed child reservation`, async t => {
+  const h = fixture(t), controller = new AbortController();
+  const options = await h.admit({ ...h.request, signal: controller.signal,
+    ...(reason === 'deadline' ? { deadlineAt: Date.now() + 25 } : {}) });
+  const invocation = await componentInvocation(options, descriptor); invocation.dispatch();
+  if (reason === 'cancel') controller.abort();
+  if (reason === 'deadline') await new Promise(resolve => setTimeout(resolve, 35));
+  await invocation.finish(false);
+  assert.equal(h.budget.get(options.attempt.attemptId).outcome, 'uncertain');
+  assert.equal(h.budget.get(options.attempt.attemptId).settled_micro, 90);
 });
 
 test('AIT-347 P8: zero upstream parent charges active visitor duration and excludes acknowledged pause', async t => {
