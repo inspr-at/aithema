@@ -94,6 +94,12 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 41);
 
+// AIT-346: physical Grok start reuses the existing page/device. mbp2606
+// committed-head run 5d799ebac1-85300 passed in 2.143716584s;
+// ceil(observed * 1.25) = 3s. PR CI must remeasure this changed workload.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 3);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
