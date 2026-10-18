@@ -289,3 +289,128 @@ test('AIT-348: Grok DE light lifecycle viewports and typed composer keep control
   assert.deepEqual(problems, []);
   await page.evaluate(() => window.ait348Session.close());
 });
+
+// AIT-350: the real Settings editor and host tokens, with offline provider/consent
+// ports. One page iterates states; no microphone, provider transport or paid Start.
+test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'grok-settings-ui-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: chromeSandboxArgs });
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  const page = await browser.newPage(), problems = [], checks = [];
+  page.on('pageerror', e => problems.push(e.message));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  await page.select('#theme', 'light');
+  await page.evaluate(async () => {
+    const { SettingsDialog } = await import('/packages/ui/src/settings-dialog.js');
+    const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
+    const c = document.querySelector('aithema-session'), root = c.shadowRoot;
+    c.setAttribute('motion', 'off');
+    root.querySelector('dialog.settings').remove();
+    const dialog = document.createElement('dialog'); dialog.className = 'settings'; root.append(dialog);
+    let editor;
+    window.ait350 = { dialog, root, async reset(locale) {
+      editor?.close();
+      this.session = { ...structuredClone(c.session), locale, processingPreset: 'best', settings: { revision: 0, model: 'mock', effort: 'none', voice: 'elevenlabs', visuals: 'off', origin: 'chosen' } };
+      this.status = 'available'; this.active = false; this.fail = false; this.stops = 0; this.starts = 0; this.saves = []; this.selected = [];
+      const f = this;
+      const publicFacts = (vendor, plugin, countries, processingCountries) => ({ vendor, plugin, qualification: 'unverified', processingLocations: ['unverified'],
+        capabilities: { sendText: 'native', pause: 'emulated' }, providerProcessing: { vendor, recipientCountries: countries, processingCountries, evidence: 'current' } });
+      this.catalog = () => ({ processingPreset: 'best', settings: f.session.settings, presets: { best: { offered: true, status: 'available',
+        defaults: f.session.settings, models: [{ id: 'mock', label: 'Demo only: sample replies', efforts: ['none'], facts: {} }],
+        voices: [{ id: 'elevenlabs', label: 'ElevenLabs', status: 'available', facts: publicFacts('ElevenLabs', 'elevenlabs', ['US'], ['US']) },
+          { id: 'grok-voice', label: 'Grok Voice (xAI)', status: f.status, reason: f.status === 'consent' ? 'current processing consent required' : f.status === 'unavailable' ? 'not configured' : null,
+            facts: publicFacts('xAI', 'grok-voice', ['US'], null) }], visuals: [] } } });
+      editor = new SettingsDialog({ dialog, copy: locale === 'de' ? de : en, ports: {
+        state: () => ({ session: f.session, voiceActive: f.active }), catalog: async () => f.catalog(),
+        endCall: async () => { f.stops++; f.active = false; }, newConversation: () => f.starts++,
+        save: async body => { f.saves.push(body); if (f.fail) return { ok: false, error: 'network' };
+          f.session.settings = { ...body, revision: f.session.settings.revision + 1, origin: 'chosen' };
+          return { ok: true, ack: { processingPreset: 'best', settings: f.session.settings } }; },
+        consentDocument: async () => ({ contract: 'offline', items: [{ id: 'voice-xai', version: 1, title: 'Grok Voice (xAI)', recipients: 'xAI', text: 'Speech' }], selected: f.selected, features: { voice: ['voice-xai'] } }),
+        saveConsent: async body => { f.selected = body.processing.items; if (f.selected.includes('voice-xai')) f.status = 'available'; },
+      } });
+      this.editor = editor; editor.open(); await editor.reload();
+    }, q(selector) { return dialog.querySelector(selector); },
+    choose() { this.q('#settings-select-voice').click(); this.q('[data-value="grok-voice"]').click(); },
+    async settle() {
+      await document.fonts.ready;
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await Promise.all(root.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+    },
+    geometry() {
+      const result = {};
+      for (const [name, selector] of Object.entries({ choice: '#settings-select-voice', confirmationSlot: '.voice-switch-slot', detail: '.disclosure summary' })) {
+        const b = this.q(selector).getBoundingClientRect(); result[name] = [b.x, b.y, b.width, b.height];
+      }
+      const disclosure = this.q('.disclosure'), opened = disclosure.open; disclosure.open = true;
+      const b = this.q('.disclosure-provider').getBoundingClientRect(); result.detailBody = [b.x, b.y, b.width, b.height]; disclosure.open = opened;
+      return result;
+    } };
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const settle = () => page.evaluate(() => window.ait350.settle());
+  const shot = async name => {
+    await settle();
+    await page.evaluate(() => { document.activeElement?.blur(); window.ait350.root.activeElement?.blur(); });
+    await page.mouse.move(-10, -10); await settle();
+    if (evidence) await page.screenshot({ path: join(evidence, name + '.png'), fullPage: false, captureBeyondViewport: false });
+  };
+  for (const [locale, width] of [['de', 1440], ['de', 390], ['en', 1440]]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.evaluate(async locale => {
+      await window.ait350.reset(locale); await window.ait350.settle();
+    }, locale);
+    // Width is passed explicitly; page state remains independent of node globals.
+    await page.evaluate(width => {
+      const f = window.ait350, body = f.q('.settings__body');
+      body.scrollTop = width < 600 ? f.q('#settings-select-voice').getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 16 : 0;
+    }, width);
+    await settle();
+    const baseline = await page.evaluate(() => window.ait350.geometry());
+    const measure = async state => {
+      await settle(); const current = await page.evaluate(() => window.ait350.geometry());
+      const drift = Object.fromEntries(Object.keys(baseline).map(key => [key, Math.max(...baseline[key].map((v, i) => Math.abs(v - current[key][i])))]));
+      assert.deepEqual(drift, { choice: 0, confirmationSlot: 0, detail: 0, detailBody: 0 }, `${locale}/${width}/${state}`);
+      checks.push({ locale, width, state, drift });
+    };
+    await page.evaluate(() => window.ait350.q('#settings-select-voice').click());
+    await measure('both-options'); await shot(`ait350-${locale}-${width}-both-options`);
+    for (const status of ['consent', 'unavailable']) {
+      await page.evaluate(status => { const f = window.ait350; f.status = status; f.editor.setCatalog(f.catalog()); }, status);
+      await measure(status); await shot(`ait350-${locale}-${width}-${status === 'consent' ? 'consent-required' : status}`);
+    }
+    await page.evaluate(() => {
+      const f = window.ait350; f.status = 'available'; f.active = true; f.editor.setCatalog(f.catalog());
+      f.q('[data-value="grok-voice"]').click();
+    });
+    await measure('in-call-confirmation'); await shot(`ait350-${locale}-${width}-in-call-confirmation`);
+    await page.evaluate(() => window.ait350.q('.voice-switch-cancel').click()); await settle();
+    assert.equal(await page.evaluate(() => window.ait350.root.activeElement === window.ait350.q('#settings-select-voice')), true);
+    await measure('cancel');
+    await page.evaluate(() => { const f = window.ait350; f.fail = true; f.choose(); f.q('.voice-switch-apply').click(); });
+    await page.waitForFunction(() => window.ait350.q('.save-retry').dataset.visible === 'true');
+    await measure('failed-save');
+    assert.equal(await page.evaluate(() => window.ait350.session.settings.voice), 'elevenlabs');
+    assert.equal(await page.evaluate(() => window.ait350.root.activeElement === window.ait350.q('#settings-select-voice')), true);
+    await page.evaluate(() => { window.ait350.fail = false; window.ait350.q('.save-retry').click(); });
+    await page.waitForFunction(() => window.ait350.session.settings.voice === 'grok-voice');
+    await measure('grok-selected'); await shot(`ait350-${locale}-${width}-grok-selected`);
+    await page.evaluate(() => window.ait350.q('.disclosure').open = true);
+    await measure('provider-processing-detail'); await shot(`ait350-${locale}-${width}-provider-processing-detail`);
+    await page.evaluate(() => window.ait350.q('.disclosure').open = false);
+    if (width === 390) {
+      await page.evaluate(() => window.ait350.q('[data-gauge="voice"]').scrollIntoView({ block: 'center' }));
+      await shot(`ait350-${locale}-${width}-grok-selected-vial`);
+    }
+    assert.deepEqual(await page.evaluate(() => ({ starts: window.ait350.starts, stops: window.ait350.stops })), { starts: 0, stops: 1 });
+    checks.push({ locale, width, focusReturn: { switch: true, cancel: true, failedSave: true } });
+  }
+  assert.deepEqual(problems, []);
+  if (evidence) await writeFile(join(evidence, 'ait350-checks.json'), JSON.stringify({ capture: 'viewport', motion: 'reduced and settled', blurredBeforeCapture: true, checks }, null, 2));
+});

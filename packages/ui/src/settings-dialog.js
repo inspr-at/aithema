@@ -709,7 +709,7 @@ export class SettingsDialog {
     button.setAttribute('aria-label', `${menu.getAttribute('aria-label')}: ${label.textContent}`);
     if (disabled) this.#closeMenu(select);
   }
-  #paintGauge(kind, gauge) {
+  #paintGauge(kind, gauge, neutral = false) {
     const g = this.#copy.gauges, node = this.#q(`[data-gauge="${kind}"]`), level = node.querySelector('.gauge__level');
     const value = fill(g.values[gauge.state] ?? gauge.state, gauge.state === 'hostCountries'
       ? { ...gauge, countries: shortCountryNames(gauge.countries, this.#copy.display.locale) } : gauge);
@@ -722,7 +722,7 @@ export class SettingsDialog {
     node.setAttribute('aria-label', `${g.labels[kind]}: ${value}${detail ? `, ${detail}` : ''}`);
     node.dataset.state = gauge.state;
     node.classList.remove('gauge--unrated', 'gauge--measured');
-    node.classList.add(gaugeVialState(kind, gauge));
+    node.classList.add(neutral ? 'gauge--unrated' : gaugeVialState(kind, gauge));
     if (kind === 'privacy' && gauge.state === 'hostCountries') node.tabIndex = 0; else node.removeAttribute('tabindex');
     const key = String(gauge.fill), changed = level.dataset.fill !== undefined && level.dataset.fill !== key;
     level.dataset.fill = key; level.style.setProperty('--empty', `${100 - gauge.fill}%`);
@@ -778,7 +778,7 @@ export class SettingsDialog {
     const voiceOption = info?.voices?.find(o => o.id === draft.voice) ?? null, visualsOption = info?.visuals?.find(o => o.id === draft.visuals) ?? null;
     const gauges = hostSettingsGauges({ preset: draft.processingPreset, info: info ?? {}, model: option, effort: draft.effort,
       voice: draft.voice === SETTINGS_OFF ? null : voiceOption, visuals: draft.visuals === SETTINGS_OFF ? null : visualsOption });
-    for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind]);
+    for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind], kind === 'voice' && voiceOption?.facts?.plugin === 'grok-voice' && voiceOption.facts.qualification !== 'qualified');
     const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : this.#pendingPreset ? { text: c.loading } : null);
     this.#q('.notice-area').dataset.kind = notice ? 'notice' : '';
     this.#q('.notice-body .notice-text').textContent = notice?.text ?? '';
