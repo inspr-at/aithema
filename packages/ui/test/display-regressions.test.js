@@ -420,8 +420,8 @@ for (const surface of ['modal', 'canvas']) for (const cause of ['close', 'switch
   });
 }
 
-test('AIT-353: a saturated mint registry shows failure once; reopening mints again without generation', async t => {
-  let attempts = 0;
+test('AIT-353: a saturated mint registry respects Retry-After before a fresh explicit retry', async t => {
+  let attempts = 0, now = Date.now(); t.mock.method(Date, 'now', () => now);
   const { c, root, calls } = fixture(t, { htmlResponse: () => {
     attempts++;
     return attempts === 1 ? new Response('Unavailable', { status: 503, headers: { 'retry-after': '60' } }) :
@@ -438,7 +438,10 @@ test('AIT-353: a saturated mint registry shows failure once; reopening mints aga
   receive(c, 'concept.feedback', { artifactId: 'draft1', vote: 'up', chips: [] });
   preview.width = 'phone'; preview.copy = de.conceptPreview; await tick();
   assert.equal(attempts, 1, 'live renders and width/copy changes never hammer a saturated registry');
+  root.querySelector('.concept-close').click(); root.querySelector('.concept-tab').click(); await tick();
+  assert.equal(preview.state, 'failure'); assert.equal(attempts, 1, 'Retry-After also prevents repeated reopen attempts from hammering');
+  now += 60_000;
   root.querySelector('.concept-close').click(); root.querySelector('.concept-tab').click(); await ready(preview);
-  assert.equal(attempts, 2, 'an explicit reopen requests a fresh capability');
+  assert.equal(attempts, 2, 'an explicit reopen after Retry-After requests a fresh capability');
   assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false);
 });

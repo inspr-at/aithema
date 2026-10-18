@@ -52,6 +52,7 @@ export function paintFailureLine(line, words, suffix = '') {
 export class ConceptView {
   #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
+  #previewRetryAt = 0;
   #canvasEpoch = 0; #canvasCopy; #stageFeature;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
@@ -192,7 +193,7 @@ export class ConceptView {
     const previous = this.items.at(-1), wasPending = this.#session?.conceptStatus?.phase === 'pending';
     const lostSource = wasPending && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn &&
       !session.transcript.some(next => next.id === turn.id && !next.erased && !next.withdrawn));
-    if (changedOwner) { this.#stageFeature = undefined; this.#imageLayout = false; }
+    if (changedOwner) { this.#previewRetryAt = 0; this.#stageFeature = undefined; this.#imageLayout = false; }
     this.#session = session;
     const valid = new Set(this.items.map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
@@ -376,12 +377,18 @@ export class ConceptView {
   previewSource(id) {
     const sessionId = this.#session.id, epoch = this.#epoch;
     return { mediaType: HTML_MEDIA_TYPE, previewURL: this.previewURL, mint: async signal => {
-      const active = () => epoch === this.#epoch && sessionId === this.#session.id && this.items.some(item => item.id === id);
-      if (!active()) throw new Error('Preview scope expired');
+      const active = () => !signal?.aborted && epoch === this.#epoch && sessionId === this.#session.id && this.items.some(item => item.id === id);
+      if (!active() || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) throw new Error('Preview scope expired');
+      if (Date.now() < this.#previewRetryAt) throw new Error('Preview retry later');
       const response = await fetch(this.sameOrigin(this.path(`/${id}/preview`)), {
         method: 'POST', headers: this.headers(), cache: 'no-store', redirect: 'error', signal,
       });
-      if (!response.ok || !active()) throw new Error('Preview unavailable');
+      if (!active()) throw new Error('Preview scope expired');
+      if (response.status === 503) {
+        const seconds = Number(response.headers.get('retry-after'));
+        this.#previewRetryAt = Date.now() + (Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, 60_000) : 60_000);
+      }
+      if (!response.ok) throw new Error('Preview unavailable');
       const source = await response.json();
       if (!active()) throw new Error('Preview scope expired');
       return source;

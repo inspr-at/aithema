@@ -53,7 +53,7 @@ const PERMISSIONS = ['camera', 'microphone', 'geolocation', 'display-capture', '
 export const previewCopy = Object.freeze({ label: 'Draft — generated', title: 'Generated clickable draft', width: 'Preview width',
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
   navigated: 'The draft tried to open another page and was stopped.',
-  loading: 'Loading draft…', failure: 'The draft could not be loaded. Close and reopen to retry.',
+  loading: 'Loading draft…', failure: 'The draft could not be loaded. Try closing and reopening it later.',
   policy: 'The host page must allow only the exact preview route before drafts can be shown.' });
 const FRAME_READY = 'aithema-html-preview-ready';
 // A private reply port distinguishes a served draft from an error document.
