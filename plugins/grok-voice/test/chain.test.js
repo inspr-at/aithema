@@ -16,7 +16,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false } = {}) 
   const voice = binding(), stt = sttHarness(), tts = ttsHarness(), consumed = [], reports = [], coverage = [], played = [], persisted = [];
   const reasoning = { plugin: 'fixture-reasoning', model: 'admitted-answer', endpoint: 'https://reasoning.test',
     effort: 'none', accountRef: 'private:reasoning-account', secretRef: 'private:reasoning-secret',
-    maxMicro: 1000, maxTokens: 100, rates: { inputMicro: 1, outputMicro: 1 } };
+    maxMicro: 100000, maxTokens: 100, rates: { inputMicro: 1, outputMicro: 1 } };
   reasoning.legal = { ...voice.legal, purpose: 'models-international', recipient: 'Separate model recipient', countries: ['AT'],
     evidence: { ...voice.legal.evidence, accountRef: reasoning.accountRef, secretRef: reasoning.secretRef,
       endpoint: reasoning.endpoint, model: reasoning.model } };
