@@ -97,6 +97,13 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 107.270);
 
+// AIT-307: PR #277 CI 39107993703, head 6548950b43, shard 6/6:
+// both start-look tests passed at 28.513415211s + 10.019822398s
+// = 38.533237609s. Reserve 48.167s with the 25% warmup margin
+// until trusted rolling-main measurements cover the readiness matrix.
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 48.167);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;
