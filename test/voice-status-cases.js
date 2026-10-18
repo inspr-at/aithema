@@ -14,7 +14,7 @@ export function voiceStatusCases(copy) {
   ];
 }
 
-// Tick’s binding AIT-302 round-3 table approval (2026-10-18), DE / EN.
+// Tick’s binding AIT-302 round-3 table plus round-4 host-limit fallback (2026-10-18), DE / EN.
 const approvedNarrowForms = {
   'closing': ['Wird beendet …', 'Ending …'],
   'creditEnding': ['Wird beendet …', 'Ending …'],
@@ -27,8 +27,9 @@ const approvedNarrowForms = {
   'spend-deadline': ['Anbieterlimit erreicht', 'Provider limit reached'],
   'Voice minute cap reached for this deployment': ['Sprachlimit erreicht', 'Voice limit reached'],
   'Voice minute cap reached for this UTC day': ['Sprachlimit erreicht', 'Voice limit reached'],
-  'usedUp': ['Credits aufgebraucht', 'Credits used up'],
-  'budget denied': ['Credits aufgebraucht', 'Credits used up'],
+  // No nextTier reaches the voice mapper: pin the fallback for exhaustion and admission.
+  'usedUp': ['Budget ausgeschöpft', 'Budget used up'],
+  'budget denied': ['Budget ausgeschöpft', 'Budget used up'],
   'cancelled': ['Abgebrochen', 'Cancelled'],
   'start-cancelled': ['Abgebrochen', 'Cancelled'],
   'transport-lost': ['Verbindung getrennt', 'Connection lost'],
