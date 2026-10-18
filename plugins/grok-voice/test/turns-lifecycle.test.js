@@ -389,3 +389,16 @@ for (const boundary of ['before-operation', 'before-final', 'after-final']) test
   assert.equal(facts[0].options.heardLength, 'unknown');
   assert.equal(Object.hasOwn(facts[0].options, 'heard'), false);
 });
+
+test('AIT-349: captured barge-in silences the physical player before stalled relay ingress', async t => {
+  let input, stops = 0;
+  const delivered = Promise.withResolvers();
+  const h = mediaFixture(t, { capture: async options => { input = options.onAudio; return { stop() {} }; },
+    player: { play() {}, stop() { stops++; } }, command: { receiveAudio: () => delivered.promise } });
+  const session = await h.media.connect(h.relay.grant); t.after(() => session.close()); t.after(() => delivered.resolve());
+  const before = stops, pcm = Buffer.alloc(3200);
+  for (let i = 0; i < pcm.length; i += 2) pcm.writeInt16LE(8000, i);
+  const ingress = input(pcm);
+  assert.ok(stops > before, 'physical silence must precede network receipt');
+  delivered.resolve(); await ingress;
+});

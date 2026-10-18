@@ -15,7 +15,7 @@ const pcm = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.
 
 function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0, ttsMode = 'completed', ttsAudioBytes = 4 } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'owner' });
-  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode, audioBytes: ttsAudioBytes }), consumed = [], reports = [], coverage = [], played = [], persisted = [];
+  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode, audioBytes: ttsAudioBytes }), consumed = [], reports = [], coverage = [], played = [], persisted = [], reasoningRequests = [];
   const budget = new SQLiteBudgetLedger(storage), accounting = createComposedComponentAccounting({ storage, budget });
   voice.visitorMicroPerMinute = visitorMicroPerMinute;
   const reasoning = { plugin: 'fixture-reasoning', model: 'admitted-answer', endpoint: 'https://reasoning.test',
@@ -31,7 +31,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
   } };
   const reasoningPlugin = { binding: reasoning, manifest: publicReasoningManifest(reasoning.plugin, 'Fixture reasoning', reasoning.endpoint),
     health: async () => ({ available: true }), structured() { assert.fail('Voice reasoning must use streaming'); }, async *stream(request, options) {
-      await options.attempt.consume(); consumed.push('reasoning');
+      await options.attempt.consume(); consumed.push('reasoning'); reasoningRequests.push(request);
       assert.ok(request.messages.some(message => message.role === 'user' && message.content === 'Hello world.'));
       yield 'Which company?'; await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 1,
         usage: { inputTokens: 2, outputTokens: 3 } });
@@ -70,7 +70,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
     capture: async options => { onAudio = options.onAudio; return { stop() { captureStops++; } }; },
     player: { play(bytes, format) { played.push({ bytes, ...format }); }, stop() { stops++; } } });
   t.after(async () => { p.networkRelay?.close(); await handlers.close(); storage.close(); });
-  return { storage, session, runtime, post, p, client, control, played, consumed, reports, coverage, persisted,
+  return { storage, session, runtime, post, p, client, control, played, consumed, reports, coverage, persisted, reasoningRequests,
     audio: bytes => onAudio(bytes), get captureStops() { return captureStops; }, get stops() { return stops; } };
 }
 
@@ -158,4 +158,9 @@ test('AIT-349: real Grok chain interrupts synthesis locally, persists full reply
   assert.deepEqual(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).interruption, { heardLength: 'unknown' });
   assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
   assert.equal(h.played.length, 1, 'recovery never replays old synthesis');
+  await session.sendText('Continue', { deliveryId: 'after-recovery' });
+  for (let i = 0; i < 200 && h.reasoningRequests.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(h.reasoningRequests.length, 2);
+  assert.match(h.reasoningRequests[1].system, /heard length is unknown/u);
+  assert.ok(h.reasoningRequests[1].messages.some(message => message.content.includes('Which company?')));
 });
