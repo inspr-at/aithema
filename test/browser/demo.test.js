@@ -1672,6 +1672,12 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       return s;
     };
     const shot = async (page, name) => { if (evidence) await page.screenshot({ path: join(evidence, `ai-notice-${name}.png`) }); };
+    const settleReadyLayout = page => page.evaluate(async () => {
+      await document.fonts.ready;
+      // Header rail fit and footer reservations update in ResizeObserver after
+      // viewport changes. Sample the painted layout on both sides of consent.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
     const sizes = [[1440, 1000], [400, 800]], tally = {};
     for (const [locale, languages] of [['en', ['en-GB', 'en']], ['de', ['de-AT', 'de']]]) {
       const full = `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`;
@@ -1730,6 +1736,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
         tally[`ready before consent ${width}`] = await noticeAtEntryPoints(page, 'ready before consent', full, `${locale} ready before consent ${width} px`);
       }
       await page.setViewport({ width: 1440, height: 1000 });
+      await settleReadyLayout(page);
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       before = { line: await box(page, '.ai-notice'), start: await box(page, '.ready__start') };
       const readyLayout = () => inShadow(page, c => ({ scrollY, layout: Object.fromEntries(
@@ -1755,6 +1762,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await waitForShadow(page, '.composer textarea', { enabled: true });
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
+      await settleReadyLayout(page);
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       t.diagnostic(`AIT-307 consent layout ${locale}: ${JSON.stringify({ before: beforeReadyLayout, after: await readyLayout() })}`);
       sameBox(before.line, await box(page, '.ai-notice'), `notice under the pointer after consent ${JSON.stringify({ before:beforeFooter, after:await footerState() })}`);
