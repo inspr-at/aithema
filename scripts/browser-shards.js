@@ -151,16 +151,16 @@ browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
 browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
   browserTestWeights['test/browser/start2-display-geometry.test.js'], 196);
 
-// AIT-304: mbp2606 run 1071fabf22-25006, full footer file with viewport
-// evidence: 11.498745042s + 9.048550042s + 15.648984333s = 36.196279417s.
-// Preserve the existing 48.544s trusted-main floor and add the new phone
-// matrix's observed work with 25% margin: ceil(48.544 + 11.498745042*1.25)
-// = 63s. PR CI 39120378507 at c12e5bbb, shard 1/7, also passed all 19
-// display tests: 205.342187533s; ceil(observed * 1.25) = 257s. Retain that
-// floor for the unchanged full-wording assertions' accessible-name extraction.
+// AIT-304: successful PR #284 CI 39120863347, head bb069809, shard 4/7:
+// complete footer file with viewport evidence: 16.313871563s + 12.941360072s
+// + 22.817818013s = 52.073049648s. ceil(observed * 1.25) = 66s, superseding
+// the 63s provisional remote floor. PR CI 39120378507 at c12e5bbb, shard
+// 1/7, passed all 19 display tests: 205.342187533s; ceil(*1.25) = 257s.
+// Retain that display floor (39120863347 remeasured 197.598731313s) for
+// the unchanged full-wording assertions' accessible-name extraction.
 // PR/remote samples remain diagnostic, outside trusted rolling-main history.
 for (const [file, seconds] of Object.entries({
-  'test/browser/footer-width-sweep.test.js': 63,
+  'test/browser/footer-width-sweep.test.js': 66,
   'test/browser/start2-display.test.js': 257,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
