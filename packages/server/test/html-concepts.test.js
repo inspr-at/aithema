@@ -403,15 +403,15 @@ for (const action of ['withdraw', 'consent', 'erase', 'publication', 'owner', 'd
   assertPreviewDenial(await previewGet(h, url));
 });
 
-test('AIT-352: concurrent GET/HEAD redemption admits once; HEAD has no body and consumes its token', async t => {
+test('AIT-352: concurrent GET redemption admits once; HEAD refuses without consuming its token', async t => {
   const h = await setup(t); await h.turn('first'); const item = await h.render();
   const url = await mintPreview(h, item.id);
   const responses = await Promise.all([previewGet(h, url), previewGet(h, url)]);
   assert.deepEqual(responses.map(r => r.status).sort(), [200, 403]);
   const headURL = await mintPreview(h, item.id), head = await previewGet(h, headURL, { method: 'HEAD' });
-  assert.equal(head.status, 200); assert.equal(head.body, null);
-  assert.equal(head.headers.get('content-security-policy'), previewPolicy);
-  assertPreviewDenial(await previewGet(h, headURL));
+  assertPreviewDenial(head, 405); assert.equal(head.body, null);
+  assert.equal(head.headers.get('allow'), 'GET');
+  assert.equal((await previewGet(h, headURL)).status, 200, 'HEAD preserves the capability for GET');
 });
 
 test('AIT-352: expiry, restart and scope mismatch fail closed', async t => {
@@ -476,4 +476,50 @@ test('AIT-352: inspectHTML still rejects digest-valid unsafe bytes at mint', asy
   metadata.provenance.subject.contentDigest = `sha-256=:${createHash('sha256').update(bytes).digest('base64')}:`;
   h.storage.db.prepare('UPDATE concept_artifacts SET bytes=?,metadata=? WHERE id=?').run(bytes, JSON.stringify(metadata), item.id);
   assert.equal((await h.call(`concepts/${item.id}/preview`, {})).status, 403);
+});
+
+test('AIT-352: HEAD is identical for absent, malformed, live, used and expired tokens without consulting redemption', async t => {
+  const { createHTMLPreviewCapabilities } = await import('../src/html-preview-capabilities.js');
+  let now = 1000, redeems = 0;
+  const registry = createHTMLPreviewCapabilities({ now: () => now });
+  const h = await setup(t, { concepts: { previewCapabilities: { ...registry,
+    redeem(token) { redeems++; return registry.redeem(token); } } } });
+  await h.turn('first'); const item = await h.render();
+  const used = await mintPreview(h, item.id); await previewGet(h, used);
+  const expired = await mintPreview(h, item.id); now += 60000;
+  const live = await mintPreview(h, item.id), before = redeems;
+  h.runtime.publicationAllowed = async () => { throw new Error('HEAD must not check publication'); };
+  let headers;
+  for (const url of ['/_aithema/html-preview', '/_aithema/html-preview?cap=invalid',
+    '/_aithema/html-preview?cap=one&cap=two', used, expired, live]) {
+    const response = await previewGet(h, url, { method: 'HEAD' });
+    assertPreviewDenial(response, 405); assert.equal(response.body, null);
+    assert.equal(response.headers.get('allow'), 'GET');
+    const actual = [...response.headers];
+    if (headers) assert.deepEqual(actual, headers); else headers = actual;
+  }
+  assert.equal(redeems, before, 'HEAD must never consult capability redemption');
+  h.runtime.publicationAllowed = async () => true;
+  assert.equal((await previewGet(h, live)).status, 200);
+});
+
+test('AIT-352: full live registry returns a plain no-store 503 and permits a later fresh mint', async t => {
+  const { createHTMLPreviewCapabilities } = await import('../src/html-preview-capabilities.js');
+  let now = 1000;
+  const registry = createHTMLPreviewCapabilities({ capacity: 2, perSessionCapacity: 1, now: () => now });
+  const h = await setup(t, { concepts: { previewCapabilities: registry } });
+  await h.turn('first'); const item = await h.render();
+  const first = registry.mint({ sessionId: 'other-session-one', ownerHash: 'other-owner-one' });
+  const second = registry.mint({ sessionId: 'other-session-two', ownerHash: 'other-owner-two' });
+  const response = await h.call(`concepts/${item.id}/preview`, {});
+  assertPreviewDenial(response, 503);
+  assert.equal(response.headers.get('retry-after'), '60');
+  assert.equal(await response.text(), 'Preview capacity unavailable');
+  assert.equal(registry.redeem(first)?.sessionId, 'other-session-one');
+  assert.equal(registry.redeem(second)?.sessionId, 'other-session-two');
+  const fresh = await mintPreview(h, item.id);
+  assert.equal((await previewGet(h, fresh)).status, 200);
+  registry.mint({ sessionId: 'other-session-one' }); registry.mint({ sessionId: 'other-session-two' });
+  now += 60000;
+  assert.equal((await previewGet(h, await mintPreview(h, item.id))).status, 200, 'expired capacity permits a fresh mint');
 });
