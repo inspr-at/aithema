@@ -18,6 +18,7 @@ const measure = page => shadow(page, c => {
   const box = n => { const b = n.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
   const selectors = ['.display-foot', '.display-foot__row', '.footer-info', '.ai-notice',
     '.host-credits', '.host-credits__button', '.host-credits__amount', '.host-credits__value',
+    '.host-credits__unit', '.host-credits__total', '.host-credits__text',
     '.host-credits__track', '.footer-right', '.preset-panel', '.host-legal', '.engine__flag', '.status__dot'];
   return { rects: Object.fromEntries(selectors.map(s => [s, box(root.querySelector(s))])),
     legal: [...c.querySelectorAll('#demo-legal a')].map(box),
@@ -25,6 +26,7 @@ const measure = page => shadow(page, c => {
     value: amount.textContent, reserved: amount.dataset.creditReserve,
     numeric: getComputedStyle(amount).fontVariantNumeric, align: getComputedStyle(amount.firstElementChild).textAlign,
     gap: getComputedStyle(root.querySelector('.display-foot__row')).columnGap,
+    legalPresent: !root.querySelector('.host-legal').hidden,
     fit: root.querySelector('.display-foot').dataset.fit };
 });
 
@@ -77,9 +79,9 @@ export async function creditsFirstReceiptCheck(t) {
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
     shots.push({ file, head, viewport: true, reducedMotion: true, blurred: true });
   };
-  for (const width of [320, 390, 1024, 1440]) for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const limitMicro of [100_000_000, 24_000_000, 980_000]) {
+  for (const width of [1440, 320, 390, 700, 1024, 1100]) for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const withLegal of (width >= 700 ? [true, false] : [true])) for (const limitMicro of [24_000_000, 100_000_000, 980_000]) {
     await page.setViewport({ width, height: 844 });
-    await shadow(page, async (c, { width, locale, theme, limitMicro }) => {
+    await shadow(page, async (c, { width, locale, theme, limitMicro, withLegal }) => {
       const { [locale]: baseCopy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { withDemoConsentCopy } = await import('/demo/consent-copy.js');
       const copy = withDemoConsentCopy(baseCopy);
@@ -88,6 +90,7 @@ export async function creditsFirstReceiptCheck(t) {
       c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.querySelector('#demo-legal').slot = withLegal ? 'legal' : 'ait357-unassigned-legal';
       c.configure({ session, copy, host: { credits: true, library: true } });
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme; c.setAttribute('theme', theme);
       document.querySelector('#locale').value = locale; document.querySelector('#theme').value = theme;
@@ -102,14 +105,15 @@ export async function creditsFirstReceiptCheck(t) {
           const label = document.createElement('span'); label.className = 'demo-legal-short'; label.textContent = short; link.replaceChildren(label);
         } else if (id === 'demo-license') paintLicenseLabel(link, full); else link.textContent = full;
       }
-    }, { width, locale, theme, limitMicro });
+    }, { width, locale, theme, limitMicro, withLegal });
     await until(page, () => window.ait357.requested &&
       document.querySelector('aithema-session').shadowRoot.querySelector('.status__dot').dataset.state === 'connected');
     await settle(page);
-    const before = await measure(page), label = `${width}/${locale}/${theme}/${limitMicro / 10_000}`;
+    const before = await measure(page), label = `${width}/${locale}/${theme}/${withLegal ? 'legal' : 'no-legal'}/${limitMicro / 10_000}`;
+    assert.equal(before.legalPresent, withLegal, `${label}: host legal configuration applied`);
     assert.equal(before.value, '…', `${label}: receipt held pending`);
     if (width < 600) assert.deepEqual(before.legalLabels, ['AGPL-3.0', locale === 'de' ? 'Quellcode' : 'Source'], `${label}: real demo legal labels are present`);
-    if (locale === 'de' && theme === 'light' && width < 400 && limitMicro === 24_000_000) await capture(width, 'before');
+    if (withLegal && locale === 'de' && theme === 'light' && [320, 390, 1440].includes(width) && limitMicro === 24_000_000) await capture(width, 'before');
     const target = before.rects['.host-credits__button'];
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
     await settle(page);
@@ -117,8 +121,12 @@ export async function creditsFirstReceiptCheck(t) {
     await until(page, ({ locale, limitMicro }) => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent === new Intl.NumberFormat(locale).format(limitMicro / 10_000), { locale, limitMicro });
     await settle(page);
     const after = await measure(page);
-    if (locale === 'de' && theme === 'light' && width < 400 && limitMicro === 24_000_000) await capture(width, 'after');
-    checks.push({ width, locale, theme, limitMicro, before, after, maxMovementPx: Math.max(...Object.keys(before.rects).flatMap(s => Object.keys(before.rects[s]).map(k => Math.abs(after.rects[s][k] - before.rects[s][k])))) });
+    if (withLegal && locale === 'de' && theme === 'light' && [320, 390, 1440].includes(width) && limitMicro === 24_000_000) await capture(width, 'after');
+    const movementBySelector = Object.fromEntries(Object.keys(before.rects).map(s => [s,
+      Math.max(...Object.keys(before.rects[s]).map(k => Math.abs(after.rects[s][k] - before.rects[s][k])))]));
+    const maxMovementPx = Math.max(...Object.values(movementBySelector));
+    checks.push({ width, locale, theme, withLegal, limitMicro, before, after, movementBySelector, maxMovementPx });
+    if (evidence && maxMovementPx !== 0) await writeFile(join(evidence, 'ait357-checks.json'), JSON.stringify({ head, checks, shots }, null, 2));
     // Exact rectangles, including width/height: no tolerance can hide a refit.
     assert.deepEqual(after.rects, before.rects, `${label}: first receipt moves credits or neighbours (0px required)`);
     assert.deepEqual(after.legalLabels, before.legalLabels, `${label}: legal labels remain present`);
@@ -127,7 +135,7 @@ export async function creditsFirstReceiptCheck(t) {
     assert.equal(before.numeric, 'tabular-nums'); assert.equal(before.align, 'end');
     assert.equal(before.reserved, new Intl.NumberFormat(locale).format(10_000));
     if (width === 320) assert.equal(before.gap, '0px', '320px exercises gap:0');
-    t.diagnostic(`AIT-357 ${label}: credits and all footer neighbours move exactly 0px`);
+    t.diagnostic(`AIT-357 ${label}: credits value, total, unit, text and all footer neighbours move exactly 0px`);
   }
   // Above the envelope, the slot must grow naturally so the existing footer
   // fitter can respond; fixed width, clipping and ellipsis are not substitutes.
