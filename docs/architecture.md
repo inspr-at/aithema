@@ -96,7 +96,7 @@ The browser-facing core root does not import these Node artifact constructors.
 | `plugins/composed-voice/src/qualification.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/elevenlabs/src/components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
-| `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION host-module expressions | #173 / AIT-160: injected host entrypoints |
+| `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION/GROK_VOICE host-module expressions | #173 / AIT-160 / AIT-350: injected host entrypoints |
 | `demo/host.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/consent-page.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |

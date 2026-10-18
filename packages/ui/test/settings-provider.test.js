@@ -13,8 +13,8 @@ function fixture(t, { copy = de, active = false, status = 'available', fail = fa
   let selected = [], starts = 0, stops = 0;
   const saves = [], dialog = document.createElement('dialog'); document.body.append(dialog);
   const voice = () => ({ id: 'grok-voice', label: 'Grok Voice (xAI)', status, reason: status === 'consent' ? 'current processing consent required' : status === 'unavailable' ? 'not configured' : null,
-    facts: { plugin: 'grok-voice', vendor: 'xAI', qualification: 'unverified', capabilities: { sendText: 'native' },
-      providerProcessing: { recipientCountries: ['US'], processingCountries: null, evidence: 'current', vendor: 'xAI' } } });
+    facts: { liveQualification: 'unverified', consentItem: { id: 'voice-xai', version: 1 }, plugin: 'grok-voice', vendor: 'xAI', qualification: 'unverified', capabilities: { sendText: 'native' },
+      providerProcessing: { recipientCountries: ['US'], processingCountries: null, verification: 'current', vendor: 'xAI' } } });
   const catalog = () => ({ processingPreset: 'best', settings: session.settings, presets: { best: { offered: true, status: 'available', defaults: session.settings,
     models: [{ id: 'mock', label: 'Mock', efforts: ['none'], facts: {} }], voices: [{ id: 'elevenlabs', label: 'ElevenLabs', status: 'available', facts: {} }, voice()], visuals: [] } } });
   const editor = new SettingsDialog({ dialog, copy, ports: {

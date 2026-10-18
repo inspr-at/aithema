@@ -766,7 +766,7 @@ focus to the voice choice, with polite status announcements.
 
 The runtime catalogue exposes `facts.providerProcessing`: `vendor`,
 `recipientCountries`, `processingCountries` (null when no location is guaranteed),
-and `evidence` (`current` or `unverified`). This projection uses current
+and `verification` (`current` or `unverified`). This projection uses current
 binding-specific admission evidence. Missing, expired or mismatched evidence
 removes country guarantees; provider nationality and endpoint names never supply
 processing countries. The existing provider disclosure renders recipient seat

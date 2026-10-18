@@ -16,7 +16,6 @@ export const CONSENT_ITEMS = [
     recipients: 'OpenRouter, Inc. and Anthropic PBC, United States.',
     text: 'Your conversation, text read from uploaded files and the current assessment are sent to generate clickable draft screens. Processing without retention is not guaranteed.' },
 ];
-CONSENT_ITEMS.push(grokManifest.presentation.translations.find(item => item.locale === 'en').consentItem);
 export const CONSENT_INTRO = 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.';
 export const CONSENT_WITHDRAWAL = 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.';
 
@@ -61,7 +60,9 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
   const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => modelProvider(b.model)))];
   // The configured processing contract is stable even while voice is unavailable.
   // Its exact dispatch scope comes from the atomically published runtime binding.
-  const items = CONSENT_ITEMS.filter(item => (item.id === 'voice-elevenlabs' && voiceConfigured) || (item.id === 'voice-xai' && grokConfigured) || coveredBindings.some(binding => binding.legal?.purpose === item.id &&
+  const configuredItems = [...CONSENT_ITEMS, ...(grokConfigured || coveredBindings.some(b => b.legal?.purpose === 'voice-xai')
+    ? [grokManifest.presentation.translations.find(item => item.locale === 'en').consentItem] : [])];
+  const items = configuredItems.filter(item => (item.id === 'voice-elevenlabs' && voiceConfigured) || (item.id === 'voice-xai' && grokConfigured) || coveredBindings.some(binding => binding.legal?.purpose === item.id &&
     (item.id !== 'drafts-anthropic' || binding.plugin === 'claude-html')));
   const contract = [CONSENT_COPY_VERSION, items.map(item => `${item.id}:${item.version}`).join(','), modelProviders.join(',')].join('|');
   const validDecision = decision => decision?.contract === contract && Array.isArray(decision.items) &&

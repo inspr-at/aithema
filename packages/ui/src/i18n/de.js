@@ -161,7 +161,7 @@ export const de = {
     fixedEffort: 'Bei diesem Modell lässt sich die Gründlichkeit nicht einstellen.', deviceNote: 'Wählen und testen Sie Ihr lokales Modell unter „Erweitert“.',
     efforts: { none: 'Keine', minimal: 'Minimal', low: 'Niedrig', medium: 'Mittel', high: 'Hoch', xhigh: 'Sehr hoch', max: 'Maximal' },
     voice: 'Sprechen und Zuhören', voiceOff: 'Textchat: lesen und tippen', visuals: 'Visuelle Entwürfe', visualsOff: 'Aus',
-    grokUnverified: 'Noch nicht im Live-Betrieb geprüft', voiceConfigured: 'Sprache mit ElevenLabs', notConfigured: 'Nicht eingerichtet',
+    voiceUnverified: 'Noch nicht im Live-Betrieb geprüft', voiceConfigured: 'Sprache mit {provider}', notConfigured: 'Nicht eingerichtet',
     voiceSwitchWarning: 'Der laufende Anruf wird beendet. Der neue Anbieter startet erst, wenn Sie wieder anrufen.',
     voiceSwitchApply: 'Wechseln und Anruf beenden', voiceSwitchCancel: 'Abbrechen', voiceSwitchCancelled: 'Anbieterwechsel abgebrochen.',
     providerSeat: 'Anbieter mit Sitz in {countries} ({vendor})', providerSeatUnknown: 'Anbietersitz nicht geprüft ({vendor})',
@@ -595,9 +595,6 @@ export const de = {
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
     withdrawal: 'Sie können Freigaben hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {
-      'voice-xai': { version: 1, title: 'Sprache mit Grok Voice (xAI)',
-        recipients: 'xAI (SpaceXAI LLC), USA. Verarbeitung international; kein zugesicherter Verarbeitungsort.',
-        text: 'xAI verarbeitet Ihre Spracheingabe, Transkriptionen, die auszugebenden Antworttexte und notwendige technische Verbindungsdaten direkt für Spracherkennung und Sprachausgabe. Die Antworten entstehen über den separat freigegebenen KI-Modellanbieter.' },
       'drafts-anthropic': {
         version: 1,
         title: 'KI-Entwürfe (Anthropic)',

@@ -8,9 +8,9 @@ const binding = { plugin: 'grok-voice', model: 'grok-voice', effort: 'none', acc
     evidence: { qualified: true, accountRef: 'fixture', secretRef: 'fixture', model: 'grok-voice', endpoint: 'https://eu.us.example.test', routing: {}, verifiedAt: now - 1000, expiresAt: now + 1000 } } };
 const project = b => providerProcessingFacts(b, { plugin, preset: 'best', policy: { endpoints: [b?.endpoint] }, now });
 test('AIT-350: recipient seat is separate from unknown processing geography; endpoint and nationality imply no guarantee', () => {
-  assert.deepEqual(project(binding), { vendor: 'xAI', recipientCountries: ['US'], processingCountries: null, evidence: 'current' });
+  assert.deepEqual(project(binding), { vendor: 'xAI', recipientCountries: ['US'], processingCountries: null, verification: 'current' });
   const eu = structuredClone(binding); eu.legal.countries = ['DE'];
-  assert.deepEqual(project(eu), { vendor: 'xAI', recipientCountries: ['DE'], processingCountries: null, evidence: 'current' });
+  assert.deepEqual(project(eu), { vendor: 'xAI', recipientCountries: ['DE'], processingCountries: null, verification: 'current' });
   assert.equal(JSON.stringify(project(binding)).includes('SpaceXAI'), false, 'legal entity not exposed for one provider only');
 });
 for (const state of ['absent', 'expired', 'mismatched']) test(`AIT-350: ${state} evidence cannot advertise regional guarantees`, () => {
@@ -18,7 +18,7 @@ for (const state of ['absent', 'expired', 'mismatched']) test(`AIT-350: ${state}
   if (state === 'absent') delete b.legal.evidence;
   if (state === 'expired') b.legal.evidence.expiresAt = now;
   if (state === 'mismatched') b.legal.evidence.accountRef = 'other';
-  assert.deepEqual(project(b), { vendor: 'xAI', recipientCountries: [], processingCountries: null, evidence: 'unverified' });
+  assert.deepEqual(project(b), { vendor: 'xAI', recipientCountries: [], processingCountries: null, verification: 'unverified' });
 });
 test('AIT-350: only current binding-backed processing countries are projected', () => {
   const b = structuredClone(binding); b.legal.processingCountries = ['DE', 'FR'];

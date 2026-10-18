@@ -8,5 +8,5 @@ export function providerProcessingFacts(binding, { plugin, preset, policy, now }
   return { vendor: plugin?.manifest.vendor.name ?? null,
     recipientCountries: current ? [...binding.legal.countries] : [],
     processingCountries: current && binding.legal.processingCountries ? [...binding.legal.processingCountries] : null,
-    evidence: current ? 'current' : 'unverified' };
+    verification: current ? 'current' : 'unverified' };
 }

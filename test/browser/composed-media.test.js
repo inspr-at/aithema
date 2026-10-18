@@ -320,7 +320,8 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
       this.status = 'available'; this.active = false; this.fail = false; this.stops = 0; this.starts = 0; this.saves = []; this.selected = [];
       const f = this;
       const publicFacts = (vendor, plugin, countries, processingCountries) => ({ vendor, plugin, qualification: 'unverified', processingLocations: ['unverified'],
-        capabilities: { sendText: 'native', pause: 'emulated' }, providerProcessing: { vendor, recipientCountries: countries, processingCountries, evidence: 'current' } });
+        ...(plugin === 'grok-voice' ? { liveQualification: 'unverified', consentItem: { id: 'voice-xai', version: 1 } } : {}),
+        capabilities: { sendText: 'native', pause: 'emulated' }, providerProcessing: { vendor, recipientCountries: countries, processingCountries, verification: 'current' } });
       this.catalog = () => ({ processingPreset: 'best', settings: f.session.settings, presets: { best: { offered: true, status: 'available',
         defaults: f.session.settings, models: [{ id: 'mock', label: 'Demo only: sample replies', efforts: ['none'], facts: {} }],
         voices: [{ id: 'elevenlabs', label: 'ElevenLabs', status: 'available', facts: publicFacts('ElevenLabs', 'elevenlabs', ['US'], ['US']) },

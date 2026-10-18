@@ -125,7 +125,7 @@ export class SettingsDialog {
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
-  #closeGeneration = 0; #pendingPreset = null; #pendingVoice = null; #voiceConfirm = false; #switchBusy = false;
+  #closeGeneration = 0; #pendingPreset = null; #pendingVoice = null; #pendingConsentItem = null; #voiceConfirm = false; #switchBusy = false;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
     if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => void this.#finishVoiceConsent() } });
@@ -518,12 +518,12 @@ export class SettingsDialog {
     if (this.#switchBusy || value === this.#draft?.voice) return;
     const option = this.#presetInfo()?.voices?.find(o => o.id === value);
     if (option?.status === 'unavailable') return;
-    if (option?.facts?.plugin === 'grok-voice' && option.status === 'consent') {
-      this.#pendingVoice = value;
+    if (option?.facts?.consentItem && option.status === 'consent') {
+      this.#pendingVoice = value; this.#pendingConsentItem = option.facts.consentItem;
       // Existing consent editor, targeting the separately versioned item before saving a provider.
       if (!this.#consentEditor) { this.#pendingVoice = null; this.#ports.consent?.('settings', ['voice']); return; }
       this.#setTab('general');
-      await this.#consentEditor.open('voice-xai'); this.#render(); return;
+      await this.#consentEditor.open('voice', { item: this.#pendingConsentItem }); this.#render(); return;
     }
     this.#pendingVoice = null;
     if (this.#ports.state().voiceActive) {
@@ -534,14 +534,14 @@ export class SettingsDialog {
     await this.#saving; this.#focusVoice();
   }
   async #finishVoiceConsent() {
-    const value = this.#pendingVoice;
+    const value = this.#pendingVoice, item = this.#pendingConsentItem;
     if (!value) { this.close(); return; }
     const generation = this.#closeGeneration;
     const doc = await this.#ports.consentDocument().catch(() => null);
     if (!this.#dialog.open || this.#pendingVoice !== value || generation !== this.#closeGeneration) return;
     this.#pendingVoice = null; this.#consentEditor.close();
     this.#setTab('model');
-    if (doc?.items?.some(item => item.id === 'voice-xai' && item.version === 1) && doc.selected?.includes('voice-xai')) {
+    if (doc?.items?.some(entry => entry.id === item?.id && entry.version === item.version) && doc.selected?.includes(item?.id)) {
       await this.reload(); await this.#chooseVoice(value);
     }
     this.#render(); this.#focusVoice();
@@ -774,7 +774,7 @@ export class SettingsDialog {
     const optional = (name, list, off, offLabel, help) => [{ value: SETTINGS_OFF, label: offLabel, icon: name === 'voice' ? ICONS.text : ICONS.off, help: off },
       ...list.map(o => ({ value: o.id, label: named(o.label), vendor: this.#copy.catalogDescriptions?.[o.label] ?? named(o.facts?.vendor), status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
         ...(name === 'voice' ? { detail: o.status === 'unavailable' ? ['not configured', 'grok-account-not-configured'].includes(o.reason) ? c.notConfigured : c.unavailable
-          : o.status === 'consent' ? c.consentNeeded : o.id === 'grok-voice' || o.facts?.plugin === 'grok-voice' ? c.grokUnverified : o.id === 'elevenlabs' ? c.voiceConfigured : this.#copy.catalogDescriptions?.[o.label] ?? named(o.facts?.vendor) ?? '', status: '' } : {}),
+          : o.status === 'consent' ? c.consentNeeded : o.facts?.liveQualification === 'unverified' ? c.voiceUnverified : this.#copy.catalogDescriptions?.[o.label] ?? fill(c.voiceConfigured, { provider: named(o.label) }), status: '' } : {}),
         reason: o.status === 'available' ? '' : o.reason, help, feature: name === 'voice' ? 'voice' : o.kind === 'html' ? 'html' : 'images' }))];
     this.#renderSelect('voice', optional('voice', device ? [] : info?.voices ?? [], 'voiceOff', c.voiceOff, 'voice'), draft.voice ?? SETTINGS_OFF,
       { disabled: device || !catalog, reason: device ? 'unavailable on device' : '' });
@@ -783,7 +783,7 @@ export class SettingsDialog {
     const voiceOption = info?.voices?.find(o => o.id === draft.voice) ?? null, visualsOption = info?.visuals?.find(o => o.id === draft.visuals) ?? null;
     const gauges = hostSettingsGauges({ preset: draft.processingPreset, info: info ?? {}, model: option, effort: draft.effort,
       voice: draft.voice === SETTINGS_OFF ? null : voiceOption, visuals: draft.visuals === SETTINGS_OFF ? null : visualsOption });
-    for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind], kind === 'voice' && voiceOption?.facts?.plugin === 'grok-voice' && voiceOption.facts.qualification !== 'qualified');
+    for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind], kind === 'voice' && voiceOption?.facts?.liveQualification === 'unverified');
     const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : this.#pendingPreset ? { text: c.loading } : null);
     this.#q('.notice-area').dataset.kind = notice ? 'notice' : '';
     this.#q('.notice-body .notice-text').textContent = notice?.text ?? '';

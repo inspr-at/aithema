@@ -4,7 +4,7 @@ import { setText } from './dom.js';
 
 /** The host's current, versioned consent document, edited inside Settings. */
 export class ConsentSettings {
-  #button; #root; #copy; #ports; #document; #epoch = 0; #busy = false; #feature; #statusText = ''; #stale = false; #savingLabel = null;
+  #button; #root; #copy; #ports; #document; #epoch = 0; #busy = false; #feature; #item; #statusText = ''; #stale = false; #savingLabel = null;
   constructor({ root, copy, ports }) {
     this.#root = root; this.#copy = copy; this.#ports = ports;
     root.setAttribute('role', 'form');
@@ -32,8 +32,8 @@ export class ConsentSettings {
     for (const row of this.#root.querySelectorAll('.consent-item--target')) row.classList.remove('consent-item--target');
     if (this.#ports.saveButton) { this.#button.classList.remove('consent-save'); this.#button.disabled = false; }
   }
-  async open(feature, { reload = false } = {}) {
-    const epoch = ++this.#epoch; this.#feature = feature; this.#busy = true;
+  async open(feature, { reload = false, item } = {}) {
+    const epoch = ++this.#epoch; this.#feature = feature; if (!reload) this.#item = item; this.#busy = true;
     if (!reload) { this.#document = null; this.#stale = false; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren(); }
     this.#root.hidden = false; this.#button.classList.add('consent-save');
     this.#status(this.#copy.host.consentPage.loading); this.#paintBusy();
@@ -43,7 +43,7 @@ export class ConsentSettings {
       validateConsentDocument(described);
       const shorthand = described.mock === true && described.items === undefined;
       const doc = { ...described };
-      const ids = feature === 'voice-xai' ? doc.items?.filter(item => item.id === 'voice-xai' && item.version === 1).map(item => item.id) : doc.features?.[feature];
+      const ids = this.#item ? doc.items?.filter(entry => entry.id === this.#item.id && entry.version === this.#item.version).map(entry => entry.id) : doc.features?.[feature];
       if (shorthand) doc.items = [{ id: 'mock-processing', version: 1, title: this.#copy.host.consentTitle,
         recipients: this.#copy.host.consentPage.mockRecipients, text: `${this.#copy.host.consentUse.off} ${this.#copy.host.consentPage.mockConsequence}` }];
       if (!Array.isArray(doc.items) || !Array.isArray(doc.selected) || !ids?.length || !ids.every(id => doc.items.some(item => item.id === id))) throw new Error('Consent document unavailable');
@@ -54,7 +54,8 @@ export class ConsentSettings {
       setText(this.#root.querySelector('.consent-withdrawal'), doc.mock ? this.#copy.host.consentPage.mockTerms : this.#copy.processingConsent.withdrawal);
       const rows = [];
       for (const item of doc.items) {
-        const supplied = this.#ports.presentation?.translations?.find(entry => entry.locale === this.#copy.display.locale)?.consentItem;
+        const presentation = typeof this.#ports.presentation === 'function' ? this.#ports.presentation(this.#copy.display.locale, item) : this.#ports.presentation;
+        const supplied = presentation?.translations?.find(entry => entry.locale === this.#copy.display.locale)?.consentItem;
         const translated = supplied?.id === item.id ? supplied : this.#copy.processingConsent.items[item.id];
         const legal = translated?.version === item.version ? { ...item, ...translated } : item;
         const row = document.createElement('div'); row.className = 'consent-item';

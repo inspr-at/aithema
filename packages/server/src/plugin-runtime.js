@@ -374,7 +374,6 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const hostQualified = bindings.length > 0 && bindings.every(binding => config?.plugins?.includes(binding?.plugin) &&
       bindingReason({ binding, plugin: registry.get(binding.plugin), preset, policy: config.policy, now: now() }) === null);
     return { vendor: manifest?.vendor.name ?? null, plugin: raw?.plugin ?? null, model: raw?.model ?? null,
-      providerProcessing: providerProcessingFacts(raw, { plugin, preset, policy: config?.policy, now: now() }),
       qualification: model?.qualification ?? 'unverified', processingLocations: [...(model?.processingLocations ?? ['unverified'])],
       streaming: model?.streaming ?? false, structured: model?.structured ?? false, germanQuality: model?.germanQuality ?? 'unverified',
       efforts: [...(model?.efforts ?? [])], operations: [...(model?.operations ?? [])], formats: [...(model?.formats ?? [])],
@@ -636,7 +635,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const optional = (list, feature) => Promise.all(list.map(async option => {
           const reason = option.id === 'grok-voice' && !option.binding ? 'grok-account-not-configured' : await verdict(option.kind ?? feature, option.binding);
           return { id: option.id, label: label(option, option.binding), ...(option.kind ? { kind: option.kind } : {}), configured: Boolean(option.binding),
-            facts: facts(option.binding ?? { plugin: option.id }, preset), status: status(reason), reason };
+            facts: { ...facts(option.binding ?? { plugin: option.id }, preset),
+              providerProcessing: providerProcessingFacts(option.binding, { plugin: registry.get(option.binding?.plugin ?? option.id), preset, policy: config.policy, now: now() }),
+              ...(option.binding?.plugin === 'grok-voice' || option.id === 'grok-voice' ? { liveQualification: 'unverified', consentItem: { id: 'voice-xai', version: 1 } } : {}) }, status: status(reason), reason };
         }));
         const [voices, visuals, base] = await Promise.all([optional(choices.voices, 'voice'), optional(choices.visuals, 'images'),
           boundedEvaluate({ ...probe, settings: {} }, preset, 'text')]);

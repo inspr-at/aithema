@@ -143,7 +143,7 @@ for (const denied of ['voice-xai', undefined]) test(`AIT-350: Settings switches 
   const result = await h.runtime.validate(session, { voice: voice.id });
   if (denied) assert.deepEqual(result, { status: 409, error: 'setting-not-allowed', field: 'voice', reason: 'current processing consent required' });
   else assert.equal(result.settings.voice, voice.id);
-  assert.deepEqual(voice.facts.providerProcessing, { vendor: 'xAI', recipientCountries: ['US'], processingCountries: null, evidence: 'current' });
+  assert.deepEqual(voice.facts.providerProcessing, { vendor: 'xAI', recipientCountries: ['US'], processingCountries: null, verification: 'current' });
   assert.equal(voice.facts.hostCountries, undefined, 'recipient nationality cannot qualify the processing vial');
   assert.deepEqual(h.consumed, [], 'catalogue and Settings never start paid components');
 });
