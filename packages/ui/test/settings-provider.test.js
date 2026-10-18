@@ -66,3 +66,16 @@ test('AIT-350: consent precedes provider save and applies only after voice-xai v
   h.q('.done').click(); await tick();
   assert.equal(h.saves.length, 1); assert.equal(h.session.settings.voice, 'grok-voice'); assert.equal(h.counts().starts, 0);
 });
+
+test('AIT-350: an active call confirms before consent; cancelling preserves media and provider', async t => {
+  const h = fixture(t, { active: true, status: 'consent' }); h.editor.open(); await tick(); h.choose(); await tick();
+  assert.equal(h.q('.voice-switch-confirm').hidden, false, 'confirmation precedes opening consent');
+  assert.equal(h.q('.consent-editor').hidden, true); assert.equal(h.saves.length, 0);
+  h.q('.voice-switch-cancel').click(); await tick();
+  assert.deepEqual(h.counts(), { starts: 0, stops: 0 }); assert.equal(h.session.settings.voice, 'elevenlabs');
+  h.choose(); await tick(); h.q('.voice-switch-apply').click(); await tick();
+  assert.deepEqual(h.counts(), { starts: 0, stops: 1 }); assert.equal(h.saves.length, 0);
+  assert.equal(h.session.settings.voice, 'elevenlabs'); assert.equal(h.q('.consent-editor').hidden, false);
+  h.q('input[value="voice-xai"]').checked = true; h.q('.done').click(); await tick();
+  assert.equal(h.session.settings.voice, 'grok-voice'); assert.equal(h.saves.length, 1);
+});
