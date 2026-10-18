@@ -273,6 +273,10 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings[data-consent-editor=true] .save-status,
 .settings[data-consent-editor=true] .save-state-measure,
 .settings[data-consent-editor=true] .consent-state-measure { grid-area:1/1/2/-1; min-height:2.2em; display:block; text-indent:1.75em; overflow-wrap:anywhere; }
+/* The consent editor owns the status row while open. A failed autosave's
+   Retry returns when the editor closes; its phone padding must not wrap consent. */
+.settings[data-consent-editor=true] .save-retry { display:none; }
+.settings[data-consent-editor=true] .save-status { padding-right:0; }
 .settings[data-consent-editor=true] .consent-state-measure { visibility:hidden; pointer-events:none; user-select:none; }
 .save-info { display:none; grid-area:1/1; align-self:start; margin-top:.1em; color:var(--aithema-muted); }
 .save-info svg { width:1.2em; height:1.2em; }

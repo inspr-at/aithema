@@ -1161,13 +1161,13 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
     assert.equal(state.iconOverlap, false);
     assert.equal(state.fontSize, baselineFont, `${locale}/${width}: normal 1440 editor message font size`);
-    // Exercise every reserved editor and settings message, including a visible Retry.
+    // Exercise every reserved editor and settings message with an autosave failure retained.
     const messages = await shadow(page, c => {
       const r = c.shadowRoot, status = r.querySelector('.save-status'), dialog = r.querySelector('dialog.settings');
       const retry = r.querySelector('.save-retry'), original = status.textContent, originalState = dialog.dataset.saveState;
       const results = [...r.querySelectorAll('.consent-state-measure, .save-state-measure')].map(measure => {
         status.textContent = measure.textContent;
-        // The measured settings failure reserves room for Retry even while consent is open.
+        // Retain the failure while consent owns the row; Retry returns outside the editor.
         const retryState = measure.matches('.save-state-measure:nth-last-child(2)');
         dialog.dataset.saveState = retryState ? 'failed' : 'idle'; retry.dataset.visible = String(retryState);
         return { text: status.textContent, height: r.querySelector('.save-state').getBoundingClientRect().height,
@@ -1179,7 +1179,7 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     for (const message of messages) {
       assert.equal(message.height, state.slotHeight, `${locale}/${width}: fixed slot for ${message.text}`);
       assert.equal(message.fits, true);
-      if (message.retryVisible !== null) assert.equal(message.retryVisible, true, 'Retry remains available in the editor');
+      if (message.retryVisible !== null) assert.equal(message.retryVisible, false, 'Retry yields the status row to the consent editor');
     }
     assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);

@@ -531,7 +531,8 @@ Round 2 removes both phone font overrides. All eight DE/EN ×
 320/352/390/1440 states use the normal **11.52 px** editor message size and pass
 exact copy, single POST, focus, busy/live, inert items, icon clearance and strict
 0 px checks. Every reserved consent/settings message, including failure with
-Retry visible, retains the same slot height at each width. On mbp2606 the DE
+Retry hidden while the consent editor owns the status row (round-3 gate 2),
+retains the same slot height at each width. On mbp2606 the DE
 notice is three lines at 320/352 (48.328125 px slot) and two at 390/1440
 (44 px slot); EN slots are 44 px at all four widths. These platform-specific
 pixel measurements are evidence, while CI independently checks constant height
@@ -543,3 +544,13 @@ pending the complete round-2 CI measurement. The diagnostic PR/remote evidence d
 rolling-main p95 history. Keep the measured floor until matching main samples
 mature. Final PR CI and its viewport artifact are linked from PR #290; the
 unchanged 400 s guard must pass before handoff.
+
+
+Round 3 restores the editor-scoped Retry hiding and removes the failed-autosave
+phone padding from the consent status text. The failed settings draft remains
+available outside the editor. The added browser regression fails an actual
+model autosave before opening consent, exercises each reserved consent message
+at 320/390/1440, and checks hidden Retry, no overlap, strict 0 px slot growth,
+and Retry restoration when leaving the editor state. The existing eight-state
+DE/EN stale-notice matrix retains its normal font, geometry, focus, live-status,
+and single-POST assertions and refreshes the viewport evidence.
