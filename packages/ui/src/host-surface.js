@@ -326,7 +326,8 @@ export class HostSurface {
     setText(nextLine, next ? fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) }) : out && this.limitCopy.footer !== false ? c.noMore : '');
     nextLine.hidden = !next && (!out || this.limitCopy.footer === false); link.hidden = !next;
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
-    track.hidden = !owner;
+    // Reserve the track without overriding narrow/legal-host display rules.
+    track.hidden = false; track.style.visibility = owner ? '' : 'hidden';
     if (owner) {
       const value = wholeCredits(exhausted ? 0 : owner.availableMicro), maximum = wholeCredits(owner.limitMicro);
       track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;
