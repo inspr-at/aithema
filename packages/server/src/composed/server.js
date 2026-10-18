@@ -74,7 +74,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       if (closing) return closing;
       const flight = Promise.withResolvers(); closing = flight.promise;
       coordinator.signal.removeEventListener('abort', cancel);
-      void coordinator.close(reason); relay.close(); relays.delete(providerSessionId); relayOwners.delete(providerSessionId); networkRelay?.revoke(providerSessionId);
+      void coordinator.close(reason); relay.close({ preserveEvents: true }); relays.delete(providerSessionId); relayOwners.delete(providerSessionId); networkRelay?.revoke(providerSessionId);
       options.signal?.removeEventListener('abort', cancel);
       const endedAt = now(), result = terminal(outcome, endedAt); record = { ...record, endedAt, reason, terminal: result };
       void Promise.resolve().then(async () => {

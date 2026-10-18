@@ -13,9 +13,9 @@ import { ttsHarness } from './tts-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const pcm = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 
-function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0, ttsMode = 'completed' } = {}) {
+function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0, ttsMode = 'completed', ttsAudioBytes = 4 } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'owner' });
-  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode }), consumed = [], reports = [], coverage = [], played = [], persisted = [];
+  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode, audioBytes: ttsAudioBytes }), consumed = [], reports = [], coverage = [], played = [], persisted = [];
   const budget = new SQLiteBudgetLedger(storage), accounting = createComposedComponentAccounting({ storage, budget });
   voice.visitorMicroPerMinute = visitorMicroPerMinute;
   const reasoning = { plugin: 'fixture-reasoning', model: 'admitted-answer', endpoint: 'https://reasoning.test',
@@ -139,7 +139,7 @@ test('AIT-346: withdrawal fences queued output and stops browser media', async t
 
 
 test('AIT-349: real Grok chain interrupts synthesis locally, persists full reply once, and recovers with model awareness', async t => {
-  const h = fixture(t, { ttsMode: 'stalled-after-audio' });
+  const h = fixture(t, { ttsAudioBytes: 48000 });
   const session = await h.client.start({ callId: 'truthful-chain' }, { deadlineAt: Date.now() + 5000 });
   t.after(() => session.close().catch(() => {}));
   await h.audio(pcm()); await h.audio(Buffer.alloc(16000));
