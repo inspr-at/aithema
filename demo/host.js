@@ -29,9 +29,20 @@ function paintPrivacyLink(link, legal, locale) {
   link.href = `${binding.privacy.url}?locale=${locale}`;
   legal.setAttribute('aria-label', locale === 'de' ? 'Rechtliche Hinweise' : 'Legal information');
 }
+// Only the demo's visible offer is abbreviated; assistive technology and the
+// title retain the complete licence/source wording at every viewport width.
+function paintDemoLegal() {
+  if (binding.demoHost !== true) return;
+  const slots = copy.host.slots;
+  for (const [id, full, short] of [['demo-license', slots.license, slots.licenseShort], ['demo-legal-source', slots.legalSource, slots.legalSourceShort]]) {
+    const link = document.getElementById(id), visible = narrowLegal.matches ? short : full;
+    link.setAttribute('aria-label', full); link.title = full;
+    if (id === 'demo-license') paintLicenseLabel(link, visible, narrowLegal.matches ? short : undefined); else link.textContent = visible;
+  }
+}
 // The page always speaks the current conversation's language.
 function paintPage() {
-  const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) { if (selector === '#demo-license') paintLicenseLabel(node, value); else node.textContent = value; } };
+  const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
   document.documentElement.lang = component.session?.locale ?? localeChoice; document.title = 'Aithema';
   paintUtilities(copy);
   const privacyLink = document.querySelector('[data-aithema-privacy]');
@@ -42,8 +53,9 @@ function paintPage() {
     ['#fake-say', copy.fakeVoiceSay], ['#fake-interrupt', copy.fakeVoiceInterrupt], ['#fake-disconnect', copy.fakeVoiceDisconnect]]) text(selector, value);
   // The component's host slots (AIT-104 B2), filled with labelled demo content only while the demo host runs.
   if (binding.demoHost === true) {
-    for (const [selector, value] of [['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit], ['#demo-license', h.slots.license],
-      ['#demo-legal-source', h.slots.legalSource], ['#demo-footer', h.slots.footer], ['#outbox-open', h.outbox.open], ['#outbox-title', h.outbox.title],
+    paintDemoLegal();
+    for (const [selector, value] of [['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit],
+      ['#demo-footer', h.slots.footer], ['#outbox-open', h.outbox.open], ['#outbox-title', h.outbox.title],
       ['#outbox-note', h.outbox.note], ['#ai-notice', aiNotice(component.session?.locale).text], ['#outbox-close', h.outbox.close]]) text(selector, value);
     if (!privacyLink) document.querySelector('#demo-legal').setAttribute('aria-label', h.slots.legal);
   }
@@ -116,6 +128,8 @@ async function adopt(session) {
   } catch { if (!signalStartupFailure()) document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
 const binding = await fetch('/demo/config').then(r => r.json());
+const narrowLegal = document.defaultView.matchMedia('(width < 600px)');
+if (binding.demoHost === true) narrowLegal.addEventListener('change', paintDemoLegal);
 // Demo slot fills and the fake outbox speak for the local demo host only: a live provider host shows none of them.
 for (const demoOnly of document.querySelectorAll('[data-demo-only]')) {
   if (binding.demoHost !== true) demoOnly.remove(); else demoOnly.hidden = false;

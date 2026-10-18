@@ -1312,7 +1312,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       feedbackPosition: feedback && getComputedStyle(feedback).position, feedbackBox: feedback && !feedback.hidden ? box(feedback) : null,
       version: visibleVersion, title: build.title, textLines, versionColours, rhythm, ring,
       ringBox, buildTextBox, ringIntersectsBuild, ringBuildGapPx,
-      cursor: rowStyle.cursor, rowTint: rowStyle.backgroundColor, legal: [...legal.querySelectorAll('a')].map(n => n.textContent), notes: notes.textContent };
+      cursor: rowStyle.cursor, rowTint: rowStyle.backgroundColor, legal: [...legal.querySelectorAll('a')].map(n => n.getAttribute('aria-label') ?? n.textContent), notes: notes.textContent };
   });
   const capture = async (locale, theme, width, state, metrics) => {
     if (state === 'copied') {
@@ -1325,7 +1325,11 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     t.diagnostic(`PASS AIT-105 ${locale}/${theme}/${width}/${state}: opaque popup; ${Object.entries(metrics.textLines).map(([line, data]) => `${line} ${data.colour} ${data.contrast.toFixed(2)}:1`).join('; ')}; ring ${metrics.ring ? 'on' : 'off'}${state === 'copied' ? `; ring box does not intersect build text box; gap ${metrics.ringBuildGapPx} px >= 3 px` : ''}; 0 px shift`);
   };
   await t.test('round 3 EN slots on first load and after switching', async () => {
-    const strings = () => page.evaluate(() => ['#demo-license', '#demo-legal-source', '#demo-footer'].map(selector => document.querySelector(selector).textContent));
+    // AIT-304: the full slot wording now lives in each link's accessible name;
+    // the dedicated phone matrix checks Tick's abbreviated visible wording.
+    const strings = () => page.evaluate(() => ['#demo-license', '#demo-legal-source', '#demo-footer'].map(selector => {
+      const n = document.querySelector(selector); return n.getAttribute('aria-label') ?? n.textContent;
+    }));
     assert.deepEqual(await strings(), [en.host.slots.license, en.host.slots.legalSource, en.host.slots.footer], 'first EN load');
     await configure('de'); await configure('en');
     assert.deepEqual(await strings(), [en.host.slots.license, en.host.slots.legalSource, en.host.slots.footer]);
