@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, inputRevision, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core';
+import { createSession, inputRevision, htmlPreviewHostPolicy } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { bandStyles } from '../src/band-styles.js';
@@ -11,6 +11,8 @@ import { bandStyles } from '../src/band-styles.js';
 const window = new Window({ url: 'http://localhost/', settings: { disableJavaScriptEvaluation: true, disableIframePageLoading: true } });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+const previewURL = 'http://localhost/_aithema/html-preview';
+const HTML_PREVIEW_HOST_CSP = htmlPreviewHostPolicy(previewURL);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const bytes = new TextEncoder().encode('<!doctype html><html><head><title>Populated canvas</title></head><body><input value="Draft state"></body></html>');
 const artifact = (mediaType = 'text/html') => ({ id: 'draft1', mediaType, turnIds: ['source'], referenceIds: [], archived: false,
@@ -32,6 +34,7 @@ function fixture(t, { copy = en, model = 'mock', label, offered = false, served 
       options.signal.addEventListener('abort', () => controller.close(), { once: true });
     } }));
     if (url.endsWith('/features')) return Response.json(c.session.featureMatrix);
+    if (url.endsWith('/preview')) return htmlResponse ? htmlResponse() : Response.json({ url: previewURL + '?cap=' + String(calls.length).padStart(43, 'a'), expiresInMs: 60000 });
     if (url.endsWith('/html')) return htmlResponse ? htmlResponse() : new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } });
     if (url.endsWith('/image')) return new Response(Uint8Array.from([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } });
     if (url.endsWith('/settings')) return Response.json({ processingPreset: 'best', settings: session.settings, engine: session.engine,
@@ -41,7 +44,7 @@ function fixture(t, { copy = en, model = 'mock', label, offered = false, served 
   });
   const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP;
   if (!document.head.querySelector('meta[http-equiv]')) document.head.append(meta);
-  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, host }); document.body.append(c);
+  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, host, concepts: { previewURL } }); document.body.append(c);
   t.after(() => c.remove());
   const refresh = async (visuals, cost = { maxMicro: 400_000 }) => {
     snapshot = c.session; snapshot.featureMatrix.best[kind === 'html' ? 'html' : 'images'] = visuals;
@@ -99,7 +102,7 @@ test('AIT-131: unfolding unloads a populated canvas and refolding restores only 
   assert.equal(canvas.shadowRoot.querySelector('iframe'), null, 'unfold stops the executable frame');
   assert.equal(frame.isConnected, false);
   root.querySelector('.fold').click(); await ready(canvas);
-  assert.equal(calls.filter(url => url.endsWith('/html')).length, 1, 'eligible bytes can be restored from the owner cache');
+  assert.equal(calls.filter(url => url.endsWith('/preview')).length, 2, 'refolding mints a fresh single-use source');
 });
 
 test('AIT-131: a pending canvas load cannot mount a hidden iframe after unfold', async t => {
@@ -118,7 +121,7 @@ for (const cause of ['consent', 'source']) for (const folded of [true, false]) {
     if (!folded) root.querySelector('.fold-strip').click();
     // A hidden canvas can still hold data from an earlier paint or a late callback.
     // Revocation must clear it regardless of the current fold state.
-    if (!folded) { canvas.artifact = { bytes, mediaType: 'text/html' }; await ready(canvas); }
+    if (!folded) { canvas.artifact = { previewURL, mediaType: 'text/html', mint: async () => ({ url: previewURL + '?cap=' + 'a'.repeat(43), expiresInMs: 60000 }) }; await ready(canvas); }
     root.querySelector('.concept-tab').click(); await ready(modal);
     const frames = [canvas.shadowRoot.querySelector('iframe'), modal.shadowRoot.querySelector('iframe')];
     revoke(c, cause); await tick();
@@ -344,7 +347,7 @@ for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} preset-
   assert.equal(line.textContent, `${copy.display.draftsPreset}\u00a0· ${copy.display.draftsChoose}`);
   line.querySelector('button').click(); await tick();
   assert.equal(root.querySelector('dialog.settings').open, true);
-  assert.equal(calls.filter(url => url.endsWith('/html')).length, 1, 'cached bytes are reused');
+  assert.equal(calls.filter(url => url.endsWith('/preview')).length, 1, 'the mounted source is preserved');
 });
 
 test('AIT-228: rendered overview, locale flag and all draft actions retain their nodes across quote changes', async t => {
@@ -388,4 +391,57 @@ test('AIT-228: fractional quotes gate Retry and Regenerate exactly like missing 
     root.querySelector('.concept-close').click(); await tick();
     root.activeElement?.blur();
   }
+});
+
+for (const surface of ['modal', 'canvas']) for (const cause of ['close', 'switch', 'consent', 'source', 'erasure']) {
+  test(`AIT-353: ${surface} rejects a late minted source after ${cause}`, async t => {
+    let finish;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const { c, root, calls } = fixture(t, { htmlResponse: () => pending });
+    const preview = root.querySelector(surface === 'modal' ? '.concept-html' : '.canvas-html');
+    root.querySelector(surface === 'modal' ? '.concept-tab' : '.fold').click();
+    await tick();
+    if (document.querySelector('[data-aithema-html-policy-probe]')) {
+      const proof = new window.Event('securitypolicyviolation');
+      Object.assign(proof, { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP });
+      document.dispatchEvent(proof);
+    }
+    await tick();
+    assert.equal(preview.state, 'loading');
+    assert.equal(calls.filter(url => url.endsWith('/preview')).length, 1, 'the scoped owner mint is actually pending');
+    if (cause === 'close') root.querySelector(surface === 'modal' ? '.concept-close' : '.fold-strip').click();
+    else if (cause === 'switch') c.configure({ copy: en, session: createSession({ demo: true }), concepts: { previewURL } });
+    else if (cause === 'erasure') receive(c, 'session.erased', {});
+    else revoke(c, cause === 'source' ? 'source' : 'consent');
+    finish(Response.json({ url: previewURL + '?cap=' + 'z'.repeat(43), expiresInMs: 60000 })); await tick(); await tick();
+    assert.equal(preview.artifact, null);
+    assert.equal(preview.shadowRoot.querySelector('iframe'), null, 'late capabilities never mount after scope termination');
+    assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false, 'viewing makes no generation or spend call');
+  });
+}
+
+test('AIT-353: a saturated mint registry respects Retry-After before a fresh explicit retry', async t => {
+  let attempts = 0, now = Date.now(); t.mock.method(Date, 'now', () => now);
+  const { c, root, calls } = fixture(t, { htmlResponse: () => {
+    attempts++;
+    return attempts === 1 ? new Response('Unavailable', { status: 503, headers: { 'retry-after': '60' } }) :
+      Response.json({ url: previewURL + '?cap=' + 'r'.repeat(43), expiresInMs: 60000 });
+  } });
+  root.querySelector('.concept-tab').click(); await tick();
+  if (document.querySelector('[data-aithema-html-policy-probe]')) {
+    const proof = new window.Event('securitypolicyviolation');
+    Object.assign(proof, { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP }); document.dispatchEvent(proof);
+  }
+  await tick();
+  const preview = root.querySelector('.concept-html'); assert.equal(preview.state, 'failure');
+  assert.equal(preview.shadowRoot.querySelector('iframe'), null);
+  receive(c, 'concept.feedback', { artifactId: 'draft1', vote: 'up', chips: [] });
+  preview.width = 'phone'; preview.copy = de.conceptPreview; await tick();
+  assert.equal(attempts, 1, 'live renders and width/copy changes never hammer a saturated registry');
+  root.querySelector('.concept-close').click(); root.querySelector('.concept-tab').click(); await tick();
+  assert.equal(preview.state, 'failure'); assert.equal(attempts, 1, 'Retry-After also prevents repeated reopen attempts from hammering');
+  now += 60_000;
+  root.querySelector('.concept-close').click(); root.querySelector('.concept-tab').click(); await ready(preview);
+  assert.equal(attempts, 2, 'an explicit reopen after Retry-After requests a fresh capability');
+  assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false);
 });
