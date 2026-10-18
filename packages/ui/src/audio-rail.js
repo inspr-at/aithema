@@ -1,5 +1,6 @@
 import { isConsentReason } from '../../core/src/settings.js';
-import { featureConsentText, paintConsentLine } from './consent-line.js';
+import { featureConsentText, paintConsentLine, paintNarrowText } from './consent-line.js';
+import { narrowVoiceStatus } from './voice-status.js';
 import { icon } from './icons.js';
 import { setText } from './dom.js';
 import { Waveform } from './waveform.js';
@@ -124,7 +125,10 @@ export class AudioRail {
     range.selectNodeContents(label);
     // Include every rendered line and any inline consent action. Measure their
     // actual position: held-call copy can borrow the adjacent pause cell.
-    const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+    const narrow = this.root.ownerDocument.defaultView?.matchMedia?.('(max-width:599px)').matches && label.querySelector('.consent-narrow');
+    const action = narrow && label.querySelector('.consent-action');
+    const rects = (narrow ? [...narrow.getClientRects(), ...(action?.getClientRects() ?? [])] : [...range.getClientRects()])
+      .filter(rect => rect.width > 0);
     const bounds = wave.getBoundingClientRect();
     const left = rects.length ? Math.min(...rects.map(rect => rect.left)) : bounds.left + bounds.width / 2;
     const right = rects.length ? Math.max(...rects.map(rect => rect.right)) : left;
@@ -193,6 +197,10 @@ export class AudioRail {
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);
+    const status = this.root.querySelector('.voice-state');
+    const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
+    if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, narrowVoiceStatus(c, sentence));
+    if (status.getAttribute('aria-label') !== sentence) status.setAttribute('aria-label', sentence);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover || this.moved ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
       retry: c.voiceRetry, playback: c.voicePlaybackRetry };

@@ -768,7 +768,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
       && !['voiceRail', 'voiceStart', 'voiceClose', 'voiceMicOn', 'voiceMicOff', 'voiceSpeakerOn', 'voiceSpeakerOff', 'voiceRetry', 'voicePlaybackRetry', 'voiceHostConsentTitle', 'voiceHostConsent'].includes(key))
       .map(([, value]) => value)).sort((a, b) => b.length - a.length);
     assert.ok([de.voiceRecoveryFailed, de.voiceClosureUncertain, de.voiceConflict].every(message => voiceMessages.includes(message)));
-    await german.setViewport({ width: 400, height: 800 });
+    await german.setViewport({ width: 600, height: 800 });
     const voiceFit = await inShadow(german, (c, messages) => {
       // AIT-128: a call message opens under START's rail (data-message), whole and inside the page.
       const r = c.shadowRoot, state = r.querySelector('.voice-state'), rail = r.querySelector('.audio-rail'), original = state.textContent;
