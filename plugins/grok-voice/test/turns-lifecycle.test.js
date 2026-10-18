@@ -170,3 +170,24 @@ test('AIT-348: output meter samples the playback graph and stops at physical sil
     player.stop(); await playing; assert.equal(player.audioLevel(), 0);
   } finally { await player.close(); }
 });
+
+test('AIT-348: input meter derives RMS from captured PCM, expires, and stops with the track', async () => {
+  const { createPCMCapture } = await import('@inspr/aithema-server/composed-voice/browser-audio');
+  let node, at = 0, trackStopped = false;
+  class Worklet { port = {}; constructor() { node = this; } connect() {} disconnect() {} }
+  class Context {
+    currentTime = 0; audioWorklet = { addModule: async () => {} };
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    resume() { return Promise.resolve(); } close() { return Promise.resolve(); }
+  }
+  const track = { addEventListener() {}, stop() { trackStopped = true; } };
+  const capture = createPCMCapture({ AudioContext: Context, AudioWorkletNode: Worklet, clock: () => at,
+    mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track], getAudioTracks: () => [track] }) } });
+  const recording = await capture({ onAudio() {} });
+  assert.equal(recording.audioLevel(), 0);
+  const storage = new Uint8Array([0, 0, 0, 64, 0, 64]), bytes = storage.subarray(2);
+  node.port.onmessage({ data: { bytes, captureFrame: 0, contextSampleRate: 16000 } });
+  assert.equal(recording.audioLevel(), 0.5);
+  at = 151; assert.equal(recording.audioLevel(), 0);
+  recording.stop(); assert.equal(recording.audioLevel(), 0); assert.equal(trackStopped, true);
+});

@@ -2,7 +2,7 @@ const cancelled = () => new DOMException('Capture cancelled', 'AbortError');
 
 /** Permission denial is surfaced to the host; a late permission result cannot
  * resurrect a stopped capture. onFault feeds the existing lifecycle controller. */
-export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioContext: Context = globalThis.AudioContext,
+export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioContext: Context = globalThis.AudioContext, AudioWorkletNode: Worklet = globalThis.AudioWorkletNode,
   workletURL = new URL('./pcm-capture-worklet.js', import.meta.url), onTiming = () => {}, onFault = () => {},
   audioProcessing = true, clock = () => performance.now() } = {}) {
   return async function capture({ signal, onAudio, onError = () => {} }) {
@@ -27,7 +27,7 @@ export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioC
       await context.audioWorklet.addModule(workletURL);
       if (stopped) throw cancelled();
       source = context.createMediaStreamSource(stream);
-      node = new AudioWorkletNode(context, 'composed-pcm-capture', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      node = new Worklet(context, 'composed-pcm-capture', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
       node.port.onmessage = ({ data }) => {
         if (stopped) return;
         if (++pending > 8) { fault(new Error('Capture transport fell behind')); return; }

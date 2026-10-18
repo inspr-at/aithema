@@ -160,7 +160,8 @@ test('AIT-348: Grok DE light lifecycle viewports and typed composer keep control
     if (path.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: '{}' });
     if (path.endsWith('/turns') && request.method() === 'POST') {
       const body = JSON.parse(request.postData()); sent.push(body);
-      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'turn.final', seq: 100,
+      const seq = await page.evaluate(() => document.querySelector('aithema-session').session.seq + 1);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'turn.final', seq,
         data: { id: 'fixture-typed', role: 'user', content: body.content, at: '2026-10-18T20:00:00Z',
           voiceCallId: body.voiceCallId, voiceProviderId: body.providerSessionId } }) });
     }
@@ -252,10 +253,11 @@ test('AIT-348: Grok DE light lifecycle viewports and typed composer keep control
   });
   await page.waitForFunction(() => window.ait348Typed.length === 1 && !document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value);
   const typed = await page.evaluate(() => ({ delivery: window.ait348Typed[0],
-    composer: document.querySelector('aithema-session').shadowRoot.querySelector('textarea').placeholder }));
+    composer: document.querySelector('aithema-session').shadowRoot.querySelector('textarea').placeholder,
+    persisted: document.querySelector('aithema-session').session.transcript.some(turn => turn.id === 'fixture-typed' && turn.content === 'Ja, bitte als Text.') }));
   assert.equal(typed.delivery.text, 'Ja, bitte als Text.'); assert.equal(sent.length, 1);
   assert.equal(sent[0].voiceCallId, 'fixture-call'); assert.equal(typed.delivery.opts.epoch, 1);
-  assert.ok(typed.delivery.opts.deliveryId);
+  assert.ok(typed.delivery.opts.deliveryId); assert.equal(typed.persisted, true);
   await page.evaluate(() => { const root = document.querySelector('aithema-session').shadowRoot; root.activeElement?.blur(); });
   await page.mouse.move(-1, -1);
   await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
@@ -263,6 +265,24 @@ test('AIT-348: Grok DE light lifecycle viewports and typed composer keep control
     await page.screenshot({ path: join(evidence, 'ait348-390-light-de-typed-sent.png'), fullPage: false });
     await writeFile(join(evidence, 'ait348-checks.json'), JSON.stringify({ ticket: 'AIT-348', qualification: 'not yet qualified in live use',
       transport: 'synthetic', providerCalls: 0, checks, typed, problems }, null, 2));
+  }
+  const visibility = await page.evaluate(async () => {
+    const rail = window.ait348Rail;
+    dispatchEvent(new Event('blur'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const blurredVisibleContinues = !rail.paused;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const hiddenHeld = rail.paused && window.ait348Session.audioLevels().input === 0;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return { blurredVisibleContinues, hiddenHeld, remainsHeldWhenVisible: rail.paused };
+  });
+  assert.deepEqual(visibility, { blurredVisibleContinues: true, hiddenHeld: true, remainsHeldWhenVisible: true });
+  if (evidence) {
+    const file = join(evidence, 'ait348-checks.json'), report = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...report, visibility }, null, 2));
   }
   assert.deepEqual(problems, []);
   await page.evaluate(() => window.ait348Session.close());
