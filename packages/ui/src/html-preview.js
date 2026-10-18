@@ -166,11 +166,11 @@ export class AithemaHTMLPreview extends HTMLElement {
           [...url.searchParams.keys()].join() !== 'cap' || !/^[A-Za-z0-9_-]{43}$/u.test(url.searchParams.get('cap')) ||
           !Number.isFinite(source.expiresInMs) || source.expiresInMs <= 0 || source.expiresInMs > 60_000) throw new Error();
         const hadFocus = this.#refocus; this.#refocus = false; this.#mintAbort = null;
-        this.#mount(url.href, hadFocus);
+        this.#mount(url.href, hadFocus, source.expiresInMs);
       } catch { if (active() && !controller.signal.aborted) reject('failure'); }
     })();
   }
-  #mount(url, hadFocus) {
+  #mount(url, hadFocus, expiresInMs) {
     // A fresh browsing context per draft; the sandbox is set before the document is assigned.
     const frame = this.ownerDocument.createElement('iframe');
     frame.setAttribute('sandbox', PREVIEW_SANDBOX); frame.setAttribute('referrerpolicy', 'no-referrer');
@@ -178,27 +178,46 @@ export class AithemaHTMLPreview extends HTMLElement {
     // The frame element holds focus while the draft's content does; a replacement keeps it.
     frame.addEventListener('focus', () => { if (frame === this.#frame) this.#frameFocused = true; });
     frame.addEventListener('blur', () => { if (frame === this.#frame) this.#frameFocused = false; });
-    let loads = 0, timer = null, port = null;
-    const navigated = () => {
+    let loads = 0, preLoadTimer = null, readinessTimer = null, port = null, checking = false;
+    const host = this.ownerDocument.defaultView;
+    const stop = state => {
       if (frame !== this.#frame) return;
-      const focused = this.#discard(); this.#show('navigated');
+      const focused = this.#discard(); this.#show(state);
       if (focused) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
     };
-    this.#frameCleanup = () => { clearTimeout(timer); port?.close(); };
+    const navigated = () => stop('navigated');
+    const checkReadiness = () => {
+      if (frame !== this.#frame || checking) return;
+      checking = true; clearTimeout(preLoadTimer);
+      const channel = new MessageChannel(), reply = channel.port1; port = reply;
+      reply.onmessage = event => {
+        if (frame !== this.#frame || event.data !== FRAME_READY) return;
+        clearTimeout(readinessTimer); reply.close(); port = null;
+      };
+      readinessTimer = setTimeout(navigated, 1500);
+      frame.contentWindow.postMessage(FRAME_READY, '*', [channel.port2]);
+    };
+    // A message from this browsing context can precede load. It starts the
+    // private-port check; it cannot itself prove that the route is ready.
+    const firstMessage = event => {
+      if (event.isTrusted && event.source === frame.contentWindow) checkReadiness();
+    };
+    this.#frameCleanup = () => {
+      clearTimeout(preLoadTimer); clearTimeout(readinessTimer); port?.close();
+      host?.removeEventListener('message', firstMessage);
+    };
     // Late navigation loads again. An early blocked navigation can make the
     // *first* load a chrome-error document, which cannot answer the preview ping.
     frame.addEventListener('load', () => {
       if (frame !== this.#frame) return;
       if (++loads > 1) return navigated();
-      const channel = new MessageChannel(), reply = channel.port1; port = reply;
-      reply.onmessage = event => {
-        if (frame !== this.#frame || event.data !== FRAME_READY) return;
-        clearTimeout(timer); reply.close(); port = null;
-      };
-      clearTimeout(timer); timer = setTimeout(navigated, 1500);
-      frame.contentWindow.postMessage(FRAME_READY, '*', [channel.port2]);
+      checkReadiness();
     });
-    timer = setTimeout(navigated, 1500);
+    host?.addEventListener('message', firstMessage);
+    // Network/parse time has its own expiry-bounded budget. A slow response
+    // fails with the ordinary retry state and never automatically re-mints.
+    const preLoadBudget = Math.min(expiresInMs - Math.min(1000, expiresInMs / 10), 30_000);
+    preLoadTimer = setTimeout(() => stop('failure'), preLoadBudget);
     frame.setAttribute('src', url);
     this.#frame = frame; this.shadowRoot.querySelector('.stage').prepend(frame); this.#show('ready');
     if (hadFocus) frame.focus();

@@ -209,8 +209,7 @@ async function handle(request, context) {
   if (/^\/api\/operator(?:\/|$)/u.test(new URL(request.url).pathname)) return new Response(null, { status: 404 });
   const confirmationResponse = await confirmationPage?.handle(request); if (confirmationResponse) return confirmationResponse;
   const upload = /^\/api\/sessions\/[a-zA-Z0-9_-]{1,128}\/uploads$/u.test(new URL(request.url).pathname);
-  const previewMint = /^\/api\/sessions\/[a-zA-Z0-9_-]{1,128}\/concepts\/[a-zA-Z0-9_-]{1,128}\/preview$/u.test(new URL(request.url).pathname);
-  if (request.method === 'POST' && !upload && !previewMint && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+  if (request.method === 'POST' && !upload && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return new Response(null, { status: 415 });
   }
   const url = new URL(request.url);
