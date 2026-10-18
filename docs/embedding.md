@@ -1,11 +1,13 @@
 # Embedding Aithema
 
-The first reset candidate uses **INSPR-CalVer3**; `release/version.json` is the
+Aithema uses **INSPR-CalVer3**; `release/version.json` is the
 single version authority. The root workspace is private. The release packer
 emits independently installable core, server, UI and twelve provider/integration
 plugin tarballs, with exact dependency pins, plus a retained workspace archive.
-No reset package has been published. Node.js 24 or newer is required.
-See [candidate notes](../release/notes.md) and the [GitHub release route](../release/README.md).
+Aithema is published as immutable [GitHub releases](https://github.com/inspr-at/aithema/releases)
+with signed, attested tarballs. Hosts pin a release with `deployment-pin.json`
+and `release-set.json`. Node.js 24 or newer is required.
+See [release notes](../release/notes.md) and the [GitHub release route](../release/README.md).
 
 ## Consume Aithema as a module (START or another thin host)
 
@@ -14,7 +16,8 @@ is the living reference for a thin host consuming Aithema’s release tarballs.
 Follow that host’s current integration when wiring storage, consent and runtime
 lifecycle into a consuming application.
 
-On the build runner, retain the candidate directory and its manifest digest.
+For candidate validation on the build runner, retain the candidate directory
+and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
 From a separate host directory, install **all fifteen** module tarballs so npm
 can resolve their exact mutual dependencies without a registry publication:
@@ -29,9 +32,8 @@ bundler resolves the UI and its core dependency; an unbundled browser needs an
 import map for each exported package subpath. Workspace source browser URLs
 are converted to declared package subpaths by `release:pack`.
 
-After OPS publishes the immutable GitHub release following Markus's Desk go,
-install the same fifteen modules by release URL in one invocation, rather than
-from a package registry. The URL pattern is:
+For a published release, install the same fifteen modules by release URL in
+one invocation, rather than from a package registry. The URL pattern is:
 
 ```sh
 npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<tag>/<pkg>.tgz
@@ -967,7 +969,7 @@ retain their exact lock closure.
 The historical release-order mapping is in `release/history.json`: the 11
 legacy v0.x releases, ending `0.10.1`, followed by the first October release,
 `261015164601.0.0` at ordinal 12. The migration anchor keeps that first calendar
-coordinate fixed; AIT-278 reserves the next release at ordinal 13. Mixed-era
+coordinate fixed; subsequent releases extend the mapping by ordinal. Mixed-era
 ordering requires the explicit anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
 identifier; v1 dates and legacy stable SemVer remain tagged types. No old tag,
 release, artifact or signed attestation is renamed, rewritten or republished.
@@ -991,8 +993,8 @@ digests, package coordinates, version scheme/channel/sequence and the packing
 run. The commit checks page references real CI/merge-queue validation; packing
 is not a validation run. Canonical runtime metadata is also generated inside
 the server package, so it does not depend on the repository-level `release/`
-directory when distributed separately. Preserve the tarball, manifest and later signatures together. Runtime
-metadata and exported ZIP generator provenance use the artifact's source commit,
+directory when distributed separately. Preserve the tarball, manifest and signed
+attestations together. Runtime metadata and exported ZIP generator provenance use the artifact's source commit,
 not a caller-supplied replacement. AI notice, text producer identity,
 AI-generated/manipulated disclosure and image/HTML sidecars stay intact.
 
@@ -1003,22 +1005,28 @@ decrementing, reusing, or moving the release coordinate. A rollback fix is a new
 later release. Dry-runs cannot serve as production rollback evidence. Existing
 legacy rollback continues through the original immutable v0.x artifacts.
 
-## Qualification checklist — pending release inputs
+## Historical qualification checklist — first reset candidate
+
+This checklist records the first candidate's preparation state. Unchecked items
+describe that checkpoint, not the current publication status. For published
+releases and their limits, see the [releases page](https://github.com/inspr-at/aithema/releases)
+and [release notes](../release/notes.md).
 
 Merged implementation and deterministic tests prove code delivery. They do not
 prove measured provider performance, exchangeability, live deployment or adoption.
-The independent cross-family review remains pending and is not run by the builder.
+At that checkpoint, independent cross-family review remained pending and was
+not run by the builder.
 The value-free migration inventory is `release/inventory.json`, owned by AIT-32.
 
 - [ ] Controller review of the version inventory, consumers, legacy anchor and compatibility window.
 - [ ] Independent review of the exact shared presentation source/config/manifest pins in `release/presentation.json`; reproduce the closure with upstream `scripts/versioning-bundle.mjs <full-source-commit> <config-sha256> <new-directory>` on the build runner. The source repository is private: public PR CI verifies the pinned offline closure, and never obtains broader source access or new credentials. A build runner with that exact source checkout can use `node release/verify-upstream-presentation.mjs <source-checkout>` to regenerate and compare all bytes. That independent source re-export/pin review remains pending, and the payload is not adoption evidence.
 - [x] Reserve the first candidate coordinate; build all package tarballs twice and verify identical digests (`release/candidate.mjs`).
 - [x] External consumer imports every documented symbol and runtime export, mounts handlers and web components, locks dependencies, updates the dependency pin and rolls back retained candidate bytes (`release/consumer.mjs`). This is scratch-host evidence, not a START production deployment.
-- [x] Wire tag-only GitHub artifact attestation (`.github/workflows/release.yml`); signed bundles are produced only by a future authorized tag build.
+- [x] Wire tag-only GitHub artifact attestation (`.github/workflows/release.yml`); at that checkpoint, signed bundles awaited an authorized tag build.
 - [x] AIT-139: **60-minute soak not measured** (Markus: “Kein Test”); explicitly stated in the release notes, not a release blocker.
 - [x] AIT-160: **second voice pipeline not yet proven** (parked); explicitly stated in the release notes, not a release blocker.
 - [ ] Independent presentation pin review stays with the cross-family gate.
-- [ ] Markus's separate Desk publish go; no tag, GitHub release or registry publication is performed here.
+- [ ] Markus's separate Desk publish go; candidate preparation itself performed no tag, GitHub release or registry publication.
 
 Public code remains **AGPL-3.0-only** throughout core/server/UI/contract/plugins.
 D3 revised (2026-10-09) retains INSPR's rights and allows the planned special
