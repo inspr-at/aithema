@@ -29,7 +29,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false } = {}) 
     health: async () => ({ available: true }), structured() { assert.fail('Voice reasoning must use streaming'); }, async *stream(request, options) {
       await options.attempt.consume(); consumed.push('reasoning');
       assert.ok(request.messages.some(message => message.role === 'user' && message.content === 'Hello world.'));
-      yield 'Which company?'; await options.report({ outcome: 'completed', chargedMicro: 1,
+      yield 'Which company?'; await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 1,
         usage: { inputTokens: 2, outputTokens: 3 } });
     } };
   const p = provider({ storage, consent, connect: missingTransport ? undefined : options =>
