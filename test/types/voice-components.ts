@@ -1,5 +1,5 @@
 import { componentInvocation, assertSTTComponent, assertTTSComponent, voiceCompositionCapabilities,
-  assertComponentUsage, audioQueue, boundedEvents } from '@inspr/aithema-core/voice-components';
+  assertComponentUsage, audioQueue, boundedEvents, preflightVoiceComposition } from '@inspr/aithema-core/voice-components';
 import type { STTComponent, TTSComponent, ComponentOperationOptions, ComponentTerminal,
   TTSAlignedChunk } from '@inspr/aithema-core/voice-components';
 import type { STTComponent as LegacySTT, ComponentOperationOptions as LegacyOptions } from '@inspr/aithema-core/plugin-contract';
@@ -39,3 +39,11 @@ const wrongCaps: STTComponent['capabilities'] = { streaming: true, partialTransc
 // @ts-expect-error Component usage cannot be confused with reasoning tokens.
 const wrongUsage: ComponentTerminal = { attemptId: 'a', outcome: 'completed', usage: { inputTokens: 1, outputTokens: 2 } };
 void [legacy, oldOptions, alignment, missingMax, missingCharge, wrongCaps, wrongUsage];
+
+const preflight = await preflightVoiceComposition({ stt, tts, voice: 'fixture-voice', languages: ['de'],
+  capture: { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 },
+  playback: { encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 } });
+preflight.capabilities.streaming.stt.valueOf();
+preflight.playback.sampleRateHz.toFixed();
+// @ts-expect-error Preflight requires a configured voice.
+preflightVoiceComposition({ stt, tts, languages: ['de'], capture: preflight.capture, playback: preflight.playback });

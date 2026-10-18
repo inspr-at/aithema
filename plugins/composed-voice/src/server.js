@@ -10,10 +10,10 @@ import { createComposedRelayRoute } from './network-relay.js';
 /** Explicit opt-in factory. Inject separately admitted components and the existing
  * Rule C reply executor; default hosts continue to construct ElevenLabs. */
 export function createComposedVoice({ enabled = false, config = {}, binding, storage, stt, tts, replyExecutor,
-  admitComponent, authorize, commitUtterance, componentOptions, consent, reasoningBinding, authenticateRelay, relayOrigin, now = Date.now } = {}) {
+  admitComponent, authorize, commitUtterance, componentOptions, componentFactories, composition, consent, reasoningBinding, authenticateRelay, relayOrigin, now = Date.now } = {}) {
   let selected;
   if (config.stt !== undefined || config.tts !== undefined) {
-    selected = configureComposedComponents({ enabled, config, componentOptions, consent, reasoningBinding, authorize });
+    selected = configureComposedComponents({ enabled, config, componentOptions, componentFactories, composition, consent, reasoningBinding, authorize });
     ({ stt, tts, authorize } = selected);
   }
   const relays = new Map();
@@ -42,6 +42,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
   config = validateConfig(config);
   async function start(request, options) {
     if (!enabled) throw new PluginError('unavailable');
+    if (selected) await voiceOperation(options, () => selected.preflight);
     if (!storage?.saveVoiceCall || typeof authorize !== 'function' || typeof commitUtterance !== 'function' || options.attempt?.maxMicro !== 0) throw new PluginError('not-admitted', 'Parent claim must carry zero component cost');
     const invocation = await beginVoiceInvocation(options, request.callId);
     const providerSessionId = `composed-${randomUUID()}`, epoch = request.epoch ?? 0;

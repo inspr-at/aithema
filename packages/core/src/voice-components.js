@@ -47,6 +47,66 @@ export function voiceCompositionCapabilities(stt, tts) {
   partialTranscripts: stt.capabilities.partialTranscripts, heardPrefix: tts.capabilities.heardPrefix };
 }
 
+/** Configuration failures are separate from provider invocation errors. */
+export class VoiceCompositionError extends TypeError {
+  constructor(code, message, options) { super(message, options); this.name = 'VoiceCompositionError'; this.code = code; }
+}
+
+/** Offline preflight only: negotiation and optional voice validation must never
+ * consume claims, resolve credentials or access transports. No synthesis probes.
+ * Requested languages are a preference set; at least one must be shared. */
+export async function preflightVoiceComposition(configuration = {}, options = {}) {
+  const { stt, tts, capture, playback, languages, voice, capabilities } = configuration ?? {};
+  const fail = (code, message, cause) => { throw new VoiceCompositionError(code, message, cause ? { cause } : undefined); };
+  for (const [role, component, check] of [['stt', stt, assertSTTComponent], ['tts', tts, assertTTSComponent]]) {
+    try { check(component); }
+    catch (error) { fail(`composition-${role}-invalid`, `Invalid ${role.toUpperCase()} component`, error); }
+  }
+  const ceiling = voiceCompositionCapabilities(stt, tts);
+  const validLanguages = values => Array.isArray(values) && values.every(value => typeof value === 'string' &&
+    /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u.test(value)) && new Set(values.map(value => value.toLowerCase())).size === values.length;
+  if (!validLanguages(languages)) fail('composition-languages-invalid', 'Explicit requested language tags required');
+  const shared = ceiling.languages.filter(language => languages.some(requested => requested.toLowerCase() === language.toLowerCase()));
+  if (!shared.length) fail('composition-languages-empty', 'No requested language is supported by both components');
+  const voices = tts.capabilities.voices;
+  if (typeof voice !== 'string' || !voice.trim() || voice !== voice.trim() || /\p{Cc}/u.test(voice) ||
+    voices !== undefined && (!Array.isArray(voices) || !voices.length || voices.some(value => typeof value !== 'string' || !value.trim()) || !voices.includes(voice)) ||
+    tts.validateVoice !== undefined && typeof tts.validateVoice !== 'function') fail('composition-voice-invalid', 'A valid configured TTS voice is required');
+  if (tts.validateVoice) {
+    try { if (tts.validateVoice(voice) !== true) fail('composition-voice-invalid', 'TTS voice policy rejected the configured voice'); }
+    catch (error) { fail('composition-voice-invalid', 'TTS voice policy rejected the configured voice', error); }
+  }
+  const selected = capabilities === undefined ? { ...ceiling, languages: shared } : capabilities;
+  if (!selected || typeof selected !== 'object' || Object.keys(selected).some(key => !['languages', 'streaming', 'partialTranscripts', 'heardPrefix'].includes(key)) ||
+    !validLanguages(selected.languages) || !selected.languages.length || selected.languages.some(language => !shared.some(other => language.toLowerCase() === other.toLowerCase())) ||
+    !selected.streaming || Object.keys(selected.streaming).some(key => !['stt', 'tts'].includes(key)) ||
+    ['stt', 'tts'].some(role => typeof selected.streaming[role] !== 'boolean' || selected.streaming[role] && !ceiling.streaming[role]) ||
+    typeof selected.partialTranscripts !== 'boolean' || selected.partialTranscripts && (!ceiling.partialTranscripts || !selected.streaming.stt) ||
+    !['unavailable', 'aligned'].includes(selected.heardPrefix) || selected.heardPrefix === 'aligned' && ceiling.heardPrefix !== 'aligned') {
+    fail('composition-capabilities-exceeded', 'Composition capabilities exceed the declared component ceiling');
+  }
+  const validFormat = format => format && typeof format.encoding === 'string' && format.encoding.trim() &&
+    Number.isSafeInteger(format.sampleRateHz) && format.sampleRateHz > 0 && Number.isSafeInteger(format.channels) && format.channels > 0;
+  // Copy caller-owned configuration before negotiation can yield.
+  const result = { capture: { ...capture }, playback: { ...playback }, voice,
+    capabilities: { ...selected, languages: [...selected.languages], streaming: { ...selected.streaming } } };
+  const bounded = { ...options, deadlineAt: options.deadlineAt ?? Date.now() + 1000 };
+  for (const [role, component] of [['capture', stt], ['playback', tts]]) {
+    const format = result[role], code = `composition-${role}-format`;
+    if (!validFormat(format)) fail(code, `Valid ${role} audio format required`);
+    try {
+      const negotiated = await voiceOperation(bounded, opts => component.negotiateAudioFormat([{ ...format }], opts));
+      if (!validFormat(negotiated) || ['encoding', 'sampleRateHz', 'channels'].some(key => format[key] !== negotiated[key])) {
+        fail(code, `Negotiated audio does not match ${role}`);
+      }
+    } catch (error) {
+      if (['cancelled', 'deadline'].includes(error?.code)) throw error;
+      fail(code, `Audio negotiation failed for ${role}`, error);
+    }
+  }
+  return result;
+}
+
 /** Separately admitted accounting. Consume fresh host authority before dispatch; the first
  * terminal wins. Missing completion evidence after dispatch retains at least claim max.
  * @param {import('./voice-components.js').ComponentOperationOptions} options
