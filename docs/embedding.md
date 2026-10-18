@@ -127,6 +127,7 @@ The reference combines these responsibilities:
 | Trusted operator login and revocable session | `createOperatorSessions`, `createSQLiteOperatorStore`; core `OperatorSessionPort` / `OperatorIdentityProvider` contracts |
 | Current owner allowance and durable admission holds | core `OwnerWalletPort` behavior, checked by `ownerWalletConformance` |
 | Per-conversation reservations, settlement and voice extension | `SQLiteBudgetLedger`, core `admitCredits` |
+| Erasure of host visitor-tier records and admission holds | `host.erased`, `host.retired`, `host.eraseVisitorForOwnerHash`; privileged `handlers.eraseSession` |
 | Visitor credit projection and runtime wallet binding | `createHandlers({ host, pluginRuntime })`, `host.wallet`, `host.walletForSession`, `host.creditTiers` |
 
 ### Settings, revisions and administrator identity
@@ -174,7 +175,9 @@ update the complete record with revision + 1, then insert immutable old/new
 JSON, revision, host timestamp and trusted actor into the audit table. An audit
 insert failure rolls back the settings update too. A competing or repeated old
 revision returns 409 `{ error: 'stale-settings', current }` without another audit
-entry. On 409, reload and let the administrator reconsider their edit. After an
+entry. Invalid request JSON or settings return 400 `invalid-settings`; corrupt
+stored records, revision overflow and storage/audit failures return 503
+`settings-unavailable`, including failed reads. On 409, reload and let the administrator reconsider their edit. After an
 uncertain response, read current settings/audit before retrying; replaying the
 old revision cannot apply a second write. The initial default record has no
 administrator change entry; subsequent changes have exactly one entry each.
@@ -200,6 +203,36 @@ if (response.status === 409) {
 The browser supplies its same-origin `Origin` header. The host serves admin
 responses with `Cache-Control: no-store` and `Vary: Cookie`. Host-owned HTML,
 access policy and routing must preserve those authorization and CSRF checks.
+
+### Visitor-tier erasure is a host duty (AIT-322)
+
+On session erase or visitor data deletion, delete the visitor's
+`host_visitor_tiers` row and **all** `host_tier_holds` rows with the same
+`owner_hash` (SHA-256 of the owner token, equal to `session.ownerHash`). This
+includes released holds, `attempt_id` keys and request/binding fingerprints;
+none is an anonymous audit count. The reference deletes both sets in one
+idempotent host transaction, across that owner's conversations, without
+changing other owners' rows or the module's accounting.
+
+Use `host.erased({ sessionId, ownerToken })` for the public erase route and
+`handlers.eraseSession`: privileged erasure may omit `ownerToken`, so the
+reference reads the hash from `storage.get(sessionId)` after tombstoning. Use
+`host.eraseVisitorForOwnerHash(ownerHash)` for visitor deletion, including
+`handlers.eraseSession({ sessionId, visitor: true })`. Use
+`host.retired({ sessionId, ownerHash })` for full retention erasure and the
+retirement sweep that completes direct `storage.erase`. Run that sweep as
+specified in the [host retention contract](#host-retention-contract). Direct
+storage erasure does not invoke host hooks itself. `storage.expire` and
+`handlers.expire` only withdraw old turns/uploads; expiry alone is not a
+visitor-deletion trigger. Full retirement after expiry performs the cleanup.
+
+Keep global tier settings and the administrator settings-change audit, which
+contain no visitor keys or tier evidence. Only aggregated, non-identifying
+visitor audit counts may remain: never retain owner/session/attempt identifiers,
+tokens or fingerprints as aggregates. The module's permitted accounting totals
+and deferred settlement follow the retention contract below; host cleanup does
+not reset that ledger or confirm provider deletion. A new visitor token starts
+with the anonymous allowance and no prior tier or holds.
 
 ### Current policy, owner admission and nextTier
 
@@ -271,7 +304,9 @@ authoritative dispatch evidence; the reference conservatively retains them.
 
 For ongoing voice, the runtime calls
 `budget.extendVoice(attemptId, totalMaxima, extra => wallet.canAdmit(extra))`.
-The callback receives **additional** maxima, not total cost. It must read live
+The callback receives **additional** maxima, not total cost. A zero-extra
+extension remains allowed when the owner is over limit or the allowance is zero:
+it adds no exposure. Positive extras still require headroom. It must read live
 policy inside the ledger's existing transaction; do not start a nested SQLite
 transaction or await there. The reference uses `db.isTransaction` to reuse that
 transaction. A reduction can refuse the next extension while preserving the
