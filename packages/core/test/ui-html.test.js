@@ -138,3 +138,28 @@ test('conformance accepts a conforming html fixture and rejects a broken one', a
   const undeclared = await kit(htmlFixture({ formats: ['image/png'] }), input);
   assert.ok(undeclared.failures.includes('generate bytes/provenance artifact'), 'html must be a declared format');
 });
+
+test('AIT-352: exact preview URL host policy preserves the legacy srcdoc policy', async () => {
+  const { htmlPreviewHostPolicy, HTML_PREVIEW_HOST_CSP } = await import('../src/ui-html.js');
+  assert.equal(HTML_PREVIEW_HOST_CSP, "frame-src 'none'; child-src 'none'");
+  assert.equal(htmlPreviewHostPolicy('https://start.example.test/_aithema/html-preview'),
+    "frame-src https://start.example.test/_aithema/html-preview; child-src 'none'");
+  for (const url of ['/_aithema/html-preview', 'https://start.example.test/', 'https://start.example.test/_aithema/html-preview/',
+    'https://start.example.test/_aithema/html-preview?cap=x', 'https://start.example.test/_aithema/html-preview#x',
+    'https://start.example.test/_aithema/html-preview?', 'https://start.example.test/_aithema/html-preview#',
+    'https://user:pass@start.example.test/_aithema/html-preview', 'data:text/html,x',
+    "https://start.example.test/_aithema/html-preview; script-src *"]) assert.throws(() => htmlPreviewHostPolicy(url), TypeError);
+});
+
+test('AIT-352: served readiness bootstrap precedes the draft; standalone export stays script-disabled', async () => {
+  const { previewDocument, HTML_PREVIEW_READY } = await import('../src/ui-html.js');
+  const served = previewDocument(dummy);
+  assert.ok(served.startsWith('<!doctype html><meta charset="utf-8">'));
+  assert.equal(served.match(/<!doctype/giu).length, 1);
+  assert.ok(served.indexOf(HTML_PREVIEW_READY) < served.indexOf('<html'));
+  assert.match(served, /event.source===parent/u);
+  assert.ok(!frameDocument(dummy).includes(HTML_PREVIEW_READY));
+  const standalone = frameDocument(dummy, { standalone: true });
+  assert.ok(standalone.indexOf('content="script-src \'none\'"') < standalone.indexOf('<html'));
+  assert.ok(!standalone.includes(HTML_PREVIEW_READY));
+});
