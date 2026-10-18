@@ -199,7 +199,11 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
 .host-credits__stack { display:grid; justify-items:center; }
 .host-credits__stack > * { grid-area:1/1; }
-.host-credits__amount { display:inline-grid; font-variant-numeric:tabular-nums; }
+.host-credits__amount { display:inline-grid; min-width:6ch; font-variant-numeric:tabular-nums; }
+/* Match the hidden line reservation even when a receipt has fewer digits. */
+.host-credits__measure-amount { display:inline-block; min-width:6ch; }
+/* A pending track keeps its footprint while the receipt supplies its fill. */
+.host-credits__track[hidden] { display:inline-block !important; visibility:hidden; }
 .host-credits__amount::before { content:attr(data-credit-measure); visibility:hidden; grid-area:1/1; }
 .host-credits__value { grid-area:1/1; text-align:end; }
 .host-credits__used-up { visibility:hidden; font-weight:600; white-space:nowrap; color:var(--aithema-ink); }
