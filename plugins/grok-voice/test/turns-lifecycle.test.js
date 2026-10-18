@@ -1,0 +1,121 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createComposedVoiceCoordinator } from '@inspr/aithema-server/composed-voice';
+import { createComposedRelay } from '@inspr/aithema-server/composed-voice/relay';
+import { createComposedRelayRoute } from '@inspr/aithema-server/composed-voice/network-relay';
+import { createNetworkRelayClient } from '@inspr/aithema-server/composed-voice/network-client';
+import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
+import { manifest } from '../src/manifest.js';
+
+const tick = () => new Promise(resolve => setImmediate(resolve));
+function fixture(t, overrides = {}) {
+  const until = Date.now() + 60_000, commits = [], executions = [], roles = [], events = [];
+  let allowed = true;
+  const relay = createComposedRelay({ callId: 'call', providerSessionId: 'generation', epoch: 2, expiresAt: until });
+  const coordinator = createComposedVoiceCoordinator({ sessionId: 'session', callId: 'call', providerSessionId: 'generation', epoch: 2,
+    spendDeadlineAt: until, browserLivenessDeadlineAt: until,
+    authorize: () => allowed, commitUtterance: envelope => { commits.push(envelope); },
+    replyExecutor: { async *execute(envelope) {
+      executions.push(envelope); const replyId = `reply-${executions.length}`;
+      yield { type: 'operation', replyId }; yield { type: 'delta', text: 'Antwort.' };
+      yield { type: 'completion', replyId, text: 'Antwort.' };
+    } },
+    stt: { async *stream({ audio }) { for await (const _ of audio) {} yield { text: 'Gesprochen', final: true }; } },
+    tts: { async *speak() { yield new Uint8Array(4); } },
+    admitComponent: ({ role }) => { roles.push(role); return { attempt: { attemptId: `${role}-${roles.length}`, consume() {} }, report() {} }; },
+    relay: { audio: frame => relay.audio(frame), silence: frame => relay.silence(frame), event: value => { events.push(value); relay.event(value); } },
+    ...overrides });
+  relay.attach(coordinator);
+  const route = createComposedRelayRoute({ authenticate: () => 'owner', authorize: () => allowed, connect: grant => relay.connect(grant) });
+  const open = createNetworkRelayClient({ url: 'http://fixture/composed/relay', fetch: (url, init) => route.handle(new Request(url, init)) });
+  t.after(async () => { route.close(); await coordinator.close(); await coordinator.idle(); });
+  return { relay, coordinator, open, commits, executions, roles, events, withdraw: () => { allowed = false; } };
+}
+const receipt = deliveryId => ({ deliveryId, providerSessionId: 'generation', epoch: 2 });
+
+test('AIT-348: typed network deliveries dedupe by delivery identity, never by text, and bypass STT', async t => {
+  const h = fixture(t), transport = await h.open(h.relay.grant);
+  assert.equal(manifest.liveVoice.capabilities.sendText, 'native');
+  const first = await transport.command('sendText', 'Ja', receipt('first'));
+  const duplicate = await transport.command('sendText', 'Ja', receipt('first'));
+  const second = await transport.command('sendText', 'Ja', receipt('second'));
+  await h.coordinator.idle();
+  assert.deepEqual(duplicate, first); assert.notEqual(second.turnId, first.turnId);
+  assert.equal(h.commits.length, 2); assert.equal(h.executions.length, 2);
+  assert.deepEqual(h.roles, ['tts', 'tts']);
+  assert.deepEqual(h.commits.map(x => x.payload.callbackBody.metadata.sequence), [1, 2]);
+  assert.ok(Object.isFrozen(h.commits[0].payload.callbackBody));
+  await assert.rejects(transport.command('sendText', 'changed', receipt('first')), { code: 'not-admitted' });
+});
+
+test('AIT-348: an unfinished spoken turn and concurrent typing share capture order', async t => {
+  const h = fixture(t), bytes = Buffer.alloc(3200);
+  for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i);
+  const speech = h.coordinator.receiveAudio(bytes);
+  const typed = h.coordinator.sendText('Getippt', receipt('typed'));
+  await speech;
+  await h.coordinator.receiveAudio(Buffer.alloc(16000));
+  await typed; await h.coordinator.idle();
+  assert.deepEqual(h.commits.map(x => x.payload.callbackBody.messages.filter(m => m.role === 'user').at(-1).content), ['Gesprochen', 'Getippt']);
+  assert.deepEqual(h.commits.map(x => x.payload.callbackBody.metadata.sequence), [1, 2]);
+  assert.equal(h.roles.filter(x => x === 'stt').length, 1);
+});
+
+test('AIT-348: invalid, paused, withdrawn, cancelled and stale-generation typing dispatches nothing', async t => {
+  const h = fixture(t);
+  for (const text of ['', '   ', 'x'.repeat(16385), null]) await assert.rejects(h.coordinator.sendText(text, receipt('bad')), { code: 'limit' });
+  await assert.rejects(h.coordinator.sendText('Ja', { ...receipt('stale'), epoch: 1 }), { code: 'not-admitted' });
+  await h.coordinator.pause();
+  await assert.rejects(h.coordinator.sendText('Ja', receipt('paused')), { code: 'not-admitted' });
+  await h.coordinator.resume();
+  await assert.rejects(h.coordinator.sendText('Ja', { ...receipt('cancelled'), signal: AbortSignal.abort() }), { code: 'cancelled' });
+  h.withdraw(); await assert.rejects(h.coordinator.sendText('Ja', receipt('withdrawn')), { code: 'not-admitted' });
+  assert.equal(h.commits.length, 0); assert.deepEqual(h.roles, []);
+});
+
+function mediaFixture(t, { command, capture, player, recover } = {}) {
+  const until = Date.now() + 60_000;
+  const relay = createComposedRelay({ callId: 'call', providerSessionId: 'generation', epoch: 2, expiresAt: until });
+  relay.attach({ receiveAudio() {}, pause: async () => ({ acknowledged: true, paused: true }), resume: async () => ({ acknowledged: true, paused: false }),
+    setInput() {}, setOutput() {}, close() { relay.close(); }, heartbeat: () => ({ acknowledged: true, browserLivenessDeadlineAt: until }), ...command });
+  const media = createComposedBrowserMedia({ openRelay: grant => relay.connect(grant), capture: capture ?? (async () => ({ stop() {}, audioLevel: () => 0.4 })),
+    player: player ?? { play() {}, stop() {}, audioLevel: () => 0.25 }, control: { recover: recover ?? (() => { throw new Error('offline'); }) } });
+  t.after(() => relay.close()); return { relay, media };
+}
+
+test('AIT-348: measured levels respect independent channels and delayed pause/resume acknowledgements', async t => {
+  const saved = Promise.withResolvers(), resumed = Promise.withResolvers(); let captures = 0;
+  const h = mediaFixture(t, { capture: async () => { captures++; return { stop() {}, audioLevel: () => 0.4 }; },
+    command: { pause: () => saved.promise, resume: () => resumed.promise } });
+  const session = await h.media.connect(h.relay.grant); t.after(() => session.close());
+  assert.deepEqual(session.audioLevels(), { input: 0.4, output: 0.25 });
+  await session.setInput(false); assert.deepEqual(session.audioLevels(), { input: 0, output: 0.25 });
+  await session.setInput(true); await session.setOutput(false); assert.deepEqual(session.audioLevels(), { input: 0.4, output: 0 });
+  const pausing = session.pause(); assert.deepEqual(session.audioLevels(), { input: 0, output: 0 });
+  saved.resolve({ acknowledged: true, paused: true }); await pausing;
+  const resuming = session.resume(); await tick(); assert.equal(captures, 2);
+  resumed.resolve({ acknowledged: true, paused: false }); await resuming;
+  assert.equal(captures, 3); assert.deepEqual(session.audioLevels(), { input: 0.4, output: 0 });
+});
+
+test('AIT-348: blocked playback uses the existing gesture callback without pausing capture or recovering', async t => {
+  let blocked = true, retries = 0, recoveries = 0, notify = 0;
+  const h = mediaFixture(t, { player: { stop() {}, play() { if (blocked) return Promise.reject(new DOMException('blocked', 'NotAllowedError')); },
+    retry() { retries++; blocked = false; } }, recover() { recoveries++; } });
+  const session = await h.media.connect(h.relay.grant, { onPlaybackBlocked() { notify++; } }); t.after(() => session.close());
+  h.relay.audio({ playbackRevision: 0, format: 'pcm_s16le', bytes: new Uint8Array(4) }); await tick(); await tick();
+  assert.equal(notify, 1); assert.equal(retries, 0); assert.equal(recoveries, 0);
+  assert.equal(session.audioLevels().input, 0.4);
+  await session.retryPlayback(); assert.equal(retries, 1);
+});
+
+test('AIT-348: recovery is bounded to three attempts; a hidden-page hold never restarts capture', async t => {
+  let attempts = 0, captures = 0; const observed = [], hidden = new AbortController();
+  const h = mediaFixture(t, { capture: async () => { captures++; return { stop() {} }; }, recover() { attempts++; throw new Error('offline'); } });
+  const session = await h.media.connect(h.relay.grant, { holdSignal: hidden.signal }); t.after(() => session.close().catch(() => {}));
+  void (async () => { for await (const event of session.events) observed.push(event); })();
+  h.relay.close(); for (let i = 0; i < 12; i++) await tick();
+  assert.equal(attempts, 3); assert.ok(observed.some(x => x.type === 'waiting' && x.reason === 'recovery-failed'));
+  hidden.abort(); for (let i = 0; i < 4; i++) await tick();
+  assert.equal(captures, 1); assert.deepEqual(session.audioLevels(), { input: 0, output: 0 });
+});
