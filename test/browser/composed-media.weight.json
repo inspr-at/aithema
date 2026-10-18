@@ -1,71 +1,11 @@
 {
   "seconds": 1.73,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39009665180-1, 39013248459-1, 39013642167-1, 39013889487-1, 39023622869-1, 39023698636-1, 39037005434-1, 39038781216-1, 39039445872-1, 39042299729-1, 39043853700-1, 39045777435-1, 39053533603-1, 39062644384-1, 39063200371-1, 39067382504-1, 39107139388-1, 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39023698636-1, 39037005434-1, 39038781216-1, 39039445872-1, 39042299729-1, 39043853700-1, 39045777435-1, 39053533603-1, 39062644384-1, 39063200371-1, 39067382504-1, 39107139388-1, 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
     "workload": "4860c68b9020560a8437a6118a731b7a101961d5d1c3637b9428896f2407c8b3",
     "samples": [
-      {
-        "runId": "39009665180",
-        "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:46.081Z",
-        "tests": [
-          {
-            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
-            "seconds": 0.7795693929999999
-          }
-        ]
-      },
-      {
-        "runId": "39013248459",
-        "attempt": 1,
-        "sha": "75acb3cc7b32a324cda01c3654937568f232f8f8",
-        "observedAt": "2026-10-17T07:20:31.202Z",
-        "tests": [
-          {
-            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
-            "seconds": 0.8524017199999999
-          }
-        ]
-      },
-      {
-        "runId": "39013642167",
-        "attempt": 1,
-        "sha": "9e123986be8135f3637e703dd95a780a36a376c9",
-        "observedAt": "2026-10-17T07:26:51.500Z",
-        "tests": [
-          {
-            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
-            "seconds": 0.8901336360000001
-          }
-        ]
-      },
-      {
-        "runId": "39013889487",
-        "attempt": 1,
-        "sha": "e9ab64d92474d1b984778ea05b6e19ef557f891a",
-        "observedAt": "2026-10-17T07:32:38.875Z",
-        "tests": [
-          {
-            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
-            "seconds": 0.857155123
-          }
-        ]
-      },
-      {
-        "runId": "39023622869",
-        "attempt": 1,
-        "sha": "22f8f7dd6767356d4711ff86e39b1987bed423ab",
-        "observedAt": "2026-10-17T10:06:30.042Z",
-        "tests": [
-          {
-            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
-            "seconds": 0.652583746
-          }
-        ]
-      },
       {
         "runId": "39023698636",
         "attempt": 1,
@@ -243,6 +183,66 @@
           {
             "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
             "seconds": 1.729051487
+          }
+        ]
+      },
+      {
+        "runId": "39116626384",
+        "attempt": 1,
+        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
+        "observedAt": "2026-10-18T09:46:18.869Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.932773011
+          }
+        ]
+      },
+      {
+        "runId": "39119045746",
+        "attempt": 1,
+        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
+        "observedAt": "2026-10-18T10:23:35.888Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.842601389
+          }
+        ]
+      },
+      {
+        "runId": "39119554362",
+        "attempt": 1,
+        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
+        "observedAt": "2026-10-18T10:31:14.441Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.915320174
+          }
+        ]
+      },
+      {
+        "runId": "39119578412",
+        "attempt": 1,
+        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
+        "observedAt": "2026-10-18T10:37:18.092Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.474003937
+          }
+        ]
+      },
+      {
+        "runId": "39119980802",
+        "attempt": 1,
+        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
+        "observedAt": "2026-10-18T10:43:05.722Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.8305824199999999
           }
         ]
       }

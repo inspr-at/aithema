@@ -377,3 +377,134 @@ worktree. Run `node scripts/evidence-diff.js .data/ait-230/capture-raster-a
 .data/ait-230/capture-raster-b` to reproduce the verdict without launching a
 browser. The final documentation/manifest commit leaves the captured browser
 fixture unchanged. PR checks are linked on [draft PR #228](https://github.com/inspr-at/aithema/pull/228).
+
+
+## AIT-314 main-only floor re-derivation (2026-10-18)
+
+Base: `ee435d8fcb630021945bac000d1bba155182d7cf`. Session: AIT-314-b1.
+All five sources below are successful canonical `push` runs on `main`,
+attempt 1, with complete `browser-timings-1-of-7` through
+`browser-timings-7-of-7` artifacts. The updater verified repository, workflow,
+event, conclusion, main ancestry, artifact metadata and JSONL headers before
+writing any sibling. PR timings were not imported.
+
+| Key | Main CI run | Head |
+| --- | --- | --- |
+| A | [39119980802](https://github.com/inspr-at/aithema/actions/runs/39119980802) | `ee435d8f` |
+| B | [39119578412](https://github.com/inspr-at/aithema/actions/runs/39119578412) | `beb35ba2` |
+| C | [39119554362](https://github.com/inspr-at/aithema/actions/runs/39119554362) | `d227aeae` |
+| D | [39119045746](https://github.com/inspr-at/aithema/actions/runs/39119045746) | `5142319e` |
+| E | [39116626384](https://github.com/inspr-at/aithema/actions/runs/39116626384) | `3c99bd62` |
+
+Reproduce the refresh without running tests or a browser:
+
+```sh
+node scripts/update-browser-timings.js \
+  --run 39119980802 --run 39119578412 --run 39119554362 \
+  --run 39119045746 --run 39116626384
+```
+
+All 33 sibling weights were regenerated together, retaining the existing
+latest-20-per-workload policy and full per-test observations/run provenance.
+A workload change resets its series; it does not combine older hashes to reach
+five samples. The 1.25 warmup multiplier still applies only below five matching
+samples. At five or more, the generated weight is the sum of per-test rolling
+p95 values without that multiplier. Neither the 7 shards, 420s ceiling, 400s
+target, packing algorithm nor workflow/check names changes.
+
+Completed-file work below sums only completed top-level tests, never nested
+tests or shard/setup wall time. Values are seconds, rounded here to six decimals;
+full precision is retained in the sibling samples. Times are in A/B/C/D/E order.
+An asterisk marks an **older workload**, shown for comparison and excluded from
+that file’s current p95. “File p95” is nearest-rank p95 of the matching completed
+file sums from these five runs (max for this short series).
+
+| File under `test/browser/` | Completed-file work A / B / C / D / E | Matching evidence | File p95 |
+| --- | --- | --- | ---: |
+| `start2-display-geometry.test.js` | 173.573548 / 152.219004 / 153.509304* / 156.938041* / 154.750617* | A, B | 173.573548 |
+| `html-preview.test.js` | 27.731402 / 27.044118 / 28.303396 / 28.240569 / 28.507805 | A, B, C, D, E | 28.507805 |
+| `start2-display.test.js` | 183.289711 / 200.705108 / 204.808288 / 195.947586 / 201.902352 | A, B, C, D, E | 204.808288 |
+| `start2-display-continuity.test.js` | 40.612706 / 51.071719 / 51.960601 / 49.560871 / 50.051918 | A, B, C, D, E | 51.960601 |
+| `start2-display-matrix.test.js` | 50.794811 / 45.261128 / 48.488182 / 53.037904 / 53.517648 | A, B, C, D, E | 53.517648 |
+| `footer-width-sweep.test.js` | 28.994435 / 36.446089 / 36.760658* / 37.874524* / 36.890290* | A, B | 36.446089 |
+| `consent-lines.test.js` | 95.835199 / 120.127260 / 93.319737 / 121.761565 / 120.259114 | A, B, C, D, E | 121.761565 |
+| `host-surface.test.js` | 75.602189 / 85.046400 / 88.369428 / 85.279756 / 85.031475 | A, B, C, D, E | 88.369428 |
+| `start-look.test.js` | 40.533498 / 33.942554 / 39.136332 / 37.591742 / 37.961440 | A, B, C, D, E | 40.533498 |
+| `voice-presentation.test.js` | 138.483278 / 136.212264 / 137.944134 / 130.185210* / 131.102297* | A, B, C | 138.483278 |
+| `email-mail-space.test.js` | 67.033599 / 65.264823 / 62.114587 / 65.655780 / 65.138732 | A, B, C, D, E | 67.033599 |
+
+The planning p95 below follows `scripts/browser-timings.js`: sum each
+top-level test’s nearest-rank p95 over its retained rolling series, then round
+up to milliseconds. It can exceed the p95 of whole-file sums because different
+tests peak in different runs. The hypothetical “×1.25” column uses the same
+upward millisecond rounding; it is applied to the weight only for short series.
+Sibling links provide every retained run ID, SHA, workload hash and per-test
+time, including older trusted main observations already present at the base.
+Parenthesized numbers beside old floors are AIT tickets. Every literal
+per-ticket floor in the base is covered below, including superseded blocks.
+
+| File / rolling evidence | Samples | Rolling per-test p95 sum | ×1.25 | Generated weight | Literal floors before → after | Decision |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| [`start2-display-geometry.test.js`](../test/browser/start2-display-geometry.weight.json) | 2 | 173.574 | 216.968 | 216.968 | 141.186 (299), 193 (309), 196 (301) → removed | Remove all three: regenerated warmup weight raises effective allocation 196 → 216.968; confirm on main. |
+| [`html-preview.test.js`](../test/browser/html-preview.weight.json) | 20 | 28.727 | 35.909 | 28.727 | 31.792 (282) → removed | Mature main p95 replaces PR warmup floor. |
+| [`start2-display.test.js`](../test/browser/start2-display.weight.json) | 6 | 206.080 | 257.601 | 206.080 | 185.675 (283), 221.814 (290) → removed | Mature main p95 replaces both PR floors; AIT-304’s unmerged 257s is outside this base. |
+| [`start2-display-continuity.test.js`](../test/browser/start2-display-continuity.weight.json) | 8 | 51.966 | 64.958 | 51.966 | 58.570 (283) → removed | Mature main p95 replaces PR warmup floor. |
+| [`start2-display-matrix.test.js`](../test/browser/start2-display-matrix.weight.json) | 8 | 53.747 | 67.184 | 53.747 | 65.560 (283) → removed | Mature main p95 replaces PR warmup floor. |
+| [`footer-width-sweep.test.js`](../test/browser/footer-width-sweep.weight.json) | 2 | 36.447 | 45.559 | 45.559 | 41.875 (281), 46 (309) → 46 | Keep 46: only two current-workload samples; remove superseded 41.875 block. |
+| [`consent-lines.test.js`](../test/browser/consent-lines.weight.json) | 8 | 126.939 | 158.674 | 126.939 | 146.156 (290) → removed | Mature main p95 replaces expanded-workload PR floor. |
+| [`host-surface.test.js`](../test/browser/host-surface.weight.json) | 8 | 88.370 | 110.463 | 88.370 | 107.270 (297) → removed | Mature main p95 replaces PR warmup floor. |
+| [`start-look.test.js`](../test/browser/start-look.weight.json) | 6 | 40.534 | 50.668 | 40.534 | 48.167 (307) → removed | Mature main p95 replaces readiness-matrix PR floor. |
+| [`voice-presentation.test.js`](../test/browser/voice-presentation.weight.json) | 3 | 138.653 | 173.317 | 173.317 | 153.649 (302), 174.746 (310) → 174.746 | Keep 174.746: only three credit-matrix samples; remove superseded 153.649 block. |
+| [`email-mail-space.test.js`](../test/browser/email-mail-space.weight.json) | 7 | 67.644 | 84.555 | 67.644 | 83 (311) → removed | Mature main p95 replaces condition-settling PR floor. |
+
+Removed mature floors no longer reserve a permanent 25% PR margin after main
+has met the existing five-sample threshold. Each regenerated weight covers its
+matching five-run file p95 above. Geometry remains in warmup: its new 216.968s
+weight exceeds all three old floors, so removing those blocks **increases** its
+effective allocation. Footer and voice retain their higher floors pending more
+matching main samples; the new smaller warmup weights alone do not justify
+lowering these short-series reservations.
+
+Packed projected file-work totals (seconds):
+
+| Plan | Shards 1–7 | Sum | Maximum | Headroom to 400s |
+| --- | --- | ---: | ---: | ---: |
+| Base weights + base floors | 381.944 / 381.337 / 379.535 / 378.185 / 378.590 / 380.353 / 378.359 | 2658.303 | 381.944 | 18.056 |
+| Refreshed weights + base floors | 343.677 / 342.542 / 342.597 / 346.277 / 342.558 / 343.291 / 344.938 | 2405.880 | 346.277 | 53.723 |
+| Refreshed weights + retained footer/voice floors | 330.451 / 328.766 / 329.007 / 332.916 / 327.708 / 329.213 / 329.497 | 2307.558 | 332.916 | 67.084 |
+
+Regeneration accounts for 252.423s of total planned-work reduction; removing
+redundant/stale floors accounts for another 98.322s. Combined, total planned
+work falls 350.745s and the packed maximum falls 49.028s. This is a planning
+recalibration; no tests, assertions, fixtures or product work were removed.
+
+For a comparable projected-versus-measured gap, replay the **same completed
+file observations** into each plan’s whole-file bins. This holds measured work
+fixed while allowing the packing to change. Run A’s base replay exactly matches
+its actual seven artifact shard totals; the after columns are a replay, not a
+claim that main already ran the new packing. Earlier runs also include the
+older workloads marked above; A and B are all-current-workload comparisons.
+Gap is `(projected maximum / measured maximum - 1) × 100`.
+
+| Evidence | Before measured max | Before gap vs 381.944s | After replay measured max | After gap vs 332.916s |
+| --- | ---: | ---: | ---: | ---: |
+| A | 317.878 | 64.066s / 20.15% | 318.491 | 14.425s / 4.53% |
+| B | 312.264 | 69.680s / 22.31% | 319.297 | 13.619s / 4.27% |
+| C | 318.773 | 63.171s / 19.82% | 320.114 | 12.802s / 4.00% |
+| D | 312.805 | 69.139s / 22.10% | 322.132 | 10.784s / 3.35% |
+| E | 312.726 | 69.218s / 22.13% | 319.631 | 13.285s / 4.16% |
+
+Run A’s total measured file work is 2027.399s. Aggregate planned-versus-measured
+overhead falls from 31.12% (2658.303s) to 13.82% (2307.558s); this aggregate
+metric differs from the packed-maximum gap above. Actual new-layout runtime
+will be checked by PR CI and then a follow-up main run.
+
+Follow-up main confirmation: prioritize geometry’s increased 216.968s warmup
+weight (two samples), retained footer 46s floor (two samples) and retained voice
+174.746s floor (three samples). Accumulate at least five matching main samples
+before deciding whether the latter floors can go. Also confirm the eight
+mature-file floor removals in the first post-merge main packing, particularly
+start2-display, consent-lines and host-surface. PR timings are diagnostic only.
+If the 400s guard trips before landing, escalate to the separate eighth-shard
+capacity decision; do not raise the target. This PR must remain unmerged until
+the coordinator confirms the AIT-315 release has been published.

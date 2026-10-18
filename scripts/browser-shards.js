@@ -37,119 +37,17 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
 }
 
 export const browserTestWeights = readBrowserTestWeights();
-// AIT-299 round 2: successful geometry-file workload in PR #271 CI
-// 39051814951, head 243f39b1a0, shard 6/6: 50.144063283s + 27.707064542s
-// + 24.865161603s + 10.231788079s = 112.948077507s. Include the usual
-// 25% warmup margin (141.186s) until rolling main catches up with the
-// compact-label/focus-held regression. PR samples stay out of trusted main history.
-browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display-geometry.test.js'], 141.186);
-
-// AIT-282: PR CI 39003398813, shard 2, head 25d0608ccc measured the
-// existing html-preview workload at 7.923261s + 17.509594s = 25.432855s.
-// Keep the observed work plus the 25% warmup margin until main catches up;
-// PR diagnostics do not enter the trusted rolling-main measurement history.
-browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 31.792);
-
-// AIT-283 round 2: successful PR CI 39001400566, head 78466ae367,
-// remeasured the changed display workloads. Follow AIT-276's provisional
-// floor pattern without importing PR samples into the trusted main history.
-// Each floor is observed top-level test work plus the 25% warmup margin;
-// retain it until rolling main measurements catch up with this workload.
-for (const [file, seconds] of Object.entries({
-  'test/browser/start2-display.test.js': 185.675, // observed 148.539947409s
-  'test/browser/start2-display-continuity.test.js': 58.570, // observed 46.855165671s
-  'test/browser/start2-display-matrix.test.js': 65.560, // observed 52.447183619s
-})) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
-
-// AIT-281: successful PR #257 CI shard 2/6, run 39009238280, head
-// be9de77ee1: footer sweep 13.469106049s + complete 84-case role matrix
-// with viewport evidence 20.030139096s = 33.499245145s. Keep the 25%
-// warmup floor until rolling main history reflects the expanded workload.
-browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
-  browserTestWeights['test/browser/footer-width-sweep.test.js'], 41.875);
-
-// AIT-290: PR #262 CI 39014917676, head aff955f108, shard 1/6:
-// all 19 start2-display tests passed after the host-polish helper learned
-// rendered consent copy and child-safe action hits. Observed 177.450581640s;
-// retain the 25% warmup floor until rolling main reflects this workload.
-browserTestWeights['test/browser/start2-display.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display.test.js'], 221.814);
-
-// AIT-290: all 29 consent tests passed in PR #262 CI 39014917676 and
-// 39015342356 (heads aff955f108 / 3c84d426f6). Sum of nearest-rank per-test
-// p95 across those two file executions: 112.589432365s; 25% margin: 140.737s.
-// Round 3 adds the cached-final/scoping/200% text regression. That test
-// passed in CI 39018865149 at 4.334407704s (the separate DE one-line test
-// failed there and is not used as timing evidence). Add its 25% margin,
-// 5.419s, to the prior green-workload floor: 146.156s. Keep this conservative
-// floor until rolling main reflects the expanded narrow matrix.
-browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
-  browserTestWeights['test/browser/consent-lines.test.js'], 146.156);
-
-// AIT-297 round 4: successful PR #270 CI 39055022047, head 645aa348b8,
-// shard 4/6: all three host-surface tests passed with the full two-line
-// reservation/72-state geometry matrix, main-title comparison and CI crops.
-// Observed 8.047032567s + 6.522481617s + 71.246408578s
-// = 85.815922762s. Retain the measured work plus 25% (107.270s)
-// until rolling main covers this workload; PR samples remain diagnostic.
-browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
-  browserTestWeights['test/browser/host-surface.test.js'], 107.270);
-
-// AIT-307: PR #277 CI 39107993703, head 6548950b43, shard 6/6:
-// both start-look tests passed at 28.513415211s + 10.019822398s
-// = 38.533237609s. Reserve 48.167s with the 25% warmup margin
-// until trusted rolling-main measurements cover the readiness matrix.
-browserTestWeights['test/browser/start-look.test.js'] = Math.max(
-  browserTestWeights['test/browser/start-look.test.js'], 48.167);
-
-// AIT-302 round 2: full successful PR #274 CI 39106097121, head
-// ca4ab97310, shard 2/6. Copy-table screenshot representatives retain all
-// 133 source assertions without repainting source-only cases. Completed file:
-// 51.803124071s + 18.453931710s + 36.807815884s + 15.853129671s
-// = 122.918001336s; round up to 122.919s, then add 25% = 153.649s.
-// Supersedes the partial-work 200.818s floor and the round-1 224.717s
-// completed workload. PR observations stay outside trusted rolling-main history.
-browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
-  browserTestWeights['test/browser/voice-presentation.test.js'], 153.649);
-
-// AIT-310: full successful PR #280 CI 39114118981, head 756e755a7b,
-// shard 3/6. All four voice-presentation tests passed with the four credit
-// cases added to the existing phone matrix and viewport evidence.
-// Observed 53.207330244s + 18.799388979s + 51.797338594s
-// + 15.992038937s = 139.796096754s; with 25% margin, round up
-// to 174.746s. Supersedes the 151.858s mbp2606 provisional floor;
-// retain until rolling main covers this workload, without importing PR samples.
-browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
-  browserTestWeights['test/browser/voice-presentation.test.js'], 174.746);
-
-// AIT-311: PR #279 CI 39111500207, head 4ae057bd9b, shard 2/6:
-// all five email-mail-space tests passed after condition-based Settings
-// settling. Observed 65.657098318s; with 25% margin, 82.071372898s,
-// rounded up to 83s. Keep this floor until rolling main reflects the
-// changed workload; PR measurements remain outside trusted main history.
-browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
-  browserTestWeights['test/browser/email-mail-space.test.js'], 83);
-
-// AIT-309: PR #278 CI 39109940156, head 7b4a488a4c, shards 2/6 and 3/6.
-// Geometry: five passing tests total 153.615841488s; the 64-state legal-fit
-// matrix accounts for 33.080272039s. ceil(total * 1.25) = 193s.
-// Footer sweep: two passing tests total 36.694525912s; ceil(total * 1.25) = 46s.
-// PR measurements remain diagnostic; trusted rolling-main history and the
-// six-bin/420s capacity policy stay intact.
-browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display-geometry.test.js'], 193);
+// AIT-314: main-only re-derivation and per-file evidence: docs/ci.md.
+// Mature rolling-main series replace the old ticket floors. Geometry's fresh
+// two-sample weight (216.968s, including 25%) already exceeds its old 196s floor.
+// Keep the conservative PR floors for these changed workloads until at least
+// five matching main samples confirm them; older workload hashes do not count.
+// Footer: two main samples, p95 work 36.447s, warmup weight 45.559s.
 browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
   browserTestWeights['test/browser/footer-width-sweep.test.js'], 46);
-
-// AIT-301 round 3: PR #275 CI 39115517388, head bbd812c93d, shard 2/6.
-// All six geometry tests passed with AIT-309's complete four-fit matrix and
-// AIT-301's legal-present held states: 156.453579210s total top-level work.
-// ceil(total * 1.25) = 196s. Keep this provisional floor until trusted main
-// covers the combined workload; PR samples remain diagnostic only.
-browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display-geometry.test.js'], 196);
+// Voice: three main samples, p95 work 138.653s, warmup weight 173.317s.
+browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
+  browserTestWeights['test/browser/voice-presentation.test.js'], 174.746);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;

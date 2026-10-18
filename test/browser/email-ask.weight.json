@@ -1,6 +1,6 @@
 {
-  "seconds": 125.418,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 100.334,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -63,6 +63,106 @@
           {
             "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
             "seconds": 33.764577487000004
+          }
+        ]
+      },
+      {
+        "runId": "39116626384",
+        "attempt": 1,
+        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
+        "observedAt": "2026-10-18T09:46:23.801Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 61.379993251
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 3.778228227
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 33.045873772
+          }
+        ]
+      },
+      {
+        "runId": "39119045746",
+        "attempt": 1,
+        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
+        "observedAt": "2026-10-18T10:23:36.654Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 61.30898268799999
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 3.746581125
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 33.058879639
+          }
+        ]
+      },
+      {
+        "runId": "39119554362",
+        "attempt": 1,
+        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
+        "observedAt": "2026-10-18T10:31:16.829Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 62.128341022
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 3.989224948
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 33.497459256
+          }
+        ]
+      },
+      {
+        "runId": "39119578412",
+        "attempt": 1,
+        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
+        "observedAt": "2026-10-18T10:37:22.830Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 61.945116746
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 3.957352018
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 33.243365831000006
+          }
+        ]
+      },
+      {
+        "runId": "39119980802",
+        "attempt": 1,
+        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
+        "observedAt": "2026-10-18T10:43:02.918Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 55.63061746
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 3.159584424
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 30.511375578
           }
         ]
       }

@@ -1,71 +1,11 @@
 {
   "seconds": 2.184,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39009665180-1, 39013248459-1, 39013642167-1, 39013889487-1, 39023622869-1, 39023698636-1, 39037005434-1, 39038781216-1, 39039445872-1, 39042299729-1, 39043853700-1, 39045777435-1, 39053533603-1, 39062644384-1, 39063200371-1, 39067382504-1, 39107139388-1, 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39023698636-1, 39037005434-1, 39038781216-1, 39039445872-1, 39042299729-1, 39043853700-1, 39045777435-1, 39053533603-1, 39062644384-1, 39063200371-1, 39067382504-1, 39107139388-1, 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
     "workload": "7d7cbe8bde15da774d6e402af2debf26bdba2db33de1470d749516375e4a5f78",
     "samples": [
-      {
-        "runId": "39009665180",
-        "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:46.081Z",
-        "tests": [
-          {
-            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
-            "seconds": 1.654048601
-          }
-        ]
-      },
-      {
-        "runId": "39013248459",
-        "attempt": 1,
-        "sha": "75acb3cc7b32a324cda01c3654937568f232f8f8",
-        "observedAt": "2026-10-17T07:20:31.202Z",
-        "tests": [
-          {
-            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
-            "seconds": 2.1310431370000003
-          }
-        ]
-      },
-      {
-        "runId": "39013642167",
-        "attempt": 1,
-        "sha": "9e123986be8135f3637e703dd95a780a36a376c9",
-        "observedAt": "2026-10-17T07:26:51.500Z",
-        "tests": [
-          {
-            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
-            "seconds": 1.9104203720000001
-          }
-        ]
-      },
-      {
-        "runId": "39013889487",
-        "attempt": 1,
-        "sha": "e9ab64d92474d1b984778ea05b6e19ef557f891a",
-        "observedAt": "2026-10-17T07:32:38.875Z",
-        "tests": [
-          {
-            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
-            "seconds": 2.11578688
-          }
-        ]
-      },
-      {
-        "runId": "39023622869",
-        "attempt": 1,
-        "sha": "22f8f7dd6767356d4711ff86e39b1987bed423ab",
-        "observedAt": "2026-10-17T10:06:30.042Z",
-        "tests": [
-          {
-            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
-            "seconds": 1.636756805
-          }
-        ]
-      },
       {
         "runId": "39023698636",
         "attempt": 1,
@@ -243,6 +183,66 @@
           {
             "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
             "seconds": 2.183187015
+          }
+        ]
+      },
+      {
+        "runId": "39116626384",
+        "attempt": 1,
+        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
+        "observedAt": "2026-10-18T09:46:23.801Z",
+        "tests": [
+          {
+            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
+            "seconds": 2.1206672440000003
+          }
+        ]
+      },
+      {
+        "runId": "39119045746",
+        "attempt": 1,
+        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
+        "observedAt": "2026-10-18T10:23:40.185Z",
+        "tests": [
+          {
+            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
+            "seconds": 2.1013607050000003
+          }
+        ]
+      },
+      {
+        "runId": "39119554362",
+        "attempt": 1,
+        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
+        "observedAt": "2026-10-18T10:31:15.232Z",
+        "tests": [
+          {
+            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
+            "seconds": 2.053753878
+          }
+        ]
+      },
+      {
+        "runId": "39119578412",
+        "attempt": 1,
+        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
+        "observedAt": "2026-10-18T10:37:23.631Z",
+        "tests": [
+          {
+            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
+            "seconds": 2.0804239360000003
+          }
+        ]
+      },
+      {
+        "runId": "39119980802",
+        "attempt": 1,
+        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
+        "observedAt": "2026-10-18T10:43:04.048Z",
+        "tests": [
+          {
+            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
+            "seconds": 2.1534314770000003
           }
         ]
       }
