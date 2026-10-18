@@ -254,7 +254,7 @@ export const de = {
     granted: 'Freigegeben', missing: 'Freigabe fehlt', notNeeded: 'Auf diesem Gerät nicht nötig', off: 'Aus', on: 'An',
     checkOnStart: 'Beim Start prüfen', onOnStart: 'Beim Start aktiv', notConnected: 'Unter Einstellungen › Erweitert verbinden',
     micGranted: `Erlaubt${reasonSeparator}noch nicht aktiv`, micDenied: 'Im Browser blockiert', micPrompt: 'Beim Start erlauben',
-    change: 'Einstellungen ändern', inputMode: 'Eingabemodus', voice: 'Spracheingabe', type: 'Texteingabe', start: 'Gespräch starten',
+    change: 'Einstellungen ändern', inputMode: 'Eingabemodus', textOnly: 'Eingabe: Text', voice: 'Spracheingabe', type: 'Texteingabe', start: 'Gespräch starten',
   },
   local: {
     title: 'Lokal', intro: 'Verbinden Sie ein KI-Modell, das auf dem Gerät läuft, das Sie gerade verwenden.', connection: 'Verbindung', textBadge: 'Nur Text',
