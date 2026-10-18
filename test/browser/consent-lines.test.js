@@ -1219,13 +1219,15 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
   const page = await fixture(t, true, false, true);
   await shadow(page, async c => {
     const { de: copy } = await import('/packages/ui/src/i18n/de.js');
-    const session = structuredClone(c.session); session.locale = 'de'; session.settings.origin = 'default';
+    const session = structuredClone(c.session); session.locale = 'de'; session.settings.origin = 'chosen';
+    session.transcript = [{ id: 'local-user', role: 'user', content: 'Wir brauchen eine Website.' }];
     c.configure({ session, copy });
     c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
   });
   page.failSettingsSave = true;
   await page.locator('aithema-session >>> .settings-open').click();
-  await page.locator('aithema-session >>> .done').click();
+  await page.locator('aithema-session >>> [data-select="model"] .select__button').click();
+  await page.locator('aithema-session >>> [data-select="model"] [data-value="mock/deep"]').click();
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed');
   assert.equal(page.failedSettingsSaves, 1, 'a real settings save failed before the editor opens');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.save-retry').checkVisibility()), true);
@@ -1262,7 +1264,7 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
     // Settings dialog intentionally discards that draft and its failure instead.
     const closed = await shadow(page, c => {
       const r = c.shadowRoot; r.querySelector('.consent-editor').hidden = true;
-      c.configure({ session: c.session });
+      r.querySelector('.consent-items').dispatchEvent(new Event('change', { bubbles: true }));
       return { editor: r.querySelector('dialog.settings').dataset.consentEditor,
         failed: r.querySelector('dialog.settings').dataset.saveState,
         retryVisible: r.querySelector('.save-retry').checkVisibility() };
