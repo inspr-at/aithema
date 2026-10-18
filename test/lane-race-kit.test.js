@@ -92,7 +92,10 @@ for (const lane of laneNames) for (const failure of ['400', '401', '422', '408',
     const c = balanced(h)[lane]; assert.equal(c.started, 1);
     const row = h.storage.db.prepare('SELECT * FROM budget_attempts').get();
     if (['400', '401', '422'].includes(failure)) { assert.equal(row.settled_micro, 0); assert.equal(c.failed, 1); }
-    else if (lane === 'concept' && ['408', '499'].includes(failure)) { assert.equal(row.settled_micro, 0); assert.equal(c.failed, 1); }
+    else if (lane === 'concept' && ['408', '499'].includes(failure)) {
+      assert.equal(row.settled_micro, row.max_micro, 'AIT-340: HTML timeouts retain the paid ceiling');
+      assert.equal(row.outcome, 'uncertain'); assert.equal(c.uncertain, 1); assert.equal(c.failed, 0);
+    }
     else { assert.equal(row.outcome, 'uncertain'); assert.equal(c.uncertain, 1); }
     const before = h.runtime.budget.outcomeCounters();
     assert.equal(h.runtime.budget.finishOutcome(row.attempt_id, 'failed'), false, 'late finish cannot add another outcome');
