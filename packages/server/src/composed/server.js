@@ -110,7 +110,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       snapshot: () => structuredClone({ ...record, ...coordinator.snapshot() }),
       pause: opts => hold(true, opts), resume: opts => hold(false, opts),
       heartbeat: async opts => {
-        const ack = await coordinator.heartbeat(opts); record = { ...record, ...coordinator.snapshot(), paused: record.paused };
+        const ack = await coordinator.heartbeat(opts); record = { ...record, ...coordinator.snapshot() };
         await voiceOperation(opts, command => save(record, command)); return ack;
       } };
     try {

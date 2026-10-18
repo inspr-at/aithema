@@ -1313,7 +1313,7 @@ for (const copy of [de, en]) for (const ledgerFirst of [false, true]) {
     const status = root.querySelector('.voice-state');
     assert.equal(status.textContent, copy.voiceEndedAithemaMeasured);
     assert.match(status.textContent, copy === de ? /von Aithema gemessen/ : /measured by Aithema/);
-    assert.equal(status.querySelector('.consent-narrow').dataset.copy, copy.voiceMessagesNarrow.voiceEndedAithemaMeasured);
+    assert.equal(status.querySelector('.consent-narrow').dataset.copy, copy.voiceEndedAithemaMeasuredNarrow);
     assert.doesNotMatch(status.textContent, /provider.confirmed|anbieterbestätigt/i);
     assert.equal(root.querySelectorAll('.voice-state').length, 1, 'reuse the existing charge status');
   });

@@ -210,7 +210,7 @@ for (const refusal of ['throw', 'unacknowledged', 'wrong-state']) {
       return original(sessionId, record, options);
     } });
     h.advance(10000); await assert.rejects(h.call.pause());
-    h.advance(5000); await h.call.heartbeat();
+    h.advance(5000); await assert.rejects(h.call.heartbeat(), { code: 'not-admitted' });
     h.advance(15000);
     const terminal = await h.call.close();
     assert.equal(terminal.usage.pausedSeconds, 0);
