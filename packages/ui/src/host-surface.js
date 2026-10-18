@@ -297,6 +297,7 @@ export class HostSurface {
     const initialMaximum = 100_000_000; // microUSD: 10,000 whole credits
     const measuredMaximum = format(Math.max(initialMaximum, reservedLimit ?? 0), locale);
     amount.setAttribute('data-credit-measure', measuredMaximum);
+    line.querySelector('.host-credits__measure-amount').setAttribute('data-credit-measure', measuredMaximum);
     line.dataset.ended = String(out); line.querySelector('.host-credits__text').setAttribute('aria-hidden', String(out));
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
     line.querySelector('.host-credits__low').setAttribute('aria-hidden', String(!low));

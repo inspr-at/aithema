@@ -201,9 +201,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits__stack > * { grid-area:1/1; }
 /* Total text arrives with the receipt; keep the value at the reserved start. */
 .host-credits__text { justify-self:start; }
-.host-credits__amount { display:inline-grid; min-width:6ch; font-variant-numeric:tabular-nums; }
-/* Match the hidden line reservation even when a receipt has fewer digits. */
-.host-credits__measure-amount { display:inline-block; min-width:6ch; }
+.host-credits__amount { display:inline-grid; min-width:max-content; font-variant-numeric:tabular-nums; }
+/* Match the exact locale-formatted envelope without padding separators to digits. */
+.host-credits__measure-amount { display:inline-block; }
+.host-credits__measure-amount::before { content:attr(data-credit-measure); display:block; height:0; }
 .host-credits__amount::before { content:attr(data-credit-measure); visibility:hidden; grid-area:1/1; }
 .host-credits__value { grid-area:1/1; text-align:end; }
 .host-credits__used-up { visibility:hidden; font-weight:600; white-space:nowrap; color:var(--aithema-ink); }
