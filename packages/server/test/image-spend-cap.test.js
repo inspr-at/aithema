@@ -5,6 +5,7 @@ import { createOpenAIImages } from '../../../plugins/openai-images/src/index.js'
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { png } from '../../../test/image-fixtures.js';
 import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
+import { createImageBinding, imagePluginBinding, localImageBinding } from '../src/index.js';
 
 const spec = { prompt: 'A fixture workspace' };
 const request = { system: '', messages: [{ role: 'user', content: 'Hello' }],
@@ -14,6 +15,38 @@ const options = () => ({ deadlineAt: Date.now() + 5000,
 const imagePayload = cost => ({ id: 'gen-shared-image', data: [{ b64_json: png.toString('base64') }], usage: { cost } });
 const reasoningPayload = cost => ({ id: 'gen-shared-reasoning', usage: { cost },
   choices: [{ finish_reason: 'stop', message: { content: '{"summary":"ok"}' } }] });
+
+test('AIT-308 round 2: real image binding with zero common rates charges the direct ceiling', async t => {
+  for (const operation of ['generate', 'edit']) {
+    const h = fixture(t, { capMicro: 40 });
+    const binding = createImageBinding({ ...localImageBinding, plugin: 'openai-images', model: 'gpt-image-2',
+      endpoint: 'https://api.openai.com/v1', maxMicro: 40,
+      imageCost: { inputMicro: 2, outputMicro: 3, maxInputTokens: 10, maxOutputTokens: 5 } });
+    const plugin = createOpenAIImages({ binding: imagePluginBinding(binding), spendCap: h.cap,
+      resolveSecret: () => 'fixture-only', fetchImpl: async () => Response.json({ id: 'gen-zero-common-rates',
+        data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 1, output_tokens: 2 } }) });
+    const o = options();
+    if (operation === 'generate') await plugin.generate(spec, '', o);
+    else await plugin.edit(imageArtifact(png, { prompt: spec.prompt, model: binding.model, operation: 'generate' }), spec, 'Make it blue', o);
+    assert.deepEqual(h.cap.snapshot(), { spentMicro: 40, reservedMicro: 0, uncertainMicro: 0, capMicro: 40, breached: false });
+    assert.deepEqual(h.cap.evidence(o.attempt.attemptId), { generationId: 'gen-zero-common-rates', chargedMicro: 40 });
+    await assert.rejects(h.images.generate(spec, '', options()), { code: 'not-admitted' });
+  }
+});
+
+test('AIT-308 round 2: real image binding charges the per-call admitted imageCost', async t => {
+  const h = fixture(t);
+  const binding = createImageBinding({ ...localImageBinding, plugin: 'openai-images', model: 'gpt-image-2',
+    endpoint: 'https://api.openai.com/v1', maxMicro: 40,
+    imageCost: { inputMicro: 2, outputMicro: 3, maxInputTokens: 10, maxOutputTokens: 5 } });
+  const plugin = createOpenAIImages({ binding: imagePluginBinding(binding), spendCap: h.cap,
+    resolveSecret: () => 'fixture-only', fetchImpl: async () => Response.json({ id: 'gen-admitted-image-cost',
+      data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 1, output_tokens: 2 } }) });
+  const o = { ...options(), imageCost: binding.imageCost };
+  await plugin.generate(spec, '', o);
+  assert.deepEqual(h.cap.snapshot(), { spentMicro: 8, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: false });
+  assert.deepEqual(h.cap.evidence(o.attempt.attemptId), { generationId: 'gen-admitted-image-cost', chargedMicro: 8 });
+});
 function fixture(t, { capMicro = 100, imageCeiling = 40, cost = 0.00004, imageFetch, reasoningFetch } = {}) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
   const cap = createSpendCap({ storage, account: 'start-openrouter', capMicro }), fetches = { images: 0, reasoning: 0 };
