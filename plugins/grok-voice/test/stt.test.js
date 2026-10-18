@@ -149,3 +149,14 @@ test(`duplicate transcript.done raises before publishing final (${STREAM_DOC})`,
   await assert.rejects(component(h).transcribe(request(), op.options), { code: 'invalid-output' });
   assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
 });
+
+
+test('transcript.done publishes one final within the existing deadline when provider never closes', async () => {
+  const h = harness({ mode: 'terminal-open' }), op = operation();
+  const values = await collect(component(h).stream({ ...request(),
+    audio: (async function* () { yield request().audio; })() }, op.options));
+  assert.deepEqual(values, expectedTranscripts);
+  assert.ok(Date.now() < op.options.deadlineAt, 'final and client cleanup complete before the invocation deadline');
+  assert.equal(h.fixtures.activeCount(), 0);
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'completed');
+});

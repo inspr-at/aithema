@@ -29,8 +29,9 @@ export function harness({ mode: initial = 'completed', onConnect, onSend, durati
   const resource = () => { requests++; active++; let closed = false;
     return () => { if (!closed) { closed = true; active--; } }; };
   const connect = async ({ url }) => {
-    let doneAudio;
-    const release = resource(), close = () => { release(); doneAudio?.(); }; urls.push(url); onConnect?.();
+    let doneAudio, doneSocket;
+    const closed = new Promise(resolve => { doneSocket = resolve; });
+    const release = resource(), close = () => { release(); doneAudio?.(); doneSocket(); }; urls.push(url); onConnect?.();
     if (mode === 'late-open') { await new Promise(resolve => setTimeout(resolve, 80)); }
     const endpoint = new Promise(resolve => { doneAudio = resolve; });
     return { close, send(value) { sent.push(value); onSend?.(value);
@@ -51,6 +52,7 @@ export function harness({ mode: initial = 'completed', onConnect, onSend, durati
           if (mode !== 'bad-duration') observed = Math.ceil(duration * 200000 / 3600);
           yield JSON.stringify({ ...wire.done, duration: mode === 'bad-duration' ? -1 : duration });
           if (mode === 'duplicate-terminal') yield JSON.stringify(wire.done); // invalid trailing terminal
+          if (mode === 'terminal-open') await closed; // provider leaves socket open until our close
         }
       })() };
   };
