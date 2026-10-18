@@ -82,16 +82,54 @@ test('provider diagnostic timeout guard detects a stalled component', async () =
   assert.ok(result.failures.some(failure => /conformance timeout/u.test(failure)), JSON.stringify(result));
 });
 
-// These source-only prototypes are diagnostic targets, not conforming released ports.
-// Keep their full matrix visible in TAP without changing helpers or filing tickets.
+// AIT-323: package component helpers must pass the kits using synthetic transports.
+// This matrix runs in the existing CI unit job; no live provider qualification.
 for (const provider of ['voxtral', 'elevenlabs']) for (const role of ['stt', 'tts']) {
-  test(`${provider} ${role} helper offline conformance diagnostic`, async t => {
+  test(`${provider} ${role} helper offline conformance`, async t => {
     const { component, fixtures } = local(provider, role);
     const result = await (role === 'stt' ? sttConformance : ttsConformance)(component,
       role === 'stt' ? { audio: new Uint8Array(64000), language: 'en' } : { text, voice: 'fixture-voice' }, fixtures);
     t.diagnostic(JSON.stringify({ provider, role, ...result }));
-    assert.equal(result.ok, false);
-    assert.ok(result.failures.includes(`${role}: capability declarations/operations`));
+    assert.deepEqual(result.failures, [], JSON.stringify(result));
+    assert.equal(result.ok, true);
     assert.ok(!result.failures.some(failure => /fixture preparation|conformance timeout/u.test(failure)), JSON.stringify(result));
+  });
+}
+
+for (const provider of ['voxtral', 'elevenlabs']) for (const role of ['stt', 'tts']) {
+  test(`${provider} ${role} declares conservative component capabilities and formats`, async () => {
+    const { component, fixtures } = local(provider, role);
+    assert.deepEqual(component.capabilities, role === 'stt'
+      ? { streaming: true, languages: ['de', 'en'], partialTranscripts: true }
+      : { streaming: true, languages: ['de', 'en'], heardPrefix: 'unavailable' });
+    assert.equal(component.speakAligned, undefined);
+    assert.deepEqual(await component.negotiateAudioFormat(fixtures.formats, {}), fixtures.formats[0]);
+  });
+}
+
+for (const provider of ['voxtral', 'elevenlabs']) for (const reportRejected of [false, true]) {
+  test(`${provider} TTS over-ceiling preflight settles undispatched${reportRejected ? ' and propagates report rejection' : ''}`, async () => {
+    const { component, fixtures } = local(provider, 'tts');
+    const reports = [], reportError = new Error('Synthetic preflight report rejection');
+    let consumed = 0;
+    const options = { attempt: { attemptId: 'preflight', claimId: 'preflight-claim', maxMicro: 1,
+      consume() { consumed++; } }, report(terminal) {
+      reports.push(terminal);
+      if (reportRejected) throw reportError;
+    } };
+    await assert.rejects(async () => {
+      for await (const chunk of component.speak({ text, voice: 'fixture-voice', format: fixtures.formats[0].encoding }, options)) {
+        assert.fail(`Unexpected audio: ${chunk.byteLength}`);
+      }
+    }, reportRejected ? error => error === reportError : { code: 'not-admitted' });
+    assert.equal(consumed, 1);
+    assert.equal(fixtures.requestCount(), 0);
+    assert.equal(fixtures.activeCount(), 0);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].attemptId, 'preflight');
+    assert.equal(reports[0].outcome, 'cancelled');
+    assert.equal(reports[0].chargedMicro, 0);
+    assert.deepEqual(reports[0].usage, { attemptId: 'preflight', role: 'tts', unit: 'characters',
+      quantity: 0, upstreamMicro: 0, source: 'undispatched', estimated: false });
   });
 }
