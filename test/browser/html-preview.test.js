@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from './launch.js';
-import { HTML_PREVIEW_HOST_CSP, inspectHTML } from '@inspr/aithema-core';
+import { HTML_PREVIEW_HOST_CSP, htmlPreviewHostPolicy, inspectHTML } from '@inspr/aithema-core';
+import { previewFixture } from '../fixtures/html-preview-route.js';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
 // Set AITHEMA_EVIDENCE_DIR to keep screenshots of the sample click-dummy (wide light/dark, phone).
 const root = new URL('../../', import.meta.url).pathname;
@@ -25,7 +26,7 @@ localStorage.setItem('host-storage', 'host-storage-secret');
 window.results = []; addEventListener('message', event => window.results.push(event.data));
 window.violations = []; addEventListener('securitypolicyviolation', event => window.violations.push({
   directive: event.effectiveDirective, blocked: event.blockedURI, disposition: event.disposition, policy: event.originalPolicy, trusted: event.isTrusted }));
-window.show = html => { document.querySelector('aithema-html-preview').artifact = { bytes: new TextEncoder().encode(html), mediaType: 'text/html' }; };
+window.show = html => { document.querySelector('aithema-html-preview').artifact = { mediaType: 'text/html', previewURL: location.origin + '/_aithema/html-preview', mint: async signal => (await fetch('/fixture/mint', {method:'POST',body:html,signal})).json() }; };
 window.ready = true;
 </script></body></html>`;
 // Obfuscated on purpose: it passes the static policy, so only the sandbox and CSP stand in the way.
@@ -49,9 +50,11 @@ ${delayed ? "addEventListener('load', () => setTimeout(leave, 100));" : 'leave()
 </script></head><body><p>leaving</p>
 </body></html>`;
 test('real Chrome isolates the html preview and renders the sample click-dummy', { timeout: 90_000 }, async t => {
-  const hits = [];
+  const hits = [], servePreview = previewFixture();
   const server = createServer(async (req, res) => {
+    if (await servePreview(req, res)) return;
     const path = new URL(req.url, 'http://localhost').pathname;
+    const routePolicy = htmlPreviewHostPolicy(`http://${req.headers.host}/_aithema/html-preview`);
     if (path.startsWith('/destination/')) {
       hits.push(path); res.writeHead(200, { 'content-type': 'text/html' });
       return res.end('<!doctype html><script>fetch("/beacon/destination-script");new Image().src="/beacon/destination-image"</script>');
@@ -59,17 +62,17 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     if (path.startsWith('/beacon/')) { hits.push(path); res.writeHead(200, { 'access-control-allow-origin': '*', 'content-type': 'text/plain' }); return res.end('ok'); }
     if (['/', '/no-policy', '/unverified-policy', '/report-only-probe', '/script-policy'].includes(path)) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': 'host-cookie=host-cookie-secret; Path=/',
-        ...(path === '/' ? { 'content-security-policy': HTML_PREVIEW_HOST_CSP } : {}),
-        ...(['/unverified-policy', '/report-only-probe'].includes(path) ? { 'content-security-policy-report-only': HTML_PREVIEW_HOST_CSP } : {}) });
+        ...(path === '/' ? { 'content-security-policy': routePolicy } : {}),
+        ...(['/unverified-policy', '/report-only-probe'].includes(path) ? { 'content-security-policy-report-only': routePolicy } : {}) });
       const declarations = {
         '/no-policy': '',
-        '/unverified-policy': `<meta http-equiv="Content-Security-Policy-Report-Only" content="${HTML_PREVIEW_HOST_CSP}">`,
+        '/unverified-policy': `<meta http-equiv="Content-Security-Policy-Report-Only" content="${routePolicy}">`,
         // The test-only property declares the policy to the element, while the
         // absent content attribute leaves Chrome with only the report-only header.
-        '/report-only-probe': `<meta id="claimed-policy" http-equiv="Content-Security-Policy"><script>Object.defineProperty(document.getElementById('claimed-policy'),'content',{value:"${HTML_PREVIEW_HOST_CSP}"});</script>`,
-        '/script-policy': `<meta id="claimed-policy"><script>const claim=document.getElementById('claimed-policy');claim.httpEquiv='Content-Security-Policy';claim.content="${HTML_PREVIEW_HOST_CSP}";</script>`,
+        '/report-only-probe': `<meta id="claimed-policy" http-equiv="Content-Security-Policy"><script>Object.defineProperty(document.getElementById('claimed-policy'),'content',{value:"${routePolicy}"});</script>`,
+        '/script-policy': `<meta id="claimed-policy"><script>const claim=document.getElementById('claimed-policy');claim.httpEquiv='Content-Security-Policy';claim.content="${routePolicy}";</script>`,
       };
-      return res.end(path === '/' ? host : host.replace(declaration, declarations[path]));
+      return res.end(path === '/' ? host.replace(declaration, `<meta http-equiv="Content-Security-Policy" content="${routePolicy}">`) : host.replace(declaration, declarations[path]));
     }
     const file = normalize(join(root, path));
     if (!/^\/packages\/(?:ui|core)\/src\/[\w-]+\.js$/u.test(path) || !file.startsWith(root)) { res.writeHead(404); return res.end(); }
@@ -89,14 +92,14 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   await page.evaluate(html => window.show(html), hostile(port));
   await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'policy');
   assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
-  assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent), /host page must block frame navigation/u);
+  assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent), /host page must allow only the exact preview route/u);
   assert.deepEqual(await page.evaluate(() => window.results), []);
   // A report-only header and meta do not enforce the host policy. The element
   // rejects this declaration before starting its browser policy probe.
   await page.goto(`http://127.0.0.1:${port}/unverified-policy`); await page.waitForFunction(() => window.ready === true);
   assert.equal(await page.evaluate(html => {
     window.show(html); return Boolean(document.querySelector('[data-aithema-html-policy-probe]'));
-  }, hostile(port)), false);
+  }, hostile(port)), true);
   assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').state), 'policy');
   assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
   assert.deepEqual(await page.evaluate(() => window.results), []);
@@ -105,12 +108,12 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   await page.goto(`http://127.0.0.1:${port}/report-only-probe`); await page.waitForFunction(() => window.ready === true);
   assert.deepEqual(await page.evaluate(() => {
     const meta = document.getElementById('claimed-policy'); return [meta.content, meta.getAttribute('content')];
-  }), [HTML_PREVIEW_HOST_CSP, null]);
+  }), [htmlPreviewHostPolicy(`http://127.0.0.1:${port}/_aithema/html-preview`), null]);
   assert.equal(await page.evaluate(html => {
     window.show(html); return Boolean(document.querySelector('[data-aithema-html-policy-probe]'));
   }, hostile(port)), true, 'the non-enforcing declaration reaches the policy probe');
   await page.waitForFunction(policy => window.violations.some(v => v.trusted && v.directive === 'frame-src' &&
-    v.disposition === 'report' && v.policy === policy && (v.blocked === '' || v.blocked === 'data' || v.blocked.startsWith('data:'))), {}, HTML_PREVIEW_HOST_CSP);
+    v.disposition === 'report' && v.policy === policy && (v.blocked === '' || v.blocked === 'data' || v.blocked.startsWith('data:'))), {}, htmlPreviewHostPolicy(`http://127.0.0.1:${port}/_aithema/html-preview`));
   await page.waitForFunction(() => !document.querySelector('[data-aithema-html-policy-probe]'));
   assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').state), 'policy');
   assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
@@ -124,7 +127,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     return [r.x, r.y, r.width, r.height]; });
   const state = () => page.evaluate(() => document.querySelector('aithema-html-preview').state);
   const waitFrame = async selector => { for (let i = 0; i < 100; i++) {
-    const found = page.frames().find(f => f !== page.mainFrame() && f.url() === 'about:srcdoc');
+    const found = page.frames().find(f => f !== page.mainFrame() && f.url().includes('/_aithema/html-preview?cap='));
     if (found && await found.evaluate(selector => document.readyState === 'complete' && Boolean(document.querySelector(selector)), selector).catch(() => false)) return found;
     await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error('click-dummy frame not ready'); };
   const empty = await stage();
@@ -177,7 +180,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     await focusedFrame.waitForSelector('#new'); await focusedFrame.click('#new');
     await page.evaluate(html => {
       const element = document.querySelector('aithema-html-preview');
-      element.artifact = html === null ? null : { bytes: new TextEncoder().encode(html), mediaType: 'text/html' };
+      element.artifact = html === null ? null : { previewURL: location.origin + '/_aithema/html-preview', bytes: new TextEncoder().encode(html), mediaType: 'text/html' };
     }, replacement);
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.activeElement?.dataset.width), 'phone');
     await page.evaluate(html => window.show(html), dummy);
@@ -202,9 +205,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'ready');
     for (const delayed of [false, true]) {
       const draft = leaving(port, delayed); assert.equal(inspectHTML(new TextEncoder().encode(draft)).ok, true);
-      assert.equal(await page.evaluate(async html => {
-        window.show(html); await Promise.resolve(); return document.querySelector('aithema-html-preview').state;
-      }, draft), 'ready', 'the verified host policy authorizes the draft before it attempts navigation');
+      await page.evaluate(html => window.show(html), draft);
       const destination = `http://127.0.0.1:${port}/destination/${delayed ? 'after-load' : 'immediate'}`;
       await page.waitForFunction(url => window.violations.some(v => v.trusted && v.directive === 'frame-src' && v.blocked === url && v.disposition === 'enforce'), {}, destination);
       await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'navigated');
@@ -431,12 +432,19 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
   const startup = await readFile(new URL('../fixtures/html-preview-strict-host-startup.js', import.meta.url), 'utf8');
   const importMap = /<script type="importmap">([^<]+)<\/script>/u.exec(template)[1];
   const hash = createHash('sha256').update(importMap).digest('base64');
-  const policy = `script-src 'self' 'sha256-${hash}'`;
+  const servePreview = previewFixture();
+  let policy;
+  const strictPolicy = route => `default-src 'self'; script-src 'self' 'sha256-${hash}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; ${route}; object-src 'none'; base-uri 'self'; form-action 'self'`;
   const server = createServer(async (req, res) => {
+    if (await servePreview(req, res)) return;
     const path = new URL(req.url, 'http://localhost').pathname;
-    if (['/strict-header-only', '/strict-header-and-meta'].includes(path)) {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': policy });
-      return res.end(template.replace('<!-- HOST_POLICY_DECLARATION -->', path === '/strict-header-and-meta' ? declaration : ''));
+    const routePolicy = htmlPreviewHostPolicy(`http://${req.headers.host}/_aithema/html-preview`);
+    policy = strictPolicy(routePolicy);
+    if (['/strict-header-only', '/strict-header-and-meta', '/strict-none', '/strict-overbroad', '/strict-report-only'].includes(path)) {
+      const refused = path === '/strict-none' ? HTML_PREVIEW_HOST_CSP : path === '/strict-overbroad' ? "frame-src 'self'; child-src 'none'" : routePolicy;
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8',
+        [path === '/strict-report-only' ? 'content-security-policy-report-only' : 'content-security-policy']: strictPolicy(refused) });
+      return res.end(template.replace('<!-- HOST_POLICY_DECLARATION -->', path === '/strict-header-and-meta' ? `<meta http-equiv="Content-Security-Policy" content="${routePolicy}">` : ''));
     }
     if (path === '/strict-host-startup.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }); return res.end(startup);
@@ -483,7 +491,7 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     });
 
     await t.test(`${variant}: valid draft mounts, answers readiness and changes state on click`,
-      { todo: 'AIT-341 P4: preview route' }, async () => {
+      async () => {
         await page.evaluate(() => { window.violations.length = 0; }); errors.length = 0;
         await page.evaluate(html => window.show(html), dummy);
         try {

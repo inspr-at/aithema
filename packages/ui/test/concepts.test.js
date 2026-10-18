@@ -27,7 +27,7 @@ function blurFixtureFocus() {
   while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
   active?.blur();
 }
-function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', session: extra = {}, refuse, imageResponse, postResponse } = {}) {
+function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', previewResponse, session: extra = {}, refuse, imageResponse, postResponse } = {}) {
   blurFixtureFocus();
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
   session.transcript = [{ id: 'first', role: 'user', content: 'An API dashboard' }]; session.inputRevision = 1;
@@ -42,6 +42,7 @@ function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owne
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal.addEventListener('abort', () => controller.close(), { once: true }); } }));
     if ((url.endsWith('/image') || url.includes('/image?')) && imageResponse) return imageResponse(url, options);
     if (url.endsWith('/image') || url.includes('/image?')) return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } });
+    if (url.endsWith('/preview')) return previewResponse ? previewResponse(url, options) : Response.json({ url: 'http://localhost/_aithema/html-preview?cap=' + String(calls.length).padStart(43, 'a'), expiresInMs: 60000 });
     if (url.endsWith('/html')) return new Response(draftBytes(/(\d+)\/html$/u.exec(url)?.[1] ?? 0), { headers: { 'content-type': 'application/octet-stream' } });
     if (!options.body) return Response.json(c.session);
     if (refuse) return Response.json(refuse.body, { status: refuse.status });
@@ -52,7 +53,7 @@ function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owne
     else event = { seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'waiting' } } };
     return Response.json({ event });
   });
-  c.configure({ copy, session, sessionToken, baseUrl });
+  c.configure({ copy, session, sessionToken, baseUrl, concepts: { previewURL: 'http://localhost/_aithema/html-preview' } });
   t.after(async () => {
     blurFixtureFocus();
     // Most concept tests deliberately render without the session SSE transport.
@@ -162,7 +163,7 @@ test('reject archives the exact item and returns to conversation without a paid 
 test('download is a real same-origin owner-authenticated GET and revokes its temporary URL', async t => {
   const { root, calls, downloads, revoked } = setup(t); root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-download').click(); await tick();
-  const get = calls.find(c => c.url.endsWith('/image?download=1')); assert.ok(get); assert.equal(get.options.body, undefined);
+  const get = calls.find(c => c.url.endsWith('/image?download=1')); assert.ok(get); assert.equal(get.options.body, undefined); assert.equal(get.options.method, 'POST');
   assert.equal(new Headers(get.options.headers).get('x-aithema-session-token'), 'owner-fixture');
   assert.match(downloads[0].name, /^concept-image1.png$/); assert.ok(revoked.includes(downloads[0].href));
 });
@@ -287,7 +288,7 @@ test('concept kinds and the rail state in plain words: pending, ready revision, 
   for (const key of Object.keys(en)) if (key.startsWith('concept')) assert.ok(key in de, `German bundle has ${key}`);
   assert.deepEqual(Object.keys(de.conceptPreview).sort(), Object.keys(en.conceptPreview).sort());
 });
-test('rail and viewer switch by media type: drafts render in the sandboxed preview from fetched bytes, images stay images', async t => {
+test('rail and viewer switch by media type: drafts render in the sandboxed preview from fresh scoped sources, images stay images', async t => {
   const { root, calls } = setup(t, { concepts: [item('image1'), draft('html1')], session: { conceptVisualKind: 'html' } }); await tick();
   const thumb = root.querySelector('.concept-preview');
   assert.equal(thumb.querySelector('img').hidden, true); assert.equal(thumb.querySelector('.concept-preview-glyph').hidden, false);
@@ -297,19 +298,20 @@ test('rail and viewer switch by media type: drafts render in the sandboxed previ
   const preview = root.querySelector('.concept-html'), image = root.querySelector('.concept-image');
   assert.equal(preview.hidden, false); assert.equal(image.hidden, true); assert.equal(image.hasAttribute('src'), false);
   assert.equal(root.querySelector('.concept-viewer').dataset.kind, 'html');
-  assert.equal(new TextDecoder().decode(preview.artifact.bytes).includes('Revision 1'), true); assert.equal(preview.artifact.mediaType, 'text/html');
+  assert.equal(typeof preview.artifact.mint, 'function'); assert.equal(preview.artifact.mediaType, 'text/html');
   assert.equal(preview.copy.label, en.conceptPreview.label);
   assert.equal(root.querySelector('#concept-title').textContent, 'Draft revision 1'); assert.equal(root.querySelector('.concept-count').textContent, '2 of 2');
   assert.equal(root.querySelector('.concept-disclosure').textContent, en.conceptDraftFake); assert.equal(root.querySelector('.concept-download').textContent, 'Download draft');
-  const get = calls.find(c => c.url.endsWith('/concepts/html1/html'));
-  assert.ok(get); assert.equal(get.options.body, undefined); assert.equal(get.options.cache, 'no-store');
+  await preview.artifact.mint();
+  const get = calls.find(c => c.url.endsWith('/concepts/html1/preview'));
+  assert.ok(get); assert.equal(get.options.body, undefined); assert.equal(get.options.method, 'POST'); assert.equal(get.options.cache, 'no-store');
   assert.equal(new Headers(get.options.headers).get('x-aithema-session-token'), 'owner-fixture');
   root.querySelector('.concept-viewer').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft' })); await tick();
   assert.equal(preview.hidden, true); assert.equal(preview.artifact, null, 'a hidden preview runs no draft');
   assert.equal(image.hidden, false); assert.ok(image.src.startsWith('blob:')); assert.equal(root.querySelector('#concept-title').textContent, 'Visual concept 1');
   assert.equal(root.querySelector('.concept-download').textContent, en.conceptDownload); assert.ok(calls.some(c => c.url.endsWith('/concepts/image1/image')));
   root.querySelector('.concept-viewer').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight' })); await tick();
-  assert.equal(calls.filter(c => c.url.endsWith('/html')).length, 1, 'draft bytes are cached for the session');
+  assert.equal(calls.filter(c => c.url.endsWith('/html')).length, 0, 'viewing never fetches raw draft bytes');
   // The width switch's own arrow keys (default prevented) never change the revision.
   const arrow = new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }); arrow.preventDefault();
   root.querySelector('.concept-viewer').dispatchEvent(arrow); assert.equal(root.querySelector('.concept-count').textContent, '2 of 2');
@@ -322,7 +324,7 @@ test('a refresh revision replaces the shown latest draft in place; an older revi
   const arrive = id => c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: draft(id) } });
   arrive('html2'); await tick(); await tick();
   assert.equal(root.querySelector('.concept-count').textContent, '2 of 2'); assert.equal(root.querySelector('#concept-title').textContent, 'Draft revision 2');
-  assert.match(new TextDecoder().decode(preview.artifact.bytes), /Revision 2/u);
+  assert.equal(preview.dataset.id, 'html2'); await preview.artifact.mint(); assert.ok(calls.some(call => call.url.endsWith('/html2/preview')));
   assert.equal(root.querySelector('.concept-regenerate'), regenerate); assert.equal(root.querySelector('.concept-up'), up, 'controls keep their nodes');
   assert.equal(root.querySelector('.concept-activity-text').textContent, 'Draft revision 2 is ready.');
   const shown = preview.artifact; c.receive({ seq: c.session.seq + 1, type: 'concept.feedback', data: { artifactId: 'html2', vote: 'up', chips: [], archived: false } });
@@ -374,7 +376,7 @@ test('a revision waits while a viewer control holds focus or the pointer rests o
     view.root.querySelector('.concept-viewer-controls').dispatchEvent(new window.Event('pointerleave')); view.root.querySelector('.concept-close').focus();
     arrive(view.c, 'html3'); await tick(); await tick();
     assert.equal(view.root.querySelector('.concept-count').textContent, '3 of 3', 'replaced in place when nobody is at work in the viewer');
-    assert.match(new TextDecoder().decode(view.root.querySelector('.concept-html').artifact.bytes), /Revision 3/u);
+    assert.equal(view.root.querySelector('.concept-html').dataset.id, 'html3');
     assert.ok(view.root.activeElement === view.root.querySelector('.concept-close'));
   }
 });

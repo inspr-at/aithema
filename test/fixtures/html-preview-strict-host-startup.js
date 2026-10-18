@@ -8,7 +8,8 @@ addEventListener('securitypolicyviolation', event => window.violations.push({
 }));
 window.show = html => {
   document.querySelector('aithema-html-preview').artifact = {
-    bytes: new TextEncoder().encode(html), mediaType: 'text/html',
+    mediaType: 'text/html', previewURL: location.origin + '/_aithema/html-preview',
+    mint: async signal => (await fetch('/fixture/mint', { method: 'POST', body: html, signal })).json(),
   };
 };
 window.ready = true;

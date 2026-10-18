@@ -2,13 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Window } from 'happy-dom';
-import { HTML_PREVIEW_CSP, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core';
+import { HTML_PREVIEW_CSP, htmlPreviewHostPolicy } from '@inspr/aithema-core';
 // happy-dom enforces neither sandbox nor CSP; it checks the markup. The browser test proves isolation.
-const window = new Window({ settings: { disableJavaScriptEvaluation: true, disableIframePageLoading: true } });
+const window = new Window({ url: 'http://localhost/', settings: { disableJavaScriptEvaluation: true, disableIframePageLoading: true } });
 for (const key of ['HTMLElement', 'customElements', 'document']) globalThis[key] = window[key];
 const { frameDocument, PREVIEW_SANDBOX, previewCopy } = await import('../src/html-preview.js');
 const dummy = readFileSync(new URL('../../../test/fixtures/click-dummy.html', import.meta.url), 'utf8');
+const previewURL = 'http://localhost/_aithema/html-preview';
+const HTML_PREVIEW_HOST_CSP = htmlPreviewHostPolicy(previewURL);
+let sequence = 0;
 const html = text => ({ bytes: new TextEncoder().encode(text), mediaType: 'text/html' });
+const source = () => ({ mediaType: 'text/html', previewURL, mint: async () => ({ url: previewURL + '?cap=' + String(++sequence).padStart(43, 'a'), expiresInMs: 60_000 }) });
+function testDocument() { const owner = document.implementation.createHTMLDocument(); Object.defineProperty(owner, 'URL', { value: 'http://localhost/' }); return owner; }
 function setup(owner = document) { const element = owner.createElement('aithema-html-preview'); owner.body.append(element); return element; }
 // Unit tests simulate the browser's policy event; only real Chrome proves CSP.
 const proof = { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP };
@@ -18,7 +23,7 @@ async function render(element, value) {
   if (!document.head.querySelector('meta[http-equiv]')) {
     const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; document.head.append(meta);
   }
-  element.artifact = value;
+  element.artifact = value && { previewURL, ...value };
   if (document.querySelector('[data-aithema-html-policy-probe]')) {
     violation({ ...proof, isTrusted: false }, document); await Promise.resolve();
     assert.equal(element.shadowRoot.querySelector('iframe'), null, 'synthetic events cannot authorize rendering');
@@ -28,19 +33,19 @@ async function render(element, value) {
     assert.equal(element.shadowRoot.querySelector('iframe'), null, 'a weaker policy cannot authorize rendering');
     violation(proof, document);
   }
-  await Promise.resolve();
+  for (let i = 0; i < 8; i++) await Promise.resolve();
 }
 test('missing host policy refuses a draft visibly before it can execute', () => {
-  const element = setup(); element.artifact = html(dummy);
+  const element = setup(); element.artifact = source();
   assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null);
   assert.equal(element.shadowRoot.querySelector('.state').textContent, previewCopy.policy);
 });
 test('host policy accepts empty, scheme-only and full data probe URIs only while its sole probe is pending', async () => {
   for (const blockedURI of ['', 'data', 'data:text/html,%3Ctitle%3Epolicy%20probe%3C/title%3E']) {
-    const owner = document.implementation.createHTMLDocument();
+    const owner = testDocument();
     const meta = owner.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; owner.head.append(meta);
     const element = setup(owner), event = { ...proof, blockedURI };
-    violation(event, owner); element.artifact = html(dummy); await Promise.resolve();
+    violation(event, owner); element.artifact = source(); await Promise.resolve();
     assert.equal(element.state, 'policy', 'a previous event cannot authorize a new probe');
     const probe = owner.querySelector('[data-aithema-html-policy-probe]'); assert.ok(probe);
     probe.remove(); violation(event, owner); await Promise.resolve();
@@ -51,27 +56,29 @@ test('host policy accepts empty, scheme-only and full data probe URIs only while
     assert.equal(element.state, 'policy', 'ambiguous pending probes cannot authorize rendering'); other.remove();
     for (const fields of [{ isTrusted: false }, { disposition: 'report' }, { effectiveDirective: 'default-src' },
       { originalPolicy: "frame-src data:; child-src 'none'" }, { originalPolicy: "frame-src 'none'; child-src data:" },
+      { originalPolicy: "frame-src 'self'; child-src 'none'" }, { originalPolicy: `frame-src ${previewURL} data:; child-src 'none'` },
+      { originalPolicy: `frame-src ${previewURL.replace('/_aithema/html-preview', '/')}; child-src 'none'` },
       { blockedURI: 'http://example.invalid/' }, { blockedURI: 'database' }]) {
       violation({ ...event, ...fields }, owner); await Promise.resolve();
       assert.equal(element.shadowRoot.querySelector('iframe'), null, 'only an enforced host frame-policy data violation authorizes rendering');
     }
-    violation({ ...event, effectiveDirective: blockedURI === '' ? 'child-src' : 'frame-src' }, owner); await Promise.resolve();
+    violation({ ...event, effectiveDirective: blockedURI === '' ? 'child-src' : 'frame-src' }, owner); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     assert.equal(element.state, 'ready'); assert.ok(element.shadowRoot.querySelector('iframe'));
     assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), null); element.remove();
   }
 });
 test('a late violation cannot authorize a timed-out policy probe', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const owner = document.implementation.createHTMLDocument();
+  const owner = testDocument();
   const meta = owner.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; owner.head.append(meta);
-  const element = setup(owner); element.artifact = html(dummy);
+  const element = setup(owner); element.artifact = source();
   t.mock.timers.tick(1500); await Promise.resolve();
   assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), null);
   violation({ ...proof, blockedURI: '' }, owner); await Promise.resolve();
   assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null); element.remove();
 });
 test('the policy probe rejects report-only and wrong-directive event-like objects', async t => {
-  const owner = document.implementation.createHTMLDocument();
+  const owner = testDocument();
   const meta = owner.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; owner.head.append(meta);
   let handler;
   const addEventListener = owner.addEventListener;
@@ -79,7 +86,7 @@ test('the policy probe rejects report-only and wrong-directive event-like object
     if (type === 'securitypolicyviolation') handler = listener;
     return addEventListener.call(this, type, listener, ...options);
   });
-  const element = setup(owner); element.artifact = html(dummy);
+  const element = setup(owner); element.artifact = source();
   const probe = owner.querySelector('[data-aithema-html-policy-probe]'); assert.ok(probe); assert.equal(typeof handler, 'function');
   // Call the captured listener directly; production still requires isTrusted.
   for (const fields of [{ disposition: 'report' }, { effectiveDirective: 'default-src' }]) {
@@ -87,24 +94,21 @@ test('the policy probe rejects report-only and wrong-directive event-like object
     assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null);
     assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), probe, 'rejected evidence leaves the probe pending');
   }
-  handler(proof); await Promise.resolve();
+  handler(proof); for (let i = 0; i < 8; i++) await Promise.resolve();
   assert.equal(element.state, 'ready'); assert.ok(element.shadowRoot.querySelector('iframe'));
   assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), null); element.remove();
 });
-test('renders a draft only in an allow-scripts sandbox with the strict CSP first in its srcdoc', async () => {
+test('renders only the scoped src in an allow-scripts sandbox; the route owns CSP', async () => {
   const element = setup(), root = element.shadowRoot;
   assert.equal(element.state, 'empty'); assert.equal(root.querySelector('iframe'), null);
   assert.equal(root.querySelector('.state').textContent, previewCopy.empty);
-  await render(element, html(dummy));
+  await render(element, source());
   const frame = root.querySelector('iframe'); assert.equal(element.state, 'ready');
   assert.equal(PREVIEW_SANDBOX, 'allow-scripts'); assert.equal(frame.getAttribute('sandbox'), 'allow-scripts');
   assert.doesNotMatch(frame.getAttribute('sandbox'), /same-origin|top-navigation|popups|forms|modals|downloads/u);
   assert.equal(frame.getAttribute('referrerpolicy'), 'no-referrer'); assert.match(frame.getAttribute('allow'), /camera 'none'/u);
-  assert.equal(frame.hasAttribute('src'), false); assert.equal(frame.getAttribute('title'), previewCopy.title);
-  const srcdoc = frame.getAttribute('srcdoc');
-  assert.ok(srcdoc.startsWith(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}">`));
-  assert.equal(srcdoc.match(/<!doctype/giu).length, 1, 'one doctype keeps standards mode');
-  assert.equal(srcdoc, frameDocument(dummy)); assert.match(srcdoc, /<html lang="en">/u);
+  assert.equal(frame.hasAttribute('srcdoc'), false); assert.equal(frame.getAttribute('title'), previewCopy.title);
+  assert.match(frame.src, /^http:\/\/localhost\/_aithema\/html-preview\?cap=[A-Za-z0-9_-]{43}$/u);
   assert.equal(root.querySelector('.label-text').textContent, 'Draft — generated');
 });
 test('refuses unsafe, non-html and broken bytes in place, without a frame', async () => {
@@ -112,7 +116,7 @@ test('refuses unsafe, non-html and broken bytes in place, without a frame', asyn
   for (const value of [html(dummy.replace('<main', '<img src="https://example.invalid/p.png"><main')),
     { bytes: new TextEncoder().encode(dummy), mediaType: 'image/png' }, { bytes: Uint8Array.from([0xff]), mediaType: 'text/html' },
     { mediaType: 'text/html', bytes: dummy }, html('<p>fragment</p>')]) {
-    await render(element, html(dummy)); assert.ok(root.querySelector('iframe'));
+    await render(element, source()); assert.ok(root.querySelector('iframe'));
     await render(element, value);
     assert.equal(element.state, 'invalid'); assert.equal(root.querySelector('iframe'), null);
     assert.equal(root.querySelector('.state').textContent, previewCopy.invalid);
@@ -121,7 +125,7 @@ test('refuses unsafe, non-html and broken bytes in place, without a frame', asyn
 });
 test('width switch changes only the frame width, keeps a fixed stage and works by keyboard', async () => {
   const element = setup(), root = element.shadowRoot, stage = root.querySelector('.stage');
-  await render(element, html(dummy));
+  await render(element, source());
   const style = root.querySelector('style').textContent;
   assert.match(style, /\.stage \{[^}]*height:var\(--preview-height\)/u); assert.match(style, /contain:strict/u);
   assert.doesNotMatch(style, /font-style:\s*italic|100dvh|100vh/u);
@@ -143,24 +147,25 @@ test('host copy replaces every visible string, including in the empty state', as
   element.copy = { label: '<img src=x onerror=alert(1)>' }; assert.equal(root.querySelector('.label-text img'), null);
 });
 test('a stale policy verification cannot remount a cleared or disconnected draft', async () => {
-  const element = setup(), root = element.shadowRoot; await render(element, html(dummy));
-  element.artifact = html(dummy); element.artifact = null; await Promise.resolve();
+  const element = setup(), root = element.shadowRoot; await render(element, source());
+  element.artifact = source(); element.artifact = null; await Promise.resolve();
   assert.equal(element.state, 'empty'); assert.equal(root.querySelector('iframe'), null);
-  element.artifact = html(dummy); element.remove(); await Promise.resolve();
+  element.artifact = source(); element.remove(); await Promise.resolve();
   assert.equal(root.querySelector('iframe'), null);
 });
 test('a replaced draft keeps keyboard focus in the preview', async () => {
-  const element = setup(), root = element.shadowRoot; await render(element, html(dummy));
+  const element = setup(), root = element.shadowRoot; await render(element, source());
+  const beforeSource = root.querySelector('iframe').src;
   root.querySelector('iframe').dispatchEvent(new window.FocusEvent('focus'));
   let focused = null; const focus = window.HTMLElement.prototype.focus;
   window.HTMLElement.prototype.focus = function () { focused = this; };
-  try { await render(element, html(dummy.replace('Revision 1', 'Revision 2'))); } finally { window.HTMLElement.prototype.focus = focus; }
-  assert.equal(focused, root.querySelector('iframe')); assert.match(focused.getAttribute('srcdoc'), /Revision 2/u);
+  try { await render(element, source()); } finally { window.HTMLElement.prototype.focus = focus; }
+  assert.equal(focused, root.querySelector('iframe')); assert.notEqual(focused.src, beforeSource);
 });
 
 test('clearing or rejecting a focused draft restores focus to the selected width control', async () => {
   for (const value of [null, html('<p>fragment</p>')]) {
-    const element = setup(), root = element.shadowRoot; element.width = 'phone'; await render(element, html(dummy));
+    const element = setup(), root = element.shadowRoot; element.width = 'phone'; await render(element, source());
     root.querySelector('iframe').focus();
     await render(element, value);
     assert.equal(root.querySelector('iframe'), null);
@@ -174,9 +179,9 @@ function mockChannels(t) {
   });
   return channels;
 }
-test('only the srcdoc reply port confirms a first load; late probe events cannot retire a draft', async t => {
+test('only the preview reply port confirms a first load; late probe events cannot retire a draft', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
-  const owner = document.implementation.createHTMLDocument(), element = setup(owner); await render(element, html(dummy));
+  const owner = testDocument(), element = setup(owner); await render(element, source());
   const frame = element.shadowRoot.querySelector('iframe'); let ping;
   t.mock.method(frame.contentWindow, 'postMessage', (message, target, ports) => {
     ping = message; assert.equal(target, '*'); assert.deepEqual(ports, [channels[0].port2]);
@@ -194,8 +199,8 @@ test('only the srcdoc reply port confirms a first load; late probe events cannot
 test('blocked navigation is visible both before first load and after load, with focus restored', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
   for (const loaded of [false, true]) {
-    const owner = document.implementation.createHTMLDocument(), element = setup(owner), root = element.shadowRoot;
-    element.width = 'phone'; await render(element, html(dummy));
+    const owner = testDocument(), element = setup(owner), root = element.shadowRoot;
+    element.width = 'phone'; await render(element, source());
     const frame = root.querySelector('iframe');
     t.mock.method(frame.contentWindow, 'postMessage', message => {
       if (loaded) channels.at(-1).port1.onmessage({ data: message });
@@ -213,9 +218,39 @@ test('blocked navigation is visible both before first load and after load, with 
 });
 test('clearing a draft during its first-load check cancels the timeout and closes the reply port', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
-  const owner = document.implementation.createHTMLDocument(), element = setup(owner); await render(element, html(dummy));
+  const owner = testDocument(), element = setup(owner); await render(element, source());
   const frame = element.shadowRoot.querySelector('iframe');
   t.mock.method(frame.contentWindow, 'postMessage', () => {}); frame.dispatchEvent(new window.Event('load'));
   element.artifact = null; t.mock.timers.tick(1500); channels[0].port1.onmessage({ data: 'aithema-html-preview-ready' });
   assert.equal(channels[0].port1.closed, true); assert.equal(element.state, 'empty'); element.remove();
+});
+
+test('fresh sources on replacement/reconnect; stale mint responses never mount and widths never mint', async () => {
+  const owner = testDocument(), element = setup(owner), pending = [];
+  const value = { mediaType: 'text/html', previewURL, mint: signal => new Promise(resolve => pending.push({ signal, resolve })) };
+  await render(element, value); assert.equal(element.state, 'loading'); assert.equal(pending.length, 1);
+  element.width = 'phone'; element.copy = { label: 'Updated' }; assert.equal(pending.length, 1);
+  element.artifact = value; for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(pending[0].signal.aborted, true); assert.equal(pending.length, 2);
+  const result = { url: previewURL + '?cap=' + 'b'.repeat(43), expiresInMs: 60_000 };
+  pending[0].resolve(result); for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(element.shadowRoot.querySelector('iframe'), null);
+  element.remove(); assert.equal(pending[1].signal.aborted, true);
+  owner.body.append(element); for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(pending.length, 3);
+  pending[1].resolve(result); for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(element.shadowRoot.querySelector('iframe'), null);
+  pending[2].resolve(result); for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.ok(element.shadowRoot.querySelector('iframe')); element.remove();
+});
+
+test('mint failure is stable without automatic retries, and off-route responses fail closed', async () => {
+  for (const result of [null, { url: previewURL + '?cap=' + 'a'.repeat(43), expiresInMs: 60_001 },
+    { url: 'http://other.invalid/_aithema/html-preview?cap=' + 'a'.repeat(43), expiresInMs: 60_000 },
+    { url: previewURL + '?cap=' + 'a'.repeat(43) + '&extra=1', expiresInMs: 60_000 }]) {
+    const owner = testDocument(), element = setup(owner); let calls = 0;
+    await render(element, { mediaType: 'text/html', previewURL, mint: async () => { calls++; return result; } });
+    assert.equal(element.state, 'failure'); assert.equal(element.shadowRoot.querySelector('iframe'), null);
+    element.width = 'phone'; element.copy = {}; await Promise.resolve(); assert.equal(calls, 1); element.remove();
+  }
 });

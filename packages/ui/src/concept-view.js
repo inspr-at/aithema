@@ -73,8 +73,8 @@ export class ConceptView {
     if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
     root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });
   }
-  constructor({ root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry }) {
-    Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry });
+  constructor({ root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL }) {
+    Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
     this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -368,15 +368,24 @@ export class ConceptView {
   // The preview keeps one frame per shown revision: live renders that don't change the
   // revision leave it (and whatever the person did inside it) alone.
   renderDraft(current, draft, status) {
-    const owner = this.#session?.id, epoch = this.#epoch;
-    const show = bytes => { if (draft.artifact?.bytes !== bytes) draft.artifact = { bytes, mediaType: HTML_MEDIA_TYPE }; };
-    const cached = this.#drafts.get(current.id);
-    if (draft.dataset.id !== current.id) { draft.dataset.id = current.id; if (!cached) draft.artifact = null; }
-    if (cached) { show(cached); status.textContent = ''; return; }
-    status.textContent = this.copy.conceptDraftLoading;
-    void this.load(current.id).then(bytes => { if (owner === this.#session?.id && epoch === this.#epoch && this.current()?.id === current.id && this.dialog.open) {
-      if (bytes) show(bytes); status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
-    } });
+    status.textContent = '';
+    if (draft.dataset.id === current.id && draft.artifact) return;
+    draft.dataset.id = current.id;
+    draft.artifact = this.previewSource(current.id);
+  }
+  previewSource(id) {
+    const sessionId = this.#session.id, epoch = this.#epoch;
+    return { mediaType: HTML_MEDIA_TYPE, previewURL: this.previewURL, mint: async signal => {
+      const active = () => epoch === this.#epoch && sessionId === this.#session.id && this.items.some(item => item.id === id);
+      if (!active()) throw new Error('Preview scope expired');
+      const response = await fetch(this.sameOrigin(this.path(`/${id}/preview`)), {
+        method: 'POST', headers: this.headers(), cache: 'no-store', redirect: 'error', signal,
+      });
+      if (!response.ok || !active()) throw new Error('Preview unavailable');
+      const source = await response.json();
+      if (!active()) throw new Error('Preview scope expired');
+      return source;
+    } };
   }
   // Temporary admission restrictions gate requests, not the fold. Only a real
   // capability loss restores the transcript; cached drafts survive preset exclusion.
@@ -416,13 +425,15 @@ export class ConceptView {
     }
     if (draft.dataset.id !== item.id) { draft.dataset.id = item.id; draft.artifact = null; image.removeAttribute('src'); }
     status.textContent = conceptKind(item) === 'html' ? this.copy.conceptDraftLoading : this.copy.conceptLoading;
+    if (conceptKind(item) === 'html') {
+      if (!draft.artifact) draft.artifact = this.previewSource(item.id);
+      status.textContent = ''; return;
+    }
+    if (draft.artifact) draft.artifact = null;
     const bytes = await this.load(item.id);
     if (epoch !== this.#canvasEpoch || sessionId !== this.#session.id || !this.root.querySelector('.workspace')?.hasAttribute('data-folded') ||
       !this.canShowCanvas() || this.items.at(-1)?.id !== item.id) return;
-    if (conceptKind(item) === 'html') {
-      if (bytes && draft.artifact?.bytes !== bytes) draft.artifact = { bytes, mediaType: HTML_MEDIA_TYPE };
-      status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
-    } else { if (bytes) { image.src = bytes; image.dataset.id = item.id; } status.textContent = bytes ? '' : this.copy.conceptImageFailed; }
+    if (bytes) { image.src = bytes; image.dataset.id = item.id; } status.textContent = bytes ? '' : this.copy.conceptImageFailed;
   }
   #readViewed() {
     if (this.#seenLoaded || !this.#visualsBound()) return;
@@ -599,11 +610,11 @@ export class ConceptView {
     this.#readViewed();
     this.#trigger = this.root.activeElement; this.#selected = id; this.#seen.add(id); this.rememberViewed();
     if (!this.dialog.open) this.dialog.showModal(); this.render(); this.root.querySelector('.concept-close').focus();
-    // Viewing is a local cached read. It never POSTs or records spending intent.
+    // Viewing mints only a scoped preview capability; it never requests generation or spending.
   }
   close() {
     if (!this.dialog.open) return;
-    // A closed viewer runs no draft; reopening shows the cached bytes at once.
+    // Closing invalidates pending mints; reopening always mints a fresh source.
     const draft = this.root.querySelector('.concept-html'); draft.artifact = null; delete draft.dataset.id;
     this.root.querySelector('.concept-viewer-message').textContent = ''; this.#pointer = false; this.#pointerStage = false;
     this.dialog.close(); this.#trigger?.focus(); this.#trigger = null;
@@ -612,7 +623,7 @@ export class ConceptView {
     const index = this.items.findIndex(c => c.id === this.#selected), next = this.items[index + delta];
     if (next) { this.#selected = next.id; this.#seen.add(next.id); this.rememberViewed(); this.root.querySelector('.concept-viewer-message').textContent = ''; this.render(); }
   }
-  /** An image's object URL, or a draft's bytes: fetched as data from the owner route, never navigated to. */
+  /** Image object URLs and static-download bytes only. Executable previews use previewSource. */
   async load(id) {
     if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id) || !this.items.some(item => item.id === id)) return null;
     if (this.#urls.has(id)) return this.#urls.get(id);
