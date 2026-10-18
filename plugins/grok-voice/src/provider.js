@@ -1,5 +1,5 @@
 import { PluginError } from '@inspr/aithema-core/invocation';
-import { bindingReason, processingScope, consentCoverage } from '@inspr/aithema-core';
+import { bindingReason, processingScope, consentReason } from '@inspr/aithema-core';
 import { deepFreeze } from '@inspr/aithema-core/plugins';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server';
@@ -65,7 +65,14 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
         const reason = bindingReason({ binding: componentBindings[role], plugin: components[role], preset, policy, now: now() });
         if (reason) return reason;
       }
-      for (const scope of scopes()) if (!await voiceOperation(options, opts => consentCoverage(consent, session, scope, opts, now()))) return 'current processing consent required';
+      if (session.tombstone || session.consentWithdrawn || typeof consent?.coverage !== 'function') return 'current processing consent required';
+      for (const scope of scopes()) {
+        const coverage = await voiceOperation(options, opts => consent.coverage({ sessionId: session.id,
+          scope: structuredClone(scope), consentRevision: session.consentRevision }, opts));
+        // Coverage can be issued on a later tick than the request. Evaluate its
+        // freshness at receipt, retaining the host clock and strict scope checks.
+        if (consentReason(coverage, scope, now(), session.consentRevision)) return 'current processing consent required';
+      }
       return null;
     },
     bindCallbacks(operations) {
