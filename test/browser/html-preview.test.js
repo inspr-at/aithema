@@ -504,8 +504,8 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     if (path === '/strict-host-startup.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }); return res.end(startup);
     }
-    if (!/^\/packages\/(?:ui|core)\/src\/(?:i18n\/)?[\w-]+\.js$/u.test(path)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+    if (!/^\/packages\/(?:ui|core)\/src\/[\w/-]+\.(?:js|json)$/u.test(path)) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'content-type': path.endsWith('.json') ? 'application/json' : 'text/javascript; charset=utf-8' });
     res.end(await readFile(join(root, path)));
   });
   const directory = await mkdtemp(join(tmpdir(), 'aithema-strict-preview-'));
