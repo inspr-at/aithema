@@ -68,8 +68,12 @@ for (const [file, seconds] of Object.entries({
 // floor. The separate host chrome check also passed with exact formatted
 // sizing. Keep this diagnostic floor outside trusted rolling-main history
 // until matching main samples can replace it.
+// Round 2 CI 39153739923: expanded 120-case receipt matrix passed in
+// 38.304036204s; footer work total 80.593045515s (AIT-355 readiness timed
+// out). Round ceil(total * 1.25) = 101s up to a 110s diagnostic floor;
+// verify against the next successful complete file. No bin limits change.
 browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
-  browserTestWeights['test/browser/footer-width-sweep.test.js'], 90);
+  browserTestWeights['test/browser/footer-width-sweep.test.js'], 110);
 
 // AIT-327: all 34 tests passed in PR CI 39139806265, head d9161661,
 // shard 5/7: summed top-level work 133.288818152s.
