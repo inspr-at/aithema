@@ -139,6 +139,10 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
     const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).trim().split('\n');
     const members = new Set(entries);
     assert.ok(entries.every(path => !path.includes('axe-core') && !path.includes('a11y-evidence')), 'axe tooling stays outside runtime tarballs');
+    if (artifact.name === '@inspr/aithema-core') {
+      assert.ok(members.has('package/src/voice-components.js'));
+      assert.ok(members.has('package/src/voice-components.d.ts'));
+    }
     if (artifact.name === '@inspr/aithema-plugin-elevenlabs') assert.ok(!members.has('package/src/components.js'));
     const unpacked = join(fixture, artifact.name.replaceAll('/', '-'));
     mkdirSync(unpacked);
@@ -177,12 +181,22 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   } finally { await demo.kill(); }
   const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession, createLocalHTML, createLocalImages } from '@inspr/aithema-server';
     import { createSession, createMockReasoning } from '@inspr/aithema-core';
+    import { componentInvocation, voiceCompositionCapabilities } from '@inspr/aithema-core/voice-components';
+    import { componentInvocation as rootInvocation } from '@inspr/aithema-core';
     import { manifest as reasoningManifest } from '@inspr/aithema-plugin-openrouter';
     import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images';
     import { readFileSync } from 'node:fs';
     import assert from 'node:assert/strict';
     import { createRequire } from 'node:module';
     assert.throws(() => createRequire(import.meta.url).resolve('axe-core'), { code: 'MODULE_NOT_FOUND' });
+    assert.equal(rootInvocation, componentInvocation);
+    assert.equal(typeof voiceCompositionCapabilities, 'function');
+    const reports = []; let consumed = false;
+    const invocation = await componentInvocation({ signal: new AbortController().signal, deadlineAt: Date.now() + 1000,
+      attempt: { attemptId: 'packed-fake', claimId: 'fake-claim', maxMicro: 42, consume() { consumed = true; } },
+      report: terminal => reports.push(terminal) }, { role: 'tts', unit: 'characters', model: 'fake' });
+    assert.equal(consumed, true); invocation.dispatch(); await invocation.finish(false);
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain'); assert.equal(reports[0].chargedMicro, 42);
     const runtime = JSON.parse(readFileSync('release/runtime.json'));
     if ([createMockReasoning().manifest, createLocalHTML().manifest, createLocalImages().manifest, reasoningManifest, imageManifest].some(manifest => manifest.version !== runtime.version || manifest.apiVersion !== '^1.0.0')) throw new Error('Public plugin version mapping drift');
     const storage = new SQLiteStorage(':memory:');
@@ -243,7 +257,6 @@ test('module packer refuses same-package imports of every excluded source file',
     ['plugins/elevenlabs', 'components.js'],
     ['packages/server', 'local-voice.js'],
     ['packages/server', 'composed-voice.js'],
-    ['packages/core', 'voice-components.js'],
   ]) {
     const pkg = { path: `${folder}/package.json` };
     const files = new Map([
