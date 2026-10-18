@@ -57,7 +57,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
         if (!control?.recover) throw new PluginError('unavailable');
         const revision = holdRevision;
         const recoveryOptions = { signal: options.signal, deadlineAt: now() + 5000 };
-        const replacement = await voiceOperation(recoveryOptions, opts => control.recover({ callId: grant.callId, explicit }, opts));
+        const replacement = await voiceOperation(recoveryOptions, opts => control.recover({ callId: grant.callId, providerSessionId: grant.providerSessionId, epoch: grant.opaque.epoch, explicit }, opts));
         assertVoiceMediaGrant(replacement, now());
         const next = await connectRelay(replacement, recoveryOptions);
         if (stopped || revision !== holdRevision) { await next.disconnect(); throw new PluginError('cancelled'); }
