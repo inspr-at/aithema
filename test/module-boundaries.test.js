@@ -191,7 +191,7 @@ test('parameter defaults and assignments pin every destructured environment key'
   }
 });
 
-test('supported component exports open while source-only composition proof edges stay exact', async () => {
+test('supported component and coordinator exports open while source-only proof edges stay exact', async () => {
   const components = await import('@inspr/aithema-core/voice-components');
   const core = await import('@inspr/aithema-core');
   for (const name of ['componentInvocation', 'assertSTTComponent', 'assertTTSComponent', 'voiceCompositionCapabilities', 'boundedEvents', 'audioQueue']) {
@@ -199,7 +199,9 @@ test('supported component exports open while source-only composition proof edges
     assert.equal(core[name], components[name]);
   }
   for (const specifier of ['@inspr/aithema-server/composed-voice']) {
-    await assert.rejects(import(specifier), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
+    const coordinator = await import(specifier);
+    assert.equal(typeof coordinator.createComposedVoiceCoordinator, 'function');
+    assert.equal(typeof coordinator.callDurationSeconds, 'function');
   }
   const dir = mkdtempSync(resolve(tmpdir(), 'aithema-proof-edges-'));
   const put = (path, source) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), source); };

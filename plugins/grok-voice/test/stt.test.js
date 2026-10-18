@@ -143,3 +143,32 @@ test('malformed socket is closed even when it lacks a send or events port', asyn
   await assert.rejects(stt.transcribe(request(), op.options), { code: 'invalid-output' });
   assert.equal(closes, 1); assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
 });
+
+test(`duplicate transcript.done raises before publishing final (${STREAM_DOC})`, async () => {
+  const h = harness({ mode: 'duplicate-terminal' }), op = operation();
+  await assert.rejects(component(h).transcribe(request(), op.options), { code: 'invalid-output' });
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
+});
+
+
+test('transcript.done publishes one final within the existing deadline when provider never closes', async () => {
+  const h = harness({ mode: 'terminal-open' }), op = operation();
+  const values = await collect(component(h).stream({ ...request(),
+    audio: (async function* () { yield request().audio; })() }, op.options));
+  assert.deepEqual(values, expectedTranscripts);
+  assert.ok(Date.now() < op.options.deadlineAt, 'final and client cleanup complete before the invocation deadline');
+  assert.equal(h.fixtures.activeCount(), 0);
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'completed');
+});
+
+
+test('already received duplicate transcript.done fails before any final even when provider stays open', async () => {
+  const h = harness({ mode: 'duplicate-terminal-open' }), op = operation(), values = [];
+  await assert.rejects(async () => {
+    for await (const value of component(h).stream({ ...request(),
+      audio: (async function* () { yield request().audio; })() }, op.options)) values.push(value);
+  }, { code: 'invalid-output' });
+  assert.equal(values.filter(value => value.final).length, 0);
+  assert.equal(h.fixtures.activeCount(), 0);
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
+});

@@ -148,3 +148,14 @@ test('grok streaming STT offline conformance', async t => {
   assert.deepEqual(result.failures, [], JSON.stringify(result));
   assert.equal(result.ok, true);
 });
+
+// AIT-345: additive Grok TTS kit; public-doc synthetic transports only.
+test('grok TTS offline conformance', async t => {
+  const { createGrokTTS } = await import('../plugins/grok-voice/src/tts.js');
+  const { config } = await import('../plugins/grok-voice/test/fixtures.js');
+  const { ttsHarness, ttsText } = await import('../plugins/grok-voice/test/tts-fixtures.js');
+  const h = ttsHarness(), component = createGrokTTS({ config, enabled: true, resolveSecret: () => 'synthetic-only', connect: h.connect });
+  const result = await ttsConformance(component, { text: ttsText, voice: 'eve' }, h.fixtures);
+  t.diagnostic(JSON.stringify({ provider: 'grok', role: 'tts', ...result }));
+  assert.deepEqual(result.failures, [], JSON.stringify(result)); assert.equal(result.ok, true);
+});

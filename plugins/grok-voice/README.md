@@ -1,11 +1,12 @@
-# Grok Voice (xAI) — AIT-344 component foundation
+# Grok Voice (xAI) — component package (AIT-344 / AIT-345)
 
 **not yet qualified in live use**
 
 Architecture: xAI STT → Aithema's separately admitted reasoning → xAI TTS.
-Aithema owns answers. This package implements STT and private configuration
-validation only; no native speech-to-speech agent, composition wiring, Settings,
-release inclusion or supported package exports are supplied here.
+Aithema owns answers. This workspace package provides STT, streaming TTS,
+private configuration validation and supported component/preflight exports.
+Relay, browser start and full-chain admission arrive in package 3. Publication
+is deferred to package 8 (`private: true`); no release module is added here.
 
 ## Public evidence
 
@@ -17,17 +18,17 @@ API calls, credentials, real recordings or agent live runs were used.
 | --- | --- |
 | STT endpoints | [STT guide](https://docs.x.ai/developers/model-capabilities/audio/speech-to-text): REST `POST https://api.x.ai/v1/stt`, WebSocket `wss://api.x.ai/v1/stt`; model `grok-voice-transcribe-2.0`. REST multipart options precede `file`. |
 | STT formats | Same guide: containers WAV, MP3, OGG, Opus, FLAC, AAC, MP4, M4A, MKV; raw PCM signed 16-bit LE, μ-law, A-law. Raw rates: 8000/16000/22050/24000/44100/48000 Hz. Streaming also supports raw Opus packets. This adapter admits only mono PCM16 at 16000 Hz and DE/EN. |
-| STT finality | [Streaming contract](https://docs.x.ai/developers/model-capabilities/audio/speech-to-text#streaming): wait for `transcript.created`, send binary audio, end with `audio.done`. Partial events can revise text or finalize chunks/stitched utterances. Only `transcript.done` after Aithema's input ends is its single final; closure alone fails. Terminal `duration` supplies seconds. |
-| TTS endpoints and formats | [TTS guide](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech): REST `POST https://api.x.ai/v1/tts`, WebSocket `wss://api.x.ai/v1/tts`; codecs MP3/WAV/PCM/μ-law/A-law, rates 8000/16000/22050/24000/44100/48000 Hz. Streaming ends with `audio.done` and a trace ID; this is not a billed-cost or playback receipt. Configuration reserves mono PCM16 at 24000 Hz, voices `ara`/`eve`/`rex`, speed 0.7–1.5, DE/EN. TTS implementation is package 2. |
+| STT finality | [Streaming contract](https://docs.x.ai/developers/model-capabilities/audio/speech-to-text#streaming): wait for `transcript.created`, send binary audio, end with `audio.done`. Partial events can revise text or finalize chunks/stitched utterances. Only `transcript.done` after Aithema's input ends is its single final; closure alone fails. The adapter checks the already received event batch for a duplicate terminal, then closes from our side without waiting for another frame or provider closure. Terminal `duration` supplies seconds. |
+| TTS endpoints and formats | [TTS guide](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech): REST `POST https://api.x.ai/v1/tts`, WebSocket `wss://api.x.ai/v1/tts`; codecs MP3/WAV/PCM/μ-law/A-law, rates 8000/16000/22050/24000/44100/48000 Hz. Streaming ends with `audio.done` and a trace ID; this is not a billed-cost or playback receipt. Configuration reserves mono PCM16 at 24000 Hz, voices `ara`/`eve`/`rex`, speed 0.7–1.5, DE/EN. The adapter explicitly requests `codec=pcm`, `sample_rate=24000`; no MP3 default is inherited. |
 | Prices | [Pricing](https://docs.x.ai/developers/pricing): REST STT **$0.10/hour**, streaming STT **$0.20/hour**, TTS **$15/1M characters**. Whole USD micro-dollar estimates round up once per child invocation. STT uses provider duration, never inferred input length as completed usage. No billed-cost receipt is documented here. |
-| Contracting entity | [Enterprise terms](https://x.ai/legal/terms-of-service-enterprise) name **SpaceXAI LLC**, styled SpaceXSI. [Corporate terms](https://x.ai/legal/terms-of-service) describe Nevada incorporation and Austin, Texas principal place of business. Recipient seat: **US**; verify the actual private account contract before activation. |
+| Contracting entity | [Enterprise terms](https://x.ai/legal/terms-of-service-enterprise) state **SpaceXAI LLC (“SpaceXSI”)** in the opening paragraph (published wording verified 2026-10-18). [Corporate terms](https://x.ai/legal/terms-of-service) describe Nevada incorporation and Austin, Texas principal place of business. Recipient seat: **US**; verify the actual private account contract before activation. |
 | Processing geography | [Regions](https://docs.x.ai/developers/advanced-api-usage/regions): global processing has no region guarantee; voice is outside the US regional endpoint's support. International processing; neither EU-only nor US-only is claimed. |
 | Retention and training | [Security/ZDR FAQ](https://docs.x.ai/developers/faq/security): default encrypted API auditing retention is 30 days, no training without explicit permission. ZDR is team-wide; voice history is not persisted under ZDR. Public policy does not prove that a particular team has ZDR. |
 | DPA and transfers | [DPA §§2.1, 8](https://x.ai/legal/data-processing-addendum): personal data must use ZDR-enabled APIs; international transfers can include the US and other countries, with applicable SCC/UK provisions. Owner-approved private references must establish DPA acceptance, ZDR, retention and transfer conditions before real speech. |
 
 ## Private configuration contract
 
-`validateGrokConfiguration(raw)` is pure and returns an immutable snapshot. Both
+`validateGrokConfiguration(raw)` is pure and returns an immutable snapshot. All component
 factories call it before accepting any ports and revalidate evidence expiry
 before resolving a secret. Invalid configuration throws a generic `TypeError`
 without echoing supplied values. It does not dereference evidence, provide legal
@@ -117,7 +118,71 @@ cancellation/deadline, iterator return and fresh retries). The kit currently
 requires dispatch on oversized input, so REST's stricter complete-file preflight
 is tested directly without altering any shared-kit assertions.
 
-Package 2 should reuse this immutable validator, evidence/qualification metadata,
-PCM formats and child-claim accounting helpers when adding TTS and supported
-package exports. Preserve `heardPrefix: unavailable` until independently
-justified playback evidence exists.
+## TTS and supported exports (AIT-345)
+
+`createGrokTTS` uses the same immutable validator and separately consumed child
+claim as STT. Each `speak` opens one injected socket, sends the exact text in a
+`text.delta`, then `text.done`. Retries and fragments need new host admissions;
+there is no internal retry. Voice is the configured `ara`/`eve`/`rex`, speed is
+configured within 0.7–1.5, and language must belong to the configured DE/EN set.
+Malformed Unicode is rejected. The text bound is `maxTranscriptCharacters`
+(UTF-16 code units); accounting counts Unicode code points, including spaces,
+speech tags, multi-byte letters and every constituent of an emoji sequence.
+The configured micro-dollar tariff is rounded up once per invocation.
+
+The eager reader drains independently of playback into a byte-bounded queue.
+Wire messages are bounded by the shared TTS wire ceiling; strict canonical
+base64 decoding admits only nonempty, even-length PCM16. Provider chunks are
+at most 1 MiB, generated audio at most 16 MB per fragment, events at most
+`maxEvents`, and yielded playback frames at most 64,000 bytes. All reads,
+sends, opens and secret resolution obey cancellation/deadlines; cleanup has
+a separate one-second lease and late-open sockets are closed. A slow playback
+consumer cannot leave an open provider socket unread. Iterator abandonment
+cancels unfinished generation and retains its reservation.
+
+`audio.done` requires nonempty audio and a bounded trace identifier. It ends the
+utterance without waiting for WebSocket closure (xAI keeps TTS sessions open).
+Its trace is completion/debug evidence, **not a cost receipt**. Completed usage
+remains `estimated: true`; errors, interruption (`audio.clear`), missing terminal,
+cancellation and timeout retain at least the child reservation as `uncertain`.
+The component never exposes a playback cursor: `heardPrefix: unavailable`.
+
+| Export | Purpose |
+| --- | --- |
+| `@inspr/aithema-plugin-grok-voice` and `/server` | Component factories plus `createGrokComponents`, a guarded STT/TTS pair with offline `preflight` |
+| `/components` | `createGrokSTT`, `createGrokStreamingSTT`, `createGrokBatchSTT`, `createGrokTTS`, validator, PCM constants and manifest |
+| `/client` | Browser-safe manifest only; no media start or credential path |
+| `/manifest` | Public STT/TTS metadata; empty, closed public config schema because private account configuration belongs in the host binding |
+| `@inspr/aithema-server/composed-voice` | Reusable coordinator and `callDurationSeconds`, with a core-only helper closure and bounded mono PCM playback |
+
+The coordinator implementation lives in `voice-coordinator.js`; the old source
+path forwards to it. Existing prototype release guards remain intact. Grok
+imports use public core subpaths. Neither the coordinator nor the package imports
+prototype component configuration, and server never depends on the Grok plugin.
+Existing core `/voice-components` supplies `componentInvocation`, `boundedEvents`,
+`audioQueue`, assertions and AIT-328 `preflightVoiceComposition`.
+
+Await `createGrokComponents(...).preflight` before admitting any claims. Guarded
+methods also await it before entering a component. It binds negotiation to actual
+16 kHz PCM16 capture and 24 kHz PCM16 playback, checks languages/voice/capability
+ceilings, and propagates `composition-*` errors before secrets or claims. This is
+technical compatibility, not full-chain consent, account, reasoning or budget
+admission. The existing reasoning-binding rule is unchanged.
+
+### TTS offline fixtures
+
+Every wire fixture is synthetic and cites the public contract in
+`test/tts-fixtures.js`; no provider API calls or keys are used.
+
+| Fixture group | Documentation |
+| --- | --- |
+| Exact `text.delta`/`text.done`, explicit PCM connection, `audio.delta` and `audio.done` with trace; missing trace/final | [TTS streaming contract](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech#streaming-tts-websocket) |
+| Malformed JSON/base64, noncanonical base64, odd PCM, oversized message/total, stalled reads, late open, eager drain and cancellation | [TTS streaming contract](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech#streaming-tts-websocket), intentionally invalid/stalled synthetic variants bounded by core kit limits |
+| Interrupted generation (`audio.clear`), uncertainty with reservation retained | [TTS interruption](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech#interruption), plus AIT-317 accounting policy |
+| Unicode code points (`Grüße 世界 😀 👩‍🚀`), fresh fragment/retry claims, estimated cost | [Pricing](https://docs.x.ai/developers/pricing), exact characters-sent/code-point policy from AIT-317 |
+| Grok STT+TTS successful preflight, incompatible capture/playback and zero claims/transports on failure | [STT formats](https://docs.x.ai/developers/model-capabilities/audio/speech-to-text), [TTS formats](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech), AIT-328 composition contract |
+
+`test/speech-provider-conformance.test.js` adds `ttsConformance` for the real
+Grok factory and synthetic ports. Existing provider assertions remain unchanged.
+Package 3 must consume the supported coordinator and preflight, add the relay and
+browser-start path, and bind fresh full-chain admission before parent/child claims.

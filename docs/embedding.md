@@ -1540,12 +1540,20 @@ Round 5 integration keeps consent coverage on the existing core root export:
 `plugins/elevenlabs/src/components.js` and
 `plugins/composed-voice/src/configuration.js` import `consentCoverage` directly from
 `@inspr/aithema-core`, whose index already re-exports it; no `./consent` subpath or new public symbol is added.
-The composed-voice adapter, server composed coordinator, Voxtral adapters and
-ElevenLabs `components.js` remain source-only prototypes, omitted from module
-tarballs. The installed ElevenLabs live-voice provider is unchanged. The generic
-component contract and helpers below are supported and included in core tarballs.
-`@inspr/aithema-server/composed-voice` remains unexported; a third-party pipeline
-implements the public live-voice/session ports using its own coordinator.
+The composed-voice adapter, Voxtral adapters and ElevenLabs `components.js`
+remain source-only prototypes, omitted from module tarballs. The installed
+ElevenLabs live-voice provider is unchanged. The generic component contract and
+helpers below are supported and included in core tarballs.
+
+`@inspr/aithema-server/composed-voice` is a supported export included in the next
+server release. It exports `createComposedVoiceCoordinator`, a building block for
+composed pipelines that coordinates separately admitted STT, reasoning and TTS
+with trusted server ports for authorization, utterance commits and relay playback.
+`callDurationSeconds({ maxDurationSeconds })` validates the call-duration ceiling
+in seconds (default 900, integer range 1–86400); hosts explicitly supply their own
+ceiling, such as 3600 for a one-hour call. The coordinator caps the spend deadline
+by this ceiling. This export does not release a composed or Grok pipeline: both
+are **not yet qualified in live use**. Grok publication is deferred to package 8.
 
 ### Supported STT/TTS component API (AIT-316)
 
@@ -1562,7 +1570,7 @@ beside `plugin-contract.d.ts` in `voice-components.d.ts` and resolve through the
 `@inspr/aithema-core/voice-components` subpath. `STTComponent`, `TTSComponent`,
 `ComponentOperationOptions`, `ComponentTerminal` and `ComponentUsage` remain
 available from the types-only `@inspr/aithema-core/plugin-contract` subpath too.
-No additional server export is needed.
+The server coordinator building block is documented above; these component contracts remain in core.
 
 | Port | Signature and semantics |
 | --- | --- |

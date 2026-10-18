@@ -62,7 +62,7 @@ test('AIT-160: configuration selects either vendor and keeps production factory 
   const selected = configureComposedComponents(options);
   assert.equal(selected.stt.model, 'voxtral-mini-transcribe-realtime-2602'); assert.equal(selected.outputFormat, 'pcm_f32le');
   assert.equal((await createComposedVoice().health()).available, false);
-  assert.equal(callDurationSeconds(), 900); assert.equal(callDurationSeconds({ host: 'start2' }), 3600);
+  assert.equal(callDurationSeconds(), 900); assert.equal(callDurationSeconds({ maxDurationSeconds: 3600 }), 3600);
   assert.throws(() => configureComposedComponents({ ...args, config: { stt: 'grok', tts: 'elevenlabs' } }), TypeError);
 });
 
@@ -103,5 +103,16 @@ test('AIT-328: all registered and mixed compositions preflight offline with unch
     assert.equal(ports.outputFormat, result.playback.encoding);
     assert.deepEqual(result.capabilities.languages, ['de', 'en']);
     assert.equal(result.voice, fixtureConfig.voiceId);
+  }
+});
+
+
+test('AIT-345: source-only start2 compatibility passes an explicit 3600-second ceiling', () => {
+  const args = configured();
+  for (const [raw, expected] of [[{ host: 'start2' }, 3600], [{ host: 'start2', maxDurationSeconds: 120 }, 120]]) {
+    const plugin = createComposedVoice({ ...args, config: { ...args.config, ...raw } });
+    assert.equal(plugin.ports.serverAdapter.config.maxDurationSeconds, expected);
+    assert.equal(Object.hasOwn(plugin.ports.serverAdapter.config, 'host'), false);
+    assert.equal(plugin.ports.serverAdapter.matchesConfig({ ...args.config, ...raw }), true);
   }
 });
