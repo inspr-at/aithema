@@ -7,7 +7,7 @@ function fixture(css = settingsStyles) {
   const style = { textContent: css }, measured = [];
   const component = { shadowRoot: {
     querySelector(selector) { assert.equal(selector, 'style'); return style; },
-    querySelectorAll(selector) {
+    querySelectorAll() {
       measured.push(style.textContent);
       return [{ getBoundingClientRect: () => ({ x: 0, y: 0, width: 390, height: 40 }) }];
     },
@@ -26,11 +26,13 @@ test('AIT-359: phone base comparison removes exactly the wide footer block and r
   assert.deepEqual(result.current, result.base);
 });
 
-for (const css of [
-  settingsStyles.replaceAll('AIT-327: wide footer', 'renamed: wide footer'),
-  settingsStyles.replace('/* AIT-327: wide footer end */', '/* renamed end */'),
-  settingsStyles + settingsStyles,
-]) test('AIT-359: phone base comparison rejects a missing, renamed or duplicate block', () => {
+for (const [label, css] of [
+  ['renamed comments', settingsStyles.replaceAll('AIT-327: wide footer', 'renamed: wide footer')],
+  ['missing end', settingsStyles.replace('/* AIT-327: wide footer end */', '/* renamed end */')],
+  ['duplicate block', settingsStyles + settingsStyles],
+  ['duplicate start', settingsStyles.replace('/* AIT-327: wide footer start */', '/* AIT-327: wide footer start */'.repeat(2))],
+  ['duplicate end', settingsStyles.replace('/* AIT-327: wide footer end */', '/* AIT-327: wide footer end */'.repeat(2))],
+]) test(`AIT-359: phone base comparison rejects ${label}`, () => {
   const { component, style, measured } = fixture(css);
   assert.throws(() => comparePhoneConsentBase(component), /Expected exactly one AIT-327 wide footer block/u);
   assert.equal(style.textContent, css, 'invalid baseline leaves styles untouched');

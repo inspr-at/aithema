@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { PluginError } from '@inspr/aithema-core/invocation';
 import { beginVoiceInvocation, voiceOperation } from '@inspr/aithema-core/live-voice';
 import { createComposedVoiceCoordinator, callDurationSeconds } from '../voice-coordinator.js';
@@ -118,7 +119,8 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     } catch (error) { await close('start-failed', 'cancelled'); throw error; }
   }
   const serverAdapter = Object.freeze({ config, binding,
-    validateConfig, matchesConfig: raw => JSON.stringify(validateConfig(raw)) === JSON.stringify(config),
+    // Preserve JSON value semantics (including omitted undefined) without depending on object key order.
+    validateConfig, matchesConfig: raw => isDeepStrictEqual(JSON.parse(JSON.stringify(validateConfig(raw))), JSON.parse(JSON.stringify(config))),
     startSegment: start,
     stopSegment: (segment, options) => segment.close(options?.reason ?? 'closed', options?.outcome ?? 'completed'),
     async reconciliationEvidence({ call }) {
