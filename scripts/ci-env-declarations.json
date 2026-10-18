@@ -20,6 +20,13 @@
     ],
     "reason": "Linux headless Chrome sandbox selection"
   },
+  "test/browser/compact-footer-check.js": {
+    "reads": [
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH"
+    ],
+    "reason": "AIT-309 evidence records the PR head from the GitHub event rather than the synthetic merge SHA"
+  },
   "test/browser/confirmation-design.test.js": {
     "reads": [
       "GITHUB_SHA"
