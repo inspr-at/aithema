@@ -75,3 +75,30 @@ test('invalid configuration, request or refused consume performs no secret/trans
   await tts.health(); await tts.negotiateAudioFormat([TTS_FORMAT], {});
   assert.equal(secrets, 0); assert.equal(h.fixtures.requestCount(), 0);
 });
+
+test(`iterator abandonment closes stalled generation and retains reservation (${TTS_DOC})`, async () => {
+  const h = ttsHarness({ mode: 'stalled-after-audio' }), op = operation();
+  const source = component(h).speak(request, op.options);
+  assert.equal((await source.next()).value.byteLength, 4); await source.return();
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
+  assert.equal(op.reports[0].chargedMicro, 1000000); assert.equal(h.fixtures.activeCount(), 0);
+});
+test(`event ceiling and malformed transport close once (${TTS_DOC})`, async () => {
+  const h = ttsHarness(), op = operation();
+  await assert.rejects(collect(component(h, { config: { ...config, maxEvents: 1 } }).speak(request, op.options)), { code: 'limit' });
+  assert.equal(op.reports[0].outcome, 'uncertain'); assert.equal(h.fixtures.activeCount(), 0);
+  let closes = 0; const malformed = component(h, { connect: async () => ({ close() { closes++; } }) });
+  await assert.rejects(collect(malformed.speak(request, operation().options)), { code: 'invalid-output' });
+  assert.equal(closes, 1);
+});
+test('expired evidence, small ceiling and cancelled claim never resolve a secret', async () => {
+  const h = ttsHarness(); let secrets = 0;
+  const tts = component(h, { resolveSecret() { secrets++; return 'synthetic-only'; } });
+  const abort = new AbortController(); abort.abort();
+  for (const options of [operation({ signal: abort.signal }).options, operation({ deadlineAt: Date.now() - 1 }).options,
+    { ...operation().options, attempt: { ...operation().options.attempt, maxMicro: 1 } }]) {
+    await assert.rejects(collect(tts.speak(request, options)));
+  }
+  assert.throws(() => component(h, { config: { ...config, accountEvidence: { ...config.accountEvidence, expiresAt: '2020-01-01' } } }));
+  assert.equal(secrets, 0); assert.equal(h.fixtures.requestCount(), 0);
+});

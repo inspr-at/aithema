@@ -27,7 +27,7 @@ export function ttsHarness({ mode: initial = 'completed', onSend, onRead } = {})
     return { close, send(value) { sent.push(JSON.parse(value)); return onSend?.(JSON.parse(value)); },
       events: { [Symbol.asyncIterator]() { return this; }, next() {
         reads++; onRead?.(reads);
-        if (mode.startsWith('active-') || mode === 'stalled-after-audio' && index > 0) return stalled();
+        if (mode.startsWith('active-') || ['stalled-after-audio', 'return'].includes(mode) && index > 0) return stalled();
         if (index >= values.length) return Promise.resolve({ done: true });
         const value = values[index++]; return Promise.resolve({ value: typeof value === 'string' ? value : JSON.stringify(value), done: false });
       }, async return() { return { done: true }; } } };
