@@ -210,6 +210,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 /* The total keeps its leading separator and grows naturally above the envelope. */
 .host-credits__total { white-space:pre; text-align:end; font-variant-numeric:tabular-nums; }
 .host-credits__total::before { content:attr(data-credit-reserve); display:block; height:0; visibility:hidden; }
+/* An empty loading total keeps the same line box and baseline as its receipt. */
+.host-credits__total:empty::after { content:"\\200b"; }
 .host-credits__measure-total { font-variant-numeric:tabular-nums; }
 .host-credits__used-up { visibility:hidden; font-weight:600; white-space:nowrap; color:var(--aithema-ink); }
 .host-credits__used-up-short { display:none; }

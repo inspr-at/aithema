@@ -25,6 +25,8 @@ const measure = page => shadow(page, c => {
     legalLabels: [...c.querySelectorAll('#demo-legal a')].map(link => link.textContent),
     value: amount.textContent, reserved: amount.dataset.creditReserve,
     total: total.textContent, totalReserved: total.dataset.creditReserve,
+    accessibleName: root.querySelector('.host-credits__button').getAttribute('aria-label'),
+    trackVisibility: getComputedStyle(root.querySelector('.host-credits__track')).visibility,
     totalNumeric: getComputedStyle(total).fontVariantNumeric, totalAlign: getComputedStyle(total).textAlign,
     numeric: getComputedStyle(amount).fontVariantNumeric, align: getComputedStyle(amount.firstElementChild).textAlign,
     gap: getComputedStyle(root.querySelector('.display-foot__row')).columnGap,
@@ -114,7 +116,10 @@ export async function creditsFirstReceiptCheck(t) {
     const before = await measure(page), label = `${width}/${locale}/${theme}/${withLegal ? 'legal' : 'no-legal'}/${limitMicro / 10_000}`;
     assert.equal(before.legalPresent, withLegal, `${label}: host legal configuration applied`);
     assert.equal(before.value, '…', `${label}: receipt held pending`);
-    assert.equal(before.total, '…', `${label}: total receipt held pending`);
+    assert.equal(before.total, '', `${label}: loading total stays empty in its reserved slot`);
+    const loadingName = locale === 'de' ? 'Credits werden geladen' : 'Loading credits';
+    assert.equal(before.accessibleName, loadingName, `${label}: loading accessible name`);
+    assert.equal(before.trackVisibility, 'hidden', `${label}: no track before the receipt`);
     assert.equal(before.rects['.host-credits__total'].width > 0, width >= (withLegal ? 1100 : 700), `${label}: total visible at the host breakpoint`);
     if (width < 600) assert.deepEqual(before.legalLabels, ['AGPL-3.0', locale === 'de' ? 'Quellcode' : 'Source'], `${label}: real demo legal labels are present`);
     if (withLegal && locale === 'de' && theme === 'light' && [320, 390, 1440].includes(width) && limitMicro === 24_000_000) await capture(width, 'before');
@@ -125,6 +130,7 @@ export async function creditsFirstReceiptCheck(t) {
     await until(page, ({ locale, limitMicro }) => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent === new Intl.NumberFormat(locale).format(limitMicro / 10_000), { locale, limitMicro });
     await settle(page);
     const after = await measure(page);
+    assert.notEqual(after.accessibleName, loadingName, `${label}: receipt replaces the loading accessible name`);
     if (withLegal && locale === 'de' && theme === 'light' && [320, 390, 1440].includes(width) && limitMicro === 24_000_000) await capture(width, 'after');
     const movementBySelector = Object.fromEntries(Object.keys(before.rects).map(s => [s,
       Math.max(...Object.keys(before.rects[s]).map(k => Math.abs(after.rects[s][k] - before.rects[s][k])))]));
