@@ -103,10 +103,10 @@ At five or more samples the planner uses the measured sum directly. Packing rema
 deterministic LPT across **seven** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
-refinement still exceeds 380 s, a deterministic whole-file placement search
+refinement still exceeds 400 s, a deterministic whole-file placement search
 tries at most 100,000 nodes to meet that target. On failure it retains the
 original plan for the guard's diagnostics. `npm run test:browser-shards` checks
-complete, exactly-once coverage, a separate **380 s headroom target**, and the
+complete, exactly-once coverage, a separate **400 s projected headroom target**, and the
 unchanged **420 s per-bin ceiling**; this leaves
 headroom for installation, Chrome startup, process cleanup and artifact upload
 within the unchanged ten-minute job timeout. Required check names stay unchanged.
@@ -115,6 +115,17 @@ When the headroom guard trips, the shard command and unit test fail with each
 overloaded shard's total, file paths, and individual weights. Review the measured
 workloads and repack; retain measured floors and never lower weights without
 evidence. This planning target does not change the 420 s hard ceiling.
+
+LEAD's AIT-313 decision B (2026-10-18) raises the projected target from 380 s
+because the first queued PR after AIT-312, AIT-310 (#280), could not fit it.
+Merge-group run [39116724441](https://github.com/inspr-at/aithema/actions/runs/39116724441)
+projected 381.944 s and 381.261 s on shards 1/7 and 3/7. With AIT-310's measured
+floor, total projected work is 2655.3 s across 33 files: the seven-shard lower
+bound is 379.33 s, and whole-file packing cannot meet 380 s. The 400 s target
+corresponds to about 320 s real work with the 1.25 projection margin; AIT-312
+measured a 308.2 s shard maximum against 377.8 s projected. Seven shards and the
+420 s ceiling stay unchanged. **If the 400 s guard trips again before the floors
+are re-derived in AIT-314, add an eighth shard; do not raise the target again.**
 
 Each CI shard writes `browser-timings-N-of-7` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`

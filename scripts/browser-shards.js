@@ -136,7 +136,7 @@ browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
-export const browserShardHeadroomTarget = 380;
+export const browserShardHeadroomTarget = 400;
 
 export function packBrowserTests(files, weights = browserTestWeights, shardCount = browserShardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Invalid browser shard count');

@@ -189,18 +189,18 @@ test('weights cannot replace observations with an estimate or a manually lowered
   }
 });
 
-test('current measured packing keeps every shard at or below the 380s headroom target', () => {
+test('current measured packing keeps every shard at or below the 400s headroom target', () => {
   assertBrowserShardHeadroom();
 });
 
-test('headroom guard accepts 380s and reports overloaded totals and files below the hard ceiling', () => {
-  const weights = { 'a.test.js': 200, 'b.test.js': 180, 'c.test.js': 0.001 };
-  assert.doesNotThrow(() => assertBrowserShardHeadroom({ shards: [['a.test.js', 'b.test.js']], totals: [380] }, weights));
-  const packing = { shards: [['a.test.js', 'b.test.js', 'c.test.js']], totals: [380.001] };
+test('headroom guard accepts 400s and reports overloaded totals and files below the hard ceiling', () => {
+  const weights = { 'a.test.js': 200, 'b.test.js': 200, 'c.test.js': 0.001 };
+  assert.doesNotThrow(() => assertBrowserShardHeadroom({ shards: [['a.test.js', 'b.test.js']], totals: [400] }, weights));
+  const packing = { shards: [['a.test.js', 'b.test.js', 'c.test.js']], totals: [400.001] };
   assert.doesNotThrow(() => assertBrowserShardBudget(packing.totals));
   assert.throws(() => assertBrowserShardHeadroom(packing, weights), error => {
-    assert.match(error.message, /target exceeded \(380s; hard ceiling remains 420s\)/u);
-    assert.match(error.message, /Shard 1\/1: 380\.001s/u);
+    assert.match(error.message, /target exceeded \(400s; hard ceiling remains 420s\)/u);
+    assert.match(error.message, /Shard 1\/1: 400\.001s/u);
     for (const [file, seconds] of Object.entries(weights)) assert.ok(error.message.includes(`${file} (${seconds.toFixed(3)}s)`));
     assert.match(error.message, /do not lower weights without evidence/u);
     return true;
