@@ -6,7 +6,7 @@ export const format = { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 
 export const transcript = [{ text: 'wrong', final: false }, { text: 'A😀 B', final: false }, { text: 'A😀 B', final: true }];
 export const request = role => role === 'stt' ? { audio: new Uint8Array(4), language: 'en' } : { text: 'A😀 B', voice: 'fixture', language: 'en' };
 
-export function speechFixture(role, fault) {
+export function speechFixture(role, fault, { consumeSource = 'manual' } = {}) {
   let mode, requests = 0, active = 0, observed = 0, cachedOptions, heard = '', delivered = [], playbackRequest;
   const playback = {
     reset(input) { heard = ''; delivered = []; playbackRequest = input; },
@@ -38,11 +38,20 @@ export function speechFixture(role, fault) {
     try {
       invocation.dispatch(); if (fault !== 'dispatch') requests++; active++;
       if (operation === 'stream') {
+        if (consumeSource === 'for-await') {
+          let inputBytes = 0;
+          for await (const audio of input.audio) {
+            inputBytes += audio.byteLength;
+            if (audio.byteLength > 8 || inputBytes > 16) throw new PluginError('limit');
+          }
+        } else {
         audioIterator = input.audio[Symbol.asyncIterator]();
         let inputBytes = 0;
         for (;;) { const item = await audioIterator.next(); if (item.done) break;
           inputBytes += item.value.byteLength;
           if (fault !== 'input-bounds' && (item.value.byteLength > 8 || inputBytes > 16)) throw new PluginError('limit');
+          if (fault === 'source-return') break;
+        }
         }
       }
       if (operation === 'transcribe' && fault !== 'input-bounds' && input.audio.byteLength > 8) throw new PluginError('limit');
@@ -65,7 +74,7 @@ export function speechFixture(role, fault) {
       }
       invocation.usage(1, 1, 'fixture', false); completed = true;
     } finally {
-      await audioIterator?.return();
+      if (fault !== 'source-return') await audioIterator?.return();
       if (fault !== 'cleanup') active = 0;
       await invocation.finish(completed);
     }

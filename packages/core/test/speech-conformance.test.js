@@ -14,7 +14,7 @@ for (const [role, kit] of [['stt', sttConformance], ['tts', ttsConformance]]) {
     ['settlement', 'once-only terminal'], ['duplicate', 'once-only terminal'], ['identity', 'attempt identity'],
     ['uncertain', 'uncertain >= max(maxMicro, observed)'], ['observed', 'uncertain >= max(maxMicro, observed)'],
     ['usage', 'terminal accounting: usage'], ['cleanup', 'cancellation cleanup'], ['bounds', 'stream bounds'],
-    ...(role === 'stt' ? [['input-bounds', 'stream bounds'], ['finality', 'transcript finality'], ['after-final', 'event after final'], ['replacement', 'replacement hypotheses']]
+    ...(role === 'stt' ? [['source-return', 'cancellation cleanup: audio source return'], ['input-bounds', 'stream bounds'], ['finality', 'transcript finality'], ['after-final', 'event after final'], ['replacement', 'replacement hypotheses']]
       : [['total-bounds', 'stream bounds'], ['alignment', 'aligned offsets'], ['alignment-backwards', 'aligned offsets'], ['alignment-range', 'aligned offsets'], ['alignment-fraction', 'aligned offsets'], ['heard', 'playback-confirmed heard prefixes']]),
   ]) test(`${role} broken fake names ${rule} (${fault})`, async () => {
     const { component, fixtures } = speechFixture(role, fault);
@@ -27,6 +27,11 @@ for (const [role, kit] of [['stt', sttConformance], ['tts', ttsConformance]]) {
     assert.ok((await kit(component, request(role))).failures.includes(`${role}: offline fixtures required`));
   });
 }
+
+test('stt fully-consuming for await provider passes stream rules without source return', async () => {
+  const { component, fixtures } = speechFixture('stt', undefined, { consumeSource: 'for-await' });
+  assert.deepEqual(await sttConformance(component, request('stt'), fixtures), { ok: true, failures: [] });
+});
 
 test('format negotiation allows providers with broader sample-rate support', async () => {
   const { component, fixtures } = speechFixture('stt');
