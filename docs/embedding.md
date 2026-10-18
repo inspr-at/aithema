@@ -206,33 +206,39 @@ access policy and routing must preserve those authorization and CSRF checks.
 
 ### Visitor-tier erasure is a host duty (AIT-322)
 
-On session erase or visitor data deletion, delete the visitor's
-`host_visitor_tiers` row and **all** `host_tier_holds` rows with the same
-`owner_hash` (SHA-256 of the owner token, equal to `session.ownerHash`). This
-includes released holds, `attempt_id` keys and request/binding fingerprints;
-none is an anonymous audit count. The reference deletes both sets in one
-idempotent host transaction, across that owner's conversations, without
-changing other owners' rows or the module's accounting.
+Session erasure and visitor deletion have different scopes. The reference keys
+visitor tiers by `owner_hash` (SHA-256 of the owner token, equal to
+`session.ownerHash`) and holds by the session ID in each admission fingerprint.
+Both active and released holds contain `attempt_id` keys and request/binding
+fingerprints; these are visitor data, not anonymous audit counts.
 
-Use `host.erased({ sessionId, ownerToken })` for the public erase route and
-`handlers.eraseSession`: privileged erasure may omit `ownerToken`, so the
-reference reads the hash from `storage.get(sessionId)` after tombstoning. Use
-`host.eraseVisitorForOwnerHash(ownerHash)` for visitor deletion, including
-`handlers.eraseSession({ sessionId, visitor: true })`. Use
-`host.retired({ sessionId, ownerHash })` for full retention erasure and the
-retirement sweep that completes direct `storage.erase`. Run that sweep as
-specified in the [host retention contract](#host-retention-contract). Direct
-storage erasure does not invoke host hooks itself. `storage.expire` and
-`handlers.expire` only withdraw old turns/uploads; expiry alone is not a
-visitor-deletion trigger. Full retirement after expiry performs the cleanup.
+| Trigger | Host rows deleted | Host visitor data retained |
+| --- | --- | --- |
+| Public session erase or `handlers.eraseSession({ sessionId })` → `host.erased({ sessionId, ownerToken })` | Only that session's holds | Visitor tier and other sessions' holds |
+| Idle-session retirement, retirement after expiry, or sweep after direct `storage.erase` → `host.retired({ sessionId, ownerHash })` | Only that session's holds | Visitor tier and other sessions' holds, even when the last session retires |
+| Visitor deletion → `host.eraseVisitorForOwnerHash(ownerHash)`, including `handlers.eraseSession({ sessionId, visitor: true })` | Visitor tier and all that owner's holds, active or released, across conversations | No tier or holds for that visitor; other owners' rows remain |
+| `storage.expire` or `handlers.expire` alone | No tier or hold rows; only old turns/uploads are withdrawn | Tier and all holds until session erasure/retirement or visitor deletion |
+
+The session hooks use `sessionId` without needing an owner token, which may be
+omitted during privileged erasure. Deleting a sibling's active, unjournalled
+hold would reduce `reservedMicro` and admit work beyond the owner's limit.
+Visitor deletion removes the tier and all owner holds in one idempotent host
+transaction. Neither scope changes the module's accounting.
+
+The [host retention contract](#host-retention-contract) defines retirement per
+session and leaves visitor identity/accounts under the host's visitor-retention
+policy. It does not make retirement of the last session a visitor deletion.
+The reference therefore retains the tier until explicit visitor deletion.
+Direct storage erasure does not invoke host hooks itself; run the retirement
+sweep to finish that session's host cleanup.
 
 Keep global tier settings and the administrator settings-change audit, which
-contain no visitor keys or tier evidence. Only aggregated, non-identifying
-visitor audit counts may remain: never retain owner/session/attempt identifiers,
-tokens or fingerprints as aggregates. The module's permitted accounting totals
-and deferred settlement follow the retention contract below; host cleanup does
-not reset that ledger or confirm provider deletion. A new visitor token starts
-with the anonymous allowance and no prior tier or holds.
+contain no visitor keys or tier evidence. After visitor deletion, only aggregated,
+non-identifying visitor audit counts may remain: never retain owner/session/attempt
+identifiers, tokens or fingerprints as aggregates. The module's permitted
+accounting totals and deferred settlement follow the retention contract below;
+host cleanup does not reset that ledger or confirm provider deletion. A new
+visitor token starts with the anonymous allowance and no prior tier or holds.
 
 ### Current policy, owner admission and nextTier
 

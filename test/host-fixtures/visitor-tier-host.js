@@ -100,10 +100,15 @@ export function createVisitorTierHost({ path = ':memory:', operatorProvider, pub
       db.prepare('DELETE FROM host_visitor_tiers WHERE owner_hash=?').run(ownerHash);
     });
   }
+  function eraseSessionHolds({ sessionId }) {
+    // The admission fingerprint's first field is the session id. Session hooks
+    // preserve the visitor tier and every sibling's active or released holds.
+    db.prepare(`DELETE FROM host_tier_holds
+      WHERE CASE WHEN json_valid(fingerprint) THEN json_extract(fingerprint,'$[0]') END=?`).run(sessionId);
+  }
   const host = {
-    // Privileged eraseSession has no owner token; the tombstone retains its hash.
-    erased: ({ sessionId }) => eraseOwner(storage.get(sessionId).ownerHash),
-    retired: ({ ownerHash }) => eraseOwner(ownerHash),
+    erased: eraseSessionHolds,
+    retired: eraseSessionHolds,
     eraseVisitorForOwnerHash: eraseOwner,
     wallet: ownerToken => walletForHash(hash(ownerToken)),
     walletForSession: session => walletForHash(session.ownerHash), creditTiers, credits: { ownerGuard: true }, privacyDocumentConfigured };

@@ -241,7 +241,7 @@ test('AIT-322: zero-extra voice extensions preserve an over-limit reservation', 
   }
 });
 
-test('AIT-322: module erase and retirement triggers remove owner tier and all hold rows', async t => {
+test('AIT-322: module erase and retirement triggers respect session and visitor scopes', async t => {
   for (const trigger of ['http', 'operator-session', 'operator-visitor', 'storage-retirement', 'expiry-retirement']) {
     await t.test(trigger, async t => {
       const { host } = fixture(t), owner = 'erased-owner', other = 'other-owner';
@@ -271,8 +271,15 @@ test('AIT-322: module erase and retirement triggers remove owner tier and all ho
         const result = await host.handlers.retire({ before: trigger === 'storage-retirement' ? 0 : Date.now() + 1 });
         assert.equal(result.failed, 0); assert.ok(result.retired >= 1);
       }
-      assert.deepEqual(rows('host_visitor_tiers', session.ownerHash), []);
-      assert.deepEqual(rows('host_tier_holds', session.ownerHash), []);
+      if (trigger === 'operator-visitor') {
+        assert.deepEqual(rows('host_visitor_tiers', session.ownerHash), []);
+        assert.deepEqual(rows('host_tier_holds', session.ownerHash), []);
+      } else {
+        assert.equal(rows('host_visitor_tiers', session.ownerHash).length, 1);
+        // expiry-retirement may also retire the idle sibling in this sweep.
+        assert.deepEqual(rows('host_tier_holds', session.ownerHash).map(row => row.attempt_id),
+          trigger === 'expiry-retirement' ? [] : ['released']);
+      }
       if (trigger !== 'expiry-retirement') {
         assert.equal(rows('host_visitor_tiers', otherSession.ownerHash).length, 1);
         assert.equal(rows('host_tier_holds', otherSession.ownerHash).length, 1);
@@ -280,7 +287,11 @@ test('AIT-322: module erase and retirement triggers remove owner tier and all ho
       if (trigger === 'operator-visitor') {
         assert.equal((await host.handlers.eraseSession({ sessionId: session.id, visitor: true })).result, 'already-erased');
       }
-      assert.equal(host.host.creditTiers(owner).current, 'anonymous');
+      if (trigger === 'operator-visitor') {
+        assert.equal(host.host.creditTiers(owner).current, 'anonymous');
+      } else {
+        assert.equal(host.host.creditTiers(owner).current, 'emailGiven');
+      }
       const freshOwner = 'new-visitor-token', fresh = host.storage.create({ ownerToken: freshOwner });
       assert.equal(host.host.creditTiers(freshOwner).current, 'anonymous');
       assert.equal(host.host.wallet(freshOwner).balance().committedMicro, 0);
