@@ -25,6 +25,10 @@ const quoteIdentifier = name => '"' + name.replaceAll('"', '""') + '"';
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
+/** An async consent decision lost to a newer decision or withdrawal. */
+export class ConsentConflictError extends ConflictError {
+  constructor(revision) { super('consent-stale'); this.consentRevision = revision; }
+}
 /** A settings write based on an older revision; carries the acknowledged state. */
 export class SettingsConflictError extends ConflictError {
   constructor(code, session) { super(code); this.code = code; this.session = session; }
@@ -989,7 +993,13 @@ export class SQLiteStorage {
   }
   reviseConsent(id, granted, guard = {}, { conversationUnchanged = false } = {}) {
     return this.#invalidationTransaction(() => {
-      const session = this.get(id); this.#check(session, guard);
+      const session = this.get(id);
+      // Compare inside the same synchronous transaction as invalidation and append.
+      // A host port may have yielded while an external withdrawal committed.
+      if (guard.consentRevision !== undefined && guard.consentRevision !== session.consentRevision) {
+        throw new ConsentConflictError(session.consentRevision);
+      }
+      this.#check(session, guard);
       conversationUnchanged = conversationUnchanged === true && granted && !session.consentWithdrawn;
       if (!conversationUnchanged) this.#invalidate(id, undefined, false, !granted);
       // Forget cross-conversation pause on withdrawal. Keep this live conversation's

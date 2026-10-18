@@ -7,7 +7,7 @@ import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handler
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
 import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
-import { ConflictError, NotFoundError, SettingsConflictError } from './storage.js';
+import { ConflictError, NotFoundError, SettingsConflictError, ConsentConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
 const json = (value, status = 200) => new Response(JSON.stringify(value), {
@@ -265,8 +265,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       return event;
     } finally { release?.(); }
   }
-  // Serialize reads and decisions across async host ports. A queued decision must
-  // compare its base against storage after the preceding ledger write completes.
+  // Serialize grants and document reads across async host ports. Withdrawal
+  // bypasses this queue; storage compares the revision atomically at commit.
   async function withConsent(id, work) {
     const pending = (consentDecisions.get(id) ?? Promise.resolve()).then(work);
     const settled = pending.then(() => {}, () => {});
@@ -610,20 +610,26 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
         const expected = body.processing?.revision;
         if (expected !== undefined && (!Number.isSafeInteger(expected) || expected < 0)) return json({ error: 'invalid-consent-revision' }, 400);
-        return await withConsent(id, async () => {
+        const decide = async () => {
           const current = storage.authorize(id, ownerToken);
           // Refusal precedes every host port, mutation, invalidation and broadcast.
           // Omission is deprecated, retained for existing host integrations only.
           if (expected !== undefined && expected !== current.consentRevision) {
             return json({ error: 'consent-stale', consentRevision: current.consentRevision }, 409);
           }
+          const checkCurrent = () => {
+            const revision = storage.authorize(id, ownerToken).consentRevision;
+            if (revision !== current.consentRevision) throw new ConsentConflictError(revision);
+          };
           // The editor names withdrawal explicitly; existing host ledger updates keep their cascade.
           if (body.intent === 'settings-save' && body.granted && body.processing && consent.describe) {
             const document = await consentDocument(current);
+            checkCurrent();
             if (document.contract === body.processing.contract && Array.isArray(body.processing.items) &&
               consentSaveEndsConversation(document, body.processing.items)) return json({ error: 'withdrawal-required' }, 409);
           }
           const conversationUnchanged = body.granted && await consent.conversationUnchanged?.({ sessionId: id, decision: body.processing }) === true;
+          checkCurrent();
           if (body.granted) {
             if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
             // decision.revision also lets an authoritative host ledger compare its base.
@@ -631,14 +637,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
               scopes: pluginRuntime.scopes?.(current) ?? [] });
             if (granted === false) return json({ error: 'host-consent-required' }, 409);
           }
-          const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current) }, { conversationUnchanged });
+          const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged });
           if (event.data.conversationUnchanged) {
             broadcast(id, event); await conceptHandlers.lane.invalidate(id);
           } else await invalidate(id, event, 'consent-revised');
           if (body.granted) { schedule(id); conceptHandlers.schedule(id); }
           else await consent?.withdraw?.({ sessionId: id });
           return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
-        });
+        };
+        return await (body.granted ? withConsent(id, decide) : decide());
       }
       if (action === 'consent' && request.method === 'GET' && consent.describe) {
         return await withConsent(id, async () => json(await consentDocument(storage.authorize(id, ownerToken))));
@@ -679,6 +686,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       if (error instanceof PrivacyDocumentRequiredError) return json({ error: error.code }, 403);
       if (error instanceof NotFoundError) return json({ error: 'session-not-found' }, 404);
+      if (error instanceof ConsentConflictError) return json({ error: 'consent-stale', consentRevision: error.consentRevision }, 409);
       if (error instanceof ConflictError) return json({ error: 'idempotency-conflict' }, 409);
       if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
       if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
@@ -713,10 +721,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       offTopicTurns: storage.safeguards(session.id).offTopicTurns }),
     lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
     async withdrawConsent(id) {
-      return withConsent(id, async () => {
-        const event = storage.reviseConsent(id, false); await invalidate(id, event, 'consent-withdrawn');
-        return event;
-      });
+      const event = storage.reviseConsent(id, false);
+      await invalidate(id, event, 'consent-withdrawn');
+      return event;
     },
     async expire(before) {
       return storage.systemWork(async () => {

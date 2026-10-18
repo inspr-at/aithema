@@ -271,10 +271,9 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .consent-state-measure { display:none; }
 .settings[data-consent-editor=true] .save-state { width:26rem; max-width:100%; }
 .settings[data-consent-editor=true] .save-status,
+.settings[data-consent-editor=true] .save-state-measure,
 .settings[data-consent-editor=true] .consent-state-measure { grid-area:1/1/2/-1; min-height:2.2em; display:block; text-indent:1.75em; overflow-wrap:anywhere; }
 .settings[data-consent-editor=true] .consent-state-measure { visibility:hidden; pointer-events:none; user-select:none; }
-.settings[data-consent-editor=true] .save-state-measure { display:none; }
-.settings[data-consent-editor=true] .save-retry { display:none; }
 .save-info { display:none; grid-area:1/1; align-self:start; margin-top:.1em; color:var(--aithema-muted); }
 .save-info svg { width:1.2em; height:1.2em; }
 .settings[data-consent-stale=true] .save-info { display:flex; }
@@ -282,9 +281,6 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings[data-consent-stale=true] .save-state { color:var(--aithema-muted); }
 .settings[data-consent-editor=true] .done[aria-disabled=true] { opacity:.5; cursor:default; }
 @media(max-width:40rem) {
-  .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); font-size:.68rem; }
-}
-@media(max-width:22rem) {
-  .settings:lang(de)[data-consent-editor=true] .save-state { font-size:.5rem; }
+  .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); }
 }
 `;

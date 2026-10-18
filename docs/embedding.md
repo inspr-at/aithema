@@ -852,12 +852,20 @@ visitor action; never automatically retry the refused decision.
 `consent.grant({ sessionId, consentRevision, decision, scopes })` receives the
 expected revision in `decision.revision`; the outer `consentRevision` remains
 the **next** revision being granted. An authoritative host ledger should also
-compare the expected revision atomically before writing. The server serializes
-consent reads and decisions around asynchronous host ports within this handler
-instance; shared ledgers across processes must enforce their own atomic check.
+compare the expected revision atomically before writing, including grants that
+finish after a withdrawal. The server queues grants and document reads within
+this handler instance, but HTTP and external withdrawals bypass that queue and
+never wait on a pending host port. After each awaited port the server rechecks
+the revision before calling another port; the final storage transaction compares
+the captured revision before invalidation or append. A late grant returns 409
+`consent-stale` and cannot restore the server's withdrawn consent. Shared host
+ledgers must enforce their own atomic check; the server cannot undo host effects
+that occurred inside an already running grant port.
 A successful POST returns the committed `consentRevision`. The reference editor
 confirms it against the current document and the exact selected item IDs, so
-hosts may version their contract string on every grant or withdrawal.
+hosts may version their contract string on every grant or withdrawal. When the
+confirmation document has no `consentRevision`, the editor retains the legacy
+contract-plus-exact-items confirmation.
 
 **Deprecated compatibility:** decisions that omit `processing.revision` retain
 the previous unconditional behavior for existing hosts. They do not protect

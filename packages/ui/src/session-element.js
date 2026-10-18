@@ -1113,8 +1113,12 @@ export class AithemaSession extends HTMLElement {
     const current = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
     if (!current.ok) throw new Error('Consent confirmation unavailable');
     const doc = await current.json(), items = body.granted ? body.processing.items : [];
-    if (!Number.isSafeInteger(ack.consentRevision) || doc.consentRevision !== ack.consentRevision ||
-      (body.processing.revision !== undefined && ack.consentRevision !== body.processing.revision + 1) ||
+    // Older backends expose only the original contract/items confirmation.
+    const confirmed = doc.consentRevision === undefined
+      ? doc.contract === body.processing.contract
+      : Number.isSafeInteger(ack.consentRevision) && doc.consentRevision === ack.consentRevision &&
+        (body.processing.revision === undefined || ack.consentRevision === body.processing.revision + 1);
+    if (!confirmed ||
       !Array.isArray(doc.selected) || doc.selected.length !== items.length ||
       !items.every(item => doc.selected.includes(item))) throw new Error('Consent decision unconfirmed');
     if (ack.event) this.receive(ack.event);

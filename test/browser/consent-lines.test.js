@@ -1102,7 +1102,9 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     en: 'Not saved: your consent was changed in another window. The current state is loaded.',
   };
   const geometry = ['.done', '.consent-items', '.consent-item input', '.save-state'];
-  for (const locale of ['de', 'en']) for (const width of [320, 390, 1440]) {
+  await page.setViewport({ width: 1440, height: 900 });
+  const baselineFont = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.save-state')).fontSize);
+  for (const locale of ['de', 'en']) for (const width of [320, 352, 390, 1440]) {
     await otherDecision(true);
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', 'light');
     await shadow(page, async (c, locale) => {
@@ -1147,12 +1149,34 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
         focus: r.activeElement === button, selected: r.querySelector('.consent-items input').checked,
         disabled: button.getAttribute('aria-disabled'), info: info.checkVisibility(), ink2: css.color === getComputedStyle(info).color,
         iconOverlap: [...range.getClientRects()].some(rect => rect.left < infoBox.right && rect.right > infoBox.left && rect.top < infoBox.bottom && rect.bottom > infoBox.top),
-        font: css.font, statusWidth: status.getBoundingClientRect().width,
+        font: css.font, fontSize: css.fontSize, slotHeight: r.querySelector('.save-state').getBoundingClientRect().height,
+        statusHeight: status.getBoundingClientRect().height, statusWidth: status.getBoundingClientRect().width,
         lines: lines.size, fits: status.scrollHeight <= status.clientHeight, dialogOpen: r.querySelector('dialog.settings').open };
     }, notice[locale]);
     assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
     assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
     assert.equal(state.iconOverlap, false);
+    assert.equal(state.fontSize, baselineFont, `${locale}/${width}: normal 1440 editor message font size`);
+    // Exercise every reserved editor and settings message, including a visible Retry.
+    const messages = await shadow(page, c => {
+      const r = c.shadowRoot, status = r.querySelector('.save-status'), dialog = r.querySelector('dialog.settings');
+      const retry = r.querySelector('.save-retry'), original = status.textContent, originalState = dialog.dataset.saveState;
+      const results = [...r.querySelectorAll('.consent-state-measure, .save-state-measure')].map(measure => {
+        status.textContent = measure.textContent;
+        // The measured settings failure reserves room for Retry even while consent is open.
+        const retryState = measure.matches('.save-state-measure:nth-last-child(2)');
+        dialog.dataset.saveState = retryState ? 'failed' : 'idle'; retry.dataset.visible = String(retryState);
+        return { text: status.textContent, height: r.querySelector('.save-state').getBoundingClientRect().height,
+          fits: status.scrollHeight <= status.clientHeight, retryVisible: retryState ? retry.checkVisibility() : null };
+      });
+      status.textContent = original; dialog.dataset.saveState = originalState; retry.dataset.visible = 'false';
+      return results;
+    });
+    for (const message of messages) {
+      assert.equal(message.height, state.slotHeight, `${locale}/${width}: fixed slot for ${message.text}`);
+      assert.equal(message.fits, true);
+      if (message.retryVisible !== null) assert.equal(message.retryVisible, true, 'Retry remains available in the editor');
+    }
     assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
     assert.equal(posts.length - count, 1, 'exactly one POST; no silent re-save');
@@ -1182,5 +1206,6 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     await page.locator('aithema-session >>> .done').click();
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   }
-  assert.equal(passes.find(pass => pass.locale === 'de' && pass.width === 320).lines, 2, 'binding 320 DE two-line notice');
+  assert.ok(passes.find(pass => pass.locale === 'de' && pass.width === 320).lines >= 3, 'AIT-321 gate 1: reserve the taller 320 DE notice at normal message size');
+  assert.equal(passes.find(pass => pass.locale === 'de' && pass.width === 320).fontSize, passes.find(pass => pass.locale === 'de' && pass.width === 1440).fontSize);
 });
