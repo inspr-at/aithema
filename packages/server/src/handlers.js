@@ -439,8 +439,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       connection: 'keep-alive', 'x-accel-buffering': 'no' } });
   }
   async function handle(request, context) {
-    if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
     try {
+      const previewResponse = await conceptHandlers.handlePreview(request);
+      if (previewResponse) return previewResponse;
+      if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
       const hostResponse = await hostHandlers.handle(request, context);
       if (hostResponse) return hostResponse;
       if (host) {
@@ -879,6 +881,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         await hostHandlers.idle();
       } while (jobs.size);
     },
-    async close() { stop.abort(); pluginRuntime.conversationLimits.close(); clearTimeout(costTimer); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([recovery, costRecovery, ...[...jobs.values()].map(job => job.promise)]); },
+    async close() { stop.abort(); conceptHandlers.closePreviews(); pluginRuntime.conversationLimits.close(); clearTimeout(costTimer); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([recovery, costRecovery, ...[...jobs.values()].map(job => job.promise)]); },
   };
 }

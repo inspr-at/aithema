@@ -10,11 +10,11 @@ archive packing is checked against Git packing byte for byte. Only use archives
 from the trusted Git transport; the marker is source metadata, not a signature.
 
 ```sh
-npm run release:candidate -- /retained/ait325
+npm run release:candidate -- /retained/ait356
 # Equivalent pack/verify entrypoints (use new output directories):
-npm run release:pack -- /retained/ait325/first --candidate SOURCE_COMMIT
-npm run release:verify -- /retained/ait325/first
-npm run release:consumer -- /retained/ait325/first
+npm run release:pack -- /retained/ait356/first --candidate SOURCE_COMMIT
+npm run release:verify -- /retained/ait356/first
+npm run release:consumer -- /retained/ait356/first
 ```
 
 `release:candidate` packs twice through `release:pack`, verifies both through
@@ -49,6 +49,82 @@ not shipped bytes.
 BSD and GNU tar encode different bytes. PR CI's Linux candidate is qualification
 and retention evidence for that CI source commit, not a promise that a later tag
 build has the same digests.
+
+## Sixth October candidate (AIT-356 / START-550)
+
+The reserved coordinate is `261018162546.0.0` (UTC reservation time), stable sequence
+17, with status `reserved`. AEON-LEAD, 2026-10-18 ~18:15 Europe/Vienna,
+option (b), authorizes cutting now for the merged value and to exercise the
+publish route, following AIT-325: candidate, coordinator release gate, then
+**one Desk question for Markus**. The builder prepares only and invokes no
+review gates. OPS publishes only on Markus's separate Desk go. This reservation
+and PR authorize no tag, tag push, GitHub release or publication. START pins this
+candidate only in its START-550 branch to test the timeout fix early, never on
+start3. The marketing name remains **Aithema 2026.10**, with the exact coordinate
+below the notes title. The fifth October release, `v261018142833.0.0` (sequence
+16, AIT-325), published by OPS on 2026-10-18, is recorded in `history.json` at
+source `7edaf634f4e4afb47dab5faebb127113344cf375`. The AIT-32 migration anchor
+and published bytes stay fixed.
+
+Both prerequisites are on main at base `acb8f9a17548a3f75a68ac63cb685659f2851789`:
+#298 (AIT-328) and #300 (AIT-343, branch/commit labels AIT-341). The full
+first-parent range since `v261018142833.0.0` contains #294 (AIT-323), #296
+(AIT-326), #297 (AIT-327), #299 (AIT-340), #298 (AIT-328) and #300 (AIT-343).
+It also contains #295, the merge of the already published AIT-325 preparation
+head; there are no additional feature merges at this base.
+
+The notes lead with HTML timeout holds protecting the cap, then the full-width
+consent save note and second-provider voice groundwork. Host notes cover
+408/499 and usage-without-cost holds, the image generation header with its
+inferred-presence caveat, component declarations and the composition preflight
+API with its stable error codes. **Breaking for hosts** is included because
+AIT-340 changes runtime budget availability: a 408/499 that previously released
+its reservation now retains it without a receipt, so a subsequent draft may be
+refused. The API signature stays the same. AIT-323 and AIT-328 concern opt-in
+source-only helper paths, not a newly qualified second live pipeline. Strict-host
+preview coverage is tests only. `next-notes.md` remains its empty stub.
+
+The approved shared presentation source remains
+`bd0a13816f728ad91c36d849f88168bcac4fdc6e`. `presentation.json`, the complete
+offline bundle and approved Aithema overrides retain their pins. Candidate
+packing verifies their closure and the version-presentation tests cover the
+active adapter. This continues `inspr-calver-3`, rather than starting a migration.
+The preparation candidate is digest-verified; GitHub attestations of the exact
+published bytes are produced only by the authorized tag workflow below.
+
+Run order (the round-6 evidence rule above applies):
+
+1. Fetch `origin/main`; if it advances, `git merge --signoff origin/main` and
+   report the merge and any additional scope. Commit the reservation,
+   manifest/lock mirrors, history, notes and runbook with `--signoff` before
+   any remote run. Reset `next-notes.md` to its empty stub.
+2. From this worktree on mbp2607, invoke the remote lane below. The candidate
+   test runs `npm run release:candidate -- <retained dir>` on mbp2606: two packs,
+   verification, isolated consumer smoke, locked reinstall, update and rollback.
+   The CalVer tests run `release/gate.mjs tag` against the reserved coordinate
+   without creating a tag. On WAIT, wait and retry per remote policy; on
+   LOCAL-FALLBACK, stop with tests pending. Never run the candidate on mbp2607.
+
+   ```sh
+   EVIDENCE_OUT="$PWD/dist/ait356-checkpoint" \
+     /private/tmp/claude-501/-Users-markus-Code-aithema/c3acf551-65c1-4283-a0f5-bea8a7cfc6f7/scratchpad/remote-browser.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/calver.test.js test/version-presentation.test.js test/consumer-isolation.test.js
+   ```
+
+3. Commit `dist/ait356-checkpoint/candidate/candidate-evidence.json` as
+   `release/evidence.json` with `--signoff` for the implementation checkpoint.
+4. Repeat that command on the final committed head with
+   `EVIDENCE_OUT="$PWD/dist/ait356-final"`. Retain the complete
+   `dist/ait356-final/candidate/` without another evidence-only commit. Its
+   `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
+   head. Hand OPS that head and final manifest SHA-256 together.
+5. Push only `release/ait-356-sixth-release`, open the PR to main and wait for
+   green PR CI: seven browser shards, all four required browser aliases, units
+   and DCO. CI retains `reset-candidate` for 90 days. The coordinator runs review
+   gates after builder handoff; copy the complete final directory to durable
+   owner storage before OPS uses the publish route below.
 
 ## Fifth October candidate (AIT-325 / START)
 
@@ -288,12 +364,12 @@ npm publication, GitHub Packages registry or consumer token is required.
 
 After Tick's consolidated QA and Markus's Desk go, OPS runs the following on
 mbp2606 or an authorized build runner. Set `FINAL_CANDIDATE` to the retained
-AIT-325 final directory above, and enable repository immutable releases before
+AIT-356 final directory above, and enable repository immutable releases before
 the tag push. These commands are a handoff, not builder authorization to run them.
 
 ```sh
 set -eu
-export FINAL_CANDIDATE=/absolute/owner-storage/ait325-final/candidate
+export FINAL_CANDIDATE=/absolute/owner-storage/ait356-final/candidate
 RELEASE_HEAD=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").source.commit')
 RELEASE_VERSION=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").version')
 RELEASE_TAG="v$RELEASE_VERSION"
@@ -304,7 +380,7 @@ git checkout --detach "$RELEASE_HEAD"
 git merge-base --is-ancestor "$RELEASE_HEAD" origin/main
 node release/gate.mjs tag "refs/tags/$RELEASE_TAG"
 npm ci --ignore-scripts --no-audit --no-fund
-npm run release:candidate -- "$OPS_WORK/ait325-rehearsal"
+npm run release:candidate -- "$OPS_WORK/ait356-rehearsal"
 git tag "$RELEASE_TAG" "$RELEASE_HEAD"
 git push origin "refs/tags/$RELEASE_TAG"
 # Once the tag-triggered release run appears:
