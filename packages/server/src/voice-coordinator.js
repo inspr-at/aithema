@@ -21,7 +21,7 @@ async function playbackDelay(ms, options) {
   }));
 }
 
-/** Trusted server-only utterance authority. The browser sends PCM, never finals. */
+/** Trusted turn authority. Browser PCM and validated text share server-owned ordering. */
 export function createComposedVoiceCoordinator({ sessionId, callId, providerSessionId = `composed-${randomUUID()}`, epoch = 0,
   stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now = Date.now,
   spendDeadlineAt, browserLivenessDeadlineAt, maxDurationSeconds, endpointMs = 500,
@@ -51,8 +51,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   spendDeadlineAt = Math.min(spendDeadlineAt ?? Infinity, startedAt + callDurationSeconds({ maxDurationSeconds }) * 1000);
   if (!Number.isFinite(browserLivenessDeadlineAt) || Math.min(spendDeadlineAt, browserLivenessDeadlineAt) <= now()) throw new PluginError('deadline');
   let state = { ...createVoiceLifecycle(callId), epoch }, input = true, output = true, utterance,
-    sequence = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve();
-  const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), playbacks = new Set(), commits = new Map();
+    sequence = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve(), typedPending = 0;
+  const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), playbacks = new Set(), commits = new Map(), textDeliveries = new Map();
   let history = [], historyBytes = 0, commitTail = Promise.resolve();
   const dispatch = event => { state = reduceVoiceLifecycle(state, event); };
   dispatch({ type: 'start' });
@@ -132,31 +132,65 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       }
       if (!turn.endpointed || final === undefined) throw new PluginError('invalid-output', 'STT must finish after server endpointing');
       if (!final.trim()) return;
-      // Finalizers may finish out of order; utterance history follows capture order.
-      await voiceOperation(opts, () => turn.beforeCommit);
-      await permitted(opts);
-      appendHistory('user', final);
-      // Exact text/history and generation metadata enter the existing Rule C store.
-      // Never manufacture operation keys from a receipt, or deduplicate by text.
-      const envelope = deepFreeze({ source: 'server-coordinator', payload: {
-        sessionId, callId, providerSessionId, stream: true,
-        callbackBody: { messages: structuredClone(history), context: structuredClone(context),
-          metadata: { epoch, utteranceId: turn.id, sequence: turn.sequence } } } });
-      commits.set(turn.id, envelope);
-      await voiceOperation(opts, bounded => commitUtterance(envelope, bounded));
-      event({ type: 'final', role: 'user', turnId: turn.id, text: final, speechEndAt: turn.speechEndAt });
-      dispatch({ type: 'accepted', turnId: turn.id });
-      committed.resolve();
-      await reply(envelope, turn.playbackRevision, signal);
+      await acceptTurn(turn, final, signal, committed);
     });
-    track(jobs, job.catch(error => {
-      if (!signal.aborted && current()) {
-        holdRevision++;
-        silence('component-failed'); discardInput(); dispatch({ type: 'recovery-exhausted' });
-        event({ type: 'waiting', reason: error?.code ?? 'provider' });
-      }
-    }).finally(committed.resolve));
+    track(jobs, job.catch(error => failTurn(error, signal)).finally(committed.resolve));
     return turn;
+  }
+  function failTurn(error, signal) {
+    if (!signal.aborted && current()) {
+      holdRevision++;
+      silence('component-failed'); discardInput(); dispatch({ type: 'recovery-exhausted' });
+      event({ type: 'waiting', reason: error?.code ?? 'provider' });
+    }
+  }
+  async function acceptTurn(turn, text, signal, committed) {
+    const opts = options(signal);
+    // Both input paths reserve this slot before asynchronous finalization.
+    await voiceOperation(opts, () => turn.beforeCommit);
+    await permitted(opts);
+    appendHistory('user', text);
+    const envelope = deepFreeze({ source: 'server-coordinator', payload: {
+      sessionId, callId, providerSessionId, stream: true,
+      callbackBody: { messages: structuredClone(history), context: structuredClone(context),
+        metadata: { epoch, utteranceId: turn.id, sequence: turn.sequence } } } });
+    commits.set(turn.id, envelope);
+    await voiceOperation(opts, bounded => commitUtterance(envelope, bounded));
+    await permitted(opts);
+    event({ type: 'final', role: 'user', turnId: turn.id, text, ...(turn.speechEndAt === undefined ? {} : { speechEndAt: turn.speechEndAt }) });
+    dispatch({ type: 'accepted', turnId: turn.id });
+    committed.resolve();
+    await reply(envelope, turn.playbackRevision, signal);
+  }
+  async function sendText(text, opts = {}) {
+    if (typeof text !== 'string' || !text.trim() || text.length > 16_384) throw new PluginError('limit', 'Invalid voice text');
+    if (typeof opts.deliveryId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(opts.deliveryId) ||
+      opts.providerSessionId !== undefined && opts.providerSessionId !== providerSessionId ||
+      opts.epoch !== undefined && opts.epoch !== epoch) throw new PluginError('not-admitted');
+    const signal = AbortSignal.any([revocation.signal, pauseController.signal, ...(opts.signal ? [opts.signal] : [])]);
+    const bounded = { ...options(signal), deadlineAt: Math.min(opts.deadlineAt ?? Infinity, spendDeadlineAt) };
+    // Validate duplicates against current authority too; an old delivery is no permission to resume.
+    await permitted(bounded);
+    const previous = textDeliveries.get(opts.deliveryId);
+    if (previous) {
+      if (previous.text !== text) throw new PluginError('not-admitted');
+      return previous.receipt;
+    }
+    if (textDeliveries.size >= 4096 || jobs.size + typedPending >= maxPendingTurns) throw new PluginError('limit');
+    typedPending++;
+    const entry = { text };
+    // Reserve ingress order now, before any further await or competing PCM authorization.
+    const pending = inputFlight.catch(() => {}).then(async () => {
+      await permitted(bounded);
+      const turn = { id: `${providerSessionId}-${++sequence}`, sequence, beforeCommit: commitTail, playbackRevision };
+      const committed = Promise.withResolvers(); commitTail = committed.promise;
+      const job = acceptTurn(turn, text, signal, committed);
+      track(jobs, job.catch(error => failTurn(error, signal)).finally(committed.resolve));
+      return { acknowledged: true, turnId: turn.id };
+    }).finally(() => { typedPending--; });
+    entry.receipt = pending; textDeliveries.set(opts.deliveryId, entry);
+    inputFlight = pending.then(() => {}, () => {});
+    return pending;
   }
   function createPlayback(revision, turnSignal, replyId, onFailure) {
     const queue = audioQueue(replyAudioBytes), controller = new AbortController(), fragments = [];
@@ -314,7 +348,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     const voiced = Math.sqrt(energy / (copy.byteLength / 2)) >= 0.015;
     // Local detection stops playback before any remote authorization; capture still requires admission.
     if (current() && input && !utterance && voiced) silence('barge-in');
-    inputFlight = (async () => {
+    inputFlight = inputFlight.catch(() => {}).then(async () => {
       await permitted(); if (!input) throw new PluginError('not-admitted');
       if (!utterance && !voiced) return;
       const turn = utterance ?? beginUtterance(), ms = copy.byteLength / 32;
@@ -322,7 +356,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       turn.queue.push(copy); clearTimeout(timer);
       if (turn.silenceMs >= endpointMs || turn.durationMs >= maxUtteranceMs) endpoint(turn);
       else { timer = setTimeout(() => endpoint(turn), endpointMs); timer.unref?.(); }
-    })().finally(() => { ingressPending = false; });
+    }).finally(() => { ingressPending = false; });
     return inputFlight;
   }
   function close(reason = 'closed') {
@@ -356,7 +390,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     },
     async setInput(on) { if (!on) discardInput(); await permitted(); input = Boolean(on); },
     async setOutput(on) { if (!on) silence('output-off'); await permitted(); output = Boolean(on); },
-    async sendText() { throw new PluginError('unavailable', 'Composed input is server-relayed audio'); },
+    sendText,
     async updateContext(value) { await permitted(); context = structuredClone(value); },
     async heartbeat(opts) {
       await permitted(opts); const lease = Math.min(now() + 30_000, spendDeadlineAt);
