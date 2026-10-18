@@ -419,3 +419,26 @@ for (const surface of ['modal', 'canvas']) for (const cause of ['close', 'switch
     assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false, 'viewing makes no generation or spend call');
   });
 }
+
+test('AIT-353: a saturated mint registry shows failure once; reopening mints again without generation', async t => {
+  let attempts = 0;
+  const { c, root, calls } = fixture(t, { htmlResponse: () => {
+    attempts++;
+    return attempts === 1 ? new Response('Unavailable', { status: 503, headers: { 'retry-after': '60' } }) :
+      Response.json({ url: previewURL + '?cap=' + 'r'.repeat(43), expiresInMs: 60000 });
+  } });
+  root.querySelector('.concept-tab').click(); await tick();
+  if (document.querySelector('[data-aithema-html-policy-probe]')) {
+    const proof = new window.Event('securitypolicyviolation');
+    Object.assign(proof, { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP }); document.dispatchEvent(proof);
+  }
+  await tick();
+  const preview = root.querySelector('.concept-html'); assert.equal(preview.state, 'failure');
+  assert.equal(preview.shadowRoot.querySelector('iframe'), null);
+  receive(c, 'concept.feedback', { artifactId: 'draft1', vote: 'up', chips: [] });
+  preview.width = 'phone'; preview.copy = de.conceptPreview; await tick();
+  assert.equal(attempts, 1, 'live renders and width/copy changes never hammer a saturated registry');
+  root.querySelector('.concept-close').click(); root.querySelector('.concept-tab').click(); await ready(preview);
+  assert.equal(attempts, 2, 'an explicit reopen requests a fresh capability');
+  assert.equal(calls.some(url => /\/concepts(?:\/[^/]+\/regenerate)?$/u.test(url)), false);
+});

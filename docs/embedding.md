@@ -676,12 +676,12 @@ const element = document.querySelector('aithema-session');
 element.configure({ copy: en, session, sessionToken: token, baseUrl: '' });
 // Import registers <aithema-session> and <aithema-html-preview>.
 // createVoiceControl handles neutral voice commands; supply adapter clients separately.
-// Use HTML_PREVIEW_HOST_CSP when serving pages that embed generated HTML previews.
+// Configure concepts.previewURL and enforce htmlPreviewHostPolicy(previewURL), as below.
 ```
 
-AIT-352 adds an opt-in server contract for the forthcoming route-based preview
-component (AIT-353); the existing `srcdoc` component continues to use
-`HTML_PREVIEW_HOST_CSP` unchanged. Configure the public URL explicitly:
+AIT-352 and AIT-353 use an owner-minted route source for executable previews.
+Configure the same canonical public URL on the server and component; there is no
+raw `srcdoc` fallback:
 
 ```js
 import { htmlPreviewHostPolicy } from '@inspr/aithema-core';
@@ -689,6 +689,7 @@ const previewURL = 'https://start.example.test/_aithema/html-preview';
 const handlers = createHandlers({ /* storage, runtime, ownership, ... */
   concepts: { previewURL }
 });
+element.configure({ copy: en, session, sessionToken: token, concepts: { previewURL } });
 const previewFramePolicy = htmlPreviewHostPolicy(previewURL);
 // frame-src https://start.example.test/_aithema/html-preview; child-src 'none'
 ```
