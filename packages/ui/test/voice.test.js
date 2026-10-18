@@ -1243,7 +1243,7 @@ test('AIT-235: an already saved typed echo removes its hypothesis without duplic
 });
 
 for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header status has a <=22 character narrow form; wide and AT keep the full sentence`, async t => {
-  const { voiceStatusCases, voiceMessageKeys } = await import('../../../test/voice-status-cases.js');
+  const { voiceStatusCases, voiceMessageKeys, approvedNarrowForm } = await import('../../../test/voice-status-cases.js');
   assert.deepEqual(Object.keys(copy.voiceStatesNarrow).sort(), Object.keys(copy.voiceStates).sort());
   assert.deepEqual(Object.keys(copy.voiceMessagesNarrow).sort(), [...voiceMessageKeys].sort());
   for (const short of [...Object.values(copy.voiceStatesNarrow), ...Object.values(copy.voiceMessagesNarrow), ...Object.values(copy.voiceReasonsNarrow)]) {
@@ -1266,6 +1266,8 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
     const narrow = status.querySelector('.consent-narrow'), full = status.querySelector('.consent-wide');
     assert.ok(narrow, `${sample.id}: narrow variant exists`);
     const short = narrow.dataset.copy;
+    const approved = approvedNarrowForm(copy, sample);
+    if (approved) assert.equal(short, approved, `${sample.reason ?? sample.id}: Tick’s approved short form`);
     assert.ok(short && [...short].length <= 22, `${sample.id}: ${short}`);
     assert.equal(narrow.getAttribute('aria-hidden'), 'true');
     const expected = sample.full + (sample.kind === 'consent' ? '\u00a0· ' : '');

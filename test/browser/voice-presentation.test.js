@@ -264,7 +264,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
 });
 
 async function checkPhoneVoiceHeader(t, widths) {
-  const { voiceStatusCases } = await import('../voice-status-cases.js');
+  const { voiceStatusCases, approvedNarrowForm } = await import('../voice-status-cases.js');
   const { narrowVoiceStatus } = await import('../../packages/ui/src/voice-status.js');
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   const head = event?.pull_request?.head?.sha ?? evidenceCommit;
@@ -405,6 +405,8 @@ async function checkPhoneVoiceHeader(t, widths) {
         if (width < 600) {
           assert.equal(geometry.font, geometry.captionFont, `${label}: existing phone type scale`);
           if (geometry.canShareLine) assert.equal(geometry.lines.length, 1, `${label}: both consent units fit on one line`);
+          const approved = approvedNarrowForm(copy, sample);
+          if (approved) assert.equal(geometry.short, approved, `${label}: Tick’s approved short form`);
           assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
           assert.ok(geometry.lines.length > 0 && geometry.lines.length <= 2, `${label}: at most 2 lines ${JSON.stringify(geometry.lines)}`);
           assert.ok(geometry.lines.every(line => !/^·|·$/u.test(line.trim())), `${label}: no dangling separator`);
