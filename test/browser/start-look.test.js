@@ -196,3 +196,107 @@ test('START look on the reference host: entrance, consent page, readiness, conve
     assert.deepEqual(problems, []);
     t.diagnostic(`START look checked and photographed on the reference host: ${tally.join(', ')}; German entrance; reduced motion.`);
   });
+
+// AIT-307: one reused page, real host chrome and the existing no-provider fixture.
+// Bind the same inert voice client used by host-chrome-check; never start audio.
+test('AIT-307: readiness has a static text input line without voice; binding and unbinding move Start 0 px',
+  { timeout: 120_000 }, async t => {
+    const { startChild } = await import('../helpers.js');
+    const { browserForFile } = await import('./shared-browser.js');
+    const { execFileSync } = await import('node:child_process');
+    const { writeFile } = await import('node:fs/promises');
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-ait307-'));
+    const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+      AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+    });
+    const browser = await browserForFile(), page = await browser.newPage();
+    t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+    if (evidence) await mkdir(evidence, { recursive: true });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await inShadow(page, c => { window.readySeed = c.session; });
+    const settleReady = () => inShadow(page, async c => {
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+        .filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+    });
+    const configure = async (locale, voice) => {
+      await inShadow(page, async (c, { locale, voice }) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+        const session = structuredClone(window.readySeed); session.locale = locale;
+        session.settings.origin = 'chosen'; session.settings.voice = 'offered';
+        session.engine.voice = { id: 'offered', offered: true, label: 'Local evidence' };
+        session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: true } };
+        c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+        c.setAttribute('motion', 'off');
+        c.configure({ copy, session, voiceClient: voice ? { manifest, start() { throw new Error('AIT-307 must never start voice'); } } : undefined,
+          copyForLocale: code => window.readyCopies[code], host: { library: true } });
+        window.readyCopies = { de: (await import('/packages/ui/src/i18n/de.js')).de, en: (await import('/packages/ui/src/i18n/en.js')).en };
+        document.documentElement.lang = locale; scrollTo(0, 0);
+      }, { locale, voice });
+      await settleReady();
+    };
+    const snapshot = () => inShadow(page, c => {
+      const r = c.shadowRoot, line = r.querySelector('.ready__input'), start = r.querySelector('.ready__start');
+      const rect = n => { const b = n.getBoundingClientRect(); return { y: b.y, height: b.height }; };
+      return { start: rect(start), card: rect(r.querySelector('.ready')), switch: Boolean(r.querySelector('.ready__modes')),
+        buttons: r.querySelectorAll('.ready__mode').length, groups: r.querySelectorAll('.ready [role="group"], .ready [role="radiogroup"]').length,
+        line: line && { visible: line.checkVisibility(), text: line.textContent, icon: Boolean(line.querySelector('svg[aria-hidden="true"]')),
+          focusable: line.tabIndex >= 0 || Boolean(line.querySelector('button,a,input,[tabindex]')), height: line.getBoundingClientRect().height,
+          color: getComputedStyle(line).color, rowColor: getComputedStyle(r.querySelector('.ready__route')).color,
+          font: getComputedStyle(line).fontSize, rowX: r.querySelector('dt').getBoundingClientRect().x, x: line.getBoundingClientRect().x,
+          background: getComputedStyle(line).backgroundColor, border: getComputedStyle(line).borderTopWidth },
+        slotHeight: (line ?? r.querySelector('.ready__modes')).getBoundingClientRect().height };
+    });
+    const oneMode = (state, locale) => {
+      assert.equal(state.switch, false, 'AIT-307: one mode has no two-column track');
+      assert.equal(state.buttons, 0); assert.equal(state.groups, 0);
+      assert.ok(state.line?.visible, 'AIT-307: the static input line is visible');
+      assert.equal(state.line.text, locale === 'de' ? 'Eingabe: Text' : 'Input: Text');
+      assert.equal(state.line.icon, true); assert.equal(state.line.focusable, false);
+      assert.equal(state.line.color, state.line.rowColor); assert.equal(state.line.font, '12.48px');
+      assert.equal(state.line.x, state.line.rowX); assert.equal(state.line.background, 'rgba(0, 0, 0, 0)'); assert.equal(state.line.border, '0px');
+    };
+    const still = (before, after, label) => {
+      assert.deepEqual(after.start, before.start, `${label}: Start y/height 0 px`);
+      assert.deepEqual(after.card, before.card, `${label}: card y/height 0 px`);
+      assert.equal(after.slotHeight, before.slotHeight, `${label}: same input slot height`);
+    };
+    const shot = async (width, theme, locale, mode) => {
+      if (!evidence) return;
+      await inShadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-10, -10); await settleReady();
+      const name = `ait307-${width}-${theme}-${locale}-${mode}-mode`;
+      await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false, captureBeyondViewport: false });
+      if (locale === 'de' && [1440, 390].includes(width)) {
+        const card = await box(page, '.ready');
+        await page.screenshot({ path: join(evidence, `${name}-crop.png`), clip: card, captureBeyondViewport: false });
+      }
+    };
+    for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
+      await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+      await configure(locale, false); const one = await snapshot(); oneMode(one, locale); await shot(width, theme, locale, 'one');
+      // Locale repaint, without a rebuild, must update the existing static line.
+      await inShadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.locale-changed', data: { locale: c.session.locale === 'de' ? 'en' : 'de' } }));
+      const other = locale === 'de' ? 'en' : 'de'; oneMode(await snapshot(), other);
+      await configure(locale, true); const two = await snapshot();
+      assert.equal(two.switch, true); assert.equal(two.buttons, 2); assert.equal(two.groups, 1); assert.equal(two.line, null);
+      still(one, two, `${width}/${theme}/${locale}: bind`); await shot(width, theme, locale, 'two');
+      await inShadow(page, c => {
+        c.session; // Read through the public snapshot; configure below tests unbinding the shown card.
+        c.receive({ seq: c.session.seq + 1, type: 'features.changed', data: { featureMatrix: { best: { text: { available: true }, voice: { available: false, reason: 'voice off' } } } } });
+      });
+      await configure(locale, false); const unbound = await snapshot(); oneMode(unbound, locale); still(two, unbound, `${width}/${theme}/${locale}: unbind`);
+      checks.push({ width, theme, locale, one, two, unbound, pass: 'static copy/icon/nonfocusable; input slot/card/Start 0 px across bind/unbind' });
+    }
+    assert.equal(checks.length, 12);
+    const passLines = ['AIT-307 PASS: 1440/1024/390 × light/dark × DE/EN; static localized keyboard line without input group/buttons; two-mode switch retained; Start/card/input slot 0 px across bind/unbind.'];
+    console.log(passLines[0]);
+    if (evidence) await writeFile(join(evidence, 'ait307-ready-checks.json'), JSON.stringify({ head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      capture: 'viewport', reducedMotion: true, blurredControls: true, pinnedFontStack: true, passLines, checks }, null, 2));
+  });
