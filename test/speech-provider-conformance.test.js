@@ -21,6 +21,10 @@ function local(provider, role) {
       socket.events = (async function* () {
         if (mode.startsWith('active-')) { await stalled(); return; }
         if (mode === 'provider-error') { yield JSON.stringify(role === 'stt' ? sttWire.rateLimited : { error: 'Synthetic error' }); return; }
+        if (mode === 'overflow-total' && role === 'tts') {
+          for (let n = 0; n < 16; n++) yield JSON.stringify({ ...ttsWire.audio, audio: 'AAAA'.repeat(349_524) });
+          yield JSON.stringify(ttsWire.done); return;
+        }
         if (mode === 'overflow') { yield JSON.stringify(role === 'stt' ? sttWire.session() : { ...ttsWire.audio, audio: 'AAAA'.repeat(400_000) });
           if (role === 'stt') yield JSON.stringify(sttWire.partial('x'.repeat(32_769))); return; }
         for await (const wire of events) {
@@ -45,7 +49,8 @@ function local(provider, role) {
   const fetchImpl = async () => {
     requests++; active++; let closed = false, index = 0;
     const close = () => { if (!closed) { closed = true; active--; } };
-    const events = mode === 'provider-error' ? [{ type: 'error', status: 429 }]
+    const events = mode === 'overflow-total' ? [...Array(16).fill({ type: 'speech.audio.delta', audio_data: 'AAAA'.repeat(349_524) }), { type: 'speech.audio.done', usage: {} }]
+      : mode === 'provider-error' ? [{ type: 'error', status: 429 }]
       : mode === 'overflow' ? [{ type: 'speech.audio.delta', audio_data: 'AAAA'.repeat(400_000) }]
       : [{ type: 'speech.audio.delta', audio_data: 'AAAAAA==' }, ...(mode === 'missing-final' ? [] : [{ type: 'speech.audio.done', usage: {} }])];
     return new Response(new ReadableStream({ pull(controller) {

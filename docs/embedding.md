@@ -1286,6 +1286,7 @@ Do not wrap or repair the component's declarations, events or terminals.
 Fixture modes are `completed`, `provider-error`, `retry`, `fragment` (TTS),
 `cancelled`, `deadline`, `consume-refused`, `pending-consume`, `active-cancelled`,
 `active-deadline`, `return` (iterators), `missing-final`, `overflow`,
+`overflow-total` (TTS), `overflow-input` (STT), `overflow-input-total` (STT stream),
 `over-ceiling` and `report-rejected`. Normal modes produce the expected text or
 nonempty audio and authoritative completion evidence. `provider-error` fails
 after dispatch without completion evidence; `retry` then repeats the request
@@ -1293,6 +1294,8 @@ with fresh authority. `fragment` synthesizes a shorter text with another claim.
 Active fixtures leave a provider read pending and ignore its signal, so the
 component must bound that read and close its resources. `missing-final` ends
 transport without a final; `overflow` supplies oversized transcript/audio;
+`overflow-total` sends individually valid audio chunks past the synthesis total;
+input overflow cases exercise the STT chunk and cumulative byte limits.
 `over-ceiling` supplies usage above a one-micro claim (or rejects before work).
 The kit itself refuses consume or rejects report in the corresponding modes.
 Every other mode uses the normal wire fixture. No mode invokes a live service.
@@ -1302,8 +1305,9 @@ transcripts with exactly one final and no following event, UTF-16 alignment,
 fresh retry/fragment claims, cancellation/source cleanup, consume before
 outbound work, once-only settlement before exhaustion, deadlines, typed errors,
 and uncertain charge at least `max(maxMicro, observed)`. Default bounds are
-32,768 transcript characters, 1 MiB per decoded audio chunk and 16,000,000 audio
-bytes per synthesis; configure `maxTranscriptCharacters`, `maxChunkBytes` and
+64,000 bytes per STT input chunk, 1,920,000 input bytes per utterance, 32,768 transcript characters, 1 MiB per decoded audio chunk and 16,000,000 audio
+bytes per synthesis; configure `maxInputChunkBytes`, `maxInputBytes`,
+`maxTranscriptCharacters`, `maxChunkBytes` and
 `maxAudioBytes` to the provider's documented smaller limits. `timeoutMs`
 (default 1000, minimum 100) bounds bad fixtures; `maxMicro` defaults to 1,000,000.
 A harness timeout fails conformance and does not prove abandoned work stopped.

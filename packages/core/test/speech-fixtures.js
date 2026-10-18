@@ -15,7 +15,7 @@ export function speechFixture(role, fault) {
     heardPrefix() { return heard; },
   };
   const fixtures = { formats: [format], timeoutMs: 300, expectedText: 'A😀 B', expectedTranscripts: transcript, playback,
-    maxTranscriptCharacters: 32, maxChunkBytes: 16, maxAudioBytes: 32,
+    maxInputChunkBytes: 8, maxInputBytes: 16, maxTranscriptCharacters: 32, maxChunkBytes: 16, maxAudioBytes: 32,
     prepare(value) { mode = value.mode; observed = 0; }, requestCount: () => requests, activeCount: () => active, observedMicro: () => observed };
   async function* run(operation, input, rawOptions) {
     let options = rawOptions;
@@ -38,12 +38,17 @@ export function speechFixture(role, fault) {
       invocation.dispatch(); if (fault !== 'dispatch') requests++; active++;
       if (operation === 'stream') {
         audioIterator = input.audio[Symbol.asyncIterator]();
-        while (!(await audioIterator.next()).done) { /* owned fixture audio */ }
+        let inputBytes = 0;
+        for (;;) { const item = await audioIterator.next(); if (item.done) break;
+          inputBytes += item.value.byteLength;
+          if (fault !== 'input-bounds' && (item.value.byteLength > 8 || inputBytes > 16)) throw new PluginError('limit');
+        }
       }
+      if (operation === 'transcribe' && fault !== 'input-bounds' && input.audio.byteLength > 8) throw new PluginError('limit');
       if (mode.startsWith('active-') && !(fault === 'cancel' && mode === 'active-cancelled') && !(fault === 'deadline' && mode === 'active-deadline')) await voiceOperation({ ...options, signal: invocation.signal }, () => new Promise(() => {}));
       if (mode === 'provider-error') throw new PluginError('provider');
       if (mode === 'missing-final' && fault !== 'finality') throw new PluginError('invalid-output');
-      if (mode === 'overflow' && fault !== 'bounds') throw new PluginError('limit');
+      if ((mode === 'overflow' && fault !== 'bounds') || (mode === 'overflow-total' && fault !== 'total-bounds')) throw new PluginError('limit');
       if (mode === 'over-ceiling') { observed = 5; invocation.usage(1, observed, 'fixture'); }
       if (role === 'stt') {
         const events = mode === 'overflow' ? [{ text: 'x'.repeat(33), final: true }]
@@ -52,7 +57,7 @@ export function speechFixture(role, fault) {
         if (operation === 'stream') { for (const event of events) yield event; }
         else yield { text: mode === 'overflow' ? 'x'.repeat(33) : 'A😀 B' };
       } else {
-        for (const end of [1, input.text.length]) {
+        for (const end of mode === 'overflow-total' ? Array(9).fill(input.text.length) : [1, input.text.length]) {
           const audio = new Uint8Array(mode === 'overflow' ? 34 : 4);
           yield operation === 'speakAligned' ? { audio, textEnd: fault === 'alignment' ? 2 : fault === 'alignment-backwards' ? input.text.length + 1 - end : fault === 'alignment-range' ? input.text.length + 1 : fault === 'alignment-fraction' ? 1.5 : end } : audio;
         }

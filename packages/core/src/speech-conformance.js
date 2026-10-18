@@ -8,7 +8,7 @@ export const ttsConformance = (component, request, fixtures) => speechConformanc
 
 async function speechConformance(role, component, request, { formats, prepare, requestCount, activeCount, observedMicro,
   expectedText, expectedTranscripts, playback, timeoutMs = 1000, maxMicro = 1_000_000,
-  maxTranscriptCharacters = 32_768, maxChunkBytes = TTS_MESSAGE_BYTES, maxAudioBytes = TTS_SPEAK_BYTES } = {}) {
+  maxInputChunkBytes = 64_000, maxInputBytes = 1_920_000, maxTranscriptCharacters = 32_768, maxChunkBytes = TTS_MESSAGE_BYTES, maxAudioBytes = TTS_SPEAK_BYTES } = {}) {
   const failures = [], check = (condition, rule) => { if (!condition) failures.push(`${role}: ${rule}`); };
   try { (role === 'stt' ? assertSTTComponent : assertTTSComponent)(component); }
   catch { check(false, 'capability declarations/operations'); }
@@ -16,7 +16,7 @@ async function speechConformance(role, component, request, { formats, prepare, r
     typeof component[role === 'stt' ? 'transcribe' : 'speak'] !== 'function') return { ok: false, failures };
   if (!Array.isArray(formats) || !formats.length || [prepare, requestCount, activeCount, observedMicro].some(fn => typeof fn !== 'function') ||
     !Number.isFinite(timeoutMs) || timeoutMs < 100 || !Number.isSafeInteger(maxMicro) || maxMicro < 1 ||
-    [maxTranscriptCharacters, maxChunkBytes, maxAudioBytes].some(n => !Number.isSafeInteger(n) || n < 1) ||
+    [maxInputChunkBytes, maxInputBytes, maxTranscriptCharacters, maxChunkBytes, maxAudioBytes].some(n => !Number.isSafeInteger(n) || n < 1) ||
     role === 'stt' && (typeof expectedText !== 'string' || !(request?.audio instanceof Uint8Array)) ||
     role === 'tts' && (typeof request?.text !== 'string' || !request.text.length)) {
     return { ok: false, failures: [...failures, `${role}: offline fixtures required`] };
@@ -55,7 +55,8 @@ async function speechConformance(role, component, request, { formats, prepare, r
   for (const operation of operations) {
     const modes = ['completed', 'provider-error', 'retry', ...(role === 'tts' ? ['fragment'] : []),
       'cancelled', 'deadline', 'consume-refused', 'pending-consume', 'active-cancelled', 'active-deadline',
-      ...(operation !== 'transcribe' ? ['return'] : []), 'missing-final', 'overflow', 'over-ceiling', 'report-rejected'];
+      ...(operation !== 'transcribe' ? ['return'] : []), 'missing-final', 'overflow',
+      ...(role === 'tts' ? ['overflow-total'] : ['overflow-input', ...(operation === 'stream' ? ['overflow-input-total'] : [])]), 'over-ceiling', 'report-rejected'];
     for (const mode of modes) {
       const label = `${operation}/${mode}`, abort = new AbortController(), reports = [];
       const reportError = new Error('Synthetic report rejection');
@@ -63,9 +64,13 @@ async function speechConformance(role, component, request, { formats, prepare, r
       let error, cancelTimer, reportCalls = 0, textEvents = [], successful = false;
       const input = { ...request, format: selected.encoding };
       if (mode === 'fragment') input.text = [...request.text].slice(0, Math.max(1, Math.floor([...request.text].length / 2))).join('');
+      if (mode === 'overflow-input') input.audio = new Uint8Array(maxInputChunkBytes + 2);
+      const sourceAudio = input.audio;
       if (operation === 'stream') input.audio = { [Symbol.asyncIterator]() {
-        sourceOpened = true; let sent = false;
-        return { async next() { if (sent) return { done: true }; sent = true; return { value: request.audio, done: false }; },
+        sourceOpened = true; let sent = 0;
+        const count = mode === 'overflow-input-total' ? Math.floor(maxInputBytes / maxInputChunkBytes) + 1 : 1;
+        return { async next() { if (sent++ >= count) return { done: true };
+          return { value: mode === 'overflow-input-total' ? new Uint8Array(maxInputChunkBytes) : sourceAudio, done: false }; },
           async return() { sourceReturned = true; return { done: true }; } };
       } };
       try { await bounded(() => prepare({ role, operation, mode, request: input })); }
@@ -167,7 +172,7 @@ async function speechConformance(role, component, request, { formats, prepare, r
       if (!['cancelled', 'deadline'].includes(mode)) check(consumed === 1, `${label} fresh retry/fragment claims: consumed`);
       if (['completed', 'retry', 'fragment', 'return'].includes(mode)) check(successful && !error, `${label} operation failed`);
       else {
-        check(Boolean(error), `${label} ignored ${mode === 'missing-final' ? 'transcript/synthesis finality' : mode === 'overflow' ? 'stream bounds' : mode}`);
+        check(Boolean(error), `${label} ignored ${mode === 'missing-final' ? 'transcript/synthesis finality' : mode.startsWith('overflow') ? 'stream bounds' : mode}`);
         if (error) {
           const code = ['cancelled', 'active-cancelled', 'pending-consume'].includes(mode) ? 'cancelled'
             : ['deadline', 'active-deadline'].includes(mode) ? 'deadline' : mode === 'consume-refused' ? 'not-admitted' : undefined;
