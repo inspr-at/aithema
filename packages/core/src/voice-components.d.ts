@@ -1,4 +1,4 @@
-import type { AudioFormatPort, OperationOptions, VoiceCommandOptions } from './plugin-contract.js';
+import type { AudioFormat, AudioFormatPort, OperationOptions, VoiceCommandOptions } from './plugin-contract.js';
 
 /** Separately admitted component usage, in provider units and whole USD micro-dollars. */
 export interface ComponentUsage {
@@ -27,6 +27,8 @@ export interface TTSComponentCapabilities {
   languages: readonly string[];
   /** Alignment permits a prefix only after trusted playback confirms the associated bytes. */
   heardPrefix: 'unavailable' | 'aligned';
+  /** Optional offline voice allowlist. An empty list permits no voices. */
+  voices?: readonly string[];
 }
 export interface STTRequest { audio: Uint8Array; format: string; language: string }
 export interface STTStreamRequest { audio: AsyncIterable<Uint8Array>; format: string; language?: string }
@@ -44,6 +46,8 @@ export interface STTComponent extends AudioFormatPort {
 }
 export interface TTSComponent extends AudioFormatPort {
   readonly capabilities: TTSComponentCapabilities;
+  /** Optional synchronous, offline policy for a configured voice identifier. */
+  validateVoice?(voice: string): boolean;
   /** Chunks use the negotiated encoding/rate/channels. Exhaustion must include settlement. */
   speak(request: TTSRequest, options: ComponentOperationOptions): AsyncIterable<Uint8Array>;
   /** Required for heardPrefix=aligned. Use instead of speak, with its own single claim. */
@@ -60,6 +64,31 @@ export function assertSTTComponent<T extends STTComponent>(component: T): T;
 export function assertTTSComponent<T extends TTSComponent>(component: T): T;
 /** Validates declarations, not provider behaviour or qualification. */
 export function voiceCompositionCapabilities(stt: STTComponent, tts: TTSComponent): VoiceCompositionCapabilities;
+export type VoiceCompositionErrorCode = 'composition-stt-invalid' | 'composition-tts-invalid' |
+  'composition-capture-format' | 'composition-playback-format' | 'composition-languages-invalid' |
+  'composition-languages-empty' | 'composition-voice-invalid' | 'composition-capabilities-exceeded';
+export class VoiceCompositionError extends TypeError {
+  readonly code: VoiceCompositionErrorCode;
+  constructor(code: VoiceCompositionErrorCode, message: string, options?: ErrorOptions);
+}
+export interface VoiceCompositionPreflightOptions {
+  stt: STTComponent; tts: TTSComponent;
+  capture: AudioFormat; playback: AudioFormat;
+  /** Preference set: at least one requested tag must be shared by both components. */
+  languages: readonly string[];
+  /** Nonblank opaque identifier, checked against any TTS allowlist/offline policy. */
+  voice: string;
+  /** Omit to select the shared language set and declared capability ceiling. */
+  capabilities?: VoiceCompositionCapabilities;
+}
+export interface VoiceCompositionPreflight {
+  capture: AudioFormat; playback: AudioFormat; voice: string;
+  capabilities: VoiceCompositionCapabilities;
+}
+/** Offline only. Negotiation cannot consume claims, resolve secrets or dispatch.
+ * Cancellation/deadline keep their invocation codes; negotiation defaults to 1 s. */
+export function preflightVoiceComposition(configuration: VoiceCompositionPreflightOptions,
+  options?: VoiceCommandOptions): Promise<VoiceCompositionPreflight>;
 export function assertComponentUsage<T extends ComponentUsage>(usage: T): T;
 export interface ComponentInvocation {
   readonly signal: AbortSignal;

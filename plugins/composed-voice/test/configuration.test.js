@@ -88,3 +88,20 @@ test('AIT-160: long reasoning output is synthesized in ordered fragments bounded
   assert.deepEqual(texts.map(x => x.trimEnd().length), [240, 240, 20]);
   assert.equal(texts.map(x => x.trimEnd()).join(''), answer); assert.equal(h.audio.length, 3);
 });
+
+test('AIT-328: all registered and mixed compositions preflight offline with unchanged output', async () => {
+  const args = configured(), source = args.componentOptions.elevenlabs;
+  const vendorOptions = Object.fromEntries(['elevenlabs', 'voxtral'].map(vendor => [vendor,
+    Object.fromEntries(['stt', 'tts'].map(role => [role, { ...source[role], binding: { ...source[role].binding, plugin: vendor },
+      resolveSecret() { assert.fail('preflight resolved a secret'); },
+      connect() { assert.fail('preflight opened a transport'); }, fetchImpl() { assert.fail('preflight fetched'); } }]))]));
+  for (const stt of Object.keys(vendorOptions)) for (const tts of Object.keys(vendorOptions)) {
+    const ports = configureComposedComponents({ ...args, config: { stt, tts }, componentOptions: vendorOptions });
+    const result = await ports.preflight;
+    assert.deepEqual(result.capture, { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
+    assert.deepEqual(result.playback, { encoding: tts === 'elevenlabs' ? 'pcm_s16le' : 'pcm_f32le', sampleRateHz: 24000, channels: 1 });
+    assert.equal(ports.outputFormat, result.playback.encoding);
+    assert.deepEqual(result.capabilities.languages, ['de', 'en']);
+    assert.equal(result.voice, fixtureConfig.voiceId);
+  }
+});

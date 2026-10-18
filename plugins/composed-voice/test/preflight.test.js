@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { configureComposedComponents } from '../src/configuration.js';
 import { createComposedVoice } from '../src/server.js';
-import { compositionFixture, invalidCompositions } from '../../../packages/core/test/voice-composition-preflight.test.js';
+import { compositionFixture, invalidCompositions } from '../../../packages/core/test/voice-composition-fixtures.js';
 import { fixtureBinding, fixtureConsent } from '../../elevenlabs/test/component-fixtures.js';
 
 function configured(f) {
