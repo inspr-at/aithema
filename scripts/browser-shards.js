@@ -101,6 +101,13 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 6);
 
+// AIT-349: mbp2606 committed-head run 01b1dfa8e0-87584, 3/3 PASS.
+// Physical media 1.901025334s + lifecycle 1.816452167s + interruption
+// matrix 1.559656084s = 5.277133585s; ceil(*1.25) = 7s. Keep this
+// diagnostic floor outside trusted rolling-main history; capacity is unchanged.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 7);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
