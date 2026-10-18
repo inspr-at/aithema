@@ -78,3 +78,32 @@ export const assertFits = (measurement, label) => {
   assert.ok(measurement.maxOverlapPx <= tolerancePx, `${label}: footer overlap ${JSON.stringify(measurement)}`);
 };
 
+// Shared AIT-309 legal-target measurement for the fit and held-state matrices.
+// Corners sit 1px inside each target; retain centre coverage and hit diagnostics.
+export const measureLegalLinks = c => {
+  const root = c.shadowRoot;
+  const box = node => { const b = node.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height }; };
+  const row = box(root.querySelector('.display-foot__row')), footer = box(root.querySelector('.display-foot'));
+  const viewport = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+  const inside = (b, outer) => b.left >= outer.left && b.right <= outer.right && b.top >= outer.top && b.bottom <= outer.bottom;
+  const links = [...root.querySelector('slot[name="legal"]').assignedElements()].map(link => {
+    const rect = box(link), hidden = [], clipping = [];
+    for (let node = link; node; node = node.assignedSlot ?? node.parentElement ?? node.getRootNode().host) {
+      const style = getComputedStyle(node), bounds = box(node);
+      if (node.hidden || style.display === 'none' || style.visibility !== 'visible' || Number(style.opacity) === 0) hidden.push(node.localName);
+      if (style.display === 'contents') continue;
+      if ((/hidden|clip|scroll|auto/u.test(style.overflowX) && (rect.left < bounds.left || rect.right > bounds.right)) ||
+          (/hidden|clip|scroll|auto/u.test(style.overflowY) && (rect.top < bounds.top || rect.bottom > bounds.bottom)) || style.clipPath !== 'none') clipping.push(node.localName);
+    }
+    const points = [[rect.left + 1, rect.top + 1], [rect.right - 1, rect.top + 1],
+      [rect.left + 1, rect.bottom - 1], [rect.right - 1, rect.bottom - 1], [rect.left + rect.width / 2, rect.top + rect.height / 2]];
+    return { text: link.textContent, rect, visible: link.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
+      hidden, clipping, insideRow: inside(rect, row), insideFooter: inside(rect, footer), insideViewport: inside(rect, viewport),
+      hits: points.slice(0, 4).map(([x, y]) => {
+        const describe = n => n ? { tag: n.localName, class: n.className, text: n.textContent.slice(0, 80) } : null;
+        return { document: describe(document.elementFromPoint(x, y)), shadow: describe(root.elementFromPoint(x, y)) };
+      }),
+      unobscured: points.every(([x, y]) => link.contains(document.elementFromPoint(x, y))) };
+  });
+  return { fit: root.querySelector('.display-foot').dataset.fit, row, footer, viewport, links };
+};

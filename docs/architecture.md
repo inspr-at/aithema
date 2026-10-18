@@ -177,7 +177,7 @@ they are not test coverage switches.
 | `test/browser-matrix-coverage.test.js` | `process.env` ×2 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/browser/admin-pages.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/audio-replay.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/compact-footer-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-309 evidence records the PR head from the GitHub event rather than the synthetic merge SHA |
+| `test/browser/compact-footer-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-301/309 footer evidence identifies the PR head from the GitHub event payload |
 | `test/browser/composed-media.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/composed-qualification.test.js` | `CI` ×3 | Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe |
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
