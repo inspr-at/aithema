@@ -55,6 +55,7 @@ export async function creditsFirstReceiptCheck(t) {
       return original(url, init);
     };
   });
+  await page.setViewport({ width: 320, height: 844 });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.documentElement.hasAttribute('data-host-ready'));
   await shadow(page, c => { window.ait357Base = structuredClone(c.session); });
@@ -67,12 +68,12 @@ export async function creditsFirstReceiptCheck(t) {
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
     shots.push({ file, head, viewport: true, reducedMotion: true, blurred: true });
   };
-  for (const width of [320, 390, 1024, 1440]) for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+  for (const width of [320, 390, 1024, 1440]) for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const limitMicro of [100_000_000, 24_000_000, 980_000]) {
     await page.setViewport({ width, height: 844 });
-    await shadow(page, async (c, { locale, theme }) => {
+    await shadow(page, async (c, { width, locale, theme, limitMicro }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = structuredClone(window.ait357Base); session.locale = locale;
-      window.ait357 = { limitMicro: 100_000_000 };
+      window.ait357 = { limitMicro };
       c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
@@ -80,18 +81,31 @@ export async function creditsFirstReceiptCheck(t) {
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme; c.setAttribute('theme', theme);
       document.querySelector('#locale').value = locale; document.querySelector('#theme').value = theme;
       const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
-    }, { locale, theme });
+      const { paintLicenseLabel } = await import('/demo/license-label.js');
+      // The fixture changes locale without the demo's new-session flow. Paint
+      // its host-owned legal labels with the same full/short copy as the demo.
+      for (const [id, full, short] of [['demo-license', copy.host.slots.license, copy.host.slots.licenseShort],
+        ['demo-legal-source', copy.host.slots.legalSource, copy.host.slots.legalSourceShort]]) {
+        const link = document.getElementById(id); link.setAttribute('aria-label', full); link.title = full;
+        if (width < 600) {
+          const label = document.createElement('span'); label.className = 'demo-legal-short'; label.textContent = short; link.replaceChildren(label);
+        } else if (id === 'demo-license') paintLicenseLabel(link, full); else link.textContent = full;
+      }
+    }, { width, locale, theme, limitMicro });
     await until(page, () => window.ait357.requested);
     await settle(page);
-    const before = await measure(page), label = `${width}/${locale}/${theme}`;
+    const before = await measure(page), label = `${width}/${locale}/${theme}/${limitMicro / 10_000}`;
     assert.equal(before.value, '…', `${label}: receipt held pending`);
-    if (locale === 'de' && theme === 'light' && width < 400) await capture(width, 'before');
+    if (locale === 'de' && theme === 'light' && width < 400 && limitMicro === 24_000_000) await capture(width, 'before');
+    const target = before.rects['.host-credits__button'];
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
+    await settle(page);
     await page.evaluate(() => window.ait357.release());
-    await until(page, locale => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent === new Intl.NumberFormat(locale).format(10_000), locale);
+    await until(page, ({ locale, limitMicro }) => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent === new Intl.NumberFormat(locale).format(limitMicro / 10_000), { locale, limitMicro });
     await settle(page);
     const after = await measure(page);
-    if (locale === 'de' && theme === 'light' && width < 400) await capture(width, 'after');
-    checks.push({ width, locale, theme, before, after });
+    if (locale === 'de' && theme === 'light' && width < 400 && limitMicro === 24_000_000) await capture(width, 'after');
+    checks.push({ width, locale, theme, limitMicro, before, after, maxMovementPx: Math.max(...Object.keys(before.rects).flatMap(s => Object.keys(before.rects[s]).map(k => Math.abs(after.rects[s][k] - before.rects[s][k])))) });
     // Exact rectangles, including width/height: no tolerance can hide a refit.
     assert.deepEqual(after.rects, before.rects, `${label}: first receipt moves credits or neighbours (0px required)`);
     assert.deepEqual(after.legal, before.legal, `${label}: first receipt moves legal neighbours`);
@@ -101,6 +115,22 @@ export async function creditsFirstReceiptCheck(t) {
     if (width === 320) assert.equal(before.gap, '0px', '320px exercises gap:0');
     t.diagnostic(`AIT-357 ${label}: credits and all footer neighbours move exactly 0px`);
   }
+  // Above the envelope, the slot must grow naturally so the existing footer
+  // fitter can respond; fixed width, clipping and ellipsis are not substitutes.
+  const prior = await measure(page);
+  await shadow(page, c => {
+    window.ait357 = { limitMicro: 10_000_000_000 };
+    c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  });
+  await until(page, () => window.ait357.requested);
+  await page.evaluate(() => window.ait357.release());
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent === '1,000,000');
+  await settle(page);
+  const beyondMaximum = await measure(page);
+  assert.ok(beyondMaximum.rects['.host-credits__amount'].width > prior.rects['.host-credits__amount'].width, 'beyond maximum grows naturally');
+  assert.equal(beyondMaximum.reserved, '1,000,000');
+  const { measureFooterGeometry, assertFits } = await import('./footer-geometry.js');
+  assertFits(await shadow(page, measureFooterGeometry), 'above maximum keeps the existing compact/refit rules');
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'ait357-checks.json'), JSON.stringify({ head, checks, shots }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait357-checks.json'), JSON.stringify({ head, checks, beyondMaximum, shots }, null, 2));
 }
