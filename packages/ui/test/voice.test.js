@@ -1314,6 +1314,7 @@ for (const copy of [de, en]) for (const ledgerFirst of [false, true]) {
     assert.equal(status.textContent, copy.voiceEndedAithemaMeasured);
     assert.match(status.textContent, copy === de ? /von Aithema gemessen/ : /measured by Aithema/);
     assert.equal(status.querySelector('.consent-narrow').dataset.copy, copy.voiceEndedAithemaMeasuredNarrow);
+    assert.ok([...copy.voiceEndedAithemaMeasuredNarrow].length <= 22, 'keep the existing compact status bound');
     assert.doesNotMatch(status.textContent, /provider.confirmed|anbieterbestätigt/i);
     assert.equal(root.querySelectorAll('.voice-state').length, 1, 'reuse the existing charge status');
   });

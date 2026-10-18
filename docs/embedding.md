@@ -1583,6 +1583,9 @@ confirms this duration. Parent upstream cost stays zero, with
 confirming the parent neither confirms nor releases child spend.
 Decision 3's “estimated until a receipt” applies to that upstream money.
 
+The duration policy wording lives in the ElevenLabs manifest’s
+`liveVoice.billing.visitor`; the composed manifest now states “Active call
+duration measured by Aithema, excluding server-acknowledged pauses.”
 The shared visitor charge status lives in `packages/ui/src/audio-rail.js`, using
 `voiceClosureUncertain` / `voiceEnded` from the DE/EN bundles for the ElevenLabs
 path. Composed provenance selects `voiceEndedAithemaMeasured` in that same status:
