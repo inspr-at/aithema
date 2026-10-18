@@ -302,6 +302,8 @@ test('AIT-358: messages cannot request Reload; replacement and disconnect retire
   pending[0].resolve(await source().mint()); await settle();
   assert.equal(root.querySelector('iframe'), current, 'stale reload cannot replace a new revision');
   calls = 0; await render(element, value); button.click(); await settle(); element.remove();
+  // Detached test documents do not deliver custom-element disconnect callbacks.
+  element.disconnectedCallback();
   assert.equal(pending[1].signal.aborted, true);
   pending[1].resolve(await source().mint()); await settle(); assert.equal(root.querySelector('iframe'), null);
   const policy = setup(testDocument()); policy.artifact = { ...source(), previewURL: undefined };
