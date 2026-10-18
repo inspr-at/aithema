@@ -7,7 +7,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, create
 import { ownedRequest, temporaryDb, unzip } from '../../../test/helpers.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 10000 }, fn);
-async function setup(t, { intercept, uiRenderLimits, both = false, path = ':memory:', consent = createMemoryConsentLedger(), understanding, htmlBinding = localHTMLBinding, ownership, concepts = {} } = {}) {
+async function setup(t, { intercept, uiRenderLimits, both = false, path = ':memory:', consent = createMemoryConsentLedger(), understanding, htmlBinding = localHTMLBinding, ownership, concepts = {}, log } = {}) {
   const storage = new SQLiteStorage(path), reasoning = createMockReasoning(), html = createLocalHTML(), presets = mockPresets();
   presets.best.plugins.push('fake-html'); presets.best.bindings.html = htmlBinding;
   presets.best.policy = { endpoints: [htmlBinding.endpoint] };
@@ -29,7 +29,7 @@ async function setup(t, { intercept, uiRenderLimits, both = false, path = ':memo
       generate: (spec, feedback, options) => render('generate', undefined, spec, feedback, options),
       edit: (previous, spec, feedback, options) => render('edit', previous, spec, feedback, options) } };
   };
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, ownership,
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, ownership, log,
     concepts: { previewURL: 'http://localhost/_aithema/html-preview', ...concepts } });
   t.after(async () => { await handlers.close(); storage.close(); });
   const created = await handlers.handle(ownedRequest('http://localhost/api/sessions', { method: 'POST', headers: { cookie: 'owner=test-visitor' }, body: '{"locale":"de"}' }));
@@ -326,7 +326,6 @@ for (const enabled of [true, false]) for (const reason of ['purpose', 'session']
   });
 }
 
-
 const previewPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
   "img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; " +
   "object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors http://localhost";
@@ -378,8 +377,8 @@ for (const adapter of ['header', 'cookie']) test(`AIT-352: ${adapter} owner mint
 });
 
 test('AIT-352: preview never consults ownership cookies or headers, redirects, writes cookies, or logs capabilities', async t => {
-  let consults = 0;
-  const h = await setup(t, { ownership: { token: request => { consults++; return request.headers.get('x-aithema-session-token'); },
+  let consults = 0; const logs = [];
+  const h = await setup(t, { log: record => logs.push(record), ownership: { token: request => { consults++; return request.headers.get('x-aithema-session-token'); },
     created: response => response.headers.set('set-cookie', 'owner=test-visitor') } });
   await h.turn('first'); const item = await h.render(), url = await mintPreview(h, item.id), before = consults;
   for (const suffix of ['', '?cap=invalid', '?cap=invalid&cap=invalid']) {
@@ -388,6 +387,8 @@ test('AIT-352: preview never consults ownership cookies or headers, redirects, w
   }
   assert.equal((await previewGet(h, url, { headers: { cookie: 'owner=other-owner' } })).status, 200);
   assert.equal(consults, before, 'capability route must bypass owner adapters entirely');
+  assert.doesNotMatch(JSON.stringify(logs), /cap=|html-preview\?/u);
+  assert.ok(!JSON.stringify(logs).includes(new URL(url).searchParams.get('cap')));
 });
 
 for (const action of ['withdraw', 'consent', 'erase', 'publication', 'owner', 'digest']) test(`AIT-352: ${action} change between mint and redemption invalidates the capability`, async t => {
@@ -396,7 +397,7 @@ for (const action of ['withdraw', 'consent', 'erase', 'publication', 'owner', 'd
   if (action === 'consent') await h.call('consent', { granted: false });
   if (action === 'erase') await h.call('erase', {});
   if (action === 'publication') h.runtime.publicationAllowed = async () => false;
-  if (action === 'owner') h.storage.db.prepare('UPDATE sessions SET owner_hash=? WHERE id=?').run('0'.repeat(64), h.id);
+  if (action === 'owner') h.storage.db.prepare("UPDATE sessions SET snapshot=json_set(snapshot,'$.ownerHash',?) WHERE id=?").run('0'.repeat(64), h.id);
   if (action === 'digest') h.storage.db.prepare('UPDATE concept_artifacts SET bytes=? WHERE id=?').run(Buffer.from('changed'), item.id);
   const response = await previewGet(h, url); assert.ok([403, 404].includes(response.status)); assertPreviewDenial(response, response.status);
   assertPreviewDenial(await previewGet(h, url));
@@ -423,6 +424,11 @@ test('AIT-352: expiry, restart and scope mismatch fail closed', async t => {
     consentRevision: h.storage.get(h.id).consentRevision, contentDigest: item.provenance.subject.contentDigest };
   const mismatch = registry.mint(scope);
   assertPreviewDenial(await previewGet(h, `/_aithema/html-preview?cap=${mismatch}`), 404);
+  const foreign = h.storage.create();
+  const wrongSession = registry.mint({ ...scope, sessionId: foreign.id, ownerHash: foreign.ownerHash, consentRevision: foreign.consentRevision });
+  assertPreviewDenial(await previewGet(h, `/_aithema/html-preview?cap=${wrongSession}`), 404);
+  const wrongDigest = registry.mint({ ...scope, artifactId: item.id, contentDigest: 'mismatched' });
+  assertPreviewDenial(await previewGet(h, `/_aithema/html-preview?cap=${wrongDigest}`));
   const fresh = createHTMLPreviewCapabilities(); assert.equal(fresh.redeem(registry.mint(scope)), null);
 });
 
@@ -433,4 +439,41 @@ test('AIT-352: authorization and artifact erasure are rechecked after held publi
   const pending = previewGet(h, url); await began;
   h.storage.erase(h.id); release();
   const response = await pending; assertPreviewDenial(response, 404);
+});
+
+test('AIT-352: no configured public URL fails closed; mint is POST-only', async t => {
+  const h = await setup(t, { concepts: { previewURL: undefined } }); await h.turn('first'); const item = await h.render();
+  assert.equal((await h.call(`concepts/${item.id}/preview`, {})).status, 403);
+  assertPreviewDenial(await previewGet(h, '/_aithema/html-preview?cap=' + 'x'.repeat(43)));
+  assert.equal((await h.call(`concepts/${item.id}/preview`)).status, 405);
+});
+
+test('AIT-352: configured public URL controls frame-ancestors behind the internal HTTP adapter', async t => {
+  const h = await setup(t, { concepts: { previewURL: 'https://start.example.test/_aithema/html-preview' } });
+  await h.turn('first'); const item = await h.render();
+  assert.equal((await h.call('concepts/missing/preview', {})).status, 404);
+  assert.equal((await h.call(`concepts/${item.id}/preview`)).status, 405);
+  const minted = await (await h.call(`concepts/${item.id}/preview`, {})).json();
+  assert.ok(minted.url.startsWith('https://start.example.test/_aithema/html-preview?cap='));
+  const response = await previewGet(h, minted.url);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-security-policy'), previewPolicy.replace('frame-ancestors http://localhost',
+    'frame-ancestors https://start.example.test'));
+});
+
+test('AIT-352: mint rechecks erasure after asynchronous publication eligibility', async t => {
+  const h = await setup(t); await h.turn('first'); const item = await h.render();
+  let release, started; const held = new Promise(r => { release = r; }), began = new Promise(r => { started = r; });
+  t.after(() => release()); h.runtime.publicationAllowed = async () => { started(); await held; return true; };
+  const pending = h.call(`concepts/${item.id}/preview`, {}); await began;
+  h.storage.erase(h.id); release(); assert.equal((await pending).status, 404);
+});
+
+test('AIT-352: inspectHTML still rejects digest-valid unsafe bytes at mint', async t => {
+  const h = await setup(t); await h.turn('first'); const item = await h.render();
+  const bytes = Buffer.from('<!doctype html><html><head></head><body><script>fetch("/escape")</script></body></html>');
+  const row = h.storage.db.prepare('SELECT metadata FROM concept_artifacts WHERE id=?').get(item.id), metadata = JSON.parse(row.metadata);
+  metadata.provenance.subject.contentDigest = `sha-256=:${createHash('sha256').update(bytes).digest('base64')}:`;
+  h.storage.db.prepare('UPDATE concept_artifacts SET bytes=?,metadata=? WHERE id=?').run(bytes, JSON.stringify(metadata), item.id);
+  assert.equal((await h.call(`concepts/${item.id}/preview`, {})).status, 403);
 });

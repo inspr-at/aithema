@@ -4,6 +4,28 @@
 import { IPTC_DIGITAL_SOURCE } from './ui-generation.js';
 export const HTML_MEDIA_TYPE = 'text/html';
 export const HTML_PREVIEW_HOST_CSP = "frame-src 'none'; child-src 'none'";
+export const HTML_PREVIEW_PATH = '/_aithema/html-preview';
+/** Merge into the host's complete enforced CSP; keep its strict script policy.
+ * This replaces the legacy frame/child directives only for hosts using the route.
+ * Use the configured canonical absolute URL, without a query or trailing slash.
+ */
+export function htmlPreviewHostPolicy(previewURL) {
+  let url;
+  try { url = new URL(previewURL); } catch { throw new TypeError('Invalid preview URL'); }
+  if (typeof previewURL !== 'string' || url.href !== previewURL || !['http:', 'https:'].includes(url.protocol) ||
+    url.username || url.password || url.search || url.hash || url.pathname !== HTML_PREVIEW_PATH ||
+    !/^[a-z0-9.\[\]:-]+$/iu.test(url.hostname)) throw new TypeError('Invalid preview URL');
+  return `frame-src ${url.href}; child-src 'none'`;
+}
+export const HTML_PREVIEW_READY = 'aithema-html-preview-ready';
+// Install before generated scripts can run. This private-port reply proves display
+// readiness, not policy enforcement. The response CSP supplies the opaque sandbox.
+const READY_SCRIPT = `<script>addEventListener('message',event=>{if(event.source===parent&&event.data==='${HTML_PREVIEW_READY}'&&event.ports[0]){event.ports[0].postMessage('${HTML_PREVIEW_READY}');event.ports[0].close();}});</script>`;
+/** Served preview only. Raw downloads and standalone frameDocument exports do not use this bootstrap. */
+export function previewDocument(html) {
+  return frameDocument(html).replace('<meta name="referrer" content="no-referrer">',
+    `<meta name="referrer" content="no-referrer">${READY_SCRIPT}`);
+}
 export const MAX_HTML_BYTES = 512 * 1024;
 export const HTML_PREVIEW_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
   "img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
