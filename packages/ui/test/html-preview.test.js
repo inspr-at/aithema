@@ -384,8 +384,9 @@ test('a replaced pre-load timer cannot discard a newer generation', async t => {
 });
 
 test('AIT-353: localized visitor copy, operator guidance and a persistent decorative alert slot', async () => {
-  assert.equal(de.conceptPreview.failure, 'Der Entwurf konnte nicht geladen werden. Schließen Sie die Vorschau und öffnen Sie sie später erneut.');
-  assert.equal(en.conceptPreview.failure, 'The draft could not be loaded. Close the preview and reopen it later.');
+  assert.equal(de.conceptPreview.failure, 'Der Entwurf konnte nicht geladen werden.');
+  assert.equal(en.conceptPreview.failure, 'The draft could not be loaded.');
+  assert.equal(de.conceptPreview.reload, 'Neu laden'); assert.equal(en.conceptPreview.reload, 'Reload');
   assert.equal(de.conceptPreview.label, 'Entwurf, generiert');
   assert.equal(en.conceptPreview.label, 'Draft, generated');
   assert.equal(de.conceptPreview.policy, 'Die Vorschau ist auf dieser Website nicht freigeschaltet.');

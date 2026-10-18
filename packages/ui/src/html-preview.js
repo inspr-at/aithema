@@ -53,7 +53,7 @@ const PERMISSIONS = ['camera', 'microphone', 'geolocation', 'display-capture', '
 export const previewCopy = Object.freeze({ label: 'Draft, generated', title: 'Generated clickable draft', width: 'Preview width',
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
   navigated: 'The draft tried to open another page and was stopped.',
-  loading: 'Loading draft…', failure: 'The draft could not be loaded. Close the preview and reopen it later.',
+  loading: 'Loading draft…', failure: 'The draft could not be loaded.', reload: 'Reload',
   policy: "Previews aren't enabled on this site.",
   policyOperator: 'For site operators: the exact preview address must be allowed as a frame.' });
 const MESSAGE_STATES = ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy'];
@@ -90,6 +90,10 @@ iframe:focus-visible { outline:2px solid var(--aithema-accent,#1d6e6a); outline-
 .state-text > *, .state-operator > * { grid-area:1/1; }
 .state-sizer { visibility:hidden; } .state-sizer::before { content:attr(data-reserve); }
 .state-operator { font-size:.85rem; visibility:hidden; }
+.reload { visibility:hidden; font:inherit; font-size:.85rem; font-weight:600; color:var(--aithema-accent,#1d6e6a);
+  background:transparent; border:0; border-radius:0; padding:.5rem .85rem; min-height:2.75rem; cursor:pointer; }
+.reload:hover:not(:disabled) { text-decoration:underline; text-underline-offset:.2em; }
+.reload:disabled { color:var(--aithema-muted,#566669); cursor:default; }
 :host([state="ready"]) .state { visibility:hidden; pointer-events:none; }
 :host([state="failure"]) .state-icon, :host([state="policy"]) .state-operator { visibility:visible; }
 /* fill: the stage takes whatever height the host gives the element, e.g. a viewer row. */
@@ -101,16 +105,22 @@ const DRAFT_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l1
 const ALERT_ICON = '<svg class="state-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 18 17H2z M10 7v4.5 M10 14v.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 export class AithemaHTMLPreview extends HTMLElement {
   #copy = previewCopy; #artifact = null; #width = 'wide'; #frame = null; #frameFocused = false; #renderId = 0; #refocus = false;
-  #frameCleanup = null; #mintAbort = null;
+  #frameCleanup = null; #mintAbort = null; #reloading = false;
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open', delegatesFocus: true });
     root.innerHTML = `<style>${styles}</style><div class="bar"><span class="label">${DRAFT_ICON}<span class="label-text"></span></span>
       <div class="seg" role="radiogroup"><button type="button" role="radio" data-width="wide"></button><button type="button" role="radio" data-width="phone"></button></div></div>
-      <div class="stage"><div class="state" role="status"><div class="state-content">${ALERT_ICON}
+      <div class="stage"><div class="state" role="status" aria-live="polite" tabindex="-1"><div class="state-content">${ALERT_ICON}
         <div class="state-text"><span class="state-message"></span>${MESSAGE_STATES.map(state => `<span class="state-sizer" data-state="${state}" aria-hidden="true"></span>`).join('')}</div>
         <div class="state-operator"><span class="operator-message"></span><span class="state-sizer" aria-hidden="true"></span></div>
+        <button class="reload" type="button" disabled aria-hidden="true"></button>
       </div></div></div>`;
+    root.querySelector('.reload').addEventListener('click', () => {
+      // Only the parent's explicit action reopens the single-use source. Draft
+      // messages and frame navigation never enter this path.
+      if (this.state === 'failure' && this.isConnected) this.#render(true);
+    });
     const seg = root.querySelector('.seg');
     seg.addEventListener('click', event => { const button = event.target.closest('button'); if (button) this.width = button.dataset.width; });
     seg.addEventListener('keydown', event => {
@@ -144,6 +154,7 @@ export class AithemaHTMLPreview extends HTMLElement {
     root.querySelector('.stage').dataset.width = this.#width;
     for (const sizer of root.querySelectorAll('.state-text .state-sizer')) sizer.dataset.reserve = this.#copy[sizer.dataset.state];
     root.querySelector('.state-operator .state-sizer').dataset.reserve = this.#copy.policyOperator;
+    root.querySelector('.reload').textContent = this.#copy.reload;
     this.#frame?.setAttribute('title', this.#copy.title);
   }
   #show(state) {
@@ -152,6 +163,10 @@ export class AithemaHTMLPreview extends HTMLElement {
     message.setAttribute('aria-hidden', String(state === 'ready'));
     message.querySelector('.state-message').textContent = state === 'ready' ? '' : this.#copy[state];
     message.querySelector('.operator-message').textContent = state === 'policy' ? this.#copy.policyOperator : '';
+    const reload = this.shadowRoot.querySelector('.reload');
+    const visible = state === 'failure' || state === 'loading' && this.#reloading;
+    reload.style.visibility = visible ? 'visible' : 'hidden';
+    reload.setAttribute('aria-hidden', String(!visible)); reload.disabled = state !== 'failure';
   }
   #discard() {
     this.#mintAbort?.abort(); this.#mintAbort = null;
@@ -159,10 +174,16 @@ export class AithemaHTMLPreview extends HTMLElement {
     this.#frameCleanup?.(); this.#frameCleanup = null;
     this.#frame?.remove(); this.#frame = null; this.#frameFocused = false; return hadFocus;
   }
-  #render() {
+  #render(reload = false) {
     const value = this.#artifact, renderId = ++this.#renderId;
+    this.#reloading = reload;
     this.#refocus = this.#discard() || this.#refocus;
-    const reject = state => { this.#show(state); if (this.#refocus) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus(); this.#refocus = false; };
+    const reject = state => {
+      this.#show(state);
+      if (reload) this.shadowRoot.querySelector('.state').focus();
+      else if (this.#refocus) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
+      this.#refocus = false;
+    };
     if (!value) return reject('empty');
     let previewURL;
     try {
@@ -171,7 +192,8 @@ export class AithemaHTMLPreview extends HTMLElement {
       if (new URL(previewURL).origin !== new URL(this.ownerDocument.URL).origin) throw new Error();
     } catch { return reject('policy'); }
     if (value.mediaType !== HTML_MEDIA_TYPE || typeof value.mint !== 'function') return reject('invalid');
-    this.#show('policy');
+    this.#show(reload ? 'loading' : 'policy');
+    if (reload) this.shadowRoot.querySelector('.state').focus();
     if (!this.isConnected) return;
     const active = () => renderId === this.#renderId && this.isConnected;
     void (async () => {
@@ -185,7 +207,7 @@ export class AithemaHTMLPreview extends HTMLElement {
         if (url.origin + url.pathname !== previewURL || url.hash || url.username || url.password ||
           [...url.searchParams.keys()].join() !== 'cap' || !/^[A-Za-z0-9_-]{43}$/u.test(url.searchParams.get('cap')) ||
           !Number.isFinite(source.expiresInMs) || source.expiresInMs <= 0 || source.expiresInMs > 60_000) throw new Error();
-        const hadFocus = this.#refocus; this.#refocus = false; this.#mintAbort = null;
+        const hadFocus = this.#refocus || reload; this.#refocus = false; this.#mintAbort = null;
         this.#mount(url.href, hadFocus, source.expiresInMs);
       } catch { if (active() && !controller.signal.aborted) reject('failure'); }
     })();
