@@ -1225,9 +1225,14 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
     c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
   });
   page.failSettingsSave = true;
-  await page.locator('aithema-session >>> .settings-open').click();
-  await page.locator('aithema-session >>> [data-select="model"] .select__button').click();
-  await page.locator('aithema-session >>> [data-select="model"] [data-value="mock/deep"]').click();
+  await shadow(page, c => c.shadowRoot.querySelector('.settings-open').click());
+  t.diagnostic('round 3: Settings opened');
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] [data-value="mock/deep"]'));
+  await shadow(page, c => {
+    const r = c.shadowRoot; r.querySelector('[data-select="model"] .select__button').click();
+    r.querySelector('[data-select="model"] [data-value="mock/deep"]').click();
+  });
+  t.diagnostic('round 3: model changed');
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed');
   assert.equal(page.failedSettingsSaves, 1, 'a real settings save failed before the editor opens');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.save-retry').checkVisibility()), true);
