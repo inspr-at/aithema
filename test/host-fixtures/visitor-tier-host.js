@@ -68,7 +68,9 @@ export function createVisitorTierHost({ path = ':memory:', operatorProvider, pub
     const balance = () => atomic(readBalance);
     const canAdmit = request => {
       const current = balance();
-      return integer(request?.maxMicro) && current.limitMicro > 0 && request.maxMicro <= current.limitMicro - current.committedMicro;
+      // A zero-extra extension creates no new owner exposure, even after a policy cut.
+      return integer(request?.maxMicro) && (request.maxMicro === 0 ||
+        current.limitMicro > 0 && request.maxMicro <= current.limitMicro - current.committedMicro);
     };
     return { balance, canAdmit,
       admit(request) {
@@ -92,7 +94,23 @@ export function createVisitorTierHost({ path = ':memory:', operatorProvider, pub
       release({ attemptId }) { db.prepare('UPDATE host_tier_holds SET released=1 WHERE attempt_id=? AND owner_hash=?').run(attemptId, ownerHash); },
     };
   }
-  const host = { wallet: ownerToken => walletForHash(hash(ownerToken)),
+  function eraseOwner(ownerHash) {
+    storage.transaction(() => {
+      db.prepare('DELETE FROM host_tier_holds WHERE owner_hash=?').run(ownerHash);
+      db.prepare('DELETE FROM host_visitor_tiers WHERE owner_hash=?').run(ownerHash);
+    });
+  }
+  function eraseSessionHolds({ sessionId }) {
+    // The admission fingerprint's first field is the session id. Session hooks
+    // preserve the visitor tier and every sibling's active or released holds.
+    db.prepare(`DELETE FROM host_tier_holds
+      WHERE CASE WHEN json_valid(fingerprint) THEN json_extract(fingerprint,'$[0]') END=?`).run(sessionId);
+  }
+  const host = {
+    erased: eraseSessionHolds,
+    retired: eraseSessionHolds,
+    eraseVisitorForOwnerHash: eraseOwner,
+    wallet: ownerToken => walletForHash(hash(ownerToken)),
     walletForSession: session => walletForHash(session.ownerHash), creditTiers, credits: { ownerGuard: true }, privacyDocumentConfigured };
   const consent = { coverage: () => ({ covered: false }) }; // offline fixture never authorizes a provider
   const pluginRuntime = createPluginRuntime({ storage, budget, consent });
@@ -105,8 +123,6 @@ export function createVisitorTierHost({ path = ':memory:', operatorProvider, pub
     revision: row.revision, at: row.at, actor: JSON.parse(row.actor_json),
     oldValues: JSON.parse(row.old_json), newValues: JSON.parse(row.new_json) }));
   function save(input, operator) {
-    if (!exact(input, ['baseRevision', 'allowancesMicro']) || !integer(input.baseRevision) || !input.baseRevision) throw new TypeError('Invalid settings');
-    validateAllowances(input.allowancesMicro);
     return storage.transaction(() => {
       const before = settings();
       if (before.revision !== input.baseRevision) throw Object.assign(new Error('stale-settings'), { status: 409, current: before });
@@ -123,7 +139,10 @@ export function createVisitorTierHost({ path = ':memory:', operatorProvider, pub
     const path = new URL(request.url).pathname;
     if (!['/host/admin/tiers', '/host/admin/tier-audit'].includes(path)) return null;
     if (!operatorSessions?.session(request)) return json({ error: 'operator-session' }, 401);
-    if (request.method === 'GET') return json(path.endsWith('tier-audit') ? audit() : settings());
+    if (request.method === 'GET') {
+      try { return json(path.endsWith('tier-audit') ? audit() : settings()); }
+      catch { return json({ error: 'settings-unavailable' }, 503); }
+    }
     if (request.method !== 'POST' || path.endsWith('tier-audit')) return json({ error: 'method-not-allowed' }, 405);
     if (request.headers.get('origin') !== publicOrigin || request.headers.get('sec-fetch-site') === 'cross-site') return json({ error: 'cross-origin' }, 403);
     if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return json({ error: 'content-type' }, 415);
@@ -134,18 +153,22 @@ export function createVisitorTierHost({ path = ':memory:', operatorProvider, pub
         if (bytes > 16_384) return json({ error: 'body-too-large' }, 413);
         chunks.push(chunk);
       }
-      const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      let input;
+      try {
+        input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!exact(input, ['baseRevision', 'allowancesMicro']) || !integer(input.baseRevision) || !input.baseRevision) return json({ error: 'invalid-settings' }, 400);
+        validateAllowances(input.allowancesMicro);
+      } catch { return json({ error: 'invalid-settings' }, 400); }
       // Recheck after asynchronous input: revocation/expiry must win before save.
       const operator = operatorSessions.session(request);
       if (!operator) return json({ error: 'operator-session' }, 401);
       return json(save(input, operator));
     } catch (error) {
       if (error.status === 409) return json({ error: 'stale-settings', current: error.current }, 409);
-      if (error instanceof TypeError || error instanceof SyntaxError) return json({ error: 'invalid-settings' }, 400);
       return json({ error: 'settings-unavailable' }, 503);
     }
   }
-  return { storage, budget, host, settings, operatorSessions,
+  return { storage, budget, host, settings, operatorSessions, handlers,
     // Trusted identity evidence callback, deliberately absent from HTTP routes.
     // The fixture records only a tier; a real host owns address/confirmation evidence.
     recordTrustedTier(ownerToken, tier) {

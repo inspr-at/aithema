@@ -127,6 +127,7 @@ The reference combines these responsibilities:
 | Trusted operator login and revocable session | `createOperatorSessions`, `createSQLiteOperatorStore`; core `OperatorSessionPort` / `OperatorIdentityProvider` contracts |
 | Current owner allowance and durable admission holds | core `OwnerWalletPort` behavior, checked by `ownerWalletConformance` |
 | Per-conversation reservations, settlement and voice extension | `SQLiteBudgetLedger`, core `admitCredits` |
+| Erasure of host visitor-tier records and admission holds | `host.erased`, `host.retired`, `host.eraseVisitorForOwnerHash`; privileged `handlers.eraseSession` |
 | Visitor credit projection and runtime wallet binding | `createHandlers({ host, pluginRuntime })`, `host.wallet`, `host.walletForSession`, `host.creditTiers` |
 
 ### Settings, revisions and administrator identity
@@ -174,7 +175,9 @@ update the complete record with revision + 1, then insert immutable old/new
 JSON, revision, host timestamp and trusted actor into the audit table. An audit
 insert failure rolls back the settings update too. A competing or repeated old
 revision returns 409 `{ error: 'stale-settings', current }` without another audit
-entry. On 409, reload and let the administrator reconsider their edit. After an
+entry. Invalid request JSON or settings return 400 `invalid-settings`; corrupt
+stored records, revision overflow and storage/audit failures return 503
+`settings-unavailable`, including failed reads. On 409, reload and let the administrator reconsider their edit. After an
 uncertain response, read current settings/audit before retrying; replaying the
 old revision cannot apply a second write. The initial default record has no
 administrator change entry; subsequent changes have exactly one entry each.
@@ -200,6 +203,42 @@ if (response.status === 409) {
 The browser supplies its same-origin `Origin` header. The host serves admin
 responses with `Cache-Control: no-store` and `Vary: Cookie`. Host-owned HTML,
 access policy and routing must preserve those authorization and CSRF checks.
+
+### Visitor-tier erasure is a host duty (AIT-322)
+
+Session erasure and visitor deletion have different scopes. The reference keys
+visitor tiers by `owner_hash` (SHA-256 of the owner token, equal to
+`session.ownerHash`) and holds by the session ID in each admission fingerprint.
+Both active and released holds contain `attempt_id` keys and request/binding
+fingerprints; these are visitor data, not anonymous audit counts.
+
+| Trigger | Host rows deleted | Host visitor data retained |
+| --- | --- | --- |
+| Public session erase or `handlers.eraseSession({ sessionId })` → `host.erased({ sessionId, ownerToken })` | Only that session's holds | Visitor tier and other sessions' holds |
+| Idle-session retirement, retirement after expiry, or sweep after direct `storage.erase` → `host.retired({ sessionId, ownerHash })` | Only that session's holds | Visitor tier and other sessions' holds, even when the last session retires |
+| Visitor deletion → `host.eraseVisitorForOwnerHash(ownerHash)`, including `handlers.eraseSession({ sessionId, visitor: true })` | Visitor tier and all that owner's holds, active or released, across conversations | No tier or holds for that visitor; other owners' rows remain |
+| `storage.expire` or `handlers.expire` alone | No tier or hold rows; only old turns/uploads are withdrawn | Tier and all holds until session erasure/retirement or visitor deletion |
+
+The session hooks use `sessionId` without needing an owner token, which may be
+omitted during privileged erasure. Deleting a sibling's active, unjournalled
+hold would reduce `reservedMicro` and admit work beyond the owner's limit.
+Visitor deletion removes the tier and all owner holds in one idempotent host
+transaction. Neither scope changes the module's accounting.
+
+The [host retention contract](#host-retention-contract) defines retirement per
+session and leaves visitor identity/accounts under the host's visitor-retention
+policy. It does not make retirement of the last session a visitor deletion.
+The reference therefore retains the tier until explicit visitor deletion.
+Direct storage erasure does not invoke host hooks itself; run the retirement
+sweep to finish that session's host cleanup.
+
+Keep global tier settings and the administrator settings-change audit, which
+contain no visitor keys or tier evidence. After visitor deletion, only aggregated,
+non-identifying visitor audit counts may remain: never retain owner/session/attempt
+identifiers, tokens or fingerprints as aggregates. The module's permitted
+accounting totals and deferred settlement follow the retention contract below;
+host cleanup does not reset that ledger or confirm provider deletion. A new
+visitor token starts with the anonymous allowance and no prior tier or holds.
 
 ### Current policy, owner admission and nextTier
 
@@ -271,7 +310,9 @@ authoritative dispatch evidence; the reference conservatively retains them.
 
 For ongoing voice, the runtime calls
 `budget.extendVoice(attemptId, totalMaxima, extra => wallet.canAdmit(extra))`.
-The callback receives **additional** maxima, not total cost. It must read live
+The callback receives **additional** maxima, not total cost. A zero-extra
+extension remains allowed when the owner is over limit or the allowance is zero:
+it adds no exposure. Positive extras still require headroom. It must read live
 policy inside the ledger's existing transaction; do not start a nested SQLite
 transaction or await there. The reference uses `db.isTransaction` to reuse that
 transaction. A reduction can refuse the next extension while preserving the

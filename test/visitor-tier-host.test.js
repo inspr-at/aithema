@@ -197,3 +197,170 @@ test('AIT-320: host wallet passes the public idempotency/conflict conformance ki
   assert.equal(host.host.creditTiers(owner).next, null);
   assert.throws(() => host.recordTrustedTier(owner, 'emailConfirmed'), /Unqualified tier/u);
 });
+
+
+test('AIT-322: invalid requests stay 400 while corrupt settings and revision overflow return 503', async t => {
+  const { host } = fixture(t), cookie = await login(host);
+  const initial = host.settings(), db = host.storage.db;
+  const put = record => db.prepare('UPDATE host_tier_settings SET record=? WHERE id=1').run(record);
+  const input = { baseRevision: initial.revision, allowancesMicro: amounts(1_000_000) };
+  const malformed = await host.handle(new Request(origin + '/host/admin/tiers', { method: 'POST',
+    headers: { cookie, origin, 'content-type': 'application/json' }, body: '{' }));
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), { error: 'invalid-settings' });
+  for (const record of ['{', JSON.stringify({ ...initial, revision: 0 }),
+    JSON.stringify({ ...initial, allowancesMicro: amounts(-1) }),
+    JSON.stringify({ ...initial, revision: Number.MAX_SAFE_INTEGER })]) {
+    put(record);
+    const baseRevision = record.includes(String(Number.MAX_SAFE_INTEGER)) ? Number.MAX_SAFE_INTEGER : 1;
+    const response = await admin(host, cookie, { input: { ...input, baseRevision } });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'settings-unavailable' });
+    assert.equal(db.prepare('SELECT record FROM host_tier_settings WHERE id=1').get().record, record);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM host_tier_audit').get().n, 0);
+  }
+  put('{');
+  const read = await admin(host, cookie);
+  assert.equal(read.status, 503);
+  assert.deepEqual(await read.json(), { error: 'settings-unavailable' });
+});
+
+test('AIT-322: zero-extra voice extensions preserve an over-limit reservation', async t => {
+  const { host } = fixture(t), cookie = await login(host), owner = 'voice-owner';
+  const session = host.storage.create({ ownerToken: owner });
+  assert.equal((await host.admit(owner, request(session.id, 'no-extra-voice', 500_000, 'voice'))).ok, true);
+  host.budget.claim('no-extra-voice').consume();
+  for (const allowance of [100_000, 0]) {
+    await update(host, cookie, amounts(allowance));
+    const before = host.host.wallet(owner).balance();
+    assert.deepEqual(host.budget.extendVoice('no-extra-voice', { maxMicro: 500_000, maxVisitorMicro: 500_000 },
+      extra => host.host.wallet(owner).canAdmit(extra)), { maxMicro: 500_000, maxVisitorMicro: 500_000 });
+    assert.deepEqual(host.host.wallet(owner).balance(), before);
+    assert.throws(() => host.budget.extendVoice('no-extra-voice', { maxMicro: 500_001, maxVisitorMicro: 500_001 },
+      extra => host.host.wallet(owner).canAdmit(extra)), { code: 'not-admitted' });
+  }
+});
+
+test('AIT-322: module erase and retirement triggers respect session and visitor scopes', async t => {
+  for (const trigger of ['http', 'operator-session', 'operator-visitor', 'storage-retirement', 'expiry-retirement']) {
+    await t.test(trigger, async t => {
+      const { host } = fixture(t), owner = 'erased-owner', other = 'other-owner';
+      const session = host.storage.create({ ownerToken: owner }), sibling = host.storage.create({ ownerToken: owner });
+      const otherSession = host.storage.create({ ownerToken: other }), db = host.storage.db;
+      host.recordTrustedTier(owner, 'emailGiven'); host.recordTrustedTier(other, 'emailGiven');
+      assert.equal(host.host.wallet(owner).admit(request(session.id, 'held', 100_000)).ok, true);
+      assert.equal(host.host.wallet(owner).admit(request(sibling.id, 'released', 100_000)).ok, true);
+      host.host.wallet(owner).release({ attemptId: 'released' });
+      assert.equal(host.host.wallet(other).admit(request(otherSession.id, 'other-hold', 100_000)).ok, true);
+      const rows = (table, ownerHash) => db.prepare(`SELECT * FROM ${table} WHERE owner_hash=?`).all(ownerHash);
+      assert.equal(rows('host_tier_holds', session.ownerHash).length, 2);
+      if (trigger === 'http') {
+        const response = await host.handle(new Request(origin + `/api/sessions/${session.id}/erase`, { method: 'POST',
+          headers: { 'x-aithema-session-token': owner, 'content-type': 'application/json' }, body: '{}' }));
+        assert.equal(response.status, 200);
+      } else if (trigger.startsWith('operator-')) {
+        assert.equal((await host.handlers.eraseSession({ sessionId: session.id, visitor: trigger === 'operator-visitor' })).erased, true);
+      } else {
+        if (trigger === 'storage-retirement') host.storage.erase(session.id);
+        else {
+          host.storage.append(session.id, 'turn.final', { id: 'old-turn', role: 'user', content: 'old input', at: '2000-01-01T00:00:00.000Z' });
+          await host.handlers.expire(Date.now());
+          assert.equal(rows('host_visitor_tiers', session.ownerHash).length, 1, 'content expiry alone is not full erasure');
+          assert.equal(rows('host_tier_holds', session.ownerHash).length, 2);
+        }
+        const result = await host.handlers.retire({ before: trigger === 'storage-retirement' ? 0 : Date.now() + 1 });
+        assert.equal(result.failed, 0); assert.ok(result.retired >= 1);
+      }
+      if (trigger === 'operator-visitor') {
+        assert.deepEqual(rows('host_visitor_tiers', session.ownerHash), []);
+        assert.deepEqual(rows('host_tier_holds', session.ownerHash), []);
+      } else {
+        assert.equal(rows('host_visitor_tiers', session.ownerHash).length, 1);
+        // expiry-retirement may also retire the idle sibling in this sweep.
+        assert.deepEqual(rows('host_tier_holds', session.ownerHash).map(row => row.attempt_id),
+          trigger === 'expiry-retirement' ? [] : ['released']);
+      }
+      if (trigger !== 'expiry-retirement') {
+        assert.equal(rows('host_visitor_tiers', otherSession.ownerHash).length, 1);
+        assert.equal(rows('host_tier_holds', otherSession.ownerHash).length, 1);
+      }
+      if (trigger === 'operator-visitor') {
+        assert.equal((await host.handlers.eraseSession({ sessionId: session.id, visitor: true })).result, 'already-erased');
+      }
+      if (trigger === 'operator-visitor') {
+        assert.equal(host.host.creditTiers(owner).current, 'anonymous');
+      } else {
+        assert.equal(host.host.creditTiers(owner).current, 'emailGiven');
+      }
+      const freshOwner = 'new-visitor-token', fresh = host.storage.create({ ownerToken: freshOwner });
+      assert.equal(host.host.creditTiers(freshOwner).current, 'anonymous');
+      assert.equal(host.host.wallet(freshOwner).balance().committedMicro, 0);
+      assert.equal((await host.admit(freshOwner, request(fresh.id, 'fresh', 10_000_000))).ok, true);
+      assert.equal((await host.admit(freshOwner, request(fresh.id, 'fresh-over', 1))).reason, 'host-limit');
+      assert.equal(host.settings().revision, 1);
+    });
+  }
+});
+
+async function eraseOneSession(host, session, owner, trigger) {
+  if (trigger === 'http') {
+    const response = await host.handle(new Request(origin + `/api/sessions/${session.id}/erase`, { method: 'POST',
+      headers: { 'x-aithema-session-token': owner, 'content-type': 'application/json' }, body: '{}' }));
+    assert.equal(response.status, 200);
+  } else if (trigger === 'operator-session') {
+    assert.equal((await host.handlers.eraseSession({ sessionId: session.id })).erased, true);
+  } else {
+    if (trigger === 'storage-retirement') host.storage.erase(session.id);
+    else {
+      host.storage.append(session.id, 'turn.final', { id: 'expired-turn', role: 'user', content: 'old input', at: '2000-01-01T00:00:00.000Z' });
+      await host.handlers.expire(Date.now());
+      assert.ok(host.storage.get(session.id), 'content expiry keeps the session');
+      host.storage.db.prepare('UPDATE session_retention SET last_activity=1 WHERE session_id=?').run(session.id);
+    }
+    assert.deepEqual(await host.handlers.retire({ before: trigger === 'storage-retirement' ? 0 : 2 }),
+      { retired: 1, failed: 0, more: false });
+  }
+}
+
+for (const trigger of ['http', 'operator-session', 'storage-retirement', 'expiry-retirement']) {
+  test(`AIT-322: ${trigger} preserves a sibling's active unjournalled hold and admission limit`, async t => {
+    const { host } = fixture(t), owner = 'active-sibling-owner';
+    const a = host.storage.create({ ownerToken: owner }), b = host.storage.create({ ownerToken: owner });
+    const wallet = host.host.wallet(owner), db = host.storage.db;
+    assert.equal(wallet.admit(request(a.id, 'active-sibling', 10_000_000)).ok, true);
+    assert.equal(host.budget.get('active-sibling'), undefined, 'hold has not reached the module ledger');
+    const before = db.prepare('SELECT * FROM host_tier_holds WHERE attempt_id=?').get('active-sibling');
+    assert.equal(before.released, 0);
+    assert.equal(wallet.balance().reservedMicro, 10_000_000);
+    assert.equal((await host.admit(owner, request(a.id, 'over-before', 1))).reason, 'host-limit');
+    await eraseOneSession(host, b, owner, trigger);
+    assert.deepEqual(db.prepare('SELECT * FROM host_tier_holds WHERE attempt_id=?').get('active-sibling'), before);
+    assert.equal(wallet.balance().reservedMicro, 10_000_000);
+    assert.equal(wallet.balance().committedMicro, 10_000_000);
+    assert.equal((await host.admit(owner, request(a.id, 'over-after', 1))).reason, 'host-limit');
+  });
+
+  test(`AIT-322: ${trigger} preserves confirmed tier and removes only the idle session's holds`, async t => {
+    const { host } = fixture(t, { canConfirm: true }), owner = 'confirmed-sibling-owner';
+    const a = host.storage.create({ ownerToken: owner }), b = host.storage.create({ ownerToken: owner });
+    const wallet = host.host.wallet(owner), db = host.storage.db;
+    host.recordTrustedTier(owner, 'emailConfirmed');
+    assert.equal(wallet.admit(request(a.id, 'sibling-released', 100_000)).ok, true);
+    wallet.release({ attemptId: 'sibling-released' });
+    assert.equal(wallet.admit(request(b.id, 'idle-released', 100_000)).ok, true);
+    wallet.release({ attemptId: 'idle-released' });
+    const tier = db.prepare('SELECT * FROM host_visitor_tiers WHERE owner_hash=?').get(a.ownerHash);
+    const siblingHold = db.prepare('SELECT * FROM host_tier_holds WHERE attempt_id=?').get('sibling-released');
+    await eraseOneSession(host, b, owner, trigger);
+    assert.equal(host.host.creditTiers(owner).current, 'emailConfirmed');
+    assert.deepEqual(db.prepare('SELECT * FROM host_visitor_tiers WHERE owner_hash=?').get(a.ownerHash), tier);
+    assert.equal(db.prepare('SELECT * FROM host_tier_holds WHERE attempt_id=?').get('idle-released'), undefined);
+    assert.deepEqual(db.prepare('SELECT * FROM host_tier_holds WHERE attempt_id=?').get('sibling-released'), siblingHold);
+    // Retirement of the last session still does not imply visitor deletion.
+    host.storage.erase(a.id);
+    assert.deepEqual(await host.handlers.retire({ before: 0 }), { retired: trigger.includes('retirement') ? 1 : 2, failed: 0, more: false });
+    assert.equal(host.host.creditTiers(owner).current, 'emailConfirmed');
+    assert.deepEqual(db.prepare('SELECT * FROM host_visitor_tiers WHERE owner_hash=?').get(a.ownerHash), tier);
+    assert.deepEqual(db.prepare('SELECT * FROM host_tier_holds WHERE owner_hash=?').all(a.ownerHash), []);
+  });
+}
