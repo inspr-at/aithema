@@ -107,6 +107,15 @@ browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
 browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
   browserTestWeights['test/browser/voice-presentation.test.js'], 153.649);
 
+// AIT-310: mbp2606 completed voice-presentation at head 27d7b36b62 via
+// remote-browser.sh, including all four credit cases in the existing phone
+// matrix and viewport evidence: 42.964935375s + 15.616611416s
+// + 50.023707209s + 12.880483458s = 121.485737458s.
+// Keep the observed workload plus 25% (151.858s), alongside AIT-302's
+// existing floor; update from PR CI without changing trusted main history.
+browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
+  browserTestWeights['test/browser/voice-presentation.test.js'], 151.858);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;

@@ -1283,14 +1283,14 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
 for (const copy of [de, en]) test(`AIT-310: ${copy.display.locale} credit ownership and upgrade pins across end, admission and preview`, async t => {
   const { creditStatusCases, applyCreditStatusCase } = await import('../../../test/voice-status-cases.js');
   const { rail, root } = fixture(t); rail.copy = copy;
-  for (const sample of creditStatusCases(copy)) for (const source of sample.endReason ? ['end', 'admission', 'preview'] : ['end']) {
+  for (const sample of creditStatusCases(copy)) for (const source of sample.endReason ? ['end', 'admission', 'preview'] : sample.reason ? ['admission', 'preview'] : ['end']) {
     applyCreditStatusCase(rail, sample);
     let full = sample.full;
     if (source !== 'end') {
       rail.usedUp = () => false; rail.endReason = () => null;
-      rail.feature = () => ({ available: false, rawReason: 'host-limit', reason: copy.voiceStates.usedUp });
+      rail.feature = () => ({ available: false, rawReason: sample.endReason ?? sample.reason, reason: copy.voiceStates.usedUp });
       full = copy.voiceStates.usedUp;
-      if (source === 'admission') rail.failure({ code: 'not-admitted', reason: 'host-limit' });
+      if (source === 'admission') rail.failure({ code: 'not-admitted', reason: sample.endReason ?? sample.reason });
     }
     rail.render();
     const status = root.querySelector('.voice-state');
