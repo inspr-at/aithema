@@ -257,3 +257,39 @@ test('mint failure is stable without automatic retries, and off-route responses 
     element.width = 'phone'; element.copy = {}; await Promise.resolve(); assert.equal(calls, 1); element.remove();
   }
 });
+
+
+test('pre-load budget expires into failure, never navigation, and only explicit retry mints again', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); mockChannels(t);
+  // TTL margin is up to 1 s (10% for short capabilities); the network cap is 30 s.
+  for (const expiresInMs of [1, 1000, 5000, 10_000, 60_000]) {
+    const budget = Math.min(expiresInMs - Math.min(1000, expiresInMs / 10), 30_000);
+    const owner = testDocument(), element = setup(owner), root = element.shadowRoot; let calls = 0;
+    const value = { ...source(), mint: async () => { calls++; return { url: previewURL + '?cap=' + 'c'.repeat(43), expiresInMs }; } };
+    await render(element, value);
+    const frame = root.querySelector('iframe'); frame.dispatchEvent(new window.FocusEvent('focus'));
+    t.mock.timers.tick(budget / 2); assert.equal(root.querySelector('iframe'), frame);
+    t.mock.timers.tick(budget / 2);
+    assert.equal(element.state, 'failure'); assert.equal(root.querySelector('iframe'), null);
+    assert.equal(root.querySelector('.state').textContent, previewCopy.failure);
+    assert.equal(root.activeElement, root.querySelector('.seg [data-width="wide"]'));
+    element.width = 'phone'; element.copy = {}; t.mock.timers.tick(60_000); await Promise.resolve();
+    assert.equal(element.state, 'failure'); assert.equal(calls, 1, 'timeouts do not automatically spend another capability');
+    frame.dispatchEvent(new window.Event('load')); assert.equal(element.state, 'failure', 'a late response cannot revive a timed-out generation');
+    await render(element, value); assert.equal(calls, 2, 'explicit reopen mints a fresh capability');
+    assert.ok(root.querySelector('iframe')); element.remove();
+  }
+});
+
+test('a delayed first load gets its own full 1.5 s readiness ping budget', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
+  const element = setup(testDocument()); await render(element, source());
+  const frame = element.shadowRoot.querySelector('iframe');
+  t.mock.timers.tick(3500);
+  assert.equal(element.shadowRoot.querySelector('iframe'), frame, 'a slow route response must survive past 1.5 s');
+  if (!frame.contentWindow) { const target = { postMessage() {} }; t.mock.getter(frame, 'contentWindow', () => target); }
+  t.mock.method(frame.contentWindow, 'postMessage', () => {}); frame.dispatchEvent(new window.Event('load'));
+  t.mock.timers.tick(1499); assert.equal(element.state, 'ready');
+  channels[0].port1.onmessage({ data: 'aithema-html-preview-ready' });
+  t.mock.timers.tick(60_000); assert.equal(element.state, 'ready'); element.remove();
+});

@@ -51,7 +51,9 @@ ${delayed ? "addEventListener('load', () => setTimeout(leave, 100));" : 'leave()
 </body></html>`;
 test('real Chrome isolates the html preview and renders the sample click-dummy', { timeout: 90_000 }, async t => {
   const hits = [], servePreview = previewFixture();
+  let routeDelayMs = 0;
   const server = createServer(async (req, res) => {
+    if (req.url.startsWith('/_aithema/html-preview?') && routeDelayMs) await new Promise(resolve => setTimeout(resolve, routeDelayMs));
     if (await servePreview(req, res)) return;
     const path = new URL(req.url, 'http://localhost').pathname;
     const routePolicy = htmlPreviewHostPolicy(`http://${req.headers.host}/_aithema/html-preview`);
@@ -228,6 +230,19 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   const refreshed = await waitFrame('#new'); assert.notEqual(refreshed.url(), oldSource, 'reopening mints a fresh single-use capability');
   assert.deepEqual(hits, [], 'self-reload is refused; no destination script or foreign network request runs');
   t.diagnostic(`navigation and destination-script requests: ${JSON.stringify(hits)} (ZERO)`);
+
+  await t.test('AIT-353: a route response delayed 3.5 s survives the pre-load phase and becomes ready', async () => {
+    routeDelayMs = 3500;
+    await page.goto(`http://127.0.0.1:${port}/`); await page.waitForFunction(() => window.ready === true);
+    const response = page.waitForResponse(r => r.url().includes('/_aithema/html-preview?'), { timeout: 8000 });
+    await page.evaluate(html => window.show(html), dummy);
+    assert.equal((await response).status(), 200, 'the delayed single-use route succeeds');
+    assert.equal(await state(), 'ready', 'network time must not consume the 1.5 s readiness budget');
+    const frame = await waitFrame('#new');
+    await frame.click('#new');
+    assert.equal(await frame.evaluate(() => document.querySelector('#dialog').open), true);
+    assert.equal(await state(), 'ready'); routeDelayMs = 0;
+  });
 });
 
 // AIT-282 stays in this small existing shard workload: one page, state changes

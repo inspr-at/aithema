@@ -92,6 +92,13 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
   for (const headers of [{}, { 'content-type': 'text/plain' }, { 'content-type': 'application/jsonp' }]) {
     assert.equal((await fetch(running.url + '/api/sessions', { method: 'POST', headers, body: '{}' })).status, 415);
   }
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const cookie = created.headers.get('set-cookie').split(';')[0];
+  const mintURL = running.url + `/api/sessions/${session.id}/concepts/fixture/preview`;
+  for (const headers of [{}, { 'content-type': 'text/plain' }, { 'content-type': 'application/jsonp' }]) {
+    assert.equal((await fetch(mintURL, { method: 'POST', headers: { cookie, ...headers }, body: '{}' })).status, 415,
+      'owner preview mints have the same JSON-only guard as other owner POSTs');
+  }
   assert.equal((await fetch(running.url + '/api/sessions', { method: 'POST',
     headers: { 'content-type': 'application/json; charset=utf-8' }, body: '{}' })).status, 201);
 });
