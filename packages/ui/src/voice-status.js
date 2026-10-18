@@ -1,7 +1,7 @@
 import { isConsentReason } from '../../core/src/settings.js';
 
 const reasonGroups = {
-  paused: ['session paused'], budget: ['budget denied', 'host-limit'],
+  paused: ['session paused'], credits: ['budget denied', 'host-limit'],
   providerLimit: ['spend cap reached', 'OpenRouter spend cap exhausted', 'spend-deadline'],
   voiceLimit: ['Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day'],
   checking: ['budget reconciling'], off: ['voice off'], verification: ['verification required'],
@@ -20,8 +20,6 @@ const reasonGroups = {
 const reasonMessages = { 'recovery-failed': 'voiceRecoveryFailed', 'start-failed': 'voiceConnectionFailed',
   'closure-uncertain': 'voiceClosureUncertain' };
 
-// AIT-302 r4: AIT-291 uses HostSurface.nextTier, which is not passed to this
-// sentence-only mapper. Budget copy is the approved fallback for both upgrade cases.
 /** All header copy sources get a bounded visual label, including host-defined refusals. */
 export function narrowVoiceStatus(copy, sentence) {
   if (sentence === copy.notConfigured) return copy.voiceReasonsNarrow.setup;
