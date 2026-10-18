@@ -8,7 +8,7 @@ const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 test.after(() => window.happyDOM.close());
-const absent = '.audio-rail, .voice-notices, .pause, .voice-start, .voice-input, .voice-output, .ai-notice__voice, .ready__mode[data-mode="voice"], [data-ready="microphone"], [data-ready="speaker"], .voice-repeat, .voice-read-text, .voice-reply-actions';
+const absent = '.audio-rail, .voice-notices, .pause, .voice-start, .voice-input, .voice-output, .ai-notice__voice, .ready__mode, .ready__mode[data-mode="voice"], [data-ready="microphone"], [data-ready="speaker"], .voice-repeat, .voice-read-text, .voice-reply-actions';
 function configure(locale, options = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ locale, demo: true });
   // A catalog can offer voice even when its browser client is absent/off-only.

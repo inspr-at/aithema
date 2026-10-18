@@ -72,7 +72,7 @@ export const entranceStyles = `
 .ready h3 { margin:0; font-size:.95rem; font-weight:650; color:var(--aithema-ink); }
 .ready dl { display:grid; gap:.55rem; margin:0; }
 .ready__row { display:grid; grid-template-columns:minmax(8rem,1fr) minmax(0,1.7fr); align-items:center; gap:.8rem; min-height:1.5rem; }
-.ready dt, .ready dd { display:flex; align-items:center; gap:.5rem; margin:0; font-size:.78rem; }
+.ready dt, .ready dd, .ready__input { display:flex; align-items:center; gap:.5rem; margin:0; font-size:.78rem; }
 .ready dd { justify-content:flex-end; text-align:right; color:var(--aithema-ink); }
 .ready__icon, .ready__check { display:grid; place-items:center; flex:0 0 1.1rem; width:1.1rem; height:1.1rem; }
 .ready__icon svg { width:1rem; height:1rem; } .ready__check svg { width:.8rem; height:.8rem; }
@@ -84,6 +84,10 @@ export const entranceStyles = `
   text-decoration-color:color-mix(in srgb,currentColor 30%,transparent); text-underline-offset:.2em; }
 .ready__actions button:hover:not(:disabled) { background:none; color:var(--aithema-ink); }
 .ready__route { margin:0; font-size:.76rem; line-height:1.42; color:color-mix(in srgb,var(--aithema-muted) 90%,var(--aithema-ink)); text-wrap:pretty; }
+.ready__input-slot { display:grid; }
+/* The switch has 44px controls, .2rem padding and a 1px edge per side. */
+.ready__input { box-sizing:content-box; min-height:44px; padding-block:calc(.2rem + 1px);
+  color:color-mix(in srgb,var(--aithema-muted) 90%,var(--aithema-ink)); }
 .ready__modes { display:inline-grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-self:center; gap:.2rem; padding:.2rem;
   border:1px solid color-mix(in srgb,var(--aithema-line) 88%,transparent); border-radius:999px; background:color-mix(in srgb,var(--aithema-paper) 48%,transparent); }
 .ready__mode { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; min-width:7rem; min-height:44px; padding:.35rem .75rem; border-radius:999px;
@@ -121,7 +125,8 @@ export const entranceStyles = `
   .chooser-option__detail { font-size:.78rem; line-height:1.45; } .chooser__action { margin-top:2rem; }
   .chooser__summary > strong { font-size:.95rem; } .chooser__hint > span { font-size:.78rem; }
   .chooser__continue { padding:.6rem .5rem; gap:.35rem; font-size:.95rem; } .chooser__arrow { width:1.8rem; height:1.8rem; border-radius:.6rem; }
-  .ready__row { grid-template-columns:minmax(6.7rem,1fr) minmax(0,1.4fr); gap:.4rem; } .ready dt, .ready dd { font-size:.72rem; }
+  .ready__row { grid-template-columns:minmax(6.7rem,1fr) minmax(0,1.4fr); gap:.4rem; }
+  .ready dt, .ready dd, .ready__input { font-size:.72rem; }
 }
 @media(prefers-reduced-motion:reduce) { .chooser-option, .chooser-option .radio::after, .chooser__continue, .ready__mode { transition:none; } }
 `;

@@ -97,6 +97,13 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 107.270);
 
+// AIT-307: PR #277 CI 39107993703, head 6548950b43, shard 6/6:
+// both start-look tests passed at 28.513415211s + 10.019822398s
+// = 38.533237609s. Reserve 48.167s with the 25% warmup margin
+// until trusted rolling-main measurements cover the readiness matrix.
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 48.167);
+
 // AIT-302 round 2: full successful PR #274 CI 39106097121, head
 // ca4ab97310, shard 2/6. Copy-table screenshot representatives retain all
 // 133 source assertions without repainting source-only cases. Completed file:

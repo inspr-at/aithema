@@ -47,7 +47,7 @@ function journey(t, { copy = en, origin = 'default', matrix = {}, voice = true, 
     return Response.json(c.session);
   };
   const c = document.createElement('aithema-session');
-  c.configure({ copy: structuredClone(copy), session, voiceClient: voice ? client : undefined });
+  c.configure({ copy: structuredClone(copy), copyForLocale: locale => ({ de, en }[locale]), session, voiceClient: voice ? client : undefined });
   document.body.append(c);
   t.after(async () => {
     c.remove(); await tick(); globalThis.fetch = original;
@@ -242,4 +242,41 @@ test('under reduced motion the waveform keeps its still baseline', async t => {
   let pushed = 0; const push = rail.waveform.push.bind(rail.waveform); rail.waveform.push = (...args) => { pushed++; return push(...args); };
   await rail.start(); await new Promise(resolve => setTimeout(resolve, 200));
   assert.equal(pushed, 0);
+});
+
+for (const copy of [de, en]) test(`AIT-307: ${copy.display.locale} text-only readiness is static, localizes in place and starts typing`, async t => {
+  const j = journey(t, { copy, voice: false });
+  j.root.querySelector('.chooser__continue').click(); await tick(6);
+  assert.equal(j.stage(), 'ready');
+  const start = j.root.querySelector('.ready__start'), line = j.root.querySelector('.ready__input');
+  assert.ok(j.root.activeElement === start, 'Start receives the first focus after Continue');
+  assert.equal(j.root.querySelector('.ready__modes, .ready__mode, .ready [role="group"], .ready [role="radiogroup"]'), null);
+  assert.equal(line.textContent, copy === de ? 'Eingabe: Text' : 'Input: Text');
+  assert.ok(line.querySelector('.ready__icon[aria-hidden="true"] svg[aria-hidden="true"] rect[width="20"][height="16"]'));
+  assert.ok(line.querySelector('svg path[d="M7 16h10"]'), 'the existing keyboard icon includes its space bar');
+  assert.equal(line.tabIndex, -1); assert.equal(line.querySelector('button,a,input,[tabindex]'), null);
+  // happy-dom focuses arbitrary connected elements; the browser test checks that
+  // focusing this nonfocusable paragraph leaves Start focused in real Chrome.
+  const other = copy === de ? en : de;
+  j.c.receive({ seq: j.c.session.seq + 1, type: 'session.locale-changed', data: { locale: other.display.locale } });
+  assert.ok(j.root.querySelector('.ready__input') === line, 'locale repaint retains the line');
+  assert.equal(line.textContent, other === de ? 'Eingabe: Text' : 'Input: Text');
+  assert.ok(j.root.activeElement === start);
+  start.click(); await tick();
+  assert.equal(j.stage(), 'live'); assert.ok(j.root.activeElement === j.root.querySelector('textarea'));
+  assert.deepEqual(j.starts, []); assert.deepEqual(j.media, []);
+});
+
+test('AIT-307: a shown readiness card swaps static input and the unchanged two-mode group as voice binds/unbinds', async t => {
+  const j = journey(t, { origin: 'chosen', voice: false }), session = j.c.session;
+  for (const voiceClient of [{ manifest }, undefined, { manifest }, undefined]) {
+    j.c.configure({ copy: en, session, voiceClient });
+    assert.equal(j.stage(), 'ready');
+    const modes = j.root.querySelector('.ready__modes'), line = j.root.querySelector('.ready__input');
+    if (voiceClient) {
+      assert.equal(line, null); assert.equal(modes.getAttribute('role'), 'group'); assert.equal(modes.getAttribute('aria-label'), en.ready.inputMode);
+      assert.deepEqual([...modes.querySelectorAll('button')].map(b => [b.dataset.mode, b.textContent, b.getAttribute('aria-pressed'), b.getAttribute('aria-disabled')]),
+        [['voice', en.ready.voice, 'true', 'false'], ['type', en.ready.type, 'false', 'false']]);
+    } else { assert.equal(modes, null); assert.equal(j.root.querySelector('.ready__mode'), null); assert.equal(line.textContent, 'Input: Text'); }
+  }
 });

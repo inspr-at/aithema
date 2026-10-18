@@ -1672,6 +1672,12 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       return s;
     };
     const shot = async (page, name) => { if (evidence) await page.screenshot({ path: join(evidence, `ai-notice-${name}.png`) }); };
+    const settleShellLayout = page => page.evaluate(async () => {
+      await document.fonts.ready;
+      // Header rail fit and footer reservations update in ResizeObserver after
+      // viewport changes. Sample the painted layout on both sides of consent.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
     const sizes = [[1440, 1000], [400, 800]], tally = {};
     for (const [locale, languages] of [['en', ['en-GB', 'en']], ['de', ['de-AT', 'de']]]) {
       const full = `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`;
@@ -1699,6 +1705,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
       await reveal(page, '.chooser__continue', 'bottom'); await quiet(page, `${locale} dark 400 px`); await shot(page, `${locale}-dark-400-start`);
       await page.setViewport({ width: 1440, height: 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+      await settleShellLayout(page);
 
       // Nothing shifts under the pointer. At the page's end every part of the pane is in view and the notice
       // stands in its own place; resting on it, hovering the controls, granting consent (the ready card's Start
@@ -1730,8 +1737,15 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
         tally[`ready before consent ${width}`] = await noticeAtEntryPoints(page, 'ready before consent', full, `${locale} ready before consent ${width} px`);
       }
       await page.setViewport({ width: 1440, height: 1000 });
+      await settleShellLayout(page);
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       before = { line: await box(page, '.ai-notice'), start: await box(page, '.ready__start') };
+      const readyLayout = () => inShadow(page, c => ({ scrollY, layout: Object.fromEntries(
+        ['.workspace', '.band', '.ready', '.ready__input-slot'].map(selector => {
+          const node = c.shadowRoot.querySelector(selector), rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+          return [selector, { y: rect.y, height: rect.height, rows: style.gridTemplateRows, padding: style.padding }];
+        })) }));
+      const beforeReadyLayout = await readyLayout();
       const footerState = () => inShadow(page, c => {
         const r = c.shadowRoot, row = r.querySelector('.display-foot__row');
         return { fit:r.querySelector('.display-foot').dataset.fit, width:innerWidth, rowWidth:row.clientWidth, scrollWidth:row.scrollWidth,
@@ -1749,7 +1763,9 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await waitForShadow(page, '.composer textarea', { enabled: true });
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
+      await settleShellLayout(page);
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      t.diagnostic(`AIT-307 consent layout ${locale}: ${JSON.stringify({ before: beforeReadyLayout, after: await readyLayout() })}`);
       sameBox(before.line, await box(page, '.ai-notice'), `notice under the pointer after consent ${JSON.stringify({ before:beforeFooter, after:await footerState() })}`);
       sameBox(before.start, await box(page, '.ready__start'), 'the ready card\'s Start after consent');
       await rest(page, '.ready__start');
