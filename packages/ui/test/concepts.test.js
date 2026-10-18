@@ -304,7 +304,7 @@ test('rail and viewer switch by media type: drafts render in the sandboxed previ
   assert.equal(root.querySelector('.concept-disclosure').textContent, en.conceptDraftFake); assert.equal(root.querySelector('.concept-download').textContent, 'Download draft');
   await preview.artifact.mint();
   const get = calls.find(c => c.url.endsWith('/concepts/html1/preview'));
-  assert.ok(get); assert.equal(get.options.body, undefined); assert.equal(get.options.method, 'POST'); assert.equal(get.options.cache, 'no-store');
+  assert.ok(get); assert.equal(get.options.body, '{}'); assert.equal(get.options.method, 'POST'); assert.equal(get.options.cache, 'no-store');
   assert.equal(new Headers(get.options.headers).get('x-aithema-session-token'), 'owner-fixture');
   root.querySelector('.concept-viewer').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft' })); await tick();
   assert.equal(preview.hidden, true); assert.equal(preview.artifact, null, 'a hidden preview runs no draft');

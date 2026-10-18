@@ -133,6 +133,14 @@ test('postJson sends the JSON content type the server requires', async t => {
     ['/api/sessions/s/turns', 'POST', 'application/json', '{"clientEventId":"c","content":"Hello"}'],
   ]);
 });
+test('preview mints use the common JSON mutation helper with no-store and redirect refusal', async t => {
+  const { postJson } = await import('../../packages/ui/src/post-json.js');
+  let init; t.mock.method(globalThis, 'fetch', async (_url, options) => { init = options; return Response.json({}); });
+  const controller = new AbortController();
+  await postJson('/api/sessions/s/concepts/a/preview', {}, { sessionToken: 'fixture-owner', signal: controller.signal, cache: 'no-store', redirect: 'error' });
+  assert.equal(init.cache, 'no-store'); assert.equal(init.redirect, 'error'); assert.equal(init.signal, controller.signal);
+  assert.equal(init.method, 'POST'); assert.equal(init.body, '{}'); assert.equal(init.headers['x-aithema-session-token'], 'fixture-owner');
+});
 test('client JavaScript mutations use postJson except native operator logout and configured Paimos handoff', async () => {
   const { readFile } = await import('node:fs/promises');
   const files = await clientFiles();

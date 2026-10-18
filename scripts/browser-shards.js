@@ -78,8 +78,18 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 // ceil(CI observed * 1.25) = 41s, superseding the 39s remote floor. Keep
 // this diagnostic floor outside trusted rolling-main history until matching
 // successful main samples can replace it.
+// AIT-353: PR #307 CI 39150584262, head b2c8ff3a, shard 2/7 passed
+// all ten preview tests with no todos/skips: 8.001041562s isolation +
+// 19.367865619s backdrop + 9.704025264s strict host/evidence = 37.072932445s.
+// ceil(observed * 1.25) = 47s, superseding the 41s AIT-341 floor.
+// PR diagnostics stay outside trusted rolling-main timing history.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 41);
+  browserTestWeights['test/browser/html-preview.test.js'], 47);
+// The same CI run, shard 5/7, passed all ten demo top-level tests in
+// 56.218506283s; ceil(*1.25) = 71s for the changed served-frame workload.
+// Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.
+browserTestWeights['test/browser/demo.test.js'] = Math.max(
+  browserTestWeights['test/browser/demo.test.js'], 71);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;

@@ -48,7 +48,7 @@ export function paintFailureLine(line, words, suffix = '') {
   line.replaceChildren(status, document.createTextNode(rest + suffix));
 }
 
-/** Generic START viewer experience, private owner-authenticated bytes only. */
+/** Generic START viewer experience, owner-authenticated artifacts and scoped previews. */
 export class ConceptView {
   #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
@@ -380,8 +380,8 @@ export class ConceptView {
       const active = () => !signal?.aborted && epoch === this.#epoch && sessionId === this.#session.id && this.items.some(item => item.id === id);
       if (!active() || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) throw new Error('Preview scope expired');
       if (Date.now() < this.#previewRetryAt) throw new Error('Preview retry later');
-      const response = await fetch(this.sameOrigin(this.path(`/${id}/preview`)), {
-        method: 'POST', headers: this.headers(), cache: 'no-store', redirect: 'error', signal,
+      const response = await postJson(this.sameOrigin(this.path(`/${id}/preview`)), {}, {
+        sessionToken: this.sessionToken, cache: 'no-store', redirect: 'error', signal,
       });
       if (!active()) throw new Error('Preview scope expired');
       if (response.status === 503) {
