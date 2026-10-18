@@ -393,10 +393,12 @@ for (const boundary of ['before-operation', 'before-final', 'after-final']) test
 
 test('AIT-349: captured barge-in silences the physical player before stalled relay ingress', async t => {
   let input, stops = 0;
-  const delivered = Promise.withResolvers();
+  const delivered = Promise.withResolvers(), playing = Promise.withResolvers();
   const h = mediaFixture(t, { capture: async options => { input = options.onAudio; return { stop() {} }; },
-    player: { play() {}, stop() { stops++; } }, command: { receiveAudio: () => delivered.promise } });
+    player: { play() { return playing.promise; }, stop() { stops++; playing.resolve(); } }, command: { receiveAudio: () => delivered.promise } });
   const session = await h.media.connect(h.relay.grant); t.after(() => session.close()); t.after(() => delivered.resolve());
+  h.relay.audio({ playbackRevision: 0, format: 'pcm_s16le', sampleRateHz: 24000, channels: 1, bytes: new Uint8Array(48000) });
+  await tick(); await tick();
   const before = stops, pcm = Buffer.alloc(3200);
   for (let i = 0; i < pcm.length; i += 2) pcm.writeInt16LE(8000, i);
   const ingress = input(pcm);

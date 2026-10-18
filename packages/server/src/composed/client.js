@@ -42,7 +42,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
             const voiced = Math.sqrt(energy / (audio.byteLength / 2)) >= 0.015;
             if (now() - lastSpeechAt >= 500) speechActive = false;
             if (voiced) {
-              if (!speechActive) mute('barge-in');
+              if (!speechActive && pendingPlayback.size) mute('barge-in');
               speechActive = true; speechSilenceMs = 0; lastSpeechAt = now();
             } else if ((speechSilenceMs += audio.byteLength / 32) >= 500) speechActive = false;
           }
