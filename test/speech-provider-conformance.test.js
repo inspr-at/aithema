@@ -133,3 +133,18 @@ for (const provider of ['voxtral', 'elevenlabs']) for (const reportRejected of [
       quantity: 0, upstreamMicro: 0, source: 'undispatched', estimated: false });
   });
 }
+
+// AIT-344: additive Grok STT kits, offline synthetic wire only.
+// The kit requires a transport dispatch on overflow-input. REST validates its
+// complete file before dispatch; its undispatched overflow rule is covered directly.
+test('grok streaming STT offline conformance', async t => {
+  const { createGrokSTT } = await import('../plugins/grok-voice/src/stt.js');
+  const { config, harness } = await import('../plugins/grok-voice/test/fixtures.js');
+  const h = harness();
+  const component = createGrokSTT({ config, enabled: true,
+    resolveSecret: () => 'synthetic-only', connect: h.connect, fetchImpl: h.fetchImpl });
+  const result = await sttConformance(component, { audio: new Uint8Array(64000), language: 'en' }, h.fixtures);
+  t.diagnostic(JSON.stringify({ provider: 'grok', ...result }));
+  assert.deepEqual(result.failures, [], JSON.stringify(result));
+  assert.equal(result.ok, true);
+});
