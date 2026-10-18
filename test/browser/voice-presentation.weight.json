@@ -1,80 +1,80 @@
 {
-  "seconds": 157.375,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 173.317,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "6ec7b45a74d7f9e5229e714fa10345d0b9b77a191bced353c6568d97e0307d29",
+    "workload": "2b1e678dfbb81b3d67a57170b44573450d52d2a9c18b64f1f83d617761628c32",
     "samples": [
       {
-        "runId": "39112261287",
+        "runId": "39119554362",
         "attempt": 1,
-        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
-        "observedAt": "2026-10-18T08:39:22.258Z",
+        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
+        "observedAt": "2026-10-18T10:31:16.597Z",
         "tests": [
           {
             "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 48.139614451
+            "seconds": 51.461958814999996
           },
           {
             "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 16.422367193
+            "seconds": 18.253642095
           },
           {
             "name": "AIT-302: phone header voice statuses and fixed controls",
-            "seconds": 42.677567464
+            "seconds": 52.210604681
           },
           {
             "name": "AIT-302: unchanged desktop consent",
-            "seconds": 13.972482122999999
+            "seconds": 16.017928658000002
           }
         ]
       },
       {
-        "runId": "39113978451",
+        "runId": "39119578412",
         "attempt": 1,
-        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
-        "observedAt": "2026-10-18T09:05:54.259Z",
+        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
+        "observedAt": "2026-10-18T10:37:23.631Z",
         "tests": [
           {
             "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 49.613363107999994
+            "seconds": 49.514564882
           },
           {
             "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 17.302073892
+            "seconds": 18.389061069
           },
           {
             "name": "AIT-302: phone header voice statuses and fixed controls",
-            "seconds": 44.074610798
+            "seconds": 52.356869044999996
           },
           {
             "name": "AIT-302: unchanged desktop consent",
-            "seconds": 14.909061242
+            "seconds": 15.951768923
           }
         ]
       },
       {
-        "runId": "39114014147",
+        "runId": "39119980802",
         "attempt": 1,
-        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
-        "observedAt": "2026-10-18T09:12:33.922Z",
+        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
+        "observedAt": "2026-10-18T10:43:04.048Z",
         "tests": [
           {
             "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 40.934545261
+            "seconds": 51.577357780999996
           },
           {
             "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 16.201341894
+            "seconds": 18.63680511
           },
           {
             "name": "AIT-302: phone header voice statuses and fixed controls",
-            "seconds": 43.033072535
+            "seconds": 52.187748018
           },
           {
             "name": "AIT-302: unchanged desktop consent",
-            "seconds": 13.752590757
+            "seconds": 16.081366791
           }
         ]
       }

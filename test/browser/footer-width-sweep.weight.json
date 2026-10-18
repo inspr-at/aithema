@@ -1,56 +1,40 @@
 {
-  "seconds": 48.544,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 45.559,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "cf53acf4efb430372a93e4b74cf18916865c10efb2e289ad13698b24277c3b6a",
+    "workload": "e5089ca32341a62a1ad829308008a4afd2f36784c2ddaeb464728facc1821e51",
     "samples": [
       {
-        "runId": "39112261287",
+        "runId": "39119578412",
         "attempt": 1,
-        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
-        "observedAt": "2026-10-18T08:39:22.703Z",
+        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
+        "observedAt": "2026-10-18T10:37:22.830Z",
         "tests": [
           {
             "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
-            "seconds": 13.051426937
+            "seconds": 13.10933264
           },
           {
             "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
-            "seconds": 23.280958476
+            "seconds": 23.336756635
           }
         ]
       },
       {
-        "runId": "39113978451",
+        "runId": "39119980802",
         "attempt": 1,
-        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
-        "observedAt": "2026-10-18T09:05:52.992Z",
+        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
+        "observedAt": "2026-10-18T10:43:02.918Z",
         "tests": [
           {
             "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
-            "seconds": 12.942188701
+            "seconds": 9.931446301
           },
           {
             "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
-            "seconds": 21.247809928
-          }
-        ]
-      },
-      {
-        "runId": "39114014147",
-        "attempt": 1,
-        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
-        "observedAt": "2026-10-18T09:12:38.266Z",
-        "tests": [
-          {
-            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
-            "seconds": 14.389005261
-          },
-          {
-            "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
-            "seconds": 24.445230119
+            "seconds": 19.062988401
           }
         ]
       }

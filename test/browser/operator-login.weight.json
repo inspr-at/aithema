@@ -1,6 +1,6 @@
 {
-  "seconds": 81.129,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 65.731,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -51,6 +51,86 @@
           {
             "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
             "seconds": 20.371786321
+          }
+        ]
+      },
+      {
+        "runId": "39116626384",
+        "attempt": 1,
+        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
+        "observedAt": "2026-10-18T09:50:26.054Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.486486329
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.819694437
+          }
+        ]
+      },
+      {
+        "runId": "39119045746",
+        "attempt": 1,
+        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
+        "observedAt": "2026-10-18T10:27:33.577Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.644454367
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.661997662999998
+          }
+        ]
+      },
+      {
+        "runId": "39119554362",
+        "attempt": 1,
+        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
+        "observedAt": "2026-10-18T10:35:22.699Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 45.178941336
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 20.551617581
+          }
+        ]
+      },
+      {
+        "runId": "39119578412",
+        "attempt": 1,
+        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
+        "observedAt": "2026-10-18T10:41:21.594Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 43.30100357800001
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.647921311999998
+          }
+        ]
+      },
+      {
+        "runId": "39119980802",
+        "attempt": 1,
+        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
+        "observedAt": "2026-10-18T10:46:29.564Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 28.859806697
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 13.209835003
           }
         ]
       }
