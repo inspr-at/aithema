@@ -679,6 +679,76 @@ element.configure({ copy: en, session, sessionToken: token, baseUrl: '' });
 // Use HTML_PREVIEW_HOST_CSP when serving pages that embed generated HTML previews.
 ```
 
+AIT-352 adds an opt-in server contract for the forthcoming route-based preview
+component (AIT-353); the existing `srcdoc` component continues to use
+`HTML_PREVIEW_HOST_CSP` unchanged. Configure the public URL explicitly:
+
+```js
+import { htmlPreviewHostPolicy } from '@inspr/aithema-core';
+const previewURL = 'https://start.example.test/_aithema/html-preview';
+const handlers = createHandlers({ /* storage, runtime, ownership, ... */
+  concepts: { previewURL }
+});
+const previewFramePolicy = htmlPreviewHostPolicy(previewURL);
+// frame-src https://start.example.test/_aithema/html-preview; child-src 'none'
+```
+
+Merge those frame/child directives into the host's enforced response CSP while
+retaining its strict script policy. Use the canonical exact URL without a query,
+fragment, credentials or trailing slash. Do not keep another enforced
+`frame-src 'none'` policy when switching to the route. Missing server configuration
+disables minting; invalid configuration throws at startup.
+
+The parent calls `POST /api/sessions/:id/concepts/:artifactId/preview` with its
+normal owner authentication (header-token or host cookie adapter). No body is
+required. A successful `200` JSON response is `{ url, expiresInMs: 60000 }` with
+`Cache-Control: no-store`. Missing/wrong owners or artifacts return `404`;
+publication/consent refusal returns `403`; methods other than POST return `405`.
+A registry full of live tokens refuses minting with a plain `503`,
+`Cache-Control: private, no-store` and `Retry-After: 60`; retry with a fresh mint.
+The parent mounts that URL in an iframe with `sandbox="allow-scripts"` and
+`referrerpolicy="no-referrer"`, retaining powerful-feature denials. Never add
+`allow-same-origin`, top navigation, forms, popups or downloads.
+
+`GET /_aithema/html-preview?cap=…` accepts only the capability, bypassing
+owner cookies/headers and host authentication middleware. Tokens contain 256
+CSPRNG bits, are stored only as hashes in a bounded process-local registry
+(default 1024 entries), and expire in 60 seconds measured by a monotonic clock.
+GET consumes the token before asynchronous checks. HEAD always returns `405`
+with `Allow: GET` and `private, no-store`, without checking or consuming a token,
+redirecting or setting cookies. Expired registry entries are purged first;
+a full live registry refuses new mints instead of evicting live tokens.
+Each session holds at most eight live tokens by default; exceeding that share
+replaces only that session's oldest token. Ownership, consent revision, publication,
+erasure and the artifact's digest/static policy are checked on redemption;
+current ownership/consent/erasure/bytes are checked again after publication.
+Restart, another instance, reuse, expiry or replacement at the session's own
+quota requires a fresh mint.
+The parent must re-mint on every retry/reload: **no network; a self-reload is refused**.
+Already delivered bytes cannot be revoked, so lifecycle events must remove frames.
+
+Successful preview responses carry exactly this policy contract (plus content
+length and a digest of the served representation, including the trusted
+`aithema-html-preview-ready` private-port bootstrap):
+
+```http
+Content-Type: text/html; charset=utf-8
+Cache-Control: private, no-store
+Content-Security-Policy: sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors https://start.example.test
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+```
+
+Denials are direct plain `403/404` responses with `private, no-store`,
+`no-referrer`, `nosniff` and a script-disabled sandbox policy. No preview response
+redirects or sets cookies. Keep the exact path ahead of login/SPA fallbacks;
+strip cookies/owner headers and `Set-Cookie` at the reverse proxy, preserve the
+application CSP, and redact `cap` from access logs/analytics. Do not append the
+host page's script policy to preview responses or cache capability URLs.
+The raw owner-only `/html` download remains an octet-stream attachment with
+scripts disabled; standalone exports remain script-disabled too. Neither uses
+the readiness bootstrap or the preview response's digest.
+
 `configure({host})` enables selected library, verification, handover, credits,
 locale and operator UI slots. It supplies presentation only; the server ports
 still authorize every action. `voiceClients` maps allowed option IDs to browser
@@ -1470,12 +1540,20 @@ Round 5 integration keeps consent coverage on the existing core root export:
 `plugins/elevenlabs/src/components.js` and
 `plugins/composed-voice/src/configuration.js` import `consentCoverage` directly from
 `@inspr/aithema-core`, whose index already re-exports it; no `./consent` subpath or new public symbol is added.
-The composed-voice adapter, server composed coordinator, Voxtral adapters and
-ElevenLabs `components.js` remain source-only prototypes, omitted from module
-tarballs. The installed ElevenLabs live-voice provider is unchanged. The generic
-component contract and helpers below are supported and included in core tarballs.
-`@inspr/aithema-server/composed-voice` remains unexported; a third-party pipeline
-implements the public live-voice/session ports using its own coordinator.
+The composed-voice adapter, Voxtral adapters and ElevenLabs `components.js`
+remain source-only prototypes, omitted from module tarballs. The installed
+ElevenLabs live-voice provider is unchanged. The generic component contract and
+helpers below are supported and included in core tarballs.
+
+`@inspr/aithema-server/composed-voice` is a supported export included in the next
+server release. It exports `createComposedVoiceCoordinator`, a building block for
+composed pipelines that coordinates separately admitted STT, reasoning and TTS
+with trusted server ports for authorization, utterance commits and relay playback.
+`callDurationSeconds({ maxDurationSeconds })` validates the call-duration ceiling
+in seconds (default 900, integer range 1–86400); hosts explicitly supply their own
+ceiling, such as 3600 for a one-hour call. The coordinator caps the spend deadline
+by this ceiling. This export does not release a composed or Grok pipeline: both
+are **not yet qualified in live use**. Grok publication is deferred to package 8.
 
 ### Supported STT/TTS component API (AIT-316)
 
@@ -1492,7 +1570,7 @@ beside `plugin-contract.d.ts` in `voice-components.d.ts` and resolve through the
 `@inspr/aithema-core/voice-components` subpath. `STTComponent`, `TTSComponent`,
 `ComponentOperationOptions`, `ComponentTerminal` and `ComponentUsage` remain
 available from the types-only `@inspr/aithema-core/plugin-contract` subpath too.
-No additional server export is needed.
+The server coordinator building block is documented above; these component contracts remain in core.
 
 | Port | Signature and semantics |
 | --- | --- |

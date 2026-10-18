@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createComposedVoiceCoordinator, callDurationSeconds } from '../../../packages/server/src/composed-voice.js';
+import { createComposedVoiceCoordinator, callDurationSeconds } from '@inspr/aithema-server/composed-voice';
 import { elevenLabsCompletion, runElevenLabsReply } from '../../elevenlabs/src/reply.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
@@ -90,7 +90,7 @@ test('AIT-160: interruption stops playback synchronously and retains admitted re
   assert.equal(finished, true); assert.equal(h.audio.length, 0);
 });
 
-test('AIT-160: pause holds capture until an authorized acknowledgement; defaults preserve start2', async t => {
+test('AIT-160: pause holds capture until an authorized acknowledgement; explicit duration preserves the ceiling', async t => {
   let allowed = true;
   const h = fixture(t, { authorize: async () => allowed });
   await h.coordinator.pause();
@@ -99,7 +99,7 @@ test('AIT-160: pause holds capture until an authorized acknowledgement; defaults
   assert.equal(h.coordinator.state.state, 'paused');
   allowed = true; await h.coordinator.resume();
   assert.equal(h.coordinator.state.state, 'active');
-  assert.equal(callDurationSeconds(), 900); assert.equal(callDurationSeconds({ host: 'start2' }), 3600);
+  assert.equal(callDurationSeconds(), 900); assert.equal(callDurationSeconds({ maxDurationSeconds: 3600 }), 3600);
   assert.throws(() => callDurationSeconds({ maxDurationSeconds: Infinity }));
 });
 
@@ -229,5 +229,22 @@ test('AIT-258: server preserves its aligned, nonempty 64,000 B output frame cont
     await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.receiveAudio(pcm(500, 0));
     await h.coordinator.idle();
     assert.equal(h.coordinator.state.state, 'waiting'); assert.equal(h.audio.length, 0);
+  }
+});
+
+
+test('AIT-345: supported coordinator reads explicit seconds and no host policy', async t => {
+  const explicit = value => new Proxy(value, { get(target, key) {
+    assert.notEqual(key, 'host', 'supported API must not read a host name');
+    return Reflect.get(target, key);
+  } });
+  assert.equal(callDurationSeconds(explicit({})), 900);
+  assert.equal(callDurationSeconds(explicit({ maxDurationSeconds: 3600 })), 3600);
+  assert.throws(() => createComposedVoiceCoordinator(explicit({})), TypeError);
+  const now = Date.now();
+  for (const maxDurationSeconds of [undefined, 3600]) {
+    const h = fixture(t, { now: () => now, spendDeadlineAt: now + 7200_000,
+      browserLivenessDeadlineAt: now + 7200_000, maxDurationSeconds });
+    assert.equal(h.coordinator.state.spendDeadlineAt, now + (maxDurationSeconds ?? 900) * 1000);
   }
 });

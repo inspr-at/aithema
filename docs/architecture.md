@@ -124,10 +124,18 @@ preserve the candidate layout. The public `local-voice-identity` subpath exposes
 recognition only; no package subpath exports enrollment or implementation access.
 The obsolete `packages/server/src/local-voice.js` shim is removed.
 
-The composed coordinator remains source-only proof code.
-`@inspr/aithema-server/composed-voice` remains private and unpacked. AIT-316
-publishes the core `/voice-components` contract and generic helpers; provider
-prototypes stay source-only.
+`@inspr/aithema-server/composed-voice` is a supported export included in the next
+server release. `createComposedVoiceCoordinator` is a building block for composed
+pipelines, coordinating separately admitted STT, reasoning and TTS through trusted
+server authorization, utterance-commit and relay ports. `callDurationSeconds`
+validates an explicit `maxDurationSeconds` ceiling (default 900 seconds, integer
+range 1–86400), which caps the coordinator's spend deadline; hosts supply policy
+such as 3600 seconds themselves. No composed or Grok pipeline is released or
+qualified by this export: both are **not yet qualified in live use**, and Grok
+publication is deferred to package 8. AIT-316 publishes the core
+`/voice-components` contract and generic helpers. The composed-voice adapter,
+Voxtral adapters and ElevenLabs `components.js` remain source-only prototypes
+excluded from module tarballs.
 The exact proof edges above permit their unpublished consumers without admitting
 new consumers. Next-release migration notes are in `release/next-notes.md`.
 
