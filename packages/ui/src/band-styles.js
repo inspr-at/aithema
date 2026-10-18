@@ -275,11 +275,13 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 .footer-info .footer-popup { padding:11px 13px 12px; background:${palette.light.ink}; box-shadow:0 0 0 1px var(--aithema-line),0 12px 30px -14px rgba(0,0,0,.45); }
 .footer-popup .phone-status { display:none; color:var(--aithema-muted); }
 .connection-timer::before { content:'${reasonSeparator}'; }
-/* A legal host without a credit balance matches the approved two ends at
-   tablet widths too, only in full fit. Compact fits yield to the shared rules
-   below; credit-enabled hosts retain their existing compact rules. */
+/* Legal-host type stays the same in every fit, including tablet widths. */
 @media(min-width:900px) {
-  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.ai-notice,.status) { font-size:12.5px; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.ai-notice,.status) { font-size:12.5px; }
+}
+/* Only full fit restores the approved legal-host visibility and grid.
+   Compact fits yield to the shared rules below; credit hosts are unchanged. */
+@media(min-width:900px) {
   .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .ai-notice__label { display:inline; }
   .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status { grid-template-columns:6px auto minmax(8ch,max-content); gap:6px; }
   .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__group { grid-column:1/3; }

@@ -229,7 +229,7 @@ export async function legalFooterFitCheck(t) {
   t.after(async () => {
     if (evidence) await writeFile(join(evidence, 'ait309-footer-checks.json'), JSON.stringify({
       head, capture: 'viewport', reducedMotion: true, blurredControls: true, fonts, checks, qaShots,
-      passLines: checks.map(check => check.line),
+      passLines: checks.flatMap(check => [check.line, check.typeLine, check.fullFitLine].filter(Boolean)),
     }, null, 2) + '\n');
   });
   await page.evaluate(() => {
@@ -320,7 +320,8 @@ export async function legalFooterFitCheck(t) {
       const fontKey = `${width}-${theme}-${locale}`, typeSizes = [state.aiFont, state.statusFont];
       if (fit === 'full') fullFonts.set(fontKey, typeSizes);
       assert.deepEqual(typeSizes, fullFonts.get(fontKey), `${name}: AI/status font sizes equal full fit`);
-      console.log(`${name}: PASS AI/status font sizes 12.5px, identical to full fit`);
+      state.typeLine = `${name}: PASS AI/status font sizes 12.5px, identical to full fit`;
+      console.log(state.typeLine);
       if (fit === 'full' && [900, 1024, 1440].includes(width)) {
         const baseline = await shadow(page, c => {
           const root = c.shadowRoot;
@@ -354,7 +355,8 @@ export async function legalFooterFitCheck(t) {
         assert.deepEqual(baseline.actual.styles, baseline.base.styles, `${name}: full-fit computed font/display/grid styles match base 1530d90e`);
         assert.deepEqual(baseline.actual.zones, baseline.base.zones, `${name}: full-fit zone boxes match base 1530d90e exactly`);
         state.fullFitBaseline = baseline;
-        console.log(`${name}: PASS full-fit computed styles and zone boxes match base 1530d90e`);
+        state.fullFitLine = `${name}: PASS full-fit computed styles and zone boxes match base 1530d90e`;
+        console.log(state.fullFitLine);
       }
       assert.equal(state.role, false, `${name}: optional long role yields`);
       assert.equal(state.flag, true, `${name}: flag stays visible`);
