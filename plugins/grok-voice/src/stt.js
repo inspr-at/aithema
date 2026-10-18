@@ -1,7 +1,7 @@
 import { PluginError, normalizedError } from '@inspr/aithema-core/invocation';
 import { deepFreeze } from '@inspr/aithema-core/plugins';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
-import { componentInvocation, boundedEvents } from '@inspr/aithema-core/voice-components';
+import { componentInvocation } from '@inspr/aithema-core/voice-components';
 import { validateGrokConfiguration, STT_MODEL, STT_FORMAT, EVIDENCE_DATE } from './configuration.js';
 import { manifest } from './manifest.js';
 export { STT_FORMAT, manifest };
@@ -50,6 +50,22 @@ function closer(socket) {
   let terminal;
   return () => terminal ??= voiceOperation({ deadlineAt: Date.now() + 1000 }, () => socket.close()).catch(() => {});
 }
+async function closeAfterTerminal(events, stop) {
+  let check;
+  try {
+    // Drain an already received frame (including an async iterator's current
+    // batch). The immediate ends this turn without waiting for any new frame
+    // or provider closure. A pending read is released by our socket close.
+    const trailing = await Promise.race([
+      Promise.resolve().then(() => events.next()),
+      new Promise(resolve => { check = setImmediate(() => resolve({ done: true })); }),
+    ]);
+    if (!trailing.done) throw new PluginError('invalid-output', 'Event after terminal transcript');
+  } finally {
+    clearImmediate(check);
+    void stop();
+  }
+}
 async function openSocket(connect, args, options) {
   let accepted = false;
   // A port may ignore abort and resolve after the bounded wait has already failed.
@@ -82,7 +98,7 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
     if (!request.audio?.[Symbol.asyncIterator]) throw new PluginError('invalid-output');
     const invocation = await componentInvocation(options, { role: 'stt', unit: 'seconds', model: STT_MODEL });
     const cleanup = new AbortController(), opts = { ...options, signal: AbortSignal.any([invocation.signal, cleanup.signal]) };
-    let socket, stop, iterator, pump, pumpError, completed = false, ready = false, ended = false, total = 0, count = 0;
+    let socket, stop, iterator, events, pump, pumpError, completed = false, ready = false, ended = false, total = 0, count = 0;
     let utteranceStart = 0, locked = new Map(), prefix = '', finalText;
     try {
       iterator = request.audio[Symbol.asyncIterator]();
@@ -96,10 +112,13 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
       if (typeof socket?.close === 'function') stop = closer(socket);
       if (typeof socket?.send !== 'function' || typeof socket.close !== 'function' || !socket.events?.[Symbol.asyncIterator]) throw new PluginError('invalid-output');
       opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
-      for await (const wire of boundedEvents(socket.events, opts)) {
+      events = socket.events[Symbol.asyncIterator]();
+      for (;;) {
+        const item = await voiceOperation(opts, () => events.next());
+        if (item.done) break;
+        const wire = item.value;
         if (++count > config.maxEvents) throw new PluginError('limit');
         const event = decode(wire, config);
-        if (finalText !== undefined) throw new PluginError('invalid-output', 'Event after terminal transcript');
         if (event.type === 'error') throw failure();
         if (event.type === 'transcript.created') {
           if (ready) throw new PluginError('invalid-output'); ready = true;
@@ -139,17 +158,20 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
         } else if (event.type === 'transcript.done') {
           if (!ready || !ended || event.channel_index !== undefined) throw new PluginError('invalid-output', 'Terminal before audio endpoint');
           const text = transcript(event, config);
-          await pump; usage(event, invocation, config, false); finalText = text;
+          await pump; usage(event, invocation, config, false);
+          await closeAfterTerminal(events, stop);
+          finalText = text; break;
         } else throw new PluginError('invalid-output');
       }
       if (pumpError) throw pumpError;
       if (finalText === undefined) throw new PluginError('invalid-output', 'Missing terminal transcript');
-      // STT closes after transcript.done. Validate trailing events before finality.
+      // Finality belongs to transcript.done, never to provider socket closure.
       await invocation.finish(true); completed = true;
       yield { text: finalText, final: true };
     } catch (error) { throw normalizedError(pumpError ?? error, invocation.signal); }
     finally {
       opts.signal.removeEventListener('abort', stop); cleanup.abort(); await stop?.();
+      if (events?.return) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => events.return()).catch(() => {});
       if (iterator?.return) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => iterator.return()).catch(() => {});
       await invocation.finish(completed);
     }

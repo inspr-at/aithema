@@ -8,7 +8,7 @@ import { audioQueue, boundedEvents, TTS_SPEAK_BYTES } from '@inspr/aithema-core/
 
 const REPLY_AUDIO_CHUNKS = 1024;
 
-export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {
+export function callDurationSeconds({ maxDurationSeconds = 900 } = {}) {
   if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400) throw new TypeError('Invalid call duration');
   return maxDurationSeconds;
 }
@@ -24,7 +24,7 @@ async function playbackDelay(ms, options) {
 /** Trusted server-only utterance authority. The browser sends PCM, never finals. */
 export function createComposedVoiceCoordinator({ sessionId, callId, providerSessionId = `composed-${randomUUID()}`, epoch = 0,
   stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now = Date.now,
-  spendDeadlineAt, browserLivenessDeadlineAt, host, maxDurationSeconds, endpointMs = 500,
+  spendDeadlineAt, browserLivenessDeadlineAt, maxDurationSeconds, endpointMs = 500,
   maxUtteranceMs = 30_000, maxPendingTurns = 4, maxTextCharacters = 32_768, fragmentCharacters = 240,
   inputFormat = 'pcm_s16le', outputFormat = 'pcm_f32le', outputAudioFormat = { encoding: outputFormat, sampleRateHz: 24000, channels: 1 }, voice, context = {} } = {}) {
   if (!sessionId || !callId || !providerSessionId || !stt?.stream || !tts?.speak || !replyExecutor?.execute ||
@@ -48,7 +48,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   const leadBytes = Math.min(bytesPerSecond, 96_000), leadMs = leadBytes / bytesPerSecond * 1000;
   const pacedFrameBytes = Math.min(64_000, leadBytes);
   const startedAt = now();
-  spendDeadlineAt = Math.min(spendDeadlineAt ?? Infinity, startedAt + callDurationSeconds({ host, maxDurationSeconds }) * 1000);
+  spendDeadlineAt = Math.min(spendDeadlineAt ?? Infinity, startedAt + callDurationSeconds({ maxDurationSeconds }) * 1000);
   if (!Number.isFinite(browserLivenessDeadlineAt) || Math.min(spendDeadlineAt, browserLivenessDeadlineAt) <= now()) throw new PluginError('deadline');
   let state = { ...createVoiceLifecycle(callId), epoch }, input = true, output = true, utterance,
     sequence = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve();

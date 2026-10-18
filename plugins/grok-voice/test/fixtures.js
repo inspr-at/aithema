@@ -51,8 +51,8 @@ export function harness({ mode: initial = 'completed', onConnect, onSend, durati
         if (mode !== 'missing-final') {
           if (mode !== 'bad-duration') observed = Math.ceil(duration * 200000 / 3600);
           yield JSON.stringify({ ...wire.done, duration: mode === 'bad-duration' ? -1 : duration });
-          if (mode === 'duplicate-terminal') yield JSON.stringify(wire.done); // invalid trailing terminal
-          if (mode === 'terminal-open') await closed; // provider leaves socket open until our close
+          if (['duplicate-terminal', 'duplicate-terminal-open'].includes(mode)) yield JSON.stringify(wire.done); // invalid trailing terminal
+          if (['terminal-open', 'duplicate-terminal-open'].includes(mode)) await closed; // provider leaves socket open until our close
         }
       })() };
   };

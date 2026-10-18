@@ -37,7 +37,10 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     } }) : null;
   const validateConfig = raw => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['host', 'maxDurationSeconds', 'voice', 'stt', 'tts'].includes(key))) throw new TypeError('Invalid composed configuration');
-    callDurationSeconds(raw); return Object.freeze(structuredClone(raw));
+    // Source-only legacy host configuration is translated before the supported API.
+    const { host, ...configuration } = structuredClone(raw);
+    if (configuration.maxDurationSeconds === undefined && host === 'start2') configuration.maxDurationSeconds = 3600;
+    callDurationSeconds(configuration); return Object.freeze(configuration);
   };
   config = validateConfig(config);
   async function start(request, options) {

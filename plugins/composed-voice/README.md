@@ -185,7 +185,7 @@ no synthetic continuation greeting. The host supplies `control.recover`.
 The relay retains its in-process transport port with expiring, scoped, single-use
 grants. PR 4b-2 adds the explicitly mounted authenticated HTTP bridge and physical
 browser ports described below. No production route or provider key is installed.
-Factories default to 900-second calls; `host: 'start2'` retains 3600 seconds.
+Factories default to 900-second calls; hosts pass `maxDurationSeconds: 3600` for one-hour calls.
 
 `runOfflineQualification()` runs synthetic Austrian-German corpus observations
 through the actual coordinator for candidate and baseline. It reports WER,
@@ -235,7 +235,7 @@ createComposedVoice({
 });
 ```
 
-This host defaults to 900 seconds; `host: 'start2'` retains 3600 seconds. Explicit
+This host defaults to 900 seconds; pass `maxDurationSeconds: 3600` for one-hour calls. The source-only adapter translates legacy `host: 'start2'` configuration to that explicit ceiling before calling the supported coordinator. Explicit
 `maxDurationSeconds` remains supported. Components have no default transport or
 secret resolver and default to disabled. Import ElevenLabs components directly
 from `plugins/elevenlabs/src/components.js`; the agent manifest stays unchanged.

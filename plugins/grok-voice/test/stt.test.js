@@ -160,3 +160,15 @@ test('transcript.done publishes one final within the existing deadline when prov
   assert.equal(h.fixtures.activeCount(), 0);
   assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'completed');
 });
+
+
+test('already received duplicate transcript.done fails before any final even when provider stays open', async () => {
+  const h = harness({ mode: 'duplicate-terminal-open' }), op = operation(), values = [];
+  await assert.rejects(async () => {
+    for await (const value of component(h).stream({ ...request(),
+      audio: (async function* () { yield request().audio; })() }, op.options)) values.push(value);
+  }, { code: 'invalid-output' });
+  assert.equal(values.filter(value => value.final).length, 0);
+  assert.equal(h.fixtures.activeCount(), 0);
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
+});
