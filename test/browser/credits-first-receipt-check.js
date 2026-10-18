@@ -14,7 +14,7 @@ const settle = page => shadow(page, async c => {
   await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
 });
 const measure = page => shadow(page, c => {
-  const root = c.shadowRoot, amount = root.querySelector('.host-credits__amount');
+  const root = c.shadowRoot, amount = root.querySelector('.host-credits__amount'), total = root.querySelector('.host-credits__total');
   const box = n => { const b = n.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
   const selectors = ['.display-foot', '.display-foot__row', '.footer-info', '.ai-notice',
     '.host-credits', '.host-credits__button', '.host-credits__amount', '.host-credits__value',
@@ -24,6 +24,8 @@ const measure = page => shadow(page, c => {
     legal: [...c.querySelectorAll('#demo-legal a')].map(box),
     legalLabels: [...c.querySelectorAll('#demo-legal a')].map(link => link.textContent),
     value: amount.textContent, reserved: amount.dataset.creditReserve,
+    total: total.textContent, totalReserved: total.dataset.creditReserve,
+    totalNumeric: getComputedStyle(total).fontVariantNumeric, totalAlign: getComputedStyle(total).textAlign,
     numeric: getComputedStyle(amount).fontVariantNumeric, align: getComputedStyle(amount.firstElementChild).textAlign,
     gap: getComputedStyle(root.querySelector('.display-foot__row')).columnGap,
     legalPresent: !root.querySelector('.host-legal').hidden,
@@ -112,6 +114,8 @@ export async function creditsFirstReceiptCheck(t) {
     const before = await measure(page), label = `${width}/${locale}/${theme}/${withLegal ? 'legal' : 'no-legal'}/${limitMicro / 10_000}`;
     assert.equal(before.legalPresent, withLegal, `${label}: host legal configuration applied`);
     assert.equal(before.value, '…', `${label}: receipt held pending`);
+    assert.equal(before.total, '…', `${label}: total receipt held pending`);
+    assert.equal(before.rects['.host-credits__total'].width > 0, width >= (withLegal ? 1100 : 700), `${label}: total visible at the host breakpoint`);
     if (width < 600) assert.deepEqual(before.legalLabels, ['AGPL-3.0', locale === 'de' ? 'Quellcode' : 'Source'], `${label}: real demo legal labels are present`);
     if (withLegal && locale === 'de' && theme === 'light' && [320, 390, 1440].includes(width) && limitMicro === 24_000_000) await capture(width, 'before');
     const target = before.rects['.host-credits__button'];
@@ -133,6 +137,9 @@ export async function creditsFirstReceiptCheck(t) {
     assert.deepEqual(after.legal, before.legal, `${label}: first receipt moves legal neighbours`);
     assert.equal(after.fit, before.fit, `${label}: first receipt must not refit`);
     assert.equal(before.numeric, 'tabular-nums'); assert.equal(before.align, 'end');
+    assert.equal(before.totalNumeric, 'tabular-nums'); assert.equal(before.totalAlign, 'end');
+    assert.equal(before.totalReserved, `${locale === 'de' ? ' von ' : ' of '}${new Intl.NumberFormat(locale).format(10_000)}`);
+    assert.equal(after.totalReserved, before.totalReserved);
     assert.equal(before.reserved, new Intl.NumberFormat(locale).format(10_000));
     if (width === 320) assert.equal(before.gap, '0px', '320px exercises gap:0');
     t.diagnostic(`AIT-357 ${label}: credits value, total, unit, text and all footer neighbours move exactly 0px`);

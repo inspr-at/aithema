@@ -199,7 +199,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
 .host-credits__stack { display:grid; justify-items:center; }
 .host-credits__stack > * { grid-area:1/1; }
-/* Total text arrives with the receipt; keep the value at the reserved start. */
+/* Keep both numeric slots and the unit at the reserved start. */
 .host-credits__text { justify-self:start; }
 .host-credits__amount { display:inline-grid; min-width:max-content; font-variant-numeric:tabular-nums; }
 /* Match the exact locale-formatted envelope without padding separators to digits. */
@@ -207,6 +207,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits__measure-amount::before { content:attr(data-credit-reserve); display:block; height:0; }
 .host-credits__amount::before { content:attr(data-credit-reserve); visibility:hidden; grid-area:1/1; }
 .host-credits__value { grid-area:1/1; text-align:end; }
+/* The total keeps its leading separator and grows naturally above the envelope. */
+.host-credits__total { white-space:pre; text-align:end; font-variant-numeric:tabular-nums; }
+.host-credits__total::before { content:attr(data-credit-reserve); display:block; height:0; visibility:hidden; }
+.host-credits__measure-total { font-variant-numeric:tabular-nums; }
 .host-credits__used-up { visibility:hidden; font-weight:600; white-space:nowrap; color:var(--aithema-ink); }
 .host-credits__used-up-short { display:none; }
 .host-credits[data-ended="true"] .host-credits__text { visibility:hidden; opacity:0; }

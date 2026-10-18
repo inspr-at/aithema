@@ -171,6 +171,7 @@ export const bandStyles = `
 }
 .host-credits__text { color:var(--aithema-ink); font-weight:400; white-space:nowrap; }
 .host-credits__amount { font-weight:600; }
+.host-credits__total { display:inline-block; }
 .footer-popup { display:block; position:fixed; z-index:15; width:max-content; max-width:min(320px,calc(100vw - 24px));
   max-height:calc(100dvh - 100px); overflow-y:auto; white-space:pre-line; overflow-wrap:anywhere; padding:10px 12px;
   border-radius:10px; background:var(--aithema-ink); color:var(--aithema-paper); font-size:12.5px; line-height:1.5;

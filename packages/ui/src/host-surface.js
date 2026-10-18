@@ -296,9 +296,9 @@ export class HostSurface {
     // first receipt. Larger host allowances still grow and use the normal refit.
     const initialMaximum = 100_000_000; // microUSD: 10,000 whole credits
     const measuredMaximum = format(Math.max(initialMaximum, reservedLimit ?? 0), locale);
-    // Keep the receipt marker separate from pre-receipt geometry (AIT-355).
-    amount.setAttribute('data-credit-measure', owner ? format(reservedLimit, locale) : '…');
+    // Reserve both numbers before the receipt so the unit never moves.
     amount.setAttribute('data-credit-reserve', measuredMaximum);
+    total.setAttribute('data-credit-reserve', fill(layout.creditsTotal, { limit: measuredMaximum }));
     line.querySelector('.host-credits__measure-amount').setAttribute('data-credit-reserve', measuredMaximum);
     line.dataset.ended = String(out); line.querySelector('.host-credits__text').setAttribute('aria-hidden', String(out));
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
@@ -319,7 +319,7 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__used-up-short'), timedOut ? c.timeExpired : c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount.querySelector('.host-credits__value'), owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
-    setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, layout.creditsUnit);
+    setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : '…'); setText(unit, layout.creditsUnit);
     const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
     setText(scope, balance); button.setAttribute('aria-label', balance);
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
