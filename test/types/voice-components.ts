@@ -27,6 +27,8 @@ invocation.dispatch(); invocation.usage(5, 10, 'fake'); await invocation.finish(
 assertSTTComponent(stt); assertTTSComponent(tts); voiceCompositionCapabilities(stt, tts);
 const queue = audioQueue(); queue.push(new Uint8Array(2)); queue.end();
 for await (const bytes of boundedEvents(queue, options)) bytes.byteLength.toFixed();
+const relayQueue = audioQueue<{ byteLength: number; fragment: string }>(100);
+relayQueue.push({ byteLength: 2, fragment: 'fake' }); relayQueue.end();
 const alignment: TTSAlignedChunk = { audio: new Uint8Array(2), textEnd: 5 };
 // @ts-expect-error Every component needs its own explicit admission ceiling.
 const missingMax: ComponentOperationOptions['attempt'] = { attemptId: 'a', claimId: 'c', consume() {} };

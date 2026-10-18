@@ -159,12 +159,17 @@ test('AIT-316: byte queue bounds ingress, drains end, discards clear and permits
   for (const limit of [0, -1, NaN, Infinity, 1.5]) assert.throws(() => audioQueue(limit), TypeError);
   const queue = audioQueue(4); queue.push(new Uint8Array([1, 2])); queue.push(new Uint8Array([3, 4]));
   assert.throws(() => queue.push(new Uint8Array([5])), { code: 'limit' });
-  assert.throws(() => queue.push({ byteLength: 1 }), TypeError); queue.end();
+  assert.throws(() => queue.push({ byteLength: -1 }), TypeError); queue.end();
   assert.deepEqual(await Array.fromAsync(queue), [new Uint8Array([1, 2]), new Uint8Array([3, 4])]);
   assert.throws(() => queue.push(new Uint8Array([1])), { code: 'unavailable' });
   const waiting = audioQueue(4), read = waiting.next(); assert.throws(() => waiting.next(), TypeError);
   waiting.push(new Uint8Array([1])); assert.deepEqual((await read).value, new Uint8Array([1]));
   waiting.push(new Uint8Array([2])); await waiting.return(); assert.equal((await waiting.next()).done, true);
+  const envelopes = audioQueue(2), entry = { byteLength: 2, bytes: new Uint8Array(2), fragment: 'fake' };
+  envelopes.push(entry); envelopes.end(); assert.equal((await envelopes.next()).value, entry);
+  for (const byteLength of [NaN, Infinity, 0, 0.5, -1]) {
+    assert.throws(() => audioQueue(4).push({ byteLength }), TypeError);
+  }
 });
 
 test('AIT-316: fake TTS iterator cancellation retains its independent claim', async () => {

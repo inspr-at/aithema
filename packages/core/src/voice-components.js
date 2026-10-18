@@ -130,7 +130,7 @@ export function audioQueue(limit = 960_000) {
   return {
     push(value) {
       if (ended) throw new PluginError('unavailable');
-      if (!(value instanceof Uint8Array) || !value.byteLength) throw new TypeError('Nonempty audio bytes required');
+      if (!value || !Number.isSafeInteger(value.byteLength) || value.byteLength < 1) throw new TypeError('Positive audio entry byte length required');
       if (bytes + value.byteLength > limit) throw new PluginError('limit', 'Audio relay buffer full');
       if (waiter) { const resolve = waiter; waiter = undefined; resolve({ value, done: false }); }
       else { bytes += value.byteLength; queue.push(value); }

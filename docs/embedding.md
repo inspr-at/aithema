@@ -1233,7 +1233,10 @@ finish accounting when consumers return early. `boundedEvents(source, options)`
 bounds each read and attempts iterator cleanup under a separate one-second
 lease; it cannot force an uncooperative upstream to close.
 `audioQueue(limit = 960_000)` is a single-consumer byte-bounded producer queue:
-`push(Uint8Array)` transfers chunk ownership, `end()` drains pending bytes,
+`push(entry)` transfers ownership of bytes or a host-owned playback envelope
+with a positive safe-integer `byteLength`; the caller declares the full retained
+audio size. The generic `AudioQueue<T>` preserves envelope metadata.
+`end()` drains pending bytes,
 `clear()`/iterator return discard them, and overflow throws `limit`. It does not
 resample, frame audio or pace playback. `TTS_MESSAGE_BYTES` (1 MiB decoded),
 `TTS_WIRE_CHARACTERS` (base64 plus metadata) and `TTS_SPEAK_BYTES` (16,000,000)

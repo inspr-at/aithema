@@ -75,15 +75,16 @@ export interface ComponentInvocation {
 export function componentInvocation(options: ComponentOperationOptions,
   descriptor: { role: ComponentUsage['role']; unit: ComponentUsage['unit']; model: string }): Promise<ComponentInvocation>;
 export function boundedEvents<T>(source: AsyncIterable<T>, options: VoiceCommandOptions): AsyncGenerator<T, void, unknown>;
-export interface AudioQueue extends AsyncIterableIterator<Uint8Array> {
-  push(value: Uint8Array): void;
+export interface AudioQueue<T extends { readonly byteLength: number } = Uint8Array> extends AsyncIterableIterator<T> {
+  /** Caller owns the entry and must declare its full retained audio size. */
+  push(value: T): void;
   /** Drain existing chunks, then finish. */
   end(): void;
   /** Discard queued bytes and finish. */
   clear(): void;
-  return(): Promise<IteratorResult<Uint8Array>>;
+  return(): Promise<IteratorResult<T>>;
 }
-export function audioQueue(limit?: number): AudioQueue;
+export function audioQueue<T extends { readonly byteLength: number } = Uint8Array>(limit?: number): AudioQueue<T>;
 export const TTS_SPEAK_BYTES: number;
 export const TTS_MESSAGE_BYTES: number;
 export const TTS_WIRE_CHARACTERS: number;
