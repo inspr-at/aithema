@@ -50,7 +50,7 @@ export function harness({ mode: initial = 'completed', onConnect, onSend, durati
         if (mode !== 'missing-final') {
           if (mode !== 'bad-duration') observed = Math.ceil(duration * 200000 / 3600);
           yield JSON.stringify({ ...wire.done, duration: mode === 'bad-duration' ? -1 : duration });
-          yield JSON.stringify(wire.done); // duplicate terminal must not leak a second final
+          if (mode === 'duplicate-terminal') yield JSON.stringify(wire.done); // invalid trailing terminal
         }
       })() };
   };

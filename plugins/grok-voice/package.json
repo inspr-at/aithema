@@ -1,0 +1,28 @@
+{
+  "name": "@inspr/aithema-plugin-grok-voice",
+  "private": true,
+  "type": "module",
+  "version": "261018142833.0.0",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/server.js",
+    "./server": "./src/server.js",
+    "./client": "./src/client.js",
+    "./components": "./src/components.js",
+    "./manifest": "./src/manifest.js"
+  },
+  "dependencies": {
+    "@inspr/aithema-core": "261018142833.0.0"
+  },
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "plugins/grok-voice"
+  }
+}

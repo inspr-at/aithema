@@ -1,7 +1,7 @@
-import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
-import { deepFreeze } from '../../../packages/core/src/plugins.js';
-import { voiceOperation } from '../../../packages/core/src/live-voice.js';
-import { componentInvocation, boundedEvents } from '../../../packages/core/src/voice-components.js';
+import { PluginError, normalizedError } from '@inspr/aithema-core/invocation';
+import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
+import { componentInvocation, boundedEvents } from '@inspr/aithema-core/voice-components';
 import { validateGrokConfiguration, STT_MODEL, STT_FORMAT, EVIDENCE_DATE } from './configuration.js';
 import { manifest } from './manifest.js';
 export { STT_FORMAT, manifest };
@@ -65,7 +65,7 @@ async function headers(config, resolveSecret, options) {
   return { Authorization: `Bearer ${value}` };
 }
 function metadata(config, streaming) {
-  return { manifest: streaming ? manifest : deepFreeze({ ...manifest, models: manifest.models.map(model => ({ ...model, streaming: false, operations: ['transcribe'] })) }), model: STT_MODEL,
+  return { manifest: deepFreeze({ ...manifest, kinds: ['stt'], models: manifest.models.filter(model => model.id === STT_MODEL).map(model => streaming ? model : { ...model, streaming: false, operations: ['transcribe'] }) }), model: STT_MODEL,
     capabilities: deepFreeze({ streaming, languages: [...config.languages], partialTranscripts: streaming }),
     formats: Object.freeze([STT_FORMAT]), negotiateAudioFormat: negotiate };
 }
@@ -83,7 +83,7 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
     const invocation = await componentInvocation(options, { role: 'stt', unit: 'seconds', model: STT_MODEL });
     const cleanup = new AbortController(), opts = { ...options, signal: AbortSignal.any([invocation.signal, cleanup.signal]) };
     let socket, stop, iterator, pump, pumpError, completed = false, ready = false, ended = false, total = 0, count = 0;
-    let utteranceStart = 0, locked = new Map(), prefix = '';
+    let utteranceStart = 0, locked = new Map(), prefix = '', finalText;
     try {
       iterator = request.audio[Symbol.asyncIterator]();
       const auth = await headers(config, resolveSecret, opts);
@@ -99,6 +99,7 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
       for await (const wire of boundedEvents(socket.events, opts)) {
         if (++count > config.maxEvents) throw new PluginError('limit');
         const event = decode(wire, config);
+        if (finalText !== undefined) throw new PluginError('invalid-output', 'Event after terminal transcript');
         if (event.type === 'error') throw failure();
         if (event.type === 'transcript.created') {
           if (ready) throw new PluginError('invalid-output'); ready = true;
@@ -138,14 +139,14 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
         } else if (event.type === 'transcript.done') {
           if (!ready || !ended || event.channel_index !== undefined) throw new PluginError('invalid-output', 'Terminal before audio endpoint');
           const text = transcript(event, config);
-          await pump; usage(event, invocation, config, false);
-          // Settle before exposing finality; report failures must reach the caller.
-          await invocation.finish(true); completed = true;
-          yield { text, final: true }; break;
+          await pump; usage(event, invocation, config, false); finalText = text;
         } else throw new PluginError('invalid-output');
       }
       if (pumpError) throw pumpError;
-      if (!completed) throw new PluginError('invalid-output', 'Missing terminal transcript');
+      if (finalText === undefined) throw new PluginError('invalid-output', 'Missing terminal transcript');
+      // STT closes after transcript.done. Validate trailing events before finality.
+      await invocation.finish(true); completed = true;
+      yield { text: finalText, final: true };
     } catch (error) { throw normalizedError(pumpError ?? error, invocation.signal); }
     finally {
       opts.signal.removeEventListener('abort', stop); cleanup.abort(); await stop?.();
