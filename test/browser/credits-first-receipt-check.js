@@ -43,7 +43,15 @@ export async function creditsFirstReceiptCheck(t) {
     localStorage.setItem('aithema-demo-locale', 'de');
     const original = window.fetch.bind(window);
     window.fetch = async (url, init = {}) => {
-      if (new URL(url, location.href).pathname.endsWith('/credits')) {
+      const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/events') && window.ait357) {
+        // Keep connection establishment independent from the held receipt.
+        return new Response(new ReadableStream({ start(controller) {
+          if (init.signal?.aborted) controller.close();
+          else init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }), { headers: { 'content-type': 'text/event-stream' } });
+      }
+      if (path.endsWith('/credits')) {
         const fixture = window.ait357;
         if (!fixture) return new Promise(() => {});
         fixture.requested = true;
@@ -95,7 +103,8 @@ export async function creditsFirstReceiptCheck(t) {
         } else if (id === 'demo-license') paintLicenseLabel(link, full); else link.textContent = full;
       }
     }, { width, locale, theme, limitMicro });
-    await until(page, () => window.ait357.requested);
+    await until(page, () => window.ait357.requested &&
+      document.querySelector('aithema-session').shadowRoot.querySelector('.status__dot').dataset.state === 'connected');
     await settle(page);
     const before = await measure(page), label = `${width}/${locale}/${theme}/${limitMicro / 10_000}`;
     assert.equal(before.value, '…', `${label}: receipt held pending`);
