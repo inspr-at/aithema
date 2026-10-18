@@ -11,6 +11,13 @@ import { shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
 const click = (page, selector) => shadow(page, (c, s) => c.shadowRoot.querySelector(s).click(), selector);
 const frame = async page => { await page.bringToFront(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); };
+const settingsDiagnostic = page => shadow(page, c => {
+  const r = c.shadowRoot, body = r.querySelector('.settings__body');
+  const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+  return { open: r.querySelector('dialog.settings').open, scrollTop: body.scrollTop,
+    scrollHeight: body.scrollHeight, clientHeight: body.clientHeight,
+    boxes: ['dialog.settings', '#email', '.operator-section', '.settings__footer'].map(s => box(r.querySelector(s))) };
+});
 const geometry = page => shadow(page, c => {
   const r = c.shadowRoot, entry = r.querySelector('#email'), stack = entry.querySelector('.m-stack');
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
@@ -186,8 +193,14 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
         assert.ok(Math.abs(before.stackHeight - before.mailHeight) < 1, `stack ${before.stackHeight} px vs mail ${before.mailHeight} px`);
       });
       const check = async state => {
+        const initial = await settingsDiagnostic(page);
         const temporarilyOpen = await shadow(page, c => { const r = c.shadowRoot, closed = !r.querySelector('dialog.settings').open; if (closed) c.openSettings(undefined, { tab: 'general', anchor: '#email' }); const body = r.querySelector('.settings__body'); body.scrollTop = body.scrollHeight; return closed; });
         await frame(page); const after = await geometry(page);
+        if (['mail-failed', 'mail-rate-limited'].includes(state)) {
+          const sampled = await settingsDiagnostic(page), frames = [];
+          for (let i = 0; i < 4; i++) { await frame(page); frames.push(await settingsDiagnostic(page)); }
+          t.diagnostic(`AIT-311 ${label}/${state}: ${JSON.stringify({ initial, sampled, frames, baseline: before.boxes, measured: after.boxes })}`);
+        }
         const shift = Math.max(...before.boxes.flatMap((box, i) => box.map((v, j) => Math.abs(v - after.boxes[i][j]))));
         await record(page, label, state, after, shift);
         await t.test(`${label}/${state}: 0 px shift`, () => assert.equal(shift, 0));
