@@ -265,6 +265,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
 
 async function checkPhoneVoiceHeader(t, widths) {
   const { voiceStatusCases } = await import('../voice-status-cases.js');
+  const { narrowVoiceStatus } = await import('../../packages/ui/src/voice-status.js');
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   const head = event?.pull_request?.head?.sha ?? evidenceCommit;
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ait302-'));
@@ -332,14 +333,21 @@ async function checkPhoneVoiceHeader(t, widths) {
       document.documentElement.lang = locale; scrollTo(0, 0);
     }, locale);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    await page.evaluate(() => document.fonts.ready);
     for (const width of widths) {
       await page.setViewport({ width, height: width < 600 ? 844 : 900 });
       await page.mouse.move(-1, -1);
       let baseline;
+      const capturedShorts = new Map();
       // Full coverage below 600; desktop compares the legacy paint directly.
       const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
       for (const sample of samples) {
-        const geometry = await page.evaluate(async sample => {
+        const short = narrowVoiceStatus(copy, sample.full);
+        // Tick's copy-table evidence: each named status, then only new short forms
+        // among availability/admission sources. Every source still runs every check.
+        const capture = width >= 600 || Boolean(evidence &&
+          (!sample.id.startsWith('reason-') || !capturedShorts.has(short)));
+        const geometry = await page.evaluate(async ({ sample, capture }) => {
           const rail = globalThis.ait302Rail, copy = rail.copy;
           rail.session = sample.kind === 'state' && !['idle', 'failed'].includes(sample.id) ? {} : null;
           rail.state = sample.kind === 'state' && !['low', 'usedUp', 'timeExpired', 'creditEnding'].includes(sample.id) ? sample.id : 'idle';
@@ -353,10 +361,13 @@ async function checkPhoneVoiceHeader(t, widths) {
           rail.render(); rail.waveform.baseline();
           const c = document.querySelector('aithema-session');
           c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
-          await document.fonts.ready;
           const root = c.shadowRoot;
-          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          await Promise.all(root.querySelector('.band').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+          // Geometry reads below force layout. Only screenshot evidence needs paint
+          // frames and animation settlement; source-only checks do not repaint.
+          if (capture) {
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            await Promise.all(root.querySelector('.band').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+          }
           const status = root.querySelector('.voice-state'), lines = new Map();
           const record = (rect, text) => {
             // Inline boxes and glyph ranges can differ slightly at the same baseline.
@@ -381,13 +392,16 @@ async function checkPhoneVoiceHeader(t, widths) {
           const action = status.querySelector('.consent-action'), css = getComputedStyle(status);
           const canShareLine = action && narrow.getBoundingClientRect().width + action.getBoundingClientRect().width + parseFloat(css.columnGap)
             <= status.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
-          return { canShareLine, lines: [...lines.values()].map(parts => parts.sort((a, b) => a.x - b.x)
+          return { accessibleName: status.getAttribute('aria-label'), live: status.getAttribute('aria-live'), canShareLine, lines: [...lines.values()].map(parts => parts.sort((a, b) => a.x - b.x)
               .map((p, i, row) => (i && p.x - row[i - 1].right > 1 ? ' ' : '') + p.text).join('')), short: narrow?.dataset.copy, text: status.textContent, font: getComputedStyle(status).fontSize, captionFont: getComputedStyle(root.querySelector('.voice-caption')).fontSize,
             boxes: ['.band', '.voice-state', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-output', '.voice-playback', '.pause', '.voice-input', '.voice-start', '.conversations-toggle', '.settings-open'].map(selector => {
               const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
             }) };
-        }, sample);
+        }, { sample, capture });
         const label = `${width}-${theme}-${locale}-${sample.id}`;
+        assert.equal(geometry.accessibleName, sample.full, `${label}: accessible name keeps full sentence`);
+        assert.equal(geometry.live, ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id) ? 'off' : 'polite', `${label}: existing live-region policy`);
+        assert.equal(geometry.text, sample.full + (sample.kind === 'consent' ? `\u00a0· ${copy.featureConsent.action}` : ''), `${label}: live announcement keeps full sentence`);
         if (width < 600) {
           assert.equal(geometry.font, geometry.captionFont, `${label}: existing phone type scale`);
           if (geometry.canShareLine) assert.equal(geometry.lines.length, 1, `${label}: both consent units fit on one line`);
@@ -397,7 +411,10 @@ async function checkPhoneVoiceHeader(t, widths) {
           baseline ??= geometry.boxes; assert.deepEqual(geometry.boxes, baseline, `${label}: controls shift 0 px`);
         }
         const name = `ait302-${label}.png`;
-        if (width < 600 && evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+        if (width < 600 && capture) {
+          await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+          capturedShorts.set(short, name);
+        }
         if (width >= 600) {
           assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
           const before = await stableViewport(`${label}/current`);
@@ -422,7 +439,12 @@ async function checkPhoneVoiceHeader(t, widths) {
           }
           assert.ok(after.equals(before), `${label}: byte-identical legacy desktop viewport`);
         }
-        checks.push({ label, pass: true, lines: geometry.lines, layoutShiftPx: 0, file: width === 600 ? null : name });
+        const passLine = `PASS AIT-302 ${head} ${label}: ${width < 600 ? '<=2 lines; no separator at line edges; controls shift 0 px; short <=22 characters' : 'byte-identical legacy desktop viewport'}; full accessible name and live announcement`;
+        passLines.push(passLine);
+        checks.push({ label, pass: true, passLine, lines: geometry.lines, layoutShiftPx: 0,
+          accessibleName: geometry.accessibleName, liveText: geometry.text,
+          file: evidence && width !== 600 && capture ? name : null,
+          shortFormEvidence: width < 600 ? capturedShorts.get(short) ?? null : null });
       }
       const pass = `PASS AIT-302 ${head} ${width}-${theme}-${locale}: ${samples.length} statuses; <=2 lines; no separator at line edges; controls shift 0 px`;
       passLines.push(pass); t.diagnostic(pass);
