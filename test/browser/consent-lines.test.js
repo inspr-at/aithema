@@ -42,6 +42,10 @@ async function fixture(t, real = false, purpose = false, revision = false) {
     const path = new URL(request.url()).pathname;
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     if (page.holdConsentReload && request.method() === 'GET' && path.endsWith('/consent')) { page.heldConsentReload = request; page.holdConsentReload = false; return; }
+    if (page.failSettingsSave && request.method() === 'POST' && path.endsWith('/settings')) {
+      page.failedSettingsSaves = (page.failedSettingsSaves ?? 0) + 1;
+      return request.respond({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'fixture-settings-failed' }) });
+    }
     if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
     // Keep the intentionally held consent verdict coherent with its snapshot.
@@ -1208,4 +1212,64 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
   }
   assert.ok(passes.find(pass => pass.locale === 'de' && pass.width === 320).lines >= 3, 'AIT-321 gate 1: reserve the taller 320 DE notice at normal message size');
   assert.equal(passes.find(pass => pass.locale === 'de' && pass.width === 320).fontSize, passes.find(pass => pass.locale === 'de' && pass.width === 1440).fontSize);
+});
+
+
+test('AIT-321 round 3: failed autosave yields Retry and its padding to consent at 320/390/1440', { timeout: 30_000 }, async t => {
+  const page = await fixture(t, true, false, true);
+  await shadow(page, async c => {
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+    const session = structuredClone(c.session); session.locale = 'de'; session.settings.origin = 'default';
+    c.configure({ session, copy });
+    c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+  });
+  page.failSettingsSave = true;
+  await page.locator('aithema-session >>> .settings-open').click();
+  await page.locator('aithema-session >>> .done').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed');
+  assert.equal(page.failedSettingsSaves, 1, 'a real settings save failed before the editor opens');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.save-retry').checkVisibility()), true);
+  await page.locator('aithema-session >>> .footer-consent').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input'));
+  for (const width of [320, 390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await frame(page);
+    const state = await shadow(page, c => {
+      const r = c.shadowRoot, dialog = r.querySelector('dialog.settings'), status = r.querySelector('.save-status');
+      const slot = r.querySelector('.save-state'), retry = r.querySelector('.save-retry');
+      const original = status.textContent, height = slot.getBoundingClientRect().height;
+      const messages = [...r.querySelectorAll('.consent-state-measure')].map(measure => {
+        status.textContent = measure.textContent;
+        const range = document.createRange(); range.selectNodeContents(status);
+        const button = retry.getBoundingClientRect();
+        return { text: status.textContent, height: slot.getBoundingClientRect().height,
+          fits: status.scrollHeight <= status.clientHeight,
+          overlap: retry.checkVisibility() && [...range.getClientRects()].some(rect =>
+            rect.left < button.right && rect.right > button.left && rect.top < button.bottom && rect.bottom > button.top) };
+      });
+      status.textContent = original;
+      return { editor: dialog.dataset.consentEditor, failed: dialog.dataset.saveState,
+        retryVisible: retry.checkVisibility(), paddingRight: getComputedStyle(status).paddingRight, height, messages };
+    });
+    assert.equal(state.editor, 'true'); assert.equal(state.failed, 'failed');
+    assert.equal(state.retryVisible, false, `${width}: editor owns the status row`);
+    assert.equal(state.paddingRight, '0px', `${width}: hidden Retry reserves no text padding`);
+    for (const message of state.messages) {
+      assert.equal(message.overlap, false, `${width}: no Retry overlaps ${message.text}`);
+      assert.equal(message.height, state.height, `${width}: 0 px slot growth for ${message.text}`);
+      assert.equal(message.fits, true, `${width}: consent message fits its reserved slot`);
+    }
+    // Exit only the editor state, retaining the failed draft. Dismissing the whole
+    // Settings dialog intentionally discards that draft and its failure instead.
+    const closed = await shadow(page, c => {
+      const r = c.shadowRoot; r.querySelector('.consent-editor').hidden = true;
+      c.configure({ session: c.session });
+      return { editor: r.querySelector('dialog.settings').dataset.consentEditor,
+        failed: r.querySelector('dialog.settings').dataset.saveState,
+        retryVisible: r.querySelector('.save-retry').checkVisibility() };
+    });
+    assert.deepEqual(closed, { editor: 'false', failed: 'failed', retryVisible: true }, `${width}: Retry returns after the editor closes`);
+    t.diagnostic(`PASS AIT-321 round 3 width=${width} failedAutosave=1 retryHidden=true overlap=false slotGrowthPx=0 retryRestored=true`);
+    await page.locator('aithema-session >>> .footer-consent').click();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input'));
+  }
 });
