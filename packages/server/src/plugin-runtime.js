@@ -284,6 +284,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const reason = consentReason(coverage, scope, now(), session.consentRevision); if (reason) return { reason };
       } catch { return { reason: 'consent port unavailable' }; }
     }
+    const admissionReason = plugin.ports?.serverAdapter?.admissionReason;
+    if (feature === 'voice' && admissionReason) {
+      try {
+        const reason = await admissionReason({ session, preset, policy: config.policy }, options);
+        if (reason) return { reason };
+      } catch { return { reason: 'voice components unavailable' }; }
+    }
     // Provider health (including spend headroom) governs new dispatch only.
     // Paid results still require all binding, consent and session checks above.
     if (!options.existingCall) {
@@ -701,6 +708,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           feature === 'html' && !model.formats.includes('text/html')) continue;
         const scope = registry.isCanonicalMock(plugin) || !plugin.bind && localImplementation(plugin, feature) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
         if (scope && !result.some(s => hash(s) === hash(scope))) result.push(structuredClone(scope));
+        if (feature === 'voice') for (const child of plugin?.ports?.serverAdapter?.processingScopes?.() ?? []) {
+          if (!result.some(s => hash(s) === hash(child))) result.push(structuredClone(child));
+        }
       }
       const voice = selectedBinding(session, preset, 'voice').raw;
       if (only === 'voice' && registry.get(voice?.plugin)?.manifest.liveVoice?.reasoning === 'delegated') {

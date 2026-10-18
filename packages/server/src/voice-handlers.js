@@ -171,6 +171,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   const receipt = call => ({ callId: call.callId, providerSessionId: call.providerSessionId, credential: call.credential,
     epoch: calls.get(call.callId)?.epoch, controllingTabId: calls.get(call.callId)?.tabId,
     ...calls.get(call.callId)?.callbackContext?.receipt,
+    ...(call.grant ? { mediaGrant: call.grant } : {}),
     spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
     presentation: calls.get(call.callId)?.presentation ?? 'opening',
     ...(call.overrides ? { overrides: call.overrides } : {}) });
@@ -309,6 +310,34 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   const buildVoiceRequest = (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, purposePolicy, hostPrompt,
     offTopicTurns: storage.safeguards(session.id).offTopicTurns });
   const callbackOperations = { secrets, staticSecretRef, presentation, timeoutMs: turnTimeoutMs, log,
+    async authorizeComposition(request, options) {
+      const entry = calls.get(request.callId);
+      if (!entry || entry.closing || request.sessionId !== entry.sessionId ||
+        request.providerSessionId && request.providerSessionId !== entry.call?.providerSessionId) return false;
+      const session = sessionFor(entry);
+      await runtime.checkVoice(session, { ...options, existingCall: true });
+      const fresh = sessionFor(entry);
+      return !entry.closing && !fresh.paused && !fresh.consentWithdrawn &&
+        voiceAuthorizationRevision(fresh) === voiceAuthorizationRevision(session);
+    },
+    async commitCoordinator(envelope, options = {}) {
+      if (envelope?.source !== 'server-coordinator') throw new PluginError('not-admitted');
+      const { sessionId, callId, providerSessionId, callbackBody } = envelope.payload;
+      const entry = calls.get(callId), fresh = sessionFor(entry);
+      if (entry.closing || entry.sessionId !== sessionId || entry.call?.providerSessionId !== providerSessionId || fresh.paused) throw new PluginError('not-admitted');
+      const role = options.role ?? 'user', text = role === 'assistant' ? options.text : callbackBody.messages.at(-1)?.content;
+      const turnId = `${providerSessionId}:${role === 'assistant' ? options.replyId : callbackBody.metadata?.utteranceId}`;
+      const result = storage.postVoiceEvent(sessionId, callId, providerSessionId,
+        { type: 'final', role, callId, providerSessionId, turnId, text }, { ownerToken: entry.ownerToken,
+          revision: inputRevision(fresh), provenance: 'facade-produced', ...options.textOrigin,
+          engine: options.engine, replyId: options.replyId, userTurnOrdinal: options.ordinal });
+      if (!result.replayed) {
+        entry.awaitingReply = role === 'user';
+        publish(sessionId, result.event); onTurn?.(sessionId, result.event);
+        if (role === 'user') storage.transitionVoiceLifecycle(sessionId, callId, { type: 'accepted', turnId });
+      }
+      return result;
+    },
     turnOperations: {
       run(context, execute, options) {
         const entry = calls.get(context.callId);

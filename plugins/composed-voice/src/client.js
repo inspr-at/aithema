@@ -8,6 +8,12 @@ import { manifest } from './manifest.js';
 export function createComposedBrowserMedia({ openRelay, capture, player, control, now = Date.now } = {}) {
   if (![openRelay, capture, player?.play, player?.stop].every(fn => typeof fn === 'function')) throw new TypeError('Host media ports required');
   let mediaOwner, stopOwner;
+  async function connectRelay(grant, options) {
+    let accepted = false;
+    const pending = Promise.resolve().then(() => openRelay(grant, options));
+    try { const result = await voiceOperation(options, () => pending); accepted = true; return result; }
+    finally { if (!accepted) void pending.then(value => value.disconnect()).catch(() => {}); }
+  }
   async function connect(grant, options = {}) {
     assertVoiceMediaGrant(grant, now());
     const events = voiceEvents(); let transport, recording, input = true, output = true, stopped = false,
@@ -36,7 +42,9 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
         if (!control?.recover) throw new PluginError('unavailable');
         const replacement = await control.recover({ callId: grant.callId, explicit });
         assertVoiceMediaGrant(replacement, now());
-        transport = await openRelay(replacement); grant = replacement; playbackRevision = 0;
+        const next = await connectRelay(replacement, options);
+        if (stopped) { await next.disconnect(); throw new PluginError('cancelled'); }
+        transport = next; grant = replacement; playbackRevision = 0;
         void read(transport); return { providerSessionId: grant.providerSessionId,
           spendDeadlineAt: replacement.opaque.spendDeadlineAt, browserLivenessDeadlineAt: replacement.opaque.browserLivenessDeadlineAt };
       },
@@ -49,6 +57,8 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       try {
         for await (const frame of source.frames) {
           if (stopped || source !== transport) break;
+          if (frame.providerSessionId !== undefined && frame.providerSessionId !== grant.providerSessionId ||
+            frame.epoch !== undefined && frame.epoch !== grant.opaque.epoch) throw new PluginError('not-admitted');
           if (frame.type === 'silence') { stopPlayback(); playbackRevision = Math.max(playbackRevision, frame.playbackRevision); }
           else if (frame.type === 'audio' && !hold && output && frame.playbackRevision >= playbackRevision) {
             if (!(frame.bytes instanceof Uint8Array) || !['pcm_f32le', 'pcm_s16le'].includes(frame.format) ||
@@ -75,7 +85,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
     };
     const cancel = () => { stop(); void session?.close({ reason: 'cancelled' }).catch(() => {}); };
     try {
-      transport = await voiceOperation(options, () => openRelay(grant));
+      transport = await connectRelay(grant, options);
       stopOwner?.(); mediaOwner = owner; stopOwner = stop;
       lifecycle.connected({ providerSessionId: grant.providerSessionId, spendDeadlineAt: grant.opaque.spendDeadlineAt ?? grant.expiresAt,
         browserLivenessDeadlineAt: grant.opaque.browserLivenessDeadlineAt ?? grant.expiresAt });
@@ -85,7 +95,8 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
           stop(); lifecycle.end(opts?.reason ?? 'closed'); options.holdSignal?.removeEventListener('abort', retainHold);
           options.signal?.removeEventListener('abort', cancel);
           if (mediaOwner === owner) { mediaOwner = undefined; stopOwner = undefined; }
-          events.end(); closing = Promise.resolve(transport.command('close', opts?.reason ?? 'closed')); return closing;
+          events.end(); closing = Promise.resolve().then(() => transport.command('close', opts?.reason ?? 'closed'))
+            .finally(() => transport.disconnect()); return closing;
         },
         pause(opts) { hold = true; holdRevision++; localStop(); lifecycle.pause(); return Promise.resolve(transport.command('pause', opts)).then(async ack => {
           if (transport.recoverOnResume) await lifecycle.recover(); return ack;
