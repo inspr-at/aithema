@@ -62,6 +62,14 @@ for (const [file, seconds] of Object.entries({
   'test/browser/start2-display.test.js': 257,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
+// AIT-357: PR #306 CI 39149165863, head 480a839e, shard 2/7:
+// footer file 4/4 PASS, summed top-level work 70.230831338s including the
+// held-receipt matrix. ceil(observed * 1.25) = 88s. The run's separate host
+// chrome regression was fixed with exact formatted sizing; this diagnostic
+// floor stays outside trusted rolling-main history until matching main samples.
+browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
+  browserTestWeights['test/browser/footer-width-sweep.test.js'], 88);
+
 // AIT-327: all 34 tests passed in PR CI 39139806265, head d9161661,
 // shard 5/7: summed top-level work 133.288818152s.
 // ceil(observed * 1.25) = 167s; supersedes AIT-321's 158s floor.
