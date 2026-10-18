@@ -63,6 +63,7 @@ function local(provider, role) {
     : role === 'stt' ? createElevenLabsSTT : createElevenLabsTTS)({ enabled: true, config: fixtureConfig,
     consent: fixtureConsent(fixtureBinding(role)), resolveSecret: () => 'synthetic-only', connect, fetchImpl });
   return { component, fixtures: { formats: [provider === 'voxtral' ? role === 'stt' ? voxSTT : voxTTS : role === 'stt' ? elSTT : elTTS],
+    incompatibleFormats: [[{ encoding: 'unsupported-fixture', sampleRateHz: 1, channels: 99 }]],
     prepare(value) { mode = value.mode; }, requestCount: () => requests, activeCount: () => active, observedMicro: () => 0,
     expectedText: text, expectedTranscripts: provider === 'voxtral'
       ? [{ text: 'A', final: false }, { text, final: false }, { text, final: true }]

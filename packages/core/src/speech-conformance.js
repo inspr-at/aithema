@@ -6,7 +6,7 @@ import { assertSTTComponent, assertTTSComponent, assertComponentUsage, TTS_MESSA
 export const sttConformance = (component, request, fixtures) => speechConformance('stt', component, request, fixtures);
 export const ttsConformance = (component, request, fixtures) => speechConformance('tts', component, request, fixtures);
 
-async function speechConformance(role, component, request, { formats, prepare, requestCount, activeCount, observedMicro,
+async function speechConformance(role, component, request, { formats, incompatibleFormats, prepare, requestCount, activeCount, observedMicro,
   expectedText, expectedTranscripts, playback, timeoutMs = 1000, maxMicro = 1_000_000,
   maxInputChunkBytes = 64_000, maxInputBytes = 1_920_000, maxTranscriptCharacters = 32_768, maxChunkBytes = TTS_MESSAGE_BYTES, maxAudioBytes = TTS_SPEAK_BYTES } = {}) {
   const failures = [], check = (condition, rule) => { if (!condition) failures.push(`${role}: ${rule}`); };
@@ -14,7 +14,8 @@ async function speechConformance(role, component, request, { formats, prepare, r
   catch { check(false, 'capability declarations/operations'); }
   if (!component || typeof component.negotiateAudioFormat !== 'function' ||
     typeof component[role === 'stt' ? 'transcribe' : 'speak'] !== 'function') return { ok: false, failures };
-  if (!Array.isArray(formats) || !formats.length || [prepare, requestCount, activeCount, observedMicro].some(fn => typeof fn !== 'function') ||
+  if (!Array.isArray(formats) || !formats.length || !Array.isArray(incompatibleFormats) || !incompatibleFormats.length ||
+    incompatibleFormats.some(offer => !Array.isArray(offer) || !offer.length) || [prepare, requestCount, activeCount, observedMicro].some(fn => typeof fn !== 'function') ||
     !Number.isFinite(timeoutMs) || timeoutMs < 100 || !Number.isSafeInteger(maxMicro) || maxMicro < 1 ||
     [maxInputChunkBytes, maxInputBytes, maxTranscriptCharacters, maxChunkBytes, maxAudioBytes].some(n => !Number.isSafeInteger(n) || n < 1) ||
     role === 'stt' && (typeof expectedText !== 'string' || !(request?.audio instanceof Uint8Array)) ||
@@ -36,9 +37,7 @@ async function speechConformance(role, component, request, { formats, prepare, r
   try {
     selected = await bounded(() => component.negotiateAudioFormat(formats, { deadlineAt: Date.now() + timeoutMs }));
     check(formats.some(format => ['encoding', 'sampleRateHz', 'channels'].every(key => format[key] === selected?.[key])), 'format negotiation selects offered encoding/rate/channels');
-    for (const offered of [[], [{ encoding: 'conformance-incompatible', sampleRateHz: 1, channels: 99 }],
-      formats.map(format => ({ ...format, sampleRateHz: format.sampleRateHz + 1 })),
-      formats.map(format => ({ ...format, channels: 99 }))]) {
+    for (const offered of [[], ...incompatibleFormats]) {
       await rejects(() => component.negotiateAudioFormat(offered, {}), 'unavailable', 'format negotiation rejects incompatible offer');
     }
     const abort = new AbortController(); abort.abort();

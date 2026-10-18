@@ -14,7 +14,8 @@ export function speechFixture(role, fault) {
     confirm(count) { let bytes = 0; for (const chunk of delivered) { bytes += chunk.audio.byteLength; if (bytes <= count) heard = playbackRequest.text.slice(0, chunk.textEnd); } },
     heardPrefix() { return heard; },
   };
-  const fixtures = { formats: [format], timeoutMs: 300, expectedText: 'A😀 B', expectedTranscripts: transcript, playback,
+  const fixtures = { formats: [format], incompatibleFormats: [
+    [{ ...format, encoding: 'unsupported-fixture' }], [{ ...format, sampleRateHz: 16001 }], [{ ...format, channels: 99 }]], timeoutMs: 300, expectedText: 'A😀 B', expectedTranscripts: transcript, playback,
     maxInputChunkBytes: 8, maxInputBytes: 16, maxTranscriptCharacters: 32, maxChunkBytes: 16, maxAudioBytes: 32,
     prepare(value) { mode = value.mode; observed = 0; }, requestCount: () => requests, activeCount: () => active, observedMicro: () => observed };
   async function* run(operation, input, rawOptions) {

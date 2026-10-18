@@ -1260,6 +1260,7 @@ const result = await sttConformance(stt, {
   audio: new Uint8Array(3200), language: 'en',
 }, {
   formats: [{ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 }],
+  incompatibleFormats: [[{ encoding: 'unsupported-fixture', sampleRateHz: 1, channels: 99 }]],
   expectedText: 'Hello',
   expectedTranscripts: [{ text: 'Hullo', final: false }, { text: 'Hello', final: true }],
   prepare: ({ operation, mode, request }) => localFixture.select({ operation, mode, request }),
@@ -1277,7 +1278,11 @@ const speech = await ttsConformance(tts, {
 Both return `{ ok, failures }`, with operation/mode and the violated rule in
 each failure. Inject only local fake transports: the kits do not provide a
 network transport or provider credentials. `prepare` must configure the actual
-component's injected transport before each invocation. Counters independently
+component's injected transport before each invocation. Supply `formats` with a
+supported offer and `incompatibleFormats` with nonempty arrays of offers known
+to be unsupported by this provider (including rate/channel mismatches when
+applicable); providers may legitimately support resampling. The kit also tests
+an empty offer. Counters independently
 observe outbound dispatch and open resources, including cancelled requests;
 `observedMicro` returns the highest authoritative cost observed in that case,
 not the component's reported charge. Preparation must reset this observation.

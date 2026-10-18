@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sttConformance, ttsConformance } from '@inspr/aithema-core';
-import { speechFixture, request } from './speech-fixtures.js';
+import { PluginError, voiceOperation } from '@inspr/aithema-core';
+import { speechFixture, request, format } from './speech-fixtures.js';
 
 for (const [role, kit] of [['stt', sttConformance], ['tts', ttsConformance]]) {
   test(`${role} offline speech conformance passes all rules`, async () => {
@@ -26,3 +27,15 @@ for (const [role, kit] of [['stt', sttConformance], ['tts', ttsConformance]]) {
     assert.ok((await kit(component, request(role))).failures.includes(`${role}: offline fixtures required`));
   });
 }
+
+test('format negotiation allows providers with broader sample-rate support', async () => {
+  const { component, fixtures } = speechFixture('stt');
+  component.negotiateAudioFormat = (offered, options) => voiceOperation(options, () => {
+    const selected = offered.find(value => value.encoding === format.encoding && value.channels === 1 && value.sampleRateHz > 0);
+    if (!selected) throw new PluginError('unavailable');
+    return selected;
+  });
+  fixtures.formats = [{ ...format, sampleRateHz: 16001 }];
+  fixtures.incompatibleFormats = [[{ ...format, encoding: 'unsupported-fixture' }], [{ ...format, channels: 99 }]];
+  assert.deepEqual(await sttConformance(component, request('stt'), fixtures), { ok: true, failures: [] });
+});
