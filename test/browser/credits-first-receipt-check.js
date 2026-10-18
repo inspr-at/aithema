@@ -22,7 +22,7 @@ const measure = page => shadow(page, c => {
   return { rects: Object.fromEntries(selectors.map(s => [s, box(root.querySelector(s))])),
     legal: [...c.querySelectorAll('#demo-legal a')].map(box),
     legalLabels: [...c.querySelectorAll('#demo-legal a')].map(link => link.textContent),
-    value: amount.textContent, reserved: amount.dataset.creditMeasure,
+    value: amount.textContent, reserved: amount.dataset.creditReserve,
     numeric: getComputedStyle(amount).fontVariantNumeric, align: getComputedStyle(amount.firstElementChild).textAlign,
     gap: getComputedStyle(root.querySelector('.display-foot__row')).columnGap,
     fit: root.querySelector('.display-foot').dataset.fit };
