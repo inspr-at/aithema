@@ -7,6 +7,10 @@ import puppeteer from './launch.js';
 import { measureFooterGeometry, assertFits } from './footer-geometry.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
+import { demoLegalPhoneCheck } from './demo-legal-phone-check.js';
+
+test('AIT-304: demo phone legal links each occupy one line; full names, clear targets and 0px holds',
+  { timeout: 90_000 }, demoLegalPhoneCheck);
 
 const widths = [...new Set([320, 390, ...Array.from({ length: 26 }, (_, i) => 600 + i * 20), 699, 700, 701])].sort((a, b) => a - b);
 const shotWidths = [600, 680, 700, 701, 1024];

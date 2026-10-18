@@ -11,6 +11,7 @@ const processingCopy = {
 };
 const hostCopy = {
   de: {
+    slots: { licenseShort: 'AGPL-3.0', legalSourceShort: 'Quellcode' },
     consentTitle: 'Einwilligung für das Demo-Gespräch',
     consentUse: {
       html: 'Die lokalen Demo-Modelle, die Test-Sprache und die Testentwürfe (lokaler Klick-Entwurf) verwenden Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und klickbare Entwürfe zu erstellen.',
@@ -24,6 +25,7 @@ const hostCopy = {
     },
   },
   en: {
+    slots: { licenseShort: 'AGPL-3.0', legalSourceShort: 'Source' },
     consentTitle: 'Demo conversation consent',
     consentUse: {
       html: 'The local demo models, simulated voice and clickable demo drafts use your conversation to reply, build understanding and draft clickable concepts.',
@@ -39,5 +41,6 @@ const hostCopy = {
 };
 export function withDemoConsentCopy(copy) {
   const host = hostCopy[copy.display.locale];
-  return { ...copy, processingConsent: { ...copy.processingConsent, ...processingCopy[copy.display.locale] }, host: { ...copy.host, ...host, consentPage: { ...copy.host.consentPage, ...host.consentPage } } };
+  return { ...copy, processingConsent: { ...copy.processingConsent, ...processingCopy[copy.display.locale] }, host: { ...copy.host, ...host,
+    slots: { ...copy.host.slots, ...host.slots }, consentPage: { ...copy.host.consentPage, ...host.consentPage } } };
 }
