@@ -7,6 +7,15 @@ import { createComposedRelayRoute } from '../../plugins/composed-voice/src/netwo
 globalThis.fetch = () => { throw new Error('Fixture cannot contact providers'); };
 const relays = new Map(), stats = { packets: 0, bytes: 0, generations: 0, pauses: 0, closes: 0, maxPacket: 0 };
 let route;
+const imports = {
+  '@inspr/aithema-core/invocation': '/packages/core/src/invocation.js',
+  '@inspr/aithema-core/live-voice': '/packages/core/src/live-voice.js',
+  '@inspr/aithema-core/plugins': '/packages/core/src/plugins.js',
+  '@inspr/aithema-core/voice-lifecycle-controller': '/packages/core/src/voice-lifecycle-controller.js',
+  '@inspr/aithema-server/composed-voice/client': '/packages/server/src/composed/client.js',
+  '@inspr/aithema-server/composed-voice/network-client': '/packages/server/src/composed/network-client.js',
+  '@inspr/aithema-server/composed-voice/browser-audio': '/packages/server/src/composed/browser-audio.js',
+};
 const { server, url } = await listen(async request => {
   const path = new URL(request.url).pathname;
   if (path === '/composed/relay') return route.handle(request);
@@ -34,8 +43,8 @@ const { server, url } = await listen(async request => {
   }
   if (path === '/stats') return Response.json(stats);
   if (path === '/drop') { for (const relay of relays.values()) relay.close(); return Response.json({ ok: true }); }
-  if (path === '/' || path === '/denied') return new Response('<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><style>*{font-family:Arial,sans-serif;animation:none!important;transition:none!important}body{padding:24px;background:#f8fafc;color:#172033}pre{white-space:pre-wrap}</style><h1>AIT-160 · physical media proof</h1><pre id="proof">Awaiting local fake-device evidence</pre>', { headers: { 'content-type': 'text/html', ...(path === '/denied' ? { 'permissions-policy': 'microphone=()' } : {}) } });
-  if (!/^\/(?:plugins\/composed-voice\/src|packages\/core\/src)\/[a-z-]+\.js$/u.test(path)) return new Response(null, { status: 404 });
+  if (path === '/' || path === '/denied') return new Response('<!doctype html><script type="importmap">' + JSON.stringify({ imports }) + '</script><meta charset="utf-8"><link rel="icon" href="data:,"><style>*{font-family:Arial,sans-serif;animation:none!important;transition:none!important}body{padding:24px;background:#f8fafc;color:#172033}pre{white-space:pre-wrap}</style><h1>AIT-160 · physical media proof</h1><pre id="proof">Awaiting local fake-device evidence</pre>', { headers: { 'content-type': 'text/html', ...(path === '/denied' ? { 'permissions-policy': 'microphone=()' } : {}) } });
+  if (!/^\/(?:plugins\/(?:composed-voice|grok-voice)\/src|packages\/(?:core\/src|server\/src\/composed))\/[a-z-]+\.js$/u.test(path)) return new Response(null, { status: 404 });
   try { return new Response(await readFile(new URL('../..' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }); }
   catch { return new Response(null, { status: 404 }); }
 }, { hostname: '127.0.0.1', port: 0 });
