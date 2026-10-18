@@ -281,6 +281,10 @@ test('AIT-307: readiness has a static text input line without voice; binding and
     for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
       await configure(locale, false); const one = await snapshot(); oneMode(one, locale); await shot(width, theme, locale, 'one');
+      assert.ok(await inShadow(page, c => {
+        const root = c.shadowRoot, start = root.querySelector('.ready__start'), line = root.querySelector('.ready__input');
+        start.focus(); line.focus(); return root.activeElement === start;
+      }), 'the static line adds no focus stop');
       // Locale repaint, without a rebuild, must update the existing static line.
       await inShadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.locale-changed', data: { locale: c.session.locale === 'de' ? 'en' : 'de' } }));
       const other = locale === 'de' ? 'en' : 'de'; oneMode(await snapshot(), other);

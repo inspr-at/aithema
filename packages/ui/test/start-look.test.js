@@ -255,7 +255,8 @@ for (const copy of [de, en]) test(`AIT-307: ${copy.display.locale} text-only rea
   assert.ok(line.querySelector('.ready__icon[aria-hidden="true"] svg[aria-hidden="true"] rect[width="20"][height="16"]'));
   assert.ok(line.querySelector('svg path[d="M7 16h10"]'), 'the existing keyboard icon includes its space bar');
   assert.equal(line.tabIndex, -1); assert.equal(line.querySelector('button,a,input,[tabindex]'), null);
-  line.focus(); assert.ok(j.root.activeElement === start, 'the static line adds no focus stop');
+  // happy-dom focuses arbitrary connected elements; the browser test checks that
+  // focusing this nonfocusable paragraph leaves Start focused in real Chrome.
   const other = copy === de ? en : de;
   j.c.receive({ seq: j.c.session.seq + 1, type: 'session.locale-changed', data: { locale: other.display.locale } });
   assert.ok(j.root.querySelector('.ready__input') === line, 'locale repaint retains the line');
