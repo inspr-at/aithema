@@ -43,7 +43,7 @@ export class ConsentSettings {
       validateConsentDocument(described);
       const shorthand = described.mock === true && described.items === undefined;
       const doc = { ...described };
-      const ids = doc.features?.[feature];
+      const ids = feature === 'voice-xai' ? doc.items?.filter(item => item.id === 'voice-xai' && item.version === 1).map(item => item.id) : doc.features?.[feature];
       if (shorthand) doc.items = [{ id: 'mock-processing', version: 1, title: this.#copy.host.consentTitle,
         recipients: this.#copy.host.consentPage.mockRecipients, text: `${this.#copy.host.consentUse.off} ${this.#copy.host.consentPage.mockConsequence}` }];
       if (!Array.isArray(doc.items) || !Array.isArray(doc.selected) || !ids?.length || !ids.every(id => doc.items.some(item => item.id === id))) throw new Error('Consent document unavailable');

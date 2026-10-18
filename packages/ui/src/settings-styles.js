@@ -83,6 +83,23 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .option-label small { color:var(--aithema-muted); font-size:.72rem; border-left:1px solid var(--aithema-line); padding-left:.5rem; }
 .option-check { flex:none; width:1rem; color:var(--aithema-accent); visibility:hidden; }
 .select__option[aria-selected=true] .option-check { visibility:visible; }
+/* Both provider lines and the inline confirmation always keep their geometry. */
+[data-select=voice] .select__button { height:4.25rem; }
+[data-select=voice] .select__value { display:grid; gap:.1rem; }
+.select__detail { display:block; height:2.5em; font-size:.72rem; line-height:1.25; font-weight:400; color:var(--aithema-muted); overflow:hidden; }
+[data-select=voice] .option-label { display:grid; gap:.1rem; }
+[data-select=voice] .option-label .option-detail { border:0; padding:0; font-weight:400; min-height:1.25em; }
+[data-select=voice] .option-status { display:none; }
+.voice-switch-slot { display:grid; min-width:0; font-size:.75rem; line-height:1.5; }
+.voice-switch-slot>* { grid-area:1/1; min-width:0; }
+.voice-switch-measure { visibility:hidden; pointer-events:none; user-select:none; }
+.voice-switch-measure span { display:block; min-height:2.75rem; padding:.45rem .75rem; }
+.voice-switch-confirm { align-content:start; }
+.voice-switch-actions { display:flex; flex-wrap:wrap; gap:0 .5rem; }
+.voice-switch-actions button { padding:.45rem .75rem; font-size:.75rem; }
+.voice-switch-apply { color:var(--aithema-paper); background:var(--aithema-accent); border:1px solid var(--aithema-accent); }
+.voice-switch-cancel { background:transparent; border:0; color:var(--aithema-ink); }
+.disclosure-provider { height:7rem; overflow:auto; }
 .effort-area { display:grid; } .effort-area>* { grid-area:1/1; min-width:0; }
 .effort { display:grid; gap:.1rem; } .effort label { font-weight:600; }
 .effort__track { display:flex; align-items:center; gap:.75rem; font-size:.75rem; color:var(--aithema-muted); }

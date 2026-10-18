@@ -23,7 +23,7 @@ async function startup() {
   try {
 const component = document.querySelector('aithema-session'), bundles = { en: withDemoConsentCopy(en), de: withDemoConsentCopy(de) };
 mountTheme();
-let fakeVoice, liveVoiceClient, localeChoice = preferredLocale(), copy = bundles[localeChoice];
+let fakeVoice, liveVoiceClient, grokVoiceClient, localeChoice = preferredLocale(), copy = bundles[localeChoice];
 function paintPrivacyLink(link, legal, locale) {
   link.textContent = locale === 'de' ? 'Datenschutzerklärung' : 'Privacy policy';
   link.href = `${binding.privacy.url}?locale=${locale}`;
@@ -115,8 +115,14 @@ async function adopt(session) {
         workletPaths: { rawAudioProcessor: '/vendor/elevenlabs/worklets/raw-audio.js', audioConcatProcessor: '/vendor/elevenlabs/worklets/audio-concat.js' },
         persistEvent: (event, options) => ports.persistEvent(event, { providerSessionId: event.providerSessionId }, options) });
     }
+    if (binding.grokVoiceConfigured) {
+      const { createGrokVoiceClient } = await import('../plugins/grok-voice/src/client.js');
+      const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
+      grokVoiceClient = createGrokVoiceClient({ control: ports.control, network: { url: '/api/voice/grok/relay' } });
+    }
     // The settings Advanced tab connects a local model through this browser-only factory.
-    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, voicePresentation: binding.voicePresentation, copy: componentCopy(), session,
+    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client,
+      voiceClients: { ...(liveVoiceClient ? { elevenlabs: liveVoiceClient } : {}), ...(fakeVoice ? { 'fake-voice': fakeVoice.client } : {}), ...(grokVoiceClient ? { 'grok-voice': grokVoiceClient } : {}) }, voicePresentation: binding.voicePresentation, copy: componentCopy(), session,
       paimosImportUrl: binding.paimosImportUrl, paimosImportVersion: binding.paimosImportVersion,
       copyForLocale: locale => bundles[locale] && componentCopy(bundles[locale]),
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',

@@ -1,5 +1,6 @@
 import { processingScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
 import { manifest as voiceManifest } from '@inspr/aithema-plugin-elevenlabs/manifest';
+import { manifest as grokManifest } from '@inspr/aithema-plugin-grok-voice/manifest';
 import { modelProvider } from './model-provider.js';
 
 // Reasoning/voice copy is ported verbatim from START consentCopy.en. The separate
@@ -15,6 +16,7 @@ export const CONSENT_ITEMS = [
     recipients: 'OpenRouter, Inc. and Anthropic PBC, United States.',
     text: 'Your conversation, text read from uploaded files and the current assessment are sent to generate clickable draft screens. Processing without retention is not guaranteed.' },
 ];
+CONSENT_ITEMS.push(grokManifest.presentation.translations.find(item => item.locale === 'en').consentItem);
 export const CONSENT_INTRO = 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.';
 export const CONSENT_WITHDRAWAL = 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.';
 
@@ -48,15 +50,15 @@ export function qualifyStartBinding(binding, now = Date.now()) {
 /** Durable authoritative state + value-free evidence, as in START src/lib/consent-ledger.ts.
  * A mock grant has no item selection/contract and can never authorize these scopes.
  */
-export function createProcessingConsent({ storage, bindings, voiceConfigured = false, voiceBinding, operationsForBinding, now = Date.now }) {
+export function createProcessingConsent({ storage, bindings, voiceConfigured = false, grokConfigured = false, voiceBinding, operationsForBinding, now = Date.now }) {
   // HTML requires its own purpose; reasoning grants never authorize drafts.
   const coveredBindings = bindings.filter(binding => binding.plugin !== 'claude-html' || binding.legal?.purpose === 'drafts-anthropic');
-  const allowed = coveredBindings.filter(binding => !voiceBinding || binding.plugin !== 'elevenlabs').flatMap(binding => (operationsForBinding?.(binding) ?? (binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured']))
+  const allowed = coveredBindings.filter(binding => !voiceBinding || binding.plugin !== 'elevenlabs').flatMap(binding => (operationsForBinding?.(binding) ?? (binding.plugin === 'grok-voice' ? binding.model === 'grok-voice' ? ['start'] : binding.model === 'grok-voice-tts' ? ['speak'] : ['stream'] : binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured']))
     .map(operation => processingScope(binding, operation)));
   const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => modelProvider(b.model)))];
   // The configured processing contract is stable even while voice is unavailable.
   // Its exact dispatch scope comes from the atomically published runtime binding.
-  const items = CONSENT_ITEMS.filter(item => (item.id === 'voice-elevenlabs' && voiceConfigured) || coveredBindings.some(binding => binding.legal?.purpose === item.id &&
+  const items = CONSENT_ITEMS.filter(item => (item.id === 'voice-elevenlabs' && voiceConfigured) || (item.id === 'voice-xai' && grokConfigured) || coveredBindings.some(binding => binding.legal?.purpose === item.id &&
     (item.id !== 'drafts-anthropic' || binding.plugin === 'claude-html')));
   const contract = [CONSENT_COPY_VERSION, items.map(item => `${item.id}:${item.version}`).join(','), modelProviders.join(',')].join('|');
   const validDecision = decision => decision?.contract === contract && Array.isArray(decision.items) &&
@@ -73,7 +75,7 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
     const grants = row && !session.tombstone && !session.consentWithdrawn && row.revision === session.consentRevision ? JSON.parse(row.grants) : {};
     const selected = items.filter(item => { const grant = grants[item.id]; return grant?.contract === contract && grant.version === item.version &&
       grant.at <= at && at - grant.at < CONSENT_VALIDITY_MS; }).map(item => item.id);
-    return { contract, items, optional: items.filter(item => item.id === 'drafts-anthropic').map(item => item.id),
+    return { contract, items, optional: items.filter(item => ['drafts-anthropic', 'voice-xai'].includes(item.id)).map(item => item.id),
       intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL, selected };
   };
   return { describe,
@@ -81,7 +83,7 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
       if (!validDecision(decision)) return false;
       // Only the separate draft item may change without the conversation's D5
       // cascade. Expired or withdrawn grants cannot authorize preservation.
-      const conversation = selected => selected.filter(id => id !== 'drafts-anthropic').sort();
+      const conversation = selected => selected.filter(id => !['drafts-anthropic', 'voice-xai'].includes(id)).sort();
       const before = conversation(describe(sessionId).selected), after = conversation(decision.items);
       return before.length > 0 && JSON.stringify(before) === JSON.stringify(after);
     },

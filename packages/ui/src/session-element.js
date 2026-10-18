@@ -2471,6 +2471,7 @@ export class AithemaSession extends HTMLElement {
         // A changed model, effort or preset supersedes the running reply on the server:
         // its partial text goes, and late fragments tagged with an older revision are ignored.
         const after = this.#session.settings;
+        if (settingsBefore?.voice !== after.voice) void this.#rail?.close('provider-changed');
         if (presetBefore !== this.#session.processingPreset || settingsBefore?.model !== after.model || settingsBefore?.effort !== after.effort) {
           this.#partials.clear(); this.#reasoningRevision = after.revision ?? 0;
         }

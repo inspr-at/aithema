@@ -125,10 +125,10 @@ export class SettingsDialog {
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
-  #closeGeneration = 0; #pendingPreset = null;
+  #closeGeneration = 0; #pendingPreset = null; #pendingVoice = null; #voiceConfirm = false; #switchBusy = false;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
-    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => this.close() } });
+    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => void this.#finishVoiceConsent() } });
     if (operator) this.#operator = new OperatorSettings({ parent: this.#q('.general'), copy: this.#copy, operator });
   }
   get open() { return this.#dialog.open; }
@@ -164,7 +164,9 @@ export class SettingsDialog {
                 <output id="settings-effort-value" for="settings-effort"></output></div><p class="note effort-note"></p></div></fieldset>
           </div>
           <div class="settings-column">
-            <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="voice" data-text="voice"></span></legend>${select('voice')}</fieldset>
+            <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="voice" data-text="voice"></span></legend>${select('voice')}
+              <div class="voice-switch-slot"><div class="voice-switch-measure" aria-hidden="true"><p data-text="voiceSwitchWarning"></p><span data-text="voiceSwitchApply"></span><span data-text="voiceSwitchCancel"></span></div>
+                <div class="voice-switch-confirm" hidden><p role="status" aria-live="polite" data-text="voiceSwitchWarning"></p><div class="voice-switch-actions"><button type="button" class="voice-switch-apply" data-text="voiceSwitchApply"></button><button type="button" class="voice-switch-cancel" data-text="voiceSwitchCancel"></button></div></div></div></fieldset>
             <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="visuals" data-text="visuals"></span></legend>${select('visuals')}</fieldset>
             <div class="notice-area"><div class="notice-body" role="status" aria-live="polite"><p class="notice-text" id="settings-notice"></p><button type="button" class="notice-action" hidden></button></div></div>
           </div>
@@ -183,7 +185,7 @@ export class SettingsDialog {
       </div>
       <div class="settings-context"><span class="context-icon" aria-hidden="true">i</span><div class="context-text"><p class="context-message" role="status" aria-live="polite"></p></div></div>
       <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers" data-text="providers"></summary>
-          <div class="disclosure__body"><p class="disclosure-processing"></p><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
+          <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
           <button type="button" class="link footer-consent" data-help="consent" data-text="manageConsent"></button></div>
         <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" role="status" aria-live="polite"></p>
           <button type="button" class="save-retry" data-text="retry" data-visible="false"></button></div>
@@ -281,6 +283,12 @@ export class SettingsDialog {
       if (value) this.#change({ effort: value }, true);
     });
     effort.addEventListener('change', () => { if (this.#timer) { clearTimeout(this.#timer); this.#timer = 0; void this.#save(); } });
+    this.#q('.voice-switch-cancel').addEventListener('click', () => {
+      if (this.#switchBusy) return;
+      this.#voiceConfirm = false; this.#pendingVoice = null; this.#draft = { ...this.#active };
+      this.#status = this.#copy.settings.voiceSwitchCancelled; this.#render(); this.#focusVoice();
+    });
+    this.#q('.voice-switch-apply').addEventListener('click', () => void this.#applyVoiceSwitch());
     this.#q('.done').addEventListener('click', () => void this.#done());
     this.#q('.save-retry').addEventListener('click', () => { this.#failed = false; void this.#save(true); });
     // The hidden .notice-measure copy is prepended before .notice-body; scope to the visible notice (AIT-245).
@@ -335,7 +343,8 @@ export class SettingsDialog {
         // Keep the response style when the new model offers it, else use the host's default for that model.
         this.#change({ model: value, effort: !target?.efforts.length ? null : target.efforts.includes(this.#draft.effort) ? this.#draft.effort
           : target.effort ?? preferredEffort(target.efforts) });
-      } else this.#change({ [name]: value });
+      } else if (name === 'voice') void this.#chooseVoice(value);
+      else this.#change({ [name]: value });
     });
   }
   #openMenu(select) {
@@ -412,7 +421,7 @@ export class SettingsDialog {
   close() {
     if (!this.#dialog.open || this.#closing) return;
     this.#closeGeneration++;
-    this.#closing = true; this.#pendingPreset = null;
+    this.#closing = true; this.#pendingPreset = null; this.#pendingVoice = null; this.#voiceConfirm = false;
     clearTimeout(this.#timer); this.#timer = 0;
     for (const select of this.#all('.select')) this.#closeMenu(select);
     this.#q('.disclosure').open = false;
@@ -438,7 +447,7 @@ export class SettingsDialog {
     return true;
   }
   async #done() {
-    if (this.#pendingPreset) return;
+    if (this.#pendingPreset || this.#voiceConfirm || this.#switchBusy) return;
     // Done owns this interaction only. Later navigation, edits or reopening
     // cancel its close while the save still records the explicit confirmation.
     const generation = ++this.#closeGeneration;
@@ -501,6 +510,48 @@ export class SettingsDialog {
     }
     this.#change(next);
   }
+  #focusVoice() { this.#q('#settings-select-voice').focus({ preventScroll: true }); }
+  async #chooseVoice(value) {
+    if (this.#switchBusy || value === this.#draft?.voice) return;
+    const option = this.#presetInfo()?.voices?.find(o => o.id === value);
+    if (option?.status === 'unavailable') return;
+    if (option?.facts?.plugin === 'grok-voice' && option.status === 'consent') {
+      this.#pendingVoice = value;
+      // Existing consent editor, targeting the separately versioned item before saving a provider.
+      if (!this.#consentEditor) { this.#pendingVoice = null; this.#ports.consent?.('settings', ['voice']); return; }
+      this.#setTab('general');
+      await this.#consentEditor.open('voice-xai'); this.#render(); return;
+    }
+    this.#pendingVoice = null;
+    if (this.#ports.state().voiceActive) {
+      this.#draft = { ...this.#draft, voice: value }; this.#revision++; this.#failed = false;
+      this.#voiceConfirm = true; this.#render(); return;
+    }
+    this.#voiceConfirm = false; this.#change({ voice: value });
+    await this.#saving; this.#focusVoice();
+  }
+  async #finishVoiceConsent() {
+    const value = this.#pendingVoice;
+    if (!value) { this.close(); return; }
+    const doc = await this.#ports.consentDocument().catch(() => null);
+    this.#pendingVoice = null; this.#consentEditor.close();
+    this.#setTab('model');
+    if (doc?.items?.some(item => item.id === 'voice-xai' && item.version === 1) && doc.selected?.includes('voice-xai')) {
+      await this.reload(); await this.#chooseVoice(value);
+    }
+    this.#render(); this.#focusVoice();
+  }
+  async #applyVoiceSwitch() {
+    if (this.#switchBusy || !this.#voiceConfirm) return;
+    this.#switchBusy = true; this.#render();
+    try {
+      await this.#ports.endCall();
+      if (!this.#dialog.open) return;
+      if (this.#ports.state().voiceActive) throw new Error('Call still active');
+      this.#voiceConfirm = false; await this.#save();
+    } catch { this.#failed = true; this.#status = this.#copy.settings.failed; }
+    finally { this.#switchBusy = false; this.#render(); if (this.#dialog.open) this.#focusVoice(); }
+  }
   #change(patch, debounce = false) {
     if (!this.#draft) return;
     this.#closeGeneration++; this.#pendingPreset = null;
@@ -513,7 +564,7 @@ export class SettingsDialog {
   }
   // One writer: edits made while a save runs are drained after its acknowledgement.
   #save(retry = false, confirm = false) {
-    if (this.#pendingPreset) return Promise.resolve();
+    if (this.#pendingPreset || this.#voiceConfirm) return Promise.resolve();
     if (this.#saving) return this.#saving.then(() => { if (this.#pending() && !this.#failed && !this.#timer) return this.#save(); });
     const drain = async () => {
       while ((this.#pending() || confirm) && this.#dialog.open && !this.#closing) {
@@ -566,6 +617,7 @@ export class SettingsDialog {
   }
   #callNotice() {
     const c = this.#copy.settings;
+    if (this.#draft.voice !== this.#active.voice) { this.#voiceConfirm = true; this.#render(); return; }
     this.#notice = { text: c.callActive, label: c.endCallApply, explicit: true, action: async () => {
       this.#notice = { text: c.callActive }; this.#render();
       await this.#ports.endCall();
@@ -610,7 +662,7 @@ export class SettingsDialog {
     return !option ? '' : !option.offered && kind === 'retained' ? c.notOffered : option.status === 'unavailable' ? c.unavailable
       : option.status === 'consent' ? c.consentNeeded : option.status === 'limited' ? c.limited : '';
   }
-  #optionNode({ value, label, vendor, status, kind, reason, help, icon, selected, feature }) {
+  #optionNode({ value, label, vendor, status, kind, reason, help, icon, selected, feature, detail }) {
     const node = document.createElement('button'); node.type = 'button'; node.className = 'select__option'; node.setAttribute('role', 'option');
     node.tabIndex = -1; node.dataset.value = value; node.dataset.help = help;
     if (feature) node.dataset.feature = feature;
@@ -618,10 +670,12 @@ export class SettingsDialog {
     if (reason) { node.dataset.reason = reason; node.dataset.kind = kind; }
     const name = document.createElement('span'); name.className = 'option-label';
     const strong = document.createElement('strong'); strong.textContent = label; name.append(strong);
-    if (vendor && vendor !== label) { const small = document.createElement('small'); small.textContent = vendor; name.append(small); }
+    if (detail) { const second = document.createElement('small'); second.className = 'option-detail'; second.textContent = detail; name.append(second); }
+    if (!detail && vendor && vendor !== label) { const small = document.createElement('small'); small.textContent = vendor; name.append(small); }
     const state = document.createElement('small'); state.className = 'option-status'; state.dataset.kind = kind ?? ''; state.textContent = status;
     const check = document.createElement('span'); check.className = 'option-check'; check.innerHTML = ICONS.check;
     if (icon) { const lead = document.createElement('span'); lead.className = 'preset-icon'; lead.innerHTML = icon; node.append(lead); }
+    if (reason) node.title = reasonText(this.#copy, reason, feature);
     node.append(name, state, check);
     return node;
   }
@@ -645,7 +699,10 @@ export class SettingsDialog {
     value.replaceChildren();
     if (loading) { const spinner = document.createElement('span'); spinner.className = 'select__spinner'; spinner.innerHTML = icon('refresh'); value.append(spinner); }
     if (chosen?.icon) { const icon = document.createElement('span'); icon.className = 'preset-icon'; icon.innerHTML = chosen.icon; value.append(icon); }
-    const label = document.createElement('span'); label.textContent = loading ? this.#copy.settings.loadingOption : chosen?.label ?? selectedValue ?? ''; value.append(label);
+    const label = document.createElement('span'); label.className = 'select__label'; label.textContent = loading ? this.#copy.settings.loadingOption : chosen?.label ?? selectedValue ?? ''; value.append(label);
+    if (name === 'voice') {
+      const detail = document.createElement('small'); detail.className = 'select__detail'; detail.textContent = chosen?.detail ?? ''; value.append(detail);
+    }
     button.disabled = loading;
     button.setAttribute('aria-disabled', String(disabled));
     if (reason) button.dataset.reason = reason; else delete button.dataset.reason;
@@ -711,6 +768,8 @@ export class SettingsDialog {
     this.#q('.effort-note').textContent = !catalog ? (this.#loadFailed ? c.loadFailed : c.loading) : device ? c.deviceNote : c.fixedEffort;
     const optional = (name, list, off, offLabel, help) => [{ value: SETTINGS_OFF, label: offLabel, icon: name === 'voice' ? ICONS.text : ICONS.off, help: off },
       ...list.map(o => ({ value: o.id, label: named(o.label), vendor: this.#copy.catalogDescriptions?.[o.label] ?? named(o.facts?.vendor), status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
+        ...(name === 'voice' ? { detail: o.status === 'unavailable' ? o.reason === 'not configured' ? c.notConfigured : c.unavailable
+          : o.status === 'consent' ? c.consentNeeded : o.id === 'grok-voice' || o.facts?.plugin === 'grok-voice' ? c.grokUnverified : o.id === 'elevenlabs' ? c.voiceConfigured : this.#copy.catalogDescriptions?.[o.label] ?? named(o.facts?.vendor) ?? '', status: '' } : {}),
         reason: o.status === 'available' ? '' : o.reason, help, feature: name === 'voice' ? 'voice' : o.kind === 'html' ? 'html' : 'images' }))];
     this.#renderSelect('voice', optional('voice', device ? [] : info?.voices ?? [], 'voiceOff', c.voiceOff, 'voice'), draft.voice ?? SETTINGS_OFF,
       { disabled: device || !catalog, reason: device ? 'unavailable on device' : '' });
@@ -726,6 +785,15 @@ export class SettingsDialog {
     this.#q('.notice-body .notice-action').hidden = !notice?.label;
     this.#q('.notice-body .notice-action').textContent = notice?.label ?? '';
     this.#q('.disclosure-processing').textContent = c.processingDetails[draft.processingPreset] ?? '';
+    this.#q('.voice-switch-confirm').hidden = !this.#voiceConfirm;
+    this.#q('.voice-switch-apply').disabled = this.#switchBusy;
+    this.#q('.voice-switch-cancel').disabled = this.#switchBusy;
+    this.#q('#settings-select-voice').disabled ||= this.#switchBusy;
+    const facts = voiceOption?.facts?.providerProcessing;
+    this.#q('.disclosure-recipient').textContent = facts?.vendor ? fill(facts.recipientCountries?.length ? c.providerSeat : c.providerSeatUnknown,
+      { countries: this.#copy.display.locale.startsWith('de') && JSON.stringify(facts.recipientCountries) === '["US"]' ? 'den USA' : countryNames(facts.recipientCountries ?? [], this.#copy.display.locale), vendor: facts.vendor }) : '';
+    this.#q('.disclosure-geography').textContent = facts?.vendor ? facts.processingCountries?.length
+      ? fill(c.processingGuaranteed, { countries: countryNames(facts.processingCountries, this.#copy.display.locale) }) : c.processingInternational : '';
     const consent = state.consent;
     this.#q('.general-consent').textContent = c.consentStates[consent] ?? '';
     this.#q('.general-recommended').disabled = device || !info?.defaults;

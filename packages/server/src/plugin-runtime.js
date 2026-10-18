@@ -1,3 +1,4 @@
+import { providerProcessingFacts } from './provider-processing.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, MOCK_PROCESSING_SCOPE,
@@ -373,11 +374,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const hostQualified = bindings.length > 0 && bindings.every(binding => config?.plugins?.includes(binding?.plugin) &&
       bindingReason({ binding, plugin: registry.get(binding.plugin), preset, policy: config.policy, now: now() }) === null);
     return { vendor: manifest?.vendor.name ?? null, plugin: raw?.plugin ?? null, model: raw?.model ?? null,
+      providerProcessing: providerProcessingFacts(raw, { plugin, preset, policy: config?.policy, now: now() }),
       qualification: model?.qualification ?? 'unverified', processingLocations: [...(model?.processingLocations ?? ['unverified'])],
       streaming: model?.streaming ?? false, structured: model?.structured ?? false, germanQuality: model?.germanQuality ?? 'unverified',
       efforts: [...(model?.efforts ?? [])], operations: [...(model?.operations ?? [])], formats: [...(model?.formats ?? [])],
       cost: model ? structuredClone(model.cost) : null, free: free(raw),
-      ...(hostQualified ? { hostQualified: true, hostCountries: [...new Set(bindings.flatMap(b => b.legal.countries))],
+      ...(hostQualified ? { hostQualified: true, ...(raw?.plugin === 'grok-voice' && !raw.legal.processingCountries ? {} : { hostCountries: [...new Set(bindings.flatMap(b => b.legal.countries))] }),
         hostTraining: bindings.some(b => b.legal.training),
         hostPriceReviewed: bindings.every(b => registry.get(b.plugin).priceReviewed?.(b.model) === true) } : {}),
       ...(manifest?.liveVoice ? { capabilities: structuredClone(manifest.liveVoice.capabilities), reasoning: manifest.liveVoice.reasoning } : {}),
@@ -634,7 +636,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const optional = (list, feature) => Promise.all(list.map(async option => {
           const reason = await verdict(option.kind ?? feature, option.binding);
           return { id: option.id, label: label(option, option.binding), ...(option.kind ? { kind: option.kind } : {}), configured: Boolean(option.binding),
-            facts: facts(option.binding, preset), status: status(reason), reason };
+            facts: facts(option.binding ?? { plugin: option.id }, preset), status: status(reason), reason };
         }));
         const [voices, visuals, base] = await Promise.all([optional(choices.voices, 'voice'), optional(choices.visuals, 'images'),
           boundedEvaluate({ ...probe, settings: {} }, preset, 'text')]);
@@ -681,6 +683,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         if (id !== SETTINGS_OFF && !list.some(o => o.id === id)) return refuse(field, 'not offered');
         if (id !== SETTINGS_OFF && !list.find(o => o.id === id).binding) return refuse(field, 'not configured');
         settings[field] = id;
+      }
+      const voice = choices.voices.find(o => o.id === settings.voice);
+      if (voice?.binding?.plugin === 'grok-voice' && settings.voice !== base.voiceId) {
+        const candidate = { ...session, processingPreset: preset, settings: { ...session.settings, ...settings } };
+        const result = await boundedEvaluate(candidate, preset, 'voice', { raw: voice.binding });
+        if (isConsentReason(result.reason)) return refuse('voice', result.reason);
       }
       const verdict = await check(session, preset, settings);
       if (verdict.reason) return refuse(verdict.field, verdict.reason);

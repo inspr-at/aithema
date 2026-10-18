@@ -11,6 +11,7 @@ import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
+import { createGrokVoiceProvider } from '@inspr/aithema-plugin-grok-voice/provider';
 import { demoPresets, providerMode } from './choices.js';
 import { voiceAsset } from './voice-assets.js';
 import { HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core/ui-html';
@@ -113,11 +114,19 @@ if (imageMode === 'openai') {
   imageHost.binding = createImageBinding(imageHost.binding);
   if (voiceHost && imageHost.consent !== voiceHost.consent) throw new TypeError('Images and voice require the same authoritative consent port');
 }
+// An optional host module owns private Grok account evidence. It supplies a fully
+// bound plugin plus parent/component processing bindings; no credentials enter config.
+const grokHost = process.env.AITHEMA_GROK_VOICE_HOST_MODULE ? await (await import(pathToFileURL(resolve(process.env.AITHEMA_GROK_VOICE_HOST_MODULE)).href)).createVoiceHost({
+  storage, publicOrigin: deployment.publicOrigin, resolveSecret: resolveProviderSecret,
+  consent: { coverage: (...args) => consent.coverage(...args) },
+}) : null;
+const grokBinding = grokHost?.binding;
+const grokPlugin = grokHost?.plugin ?? (voiceMode === 'elevenlabs' ? createGrokVoiceProvider({ storage }) : null);
 const voiceBinding = voiceHost?.binding ? createDurationBinding(normalizeElevenLabsDurationBinding(voiceHost.binding)) : undefined;
-const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceBinding ? [voiceBinding] : []), ...(html.binding?.legal ? [html.binding] : []),
+const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceBinding ? [voiceBinding] : []), ...(html.binding?.legal ? [html.binding] : []), ...(grokBinding ? [grokBinding, ...(grokHost.processingBindings ?? [])] : []),
   ...(qualificationModule?.qualificationProcessingBindings?.(qualificationBinding) ?? [])];
 const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length || voiceMode === 'elevenlabs'
-  ? createProcessingConsent({ storage, bindings: liveBindings, voiceConfigured: voiceMode === 'elevenlabs',
+  ? createProcessingConsent({ storage, bindings: liveBindings, voiceConfigured: voiceMode === 'elevenlabs', grokConfigured: Boolean(grokBinding),
     voiceBinding: qualificationBinding ? undefined : () => readVoiceState().binding,
     operationsForBinding: qualificationModule?.qualificationProcessingOperations }) : createMockConsent(storage));
 if (voiceHost?.staticSecretRef) {
@@ -138,10 +147,10 @@ function configuredVoicePlugin(binding) {
 }
 const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, provisionFacade: () => {}, revokeFacade: secrets.revoke })
   : voiceBinding ? configuredVoicePlugin(voiceBinding) : null;
-const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
+const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (grokPlugin) registry.register(grokPlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
 // The operator allowlist visitors choose from in settings (demo/choices.js).
 const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
-  voiceBinding: voiceBinding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
+  voiceBinding: voiceBinding ?? localVoiceBinding, grokPlugin, grokBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
 registerDemoExtractors(registry, presets);
 const initialVoiceState = { binding: voiceBinding, registry, presets, policy };
 const readVoiceState = () => voiceHost?.runtime ?? initialVoiceState;
@@ -160,13 +169,13 @@ const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigi
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
-const handlers = createHandlers({ purposePolicy: start2PurposePolicy, storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin || voiceHost?.transient ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
+const handlers = createHandlers({ purposePolicy: start2PurposePolicy, storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin || grokBinding || voiceHost?.transient ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
 voiceHost?.onAvailable?.(candidate => prepareVoiceRuntime({ current: readVoiceState(), binding: candidate.binding,
   createPlugin: configuredVoicePlugin,
   extendPolicy: (before, binding) => imageHost?.policy || voiceHost.policy ? before
     : { ...before, endpoints: [...new Set([...before.endpoints, binding.endpoint])] },
   createPresets: ({ binding, plugin, policy }) => demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding,
-    voicePlugin: plugin, voiceBinding: binding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin,
+    voicePlugin: plugin, voiceBinding: binding, grokPlugin, grokBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin,
     htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy }),
 }));
 const expiry = startExpiry(handlers);
@@ -181,6 +190,7 @@ const qualificationMount = qualificationOps?.createQualificationMount({ ...quali
   control: qualificationControl, authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
+  const grokResponse = await grokHost?.handle?.(request); if (grokResponse) return grokResponse;
   const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
   const qualificationPath = new URL(request.url).pathname;
   if (!qualification.enabled && (qualificationPath.startsWith('/composed/') || qualificationPath.startsWith('/plugins/composed-voice/'))) return new Response(null, { status: 404 });
@@ -214,6 +224,7 @@ async function handle(request, context) {
     return Response.json({
     ...(process.env.AITHEMA_PAIMOS_IMPORT_URL ? { paimosImportUrl: process.env.AITHEMA_PAIMOS_IMPORT_URL, paimosImportVersion: 1 } : {}),
     ...(operatorSessions ? { operatorLogin: operatorSessions.entry() } : {}), ...(operator ? { operator: { name: operator.name } } : {}), label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
+    grokVoiceConfigured: Boolean(grokBinding),
     voicePresentation: voiceHost?.voicePresentation ?? voicePlugin?.manifest.presentation,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
     htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
@@ -229,13 +240,13 @@ async function handle(request, context) {
   }
   const path = url.pathname === '/' ? '/demo/index.html' : ['/consent', '/consent/'].includes(url.pathname) ? '/demo/consent.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|consent-copy\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|admin-copy\.js|post-json\.js|license-label\.js|reason-text\.js|utility-icons\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/server\/src\/dev\/local-voice-manifest\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|consent-copy\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|admin-copy\.js|post-json\.js|license-label\.js|reason-text\.js|utility-icons\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|plugins\/grok-voice\/src\/(?:client|manifest|configuration)\.js|packages\/server\/src\/composed\/(?:client|manifest|network-client|browser-audio|pcm-capture-worklet)\.js|packages\/server\/src\/dev\/local-voice-manifest\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {
     const source = await readFile(file);
     const bytes = path === '/demo/host.css' ? source.toString() + firstPaintStyles
-      : path === '/demo/index.html' ? source.toString().replace('<!--aithema-first-paint-->', firstPaintMarkupFor({ voice: voiceMode === 'fake' || Boolean(readVoiceState().binding) })) : source;
+      : path === '/demo/index.html' ? source.toString().replace('<!--aithema-first-paint-->', firstPaintMarkupFor({ voice: voiceMode === 'fake' || Boolean(readVoiceState().binding) || Boolean(grokBinding) })) : source;
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
       'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
@@ -250,7 +261,7 @@ console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {
   await qualificationMount?.close();
-  await voiceHost?.close?.();
+  await voiceHost?.close?.(); await grokHost?.close?.();
   clearInterval(expiry);
   visitorRetention.close();
   await admin.close();
