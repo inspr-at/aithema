@@ -284,6 +284,16 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings[data-consent-stale=true] .save-check { visibility:hidden; }
 .settings[data-consent-stale=true] .save-state { color:var(--aithema-muted); }
 .settings[data-consent-editor=true] .done[aria-disabled=true] { opacity:.5; cursor:default; }
+/* AIT-327: wide footer start */
+/* Give the editor's reserved status the full column beneath the footer links.
+   Save spans both rows, so changing messages cannot move it or the items. */
+@media(width > 40rem) {
+  .settings[data-consent-editor=true] .settings__footer { grid-template-columns:minmax(0,1fr) auto; row-gap:0; }
+  .settings[data-consent-editor=true] .footer-links { grid-area:1/1; }
+  .settings[data-consent-editor=true] .save-state { grid-area:2/1; width:auto; max-width:none; }
+  .settings[data-consent-editor=true] .done { grid-area:1/2/3/3; }
+}
+/* AIT-327: wide footer end */
 @media(max-width:40rem) {
   .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); }
 }
