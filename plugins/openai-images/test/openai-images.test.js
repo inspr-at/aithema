@@ -397,7 +397,7 @@ const cappedBinding = () => ({ plugin: manifest.id, model: 'openai/gpt-image-2',
 function cappedFixture({ payload = { id: 'gen-image-receipt', data: [{ b64_json: png.toString('base64') }], usage: { cost: 0.0000101 } },
   status = 200, reserve, respond, binding = cappedBinding(), resolveSecret = () => 'local-fixture', spendCap: suppliedCap } = {}) {
   const calls = [], requests = [], handle = Symbol('opaque image reservation');
-  const spendCap = suppliedCap ?? {
+  const spendCap = suppliedCap === false ? undefined : suppliedCap ?? {
     reserve(ceiling, metadata) { calls.push(['reserve', ceiling, metadata]); reserve?.(); return handle; },
     dispatch(received) { assert.equal(received, handle); calls.push(['dispatch']); },
     record(received, evidence) { assert.equal(received, handle); calls.push(['record', evidence]); },
@@ -476,10 +476,10 @@ test('AIT-306: charged invalid image output settles its receipt before reporting
   await assert.rejects(f.plugin.generate(spec, '', options()), { code: 'invalid-output' });
   assert.deepEqual(f.calls.slice(-2), [['record', { generationId: 'gen-invalid-image', chargedMicro: 20 }], ['settle', 20]]);
 });
-test('AIT-306: direct mode leaves the spend port unused and preserves token-based reports', async () => {
+test('AIT-308: direct mode without a spend cap preserves token-based reports', async () => {
   const f = cappedFixture({ binding: { ...cappedBinding(), model: 'gpt-image-2', endpoint: 'https://api.openai.com/v1' },
     payload: { data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 11, output_tokens: 23, cost: 0.00001 } },
-    spendCap: { reserve() { assert.fail('direct mode must retain existing behavior'); } } });
+    spendCap: false });
   const o = options(); await f.plugin.generate(spec, '', o);
   assert.deepEqual(f.calls, [['fetch']]);
   assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 11, outputTokens: 23 } }]);
@@ -496,4 +496,127 @@ test('AIT-308: exhausted direct image spend cap refuses with not-admitted and ze
   const [result] = await Promise.allSettled([plugin.generate(spec, '', options())]);
   assert.equal(fetches, 0, 'exhausted cap must refuse before fetch');
   assert.equal(result.status, 'rejected'); assert.equal(result.reason.code, 'not-admitted');
+});
+
+const directBinding = () => ({ ...cappedBinding(), model: 'gpt-image-2', endpoint: 'https://api.openai.com/v1',
+  rates: { inputMicro: 2, outputMicro: 3 } });
+const directPayload = (usage = { input_tokens: 11, output_tokens: 23 }) => ({
+  id: 'gen-direct-image', data: [{ b64_json: png.toString('base64') }], usage });
+const directFixture = (settings = {}) => cappedFixture({ binding: directBinding(), payload: directPayload(), ...settings });
+test('AIT-308: direct generate and edit reserve before fetch, price private tokens, and retain the cap on bind', async () => {
+  const f = directFixture(), plugin = f.plugin.bind({ ...f.plugin.binding, maxMicro: 95 });
+  for (const operation of ['generate', 'edit']) {
+    f.calls.length = 0;
+    const o = options(), evidence = [];
+    o.attempt.dispatchCost = () => evidence.push('dispatch'); o.attempt.observeCost = receipt => evidence.push(receipt);
+    if (operation === 'generate') await plugin.generate(spec, '', o);
+    else await plugin.edit(artifact(), spec, feedback, o);
+    assert.deepEqual(f.calls, [['reserve', 95, { attemptId: o.attempt.attemptId, provider: 'openai' }], ['dispatch'], ['fetch'],
+      ['record', { generationId: 'gen-direct-image', chargedMicro: 91 }], ['settle', 91]]);
+    assert.deepEqual(evidence, ['dispatch', { generationId: 'gen-direct-image', chargedMicro: 91 }]);
+    assert.equal(o.reports[0].chargedMicro, 91); assert.equal(o.reports[0].generationId, 'gen-direct-image');
+    assert.deepEqual(o.reports[0].usage, { inputTokens: 11, outputTokens: 23 });
+    assert.equal(o.reports[0].outcome, 'completed');
+  }
+});
+test('AIT-308: direct unpriced responses charge the ceiling including absent usage, retained on bind', async () => {
+  const { rates, ...binding } = directBinding();
+  for (const usage of [undefined, { input_tokens: 11, output_tokens: 23 }, { cost: 0 }]) {
+    const f = directFixture({ binding, payload: { ...directPayload(), usage } }), o = options();
+    const plugin = f.plugin.bind({ ...f.plugin.binding, maxMicro: 75 });
+    await plugin.generate(spec, '', o);
+    assert.deepEqual(f.calls.at(-1), ['settle', 75]);
+    assert.equal(o.reports[0].chargedMicro, 75); assert.equal(o.reports[0].outcome, 'completed');
+  }
+});
+test('AIT-308: direct missing or invalid tokens and overflowing private charges remain uncertain; zero is charged', async () => {
+  for (const usage of [undefined, {}, { input_tokens: 1 }, { input_tokens: -1, output_tokens: 2 },
+    { input_tokens: '1', output_tokens: 2 }, { input_tokens: Number.MAX_SAFE_INTEGER, output_tokens: 0 },
+    { input_tokens: 0, output_tokens: 0 }]) {
+    const f = directFixture({ payload: { ...directPayload(), usage } }), o = options();
+    await f.plugin.generate(spec, '', o);
+    const zero = usage?.input_tokens === 0 && usage?.output_tokens === 0;
+    assert.deepEqual(f.calls.at(-1), zero ? ['settle', 0] : ['uncertain']);
+    assert.equal(o.reports[0].outcome, zero ? 'completed' : 'uncertain');
+  }
+});
+test('AIT-308: direct cost fields cannot replace private rates or unpriced ceiling charging', async () => {
+  for (const cost of [undefined, null, '0.001', -1, Infinity, 0, 1]) {
+    const f = directFixture({ payload: directPayload({ input_tokens: 1, output_tokens: 2, cost }) });
+    await f.plugin.generate(spec, '', options());
+    assert.deepEqual(f.calls.at(-1), ['settle', 8]);
+  }
+});
+test('AIT-308: direct abort and deadline after reservation release without dispatch or fetch', async () => {
+  for (const mode of ['abort', 'deadline']) {
+    const controller = new AbortController(), o = options({ signal: controller.signal });
+    const f = directFixture({ reserve() { if (mode === 'abort') controller.abort(); else o.deadlineAt = Date.now() - 1; } });
+    await assert.rejects(f.plugin.generate(spec, '', o), { code: mode === 'abort' ? 'cancelled' : 'deadline' });
+    assert.deepEqual(f.calls, [['reserve', 100, { attemptId: o.attempt.attemptId, provider: 'openai' }], ['settle', 0]]);
+    assert.equal(f.requests.length, 0);
+  }
+});
+test('AIT-308: direct auth, invalid spec, pre-abort and expired deadline create no reservation', async () => {
+  for (const mode of ['auth', 'spec', 'abort', 'deadline']) {
+    const f = directFixture({ ...(mode === 'auth' ? { resolveSecret: () => '' } : {}) }), controller = new AbortController();
+    if (mode === 'abort') controller.abort();
+    await assert.rejects(f.plugin.generate(mode === 'spec' ? {} : spec, '', options({ signal: controller.signal,
+      deadlineAt: Date.now() + (mode === 'deadline' ? -1 : 2000) })),
+    { code: { auth: 'auth', spec: 'invalid-output', abort: 'cancelled', deadline: 'deadline' }[mode] });
+    assert.deepEqual(f.calls, []);
+  }
+});
+test('AIT-308: direct interrupted rejection bodies and failed transports remain uncertain', async () => {
+  for (const respond of [() => { throw new Error('fixture network failure'); },
+    () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{')); c.error(new Error('fixture truncated')); } }), { status: 400 })]) {
+    const f = directFixture({ respond });
+    await assert.rejects(f.plugin.generate(spec, '', options()), { code: 'provider' });
+    assert.deepEqual(f.calls.at(-1), ['uncertain']);
+  }
+});
+
+test('AIT-308: direct HTTP errors price usable tokens, release unbilled rejections, and retain unknown holds', async () => {
+  for (const priced of [true, false]) for (const status of [400, 401, 403, 408, 422, 429, 499, 500, 503]) {
+    const { rates, ...unpriced } = directBinding();
+    for (const usage of [undefined, {}, { input_tokens: 1, output_tokens: 2 }, { input_tokens: 0, output_tokens: 0 }, { cost: 0 }]) {
+      const f = directFixture({ binding: priced ? directBinding() : unpriced,
+        status, payload: { error: { message: 'fixture rejection' }, usage } }), o = options();
+      await assert.rejects(f.plugin.generate(spec, '', o), { code: [401, 403].includes(status) ? 'auth' : status === 429 ? 'rate-limit' : 'provider' });
+      const actual = usage?.input_tokens !== undefined ? priced ? usage.input_tokens * 2 + usage.output_tokens * 3 : 100 :
+        !usage && status < 500 && ![408, 499].includes(status) ? 0 : null;
+      assert.deepEqual(f.calls.at(-1), actual === null ? ['uncertain'] : ['settle', actual], `status ${status}, priced ${priced}, usage ${JSON.stringify(usage)}`);
+    }
+  }
+  const plain = directFixture({ respond: () => new Response('rejected', { status: 400 }) });
+  await assert.rejects(plain.plugin.generate(spec, '', options()), { code: 'provider' });
+  assert.deepEqual(plain.calls.at(-1), ['settle', 0]);
+});
+test('AIT-308: direct charged invalid output retains the private token charge or unpriced ceiling', async () => {
+  const { rates, ...unpriced } = directBinding();
+  for (const binding of [directBinding(), unpriced]) {
+    const f = directFixture({ binding, payload: { ...directPayload(), data: [] } }), o = options();
+    await assert.rejects(f.plugin.generate(spec, '', o), { code: 'invalid-output' });
+    const actual = binding.rates ? 91 : 100;
+    assert.deepEqual(f.calls.slice(-2), [['record', { generationId: 'gen-direct-image', chargedMicro: actual }], ['settle', actual]]);
+    assert.equal(o.reports[0].chargedMicro, actual);
+  }
+});
+test('AIT-308: direct cancellation and deadlines after dispatch retain an uncertain ceiling', async () => {
+  for (const priced of [true, false]) for (const mode of ['abort', 'deadline']) {
+    const { rates, ...unpriced } = directBinding(), started = Promise.withResolvers(), controller = new AbortController();
+    const f = directFixture({ binding: priced ? directBinding() : unpriced, respond() { started.resolve(); return new Promise(() => {}); } });
+    const o = options({ signal: controller.signal, deadlineAt: Date.now() + (mode === 'deadline' ? 50 : 2000) });
+    const pending = f.plugin.generate(spec, '', o); await started.promise;
+    if (mode === 'abort') controller.abort();
+    await assert.rejects(pending, { code: mode === 'abort' ? 'cancelled' : 'deadline' });
+    assert.deepEqual(f.calls.at(-1), ['uncertain']); assert.equal(o.reports[0].outcome, 'uncertain');
+  }
+});
+test('AIT-308: direct malformed successful response bodies retain an uncertain ceiling', async () => {
+  const { rates, ...binding } = directBinding();
+  for (const respond of [() => new Response('{'), () => new Response(new ReadableStream({ start(c) { c.error(new Error('fixture truncated')); } }))]) {
+    const f = directFixture({ binding, respond });
+    await assert.rejects(f.plugin.generate(spec, '', options()));
+    assert.deepEqual(f.calls.at(-1), ['uncertain']);
+  }
 });

@@ -2989,17 +2989,26 @@ provides the port `{reserve(ceilingMicro, {attemptId, provider}) → handle,
 dispatch(handle), record(handle, {generationId, chargedMicro}),
 settle(handle, actualMicro), uncertain(handle), snapshot()}`.
 Inject one instance as `spendCap` into both `createOpenRouterReasoning` and
-`createOpenAIImages` (OpenRouter mode) to share the account, such as
-`start-openrouter`, across reasoning and images. Image calls reserve the host's
-admitted `binding.maxMicro`; they do not infer prices. Separate instances can
+`createOpenAIImages` to share the account, such as the demo's
+`start2-openrouter`, across reasoning and images. Image calls in direct OpenAI
+and OpenRouter modes reserve the host's admitted `binding.maxMicro` before any
+fetch and refuse with `not-admitted` when the cap is exhausted. OpenRouter images
+settle from `usage.cost`. Direct images charge response input/output tokens at
+host-supplied private `binding.rates` (microdollars per token); without those
+rates, a completed response charges the admitted `binding.maxMicro` ceiling.
+Missing or invalid tokens with private rates, and unknown outcomes after
+dispatch, retain uncertain holds. Failures before dispatch release at zero.
+Public image rates remain unset; no price is inferred. Omitting `spendCap`
+preserves existing behavior. Separate instances can
 also share the same account and database. `snapshot()` returns
 `{spentMicro, reservedMicro, uncertainMicro, capMicro, breached}`. Reservations and settlements
 run under SQLite transactions. Every OpenRouter reasoning request sends the binding's
 `max_tokens` (default 1200 for reaction, 8000 for understanding),
 `provider.require_parameters: true`, and `provider.max_price` derived from the
 operator's prices using exact decimal arithmetic before JSON number conversion.
-Configured upstream allow-lists apply to both lanes; the
-analysis exclusion applies only to understanding. **verified live 2026-10-09**:
+Configured upstream allow-lists apply to the reaction and understanding
+reasoning lanes; the analysis exclusion applies only to understanding. These
+allow-lists and the analysis exclusion do not apply to image requests. **verified live 2026-10-09**:
 those routing prices are in USD per MILLION tokens and OpenRouter enforces them
 before dispatch (404, "No endpoints found that satisfy the max price").
 Effort `none` sends `reasoning: {enabled:false}`. Mandatory-reasoning models

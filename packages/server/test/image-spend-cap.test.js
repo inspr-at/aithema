@@ -4,6 +4,7 @@ import { SQLiteStorage, createSpendCap } from '../src/index.js';
 import { createOpenAIImages } from '../../../plugins/openai-images/src/index.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { png } from '../../../test/image-fixtures.js';
+import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
 
 const spec = { prompt: 'A fixture workspace' };
 const request = { system: '', messages: [{ role: 'user', content: 'Hello' }],
@@ -76,4 +77,92 @@ test('AIT-306: a missing image receipt retains a SQLite uncertain hold and block
   assert.deepEqual(h.cap.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 60, capMicro: 60, breached: false });
   await assert.rejects(h.reasoning.structured(request, options()), { code: 'not-admitted' });
   assert.deepEqual(h.fetches, { images: 1, reasoning: 0 });
+});
+
+function directFixture(t, { rates, directFetch, ...settings } = {}) {
+  const h = fixture(t, settings), directFetches = { count: 0 };
+  const direct = createOpenAIImages({ binding: { plugin: 'openai-images', model: 'gpt-image-2', effort: 'none',
+    endpoint: 'https://api.openai.com/v1', accountRef: 'start-openrouter', secretRef: 'fixture-only',
+    maxMicro: settings.imageCeiling ?? 40, maxTokens: 5, ...(rates ? { rates } : {}) },
+  spendCap: h.cap, resolveSecret: () => 'fixture-only', fetchImpl: async () => {
+    directFetches.count++;
+    return directFetch ? directFetch() : Response.json({ id: 'gen-direct-shared',
+      data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 1, output_tokens: 2 } });
+  } });
+  return { ...h, direct, directFetches };
+}
+test('AIT-308: exhausted SQLite cap refuses direct generation and edits with zero fetches', async t => {
+  const h = directFixture(t, { capMicro: 0 });
+  await assert.rejects(h.direct.generate(spec, '', options()), { code: 'not-admitted' });
+  await assert.rejects(h.direct.edit(imageArtifact(png, { prompt: spec.prompt, model: 'gpt-image-2', operation: 'generate' }), spec, 'Make it blue', options()), { code: 'not-admitted' });
+  assert.equal(h.directFetches.count, 0);
+  assert.deepEqual(h.cap.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 0, capMicro: 0, breached: false });
+});
+test('AIT-308: one SQLite cap totals direct images and gateway images or reasoning in either order', async t => {
+  for (const peer of ['images', 'reasoning']) for (const first of ['direct', peer]) {
+    const h = directFixture(t, { capMicro: 80 }), o = options(), calls = {
+      direct: () => h.direct.generate(spec, '', o), images: () => h.images.generate(spec, '', options()),
+      reasoning: () => h.reasoning.structured(request, options()),
+    };
+    await calls[first](); await calls[first === 'direct' ? peer : 'direct']();
+    assert.deepEqual(h.cap.snapshot(), { spentMicro: 80, reservedMicro: 0, uncertainMicro: 0, capMicro: 80, breached: false });
+    assert.deepEqual(h.cap.evidence(o.attempt.attemptId), { generationId: 'gen-direct-shared', chargedMicro: 40 });
+    for (const call of Object.values(calls)) await assert.rejects(call(), { code: 'not-admitted' });
+    assert.equal(h.directFetches.count, 1);
+    assert.deepEqual(h.fetches, { images: peer === 'images' ? 1 : 0, reasoning: peer === 'reasoning' ? 1 : 0 });
+  }
+});
+test('AIT-308: concurrent direct and gateway images hold the same SQLite cap before settlement', async t => {
+  const gate = Promise.withResolvers(), directStarted = Promise.withResolvers(), gatewayStarted = Promise.withResolvers();
+  const h = directFixture(t, { imageCeiling: 50, rates: { inputMicro: 2, outputMicro: 3 }, directFetch: async () => {
+    directStarted.resolve(); await gate.promise;
+    return Response.json({ data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 1, output_tokens: 2 } });
+  }, imageFetch: async () => { gatewayStarted.resolve(); await gate.promise; return Response.json(imagePayload(0.00001)); } });
+  const directCall = h.direct.generate(spec, '', options()); await directStarted.promise;
+  const gatewayCall = h.images.generate(spec, '', options()); await gatewayStarted.promise;
+  try {
+    assert.equal(h.cap.snapshot().reservedMicro, 100);
+    await assert.rejects(h.direct.generate(spec, '', options()), { code: 'not-admitted' });
+    await assert.rejects(h.images.generate(spec, '', options()), { code: 'not-admitted' });
+    await assert.rejects(h.reasoning.structured(request, options()), { code: 'not-admitted' });
+    assert.equal(h.directFetches.count, 1); assert.deepEqual(h.fetches, { images: 1, reasoning: 0 });
+  } finally { gate.resolve(); await Promise.all([directCall, gatewayCall]); }
+  assert.deepEqual(h.cap.snapshot(), { spentMicro: 18, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: false });
+});
+test('AIT-308: direct private token charge above its ceiling latches a SQLite breach for both gateways', async t => {
+  const h = directFixture(t, { rates: { inputMicro: 10, outputMicro: 20 } }), o = options();
+  await h.direct.generate(spec, '', o);
+  assert.deepEqual(h.cap.evidence(o.attempt.attemptId), { generationId: 'gen-direct-shared', chargedMicro: 50 });
+  assert.deepEqual(h.cap.snapshot(), { spentMicro: 50, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: true });
+  await assert.rejects(h.direct.generate(spec, '', options()), { code: 'not-admitted' });
+  await assert.rejects(h.images.generate(spec, '', options()), { code: 'not-admitted' });
+  await assert.rejects(h.reasoning.structured(request, options()), { code: 'not-admitted' });
+  assert.equal(h.directFetches.count, 1); assert.deepEqual(h.fetches, { images: 0, reasoning: 0 });
+});
+test('AIT-308: unknown direct outcomes retain SQLite uncertain holds and block gateway images and reasoning', async t => {
+  for (const rates of [undefined, { inputMicro: 2, outputMicro: 3 }]) {
+    const h = directFixture(t, { capMicro: 60, imageCeiling: 60, rates, directFetch() { throw new Error('fixture network failure'); } });
+    await assert.rejects(h.direct.generate(spec, '', options()), { code: 'provider' });
+    assert.deepEqual(h.cap.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 60, capMicro: 60, breached: false });
+    await assert.rejects(h.images.generate(spec, '', options()), { code: 'not-admitted' });
+    await assert.rejects(h.reasoning.structured(request, options()), { code: 'not-admitted' });
+    assert.deepEqual(h.fetches, { images: 0, reasoning: 0 });
+    h.cap.recover(); assert.equal(h.cap.snapshot().uncertainMicro, 60);
+  }
+});
+test('AIT-308: missing direct tokens with private rates stay uncertain while unpriced completion charges the ceiling', async t => {
+  for (const priced of [true, false]) {
+    const h = directFixture(t, { capMicro: 40, rates: priced ? { inputMicro: 2, outputMicro: 3 } : undefined,
+      directFetch: () => Response.json({ data: [{ b64_json: png.toString('base64') }] }) });
+    await h.direct.generate(spec, '', options());
+    assert.deepEqual(h.cap.snapshot(), { spentMicro: priced ? 0 : 40, reservedMicro: 0, uncertainMicro: priced ? 40 : 0, capMicro: 40, breached: false });
+    await assert.rejects(h.images.generate(spec, '', options()), { code: 'not-admitted' });
+  }
+});
+test('AIT-308: direct pre-dispatch abort releases a real SQLite reservation at zero', async t => {
+  const h = directFixture(t), controller = new AbortController(), reserve = h.cap.reserve;
+  h.cap.reserve = (...args) => { const handle = reserve(...args); controller.abort(); return handle; };
+  await assert.rejects(h.direct.generate(spec, '', { ...options(), signal: controller.signal }), { code: 'cancelled' });
+  assert.equal(h.directFetches.count, 0);
+  assert.deepEqual(h.cap.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: false });
 });
