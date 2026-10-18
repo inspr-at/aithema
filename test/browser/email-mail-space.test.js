@@ -11,6 +11,33 @@ import { shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
 const click = (page, selector) => shadow(page, (c, s) => c.shadowRoot.querySelector(s).click(), selector);
 const frame = async page => { await page.bringToFront(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); };
+// Opening/focusing and Done's acknowledged save can finish after a protocol
+// round trip. Measure an open, scroll-idle dialog, never its hidden zero boxes.
+async function settleSettings(page) {
+  await page.bringToFront();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  await shadow(page, async c => {
+    await document.fonts.ready;
+    const r = c.shadowRoot, dialog = r.querySelector('dialog.settings'), body = r.querySelector('.settings__body');
+    const snapshot = () => ({ open: dialog.open, scrollTop: body.scrollTop,
+      boxes: ['dialog.settings', '#email', '.operator-section', '.settings__footer'].map(s => {
+        const b = r.querySelector(s).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+      }) });
+    let previous, current;
+    const deadline = performance.now() + 5000;
+    while (performance.now() < deadline) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      current = snapshot();
+      const animating = dialog.getAnimations({ subtree: true }).some(a => a.pending || a.playState === 'running');
+      if (current.open && document.fonts.status === 'loaded' && !animating && current.boxes.every(b => b[2] > 0 && b[3] > 0)) {
+        const measured = JSON.stringify(current);
+        if (measured === previous) return;
+        previous = measured;
+      } else previous = undefined;
+    }
+    throw new Error(`Settings did not settle: ${JSON.stringify(current)}`);
+  });
+}
 const geometry = page => shadow(page, c => {
   const r = c.shadowRoot, entry = r.querySelector('#email'), stack = entry.querySelector('.m-stack');
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
@@ -77,7 +104,7 @@ async function fixture(page, locale, delivery, canConfirm = delivery, credits = 
   await page.evaluate(() => document.fonts.ready);
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
   await shadow(page, c => { const body = c.shadowRoot.querySelector('.settings__body'); body.scrollTop = body.scrollHeight; });
-  await frame(page);
+  await settleSettings(page);
 }
 
 test('AIT-237: a held Done save preserves reopened Settings and its email scroll', { timeout: 30_000 }, async t => {
@@ -110,7 +137,7 @@ test('AIT-237: a held Done save preserves reopened Settings and its email scroll
   await page.keyboard.press('Escape');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), false);
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
-  await frame(page);
+  await settleSettings(page);
   const scrollTop = await shadow(page, c => c.shadowRoot.querySelector('.settings__body').scrollTop);
   const before = await geometry(page);
   assert.ok(scrollTop > 0, 'the reopened email cell is scrolled into view');
@@ -119,7 +146,7 @@ test('AIT-237: a held Done save preserves reopened Settings and its email scroll
     const c = document.querySelector('aithema-session');
     return c.session.settings.origin === 'chosen' && c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false';
   });
-  await frame(page);
+  await settleSettings(page);
   const open = await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open);
   const afterScroll = await shadow(page, c => c.shadowRoot.querySelector('.settings__body').scrollTop);
   t.diagnostic(`held Done released: reopened Settings open=${open}; scroll=${scrollTop}/${afterScroll}`);
@@ -187,11 +214,19 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
       });
       const check = async state => {
         const temporarilyOpen = await shadow(page, c => { const r = c.shadowRoot, closed = !r.querySelector('dialog.settings').open; if (closed) c.openSettings(undefined, { tab: 'general', anchor: '#email' }); const body = r.querySelector('.settings__body'); body.scrollTop = body.scrollHeight; return closed; });
-        await frame(page); const after = await geometry(page);
+        await settleSettings(page); const after = await geometry(page);
         const shift = Math.max(...before.boxes.flatMap((box, i) => box.map((v, j) => Math.abs(v - after.boxes[i][j]))));
+        if (shift !== 0) t.diagnostic(`Settings shift: ${JSON.stringify({ before: before.boxes, after: after.boxes,
+          ...await shadow(page, c => ({ open: c.shadowRoot.querySelector('dialog.settings').open,
+            scrollTop: c.shadowRoot.querySelector('.settings__body').scrollTop })) })}`);
         await record(page, label, state, after, shift);
         await t.test(`${label}/${state}: 0 px shift`, () => assert.equal(shift, 0));
-        if (temporarilyOpen) await click(page, 'dialog.settings .done');
+        if (temporarilyOpen) {
+          await click(page, 'dialog.settings .done');
+          // Done may await a save acknowledgement. Finish this measurement's
+          // cleanup before another state can reopen Settings underneath it.
+          await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+        }
       };
       await check('boot-settled');
       await click(page, '.verify-entry');
@@ -238,7 +273,7 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
       return window.emailBoot.creditsCalls;
     }, canConfirm);
     await until(page, calls => window.emailBoot.creditsCalls > calls, calls);
-    await frame(page);
+    await settleSettings(page);
   };
   for (const locale of ['de', 'en']) {
     browser = await browserForFile();
@@ -266,7 +301,7 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
           await page.evaluate(() => { window.emailBoot.holdCredits = false; });
           await until(page, () => window.emailBoot.creditsFinished > 0);
           if (scenario === 'failed') {
-            await frame(page);
+            await settleSettings(page);
             const failedShift = shift(before, await geometry(page));
             rows.push({ head: evidenceCommit, label, scenario: 'failed-load', shiftPx: failedShift });
             t.diagnostic(`${failedShift === 0 ? 'PASS' : 'FAIL'} AIT-171 ${label}/failed-load: shift=${failedShift} px`);
@@ -275,7 +310,7 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
             await refresh(page, false);
           } else await until(page, () => window.emailBoot.creditsCalls > 0);
         } else await refresh(page, !initialMail);
-        await frame(page);
+        await settleSettings(page);
         const after = await geometry(page), shiftPx = shift(before, after);
         const actionShiftPx = initialMail ? Math.max(...before.mailAction.map((v, i) => Math.abs(v - after.mailAction[i]))) : 0;
         const mode = await shadow(page, c => c.shadowRoot.querySelector('#email').dataset.emailMode);
@@ -285,7 +320,7 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
         await t.test(`${label}/${scenario}: measure remains aria-hidden`, async () => assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.m-mail-tier-measure').getAttribute('aria-hidden')), 'true'));
         await click(page, 'dialog.settings .done');
         await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
-        await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await frame(page);
+        await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settleSettings(page);
         const nextMail = scenario === 'delayed' || scenario === 'save-to-mail';
         await t.test(`${label}/${scenario}: reopen applies current mode and reservation`, async () => {
           assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email').dataset.emailMode), nextMail ? 'mail' : 'save');
@@ -346,7 +381,7 @@ test('AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440;
       if (!failed) await capture(page, label, 'loading');
       await page.evaluate(() => { window.emailBoot.holdCredits = false; });
       await until(page, ({ leadSelector, loading }) => document.querySelector('aithema-session').shadowRoot.querySelector(leadSelector).textContent !== loading, { leadSelector, loading });
-      await frame(page);
+      await settleSettings(page);
       const text = await shadow(page, (c, s) => c.shadowRoot.querySelector(s).textContent, leadSelector);
       if (failed) { assert.equal(text, failure); await capture(page, label, 'failed'); }
       else assert.match(text, locale === 'de' ? /Mit Ihrer E-Mail-Adresse/u : /With your email address/u);

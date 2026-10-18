@@ -107,6 +107,14 @@ browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
 browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
   browserTestWeights['test/browser/voice-presentation.test.js'], 153.649);
 
+// AIT-311: PR #279 CI 39111500207, head 4ae057bd9b, shard 2/6:
+// all five email-mail-space tests passed after condition-based Settings
+// settling. Observed 65.657098318s; with 25% margin, 82.071372898s,
+// rounded up to 83s. Keep this floor until rolling main reflects the
+// changed workload; PR measurements remain outside trusted main history.
+browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-mail-space.test.js'], 83);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;
