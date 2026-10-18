@@ -378,3 +378,16 @@ test('credential and watermark records reject invented verification or inconsist
     const result = artifact(); change(result); assert.equal(isUIArtifact(result), false);
   }
 });
+
+test('AIT-306: exhausted image spend cap refuses with not-admitted and zero fetch calls', async () => {
+  let fetches = 0;
+  const spendCap = { reserve() { throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted'); } };
+  const binding = { plugin: manifest.id, model: 'openai/gpt-image-2', effort: 'none', endpoint: 'https://openrouter.ai/api/v1',
+    accountRef: 'fixture-account', secretRef: 'fixture-secret-ref', maxMicro: 100, maxTokens: 4096 };
+  const plugin = createOpenAIImages({ binding, spendCap, resolveSecret: () => 'local-fixture', fetchImpl: async () => {
+    fetches++; return Response.json({ data: [{ b64_json: png.toString('base64') }], usage: { cost: 0.00001 } });
+  } });
+  const [result] = await Promise.allSettled([plugin.generate(spec, '', options())]);
+  assert.equal(fetches, 0, 'exhausted cap must refuse before fetch');
+  assert.equal(result.status, 'rejected'); assert.equal(result.reason.code, 'not-admitted');
+});
