@@ -1150,6 +1150,7 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     }, notice[locale]);
     assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
     assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
+    if (locale === 'de' && width === 320) assert.equal(state.lines, 2, 'binding 320 DE two-line notice');
     assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
     assert.equal(posts.length - count, 1, 'exactly one POST; no silent re-save');

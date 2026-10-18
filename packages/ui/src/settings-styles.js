@@ -267,11 +267,11 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .consent-state-measure { display:none; }
 .settings[data-consent-editor=true] .save-state { width:26rem; max-width:100%; }
 .settings[data-consent-editor=true] .save-status,
-.settings[data-consent-editor=true] .consent-state-measure { grid-area:1/2; min-height:2.2em; display:flex; align-items:center; overflow-wrap:anywhere; }
+.settings[data-consent-editor=true] .consent-state-measure { grid-area:1/1/2/-1; min-height:2.2em; display:block; text-indent:1.45rem; overflow-wrap:anywhere; }
 .settings[data-consent-editor=true] .consent-state-measure { visibility:hidden; pointer-events:none; user-select:none; }
 .settings[data-consent-editor=true] .save-state-measure { display:none; }
 .settings[data-consent-editor=true] .save-retry { display:none; }
-.save-info { display:none; grid-area:1/1; color:var(--aithema-muted); }
+.save-info { display:none; grid-area:1/1; align-self:start; margin-top:.1em; color:var(--aithema-muted); }
 .settings[data-consent-stale=true] .save-info { display:flex; }
 .settings[data-consent-stale=true] .save-check { visibility:hidden; }
 .settings[data-consent-stale=true] .save-state { color:var(--aithema-muted); }

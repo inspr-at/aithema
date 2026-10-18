@@ -83,7 +83,7 @@ export class ConsentSettings {
   #status(text) {
     this.#statusText = text;
     // The shared footer owns the stale notice; there is only one live message.
-    setText(this.#root.querySelector('.consent-status'), this.#ports.saveButton && this.#stale ? '' : text);
+    setText(this.#root.querySelector('.consent-status'), this.#ports.saveButton && text !== this.#copy.host.consentFailed ? '' : text);
   }
   #paintBusy() {
     const fieldset = this.#root.querySelector('fieldset');
