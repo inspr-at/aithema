@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sttConformance, ttsConformance } from '@inspr/aithema-core';
-import { PluginError, voiceOperation } from '@inspr/aithema-core';
+import { sttConformance, ttsConformance, PluginError } from '@inspr/aithema-core';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { speechFixture, request, format } from './speech-fixtures.js';
 
 for (const [role, kit] of [['stt', sttConformance], ['tts', ttsConformance]]) {
