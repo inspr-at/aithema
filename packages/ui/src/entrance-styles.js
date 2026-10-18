@@ -126,7 +126,7 @@ export const entranceStyles = `
   .chooser__summary > strong { font-size:.95rem; } .chooser__hint > span { font-size:.78rem; }
   .chooser__continue { padding:.6rem .5rem; gap:.35rem; font-size:.95rem; } .chooser__arrow { width:1.8rem; height:1.8rem; border-radius:.6rem; }
   .ready__row { grid-template-columns:minmax(6.7rem,1fr) minmax(0,1.4fr); gap:.4rem; }
+  .ready dt, .ready dd, .ready__input { font-size:.72rem; }
 }
-@media(max-width:599px) { .ready dt, .ready dd, .ready__input { font-size:.72rem; } }
 @media(prefers-reduced-motion:reduce) { .chooser-option, .chooser-option .radio::after, .chooser__continue, .ready__mode { transition:none; } }
 `;
