@@ -78,3 +78,38 @@ for (const copy of [de, en]) for (const removal of ['model', 'voice', 'drafts', 
   h.root.querySelector('.consent-save').click(); await h.done.promise;
   assert.equal(h.saves[0].granted, !ending, 'only conversation withdrawal ends the conversation');
 });
+
+for (const copy of [de, en]) test(`AIT-321 ${copy.display.locale}: reloads a refused decision once and keeps it unsaved until a visitor acts`, async t => {
+  const reload = Promise.withResolvers(), save = Promise.withResolvers(); let loads = 0;
+  const doc = { contract: 'v1', consentRevision: 7, selected: ['images'], features: { images: ['images'] },
+    items: [{ id: 'images', version: 1, title: 'Images', recipients: 'Processor', text: 'Image purpose' }] };
+  const posts = [];
+  const h = fixture(t, copy, { load: () => ++loads === 1 ? doc : reload.promise,
+    save: body => { posts.push(body); return save.promise; } });
+  await h.editor.open('images');
+  const button = h.root.querySelector('.consent-save'); button.focus(); button.click();
+  save.reject(Object.assign(new Error('Conflict'), { code: 'consent-stale' }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.root.getAttribute('aria-busy'), 'true');
+  assert.equal(h.root.querySelector('fieldset').inert, true);
+  assert.equal(h.root.querySelector('input').checked, true);
+  assert.equal(button.getAttribute('aria-disabled'), 'true');
+  assert.equal(button.textContent, copy.featureConsent.save);
+  assert.equal(h.window.document.activeElement, button);
+  button.click();
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].processing.revision, 7);
+  reload.resolve({ ...doc, contract: 'v2', consentRevision: 8, selected: [] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.root.querySelector('input').checked, false);
+  assert.equal(h.root.getAttribute('aria-busy'), 'false');
+  assert.equal(h.root.querySelector('fieldset').inert, false);
+  assert.equal(h.root.querySelector('.consent-status').textContent, copy.host.consentStale);
+  assert.equal(h.root.querySelector('.consent-status').getAttribute('aria-live'), 'polite');
+  assert.equal(h.window.document.activeElement, button);
+  assert.equal(posts.length, 1); assert.equal(loads, 2);
+  h.root.querySelector('input').click();
+  assert.equal(h.root.querySelector('.consent-status').textContent, '');
+  assert.equal(posts.length, 1);
+  h.editor.close(); assert.equal(h.editor.stale, false);
+});

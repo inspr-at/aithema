@@ -854,7 +854,8 @@ consent GET response adds `features: { [feature]: string[] }` for `text`,
 `analysis`, `voice`, `transcription`, `images`, `html` and `uploads`. Empty arrays
 mean no matching described processing. Settings requires a non-empty mapping
 for the requested feature, focuses its first missing item and preserves the
-other selections. Saving sends `{ granted, processing: { contract, items } }`;
+other selections. Saving sends
+`{ granted, processing: { contract, items, revision: consentRevision } }`;
 the ledger must validate the contract, IDs and current revision authoritatively.
 
 The existing one-item mock shorthand `{ mock: true, selected: [] }` remains
@@ -868,6 +869,51 @@ long it applies. Settings reads these copy keys, not the optional `intro` and
 recipients and purposes; the default withdrawal explains how to withdraw and
 that past transfers cannot be undone. Neither states where consent is stored
 or how long it applies.
+
+Consent decisions bind to the revision shown to the visitor (AIT-321). The
+server adds `consentRevision` (a non-negative safe integer) to
+`GET /api/sessions/:id/consent`. Send that value as `processing.revision` on
+**every** decision, including withdrawal:
+
+```js
+const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
+await postJson(`/api/sessions/${id}/consent`, {
+  granted: true,
+  processing: { contract: doc.contract, items: selectedItems, revision: doc.consentRevision },
+});
+```
+
+A mismatched revision returns HTTP **409**
+`{ error: 'consent-stale', consentRevision: <current> }` before calling the host
+ledger, revising consent, invalidating work or broadcasting. An explicitly
+invalid revision returns HTTP **400** `{ error: 'invalid-consent-revision' }`.
+Reload the consent document, show the current selection, and require a new
+visitor action; never automatically retry the refused decision.
+
+`consent.grant({ sessionId, consentRevision, decision, scopes })` receives the
+expected revision in `decision.revision`; the outer `consentRevision` remains
+the **next** revision being granted. An authoritative host ledger should also
+compare the expected revision atomically before writing, including grants that
+finish after a withdrawal. The server queues grants and document reads within
+this handler instance, but HTTP and external withdrawals bypass that queue and
+never wait on a pending host port. After each awaited port the server rechecks
+the revision before calling another port; the final storage transaction compares
+the captured revision before invalidation or append. A late grant returns 409
+`consent-stale` and cannot restore the server's withdrawn consent. Shared host
+ledgers must enforce their own atomic check; the server cannot undo host effects
+that occurred inside an already running grant port.
+A successful POST returns the committed `consentRevision`. The reference editor
+confirms it against the current document and the exact selected item IDs, so
+hosts may version their contract string on every grant or withdrawal. When the
+confirmation document has no `consentRevision`, the editor retains the legacy
+contract-plus-exact-items confirmation.
+
+**Deprecated compatibility:** decisions that omit `processing.revision` retain
+the previous unconditional behavior for existing hosts. They do not protect
+against stale tabs. Migrate host decision writers to the document revision now;
+removal of this compatibility path requires a separately announced breaking
+host release. The reference Settings editor sends revisions whenever the server
+supplies them.
 
 A mock consent document uses `copy.host.*`; override it to match your ledger.
 In particular, override `consentTitle`, `consentUse` (`off`, `html`, `images`)

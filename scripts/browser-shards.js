@@ -62,6 +62,14 @@ for (const [file, seconds] of Object.entries({
   'test/browser/start2-display.test.js': 257,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
+// AIT-321: complete changed file passed all 33 tests in PR CI 39130528163,
+// head 64239bad, shard 5/7: summed top-level work 126.270045745s.
+// ceil(observed * 1.25) = 158s; replaces the provisional 137s incremental
+// estimate. Keep this diagnostic floor until matching rolling-main samples
+// mature; PR observations do not enter trusted main timing history.
+browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
+  browserTestWeights['test/browser/consent-lines.test.js'], 158);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;

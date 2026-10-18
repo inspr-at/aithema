@@ -7,7 +7,7 @@ import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handler
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
 import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
-import { ConflictError, NotFoundError, SettingsConflictError } from './storage.js';
+import { ConflictError, NotFoundError, SettingsConflictError, ConsentConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
 const json = (value, status = 200) => new Response(JSON.stringify(value), {
@@ -69,6 +69,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
     throw new TypeError('Admission and revocation require the same consent port');
   }
+  const consentDecisions = new Map();
   const listeners = new Map(), jobs = new Map(), focusRequests = new Set(), stop = new AbortController();
   if (host?.walletForSession) pluginRuntime.setOwnerWallet?.(session => host.walletForSession(session));
   let recovery = null, costTimer, costRecovery;
@@ -264,13 +265,22 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       return event;
     } finally { release?.(); }
   }
+  // Serialize grants and document reads across async host ports. Withdrawal
+  // bypasses this queue; storage compares the revision atomically at commit.
+  async function withConsent(id, work) {
+    const pending = (consentDecisions.get(id) ?? Promise.resolve()).then(work);
+    const settled = pending.then(() => {}, () => {});
+    consentDecisions.set(id, settled);
+    try { return await pending; }
+    finally { if (consentDecisions.get(id) === settled) consentDecisions.delete(id); }
+  }
   async function consentDocument(session) {
     const document = validateConsentDocument(await consent.describe(session.id));
     const ids = new Set(document.items?.map(item => item.id) ?? ['mock-processing']);
     const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
       pluginRuntime.scopes(session, { feature }).map(scope => ids.has(scope.purpose) ? scope.purpose
         : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
-    return { ...document, features };
+    return { ...document, features, consentRevision: session.consentRevision };
   }
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
@@ -598,30 +608,47 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
-        // The editor names withdrawal explicitly; existing host ledger updates keep their cascade.
-        if (body.intent === 'settings-save' && body.granted && body.processing && consent.describe) {
-          const document = await consentDocument(authorized);
-          if (document.contract === body.processing.contract && Array.isArray(body.processing.items) &&
-            consentSaveEndsConversation(document, body.processing.items)) return json({ error: 'withdrawal-required' }, 409);
-        }
-        const conversationUnchanged = body.granted && await consent.conversationUnchanged?.({ sessionId: id, decision: body.processing }) === true;
-        if (body.granted) {
-          if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
-          // The host ledger learns exactly which processing the current choice needs.
-          const granted = await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1, decision: body.processing,
-            scopes: pluginRuntime.scopes?.(authorized) ?? [] });
-          if (granted === false) return json({ error: 'host-consent-required' }, 409);
-        }
-        const event = storage.reviseConsent(id, body.granted, guard, { conversationUnchanged });
-        if (event.data.conversationUnchanged) {
-          broadcast(id, event); await conceptHandlers.lane.invalidate(id);
-        } else await invalidate(id, event, 'consent-revised');
-        if (body.granted) { schedule(id); conceptHandlers.schedule(id); }
-        else await consent?.withdraw?.({ sessionId: id });
-        return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
+        const expected = body.processing?.revision;
+        if (expected !== undefined && (!Number.isSafeInteger(expected) || expected < 0)) return json({ error: 'invalid-consent-revision' }, 400);
+        const decide = async () => {
+          const current = storage.authorize(id, ownerToken);
+          // Refusal precedes every host port, mutation, invalidation and broadcast.
+          // Omission is deprecated, retained for existing host integrations only.
+          if (expected !== undefined && expected !== current.consentRevision) {
+            return json({ error: 'consent-stale', consentRevision: current.consentRevision }, 409);
+          }
+          const checkCurrent = () => {
+            const revision = storage.authorize(id, ownerToken).consentRevision;
+            if (revision !== current.consentRevision) throw new ConsentConflictError(revision);
+          };
+          // The editor names withdrawal explicitly; existing host ledger updates keep their cascade.
+          if (body.intent === 'settings-save' && body.granted && body.processing && consent.describe) {
+            const document = await consentDocument(current);
+            checkCurrent();
+            if (document.contract === body.processing.contract && Array.isArray(body.processing.items) &&
+              consentSaveEndsConversation(document, body.processing.items)) return json({ error: 'withdrawal-required' }, 409);
+          }
+          const conversationUnchanged = body.granted && await consent.conversationUnchanged?.({ sessionId: id, decision: body.processing }) === true;
+          checkCurrent();
+          if (body.granted) {
+            if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
+            // decision.revision also lets an authoritative host ledger compare its base.
+            const granted = await consent.grant({ sessionId: id, consentRevision: current.consentRevision + 1, decision: body.processing,
+              scopes: pluginRuntime.scopes?.(current) ?? [] });
+            if (granted === false) return json({ error: 'host-consent-required' }, 409);
+          }
+          const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged });
+          if (event.data.conversationUnchanged) {
+            broadcast(id, event); await conceptHandlers.lane.invalidate(id);
+          } else await invalidate(id, event, 'consent-revised');
+          if (body.granted) { schedule(id); conceptHandlers.schedule(id); }
+          else await consent?.withdraw?.({ sessionId: id });
+          return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
+        };
+        return await (body.granted ? withConsent(id, decide) : decide());
       }
       if (action === 'consent' && request.method === 'GET' && consent.describe) {
-        return json(await consentDocument(authorized));
+        return await withConsent(id, async () => json(await consentDocument(storage.authorize(id, ownerToken))));
       }
       if (action === 'erase' && request.method === 'POST') {
         const event = await eraseConversation(id, guard, ownerToken);
@@ -659,6 +686,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       if (error instanceof PrivacyDocumentRequiredError) return json({ error: error.code }, 403);
       if (error instanceof NotFoundError) return json({ error: 'session-not-found' }, 404);
+      if (error instanceof ConsentConflictError) return json({ error: 'consent-stale', consentRevision: error.consentRevision }, 409);
       if (error instanceof ConflictError) return json({ error: 'idempotency-conflict' }, 409);
       if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
       if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
@@ -693,7 +721,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       offTopicTurns: storage.safeguards(session.id).offTopicTurns }),
     lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
     async withdrawConsent(id) {
-      const event = storage.reviseConsent(id, false); await invalidate(id, event, 'consent-withdrawn');
+      const event = storage.reviseConsent(id, false);
+      await invalidate(id, event, 'consent-withdrawn');
       return event;
     },
     async expire(before) {

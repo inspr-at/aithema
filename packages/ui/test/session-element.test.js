@@ -1414,3 +1414,37 @@ test('AIT-290: a paused cached final overview keeps the missing-consent opener v
   assert.equal(notice.querySelector('button').textContent, en.featureConsent.action);
   assert.equal(notice.querySelector('button').disabled, false);
 });
+
+for (const mode of ['grant', 'withdraw', 'wrong-contract', 'wrong-items']) test(`AIT-321 R2: legacy backend confirmation ${mode} uses contract and exact items without document revisions`, async t => {
+  const c = setup(), root = c.shadowRoot, posts = [];
+  const initiallySelected = mode === 'withdraw' ? ['mock-processing'] : [];
+  let selected = initiallySelected, contract = 'legacy-v1';
+  const doc = () => ({ contract, selected, features: { text: ['mock-processing'] }, items: [
+    { id: 'mock-processing', version: 1, title: 'Processing', recipients: 'Host', text: 'Process messages' },
+  ] });
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (String(url).endsWith('/consent')) {
+      if (options.method === 'POST') {
+        const body = JSON.parse(options.body); posts.push(body);
+        selected = mode === 'wrong-items' ? [] : body.processing.items;
+        if (mode === 'wrong-contract') contract = 'different-contract';
+        return Response.json({ granted: body.granted });
+      }
+      return Response.json(doc());
+    }
+    if (String(url).endsWith('/features')) return Response.json({ featureMatrix: c.session.featureMatrix });
+    return Response.json({});
+  });
+  const session = c.session;
+  session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+  c.configure({ session, copy: en });
+  root.querySelector('.composer-reason .consent-action').click();
+  await new Promise(resolve => setImmediate(resolve));
+  const box = root.querySelector('.consent-items input'); assert.ok(box);
+  box.checked = mode !== 'withdraw';
+  root.querySelector('.done').click(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(posts.length, 1); assert.equal(posts[0].processing.revision, undefined);
+  const refused = mode.startsWith('wrong-');
+  assert.equal(root.querySelector('dialog.settings').open, refused);
+  if (refused) assert.equal(root.querySelector('.save-status').textContent, en.host.consentFailed);
+});

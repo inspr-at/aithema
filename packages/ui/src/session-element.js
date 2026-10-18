@@ -1106,14 +1106,20 @@ export class AithemaSession extends HTMLElement {
   async #saveConsent(body) {
     const sessionId = this.#session.id;
     const response = await postJson(`${this.#base}/api/sessions/${sessionId}/consent`, { ...body, intent: 'settings-save' }, { sessionToken: this.#sessionToken });
-    if (!response.ok) throw new Error('Consent save failed');
     const ack = await response.json();
+    if (!response.ok) throw Object.assign(new Error('Consent save failed'), { code: response.status === 409 ? ack.error : undefined });
     if (sessionId !== this.#session.id || ack.granted !== body.granted) throw new Error('Consent acknowledgement missing');
     // The current server document confirms the exact decision; HTTP success alone is not consent.
     const current = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
     if (!current.ok) throw new Error('Consent confirmation unavailable');
     const doc = await current.json(), items = body.granted ? body.processing.items : [];
-    if (doc.contract !== body.processing.contract || !Array.isArray(doc.selected) || doc.selected.length !== items.length ||
+    // Older backends expose only the original contract/items confirmation.
+    const confirmed = doc.consentRevision === undefined
+      ? doc.contract === body.processing.contract
+      : Number.isSafeInteger(ack.consentRevision) && doc.consentRevision === ack.consentRevision &&
+        (body.processing.revision === undefined || ack.consentRevision === body.processing.revision + 1);
+    if (!confirmed ||
+      !Array.isArray(doc.selected) || doc.selected.length !== items.length ||
       !items.every(item => doc.selected.includes(item))) throw new Error('Consent decision unconfirmed');
     if (ack.event) this.receive(ack.event);
     await this.#refreshFeatures();

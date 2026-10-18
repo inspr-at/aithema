@@ -510,3 +510,47 @@ If the 400s guard trips before landing, escalate to the separate eighth-shard
 capacity decision; do not raise the target. Historical merge constraint for
 AIT-314: the PR required coordinator confirmation that the AIT-315 release had
 been published before merging.
+
+
+## AIT-321 consent revision workload (2026-10-18)
+
+The existing `test/browser/consent-lines.test.js` owns the two-page stale-image
+regression and the eight DE/EN × 320/352/390/1440 reload/evidence states. No browser
+file or shard is added. Keep **7 shards**, the **400 s projected headroom guard**,
+the 420 s hard ceiling, and all existing shard/check names.
+
+The temporary **158 s** floor in `scripts/browser-shards.js` comes from the
+complete changed file in successful PR CI
+[39130528163](https://github.com/inspr-at/aithema/actions/runs/39130528163),
+head `64239bad`, shard 5/7: all **33/33** tests passed; summed top-level test
+work was **126.270045745 s**. Applying the 25% warmup margin gives
+`ceil(126.270045745 × 1.25) = 158`. This supersedes the provisional 137 s
+incremental estimate from old rolling-main history plus new-test measurements.
+
+Round 2 removes both phone font overrides. All eight DE/EN ×
+320/352/390/1440 states use the normal **11.52 px** editor message size and pass
+exact copy, single POST, focus, busy/live, inert items, icon clearance and strict
+0 px checks. Every reserved consent/settings message, including failure with
+Retry hidden while the consent editor owns the status row (round-3 gate 2),
+retains the same slot height at each width. On mbp2606 the DE
+notice is three lines at 320/352 (48.328125 px slot) and two at 390/1440
+(44 px slot); EN slots are 44 px at all four widths. These platform-specific
+pixel measurements are evidence, while CI independently checks constant height
+and the font size against its own 1440 baseline. Round-2 remote run
+`96d78f0efd-33554` passed **173/173** server, session-element and complete
+consent-browser tests in 73.970 s, including both two-tab regressions and all
+new withdrawal/legacy-confirmation cases. The 158 s floor remains conservative
+pending the complete round-2 CI measurement. The diagnostic PR/remote evidence does not enter trusted
+rolling-main p95 history. Keep the measured floor until matching main samples
+mature. Final PR CI and its viewport artifact are linked from PR #290; the
+unchanged 400 s guard must pass before handoff.
+
+
+Round 3 restores the editor-scoped Retry hiding and removes the failed-autosave
+phone padding from the consent status text. The failed settings draft remains
+available outside the editor. The added browser regression fails an actual
+model autosave before opening consent, exercises each reserved consent message
+at 320/390/1440, and checks hidden Retry, no overlap, strict 0 px slot growth,
+and Retry restoration when leaving the editor state. The existing eight-state
+DE/EN stale-notice matrix retains its normal font, geometry, focus, live-status,
+and single-POST assertions and refreshes the viewport evidence.

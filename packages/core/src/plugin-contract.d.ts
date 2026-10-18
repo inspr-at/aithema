@@ -21,7 +21,9 @@ export interface ConsentGrant extends ProcessingScope {
 export interface ConsentPort {
   coverage(query: { sessionId: string; scope: ProcessingScope; consentRevision: number },
     options?: Pick<OperationOptions, 'signal' | 'deadlineAt'>): Promise<ConsentGrant | { covered: false }> | ConsentGrant | { covered: false };
-  grant?(query: { sessionId: string; consentRevision: number }): Promise<void> | void;
+  grant?(query: { sessionId: string; consentRevision: number;
+    decision?: { contract?: string; items?: string[]; revision?: number };
+    scopes?: ProcessingScope[] }): Promise<boolean | void> | boolean | void;
   withdraw?(query: { sessionId: string }): Promise<void> | void;
 }
 export interface Health { available: boolean; reason?: string }

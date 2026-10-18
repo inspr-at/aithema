@@ -26,33 +26,39 @@ async function record(t, page, label, values) {
   await writeFile(join(dir, label + '.json'), JSON.stringify({ head: evidenceCommit, viewportOnly: true, label, ...values, pass: true }, null, 2));
   await appendFile(join(dir, 'pass-lines.txt'), line + '\n');
 }
-async function fixture(t, real = false, purpose = false) {
+async function fixture(t, real = false, purpose = false, revision = false) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-consent-lines-'));
   const demo = await startChild(new URL(real ? '../fixtures/consent-lines-server.js' : '../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
-    ...(purpose ? { AITHEMA_PURPOSE_FIXTURE: '1' } : {}), AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+    ...(purpose ? { AITHEMA_PURPOSE_FIXTURE: '1' } : {}), ...(revision ? { AITHEMA_CONSENT_REVISION_FIXTURE: '1' } : {}), AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   const browser = await browserForFile();
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await browser.close(); await demo.kill(); };
   t.after(close);
-  const page = await browser.newPage(); page.closeFixture = close;
+  const page = await browser.newPage(); page.closeFixture = close; page.fixtureBrowser = browser;
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (page.holdConsentReload && request.method() === 'GET' && path.endsWith('/consent')) { page.heldConsentReload = request; page.holdConsentReload = false; return; }
+    if (page.failSettingsSave && request.method() === 'POST' && path.endsWith('/settings')) {
+      page.failedSettingsSaves = (page.failedSettingsSaves ?? 0) + 1;
+      return request.respond({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'fixture-settings-failed' }) });
+    }
     if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
     // Keep the intentionally held consent verdict coherent with its snapshot.
     if (page.forceSnapshot && request.method() === 'GET' && path.endsWith('/features')) return json({ featureMatrix: page.forceSnapshot.featureMatrix });
     if (page.state && path.endsWith('/consent')) {
-      if (request.method() === 'GET') return json(page.state.document ?? { contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
+      if (request.method() === 'GET') return json({ ...(page.state.document ?? { contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected }), consentRevision: page.state.consentRevision ?? 1 });
       const body = JSON.parse(request.postData()); page.posts.push(body);
       assert.equal(body.processing.contract, 'fixture-contract');
       page.state.selected = body.processing.items;
       if (page.state.document) page.state.document = { ...page.state.document, selected: page.state.selected };
       for (const [feature, ids] of Object.entries(page.state.document?.features ?? features)) if (ids.every(id => page.state.selected.includes(id))) page.state.matrix.best[feature] = { available: true, reason: null };
-      return json({ granted: true, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: 2, conversationUnchanged: true } } });
+      page.state.consentRevision = (page.state.consentRevision ?? 1) + 1;
+      return json({ granted: true, consentRevision: page.state.consentRevision, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: page.state.consentRevision, conversationUnchanged: true } } });
     }
     if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, featureMatrix: page.state.matrix });
     if (path.endsWith('/features') && !real) return json(page.state ? { featureMatrix: page.state.matrix } : {});
@@ -1051,5 +1057,229 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
       await writeFile(join(dir, `pass-lines-${locale}.json`), JSON.stringify(passes, null, 2));
       await writeFile(join(dir, 'audit.json'), JSON.stringify({ head: evidenceCommit, ...audit }, null, 2));
     }
+  }
+});
+
+
+test('AIT-321: two pages on one session refuse a stale image grant', { timeout: 60_000 }, async t => {
+  const page = await fixture(t, true, false, true);
+  const other = await page.fixtureBrowser.newPage();
+  await other.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  const id = await shadow(page, c => c.session.id);
+  const decide = (target, granted, revision, items) => target.evaluate(async ({ id, granted, revision, items }) => {
+    const { postJson } = await import('/packages/ui/src/post-json.js');
+    const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
+    const response = await postJson(`/api/sessions/${id}/consent`, { granted, processing: { contract: doc.contract, revision, items } });
+    return { status: response.status, body: await response.json() };
+  }, { id, granted, revision, items });
+  assert.equal((await decide(page, true, 0, ['images'])).status, 200);
+  const tabA = await page.evaluate(id => fetch(`/api/sessions/${id}/consent`).then(r => r.json()), id);
+  assert.deepEqual(tabA.selected, ['images']);
+  assert.equal((await decide(other, false, 1, [])).status, 200);
+  const before = await other.evaluate(() => fetch('/fixture/consent-stats').then(r => r.json()));
+  const response = await page.evaluate(async ({ id, tabA }) => {
+    const { postJson } = await import('/packages/ui/src/post-json.js');
+    const response = await postJson(`/api/sessions/${id}/consent`, { granted: true, processing: { contract: tabA.contract, revision: 1, items: tabA.selected } });
+    return { status: response.status, body: await response.json() };
+  }, { id, tabA });
+  const current = await page.evaluate(id => fetch(`/api/sessions/${id}/consent`).then(r => r.json()), id);
+  assert.equal(response.status, 409, 'a stale tab must not restore the withdrawn image item');
+  assert.deepEqual(response.body, { error: 'consent-stale', consentRevision: 2 });
+  assert.deepEqual(current.selected, []);
+  assert.deepEqual(await other.evaluate(() => fetch('/fixture/consent-stats').then(r => r.json())), before, 'no grant reaches host ledger');
+});
+
+
+test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/390/1440', { timeout: 90_000 }, async t => {
+  const page = await fixture(t, true, false, true), passes = [];
+  const other = await page.fixtureBrowser.newPage(); await other.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  const id = await shadow(page, c => c.session.id), posts = [];
+  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/consent')) posts.push(JSON.parse(request.postData())); });
+  const otherDecision = granted => other.evaluate(async ({ id, granted }) => {
+    const { postJson } = await import('/packages/ui/src/post-json.js');
+    const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
+    const result = await postJson(`/api/sessions/${id}/consent`, { granted, processing: { contract: doc.contract, revision: doc.consentRevision, items: granted ? ['images'] : [] } });
+    if (!result.ok) throw new Error('Other tab decision failed');
+  }, { id, granted });
+  const notice = {
+    de: 'Nicht gespeichert: Ihre Einwilligung wurde inzwischen in einem anderen Fenster geändert. Der aktuelle Stand ist geladen.',
+    en: 'Not saved: your consent was changed in another window. The current state is loaded.',
+  };
+  const geometry = ['.done', '.consent-items', '.consent-item input', '.save-state'];
+  await page.setViewport({ width: 1440, height: 900 });
+  const baselineFont = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.save-state')).fontSize);
+  for (const locale of ['de', 'en']) for (const width of [320, 352, 390, 1440]) {
+    await otherDecision(true);
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', 'light');
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(c.session); session.locale = locale;
+      session.transcript = [{ id: 'local-user', role: 'user', content: 'We need a website.' }];
+      c.configure({ session, copy }); document.documentElement.lang = locale;
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+      c.shadowRoot.querySelector('.notice .consent-action').click();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input')?.checked);
+    await shadow(page, c => { const pane = c.shadowRoot.querySelector('.settings__body'); pane.scrollTop = pane.scrollHeight; });
+    await frame(page);
+    const before = await boxes(page, geometry), label = await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent);
+    await otherDecision(false);
+    const count = posts.length;
+    page.heldConsentReload = null; page.holdConsentReload = true;
+    await page.locator('aithema-session >>> .done').click();
+    for (let attempt = 0; !page.heldConsentReload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.ok(page.heldConsentReload, 'reload request is held while the visitor sees their current items');
+    const busy = await shadow(page, c => {
+      const r = c.shadowRoot, button = r.querySelector('.done'), form = r.querySelector('.consent-editor'), items = r.querySelector('.consent-items');
+      button.click(); // A second activation while busy must never send another POST.
+      return { disabled: button.getAttribute('aria-disabled'), label: r.querySelector('.done-label').textContent,
+        busy: form.getAttribute('aria-busy'), form: form.getAttribute('role'), inert: items.inert, fieldsetDisabled: items.disabled,
+        visible: items.checkVisibility(), selected: items.querySelector('input').checked, focus: r.activeElement === button };
+    });
+    assert.deepEqual(busy, { disabled: 'true', label, busy: 'true', form: 'form', inert: true, fieldsetDisabled: true, visible: true, selected: true, focus: true });
+    assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px during reload`);
+    await page.heldConsentReload.continue();
+    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.save-status').textContent === text, notice[locale]);
+    await frame(page);
+    const state = await shadow(page, (c, text) => {
+      const r = c.shadowRoot, status = r.querySelector('.save-status'), form = r.querySelector('.consent-editor'), button = r.querySelector('.done');
+      const range = document.createRange(); range.selectNodeContents(status);
+      const lines = new Set([...range.getClientRects()].map(rect => rect.y));
+      const css = getComputedStyle(status), info = r.querySelector('.save-info'), infoBox = info.querySelector('svg').getBoundingClientRect();
+      return { notices: [...r.querySelectorAll('[role=status]')].filter(n => n.textContent === text).length,
+        live: status.getAttribute('aria-live'), busy: form.getAttribute('aria-busy'), inert: r.querySelector('.consent-items').inert,
+        focus: r.activeElement === button, selected: r.querySelector('.consent-items input').checked,
+        disabled: button.getAttribute('aria-disabled'), info: info.checkVisibility(), ink2: css.color === getComputedStyle(info).color,
+        iconOverlap: [...range.getClientRects()].some(rect => rect.left < infoBox.right && rect.right > infoBox.left && rect.top < infoBox.bottom && rect.bottom > infoBox.top),
+        font: css.font, fontSize: css.fontSize, slotHeight: r.querySelector('.save-state').getBoundingClientRect().height,
+        statusHeight: status.getBoundingClientRect().height, statusWidth: status.getBoundingClientRect().width,
+        lines: lines.size, fits: status.scrollHeight <= status.clientHeight, dialogOpen: r.querySelector('dialog.settings').open };
+    }, notice[locale]);
+    assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
+    assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
+    assert.equal(state.iconOverlap, false);
+    assert.equal(state.fontSize, baselineFont, `${locale}/${width}: normal 1440 editor message font size`);
+    // Exercise every reserved editor and settings message with an autosave failure retained.
+    const messages = await shadow(page, c => {
+      const r = c.shadowRoot, status = r.querySelector('.save-status'), dialog = r.querySelector('dialog.settings');
+      const retry = r.querySelector('.save-retry'), original = status.textContent, originalState = dialog.dataset.saveState;
+      const results = [...r.querySelectorAll('.consent-state-measure, .save-state-measure')].map(measure => {
+        status.textContent = measure.textContent;
+        // Retain the failure while consent owns the row; Retry returns outside the editor.
+        const retryState = measure.matches('.save-state-measure:nth-last-child(2)');
+        dialog.dataset.saveState = retryState ? 'failed' : 'idle'; retry.dataset.visible = String(retryState);
+        return { text: status.textContent, height: r.querySelector('.save-state').getBoundingClientRect().height,
+          fits: status.scrollHeight <= status.clientHeight, retryVisible: retryState ? retry.checkVisibility() : null };
+      });
+      status.textContent = original; dialog.dataset.saveState = originalState; retry.dataset.visible = 'false';
+      return results;
+    });
+    for (const message of messages) {
+      assert.equal(message.height, state.slotHeight, `${locale}/${width}: fixed slot for ${message.text}`);
+      assert.equal(message.fits, true);
+      if (message.retryVisible !== null) assert.equal(message.retryVisible, false, 'Retry yields the status row to the consent editor');
+    }
+    assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
+    assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
+    assert.equal(posts.length - count, 1, 'exactly one POST; no silent re-save');
+    const pass = { head: evidenceCommit, locale, width, ...state, viewportOnly: true, reducedMotion: true, baselineFonts: true, layoutShiftPx: 0, posts: 1, pass: true };
+    passes.push(pass); t.diagnostic(`PASS AIT-321 ${JSON.stringify(pass)}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-321'); await mkdir(dir, { recursive: true });
+      await shadow(page, async c => {
+        await document.fonts.ready;
+        await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+      });
+      await page.mouse.move(-10, -10); await frame(page);
+      await page.screenshot({ path: join(dir, `ait321-${width}-light-${locale}-stale.png`), fullPage: false, captureBeyondViewport: false });
+      await writeFile(join(dir, 'ait321-checks.json'), JSON.stringify({ head: evidenceCommit, passes, passLines: passes.map(pass => `PASS AIT-321 ${JSON.stringify(pass)}`) }, null, 2));
+    }
+    // The next visitor change removes the notice and is the only way to save again.
+    await shadow(page, c => c.shadowRoot.querySelector('.consent-items input').click());
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.save-status').textContent), '');
+    assert.equal(posts.length - count, 1);
+    await page.locator('aithema-session >>> .done').click();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    // Confirmation accepts the host's revision-versioned contract for grants and withdrawals.
+    await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').click());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input')?.checked);
+    await shadow(page, c => c.shadowRoot.querySelector('.consent-items input').click());
+    await page.locator('aithema-session >>> .done').click();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  }
+  assert.ok(passes.find(pass => pass.locale === 'de' && pass.width === 320).lines >= 3, 'AIT-321 gate 1: reserve the taller 320 DE notice at normal message size');
+  assert.equal(passes.find(pass => pass.locale === 'de' && pass.width === 320).fontSize, passes.find(pass => pass.locale === 'de' && pass.width === 1440).fontSize);
+});
+
+
+test('AIT-321 round 3: failed autosave yields Retry and its padding to consent at 320/390/1440', { timeout: 30_000 }, async t => {
+  const page = await fixture(t, true, false, true);
+  await shadow(page, async c => {
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+    const session = structuredClone(c.session); session.locale = 'de'; session.settings.origin = 'chosen';
+    session.transcript = [{ id: 'local-user', role: 'user', content: 'Wir brauchen eine Website.' }];
+    c.configure({ session, copy });
+    c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+  });
+  page.failSettingsSave = true;
+  await shadow(page, c => c.shadowRoot.querySelector('.settings-open').click());
+  t.diagnostic('round 3: Settings opened');
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role=option]').length > 1);
+  await shadow(page, c => {
+    const r = c.shadowRoot; r.querySelector('[data-select="model"] .select__button').click();
+    const option = r.querySelector('[data-select="model"] [role=option][aria-selected="false"]:not([aria-disabled="true"])');
+    if (!option) throw new Error('Fixture needs an offered alternative model');
+    option.click();
+  });
+  t.diagnostic('round 3: model changed');
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed');
+  t.diagnostic('round 3: settings autosave failed');
+  assert.equal(page.failedSettingsSaves, 1, 'a real settings save failed before the editor opens');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.save-retry').checkVisibility()), true);
+  await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').click());
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input'));
+  for (const width of [320, 390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await frame(page);
+    const state = await shadow(page, c => {
+      const r = c.shadowRoot, dialog = r.querySelector('dialog.settings'), status = r.querySelector('.save-status');
+      const slot = r.querySelector('.save-state'), retry = r.querySelector('.save-retry');
+      const original = status.textContent, height = slot.getBoundingClientRect().height;
+      const messages = [...r.querySelectorAll('.consent-state-measure')].map(measure => {
+        status.textContent = measure.textContent;
+        const range = document.createRange(); range.selectNodeContents(status);
+        const button = retry.getBoundingClientRect();
+        return { text: status.textContent, height: slot.getBoundingClientRect().height,
+          fits: status.scrollHeight <= status.clientHeight,
+          overlap: retry.checkVisibility() && [...range.getClientRects()].some(rect =>
+            rect.left < button.right && rect.right > button.left && rect.top < button.bottom && rect.bottom > button.top) };
+      });
+      status.textContent = original;
+      return { editor: dialog.dataset.consentEditor, failed: dialog.dataset.saveState,
+        retryVisible: retry.checkVisibility(), paddingRight: getComputedStyle(status).paddingRight, height, messages };
+    });
+    assert.equal(state.editor, 'true'); assert.equal(state.failed, 'failed');
+    assert.equal(state.retryVisible, false, `${width}: editor owns the status row`);
+    assert.equal(state.paddingRight, '0px', `${width}: hidden Retry reserves no text padding`);
+    for (const message of state.messages) {
+      assert.equal(message.overlap, false, `${width}: no Retry overlaps ${message.text}`);
+      assert.equal(message.height, state.height, `${width}: 0 px slot growth for ${message.text}`);
+      assert.equal(message.fits, true, `${width}: consent message fits its reserved slot`);
+    }
+    // Exit only the editor state, retaining the failed draft. Dismissing the whole
+    // Settings dialog intentionally discards that draft and its failure instead.
+    const closed = await shadow(page, c => {
+      const r = c.shadowRoot; r.querySelector('.consent-editor').hidden = true;
+      r.querySelector('.consent-items').dispatchEvent(new Event('change', { bubbles: true }));
+      return { editor: r.querySelector('dialog.settings').dataset.consentEditor,
+        failed: r.querySelector('dialog.settings').dataset.saveState,
+        retryVisible: r.querySelector('.save-retry').checkVisibility() };
+    });
+    assert.deepEqual(closed, { editor: 'false', failed: 'failed', retryVisible: true }, `${width}: Retry returns after the editor closes`);
+    t.diagnostic(`PASS AIT-321 round 3 width=${width} failedAutosave=1 retryHidden=true overlap=false slotGrowthPx=0 retryRestored=true`);
+    await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').click());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input'));
   }
 });

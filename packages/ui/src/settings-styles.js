@@ -261,4 +261,30 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .select:is([data-select=voice],[data-select=visuals]) .select__menu { top:auto; bottom:calc(100% + .25rem); }
 }
 @media(prefers-reduced-motion:reduce) { .select__spinner { animation:none; } .gauge__level, .gauge__wave { transition:none !important; } }
+
+/* AIT-321: reserve the tallest consent status in the existing footer cell at
+   every width, including before the refusal. Measurements never announce. */
+.general-consent-state { display:grid; }
+.general-consent-state>p { grid-area:1/1; }
+.general-consent-measure { display:none; visibility:hidden; pointer-events:none; user-select:none; }
+.settings[data-consent-editor=true] .general-consent-measure { display:block; }
+.consent-state-measure { display:none; }
+.settings[data-consent-editor=true] .save-state { width:26rem; max-width:100%; }
+.settings[data-consent-editor=true] .save-status,
+.settings[data-consent-editor=true] .save-state-measure,
+.settings[data-consent-editor=true] .consent-state-measure { grid-area:1/1/2/-1; min-height:2.2em; display:block; text-indent:1.75em; overflow-wrap:anywhere; }
+/* The consent editor owns the status row while open. A failed autosave's
+   Retry returns when the editor closes; its phone padding must not wrap consent. */
+.settings[data-consent-editor=true] .save-retry { display:none; }
+.settings[data-consent-editor=true] .save-status { padding-right:0; }
+.settings[data-consent-editor=true] .consent-state-measure { visibility:hidden; pointer-events:none; user-select:none; }
+.save-info { display:none; grid-area:1/1; align-self:start; margin-top:.1em; color:var(--aithema-muted); }
+.save-info svg { width:1.2em; height:1.2em; }
+.settings[data-consent-stale=true] .save-info { display:flex; }
+.settings[data-consent-stale=true] .save-check { visibility:hidden; }
+.settings[data-consent-stale=true] .save-state { color:var(--aithema-muted); }
+.settings[data-consent-editor=true] .done[aria-disabled=true] { opacity:.5; cursor:default; }
+@media(max-width:40rem) {
+  .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); }
+}
 `;
