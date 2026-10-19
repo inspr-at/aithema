@@ -133,7 +133,7 @@ export async function deliveredConsentFrames(t) {
     } else {
       assert.equal(result.open, false); assert.equal(result.iframeCount, 0);
       assert.equal(result.frames.includes('removed'), false); assert.equal(result.images.includes('removed'), false);
-      assert.equal(result.focus, 'concept-preview');
+      assert.equal(result.focus, mixed ? 'concept-preview' : 'concept-withdrawn');
       assert.equal(result.notice, width === 390 ? 'Entwurf entfernt' : kind === 'html' ? 'Entwurf entfernt. Die Einwilligung für Entwürfe wurde widerrufen.' : 'Bild entfernt. Die Einwilligung für Bilder wurde widerrufen.');
       assert.deepEqual(result.ids, mixed ? ['retained'] : []);
       assert.ok(result.sameTick.eventToRemovalMs < 2000, 'redacted within the successful refresh, under fail-closed deadline');

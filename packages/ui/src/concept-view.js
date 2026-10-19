@@ -244,6 +244,8 @@ export class ConceptView {
     this.update(this.#session);
   }
   update(session, consentDocument, consentVerified = false) {
+    const active = this.root.activeElement, preview = this.root.querySelector('.concept-preview'), notice = this.root.querySelector('.concept-withdrawn');
+    const previewFocused = active === preview, viewerFocused = Boolean(active && this.dialog.contains(active));
     if (consentVerified) this.#pendingScopes.clear();
     if (consentVerified && this.#consentRefreshFailed) {
       this.#consentRefreshFailed = false;
@@ -278,9 +280,9 @@ export class ConceptView {
       if (this.#withdrawnUntil) {
         this.#withdrawnTimer = consentTimeout(() => {
           this.#withdrawnUntil = 0;
-          const accessFocused = this.root.activeElement === this.root.querySelector('.concept-preview');
+          const noticeFocused = this.root.activeElement === notice;
           this.render();
-          if (accessFocused && !this.items.length) this.root.querySelector('.concept-activity-text .consent-action')?.focus();
+          if (noticeFocused && !this.items.length) this.root.querySelector('.concept-activity-text .consent-action')?.focus();
         }, 4000);
         this.#withdrawnTimer.unref?.();
       }
@@ -316,7 +318,11 @@ export class ConceptView {
     this.#visible = this.items;
     this.follow(latest);
     this.render();
-    if ((partial || this.#consentRefreshFailed) && selectedRemoved) this.root.querySelector('.concept-preview').focus({ preventScroll: true });
+    // AIT-385 amends AIT-364: only a non-empty access can receive focus.
+    // Capture ownership before close()/render() can hide or disable the target.
+    if ((partial || this.#consentRefreshFailed || previous && !latest) && (previewFocused || selectedRemoved && viewerFocused))
+      (latest ? preview : notice).focus({ preventScroll: true });
+    else if (active === notice && !notice.textContent && latest) preview.focus({ preventScroll: true });
     if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas();
   }
   // Drafts are revised continuously: a viewer showing the latest draft moves on to the new
@@ -430,13 +436,12 @@ export class ConceptView {
     tab.title = latest ? view : this.feature().reason ?? this.copy.conceptIntro;
     // The thumbnail slot keeps its size: an image, or a glyph for a draft (a live frame stays in the viewer).
     const preview = this.root.querySelector('.concept-preview');
-    const gone = this.#consentRefreshFailed || this.#withdrawnKind && this.#withdrawnUntil > Date.now();
-    preview.disabled = !latest && !gone; preview.style.visibility = latest || gone ? '' : 'hidden';
-    preview.toggleAttribute('data-withdrawn', Boolean(gone && !latest));
+    preview.disabled = !latest; preview.style.visibility = latest ? '' : 'hidden';
+    preview.hidden = !latest;
     preview.querySelector('.concept-preview-thumbs').hidden = latestDraft;
     for (const image of preview.querySelectorAll('img')) image.hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
     const previewLabel = this.#phone.matches && this.#imageLayout ? this.copy.conceptPhoneReady : view;
-    preview.querySelector('.concept-preview-label').textContent = previewLabel; preview.setAttribute('aria-label', gone && !latest ? this.root.querySelector('.concept-withdrawn').textContent : previewLabel);
+    preview.querySelector('.concept-preview-label').textContent = previewLabel; preview.setAttribute('aria-label', previewLabel);
     if (latest && !latestDraft && (this.visualKind() !== 'image' || !this.backdropHidden())) void this.loadImageURL(latest.id).then(url => {
       if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() !== 'image' || !this.backdropHidden())) this.paintThumbnail(latest.id, url);
     });
