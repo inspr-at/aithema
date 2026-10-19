@@ -29,13 +29,16 @@ Tenth October release: a smoother ElevenLabs voice and a privacy fix for HTML dr
 
 ## For hosts
 
-Voice now requires a configured, qualified fast reaction (speech) route with
-reaction effort `none`. In the OpenRouter demo, set `OPENROUTER_SPEECH_MODEL`
-explicitly for every enabled voice option. Keep account evidence current and
-matched to that route. The analysis model remains separate and is never a
-silent fallback for speech. Missing or invalid speech configuration refuses
-voice start with an operator configuration error in the server log; visitors
-see neutral voice-unavailable wording. See the
+Hosts using the OpenRouter demo host configuration, including start2, now
+require a qualified fast reaction (speech) route for voice. Set
+`OPENROUTER_SPEECH_MODEL` or supply a qualified reaction binding with effort
+`none`, with current account evidence matched to that route. The demo keeps
+the analysis model separate and never silently falls back to it for speech.
+Missing or invalid speech configuration refuses voice start with an operator
+configuration error in the server log; visitors see neutral voice-unavailable
+wording. Custom hosts are unchanged except that, when voice is selected, the
+reaction lane's effort is capped at its configured value. We recommend a fast
+reaction binding with effort `none` for voice in custom hosts. See the
 [fast reaction route contract](https://github.com/inspr-at/aithema/blob/v261019195810.0.0/docs/embedding.md#required-fast-reaction-route-for-demo-voice-ait-380).
 
 The spoken-turn callback default is **6.5 seconds** (`turnTimeoutMs` and the
@@ -58,15 +61,17 @@ waits for the stated delay. Continue forwarding consent changes to every tab.
 
 ## Breaking for hosts
 
-**Yes for voice relative to RC9 (`v261019131804.0.0`).** A host without a
-configured fast reaction (speech) route now has voice refused with an operator
-configuration error instead of silently using its analysis model. Set
-`OPENROUTER_SPEECH_MODEL` in the OpenRouter demo, or an explicitly qualified
-reaction binding with effort `none` in a custom host, with matching current
-account evidence. Repair the managed agent event contract through host ensure
-before enabling an older agent. Everything else in this release is backward
-compatible. Hosts upgrading from before RC7 must still apply RC7's preview
-embedding requirements.
+**Yes for voice in hosts using the OpenRouter demo host configuration,
+including start2, relative to RC9 (`v261019131804.0.0`).** Set
+`OPENROUTER_SPEECH_MODEL` or supply a qualified fast reaction binding with
+effort `none` and matching current account evidence; otherwise voice is refused
+with an operator configuration error instead of silently using the analysis
+model. Custom hosts are unchanged except for the reaction-effort cap at the
+configured value when voice is selected; a fast reaction binding with effort
+`none` is recommended for voice. Repair the managed agent event contract through
+host ensure before enabling an older agent. Everything else in this release is
+backward compatible. Hosts upgrading from before RC7 must still apply RC7's
+preview embedding requirements.
 
 ## What is included
 

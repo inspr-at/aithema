@@ -63,7 +63,7 @@ below the notes title. Authority is Markus's standing release go, Desk
 `release-lock/seq-21`, created at base `f8f534c2` before preparation.
 
 This is the **second release on the active fixed-candidate route (AIT-363 B)**:
-RC8 is published, OPS's cut and the tag rulesets are live. The order is lock tag
+RC9 is published, OPS's cut and the tag rulesets are live. The order is lock tag
 (done), prep, coordinator gates, true merge preserving C, candidate marker, OPS
 cut, verification. There is **no merge freeze**: main keeps moving, and the
 final committed RC head C is the candidate. Builders prepare only, invoke no
@@ -90,13 +90,18 @@ first validated audio or one short holding line, clean agent end, neutral
 refusals, honest waits/charges and recovery, a single off-topic redirect,
 continuation after spoken text, exact admitted provider requests, provider
 Retry-After and confirmed interruptions. The silence watchdog remains gated
-on provider signals. Host notes explain the required qualified speech route
-(`OPENROUTER_SPEECH_MODEL`, reaction effort `none`), the 6.5-second callback
-default, `agent_tool_response` and ensure repair, the GET-only agent health
-check, and HTTP 429/Retry-After reaching the browser. **Breaking for hosts:
-yes for voice relative to RC9**: missing speech configuration now refuses
-voice with an operator configuration error instead of using the analysis model.
-Everything else is backward compatible. Grok Voice remains **not yet qualified
+on provider signals. Host notes explain the qualified speech route required by
+the OpenRouter demo host configuration, including start2
+(`OPENROUTER_SPEECH_MODEL` or a qualified fast reaction binding with effort
+`none`), the 6.5-second callback default, `agent_tool_response` and ensure repair,
+the GET-only agent health check, and HTTP 429/Retry-After reaching the browser.
+**Breaking for hosts using the OpenRouter demo host configuration, including
+start2: yes for voice relative to RC9**: missing or invalid speech configuration
+now refuses voice with an operator configuration error instead of using the
+analysis model. Custom hosts are unchanged except that selecting voice caps the
+reaction lane's effort at its configured value; a fast reaction binding with
+effort `none` is recommended for voice. Everything else is backward compatible.
+Grok Voice remains **not yet qualified
 in live use**. Tick's wording is preserved: failure messages next to the control
 they concern; Retry waits for the stated delay. `next-notes.md` contained only
 its empty stub and stays reset to it.
