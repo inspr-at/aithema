@@ -217,8 +217,19 @@ svg { display:block; flex:none; }
 
 /* AIT-282: the image access occupies a permanent 44px cell; every state
    overlays that cell. Specificity also preserves the reservation on phones. */
-.concept-access { display:contents; }
+.concept-access { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; min-height:44px; min-width:0; }
+.concept-access > * { grid-row:1; }
+.concept-access .concept-rail { grid-column:1; }
+.concept-access .concept-preview-slot { grid-column:2; }
 .concept-withdrawn, .concept-phone-slot { display:none; }
+/* Partial withdrawal uses the reserved access cell for the four-second notice.
+   The same native access button remains a focus target when its item is gone. */
+.concept-access[data-partial-withdrawal] .concept-rail { visibility:hidden; }
+.concept-access[data-partial-withdrawal] .concept-withdrawn { display:block; grid-area:1/1; align-self:center; font-size:14px; color:var(--aithema-muted); pointer-events:none; }
+.concept-access[data-partial-withdrawal] .concept-preview-slot { visibility:visible; }
+.concept-access[data-partial-withdrawal] .concept-preview { visibility:visible !important; }
+.concept-preview[data-withdrawn] { visibility:visible !important; min-width:44px; }
+.concept-preview[data-withdrawn] > * { visibility:hidden; }
 .concept-thread { display:contents; }
 .workspace[data-concept-layout="image"] .concept-thread { position:relative; min-height:0; display:grid; grid-template:minmax(0,1fr)/minmax(0,1fr); container-type:size; }
 .workspace[data-concept-layout="image"] .concept-thread > .transcript-shell { grid-area:1/1; z-index:1; }
@@ -656,3 +667,6 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 @media(pointer:coarse) { .concept-viewer-controls button { min-height:2.75rem; } }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; animation:none !important; } .workspace, .understanding, .fill, .icon-slash { transition:none !important; } }
 `;
+
+.workspace[data-concept-layout="image"] .concept-access[data-partial-withdrawal] .concept-preview-slot { visibility:visible; justify-self:end; }
+.workspace[data-concept-layout="image"] .concept-access[data-partial-withdrawal] .concept-preview[data-withdrawn] { visibility:visible !important; }

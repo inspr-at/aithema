@@ -809,3 +809,26 @@ for (const kind of ['html', 'image']) for (const copy of [de, en]) test(`AIT-364
   assert.equal(root.querySelector('.concept-access').dataset.state, 'consent');
   assert.match(root.querySelector('.concept-activity-text').textContent, new RegExp(copy.featureConsent[feature]));
 });
+
+test('AIT-364: revision-matched document coverage wins over available features; stale documents cannot revoke', t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  const { c } = setup(t, { concepts: [item('image'), draft('html')] });
+  const doc = { consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } };
+  view.update(c.session, doc); assert.deepEqual(view.items.map(i => i.id), ['image', 'html']);
+  view.update(c.session, { ...doc, consentRevision: c.session.consentRevision });
+  assert.deepEqual(view.items.map(i => i.id), ['image']);
+});
+
+test('AIT-364: a 403 preview refusal cannot be retried by reopen or Reload', async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  const { calls } = setup(t, { concepts: [draft('denied')], previewResponse: () => new Response(null, { status: 403 }) });
+  const source = view.previewSource('denied');
+  await assert.rejects(source.mint(), /Preview unavailable/);
+  await assert.rejects(source.mint(), /Preview scope denied/);
+  await assert.rejects(view.previewSource('denied').mint(), /Preview scope denied/);
+  assert.equal(calls.filter(call => call.url.endsWith('/preview')).length, 1);
+});

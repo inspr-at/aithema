@@ -555,7 +555,7 @@ export class AithemaSession extends HTMLElement {
     } });
     this.#concept = new ConceptView({ root, previewURL: this.#options.concepts?.previewURL, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
-      consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
+      consent: (opener, kind) => this.#dialog.openConsent((kind ?? this.#session.conceptVisualKind) === 'html' ? 'html' : 'images', opener),
       retry: () => this.#refreshFeatures(),
       settings: opener => this.#dialog.openAt('model', this.#session.processingPreset === 'device'
         ? '.presets' : '[data-select="visuals"]', opener),
@@ -2555,6 +2555,14 @@ export class AithemaSession extends HTMLElement {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!response.ok) return;
       const session = await response.json();
+      const revision = this.#session.consentRevision;
+      let consentDocument;
+      try {
+        const consent = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+        const doc = consent.ok ? await consent.json() : null;
+        if (doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) consentDocument = doc;
+      } catch { /* The snapshot's consent refusal still removes its surfaces. */ }
+      if (revision !== this.#session.consentRevision) return;
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
       this.#session.featureMatrix = session.featureMatrix;
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
@@ -2568,7 +2576,7 @@ export class AithemaSession extends HTMLElement {
       if ('conceptCost' in session) this.#session.conceptCost = session.conceptCost;
       void this.#resumeDeferredAnalysis();
       this.#rail?.reconcileAdmission();
-      this.#renderMode(); this.#renderVoice(); this.#concept.update(this.#session); this.#dialog?.sync();
+      this.#renderMode(); this.#renderVoice(); this.#concept.update(this.#session, consentDocument); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
