@@ -715,13 +715,12 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
   if (evidence) await mkdir(evidence, { recursive: true });
   const geometry = () => page.evaluate(() => {
     const root = document.querySelector('aithema-html-preview').shadowRoot;
-    return ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-operator', '.reload'].map(selector => {
+    return ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-support', '.state-operator', '.reload'].map(selector => {
       const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
     });
   });
-  // Local evidence is exactly Tick's two requested configurations. CI retains
-  // the existing geometry coverage, while uploading only the four new crops.
-  const scenarios = evidence && !isCI ? [{ width: 1440, theme: 'light', locale: 'de' }, { width: 390, theme: 'dark', locale: 'en' }]
+  // Reuse the page for Tick's three configurations; CI keeps the full geometry matrix.
+  const scenarios = evidence && !isCI ? [{ width: 1440, theme: 'light', locale: 'de' }, { width: 390, theme: 'dark', locale: 'en' }, { width: 390, theme: 'light', locale: 'de' }]
     : [1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ width, theme, locale }))));
   for (const { width, theme, locale } of scenarios) {
     await page.setViewport({ width, height: 1000 });
@@ -755,7 +754,13 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
           message: root.querySelector('.state-message').textContent, expected: preview.copy[preview.state],
           expectedOperator: preview.copy.policyOperator,
           reload: { visibility: getComputedStyle(reload).visibility, disabled: reload.disabled, text: reload.textContent,
-            expected: preview.copy.reload, background: getComputedStyle(reload).backgroundColor, border: getComputedStyle(reload).borderWidth } };
+            expected: preview.copy.reload, background: getComputedStyle(reload).backgroundColor, border: getComputedStyle(reload).borderWidth,
+            ariaHidden: reload.getAttribute('aria-hidden'), display: getComputedStyle(reload).display,
+            height: reload.getBoundingClientRect().height, minHeight: parseFloat(getComputedStyle(reload).minHeight),
+            messageGap: reload.getBoundingClientRect().top - root.querySelector('.state-message').getBoundingClientRect().bottom,
+            sharedSlot: reload.parentElement === operator.parentElement,
+            operatorTop: operator.getBoundingClientRect().top, top: reload.getBoundingClientRect().top,
+            color: getComputedStyle(reload).color, accent: getComputedStyle(root.querySelector('[aria-checked="true"]')).color } };
       });
       assert.deepEqual(presentation.iconSize, [20, 20]);
       assert.equal(presentation.iconVisibility, state === 'failure' ? 'visible' : 'hidden');
@@ -763,7 +768,18 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       assert.equal(presentation.operatorVisibility, state === 'policy' ? 'visible' : 'hidden');
       assert.equal(presentation.operatorText, state === 'policy' ? presentation.expectedOperator : '');
       assert.equal(presentation.message, state === 'ready' ? '' : presentation.expected);
-      assert.equal(presentation.reload.visibility, state === 'failure' || reloading ? 'visible' : 'hidden');
+      assert.equal(presentation.reload.visibility, state === 'failure' ? 'visible' : 'hidden');
+      assert.equal(presentation.reload.ariaHidden, String(state !== 'failure'));
+      assert.notEqual(presentation.reload.display, 'none', 'hidden Reload keeps its layout box');
+      assert.ok(presentation.reload.height >= 44, 'Reload target is at least 44 px');
+      assert.ok(presentation.reload.minHeight >= 44, 'Reload minimum height is at least 44 px');
+      assert.equal(presentation.reload.sharedSlot, true);
+      assert.equal(presentation.reload.top, presentation.reload.operatorTop, 'operator and Reload share the same row');
+      if (state === 'failure') {
+        assert.ok(presentation.reload.messageGap >= 12 && presentation.reload.messageGap <= 16,
+          `${width}/${theme}/${locale}: message-to-button gap ${presentation.reload.messageGap} px`);
+        assert.equal(presentation.reload.color, presentation.reload.accent, 'active Reload uses teal');
+      }
       assert.equal(presentation.reload.disabled, state !== 'failure');
       assert.equal(presentation.reload.text, presentation.reload.expected);
       assert.equal(presentation.reload.background, 'rgba(0, 0, 0, 0)'); assert.equal(presentation.reload.border, '0px');
@@ -773,7 +789,7 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
         const file = `ait353-${width}-${theme}-${locale}-${state}.png`;
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
       }
-      if (evidence && requestedCrop && (state === 'failure' || reloading)) {
+      if (evidence && (requestedCrop && (state === 'failure' || state === 'loading') || width === 390 && theme === 'light' && locale === 'de' && state === 'failure')) {
         const file = `ait358-${width}-${theme}-${locale}-${state}.png`;
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
       }
@@ -826,6 +842,26 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       assert.notEqual(await freshHandle.evaluate(n => n.src), beforeWidth, 'Reload mounts a fresh single-use capability');
       assert.equal(await page.evaluate(() => window.reloadMintCalls), 2, 'one mint per click');
       focus.push({ width, theme, locale, afterReload: 'frame', pass: true }); await capture('ready'); await freshHandle.dispose();
+      // A second failure returns the keyboard to the action that can retry it.
+      await page.evaluate(() => {
+        const preview = document.querySelector('aithema-html-preview');
+        preview.artifact = { ...preview.artifact, mint: async () => { throw new Error('fixture repeated failure'); } };
+      });
+      await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'failure');
+      assert.deepEqual(await page.evaluate(() => {
+        const root = document.querySelector('aithema-html-preview').shadowRoot;
+        root.querySelector('.reload').click();
+        return { statusFocused: root.activeElement === root.querySelector('.state'),
+          hidden: getComputedStyle(root.querySelector('.reload')).visibility };
+      }), { statusFocused: true, hidden: 'hidden' });
+      await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'failure');
+      assert.equal(await page.evaluate(() => {
+        const root = document.querySelector('aithema-html-preview').shadowRoot;
+        return root.activeElement === root.querySelector('.reload');
+      }), true, 'repeated failure focuses Reload');
+      focus.push({ width, theme, locale, afterReload: 'repeated-failure-action', pass: true });
+      await capture('failure');
+
     }
     await page.evaluate(() => {
       const preview = document.querySelector('aithema-html-preview'); preview.artifact = { ...preview.artifact, previewURL: undefined };
@@ -834,7 +870,7 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     await handle.dispose();
   }
   if (evidence) await writeFile(join(evidence, 'ait353-checks.json'), JSON.stringify({ shots, checks, focus, movementPx: 0, iconSlotMovementPx: 0,
-    geometrySelectors: ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-operator', '.reload'],
+    geometrySelectors: ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-support', '.state-operator', '.reload'],
     strictHost: ['header-only: handshake and click/dialog PASS', 'header-and-meta: handshake and click/dialog PASS'],
     refusedPolicies: ['none', 'overbroad', 'report-only'], offline: true }, null, 2));
   if (evidence) await writeFile(join(evidence, 'ait358-checks.json'), JSON.stringify({ shots: shots.filter(file => file.startsWith('ait358-')),

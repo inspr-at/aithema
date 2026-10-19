@@ -82,16 +82,20 @@ iframe { position:absolute; top:0; bottom:0; left:50%; transform:translateX(-50%
 .stage[data-width="phone"] iframe { width:min(var(--preview-phone),100%); box-shadow:0 0 0 1px var(--aithema-line,#d5dfda); }
 iframe:focus-visible { outline:2px solid var(--aithema-accent,#1d6e6a); outline-offset:-2px; }
 .state { position:absolute; inset:0; margin:0; display:grid; place-items:center; padding:1.5rem; text-align:center; color:var(--aithema-muted,#566669); }
-/* Every locale's longest message and operator line reserve space in all states.
+/* Every locale's longest message and shared operator/action slot reserve space in all states.
    Visibility keeps the 20px alert slot and message anchors fixed, even in ready. */
-.state-content { display:grid; justify-items:center; gap:.5rem; width:100%; }
+.state-content { display:grid; justify-items:center; gap:0; width:100%; }
 .state-icon { width:20px; height:20px; color:var(--aithema-muted,#566669); visibility:hidden; }
 .state-text, .state-operator { display:grid; width:100%; }
 .state-text > *, .state-operator > * { grid-area:1/1; }
+.state-text { margin-top:8px; }
+.state-message { align-self:end; }
+.state-support { display:grid; width:100%; margin-top:14px; }
+.state-support > * { grid-area:1/1; align-self:start; justify-self:center; }
 .state-sizer { visibility:hidden; } .state-sizer::before { content:attr(data-reserve); }
 .state-operator { font-size:.85rem; visibility:hidden; }
 .reload { visibility:hidden; font:inherit; font-size:.85rem; font-weight:600; color:var(--aithema-accent,#1d6e6a);
-  background:transparent; border:0; border-radius:0; padding:.5rem .85rem; min-height:2.75rem; cursor:pointer; }
+  background:transparent; border:0; border-radius:0; padding:.5rem .85rem; min-height:44px; cursor:pointer; }
 .reload:hover:not(:disabled) { text-decoration:underline; text-underline-offset:.2em; }
 .reload:disabled { color:var(--aithema-muted,#566669); cursor:default; }
 :host([state="ready"]) .state { visibility:hidden; pointer-events:none; }
@@ -105,7 +109,7 @@ const DRAFT_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l1
 const ALERT_ICON = '<svg class="state-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 18 17H2z M10 7v4.5 M10 14v.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 export class AithemaHTMLPreview extends HTMLElement {
   #copy = previewCopy; #artifact = null; #width = 'wide'; #frame = null; #frameFocused = false; #renderId = 0; #refocus = false;
-  #frameCleanup = null; #mintAbort = null; #reloading = false;
+  #frameCleanup = null; #mintAbort = null;
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open', delegatesFocus: true });
@@ -113,8 +117,8 @@ export class AithemaHTMLPreview extends HTMLElement {
       <div class="seg" role="radiogroup"><button type="button" role="radio" data-width="wide"></button><button type="button" role="radio" data-width="phone"></button></div></div>
       <div class="stage"><div class="state" role="status" aria-live="polite" tabindex="-1"><div class="state-content">${ALERT_ICON}
         <div class="state-text"><span class="state-message"></span>${MESSAGE_STATES.map(state => `<span class="state-sizer" data-state="${state}" aria-hidden="true"></span>`).join('')}</div>
-        <div class="state-operator"><span class="operator-message"></span><span class="state-sizer" aria-hidden="true"></span></div>
-        <button class="reload" type="button" disabled aria-hidden="true"></button>
+        <div class="state-support"><div class="state-operator"><span class="operator-message"></span><span class="state-sizer" aria-hidden="true"></span></div>
+          <button class="reload" type="button" disabled aria-hidden="true"></button></div>
       </div></div></div>`;
     root.querySelector('.reload').addEventListener('click', () => {
       // Only the parent's explicit action reopens the single-use source. Draft
@@ -164,7 +168,7 @@ export class AithemaHTMLPreview extends HTMLElement {
     message.querySelector('.state-message').textContent = state === 'ready' ? '' : this.#copy[state];
     message.querySelector('.operator-message').textContent = state === 'policy' ? this.#copy.policyOperator : '';
     const reload = this.shadowRoot.querySelector('.reload');
-    const visible = state === 'failure' || state === 'loading' && this.#reloading;
+    const visible = state === 'failure';
     reload.style.visibility = visible ? 'visible' : 'hidden';
     reload.setAttribute('aria-hidden', String(!visible)); reload.disabled = state !== 'failure';
   }
@@ -176,11 +180,10 @@ export class AithemaHTMLPreview extends HTMLElement {
   }
   #render(reload = false) {
     const value = this.#artifact, renderId = ++this.#renderId;
-    this.#reloading = reload;
     this.#refocus = this.#discard() || this.#refocus;
     const reject = state => {
       this.#show(state);
-      if (reload) this.shadowRoot.querySelector('.state').focus();
+      if (reload) this.shadowRoot.querySelector(state === 'failure' ? '.reload' : '.state').focus();
       else if (this.#refocus) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
       this.#refocus = false;
     };
@@ -208,11 +211,11 @@ export class AithemaHTMLPreview extends HTMLElement {
           [...url.searchParams.keys()].join() !== 'cap' || !/^[A-Za-z0-9_-]{43}$/u.test(url.searchParams.get('cap')) ||
           !Number.isFinite(source.expiresInMs) || source.expiresInMs <= 0 || source.expiresInMs > 60_000) throw new Error();
         const hadFocus = this.#refocus || reload; this.#refocus = false; this.#mintAbort = null;
-        this.#mount(url.href, hadFocus, source.expiresInMs);
+        this.#mount(url.href, hadFocus, source.expiresInMs, reload);
       } catch { if (active() && !controller.signal.aborted) reject('failure'); }
     })();
   }
-  #mount(url, hadFocus, expiresInMs) {
+  #mount(url, hadFocus, expiresInMs, reload) {
     // A fresh browsing context per draft; the sandbox is set before the document is assigned.
     const frame = this.ownerDocument.createElement('iframe');
     frame.setAttribute('sandbox', PREVIEW_SANDBOX); frame.setAttribute('referrerpolicy', 'no-referrer');
@@ -225,7 +228,8 @@ export class AithemaHTMLPreview extends HTMLElement {
     const stop = state => {
       if (frame !== this.#frame) return;
       const focused = this.#discard(); this.#show(state);
-      if (focused) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
+      if (state === 'failure' && reload) this.shadowRoot.querySelector('.reload').focus();
+      else if (focused) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
     };
     const navigated = () => stop('navigated');
     const checkReadiness = () => {

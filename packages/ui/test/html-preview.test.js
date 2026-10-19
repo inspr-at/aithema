@@ -261,7 +261,7 @@ test('mint failure is stable without automatic retries, and off-route responses 
 });
 
 const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
-test('AIT-358: each explicit Reload mints once, disables in flight and focuses the fresh frame or failure status', async () => {
+test('AIT-358: each explicit Reload mints once, hides in flight and focuses the fresh frame or repeated-failure action', async () => {
   const element = setup(testDocument()), root = element.shadowRoot, pending = [];
   let calls = 0;
   await render(element, { ...source(), mint: () => {
@@ -271,10 +271,12 @@ test('AIT-358: each explicit Reload mints once, disables in flight and focuses t
   const button = root.querySelector('.reload'); assert.ok(button, 'failure offers Reload');
   assert.equal(button.textContent, 'Reload'); assert.equal(button.disabled, false);
   const status = root.querySelector('.state'); assert.equal(status.getAttribute('aria-live'), 'polite');
+  assert.equal(status.tabIndex, -1);
   button.focus(); button.click(); button.click(); await settle();
   assert.equal(calls, 2, 'a double click cannot start a second in-flight mint');
   assert.equal(element.state, 'loading'); assert.equal(button.disabled, true);
-  assert.equal(button.getAttribute('aria-hidden'), 'false', 'disabled Reload remains visible in its reserved slot');
+  assert.equal(button.getAttribute('aria-hidden'), 'true', 'loading Reload is hidden in its reserved slot');
+  assert.equal(button.style.visibility, 'hidden'); assert.equal(button.hidden, false);
   assert.equal(root.activeElement, status);
   pending[0].resolve(await source().mint()); await settle();
   assert.equal(element.state, 'ready'); assert.equal(root.activeElement, root.querySelector('iframe'));
@@ -282,7 +284,7 @@ test('AIT-358: each explicit Reload mints once, disables in flight and focuses t
   await render(element, { ...source(), mint: async () => { throw new Error('unavailable'); } });
   button.click(); await settle();
   assert.equal(element.state, 'failure'); assert.equal(button.disabled, false);
-  assert.equal(root.activeElement, status); element.remove();
+  assert.equal(root.activeElement, button); element.remove();
 });
 
 test('AIT-358: messages cannot request Reload; replacement and disconnect retire pending reloads', async () => {
@@ -331,7 +333,14 @@ test('pre-load budget expires into failure, never navigation, and only explicit 
     assert.equal(element.state, 'failure'); assert.equal(calls, 1, 'timeouts do not automatically spend another capability');
     frame.dispatchEvent(new window.Event('load')); assert.equal(element.state, 'failure', 'a late response cannot revive a timed-out generation');
     await render(element, value); assert.equal(calls, 2, 'explicit reopen mints a fresh capability');
-    assert.ok(root.querySelector('iframe')); element.remove();
+    assert.ok(root.querySelector('iframe'));
+    t.mock.timers.tick(budget);
+    const reload = root.querySelector('.reload'); reload.click(); await settle();
+    assert.equal(calls, 3, 'Reload after expiry mints exactly once');
+    assert.ok(root.querySelector('iframe'));
+    t.mock.timers.tick(budget);
+    assert.equal(element.state, 'failure');
+    assert.equal(root.activeElement, reload, 'a repeated route timeout returns focus to Reload'); element.remove();
   }
 });
 
@@ -403,6 +412,10 @@ test('AIT-353: localized visitor copy, operator guidance and a persistent decora
     let finish;
     await render(element, { ...source(), mint: () => new Promise(resolve => { finish = resolve; }) });
     assert.equal(element.state, 'loading');
+    const reload = root.querySelector('.reload');
+    assert.equal(reload.style.visibility, 'hidden'); assert.equal(reload.getAttribute('aria-hidden'), 'true');
+    assert.equal(reload.disabled, true); assert.equal(reload.hidden, false);
+    assert.equal(reload.parentElement, root.querySelector('.state-operator').parentElement, 'operator and Reload share a reserved slot');
     finish(await source().mint()); for (let i = 0; i < 8; i++) await Promise.resolve();
     assert.equal(element.state, 'ready'); assert.equal(root.querySelector('.state').getAttribute('aria-hidden'), 'true');
     await render(element, { ...source(), mint: async () => { throw new Error('fixture'); } });
