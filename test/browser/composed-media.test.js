@@ -292,7 +292,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: chromeSandboxArgs });
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
-  const page = await browser.newPage(), problems = [], checks = [], regressions = [];
+  const page = await browser.newPage(), problems = [], checks = [], openMenus = [], regressions = [];
   page.on('pageerror', e => problems.push(e.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -424,6 +424,52 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
         ...(phone ? { phone: { aboveDriftPx: Math.max(0, ...phone.above.map((v, i) => Math.abs(v - phoneBaseline.above[i]))),
           slotHeight: current.confirmationSlot[3], belowShiftPx: phone.below[1] - phoneBaseline.below[1], confirming: phone.confirming, visitorChose } } : {}) });
     };
+    if (locale === 'de' && (width === 1280 || (width === 1440 && theme === 'dark'))) {
+      for (const name of width === 1280 ? ['visuals', 'voice'] : ['visuals']) {
+        const selector = `#settings-select-${name}`;
+        const before = await page.evaluate(selector => {
+          const f = window.ait350, box = node => {
+            const b = node.getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+          };
+          return { select: box(f.q(selector)), choice: box(f.q('#settings-select-voice')) };
+        }, selector);
+        const button = await page.evaluateHandle(selector => window.ait350.q(selector), selector);
+        await button.asElement().click();
+        const filename = `ait350-${locale}-${width}x${height}${theme === 'dark' ? '-dark' : ''}-menu-${name}`;
+        await shot(filename);
+        // Read the same settled, blurred state that was captured; blur must
+        // leave the visitor's menu open and the pointer outside the viewport.
+        const observed = await page.evaluate(({ selector, before }) => {
+          const f = window.ait350, button = f.q(selector), select = button.closest('.select');
+          const menu = select.querySelector('.select__menu');
+          const box = node => {
+            const b = node.getBoundingClientRect();
+            return { x: b.x, y: b.y, width: b.width, height: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right };
+          };
+          const selectBox = box(button), menuBox = box(menu), body = box(f.q('.settings__body'));
+          const drift = (node, baseline) => {
+            const b = box(node); return Math.max(...[b.x, b.y, b.width, b.height].map((v, i) => Math.abs(v - baseline[i])));
+          };
+          const menuAbove = select.getAttribute('data-menu-above');
+          return { menu: menuBox, select: selectBox, body, dataMenuAbove: menuAbove,
+            direction: menuAbove === 'true' ? 'above' : 'below',
+            open: !menu.hidden && button.getAttribute('aria-expanded') === 'true' && menuBox.width > 0 && menuBox.height > 0,
+            fullyInsideBody: menuBox.left >= body.left && menuBox.right <= body.right && menuBox.top >= body.top && menuBox.bottom <= body.bottom,
+            selectDriftPx: drift(button, before.select), choiceDriftPx: drift(f.q('#settings-select-voice'), before.choice) };
+        }, { selector, before });
+        openMenus.push({ locale, width, height, theme, name, filename: filename + '.png', ...observed });
+        assert.equal(observed.open, true, `${filename}: menu remains open after blur`);
+        assert.equal(observed.fullyInsideBody, true, `${filename}: menu fully inside Settings body`);
+        assert.equal(observed.selectDriftPx, 0, `${filename}: select stays at 0 px`);
+        assert.equal(observed.choiceDriftPx, 0, `${filename}: voice choice stays at 0 px`);
+        if (name === 'visuals') assert.equal(observed.dataMenuAbove, 'true', `${filename}: lowest menu opens upward`);
+        await button.asElement().click();
+        await button.dispose();
+        await settle();
+        assert.equal(await page.evaluate(selector => window.ait350.q(selector).closest('.select').querySelector('.select__menu').hidden, selector), true,
+          `${filename}: menu closed after capture`);
+      }
+    }
     await page.evaluate(() => window.ait350.q('#settings-select-voice').click());
     await measure('both-options'); await captureState('both-options');
     for (const status of ['consent', 'unavailable']) {
@@ -490,6 +536,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     checks.push({ locale, width, height, theme, focusReturn: { switch: true, cancel: true, failedSave: true } });
   }
   assert.deepEqual(problems, []);
-  if (evidence) await writeFile(join(evidence, 'ait350-checks.json'), JSON.stringify({ capture: 'viewport', motion: 'reduced and settled', blurredBeforeCapture: true, checks }, null, 2));
+  assert.equal(openMenus.length, 3, 'three requested open-menu captures');
+  if (evidence) await writeFile(join(evidence, 'ait350-checks.json'), JSON.stringify({ capture: 'viewport', motion: 'reduced and settled', blurredBeforeCapture: true, checks, openMenus }, null, 2));
   assert.deepEqual(regressions, [], 'Tick UI QA 2026-10-19, AIT-350 -fix1, points 1–3');
 });
