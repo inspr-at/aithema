@@ -66,6 +66,78 @@ test('C1 SMTP config has value-free secret references, safe TLS defaults and mis
 });
 
 const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 };
+
+for (const abort of [false, true]) {
+  test(`AIT-393 close during deferred lookup prevents transport creation and sending (abort=${abort})`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const lookupStarted = Promise.withResolvers(), lookupResult = Promise.withResolvers();
+    let lookups = 0, transports = 0, sends = 0;
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: () => { lookups++; lookupStarted.resolve(); return lookupResult.promise; },
+      createTransport: () => { transports++; return { async sendMail() { sends++; }, close() {} }; },
+    });
+    t.after(() => plugin.close());
+    const controller = new AbortController();
+    const delivery = plugin.requestVerification(effect, { signal: controller.signal });
+    // Attach before settling DNS so a rejected delivery cannot go unhandled.
+    const outcome = delivery.then(() => 'sent', error => error.message);
+    await lookupStarted.promise;
+    plugin.close();
+    if (abort) controller.abort();
+    lookupResult.resolve([{ address: '127.0.0.1', family: 4 }]);
+    const result = await outcome;
+    assert.equal(transports, 0, 'close must stop transport creation after pending DNS settles');
+    assert.equal(sends, 0, 'close must stop the pending delivery');
+    assert.equal(result, 'Confirmation delivery failed');
+    await assert.rejects(() => plugin.requestVerification(effect), /Confirmation delivery failed/u);
+    assert.equal(lookups, 1, 'a closed plugin must not restart lookup');
+  });
+}
+
+for (const warm of [false, true]) {
+  test(`AIT-393 requestVerification refuses after close (existing transport=${warm})`, async () => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    let lookups = 0, transports = 0, sends = 0, closes = 0;
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: async () => { lookups++; return [{ address: '127.0.0.1', family: 4 }]; },
+      createTransport: () => { transports++; return { async sendMail() { sends++; }, close() { closes++; } }; },
+    });
+    if (warm) assert.equal((await plugin.requestVerification(effect)).status, 'sent');
+    plugin.close();
+    plugin.close();
+    await assert.rejects(() => plugin.requestVerification(effect), /Confirmation delivery failed/u);
+    assert.equal(lookups, Number(warm));
+    assert.equal(transports, Number(warm));
+    assert.equal(sends, Number(warm));
+    assert.equal(closes, Number(warm), 'an existing transport is closed exactly once');
+  });
+}
+
+for (const duringCreation of [false, true]) {
+  test(`AIT-393 close before send closes the transport (during creation=${duringCreation})`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    let transports = 0, sends = 0, closes = 0;
+    const plugin = createSmtpMail({
+      config: smtpConfig({ ...values, SMTP_PORT: '587', SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY: 'false' }),
+      publicOrigin: 'https://public.example.test',
+      createTransport: () => {
+        transports++;
+        if (duringCreation) plugin.close();
+        else queueMicrotask(() => plugin.close());
+        return { async sendMail() { sends++; }, close() { closes++; } };
+      },
+    });
+    t.after(() => plugin.close());
+    const outcome = await plugin.requestVerification(effect).then(() => 'sent', error => error.message);
+    assert.equal(transports, 1);
+    assert.equal(sends, 0, 'a transport returned after close must never send');
+    assert.equal(closes, 1, 'even a transport created during close must be closed');
+    assert.equal(outcome, 'Confirmation delivery failed');
+    plugin.close();
+    assert.equal(closes, 1, 'repeated close must not close the same transport again');
+  });
+}
+
 for (const [code, command] of [[451, 'MAIL'], [452, 'RCPT'], [451, 'END-DATA']]) {
   test(`AIT-166 SMTP stub ${code} at ${command} is temporary, sanitized and never hot-retried`, async t => {
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');
