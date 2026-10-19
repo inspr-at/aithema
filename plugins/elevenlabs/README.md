@@ -732,3 +732,50 @@ Each repair logs only `{event: 'voice-secret-repair', name}`. Bad requests remai
 401 before any body read; credentials, headers, hashes and counters never enter
 that event or public reasons. Persistent 401s after repair require OPS to check
 host configuration and secret ownership using value-free diagnostics.
+
+## Native end-call event contract and GET-only agent health (AIT-379)
+
+The managed `conversation_config.conversation.client_events` contract is:
+
+```json
+["conversation_initiation_metadata", "asr_initiation_metadata", "audio", "interruption", "user_transcript", "tentative_user_transcript", "agent_response", "agent_response_correction", "agent_chat_response_part", "agent_response_metadata", "agent_tool_response", "ping"]
+```
+
+Ensure writes this complete list and verifies it exactly on readback, including
+order and cardinality. Missing, duplicate, extra or reordered events disable voice
+with `agent-readback-mismatch`; diagnostics identify the setting in `fields` and
+provide an event-specific `remediation`. Provider values and credentials are not
+logged. An older captured agent without `agent_tool_response` needs the authorized
+host ensure to apply the contract before it is healthy.
+
+Native `end_call` is an intentional end. SDK 1.17.0 receives it through
+`agent_tool_response` and forwards `onAgentToolResponse`; the adapter closes media
+and the logical session immediately. Its explicit `end_call` disconnect context
+also remains terminal. Late disconnect/error callbacks cannot reconnect the call.
+The existing ended message and Start control permit a fresh call. Transport
+failures retain their three automatic recovery attempts, then Waiting/Resume.
+
+OPS can import the server-only health check using the configured agent identity
+and the host's existing secret resolver (no credential literal or environment dump):
+
+```js
+import { checkAgentHealth } from '@inspr/aithema-plugin-elevenlabs/agent-health';
+
+const health = await checkAgentHealth({
+  agentId: configuredAgentId,
+  apiBaseUrl: configuredApiBaseUrl,
+  resolveSecret,
+});
+```
+
+This function sends exactly one `GET /v1/convai/agents/:agentId`, inspects only
+`conversation_config.conversation.client_events`, and returns
+`{healthy: true, agentId, clientEvents}` when it matches. It does not list agents,
+read workspace secrets, run ensure, start a conversation or mutate configuration.
+`secretRef` defaults to `ELEVENLABS_API_KEY`; the host may pass its configured
+reference. Requests refuse redirects and use a 15-second deadline, optional abort
+signal and bounded JSON read. An incomplete/drifted contract throws
+`AgentHealthError` with code `agent-client-events-mismatch`, missing required event
+names and an instruction to run the authorized host ensure, then repeat the check.
+HTTP/network failures expose safe retry/access guidance without provider bodies.
+All AIT-379 validation uses offline fixtures; no live health check was run.
