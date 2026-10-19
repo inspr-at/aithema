@@ -145,6 +145,26 @@ test('a malformed marker claiming the candidate sequence still refuses', t => {
   refused(f.run(), /marker/iu);
 });
 
+test('a malformed marker with a string claim for the candidate sequence still refuses', t => {
+  const f = fixture(t); f.tag();
+  const other = '261019115959.0.0';
+  f.tag({ ...f.marker, version: other, release_sequence: String(version.release_sequence) }, f.commit, other);
+  refused(f.run(), /marker/iu);
+});
+
+test('unreadable unrelated marker warns, but unreadable own marker refuses', t => {
+  const f = fixture(t);
+  const other = 'candidate/v261019115959.0.0';
+  f.git(['tag', '-a', other, '-m', '{broken JSON']);
+  f.tag();
+  const allowed = f.run();
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.match(allowed.stderr, /warning.*candidate\/v261019115959.*sequence unknown/iu);
+  f.git(['tag', '-d', `candidate/v${version.version}`]);
+  f.git(['tag', '-a', `candidate/v${version.version}`, '-m', '{broken JSON']);
+  refused(f.run(), /marker/iu);
+});
+
 test('the candidate own malformed marker refuses even if it claims another sequence', t => {
   const f = fixture(t);
   f.tag({ ...f.marker, release_sequence: version.release_sequence - 1, normalized_digest: 'invalid' });
