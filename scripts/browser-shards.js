@@ -155,6 +155,16 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 21);
 
+// AIT-350 round 8: successful PR #315 CI 39210100075, 87b6ae8e,
+// shard 5/7 re-measured the complete four-test AIT-349/AIT-350 file:
+// 1.165677031s + 3.866580148s + 15.690250939s + 2.674151171s
+// = 23.396659289s; ceil(observed * 1.25) = 30s, superseding the
+// previous 28s CI floor and the 21s combined remote measurement.
+// Source: browser-timings-5-of-7/batch-0.jsonl. Keep PR diagnostics
+// outside trusted rolling-main history; no shard or workflow changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 30);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
