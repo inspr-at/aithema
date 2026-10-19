@@ -190,3 +190,12 @@ test('AIT-383 grok-voice: physical reply start carries the frame reply id', asyn
   const { value } = await session.events[Symbol.asyncIterator]().next();
   assert.equal(value.audio, true); assert.equal(value.replyId, 'reply-identity-B');
 });
+
+test('AIT-383 elevenlabs: a newly identified filler chunk after listening cannot create an activity transition', async t => {
+  const { rail, current } = setup(t, 'elevenlabs'); await rail.start();
+  current.audio('Einen Moment, bitte.'); await flush();
+  current.event({ type: 'listening' }); await flush();
+  current.audio('Einen Moment, bitte.', { mode: false, eventId: 21 }); await flush();
+  assert.equal(rail.state, 'listening');
+  assert.deepEqual(current.activities.map(e => e.type), ['speaking', 'listening']);
+});
