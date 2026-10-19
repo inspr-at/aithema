@@ -178,7 +178,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const { rail, send } = fixture(t, provider, { replyStarted: true, opener: true }); await rail.start();
     await send({ type: 'speaking', audio: true });
     await send({ type: 'recovering' });
-    await send({ type: 'recovered', recovery: 'silent' });
+    await send({ type: 'recovered', recovery: {} });
     assert.equal(rail.state, 'listening');
     t.mock.timers.tick(15_000); await flush();
     assert.equal(rail.errorKey, null); assert.equal(rail.replyTimer, null);
