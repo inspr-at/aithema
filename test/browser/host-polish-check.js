@@ -449,13 +449,13 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       const session = c.session; session.settings = { ...session.settings, model: 'mock', effort: 'none', origin: 'chosen' };
       c.configure({ session, copy }); c.openSettings();
     }, locale);
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role="option"]').length === 2);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('#settings-options-model [role="option"]').length === 2);
     let baseline;
     for (const model of ['fixed', 'adjustable', 'fixed']) {
       await shadow(page, (c, model) => {
         const r = c.shadowRoot;
         r.querySelector('[data-select="model"] .select__button').click();
-        r.querySelector(`[data-select="model"] [data-value="${model === 'fixed' ? 'mock' : 'mock/deep'}"]`).click();
+        r.querySelector(`#settings-options-model [data-value="${model === 'fixed' ? 'mock' : 'mock/deep'}"]`).click();
       }, model);
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false');
       const selection = await shadow(page, c => ({ model: c.session.settings.model, failed: c.shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed' }));

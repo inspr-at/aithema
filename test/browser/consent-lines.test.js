@@ -930,10 +930,10 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: no generic consent i
     }
     await shadow(page, c => c.openSettings());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="voice"] [role="option"][data-reason]'));
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#settings-options-voice [role="option"][data-reason]'));
     let helpCaptured = false;
-    for (const selector of ['.preset-option', '[data-select="model"] [role="option"]', '[data-select="voice"] [role="option"]', '[data-select="visuals"] [role="option"]']) {
-      const name = /data-select="([^"]+)"/u.exec(selector)?.[1];
+    for (const selector of ['.preset-option', '#settings-options-model [role="option"]', '#settings-options-voice [role="option"]', '#settings-options-visuals [role="option"]']) {
+      const name = /^#settings-options-([a-z]+)/u.exec(selector)?.[1];
       if (name) await page.locator(`aithema-session >>> [data-select="${name}"] .select__button`).click();
       const rows = await page.$$(`aithema-session >>> ${selector}`);
       assert.ok(rows.length > 0, selector + ': rows exist');
@@ -1246,10 +1246,10 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
   page.failSettingsSave = true;
   await shadow(page, c => c.shadowRoot.querySelector('.settings-open').click());
   t.diagnostic('round 3: Settings opened');
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role=option]').length > 1);
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('#settings-options-model [role=option]').length > 1);
   await shadow(page, c => {
     const r = c.shadowRoot; r.querySelector('[data-select="model"] .select__button').click();
-    const option = r.querySelector('[data-select="model"] [role=option][aria-selected="false"]:not([aria-disabled="true"])');
+    const option = r.querySelector('#settings-options-model [role=option][aria-selected="false"]:not([aria-disabled="true"])');
     if (!option) throw new Error('Fixture needs an offered alternative model');
     option.click();
   });

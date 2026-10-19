@@ -164,7 +164,7 @@ export async function checkSettingsPolish(page, { evidence, shot, settle, regres
     return result;
   });
   const clampContext = { width: 1440, height: 850, state: 'tall-desktop-clamp', rootFontPx: 20 };
-  checks.push({ ...clampContext, measurement: 'margins', ...clamp });
+  checks.push({ ...clampContext, measurement: 'margins', dialogHeight: clamp.height, topMargin: clamp.top, bottomMargin: clamp.bottom });
   record(clampContext, 'dialog <= viewport minus 48px', clamp.height <= 802, true);
   record(clampContext, 'top and bottom margins >=24px', clamp.top >= 24 && clamp.bottom >= 24, true);
   await page.setViewport({ width: 1440, height: 900 });

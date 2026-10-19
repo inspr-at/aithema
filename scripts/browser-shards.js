@@ -174,6 +174,14 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 34);
 
+// AIT-362 round 2: PR #320 CI 39222882719, head 44bb330a, shard 4/7.
+// All four composed-media tests passed: 1.213878431 + 3.106116869
+// + 21.247878435 + 2.718222266 = 28.286096001s; ceil(* 1.25) = 36s.
+// The v1.1 mask/margins/menu-opacity checks reuse the existing page/matrix.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 36);
+
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
