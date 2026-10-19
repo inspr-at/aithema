@@ -279,3 +279,110 @@ test('German defaults independently of browser language, explicit choice wins an
   assert.equal(p.document.querySelector('#locale').value, 'en');
   assert.equal(p.document.querySelector('#language-note').textContent, en.host.languageNext.replace('{language}', en.host.languages.de));
 });
+
+// AIT-376: these fixtures deliberately ignore abort and never settle until the
+// test delivers a late answer. Advancing this clock never waits on wall time.
+async function deadlinePage(t, { stallGet = false, selected = ['voice-elevenlabs'], locale = 'de', bindingOverride } = {}) {
+  const window = new Window({ url: 'http://localhost/consent/?session=s&return=%2F%3Fsaved%3D1' });
+  t.after(() => window.happyDOM.close());
+  window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
+  window.localStorage.setItem(localeKey, locale);
+  let now = 0, sequence = 0;
+  const timers = new Map(), posts = [], gets = [], returns = [];
+  const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
+  const clock = {
+    setTimeout(fn, delay) { const key = ++sequence; timers.set(key, { fn, at: now + delay }); return key; },
+    clearTimeout(key) { timers.delete(key); },
+    async advance(ms) { now += ms; for (const [key, timer] of [...timers]) if (timer.at <= now) { timers.delete(key); timer.fn(); } await flush(); },
+  };
+  const contract = { contract: 'rendered-v1', items: CONSENT_ITEMS, intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
+  const fixture = { stallGet, selected, posts, gets, returns, clock, flush, window, document: window.document, timers };
+  const fetchImpl = async (path, options = {}) => {
+    gets.push({ path, signal: options.signal });
+    if (path === '/demo/config') return Response.json(bindingOverride ?? { processingConsent: contract, voiceMode: 'off' });
+    if (path === '/api/sessions/s') return Response.json({ id: 's', locale, engine: {}, consentRevision: 1, consentWithdrawn: false });
+    if (path.endsWith('/consent')) {
+      if (fixture.stallGet) { const answer = Promise.withResolvers(); fixture.lateGet = answer; return answer.promise; }
+      return Response.json({ ...contract, selected: fixture.selected });
+    }
+    assert.fail(`Unexpected request ${path}`);
+  };
+  fixture.mounting = mountConsentPage({ document: window.document, location: window.location, storage: window.localStorage,
+    clock, fetchImpl, navigate: path => returns.push(path), submit: (path, body, options = {}) => {
+      const answer = Promise.withResolvers(); posts.push({ path, body, signal: options.signal, ...answer }); return answer.promise;
+    } });
+  await flush();
+  if (!stallGet) fixture.api = await fixture.mounting;
+  fixture.state = () => window.document.querySelector('#consent-status').dataset.state;
+  fixture.message = () => window.document.querySelector('#status-text').textContent;
+  fixture.retry = () => window.document.querySelector('#retry');
+  fixture.choose = () => window.document.querySelector('[data-select-all]').click();
+  return fixture;
+}
+
+for (const locale of ['de', 'en']) {
+  const c = { de, en }[locale].host.consentPage;
+  test(`AIT-376 C1/C3/C6: whole GET load has an 8s deadline, fresh Retry and late-answer fence (${locale})`, async t => {
+    const p = await deadlinePage(t, { stallGet: true, locale });
+    await p.clock.advance(7999); assert.equal(p.state(), 'loading');
+    await p.clock.advance(1);
+    assert.equal(p.state(), 'load-timeout');
+    assert.equal(p.message(), c.loadTimeout);
+    assert.equal(p.retry().disabled, false); assert.equal(p.document.activeElement, p.retry());
+    assert.equal(p.document.querySelectorAll('input:checked').length, 0);
+    assert.equal(p.document.querySelector('#processing-items').disabled, true);
+    assert.equal(p.document.querySelector('[data-revoke]').disabled, true);
+    assert.equal(p.gets.at(-1).signal.aborted, true);
+    const late = p.lateGet;
+    p.retry().click(); await p.flush();
+    await p.clock.advance(7999); assert.equal(p.state(), 'loading');
+    await p.clock.advance(1); assert.equal(p.state(), 'load-timeout');
+    late.resolve(Response.json({ selected: ['voice-elevenlabs'] })); await p.flush();
+    assert.equal(p.state(), 'load-timeout'); assert.equal(p.message(), c.loadTimeout);
+    assert.equal(p.document.querySelectorAll('input:checked').length, 0);
+    assert.equal(p.document.querySelector('#consent-status').getAttribute('aria-live'), 'polite');
+    assert.equal(p.document.querySelector('#consent-status').getAttribute('role'), 'status');
+  });
+
+  for (const matches of [true, false]) test(`AIT-376 C2/C4/C6: 10s POST deadline re-reads rather than repeats; matches=${matches} (${locale})`, async t => {
+    const p = await deadlinePage(t, { locale });
+    p.choose(); void p.api.save(); await p.flush();
+    await p.clock.advance(9999); assert.equal(p.state(), 'saving');
+    await p.clock.advance(1); assert.equal(p.state(), 'save-unconfirmed');
+    assert.equal(p.message(), c.saveUnconfirmed); assert.equal(p.retry().textContent, c.loadCurrent);
+    assert.equal(p.document.activeElement, p.retry()); assert.equal(p.posts[0].signal.aborted, true);
+    assert.equal(p.document.querySelector('[data-grant]').disabled, true);
+    p.posts[0].resolve(Response.json({ granted: true })); await p.flush();
+    assert.equal(p.state(), 'save-unconfirmed'); assert.equal(p.message(), c.saveUnconfirmed); assert.deepEqual(p.returns, []);
+    p.selected = matches ? CONSENT_ITEMS.map(item => item.id) : ['voice-elevenlabs'];
+    p.retry().click(); await p.flush();
+    assert.equal(p.posts.length, 1, 'unknown save is never blindly repeated');
+    if (matches) assert.deepEqual(p.returns, ['/?saved=1']);
+    else {
+      assert.deepEqual(p.returns, []); assert.equal(p.state(), 'ready'); assert.equal(p.message(), c.notSavedYet);
+      assert.equal(p.document.querySelector('[data-grant]').disabled, false);
+      assert.equal(p.document.querySelector('#processing-items').disabled, false);
+      assert.deepEqual([...p.document.querySelectorAll('input:checked')].map(box => box.value), ['voice-elevenlabs']);
+    }
+    assert.equal(p.timers.size, 0);
+  });
+
+  test(`AIT-376 C5: withdrawal aborts saving immediately, times out and retries idempotently (${locale})`, async t => {
+    const p = await deadlinePage(t, { locale });
+    p.choose(); void p.api.save(); await p.flush();
+    const revoke = p.document.querySelector('[data-revoke]');
+    assert.equal(revoke.disabled, false); revoke.click(); await p.flush();
+    assert.equal(p.posts[0].signal.aborted, true);
+    assert.equal(p.posts.length, 2); assert.equal(p.posts[1].body.granted, false);
+    assert.deepEqual(p.posts[1].body.processing.items, []);
+    p.posts[0].resolve(Response.json({ granted: true })); await p.flush(); assert.deepEqual(p.returns, []);
+    await p.clock.advance(10000);
+    assert.equal(p.state(), 'withdraw-unconfirmed'); assert.equal(p.message(), c.withdrawUnconfirmed);
+    assert.equal(p.document.activeElement, p.retry()); assert.equal(p.retry().textContent, c.retry);
+    assert.equal(p.posts[1].signal.aborted, true);
+    p.retry().click(); await p.flush(); assert.equal(p.posts.length, 3);
+    assert.deepEqual(p.posts[2].body, p.posts[1].body);
+    p.selected = []; p.posts[2].resolve(Response.json({ granted: false })); await p.flush();
+    assert.deepEqual(p.returns, ['/?saved=1']); assert.equal(p.timers.size, 0);
+  });
+}
