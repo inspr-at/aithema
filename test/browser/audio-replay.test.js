@@ -172,6 +172,14 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       const body = document.createElement('span'); body.className = 'turn-text'; body.textContent = text; row.append(body);
       c.shadowRoot.querySelector('.transcript-shell ol').append(row); window.replayRail.render();
     });
+    // AIT-372: force a late acknowledgement between the fixture's DOM edit and
+    // its read. Any journal acknowledgement repaints the durable transcript.
+    const repainted = await shadow(page, c => {
+      const id = window.replayRail.notices.recovery.lastReplyTurnId;
+      c.receive({ seq: c.session.seq + 1, type: 'turn.annotated', data: { id } });
+      return [...c.shadowRoot.querySelectorAll('.turn:not(.user)')].map(row => row.dataset.id);
+    });
+    t.diagnostic(`AIT-372 forced acknowledgement rendered: ${JSON.stringify(repainted)}`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true, 'an older identical bubble cannot stand in for the acknowledged reply');
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').hidden), true);
     await page.evaluate(async () => { window.replayRail.notices.dialog.close(); await window.replayRail.close(); });
