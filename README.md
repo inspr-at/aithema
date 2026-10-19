@@ -530,8 +530,12 @@ reference and operation. External grants also echo that exact `scope` with a
 current `checkedAt` timestamp; only the local mock has a built-in scope. A host
 ledger's `grant({sessionId, consentRevision, decision, scopes})` receives the
 visitor's item `decision` (the body's `processing`) and the private scopes of the
-session's current processing choice, so it can record exactly what the visitor
-agreed to; returning `false` refuses the grant.
+session's current processing choice plus the scopes of delivered visual producers, so it can
+record exactly what the visitor agreed to; returning `false` refuses the grant. Delivered
+visual coverage uses the admitted `consentPurpose` saved with each artifact, independently
+of today's choice or preset. The exact admitted scope stays private in SQLite and governs
+publication and export. Legacy artifacts resolve against today's producing-option or kind
+binding; unresolved provenance fails closed with neutral unavailable presentation.
 Missing/unavailable coverage fails closed at admission and again at claim consumption. Hosts notify
 external revocation through `await handlers.withdrawConsent(id)` to persist the new
 revision, abort running work immediately and await lane settlement before acknowledgement. `createMemoryConsentLedger()` is

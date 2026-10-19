@@ -278,9 +278,19 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const document = validateConsentDocument(await consent.describe(session.id, options));
     const ids = new Set(document.items?.map(item => item.id) ?? ['mock-processing']);
     const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
-      pluginRuntime.scopes(session, { feature }).map(scope => ids.has(scope.purpose) ? scope.purpose
+      pluginRuntime.scopes(session, { feature, delivered: true }).map(scope => ids.has(scope.purpose) ? scope.purpose
         : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
-    return { ...document, features, consentRevision: session.consentRevision };
+    const unavailableFeatures = [];
+    for (const feature of ['html', 'images']) {
+      const artifacts = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn &&
+        (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
+      for (const artifact of artifacts) {
+        const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature,
+          operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
+        if (!features[feature].length || status === 'unavailable') { unavailableFeatures.push(feature); break; }
+      }
+    }
+    return { ...document, features, unavailableFeatures, consentRevision: session.consentRevision };
   }
   async function consentEnrichment(session, options) {
     // Enrichment must not hold a grant behind an unavailable host describe.
@@ -699,10 +709,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const session = storage.get(id);
         // Each artifact is published under the coverage of the visuals option that produced it.
         const allowed = new Map();
-        const key = c => `${c.mediaType === 'text/html' ? 'html' : 'images'}|${c.operation ?? (c.referenceIds.length ? 'edit' : 'generate')}|${c.visuals ?? ''}`;
+        const key = c => `${c.mediaType === 'text/html' ? 'html' : 'images'}|${c.operation ?? (c.referenceIds.length ? 'edit' : 'generate')}|${c.visuals ?? ''}|${c.id}`;
         for (const concept of session.concepts ?? []) if (!allowed.has(key(concept))) {
           const [visualKind, operation, visuals] = key(concept).split('|');
-          allowed.set(key(concept), await pluginRuntime.publicationAllowed(session, { operation, visualKind, ...(visuals ? { visuals } : {}) }));
+          allowed.set(key(concept), await pluginRuntime.publicationAllowed(session, { operation, visualKind, artifactId: concept.id, ...(visuals ? { visuals } : {}) }));
         }
         const current = storage.authorize(id, ownerToken);
         if (current.seq !== session.seq) throw new ConflictError('Export changed');

@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from './launch.js';
+// Dynamic fixtures must share a file-owned teardown, registered before tests run.
+import './shared-browser.js';
 import { HTML_PREVIEW_HOST_CSP, htmlPreviewHostPolicy, inspectHTML } from '@inspr/aithema-core';
 import { previewFixture } from '../fixtures/html-preview-route.js';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
@@ -884,4 +886,9 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
 test('AIT-364: cross-tab single-item consent withdrawal removes HTML and images', { timeout: 60_000 }, async t => {
   const { partialConsentFrames } = await import('../fixtures/partial-consent-frames.js');
   await partialConsentFrames(t, { isCI });
+});
+
+test('AIT-369: delivered coverage survives visual choices and revokes per kind', { timeout: 45_000 }, async t => {
+  const { deliveredConsentFrames } = await import('../fixtures/delivered-consent-frames.js');
+  await deliveredConsentFrames(t);
 });
