@@ -32,7 +32,7 @@ const settle = page => shadow(page, async c => {
   let previous, stableFrames = 0;
   while (true) {
     await new Promise(requestAnimationFrame);
-    const credits = root.querySelector('.host-credits__amount').getAttribute('data-credit-measure');
+    const credits = root.querySelector('.host-credits__value').textContent;
     const geometry = JSON.stringify([footer.dataset.fit,
       ...[footer, ...root.querySelectorAll('.display-foot__row, .display-foot__row > *, .footer-right > *'),
         ...c.querySelectorAll('#demo-legal a')].map(node => {
@@ -60,7 +60,7 @@ const measure = page => shadow(page, c => {
   return {
     readiness: { at: performance.now(), fonts: document.fonts.status, fit: root.querySelector('.display-foot').dataset.fit,
       credits: root.querySelector('.host-credits__value').textContent,
-      creditMeasure: root.querySelector('.host-credits__amount').getAttribute('data-credit-measure'),
+      creditReserve: root.querySelector('.host-credits__amount').dataset.creditReserve,
       creditFont: getComputedStyle(root.querySelector('.host-credits')).font,
       creditWidth: box(root.querySelector('.host-credits')).width },
     flagBounds,

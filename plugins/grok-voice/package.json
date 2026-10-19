@@ -12,10 +12,12 @@
     "./server": "./src/server.js",
     "./client": "./src/client.js",
     "./components": "./src/components.js",
-    "./manifest": "./src/manifest.js"
+    "./manifest": "./src/manifest.js",
+    "./provider": "./src/provider.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261018162546.0.0"
+    "@inspr/aithema-core": "261018162546.0.0",
+    "@inspr/aithema-server": "261018162546.0.0"
   },
   "files": [
     "src/"

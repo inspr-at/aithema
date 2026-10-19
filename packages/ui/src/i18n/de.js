@@ -445,7 +445,7 @@ export const de = {
     credits: {
       reconciling: 'Kosten werden noch abgeglichen',
       low: 'Noch {available} Credits', lowShort: 'Noch {available}',
-      title: 'Ihre Credits', scope: 'für alle Ihre Gespräche', loading: 'werden geladen …',
+      title: 'Ihre Credits', scope: 'für alle Ihre Gespräche', loading: 'Credits werden geladen',
       balance: 'Ihre Credits: {available} von {limit} übrig, für alle Ihre Gespräche.',
       balanceOut: 'Ihre {limit} Credits sind aufgebraucht, für alle Ihre Gespräche.',
       usedUp: 'Credits aufgebraucht', usedUpShort: 'Aufgebraucht', timeExpired: 'Zeit abgelaufen', anonymous: 'Guthaben: {tier} Credits',

@@ -62,6 +62,17 @@ for (const [file, seconds] of Object.entries({
   'test/browser/start2-display.test.js': 257,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
+// AIT-359: green PR #306 CI 39154313634, head a399824e, shard 6/7:
+// footer file 4/4 PASS, including the complete 120-case credits receipt matrix.
+// Summed top-level work: 37.672258359s + 16.615807028s + 10.907506750s
+// + 19.796119968s = 84.991692105s; ceil(observed * 1.25) = 107s.
+// Source: browser-timings-6-of-7/batch-0.jsonl (successful file summary).
+// Supersedes the 110s floor derived from failed CI 39153739923. Keep this
+// diagnostic floor outside trusted rolling-main history until matching
+// successful main samples can replace it. No bin limits change.
+browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
+  browserTestWeights['test/browser/footer-width-sweep.test.js'], 107);
+
 // AIT-327: all 34 tests passed in PR CI 39139806265, head d9161661,
 // shard 5/7: summed top-level work 133.288818152s.
 // ceil(observed * 1.25) = 167s; supersedes AIT-321's 158s floor.
@@ -95,6 +106,12 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 // Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.
 browserTestWeights['test/browser/demo.test.js'] = Math.max(
   browserTestWeights['test/browser/demo.test.js'], 71);
+
+// AIT-346: physical Grok start reuses the existing page/device. mbp2606
+// committed-head run 5d799ebac1-85300 passed in 2.143716584s;
+// ceil(observed * 1.25) = 3s. PR CI must remeasure this changed workload.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 3);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;

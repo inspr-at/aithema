@@ -51,6 +51,13 @@
     ],
     "reason": "Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI"
   },
+  "test/browser/credits-first-receipt-check.js": {
+    "reads": [
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH"
+    ],
+    "reason": "AIT-357 receipt evidence identifies the PR head from the GitHub event payload"
+  },
   "test/browser/demo-legal-phone-check.js": {
     "reads": [
       "GITHUB_EVENT_PATH",

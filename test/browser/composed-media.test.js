@@ -79,6 +79,33 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   await page.waitForFunction(() => window.events.filter(e => e.type === 'recovered').length === 3);
   assert.equal(await page.evaluate(() => window.captures), 3);
   await page.evaluate(async () => { await window.session.close(); await window.player.close(); });
+  // Reuse the physical device/page for the supported Grok start factory.
+  await page.evaluate(async () => {
+    const { createGrokVoiceClient } = await import('/plugins/grok-voice/src/client.js');
+    const { createNetworkRelayClient } = await import('/packages/server/src/composed/network-client.js');
+    let transport;
+    const receipt = async () => {
+      const mediaGrant = await fetch('/grant').then(response => response.json());
+      return { callId: mediaGrant.callId, providerSessionId: mediaGrant.providerSessionId,
+        epoch: mediaGrant.opaque.epoch, mediaGrant };
+    };
+    const control = { start: receipt, recover: receipt };
+    for (const name of ['close', 'pause', 'resume', 'heartbeat']) control[name] = () => transport.command(name);
+    const open = createNetworkRelayClient({ headers: { 'x-owner': 'fixture-owner' } });
+    window.grokClient = createGrokVoiceClient({ control,
+      async openRelay(...args) { transport = await open(...args); return transport; },
+      audio: { onTiming: event => window.timings.push({ ...event, grok: true }) } });
+    window.grokSession = await window.grokClient.start({ callId: 'browser-call' });
+  });
+  await page.waitForFunction(() => window.timings.some(event => event.grok && event.kind === 'playback-start'));
+  const grok = await page.evaluate(async () => {
+    await window.grokSession.setInput(false); await window.grokSession.setOutput(false);
+    await window.grokSession.close();
+    return { capture: window.timings.some(event => event.grok && event.kind === 'capture'),
+      playback: window.timings.some(event => event.grok && event.kind === 'playback-scheduled' && event.format === 'pcm_s16le'),
+      stopped: window.timings.some(event => event.grok && event.kind === 'playback-stop' && event.origin === 'teardown') };
+  });
+  assert.deepEqual(grok, { capture: true, playback: true, stopped: true });
   const latePermission = await page.evaluate(async () => {
     const { createPCMCapture } = await import('/plugins/composed-voice/src/browser-audio.js');
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true }), permission = Promise.withResolvers(), controller = new AbortController();
@@ -98,13 +125,15 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) {
     await mkdir(evidence, { recursive: true });
-    const report = { physical, immediate, pause, permission, latePermission, external, problems };
+    const report = { physical, immediate, pause, permission, latePermission, grok, external, problems };
     await writeFile(join(evidence, 'ait-160-physical-media.json'), JSON.stringify(report, null, 2));
     await page.evaluate(report => { document.querySelector('#proof').textContent = JSON.stringify({ packets: report.physical.stats.packets,
       packetBytes: report.physical.stats.maxPacket, format: 'PCM16 mono 16 kHz capture / PCM16 + Float32 24 kHz playback',
       synchronousBargeInStop: report.immediate.stoppedSynchronously, pause: report.pause, permissionDenial: report.permission,
       recovery: 'fresh generation; channel holds preserved', providerCalls: 0 }, null, 2); }, report);
     await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.mouse.move(-10, -10);
     await page.screenshot({ path: join(evidence, 'ait-160-physical-media.png'), fullPage: false });
   }
 });
