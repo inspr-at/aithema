@@ -14,11 +14,12 @@ function fixture(t, manifest, change = () => {}, legacy = false) {
     retention: 'fixture', purpose: 'conversation', recipient: 'fixture', processors: [],
     dataCategories: ['conversation'], consentVersion: 1, evidence: { qualified: true,
       accountRef: raw.accountRef, secretRef: raw.secretRef, model: raw.model, endpoint: raw.endpoint,
-      routing: raw.routing ?? {}, verifiedAt: clock - 1000, expiresAt: clock + 60_000 } } });
+      routing: raw.routing ?? {}, verifiedAt: clock - 1000, expiresAt: clock + 600_000 } } });
   const base = { plugin: 'openrouter', model: 'openai/fast-fixture', effort: 'none', endpoint: 'https://reasoning.example.test',
     accountRef: 'fixture', secretRef: 'fixture-ref', maxMicro: 60_000, maxTokens: 4096,
     rates: { inputMicro: 1, outputMicro: 1 } };
   const reaction = qualify(base), understanding = qualify({ ...base, model: 'openai/analysis-fixture', effort: 'high' });
+  reaction.legal.evidence.expiresAt = clock + 60_000;
   const model = { id: 'host-model', bindings: { reaction, understanding }, efforts: ['none', 'high'], effort: 'high' };
   const voice = qualify({ ...base, plugin: manifest.id, model: manifest.id === 'composed-voice' ? 'composed' : manifest.id === 'grok-voice' ? 'grok-voice' : 'fixture-agent',
     endpoint: 'https://voice.example.test', rates: { inputMicro: 0, outputMicro: 0 }, maxTokens: 1,
@@ -29,7 +30,7 @@ function fixture(t, manifest, change = () => {}, legacy = false) {
   const never = () => assert.fail('route validation must not contact a provider');
   const reasoning = createOpenRouterReasoning({ binding: reaction, prices: {
     [reaction.model]: { prompt: 1e-6, completion: 1e-6 }, [understanding.model]: { prompt: 1e-6, completion: 1e-6 } },
-    resolveSecret: never, fetchImpl: never });
+    resolveSecret: () => 'offline-fixture', fetchImpl: never });
   const plugin = { manifest: { ...manifest, kinds: ['live-voice'], models: manifest.models.filter(m => m.operations.includes('start')) },
     bind(binding) { return { ...this, binding }; }, health: async () => ({ available: true }), start: never };
   const registry = new PluginRegistry().register(reasoning).register(plugin);
