@@ -123,6 +123,7 @@ export function engineView(session) {
 }
 
 export class SettingsDialog {
+  #fadeObserver;
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
@@ -184,6 +185,7 @@ export class SettingsDialog {
         </section>
         <section class="settings-panel" role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" data-panel="local" hidden><div class="local-host"></div></section>
       </div>
+      <div class="settings__fade" aria-hidden="true"></div>
       <div class="settings-context"><span class="context-icon" aria-hidden="true">i</span><div class="context-text"><p class="context-message" role="status" aria-live="polite"></p></div></div>
       <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers"><span data-text="providers"></span>${ICONS.disclosureChevron}</summary>
           <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
@@ -235,9 +237,24 @@ export class SettingsDialog {
     for (const kind of GAUGES) this.#q(`[data-gauge="${kind}"] .gauge__label`).textContent = this.#copy.gauges.labels[kind];
     for (const [name, label] of [['model', c.model], ['voice', c.voice], ['visuals', c.visuals]]) this.#q(`#settings-options-${name}`).setAttribute('aria-label', label);
   }
+  #updateFade() {
+    const body = this.#q('.settings__body'), fade = this.#q('.settings__fade');
+    const bounds = body.getBoundingClientRect(), frame = body.parentElement.getBoundingClientRect();
+    fade.style.left = `${bounds.left - frame.left + body.clientLeft}px`;
+    fade.style.top = `${bounds.top - frame.top + body.clientTop + body.clientHeight - 24}px`;
+    fade.style.width = `${body.clientWidth}px`;
+    fade.dataset.visible = String(body.scrollTop + body.clientHeight < body.scrollHeight - 1);
+  }
+  #observeFade() {
+    this.#fadeObserver ??= new this.#dialog.ownerDocument.defaultView.ResizeObserver(() => this.#updateFade());
+    // Panels track content changes even when the body's own size stays fixed.
+    for (const node of this.#all('.settings__body, .settings-panel, .select__menu')) this.#fadeObserver.observe(node);
+    this.#updateFade();
+  }
   #wire() {
     const dialog = this.#dialog;
-    dialog.addEventListener('close', () => { if (!dialog.open) this.#ports.closed?.(); });
+    this.#q('.settings__body').addEventListener('scroll', () => this.#updateFade(), { passive: true });
+    dialog.addEventListener('close', () => { if (!dialog.open) { this.#fadeObserver?.disconnect(); this.#ports.closed?.(); } });
     dialog.addEventListener('cancel', event => { event.preventDefault(); this.close(); });
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Escape') return;
@@ -378,7 +395,7 @@ export class SettingsDialog {
     if (!this.#failed) { this.#draft = { ...this.#active }; this.#status = this.#copy.settings.autosave; this.#notice = null; }
     this.#help = tab === 'model' ? 'processing' : tab;
     if (typeof this.#dialog.showModal === 'function') this.#dialog.showModal(); else this.#dialog.setAttribute('open', '');
-    this.#setTab(tab); this.#render();
+    this.#setTab(tab); this.#render(); this.#observeFade();
     this.#q('.done').focus();
     // The chooser's Custom card preselects the host's Custom preset with its defaults.
     void this.reload();
@@ -434,6 +451,7 @@ export class SettingsDialog {
     this.#closeGeneration++;
     this.#closing = true; this.#pendingPreset = null; this.#pendingVoice = null; this.#voiceConfirm = false;
     clearTimeout(this.#timer); this.#timer = 0;
+    this.#fadeObserver?.disconnect();
     for (const select of this.#all('.select')) this.#closeMenu(select);
     this.#q('.disclosure').open = false;
     // Unsent drafts are discarded; the summary always shows the acknowledged choice.
@@ -697,7 +715,8 @@ export class SettingsDialog {
     const check = document.createElement('span'); check.className = 'option-check'; check.innerHTML = ICONS.check;
     if (icon) { const lead = document.createElement('span'); lead.className = 'preset-icon'; lead.innerHTML = icon; node.append(lead); }
     if (reason) node.title = reasonText(this.#copy, reason, feature);
-    node.append(name, state, check);
+    name.append(state);
+    node.append(name, check);
     return node;
   }
   #renderSelect(name, options, selectedValue, { disabled = false, reason = '' } = {}) {

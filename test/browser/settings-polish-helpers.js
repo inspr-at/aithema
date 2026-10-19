@@ -87,7 +87,7 @@ export async function checkSettingsPolish(page, { evidence, shot, settle, regres
           const before = boxes(), selection = rows.map(n => n.getAttribute('aria-selected'));
           rows.forEach(n => n.setAttribute('aria-selected', String(n.getAttribute('aria-selected') !== 'true')));
           const after = boxes(); rows.forEach((n, i) => n.setAttribute('aria-selected', selection[i]));
-          const details = [...menu.querySelectorAll('.option-label small')].map(n => {
+          const details = [...menu.querySelectorAll('.option-label small')].filter(n => n.getClientRects().length && n.textContent).map(n => {
             const css = getComputedStyle(n), name = n.parentElement.querySelector('strong');
             return { borderLeftWidth: parseFloat(css.borderLeftWidth), paddingLeft: parseFloat(css.paddingLeft),
               fontSize: parseFloat(css.fontSize), muted: css.color === getComputedStyle(f.dialog).getPropertyValue('--aithema-muted').trim(),
@@ -96,7 +96,7 @@ export async function checkSettingsPolish(page, { evidence, shot, settle, regres
           const names = rows.map(n => {
             const strong = n.querySelector('strong'), range = document.createRange(); range.selectNodeContents(strong);
             const rects = [...range.getClientRects()], lines = new Set(rects.map(r => r.y)).size;
-            return { text: strong.textContent, lines, labelWidth: n.querySelector('.option-label').clientWidth, width: strong.getBoundingClientRect().width };
+            return { text: strong.textContent, lines, labelWidth: n.querySelector('.option-label').getBoundingClientRect().width, width: strong.getBoundingClientRect().width };
           });
           const b = body.getBoundingClientRect(), m = menu.getBoundingClientRect();
           const result = { name: select.dataset.select, open: !wasHidden, details, names,
