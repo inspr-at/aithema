@@ -294,6 +294,7 @@ test('AIT-168: Settings saves only with confirmation disabled and saves plus req
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
   for (const locale of ['de', 'en']) for (const enabled of [false, true]) {
+    // Keep the follow-up read pending beyond paint so save cannot stand in for completion.
     await fixture(page, locale, { delivery: true, confirmationEnabled: enabled, consentDelayMs: 300 });
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     await settle(page);
@@ -306,14 +307,10 @@ test('AIT-168: Settings saves only with confirmation disabled and saves plus req
     }
     await until(page, () => window.ait164.address === 'settings@example.test');
     await settle(page);
-    try {
-      assert.deepEqual(await page.evaluate(() => window.ait164.requests), enabled ? ['save', 'link'] : ['save']);
-    } catch (error) {
-      t.diagnostic(`AIT-168 early snapshot ${JSON.stringify(await shadow(page, c => ({ requests: window.ait164.requests, busy: c.shadowRoot.querySelector('dialog.verify-dialog .verify-send').getAttribute('aria-disabled') })))}`);
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog .verify-send').getAttribute('aria-disabled') === 'false');
-      t.diagnostic(`AIT-168 completed snapshot ${JSON.stringify(await page.evaluate(() => window.ait164.requests))}`);
-      throw error;
-    }
+    // Saving the address is only the first acknowledgement. In mail mode the
+    // form stays busy through the credit/consent refresh and confirmation request.
+    if (enabled) await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog .verify-send').getAttribute('aria-disabled') === 'false');
+    assert.deepEqual(await page.evaluate(() => window.ait164.requests), enabled ? ['save', 'link'] : ['save']);
     assert.equal(await page.evaluate(() => window.ait164.credits().tiers.current), 'emailGiven');
     if (!enabled) {
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').dataset.emailState), 'saved');
