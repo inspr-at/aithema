@@ -462,6 +462,10 @@ export function createElevenLabsClient(ports = {}) {
             }
             // Only the correction callback supplies heard text; interruption never invents it.
           },
+          onAgentToolResponse(response) {
+            // SDK 1.17.0 forwards native end_call before asynchronous disconnect cleanup finishes.
+            if (active() && response?.tool_name === 'end_call') void close('provider-end').catch(() => {});
+          },
           onDisconnect(details) {
             if (!active()) return;
             // Only the SDK's explicit end_call context establishes provider intent;

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 const required = ['conversation_initiation_metadata', 'asr_initiation_metadata', 'audio', 'interruption',
   'user_transcript', 'tentative_user_transcript', 'agent_response', 'agent_response_correction',
@@ -70,4 +71,12 @@ test('AIT-379: health sanitizes network failures and refuses invalid configurati
     await assert.rejects(checkAgentHealth({ ...local.options, ...invalid, fetchImpl: async () => { calls++; } }));
     assert.equal(calls, 0);
   }
+});
+
+test('AIT-379: historical readback without agent_tool_response fails the GET-only health check', async () => {
+  const checkAgentHealth = await load(), local = fixture();
+  const captured = JSON.parse(await readFile(new URL('./fixtures/agent-readback-live.json', import.meta.url), 'utf8'));
+  local.options.fetchImpl = async (url, init) => { local.requests.push({ url, ...init }); return Response.json(captured); };
+  await assert.rejects(checkAgentHealth(local.options), /Missing required events: agent_tool_response/);
+  assertOnlyConfiguredGet(local);
 });

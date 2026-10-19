@@ -385,8 +385,10 @@ test('AIT-224: omitted non-default and security fields require repair; arrays an
   assert.deepEqual(Object.keys(agentRequests(fake)[1].body), ['conversation_config', 'platform_settings']);
 });
 
-test('AIT-224: real sanitized live readback has zero managed drift and boots with GET only', async t => {
+test('AIT-224: sanitized readback with offline AIT-379 event upgrade has zero managed drift and boots with GET only', async t => {
   const liveReadback = JSON.parse(await readFile(new URL('./fixtures/agent-readback-live.json', import.meta.url), 'utf8'));
+  // AIT-379: preserve the historical capture on disk; project only the required event upgrade offline.
+  liveReadback.conversation_config.conversation.client_events.splice(-1, 0, 'agent_tool_response');
   const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
   // Use the captured template-derived settings and the host's real AI openers.
   fake.template.conversation_config = structuredClone(liveReadback.conversation_config);
@@ -545,3 +547,17 @@ for (const drift of ['missing end-call event', 'missing setting', 'extra event',
     assert.deepEqual(logs.at(-1).fields, ['conversation_config.conversation.client_events']);
   });
 }
+
+test('AIT-379: restart repairs the missing native end-call event on the receipt-owned agent and verifies it', async t => {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  await ensureAgent(options(storage, fake));
+  fake.agents[0].conversation_config.conversation.client_events = requiredClientEvents.filter(event => event !== 'agent_tool_response');
+  fake.requests.length = 0;
+  await ensureAgent(options(storage, fake));
+  const patchIndex = fake.requests.findIndex(request => request.method === 'PATCH' && request.path.endsWith('/agents/owned-agent'));
+  assert.ok(patchIndex >= 0);
+  assert.deepEqual(fake.requests[patchIndex].body.conversation_config.conversation.client_events, requiredClientEvents);
+  assert.equal(fake.requests[patchIndex + 1].method, 'GET');
+  assert.equal(fake.requests[patchIndex + 1].path, '/v1/convai/agents/owned-agent');
+  assert.ok(fake.requests.filter(request => request.path.endsWith('/agents/template-agent')).every(request => request.method === 'GET'));
+});
