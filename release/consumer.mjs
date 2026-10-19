@@ -56,6 +56,7 @@ export function testConsumer(directory, { offline = true, bootOnly = false } = {
     writeFileSync(join(scratch, 'package.json'), JSON.stringify(hostPackage));
     writeFileSync(join(scratch, 'package-lock.json'), JSON.stringify(locked, null, 2) + '\n');
     cpSync(new URL('./consumer-smoke.mjs', import.meta.url), join(scratch, 'smoke.mjs'));
+    cpSync(new URL('./consumer-grok.mjs', import.meta.url), join(scratch, 'consumer-grok.mjs'));
     cpSync(new URL('./consumer-isolation.mjs', import.meta.url), join(scratch, 'isolation.mjs'));
     cpSync(new URL('../docs/embedding.md', import.meta.url), join(scratch, 'embedding.md'));
     writeFileSync(join(scratch, 'deployment-pin.json'), JSON.stringify(pin, null, 2) + '\n');
@@ -136,7 +137,7 @@ export function testConsumer(directory, { offline = true, bootOnly = false } = {
     writeFileSync(join(directory, 'deployment-pin.json'), JSON.stringify(pin, null, 2) + '\n');
     cpSync(join(scratch, 'package-lock.json'), join(directory, 'consumer-package-lock.json'));
     const deployment = join(directory, 'consumer-deployment'); mkdirSync(deployment);
-    for (const name of ['package.json', 'package-lock.json', 'smoke.mjs', 'isolation.mjs', 'embedding.md', 'deployment-pin.json', 'artifacts']) {
+    for (const name of ['package.json', 'package-lock.json', 'smoke.mjs', 'consumer-grok.mjs', 'isolation.mjs', 'embedding.md', 'deployment-pin.json', 'artifacts']) {
       cpSync(join(scratch, name), join(deployment, name), { recursive: true });
     }
     return evidence;

@@ -1,8 +1,49 @@
 # Composed voice — AIT-160 (opt-in, unqualified)
 
 This opt-in offline pipeline uses the AIT-102 server, browser-media, reply-executor,
-and component ports. Import `src/server.js` directly; it adds no dependencies and
-does not change the default ElevenLabs or fake-voice factories.
+and component ports. The legacy `src/server.js` wrapper remains a source-only
+prototype. Installed hosts use `@inspr/aithema-server/composed-voice/server`,
+`/composed-voice/client`, `/composed-voice/accounting` and the coordinator at
+`/composed-voice`; never import this prototype's source tree. The default
+ElevenLabs and fake-voice factories remain unchanged.
+
+### Grok release inclusion (AIT-351 / AIT-317)
+
+`@inspr/aithema-plugin-grok-voice/server` exports `createGrokVoiceProvider` and
+`createGrokComponents`; `/client` exports `createGrokVoiceClient`. The server
+package ships the coordinator, authority, durable component accounting, relay,
+network/browser helpers and adjacent `pcm-capture-worklet.js`. Exact core/server
+pins and package versions mirror `release/version.json`. See the
+[installed imports and host setup](../../docs/embedding.md#grok-voice-host-setup-and-release-imports-ait-351)
+and [Grok account/evidence contract](../grok-voice/README.md).
+
+Architecture (b): xAI STT → Aithema's admitted reasoning → xAI TTS. xAI never
+writes answers. Markus approved direct-recipient xAI processing (Desk dc3ec428);
+use manifest DE/EN `voice-xai` v1 plus the separate reasoning consent. Recipient:
+SpaceXAI LLC (“SpaceXSI”), US seat, international processing, no guaranteed region;
+Settings shows the seat and processing detail separately.
+
+Owner use needs an xAI account with voice access, **Zero Data Retention switched
+on** and a server-side secret reference in the private binding. **Never ask for a
+key.** Supply current dated ZDR/DPA/retention/transfer/contract/approval evidence,
+exact parent/component bindings, ownership, consent and ordinary budget gates.
+Visitor active duration is server-side **measured by Aithema**, excludes
+acknowledged pauses and is confirmed at close. STT/TTS are separate child claims,
+**estimated** until a receipt. TTS counts sent Unicode code points. Cancel/timeout
+keeps consumed reservations; closing the zero-upstream-cost parent does not settle
+unresolved children.
+
+Recovery uses fresh epoch/authorization/child admissions and never replays old
+synthesis. Grok has no heard position: keep the complete generated reply, show
+**Unterbrochen** / **Interrupted** and tell the model the heard length is unknown.
+This is the approved difference from ElevenLabs's existing prefix correction.
+
+Public docs were read **2026-10-18**: REST STT $0.10/hour, streaming STT
+$0.20/hour, TTS $15/1M characters. These are dated estimates; there is no
+billed-cost receipt or live acoustic/account qualification. Grok remains **not yet
+qualified in live use** until Markus has used it, regardless of fixture results.
+Release inclusion creates no tag/release/publication. Tick's morning packages 5–7
+QA and LEAD's RC decision gate merge; a later RC needs Markus's Desk go to publish.
 
 The trusted host injects `storage`, `authorize`, `commitUtterance`, the existing
 Rule C `replyExecutor`, `admitComponent`, `stt`, and `tts`, then explicitly sets
