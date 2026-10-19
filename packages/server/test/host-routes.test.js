@@ -752,3 +752,41 @@ test('verified identity erasure keeps replay revisions stable while removing add
   assert.equal(inputRevision(replay), inputRevision(f.storage.get(s.id))); assert.equal(replay.identity, null);
   const persistent = JSON.stringify(f.storage.read(s.id)); assert.equal(persistent.includes('erased@example.test'), false); assert.equal(persistent.includes('changed@example.test'), false);
 });
+
+for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance' : 'credits read'} passes the authorized conversation to both projections`, async t => {
+  const f = fixture(t, { demoBypass: true }), a = await f.create(), b = await f.create();
+  const wallet = f.host.wallet(owner), seen = { wallet: [], tiers: [] };
+  t.mock.method(f.host, 'wallet', (token, context) => {
+    seen.wallet.push([token, context]);
+    const limitMicro = context?.sessionId === a.id ? 10_000_000 : 2_500_000;
+    return Object.create(wallet, { creditScope: { value: 'session' }, balance: { value: () => ({ ...wallet.balance(), limitMicro, availableMicro: limitMicro }) } });
+  });
+  t.mock.method(f.host, 'creditTiers', (token, context) => {
+    seen.tiers.push([token, context]);
+    return { current: context?.sessionId === a.id ? 'emailConfirmed' : 'anonymous', next: null, delta: 0, canConfirm: true,
+      allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: 10_000_000 } };
+  });
+  for (const session of [a, b]) {
+    if (initial) { await f.call(`/api/sessions/${session.id}/turns`, { clientEventId: `start-${session.id}`, content: 'Hi' }); await f.handlers.idle(); }
+    else {
+      const view = await (await f.call(`/api/sessions/${session.id}/credits`)).json();
+      assert.equal(view.balance.owner.limitMicro, session === a ? 10_000_000 : 2_500_000);
+      assert.equal(view.scope, 'session');
+      assert.equal(view.tiers.current, session === a ? 'emailConfirmed' : 'anonymous');
+    }
+  }
+  for (const calls of Object.values(seen)) assert.deepEqual(calls, [[owner, { sessionId: a.id }], [owner, { sessionId: b.id }]]);
+  for (const calls of Object.values(seen)) calls.length = 0;
+  assert.equal((await f.call(`/api/sessions/${b.id}/credits`, undefined, foreign)).status, 404);
+  assert.deepEqual(seen, { wallet: [], tiers: [] }, 'foreign owner never reaches projection callbacks');
+});
+
+test('AIT-395: callbacks ignoring context keep the complete owner-wide receipt snapshot', async t => {
+  const f = fixture(t), s = await f.create();
+  const before = await (await f.call(`/api/sessions/${s.id}/credits`)).json();
+  const wallet = f.host.wallet, tiers = f.host.creditTiers;
+  t.mock.method(f.host, 'wallet', token => wallet(token));
+  t.mock.method(f.host, 'creditTiers', token => tiers(token));
+  assert.deepEqual(await (await f.call(`/api/sessions/${s.id}/credits`)).json(), before);
+  assert.equal(Object.hasOwn(before, 'scope'), false);
+});
