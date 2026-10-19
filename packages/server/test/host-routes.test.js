@@ -759,7 +759,7 @@ for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance
   t.mock.method(f.host, 'wallet', (token, context) => {
     seen.wallet.push([token, context]);
     const limitMicro = context?.sessionId === a.id ? 10_000_000 : 2_500_000;
-    return Object.create(wallet, { creditScope: { value: 'session' }, balance: { value: () => ({ ...wallet.balance(), limitMicro, availableMicro: limitMicro }) } });
+    return Object.create(wallet, { displayBalance: { value: undefined }, creditScope: { value: 'session' }, balance: { value: () => ({ ...wallet.balance(), limitMicro, availableMicro: limitMicro }) } });
   });
   t.mock.method(f.host, 'creditTiers', (token, context) => {
     seen.tiers.push([token, context]);
