@@ -3,6 +3,66 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { measureGaugeCaptions } from './settings-caption-helpers.js';
 
+// All Settings selects live on the model tab; General and Local have no menu.
+// Reuse the offline AIT-350 page and native browser tab order for each select.
+export async function checkSettingsMenuAccessibility(page, t) {
+  await page.setViewport({ width: 1440, height: 900 });
+  for (const name of ['model', 'voice', 'visuals']) await t.test(`AIT-362 model tab: ${name} menu focus continuity and reading order`, async () => {
+    await page.evaluate(() => window.ait350.reset('de'));
+    const failures = [];
+    const check = (label, actual, expected) => {
+      if (actual !== expected) failures.push({ label, actual, expected });
+    };
+    const state = () => page.evaluate(name => {
+      const f = window.ait350, button = f.q(`#settings-select-${name}`), menu = f.q(`#settings-options-${name}`);
+      return { expanded: button.getAttribute('aria-expanded'), controls: button.getAttribute('aria-controls'),
+        labelledby: menu.getAttribute('aria-labelledby'), hidden: menu.hidden,
+        siblingLayer: menu.parentElement === f.q('.settings__menus'),
+        optionFocused: f.root.activeElement?.matches('[role=option]') && menu.contains(f.root.activeElement),
+        buttonFocused: f.root.activeElement === button };
+    }, name);
+    const relations = (phase, observed, expanded) => {
+      check(`${phase}: aria-expanded`, observed.expanded, String(expanded));
+      check(`${phase}: aria-controls resolves listbox`, observed.controls, `settings-options-${name}`);
+      check(`${phase}: listbox aria-labelledby resolves button`, observed.labelledby, `settings-select-${name}`);
+      check(`${phase}: hidden`, observed.hidden, !expanded);
+    };
+    relations('closed', await state(), false);
+    // Let Chrome identify the next control before the menu changes DOM position.
+    await page.evaluate(name => window.ait350.q(`#settings-select-${name}`).focus(), name);
+    await page.keyboard.press('Tab');
+    const nextControl = await page.evaluateHandle(() => window.ait350.root.activeElement);
+    const open = async () => {
+      await page.evaluate(name => window.ait350.q(`#settings-select-${name}`).focus(), name);
+      await page.keyboard.press('Enter');
+    };
+    await open();
+    const opened = await state();
+    relations('open', opened, true);
+    check('open: options remain in sibling layer', opened.siblingLayer, true);
+    check('open: focus enters listbox option', opened.optionFocused, true);
+    // ArrowDown puts focus in an option even on the pre-fix implementation,
+    // so each exit path gets an independent red-before proof.
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Escape');
+    const escaped = await state();
+    relations('Esc closed', escaped, false);
+    check('Esc returns focus to select', escaped.buttonFocused, true);
+    await open(); await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Tab');
+    relations('Tab closed', await state(), false);
+    check('Tab moves to control after select', await page.evaluate(next => window.ait350.root.activeElement === next, nextControl), true);
+    await open(); await page.keyboard.press('ArrowDown');
+    await page.keyboard.down('Shift');
+    try { await page.keyboard.press('Tab'); } finally { await page.keyboard.up('Shift'); }
+    const reversed = await state();
+    relations('Shift+Tab closed', reversed, false);
+    check('Shift+Tab returns focus to select', reversed.buttonFocused, true);
+    await nextControl.dispose();
+    assert.deepEqual(failures, [], `${name}: Tick v1.2 keyboard and ARIA`);
+  });
+}
+
 // AIT-362 shares AIT-350's real editor, offline catalog, browser and pinned host
 // font stack. Gather all failures before asserting so red-before proves each cue.
 export async function checkSettingsPolish(page, { evidence, shot, settle, regression }) {

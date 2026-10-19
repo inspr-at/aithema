@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
 import { measureGaugeCaptions } from './settings-caption-helpers.js';
-import { checkSettingsPolish } from './settings-polish-helpers.js';
+import { checkSettingsMenuAccessibility, checkSettingsPolish } from './settings-polish-helpers.js';
 import { startChild } from '../helpers.js';
 
 const chromeSandboxArgs = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [];
@@ -548,6 +548,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
   assert.equal(openMenus.length, 3, 'three requested open-menu captures');
   if (evidence) await writeFile(join(evidence, 'ait350-checks.json'), JSON.stringify({ capture: 'viewport', motion: 'reduced and settled', blurredBeforeCapture: true, checks, openMenus }, null, 2));
   assert.deepEqual(regressions, [], 'Tick UI QA 2026-10-19, AIT-350 -fix1, points 1–3');
+  await checkSettingsMenuAccessibility(page, t);
   await checkSettingsPolish(page, { evidence, shot, settle, regression: { checks, openMenus, regressions } });
 });
 
