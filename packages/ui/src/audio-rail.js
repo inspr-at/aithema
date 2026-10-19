@@ -423,11 +423,10 @@ export class AudioRail {
         throw Object.assign(new Error('Microphone API unavailable'), { name: 'NoMediaAPIError' });
       }
       const microphonePhases = this.declaredSignal('onMicrophoneState');
-      if (microphonePhases) {
-        if (this.input) this.startupPhase = 'microphone';
-        else connectDeadline();
-        this.render();
-      }
+      // Declared clients bound credential preparation separately from S3.
+      // Only requesting opens S1 and suspends this guard; grant starts a fresh
+      // 30 s provider deadline. Cleanup/cooldown above remain outside both.
+      if (microphonePhases) connectDeadline();
       const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
         signal: controller.signal, holdSignal: holdController.signal,
         // Today's clients retain main's option and their own deadline scopes.
@@ -458,7 +457,8 @@ export class AudioRail {
       finally { if (this.opening === opening) this.opening = null; }
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.startupPhase = null; this.state = 'listening';
-      clearTimeout(connectTimer); this.awaitReply(session, generation);
+      clearTimeout(connectTimer);
+      if (this.client.manifest?.liveVoice?.capabilities?.opener === true) this.awaitReply(session, generation);
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;
@@ -584,7 +584,8 @@ export class AudioRail {
         if (event.type === 'recovered') {
           this.state = 'listening'; this.errorKey = null; this.journal?.update({ providerSessionId: session.providerSessionId });
           this.notices.recovered(event.recovery);
-          if (!this.paused) this.awaitReply(session, generation);
+          // Repair is silent: only a subsequent visitor turn can expect a reply.
+          this.stopReplyWatch();
           void this.updateContext().catch(() => {});
         }
         if (event.type === 'waiting') {
