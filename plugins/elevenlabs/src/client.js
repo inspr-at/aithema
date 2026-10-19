@@ -130,12 +130,12 @@ export function createElevenLabsClient(ports = {}) {
       });
       const stopReplayForInput = () => { if (replay.active) { silenceReply(); replay.stop(); } };
       const stopPersistence = () => persistenceCancellation.abort();
-      const persist = async value => {
+      const persist = async (value, write = persistEvent) => {
         const signal = persistenceCancellation.signal;
         for (let attempt = 0; ; attempt++) {
           signal.throwIfAborted();
           try {
-            await voiceOperation({ signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => persistEvent(value, opts));
+            await voiceOperation({ signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => write(value, opts));
             return;
           } catch (error) {
             // Refused authority must never be retried. Network errors, timeouts and 5xx may recover.
@@ -157,8 +157,10 @@ export function createElevenLabsClient(ports = {}) {
         if (value.type === 'partial') lifecycle.dispatch({ type: 'partial', sequence: captured });
         // Playback acknowledgements must not hold captured finals behind a
         // network round trip: Pause can reach the server while they wait.
-        const saved = ['final', 'heard', 'reply', 'interrupted'].includes(value.type)
-          ? (persistence = persistence.then(() => persist(value))) : null;
+        const saved = ['final', 'heard', 'reply'].includes(value.type)
+          ? (persistence = persistence.then(() => persist(value)))
+          : value.type === 'interrupted' && control.reportActivity
+            ? (persistence = persistence.then(() => persist(value, (value, opts) => control.reportActivity(value, opts)))) : null;
         saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;

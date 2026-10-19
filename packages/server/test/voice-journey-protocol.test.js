@@ -58,13 +58,15 @@ for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 
   grant.credential.conversationToken = `fixture-token-${grant.providerSessionId}`;
   const identity = { providerSessionId: grant.providerSessionId, epoch: grant.epoch, tabId: grant.controllingTabId };
   const finalStored = Promise.withResolvers();
+  const publish = async event => {
+    const response = await h.route(`/voice/${grant.callId}/events`, { ...identity, event });
+    try { assert.equal(response.status, 200); if (event.type === 'final') finalStored.resolve(); }
+    catch (error) { finalStored.reject(error); throw error; }
+  };
   const client = createElevenLabsClient({ sdk, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
-    control: { start: async () => grant, close: async () => ({}), pause: async () => ({ acknowledged: true, paused: true }), resume: async () => ({ acknowledged: true, paused: false }), heartbeat: async () => ({}) },
-    async persistEvent(event) {
-      const response = await h.route(`/voice/${grant.callId}/events`, { ...identity, event });
-      try { assert.equal(response.status, 200); if (event.type === 'final') finalStored.resolve(); }
-      catch (error) { finalStored.reject(error); throw error; }
-    } });
+    control: { start: async () => grant, close: async () => ({}), reportActivity: publish,
+      pause: async () => ({ acknowledged: true, paused: true }), resume: async () => ({ acknowledged: true, paused: false }), heartbeat: async () => ({}) },
+    persistEvent: publish });
   const session = await client.start({ callId: grant.callId }); t.after(() => session.close());
   const callbacks = sdk.starts[0], full = 'Heard. Unheard remainder.';
   callbacks.onMessage({ role: 'agent', event_id: 8, message: full });
