@@ -52,6 +52,95 @@ BSD and GNU tar encode different bytes. PR CI's Linux candidate is qualification
 and retention evidence for that CI source commit, not a promise that a later tag
 build has the same digests.
 
+## Eighth October candidate (AIT-366 / START-550)
+
+The reserved coordinate is `261019093518.0.0` (UTC reservation time), stable sequence
+19, status `reserved`. Marketing name: **Aithema 2026.10**, with the exact version
+below the notes title. Release authority is Markus's standing release go,
+Desk **4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19. There is **no new Desk
+question**. After the coordinator's cross-family release gate, green CI,
+signatures/checksums and Tick's UI look, OPS publishes on the coordinator's
+handoff and Markus receives a report afterwards. The builder prepares only,
+invokes no review gates and creates no tag, tag push, GitHub release or publication.
+
+This follows the AIT-360 candidate/evidence route and **today's process**: the RC
+PR waits unmerged, with a merge freeze until published. AIT-363 B (release from a
+tagged candidate) is not live. The existing OPS command and release workflow
+require the release head to be an ancestor of `origin/main`. That check will
+refuse an unmerged RC head at this base. Coordinator/OPS must resolve that
+publication prerequisite within the authorized process before running the tag
+push; this preparation does not bypass it or change the release workflow.
+The OPS route below is retained with that guard intact.
+
+Prerequisites #318 (AIT-364, START-550 partial-consent fix) and #316 (AIT-351,
+Grok Voice release inclusion, **not yet qualified in live use**) are both on main
+at base `412d15cc4ca50a2611f0d4561904175634eb2eac`. The full first-parent range
+since `v261019003029.0.0` contains #317 (already-published AIT-360 preparation),
+#313 (AIT-358), #310 (AIT-347), #315 (AIT-350), #316 and #318. The second voice
+pipeline's packages 1–8 are included through this merged closure. AIT-361 and
+AIT-362 are absent at this base and are excluded; do not wait for them.
+The previous release `v261019003029.0.0`, sequence 18, AIT-360, published by OPS
+at 2026-10-19 06:06Z, is recorded in `history.json` at source
+`94b360b1d5c9d9630d85fee4788faa956126e164`.
+
+Notes lead with removing drafts/images immediately in every tab on partial
+withdrawal, then optional Grok Voice (**not yet qualified in live use**) with
+Settings and the truthful interruption marker, then Reload with a fresh mint.
+Host notes explain `voice-xai` v1, SpaceXAI LLC (“SpaceXSI”), US recipient seat,
+international processing without a guaranteed region, current private account
+and ZDR evidence, server-side secret references, measured visitor duration,
+estimated child claims, recovery and the approved absence of a heard position.
+They distinguish native source-hosted browser modules under `script-src 'self'`
+from installed package resolution. The sixteenth release package is
+`@inspr/aithema-plugin-grok-voice` (**not yet qualified in live use**).
+**Breaking for hosts: none relative to RC7**: the provider is opt-in, the consent
+fix is component-internal and Reload uses the existing mint route. RC7's preview
+embedding requirements still apply. Collected `next-notes.md` lines were used;
+the file is reset to its empty stub.
+
+The approved presentation source remains
+`bd0a13816f728ad91c36d849f88168bcac4fdc6e`; presentation pins and the AIT-32
+migration anchor stay fixed. All manifests and the lock mirror the reservation,
+including the new voice package. Preparation candidates are digest-verified
+evidence; the authorized tag build alone makes and attests shipped bytes.
+BSD preparation bytes and CI's GNU bytes remain distinct.
+
+Run order (the round-6 evidence rule above applies):
+
+1. Fetch `origin/main` and tags; stop if #318 or #316 is missing. Commit the
+   reservation, all manifest/lock mirrors, history, notes and runbook with
+   `--signoff` before the remote run. Branch: `release/ait-366-eighth-release`;
+   builder marker: session `AIT-366-b1`. Never push main, amend or force-push.
+2. From this worktree on mbp2607, use the command below. It runs
+   `npm run release:candidate -- <retained dir>` on mbp2606: two packs,
+   verification, isolated installed consumer smoke (including the new voice
+   package imported from shipped bytes), locked reinstall, update and rollback.
+   CalVer tests exercise `release/gate.mjs tag` without creating a tag.
+   On WAIT, wait and retry per remote policy; on LOCAL-FALLBACK, stop with tests
+   pending. Never run tests, builds, browsers or the candidate on mbp2607.
+
+   ```sh
+   EVIDENCE_OUT="$PWD/dist/ait366-checkpoint" \
+     /private/tmp/claude-501/-Users-markus-Code-aithema/c3acf551-65c1-4283-a0f5-bea8a7cfc6f7/scratchpad/remote-browser.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/calver.test.js test/version-presentation.test.js test/consumer-isolation.test.js
+   ```
+
+3. Commit `dist/ait366-checkpoint/candidate/candidate-evidence.json` as
+   `release/evidence.json` with `--signoff` for the implementation checkpoint.
+4. Repeat the command on the final committed head using
+   `EVIDENCE_OUT="$PWD/dist/ait366-final"`. Retain the complete
+   `dist/ait366-final/candidate/` without another evidence-only commit. Both
+   `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
+   head. Hand OPS that exact head and final manifest SHA-256 together; copy the
+   full directory to durable owner storage before publication.
+5. Push only `release/ait-366-eighth-release`, open a PR to main, leave it unmerged
+   and wait for green CI: seven browser shards, four required browser aliases,
+   units, preview-security and DCO. CI retains `reset-candidate` for 90 days.
+   The coordinator runs the release gate after handoff; OPS owns publication
+   under the standing go and reports to Markus afterwards.
+
 ## Seventh October candidate (AIT-360 / START-550)
 
 The reserved coordinate is `261019003029.0.0` (UTC reservation time), stable sequence
@@ -120,7 +209,7 @@ Run order (the round-6 evidence rule above applies):
    `release/evidence.json` with `--signoff` for the implementation checkpoint.
 4. Repeat that command on the final committed head with
    `EVIDENCE_OUT="$PWD/dist/ait360-final"`. Retain the complete
-   `dist/ait360-final/candidate/` without another evidence-only commit. Its
+   `dist/ait366-final/candidate/` without another evidence-only commit. Its
    `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-360-seventh-release`, open the PR to main and wait for
@@ -432,23 +521,25 @@ the candidate test on the final committed head with
 and evidence must both bind the handed-over head. Retain the complete directory
 in owner storage; the PR's Linux artifacts remain separate qualification bytes.
 
-## OPS publish route after Markus's Desk go
+## OPS publish route under the standing release go
 
 OPS owns the exact-SHA rehearsal, clean-clone `v*` tag push, release run,
-attestation verification and publication after Markus's separate Desk go.
+attestation verification and publication on the coordinator's handoff under
+Markus's standing release go (Desk 4d867165, 2026-10-19). No new Desk question.
 The builder only prepares the candidate, notes and reservation through the PR.
 The route is **public GitHub release tarballs**, SHA256SUMS and GitHub artifact
 attestations, using only the workflow's `GITHUB_TOKEN`. No npm registry account,
 npm publication, GitHub Packages registry or consumer token is required.
 
-After Tick's consolidated QA and Markus's Desk go, OPS runs the following on
+After the coordinator's cross-family release gate, green CI and Tick's UI look,
+OPS runs the following under the standing release go on
 mbp2606 or an authorized build runner. Set `FINAL_CANDIDATE` to the retained
-AIT-360 final directory above, and enable repository immutable releases before
+AIT-366 final directory above, and enable repository immutable releases before
 the tag push. These commands are a handoff, not builder authorization to run them.
 
 ```sh
 set -eu
-export FINAL_CANDIDATE=/absolute/owner-storage/ait360-final/candidate
+export FINAL_CANDIDATE=/absolute/owner-storage/ait366-final/candidate
 RELEASE_HEAD=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").source.commit')
 RELEASE_VERSION=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").version')
 RELEASE_TAG="v$RELEASE_VERSION"
@@ -459,7 +550,7 @@ git checkout --detach "$RELEASE_HEAD"
 git merge-base --is-ancestor "$RELEASE_HEAD" origin/main
 node release/gate.mjs tag "refs/tags/$RELEASE_TAG"
 npm ci --ignore-scripts --no-audit --no-fund
-npm run release:candidate -- "$OPS_WORK/ait360-rehearsal"
+npm run release:candidate -- "$OPS_WORK/ait366-rehearsal"
 git tag "$RELEASE_TAG" "$RELEASE_HEAD"
 git push origin "refs/tags/$RELEASE_TAG"
 # Once the tag-triggered release run appears:
