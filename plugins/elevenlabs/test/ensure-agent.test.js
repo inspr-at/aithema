@@ -385,8 +385,10 @@ test('AIT-224: omitted non-default and security fields require repair; arrays an
   assert.deepEqual(Object.keys(agentRequests(fake)[1].body), ['conversation_config', 'platform_settings']);
 });
 
-test('AIT-224: real sanitized live readback has zero managed drift and boots with GET only', async t => {
+test('AIT-224: sanitized readback with offline AIT-379 event upgrade has zero managed drift and boots with GET only', async t => {
   const liveReadback = JSON.parse(await readFile(new URL('./fixtures/agent-readback-live.json', import.meta.url), 'utf8'));
+  // AIT-379: preserve the historical capture on disk; project only the required event upgrade offline.
+  liveReadback.conversation_config.conversation.client_events.splice(-1, 0, 'agent_tool_response');
   const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
   // Use the captured template-derived settings and the host's real AI openers.
   fake.template.conversation_config = structuredClone(liveReadback.conversation_config);
@@ -512,4 +514,50 @@ test('AIT-224: owned GET failure prevents every PATCH, including secret rotation
       ? Response.json({}, { status: 503 }) : fetch(url, init),
   }), /agent-api-get-503/);
   assert.deepEqual(writes(fake), []);
+});
+
+const requiredClientEvents = ['conversation_initiation_metadata', 'asr_initiation_metadata', 'audio', 'interruption',
+  'user_transcript', 'tentative_user_transcript', 'agent_response', 'agent_response_correction',
+  'agent_chat_response_part', 'agent_response_metadata', 'agent_tool_response', 'ping'];
+
+test('AIT-379: ensure writes the complete native end-call event contract', async t => {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  await ensureAgent(options(storage, fake));
+  assert.deepEqual(fake.agents[0].conversation_config.conversation.client_events, requiredClientEvents);
+});
+for (const drift of ['missing end-call event', 'missing setting', 'extra event', 'duplicate event', 'reordered']) {
+  test(`AIT-379: incomplete or drifted event readback fails actionably: ${drift}`, async t => {
+    const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = []; t.after(() => storage.close());
+    await assert.rejects(ensureAgent({ ...options(storage, fake, logs), fetchImpl: async (url, init) => {
+      const response = await fetch(url, init);
+      if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
+      const saved = await response.json();
+      saved.conversation_config.conversation.client_events = drift === 'missing end-call event'
+        ? requiredClientEvents.filter(event => event !== 'agent_tool_response')
+        : drift === 'missing setting' ? undefined
+        : drift === 'extra event' ? [...requiredClientEvents, 'unexpected_event']
+        : drift === 'duplicate event' ? [...requiredClientEvents, 'ping'] : [...requiredClientEvents].reverse();
+      return Response.json(saved);
+    } }), error => {
+      assert.equal(error.message, 'agent-readback-mismatch');
+      assert.deepEqual(error.fields, ['conversation_config.conversation.client_events']);
+      assert.match(error.remediation, /client_events.*agent_tool_response.*ensure/);
+      return true;
+    });
+    assert.deepEqual(logs.at(-1).fields, ['conversation_config.conversation.client_events']);
+  });
+}
+
+test('AIT-379: restart repairs the missing native end-call event on the receipt-owned agent and verifies it', async t => {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  await ensureAgent(options(storage, fake));
+  fake.agents[0].conversation_config.conversation.client_events = requiredClientEvents.filter(event => event !== 'agent_tool_response');
+  fake.requests.length = 0;
+  await ensureAgent(options(storage, fake));
+  const patchIndex = fake.requests.findIndex(request => request.method === 'PATCH' && request.path.endsWith('/agents/owned-agent'));
+  assert.ok(patchIndex >= 0);
+  assert.deepEqual(fake.requests[patchIndex].body.conversation_config.conversation.client_events, requiredClientEvents);
+  assert.equal(fake.requests[patchIndex + 1].method, 'GET');
+  assert.equal(fake.requests[patchIndex + 1].path, '/v1/convai/agents/owned-agent');
+  assert.ok(fake.requests.filter(request => request.path.endsWith('/agents/template-agent')).every(request => request.method === 'GET'));
 });

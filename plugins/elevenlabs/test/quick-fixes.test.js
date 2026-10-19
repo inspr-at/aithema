@@ -382,3 +382,31 @@ test('AIT-136 withdrawal during an existing drain cancels pending and queued per
   } finally { held.resolve(); await closing; }
   assert.deepEqual(posted, ['conv_1:user:1']); assert.equal(local.observed.some(event => event.type === 'final'), false);
 });
+
+for (const transport of ['webrtc', 'websocket']) {
+  test(`AIT-379: ${transport} native end_call is immediately terminal, even before disconnect`, async t => {
+    const local = await setup(t, { transport }), original = local.sdk.starts[0]; let recoveries = 0;
+    local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+    original.onAgentToolResponse?.({ tool_name: 'end_call', tool_call_id: 'fixture-end-call', result: 'success' });
+    assert.equal(local.session.lifecycle.state.state, 'ended');
+    original.onError('transport failed', { type: 'transport_error' });
+    original.onDisconnect({ reason: 'error', context: { type: 'socket_error' } });
+    await local.reader;
+    assert.equal(recoveries, 0); assert.equal(local.sdk.starts.length, 1);
+    assert.equal(local.closed.length, 1); assert.equal(local.closed[0].reason, 'provider-end');
+    assert.deepEqual(local.observed.filter(event => event.type === 'ended').map(event => event.reason), ['provider-end']);
+    assert.equal(local.observed.some(event => ['recovering', 'recovered', 'waiting'].includes(event.type)), false);
+    assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+    assert.equal(local.sdk.closed, true);
+  });
+  test(`AIT-379: ${transport} other agent tools leave transport recovery at three tries`, async t => {
+    const local = await setup(t, { transport }), original = local.sdk.starts[0]; let recoveries = 0;
+    local.control.recover = async () => { recoveries++; throw new Error('fixture transport outage'); };
+    original.onAgentToolResponse?.({ tool_name: 'other_tool', result: 'success' });
+    assert.equal(local.session.lifecycle.state.state, 'active');
+    original.onDisconnect({ reason: 'error', context: { type: 'socket_error' } });
+    await until(() => local.observed.some(event => event.type === 'waiting'));
+    assert.equal(recoveries, 3); assert.equal(local.session.lifecycle.state.state, 'waiting');
+    assert.equal(local.observed.some(event => event.type === 'ended'), false);
+  });
+}

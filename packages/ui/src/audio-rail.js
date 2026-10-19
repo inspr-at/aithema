@@ -503,8 +503,8 @@ export class AudioRail {
           this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; this.journal?.clear();
           this.busy = false; this.pauseCommand = null; this.beating = false; this.hidePending = false; this.playbackBlocked = false;
           this.quiet(); this.onEnd?.();
-          this.state = ['closed', 'cancelled', 'closure-uncertain'].includes(event.reason) ? 'idle' : 'failed';
-          this.errorKey = event.reason === 'recovery-failed' ? 'voiceRecoveryFailed' :
+          this.state = ['closed', 'cancelled', 'closure-uncertain', 'provider-end'].includes(event.reason) ? 'idle' : 'failed';
+          this.errorKey = event.reason === 'provider-end' ? 'voiceEnded' : event.reason === 'recovery-failed' ? 'voiceRecoveryFailed' :
             event.reason === 'closure-uncertain' ? 'voiceClosureUncertain' :
             event.reason.includes('deadline') ? 'voiceDeadline' : this.state === 'failed' ? 'voiceConnectionFailed' : null;
           this.root.querySelector('.voice-caption').textContent = '';

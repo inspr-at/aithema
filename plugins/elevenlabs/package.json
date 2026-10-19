@@ -14,7 +14,8 @@
     "./manifest": "./src/manifest.js",
     "./provider": "./src/provider.js",
     "./callbacks": "./src/callbacks.js",
-    "./voice-host": "./src/voice-host.js"
+    "./voice-host": "./src/voice-host.js",
+    "./agent-health": "./src/agent-health.js"
   },
   "dependencies": {
     "@inspr/aithema-core": "261019131804.0.0",
