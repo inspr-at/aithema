@@ -12,7 +12,7 @@ import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -928,6 +928,8 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     const timedOut = await validate('load-timeout', 'loadTimeout', true);
     assert.equal(timedOut.checked, 0); assert.equal(timedOut.fieldsDisabled, true); assert.equal(timedOut.revokeDisabled, true);
     stable(loading, timedOut, 'C1-C3'); await shot('C3');
+    await page.evaluate(async () => { const f = consentDeadline; f.lateGets[0].resolve(Response.json({ ...f.contract, selected: f.contract.items.map(i => i.id) })); await f.flush(); });
+    const lateLoad = await snapshot(); assert.equal(lateLoad.state, timedOut.state); assert.equal(lateLoad.text, timedOut.text); assert.equal(lateLoad.checked, 0);
     await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
     const retried = await validate('loading', 'loading'); stable(loading, retried, 'C3-C1');
     await page.evaluate(async () => { const f = consentDeadline; f.stallGet = false; f.lateGets.at(-1).resolve(Response.json({ ...f.contract, selected: f.selected })); await f.flush(); f.api = await f.mounting; });
@@ -965,10 +967,14 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       { loading: 4, ready: 3, saving: 4, 'load-timeout': 1, 'save-unconfirmed': 2, 'withdraw-unconfirmed': 1 }, `${label}: one text mutation per entered state`);
     checks.push({ ...variant, loadDeadlineMs: 8000, saveDeadlineMs: 10000, withdrawDeadlineMs: 10000, focusTarget: '#retry',
       liveRegion: 'polite', liveRegionText: { C3: timedOut.text, C4: unknown.text, C5: withdrawn.text }, announcements: entries,
-      announcesOncePerState: true, lateAnswerIgnored: true, rereadMatchNavigates: true, rereadMismatchEditable: true, noBlindRepost: true,
+      announcesOncePerState: true, lateAnswerIgnored: true, lateLoadIgnored: true, lateSaveIgnored: true, rereadMatchNavigates: true, rereadMismatchEditable: true, noBlindRepost: true,
       withdrawalAbortsSave: true, withdrawalReceived: true, withdrawalRetryIdempotent: true, noCheckedBoxesAfterLoadTimeout: true,
       targets44px: [...timedOut.boxes.slice(2), ...unknown.boxes.slice(2)].every(r => r[2] >= 44 && r[3] >= 44), movementPx: 0 });
     assert.equal(checks.at(-1).targets44px, true);
   }
-  if (evidence) await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-376 Tick v1', checks }, null, 2));
+  if (evidence) {
+    const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : {};
+    await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: event.pull_request?.head.sha ?? evidenceCommit,
+      testedMergeCommit: evidenceCommit, ciRunId: process.env.GITHUB_RUN_ID ?? null, spec: 'AIT-376 Tick v1', checks }, null, 2));
+  }
 });
