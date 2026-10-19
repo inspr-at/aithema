@@ -166,7 +166,7 @@ export class AudioRail {
   get error() {
     if (!this.errorKey) return null;
     if (this.errorKey === 'voiceAdmissionDenied' && isConsentReason(this.errorReason)) return featureConsentText(this.copy, 'voice');
-    if (this.errorKey === 'voiceAdmissionDenied' && this.errorReason === 'binding evidence unverified') return this.copy.reasons['voice-host-unavailable'];
+    if (this.errorKey === 'voiceAdmissionDenied' && ['binding evidence unverified', 'delegated reasoning: binding evidence unverified'].includes(this.errorReason)) return this.copy.reasons['voice-host-unavailable'];
     if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
     if (this.errorKey === 'voiceEnded' && this.endedCall?.visitorDurationSource === 'aithema-measured') return this.copy.voiceEndedAithemaMeasured;
     return this.copy[this.errorKey];

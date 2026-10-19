@@ -509,7 +509,7 @@ export const de = {
     'preset choices invalid': 'Von diesem Host nicht korrekt eingerichtet',
     'unknown preset': 'Unbekannte Verarbeitung', 'browser only': 'Läuft nur im Browser',
     'model not supported': 'Modell nicht unterstützt', 'effort not supported': 'Einstellung vom Modell nicht unterstützt',
-    'manifest evidence expired': 'Nachweis des Anbieters abgelaufen', 'binding evidence unverified': 'Vertrag mit dem Anbieter nicht geprüft',
+    'manifest evidence expired': 'Nachweis des Anbieters abgelaufen', 'binding evidence unverified': 'Sprache ist derzeit nicht verfügbar',
     'binding evidence mismatch': 'Vertrag mit dem Anbieter passt nicht', 'binding evidence not yet valid': 'Vertrag mit dem Anbieter noch nicht gültig',
     'binding evidence expired': 'Vertrag mit dem Anbieter abgelaufen', 'binding invalid': 'Anbieter falsch eingerichtet',
     'processing scope invalid': 'Verarbeitungsumfang ungültig', 'processing residency unverified': 'Verarbeitungsort nicht geprüft',

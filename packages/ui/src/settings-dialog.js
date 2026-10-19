@@ -92,7 +92,9 @@ const DELEGATED = 'delegated reasoning: ';
 export function reasonText(copy, reason, feature) {
   if (feature && isConsentReason(reason)) return featureConsentText(copy, feature);
   const reasons = copy.reasons ?? {};
-  if (feature === 'voice' && reason === 'binding evidence unverified') return reasons['voice-host-unavailable'];
+  // The refusing lane stays in the raw server verdict for host diagnostics only.
+  // Server-refusal races can arrive with the generic text context.
+  if (reason === 'binding evidence unverified' || reason === `${DELEGATED}binding evidence unverified`) return reasons['voice-host-unavailable'];
   if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
     return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length), feature));
   }

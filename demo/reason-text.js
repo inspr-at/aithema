@@ -2,6 +2,7 @@ const DELEGATED = 'delegated reasoning: ';
 /** Server verdicts are stable machine reasons; this shows them in the page language. */
 export function reasonText(copy, reason) {
   const reasons = copy.reasons ?? {};
+  if (reason === 'binding evidence unverified' || reason === `${DELEGATED}binding evidence unverified`) return reasons['voice-host-unavailable'];
   if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
     return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length)));
   }
