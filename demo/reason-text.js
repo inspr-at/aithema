@@ -1,10 +1,12 @@
+import { neutralBindingReason } from '../packages/ui/src/reason-text.js';
 const DELEGATED = 'delegated reasoning: ';
 /** Server verdicts are stable machine reasons; this shows them in the page language. */
-export function reasonText(copy, reason) {
+export function reasonText(copy, reason, feature) {
   const reasons = copy.reasons ?? {};
-  if (reason === 'binding evidence unverified' || reason === `${DELEGATED}binding evidence unverified`) return reasons['voice-host-unavailable'];
+  const neutral = neutralBindingReason(copy, reason, feature);
+  if (neutral !== undefined) return neutral;
   if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
-    return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length)));
+    return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length), feature));
   }
   // ensure-agent emits a bounded HTTP verb plus the provider's status.
   const agentAPI = typeof reason === 'string' && /^agent-api-(?:get|post|patch)-(\d{3})$/u.exec(reason);

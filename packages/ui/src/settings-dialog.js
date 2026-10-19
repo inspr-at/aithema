@@ -1,3 +1,4 @@
+import { neutralBindingReason } from './reason-text.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
 import { ConsentSettings } from './consent-settings.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
@@ -92,9 +93,8 @@ const DELEGATED = 'delegated reasoning: ';
 export function reasonText(copy, reason, feature) {
   if (feature && isConsentReason(reason)) return featureConsentText(copy, feature);
   const reasons = copy.reasons ?? {};
-  // The refusing lane stays in the raw server verdict for host diagnostics only.
-  // Server-refusal races can arrive with the generic text context.
-  if (reason === 'binding evidence unverified' || reason === `${DELEGATED}binding evidence unverified`) return reasons['voice-host-unavailable'];
+  const neutral = neutralBindingReason(copy, reason, feature);
+  if (neutral !== undefined) return neutral;
   if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
     return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length), feature));
   }

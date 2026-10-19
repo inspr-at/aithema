@@ -85,7 +85,7 @@ function paintVisuals() {
   const visuals = kind === 'off' ? h.visualsOff : h.labels[raw] ?? raw;
   const provider = document.querySelector('#provider'); if (!provider) return;
   provider.textContent = [h.labels[binding.label] ?? binding.label, visuals].join(reasonSeparator)
-    + (binding.voiceDisabledReason ? `${reasonSeparator}${h.voiceUnavailable.replace('{reason}', reasonText(copy, binding.voiceDisabledReason))}` : '');
+    + (binding.voiceDisabledReason ? `${reasonSeparator}${reasonText(copy, binding.voiceDisabledReason, 'voice')}` : '');
 }
 // Without an explicit request the server offers the owner's last confirmed choice.
 async function open(fresh = false, request = {}) {
