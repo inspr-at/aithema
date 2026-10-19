@@ -1,4 +1,4 @@
-import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { STT_MODEL, EVIDENCE_DATE } from './configuration.js';
 
 // Public component metadata; private configuration remains in the host binding.
