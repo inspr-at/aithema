@@ -751,3 +751,61 @@ test('AIT-299: detach and re-attach immediately enable controls while an old req
   second.resolve(Response.json({})); await tick();
   assert.equal(root.querySelector('.concept-request').disabled, false);
 });
+
+// AIT-364: scope loss must use the synchronous full-withdrawal redaction path.
+for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent removes every surface and cache, preserves the other kind`, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  const removed = kind === 'html' ? draft('removed') : item('removed');
+  const retained = kind === 'html' ? item('retained') : draft('retained');
+  const { c, root, calls, revoked } = setup(t, { concepts: [retained, removed], session: { conceptVisualKind: kind, visualsBound: true } });
+  await tick();
+  const cached = await view.load('removed'); assert.ok(cached);
+  root.querySelector('.workspace').setAttribute('data-folded', ''); await view.paintCanvas();
+  const access = root.querySelector('.concept-preview'); access.focus(); access.click(); await tick();
+  assert.equal(view.dialog.open, true);
+  const feature = kind === 'html' ? 'html' : 'images';
+  const snapshot = { ...c.session, consentRevision: c.session.consentRevision + 1,
+    featureMatrix: { best: { ...c.session.featureMatrix.best, [feature]: { available: false, reason: 'current processing consent required' } } } };
+  view.update(snapshot);
+  assert.equal(view.dialog.open, false, 'viewer closes synchronously');
+  assert.deepEqual(view.items.map(item => item.id), ['retained']);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelector('.canvas-html').dataset.id === 'removed', false);
+  assert.equal(root.querySelectorAll('img[data-id="removed"][src]').length, 0);
+  assert.equal(root.activeElement, access, 'focus returns to the access control');
+  if (kind === 'image') assert.ok(revoked.includes(cached), 'all removed object URLs are revoked in the update tick');
+  const reads = calls.length;
+  assert.equal(await view.load('removed'), null, 'cached removed bytes cannot be returned');
+  assert.equal(calls.length, reads, 'removed scope is never fetched again');
+  view.open('removed'); assert.equal(view.dialog.open, false, 'removed metadata cannot reopen a frame');
+  view.open('retained'); assert.equal(view.dialog.open, true, 'other kind stays openable');
+  assert.equal(root.querySelector('.concept-count').textContent, '1 of 1');
+  assert.equal(snapshot.transcript[0].content, 'An API dashboard');
+});
+
+for (const kind of ['html', 'image']) for (const copy of [de, en]) test(`AIT-364 ${kind}/${copy.display.locale}: notice expires into consent, never idle`, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  const { c, root } = setup(t, { copy, concepts: [kind === 'html' ? draft('only') : item('only')], session: { conceptVisualKind: kind, visualsBound: true } });
+  const timers = t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+  const feature = kind === 'html' ? 'html' : 'images';
+  const snapshot = { ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    [feature]: { available: false, reason: 'current processing consent required' } } } };
+  root.querySelector('.concept-preview').focus(); root.querySelector('.concept-preview').click();
+  view.update(snapshot);
+  const expected = copy === de ? kind === 'html' ? 'Entwurf entfernt. Die Einwilligung für Entwürfe wurde widerrufen.' : 'Bild entfernt. Die Einwilligung für Bilder wurde widerrufen.'
+    : kind === 'html' ? 'Draft removed. Consent for drafts was withdrawn.' : 'Image removed. Consent for images was withdrawn.';
+  const notice = root.querySelector('.concept-withdrawn');
+  assert.equal(notice.textContent, expected);
+  assert.equal(notice.getAttribute('aria-live'), 'polite');
+  const expiry = timers.mock.calls.find(call => call.arguments[1] === 4000); assert.ok(expiry);
+  view.update(snapshot);
+  assert.equal(timers.mock.calls.filter(call => call.arguments[1] === 4000).length, 1, 'refresh cannot reannounce or restart notice');
+  expiry.arguments[0]();
+  assert.equal(notice.textContent, '');
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'consent');
+  assert.match(root.querySelector('.concept-activity-text').textContent, new RegExp(copy.featureConsent[feature]));
+});
