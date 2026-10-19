@@ -1096,12 +1096,37 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
   const other = await page.fixtureBrowser.newPage(); await other.goto(page.url(), { waitUntil: 'domcontentloaded' });
   const id = await shadow(page, c => c.session.id), posts = [];
   page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/consent')) posts.push(JSON.parse(request.postData())); });
-  const otherDecision = granted => other.evaluate(async ({ id, granted }) => {
-    const { postJson } = await import('/packages/ui/src/post-json.js');
-    const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
-    const result = await postJson(`/api/sessions/${id}/consent`, { granted, processing: { contract: doc.contract, revision: doc.consentRevision, items: granted ? ['images'] : [] } });
-    if (!result.ok) throw new Error('Other tab decision failed');
-  }, { id, granted });
+  // Observe delivery after receive(), rather than assuming the POST response
+  // means another tab has consumed its journal event and background consent read.
+  await shadow(page, c => {
+    const receive = c.receive.bind(c);
+    c.receive = event => {
+      if (globalThis.delayedConsentEvents && event.type === 'consent.revised' && !event.data.granted) {
+        globalThis.delayedConsentEvents.push(event); return;
+      }
+      receive(event);
+    };
+  });
+  const consentRead = revision => page.waitForResponse(async response =>
+    response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/consent') &&
+    response.ok() && (await response.json()).consentRevision === await revision);
+  const otherDecision = async (granted, delayed = false) => {
+    const acknowledged = Promise.withResolvers();
+    const refreshed = delayed ? null : consentRead(acknowledged.promise);
+    const result = await other.evaluate(async ({ id, granted }) => {
+      const { postJson } = await import('/packages/ui/src/post-json.js');
+      const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
+      const result = await postJson(`/api/sessions/${id}/consent`, { granted, processing: { contract: doc.contract, revision: doc.consentRevision, items: granted ? ['images'] : [] } });
+      if (!result.ok) throw new Error('Other tab decision failed');
+      return result.json();
+    }, { id, granted });
+    acknowledged.resolve(result.consentRevision);
+    if (refreshed) {
+      await refreshed;
+      await until(page, revision => document.querySelector('aithema-session').session.consentRevision === revision, result.consentRevision);
+    }
+    return result.consentRevision;
+  };
   const notice = {
     de: 'Nicht gespeichert: Ihre Einwilligung wurde inzwischen in einem anderen Fenster geändert. Der aktuelle Stand ist geladen.',
     en: 'Not saved: your consent was changed in another window. The current state is loaded.',
@@ -1126,17 +1151,26 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     await shadow(page, c => { const pane = c.shadowRoot.querySelector('.settings__body'); pane.scrollTop = pane.scrollHeight; });
     await frame(page);
     const before = await boxes(page, geometry), label = await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent);
-    // AIT-398 red-before: force the withdrawal refresh to take the broad GET
-    // hold before Save, then let the editor's own stale reload finish first.
-    page.heldConsentReload = null; page.holdConsentReload = true;
-    await otherDecision(false);
-    for (let attempt = 0; !page.heldConsentReload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
-    assert.ok(page.heldConsentReload, 'withdrawal background refresh took the consent GET hold');
+    // Cover both event orders. At 320, deliver the withdrawal while the actual
+    // stale-editor reload is held; elsewhere, drain its background read first.
+    const duringReload = width === 320;
+    if (duringReload) await page.evaluate(() => { globalThis.delayedConsentEvents = []; });
+    const revision = await otherDecision(false, duringReload);
     const count = posts.length;
+    page.heldConsentReload = null; page.holdConsentReload = true;
     await page.locator('aithema-session >>> .done').click();
-    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.save-status').textContent === text, notice[locale]);
     for (let attempt = 0; !page.heldConsentReload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
     assert.ok(page.heldConsentReload, 'reload request is held while the visitor sees their current items');
+    if (duringReload) {
+      await until(page, () => globalThis.delayedConsentEvents.length === 1);
+      const refreshed = consentRead(revision);
+      await shadow(page, c => {
+        const events = globalThis.delayedConsentEvents; globalThis.delayedConsentEvents = null;
+        for (const event of events) c.receive(event);
+      });
+      await refreshed;
+      await until(page, revision => document.querySelector('aithema-session').session.consentRevision === revision, revision);
+    }
     const busy = await shadow(page, c => {
       const r = c.shadowRoot, button = r.querySelector('.done'), form = r.querySelector('.consent-editor'), items = r.querySelector('.consent-items');
       button.click(); // A second activation while busy must never send another POST.
