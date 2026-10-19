@@ -120,6 +120,7 @@ export const en = {
   voiceBudgetDenied: 'You can type again after the call',
   voiceInterrupted: 'Interrupted',
   voiceInterruptedDescription: "Playback was interrupted. This provider doesn't report how much was heard.",
+  voiceInterruptedKnownDescription: 'Playback was interrupted here.',
   voiceProvisional: 'Transcribing…',
   voiceStates: { low: 'Credit running low', idle: 'Ready to talk', connecting: 'Connecting voice…', listening: 'Listening', speaking: 'Speaking the reply',
     paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: "Voice paused. Resume when you're ready.", closing: 'Settling call…', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending the call…' },

@@ -5,7 +5,7 @@ import { VOICE_CAP_REASONS } from './voice-cap.js';
 import { createVoiceTurnOperations } from './voice-turns.js';
 import { createVoiceDiagnostics, voiceReconciliationAge } from './voice-observability.js';
 
-const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
+const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { 'cache-control': 'no-store', ...headers } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events|takeover|replay)|/(replay))?$`, 'u');
 // Route declarations are adapter-owned; parameter syntax is shared by the mount.
@@ -697,7 +697,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
-          if (body.event?.type === 'interrupted') throw new PluginError('not-admitted', 'Coordinator interruption authority required');
+          // Native SDK confirmations have the same browser provenance as heard
+          // corrections. Composed providers retain server-coordinator authority.
+          const nativeInterruption = entry.admission.plugin.manifest.id === 'elevenlabs' &&
+            entry.admission.plugin.manifest.liveVoice?.ownership?.turnTaking === 'provider';
+          if (body.event?.type === 'interrupted' && !nativeInterruption) {
+            throw new PluginError('not-admitted', 'Coordinator interruption authority required');
+          }
           if (body.event?.type === 'heard' && entry.admission.plugin.manifest.liveVoice?.capabilities.heard === 'unavailable') {
             throw new PluginError('not-admitted', 'Provider heard position unavailable');
           }
@@ -708,6 +714,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           }
           if (['partial', 'final'].includes(body.event?.type)) runtime.stopReplyReplay?.(sessionId);
           const fresh = sessionFor(entry);
+          if (body.event?.type === 'interrupted' && Number.isSafeInteger(fresh.voiceInterruptions?.[body.event.turnId]?.heardLength)) {
+            // A delayed native confirmation cannot downgrade a heard correction.
+            return json(storage.read(sessionId).findLast(event => event.type === 'voice.interrupted' && event.data.id === body.event.turnId));
+          }
           // The completion ID belongs to one operation. Text only attests that
           // receipt's bytes; it never selects a reply or supplies an ordinal.
           const prior = body.event?.type === 'reply' && fresh.transcript.find(turn => turn.id === body.event.turnId && turn.role === 'assistant');
@@ -727,7 +737,15 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
             if (purposePolicy && body.event.role === 'user' && Number.isSafeInteger(result.event?.data.userTurnOrdinal)) {
               storage.bindSafeguard(sessionId, `voice:${callId}:${entry.call.providerSessionId}:${result.event.data.userTurnOrdinal}`, inputRevision(storage.get(sessionId)));
             }
-            publish(sessionId, result.event); onTurn(sessionId, result.event);
+            publish(sessionId, result.event);
+            if (nativeInterruption && body.event.type === 'heard') {
+              // A genuine provider correction confirms barge-in and an exact
+              // heard prefix. Store only its length, never the removed text.
+              const marked = storage.append(sessionId, 'voice.interrupted', { id: body.event.turnId, callId,
+                providerSessionId: entry.call.providerSessionId, interruption: { heardLength: body.event.prefix.length } });
+              publish(sessionId, marked);
+            }
+            if (body.event.type !== 'interrupted') onTurn(sessionId, result.event);
             if (body.event.type === 'final' && body.event.role === 'user') storage.transitionVoiceLifecycle(sessionId, callId,
               { type: 'accepted', turnId: body.event.turnId });
           }
@@ -752,7 +770,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
-          ...(VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
+          ...(VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
+          error.status === 429 && error.retryAfter !== undefined ? { 'retry-after': error.retryAfter } : {});
         return json({ error: 'voice-unavailable' }, 503);
       }
     },

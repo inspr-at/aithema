@@ -103,7 +103,17 @@ async function providerJson(binding, path, { fetchImpl, resolveSecret }, options
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new PluginError([401, 403].includes(response.status) ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider');
+      const error = new PluginError([401, 403].includes(response.status) ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider');
+      if (response.status === 429) {
+        error.status = 429;
+        const header = response.headers.get('retry-after');
+        // The browser control accepts delta seconds. Normalize HTTP dates here,
+        // retaining the provider wait; the lifecycle owns its existing 60s cap.
+        const seconds = header && /^\d+$/u.test(header.trim()) ? Number(header)
+          : header ? Math.max(0, Math.ceil((Date.parse(header) - Date.now()) / 1000)) : NaN;
+        if (Number.isFinite(seconds) && seconds >= 0) error.retryAfter = String(seconds);
+      }
+      throw error;
     }
     return readJson(response, maxBytes, { signal });
   });
