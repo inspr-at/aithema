@@ -354,6 +354,71 @@ test('pre-B1 sessions stay unlocked across restart and their first identity and 
   assert.equal((await f.create()).identity.verificationRequired, true);
 });
 
+for (const keepIdentity of [false, true]) for (const status of ['guest', 'verification-pending']) {
+  test(`AIT-392: ${status} resumes without privacy after policy removal (identity: ${keepIdentity})`, async t => {
+    const storage = new SQLiteStorage();
+    const identity = {
+      deliversVerification: true,
+      requestVerification: async () => ({ status: 'sent' }),
+      verify: async () => ({ verified: false }),
+    };
+    const mount = host => createHandlers({ storage, consent: mockConsent,
+      pluginRuntime: createPluginRuntime({ storage, consent: mockConsent }), host });
+    let handlers = mount({ now: () => 1_000, privacyDocumentConfigured: () => true,
+      policy: { verificationRequired: true }, identity });
+    t.after(async () => { await handlers.close(); storage.close(); });
+    const call = (path, body, token = owner) => handlers.handle(new Request(`http://local${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'x-aithema-session-token': token, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }));
+    const created = await call('/api/sessions', {});
+    assert.equal(created.status, 201);
+    const s = await created.json(), base = `/api/sessions/${s.id}`;
+    if (status === 'verification-pending') {
+      assert.equal((await call(`${base}/identity/request`, { address: 'rollback@example.test' })).status, 200);
+    }
+    assert.equal((await call(`${base}/pause`, { paused: true })).status, 200);
+    const before = storage.hostState(s.id).identity, seq = storage.get(s.id).seq;
+    assert.equal(before.status, status);
+    assert.equal(before.verificationRequired, true);
+    assert.equal(storage.get(s.id).identity.assessmentUnlocked, false);
+    await handlers.close();
+    // Keep the same in-memory database while rolling back the host configuration.
+    handlers = mount({ now: () => 1_000, ...(keepIdentity ? { identity } : {}) });
+    await handlers.resume();
+    await handlers.idle();
+    assert.deepEqual(storage.hostState(s.id).identity, { ...before, verificationRequired: false });
+    const response = await call(base);
+    assert.equal(response.status, 200);
+    const resumed = await response.json();
+    assert.equal(resumed.identity.verificationRequired, false);
+    assert.equal(resumed.identity.assessmentUnlocked, true);
+    assert.equal(resumed.identity.conceptsUnlocked, true);
+    assert.equal(resumed.identity.canRunAssessment, false);
+    assert.equal(resumed.paused, true);
+    const events = storage.read(s.id, seq);
+    assert.deepEqual(events.map(event => event.type), ['identity.policy-changed', 'identity.state']);
+    assert.deepEqual(events[0].data, { verificationRequired: false, reason: 'host-policy-disabled' });
+    await handlers.resume();
+    assert.equal(storage.get(s.id).seq, seq + 2);
+    assert.equal((await call(base, undefined, foreign)).status, 404);
+    for (const address of ['rollback@example.test', 'new@example.test']) {
+      const denied = await call(`${base}/identity/request`, { address });
+      assert.equal(denied.status, 403);
+      assert.deepEqual(await denied.json(), { error: 'privacy-document-required' });
+    }
+    assert.equal(storage.get(s.id).seq, seq + 2);
+    if (status === 'verification-pending') {
+      // A normal transition retaining an address still needs privacy permission.
+      const denied = await call(`${base}/pause`, { paused: false });
+      assert.equal(denied.status, 403);
+      assert.deepEqual(await denied.json(), { error: 'privacy-document-required' });
+      assert.deepEqual(storage.hostState(s.id).identity, { ...before, verificationRequired: false });
+    }
+  });
+}
+
 for (const status of ['guest', 'verification-pending', 'verified']) test(`live adoption removes the demo lock for ${status} with a durable policy change`, async t => {
   const db = await temporaryDb(), f = fixture(t, { storage: new SQLiteStorage(db) }), s = await f.create();
   const base = `/api/sessions/${s.id}`;
