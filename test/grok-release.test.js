@@ -56,3 +56,23 @@ test('AIT-351: source-tree imports cannot depend on private prototype packages',
   ]);
   assert.throws(() => moduleFiles(tree, { path: packagePath }), /Unpackaged dependency/u);
 });
+
+test('AIT-351: rewritten source URLs follow declared targets, including root and conditional exports', () => {
+  const tree = new Map([
+    [packagePath, Buffer.from(JSON.stringify({ name: '@inspr/aithema-plugin-grok-voice' }))],
+    ['plugins/grok-voice/src/client.js', Buffer.from("export { helper } from '../../../packages/server/src/composed/client.js';")],
+    ['packages/server/src/composed/client.js', Buffer.from('export const helper = true;')],
+  ]);
+  for (const [exports, expected] of [
+    [{ './composed-voice/client': './src/composed/client.js' }, '@inspr/aithema-server/composed-voice/client'],
+    [{ '.': { import: './src/composed/client.js' } }, '@inspr/aithema-server'],
+  ]) {
+    tree.set('packages/server/package.json', Buffer.from(JSON.stringify({ name: '@inspr/aithema-server', exports })));
+    assert.equal(moduleFiles(tree, { path: packagePath }).get('src/client.js').toString(), `export { helper } from '${expected}';`);
+  }
+  // A plausible subpath name is insufficient when it exports different bytes.
+  for (const exports of [{}, { './composed/client': './src/other.js' }]) {
+    tree.set('packages/server/package.json', Buffer.from(JSON.stringify({ name: '@inspr/aithema-server', exports })));
+    assert.throws(() => moduleFiles(tree, { path: packagePath }), /Missing package export/u);
+  }
+});

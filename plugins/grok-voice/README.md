@@ -178,6 +178,14 @@ prototype component configuration, and server never depends on the Grok plugin.
 Existing core `/voice-components` supplies `componentInvocation`, `boundedEvents`,
 `audioQueue`, assertions and AIT-328 `preflightVoiceComposition`.
 
+In the source-hosted demo, Grok's browser modules and the composed client helpers
+load natively through relative public source URLs without an import map under
+`script-src 'self'`, with external same-origin startup modules. Release packing
+rewrites cross-package source URLs to declared package subpaths. A host consuming
+installed package subpaths needs a bundler or an import map when unbundled, as for
+the UI; an inline import map needs its exact hash allowed by the host CSP. Serve
+the shipped `pcm-capture-worklet.js` beside the server's browser-audio module.
+
 Await `createGrokComponents(...).preflight` before admitting any claims. Guarded
 methods also await it before entering a component. It binds negotiation to actual
 16 kHz PCM16 capture and 24 kHz PCM16 playback, checks languages/voice/capability

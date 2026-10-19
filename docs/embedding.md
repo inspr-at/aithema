@@ -1689,9 +1689,14 @@ import { createComposedVoiceAuthority } from '@inspr/aithema-server/composed-voi
 ```
 
 Install the module tarballs at the exact coordinate in `release/version.json`,
-including Grok's exact core/server dependencies. Serve browser import-map entries
-for the Grok client, server composed client/network/audio helpers and core
-subpaths. Serve `src/composed/pcm-capture-worklet.js` beside the installed server
+including Grok's exact core/server dependencies. In the source-hosted demo, Grok's
+browser modules and composed client helpers use relative public source URLs and
+load natively without an import map under `script-src 'self'`; startup stays in
+external same-origin modules, as in the UI. Release packing rewrites cross-package
+source URLs to declared package subpaths. A host using these installed package
+subpaths needs a bundler or, when unbundled, an import map, as for the UI. An inline
+import map needs the exact hash in the host's CSP as described above. Serve
+`src/composed/pcm-capture-worklet.js` beside the installed server
 browser-audio module so its relative `new URL()` resolves. The server's
 `./composed-voice/browser-audio` export and that adjacent worklet ship together.
 Never import workspace paths or `plugins/composed-voice/src/*` from an installed host.
