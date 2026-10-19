@@ -184,7 +184,7 @@ export class SettingsDialog {
         <section class="settings-panel" role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" data-panel="local" hidden><div class="local-host"></div></section>
       </div>
       <div class="settings-context"><span class="context-icon" aria-hidden="true">i</span><div class="context-text"><p class="context-message" role="status" aria-live="polite"></p></div></div>
-      <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers" data-text="providers"></summary>
+      <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers"><span data-text="providers"></span>${ICONS.chevron}</summary>
           <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
           <button type="button" class="link footer-consent" data-help="consent" data-text="manageConsent"></button></div>
         <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" role="status" aria-live="polite"></p>

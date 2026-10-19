@@ -379,10 +379,38 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     }, width);
     await settle();
     const baseline = await page.evaluate(() => window.ait350.geometry());
+    const phoneBaseline = width === 390 ? await page.evaluate(() => {
+      const f = window.ait350, top = f.q('#settings-select-voice').getBoundingClientRect().top;
+      f.aboveChoice = [...f.dialog.querySelectorAll('.settings__header, .settings__body *')]
+        .filter(node => node.getClientRects().length && node.getBoundingClientRect().bottom <= top);
+      f.phoneGeometry = () => {
+        const box = node => { const b = node.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+        return { above: f.aboveChoice.flatMap(box), below: box(f.q('[data-select="visuals"]')),
+          confirming: !f.q('.voice-switch-confirm').hidden };
+      };
+      return f.phoneGeometry();
+    }) : null;
+    let visitorChose = false;
     const measure = async state => {
       await settle(); const current = await page.evaluate(() => window.ait350.geometry());
       const drift = Object.fromEntries(Object.keys(baseline).map(key => [key, Math.max(...baseline[key].map((v, i) => Math.abs(v - current[key][i])))]));
-      assert.deepEqual(drift, { choice: 0, confirmationSlot: 0, detail: 0, detailBody: 0 }, `${locale}/${width}/${state}`);
+      let phone;
+      if (width === 390) {
+        // Tick UI QA 2026-10-19, AIT-350 -fix1, point 4: an explicit
+        // choice may push content below it; everything above stays fixed.
+        phone = await page.evaluate(() => window.ait350.phoneGeometry());
+        assert.equal(drift.choice, 0, `${locale}/${width}/${state}: choice stays fixed`);
+        assert.deepEqual(phone.above, phoneBaseline.above, `${locale}/${width}/${state}: everything above stays fixed`);
+        assert.equal(drift.detail, 0, 'footer disclosure stays fixed');
+        assert.deepEqual(current.confirmationSlot.slice(0, 3), baseline.confirmationSlot.slice(0, 3), 'slot origin and width stay fixed');
+        if (!phone.confirming) assert.equal(current.confirmationSlot[3], 0, 'no empty phone confirmation slot');
+        else assert.ok(visitorChose && current.confirmationSlot[3] > 0, 'confirmation follows the visitor’s own choice');
+        assert.deepEqual([phone.below[0], ...phone.below.slice(2)], [phoneBaseline.below[0], ...phoneBaseline.below.slice(2)], 'only the position below may change');
+        if (!visitorChose || !phone.confirming) assert.deepEqual(phone.below, phoneBaseline.below, 'content below moves only for an explicitly requested confirmation');
+        if (!visitorChose) assert.equal(drift.detailBody, 0, 'popover content stays fixed before the visitor’s choice');
+      } else {
+        assert.deepEqual(drift, { choice: 0, confirmationSlot: 0, detail: 0, detailBody: 0 }, `${locale}/${width}/${state}`);
+      }
       const gaugeCaptions = await page.evaluate(measureGaugeCaptions);
       if (width === 1440 || width === 1280) {
         for (const caption of gaugeCaptions) {
@@ -390,7 +418,9 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
             { point: 1, locale, width, height, theme, state, gauge: caption.gauge, clippedPx: caption.clippedPx, detailTextClippedPx: caption.detailTextClippedPx });
         }
       }
-      checks.push({ locale, width, height, theme, state, drift, gaugeCaptions });
+      checks.push({ locale, width, height, theme, state, drift, gaugeCaptions,
+        ...(phone ? { phone: { aboveDriftPx: Math.max(0, ...phone.above.map((v, i) => Math.abs(v - phoneBaseline.above[i]))),
+          slotHeight: current.confirmationSlot[3], belowShiftPx: phone.below[1] - phoneBaseline.below[1], confirming: phone.confirming, visitorChose } } : {}) });
     };
     await page.evaluate(() => window.ait350.q('#settings-select-voice').click());
     await measure('both-options'); await captureState('both-options');
@@ -398,6 +428,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
       await page.evaluate(status => { const f = window.ait350; f.status = status; f.editor.setCatalog(f.catalog()); }, status);
       await measure(status); await captureState(status === 'consent' ? 'consent-required' : status);
     }
+    visitorChose = true;
     await page.evaluate(() => {
       const f = window.ait350; f.status = 'available'; f.active = true; f.editor.setCatalog(f.catalog());
       f.q('[data-value="grok-voice"]').click();

@@ -101,7 +101,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .voice-switch-actions button { padding:.45rem .75rem; font-size:.75rem; }
 .voice-switch-apply { color:var(--aithema-paper); background:var(--aithema-accent); border:1px solid var(--aithema-accent); }
 .voice-switch-cancel { background:transparent; border:0; color:var(--aithema-ink); }
-.disclosure-provider { height:7rem; overflow:auto; }
+.disclosure-provider { min-width:0; }
 .effort-area { display:grid; } .effort-area>* { grid-area:1/1; min-width:0; }
 .effort { display:grid; gap:.1rem; } .effort label { font-weight:600; }
 .effort__track { display:flex; align-items:center; gap:.75rem; font-size:.75rem; color:var(--aithema-muted); }
@@ -124,7 +124,9 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .gauge--images { --liquid:var(--aithema-gauge-images); }
 .gauge__value { display:block; height:1.6rem; margin-bottom:.3rem; font:400 1.15rem/1.4 var(--aithema-display); font-variant-numeric:tabular-nums;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.85; }
-.gauge__glass { position:relative; width:clamp(3.4rem,6vw,4.6rem); height:clamp(7rem,12vw,9.4rem); margin:auto; padding:.35rem; border:1px solid var(--aithema-glass-edge);
+/* Fit both gauge rows and their full captions in the 47rem dialog at 800px
+   height. Only the decorative glass shortens; type and spacing stay intact. */
+.gauge__glass { position:relative; width:clamp(3.4rem,6vw,4.6rem); height:clamp(7rem,12vw,8.5rem); margin:auto; padding:.35rem; border:1px solid var(--aithema-glass-edge);
   border-radius:1.9rem; background:var(--aithema-glass); box-shadow:var(--aithema-glass-shadow); }
 .gauge__inside { position:relative; height:100%; overflow:hidden; border-radius:1.55rem; background:var(--aithema-glass-inside); }
 .gauge__level { --wave:4px; position:absolute; inset:0; transform:translateY(var(--empty,100%)); transition:transform 1.3s cubic-bezier(.22,.75,.18,1); }
@@ -159,7 +161,11 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .footer-links { display:flex; flex-wrap:wrap; align-items:center; gap:0 1rem; min-width:0; }
 .footer-links :is(summary,.link) { display:inline-flex; align-items:center; min-height:2.75rem; padding:0; border:0; background:none; cursor:pointer;
   font-size:.72rem; color:var(--aithema-muted); text-decoration:underline; text-decoration-color:color-mix(in srgb,currentColor 35%,transparent); text-underline-offset:3px; }
-.disclosure summary { list-style:none; } .disclosure summary::-webkit-details-marker { display:none; }
+.disclosure summary { list-style:none; white-space:nowrap; gap:7px; }
+.disclosure summary::after { display:none; }
+.disclosure summary svg { flex:none; width:.75rem; height:.75rem; color:var(--aithema-muted); }
+.disclosure[open] summary svg { transform:rotate(180deg); }
+.disclosure summary::-webkit-details-marker { display:none; }
 .disclosure__body { position:absolute; z-index:6; left:1.6rem; bottom:calc(100% + .5rem); width:min(34rem,calc(100% - 3.2rem)); max-height:min(22rem,50dvh);
   overflow:auto; display:grid; gap:.6rem; padding:1rem; border:1px solid var(--aithema-line); border-radius:.75rem; background:var(--aithema-surface);
   box-shadow:0 10px 28px #10233530; font-size:.75rem; line-height:1.5; }
@@ -242,10 +248,14 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .local__composer { display:grid; gap:.4rem; } .local__composer .actions { display:flex; justify-content:flex-end; gap:.5rem; }
 
 @media(max-width:75rem) { .settings-panel[data-panel=model] { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); }
-  .settings-overview { grid-column:1/-1; } }
+  .settings-overview { grid-column:1/-1; }
+  .settings__footer { grid-template-columns:minmax(0,1fr) auto auto; } }
 @media(max-width:60rem) {
   .settings__header { grid-template-columns:1fr; } .settings__title { font-size:1.6rem; padding-bottom:.2rem; }
   .settings-panel[data-panel=model], .general, .local__workspace { grid-template-columns:minmax(0,1fr); }
+  /* Tick UI QA 2026-10-19, AIT-350 -fix1, point 4: single-column
+     confirmation space follows the visitor's choice, rather than reserving it. */
+  .voice-switch-measure { display:none; }
   .settings__footer { grid-template-columns:minmax(0,1fr) auto; } .footer-links { grid-column:1/-1; } }
 @media(max-width:40rem) {
   dialog.settings { width:calc(100vw - .5rem); height:calc(100dvh - .5rem); border-radius:.8rem; }
