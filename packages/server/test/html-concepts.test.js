@@ -523,3 +523,11 @@ test('AIT-352: full live registry returns a plain no-store 503 and permits a lat
   now += 60000;
   assert.equal((await previewGet(h, await mintPreview(h, item.id))).status, 200, 'expired capacity permits a fresh mint');
 });
+
+
+test('AIT-369 R2: delivery persists its admitted purpose without exposing its private scope', async t => {
+  const h = await setup(t); await h.turn('first'); const artifact = await h.render();
+  assert.equal(artifact.consentPurpose, 'mock-conversation');
+  assert.equal(artifact.consentScope, undefined);
+  assert.equal(h.storage.conceptConsentScope(h.id, artifact.id).purpose, 'mock-conversation');
+});

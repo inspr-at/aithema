@@ -233,7 +233,8 @@ for (const provenance of ['recorded', 'legacy']) for (const visuals of ['off', '
       evidence: { qualified: true, accountRef: base.accountRef, secretRef: base.secretRef, model: base.model, endpoint: base.endpoint,
         routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60000 } } };
   }
-  const consent = { coverage: () => ({ covered: true }), describe: () => ({ contract: 'ait369', selected: ['drafts', 'images'],
+  const grants = [];
+  const consent = { grant: args => { grants.push(args); return true; }, coverage: () => ({ covered: true }), describe: () => ({ contract: 'ait369', selected: ['drafts', 'images'],
     items: ['drafts', 'images', 'other-drafts'].map(id => ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
   const pluginRuntime = createPluginRuntime({ storage, registry, consent, presets: { best: { plugins: ['fake-html', 'fake-images'], bindings, ...(provenance === 'recorded' ? { choices: { models: [], visuals: [...['html', 'images'].map(kind => ({ id: kind, kind, binding: bindings[kind] })),
       { id: 'both', kind: 'html', binding: { ...bindings.html, legal: { ...bindings.html.legal, purpose: 'other-drafts' } } }] } } : {}) } } });
@@ -255,4 +256,59 @@ for (const provenance of ['recorded', 'legacy']) for (const visuals of ['off', '
   const doc = await response.json();
   assert.deepEqual(doc.features.html, ['drafts']);
   assert.deepEqual(doc.features.images, ['images']);
+  const grant = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }),
+  }));
+  assert.equal(grant.status, 200);
+  const purposes = new Set(grants[0].scopes.map(scope => scope.purpose));
+  assert.ok(purposes.has('drafts') && purposes.has('images'), 'grant retains both producers');
+  if (provenance === 'recorded' && visuals === 'both') assert.ok(purposes.has('other-drafts'), 'grant also includes the CURRENT option B');
+});
+
+for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plugin', 'missing legal']) test(`AIT-369 R2 provenance: ${change} keeps the admitted purpose, legacy fails closed`, async t => {
+  const { PluginRegistry, processingScope } = await import('@inspr/aithema-core');
+  const { createLocalHTML, localHTMLBinding } = await import('../src/index.js');
+  const storage = new SQLiteStorage(), producer = createLocalHTML();
+  const registry = new PluginRegistry().register(producer);
+  const binding = purpose => ({ ...localHTMLBinding, legal: { approved: true, countries: ['FR'], training: false, retention: 'fixture',
+    purpose, recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
+    evidence: { qualified: true, accountRef: localHTMLBinding.accountRef, secretRef: localHTMLBinding.secretRef,
+      model: localHTMLBinding.model, endpoint: localHTMLBinding.endpoint, routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60000 } } });
+  const original = binding('drafts'), rebound = binding('other-drafts'), coverageCalls = [];
+  const consent = { coverage: ({ scope, consentRevision }) => { coverageCalls.push(scope.purpose); return {
+    ...scope, scope, covered: scope.purpose === 'other-drafts', consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60000,
+  }; }, describe: () => ({ contract: 'ait369', selected: ['other-drafts'], items: ['drafts', 'other-drafts'].map(id =>
+    ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
+  const config = { plugins: ['fake-html'], bindings: { html: original }, choices: { models: [], visuals: [{ id: 'a', kind: 'html', binding: original }] } };
+  const presets = { best: config, eu: { ...config, bindings: { html: rebound }, choices: { models: [], visuals: [{ id: 'a', kind: 'html', binding: rebound }] } } };
+  const runtime = createPluginRuntime({ storage, registry, consent, presets });
+  const handlers = createHandlers({ storage, consent, pluginRuntime: runtime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken });
+  const artifact = await producer.generate({ prompt: 'Offline draft' }, '', { attempt: { consume() {} }, report() {} });
+  const scope = processingScope(original, 'generate');
+  for (const recorded of [true, false]) {
+    const id = recorded ? 'recorded' : 'legacy';
+    storage.append(session.id, 'concept.state', { intent: { pending: { id } } });
+    storage.completeConcept(session.id, artifact, { id, requestId: id, visuals: 'a', turnIds: [], referenceIds: [],
+      ...(recorded ? { consentPurpose: scope.purpose, consentScope: scope } : {}) }, { status: { phase: 'ready' } });
+  }
+  if (change === 'preset switch') storage.append(session.id, 'settings.changed', { processingPreset: 'eu', settings: { ...session.settings, visuals: 'a' } });
+  if (change === 'rebound id') config.choices.visuals[0].binding = rebound;
+  if (change === 'missing id') config.choices.visuals = [];
+  if (change === 'missing plugin') config.plugins = [];
+  if (change === 'missing legal') config.choices.visuals[0].binding = { ...original, legal: undefined };
+  const current = storage.get(session.id);
+  // Inspect the recorded producer alone, then the legacy producer alone.
+  const doc = await (await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`))).json();
+  assert.ok(!doc.features.html.includes('other-drafts') || change === 'preset switch' || change === 'rebound id', 'an unresolved producer cannot borrow a different purpose');
+  assert.deepEqual(runtime.scopes({ ...current, concepts: current.concepts.filter(c => c.id === 'recorded') }, { feature: 'html', delivered: true }).map(s => s.purpose), ['drafts']);
+  assert.equal(current.concepts.find(c => c.id === 'recorded').consentScope, undefined, 'private scope is absent from snapshots');
+  assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), false);
+  assert.equal(coverageCalls.at(-1), 'drafts', 'publication checks the admitted purpose even after a switch');
+  if (change.startsWith('missing')) {
+    assert.deepEqual(doc.features.html, []);
+    assert.ok(doc.unavailableFeatures.includes('html'), 'unresolvable legacy provenance is neutral unavailable');
+    assert.equal(await runtime.publicationAllowed(current, { artifactId: 'legacy', visualKind: 'html', visuals: 'a' }), false);
+  }
 });
