@@ -1096,7 +1096,7 @@ The durable SSE event and POST acknowledgement share this additive shape:
 } }
 ```
 
-`changed` contains only scope names whose coverage differs between the previous
+For grants, `changed` contains only scope names whose coverage differs between the previous
 and accepted authoritative consent documents. Names are `text`, `analysis`,
 `voice`, `transcription`, `images`, `html-drafts` (the `html` feature), and
 `uploads`; unchanged coverage produces `[]`. It includes both additions and

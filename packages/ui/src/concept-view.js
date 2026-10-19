@@ -208,16 +208,17 @@ export class ConceptView {
     } catch { /* Server idle spending is disabled even if teardown loses this signal. */ }
   }
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
-  reviseConsent(changed) {
+  reviseConsent(changed, granted = true) {
     // Unknown names still take the session's bounded refresh path. Known names
     // can remove their surfaces immediately even in a mixed future event.
     if (!Array.isArray(changed)) return;
     for (const scope of changed) {
       if (!['html-drafts', 'images'].includes(scope)) continue;
       const kind = scope === 'html-drafts' ? 'html' : 'image', feature = kind === 'html' ? 'html' : 'images';
-      const doc = this.#consentDocument;
-      // A client document can lag a server grant. A known missing selection is
-      // an addition, so preserve delivered surfaces until the new read confirms it.
+      // A stale document cannot classify a withdrawal as a grant. Explicit
+      // grants retain E3's server-ahead allowance until the bounded read settles.
+      const doc = granted ? this.#consentDocument
+        : this.#consentDocument?.consentRevision === this.#session.consentRevision ? this.#consentDocument : undefined;
       if (Array.isArray(doc?.features?.[feature]) && !doc.features[feature].every(id => doc.selected.includes(id))) continue;
       if (this.covered(kind)) this.#pendingScopes.add(kind);
     }

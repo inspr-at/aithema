@@ -2428,7 +2428,7 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
-      if (consentRevised) { this.#watchConsentRefresh(); this.#concept.reviseConsent(event.data.changed); }
+      if (consentRevised) { this.#watchConsentRefresh(event.data.granted); this.#concept.reviseConsent(event.data.changed, event.data.granted); }
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
       const invalidation = ['turn.withdrawn', 'session.erased'].includes(event.type) ||
@@ -2558,10 +2558,11 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
-  #watchConsentRefresh() {
-    // Repeated saves cannot extend an already open verification window.
-    if (this.#consentRefresh) return;
-    const pending = { sessionId: this.#session.id, retries: 0 };
+  #watchConsentRefresh(granted) {
+    // Repeated saves cannot extend an already open verification window. A later
+    // withdrawal still removes an earlier grant's permission to wait for a ledger.
+    if (this.#consentRefresh) { this.#consentRefresh.granted = granted === true; return; }
+    const pending = { sessionId: this.#session.id, retries: 0, granted: granted === true };
     this.#consentRefresh = pending;
     // Coverage is bounded from the event, including snapshot and document reads.
     pending.timer = consentTimeout(() => this.#failConsentRefresh(pending), 2000);
@@ -2647,9 +2648,10 @@ export class AithemaSession extends HTMLElement {
           clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer); clearTimeout(pending?.documentTimer);
           this.#consentRefresh = null;
           this.#concept.update(this.#session, doc, true);
-        } else if (pending && Number.isSafeInteger(doc?.consentRevision) && doc.consentRevision >= 0 && doc.consentRevision < revision && !pending.failed) {
-          // The host ledger can trail the journal. Keep the original 2 s
-          // watchdog and wait for its new document without hiding covered bytes.
+        } else if (pending?.granted && !session.consentWithdrawn && Number.isSafeInteger(doc?.consentRevision) && doc.consentRevision >= 0 && doc.consentRevision < revision && !pending.failed) {
+          // A grant can lead its host ledger. Withdrawals retain AIT-364
+          // rejection in this response tick; only grants may use the original
+          // 2 s watchdog to wait without hiding covered bytes.
           clearTimeout(pending.documentTimer);
           pending.documentTimer = consentTimeout(() => {
             pending.documentTimer = null;

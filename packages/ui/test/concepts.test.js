@@ -1212,10 +1212,12 @@ for (const kind of ['html', 'image']) test(`AIT-365 R2: a grant changed list can
   const { c, root, view, state } = consentRecoveryFixture(t);
   await tick();
   const feature = kind === 'html' ? 'html' : 'images';
-  c.session.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
-  view.update(c.session); state.snapshot = () => new Promise(() => {});
+  const snapshot = c.session;
+  snapshot.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
+  view.update(snapshot); state.snapshot = () => new Promise(() => {});
+  assert.equal(view.covered(kind), false, 'the setup starts with this kind uncovered');
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: [kind === 'html' ? 'html-drafts' : 'images'] } });
+  view.reviseConsent([kind === 'html' ? 'html-drafts' : 'images'], true);
   assert.equal(view.items.some(item => item.id === kind), false, 'changed can add removals but never grant coverage');
   view.open(kind); assert.equal(view.dialog.open, false);
   assert.equal(root.querySelector('.concept-html').artifact, null);
