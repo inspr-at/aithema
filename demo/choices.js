@@ -2,6 +2,8 @@
 // provider network, and real providers are declared so the settings screen shows how
 // a host lists them. An explicitly selected provider makes the demo a live host: it
 // then offers only its configured routes, so visitors never meet a mock there.
+import { bindingReason } from '@inspr/aithema-core';
+import { manifest as openRouterManifest } from '@inspr/aithema-plugin-openrouter';
 import { MODEL_DISPLAY_NAMES } from '@inspr/aithema-ui/display';
 
 /**
@@ -48,10 +50,20 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
     const live = o => o.binding && (!o.id.startsWith('fake-') || htmlDemo && o.id === 'fake-html');
     voices = voices.filter(o => live(o) || o.id === 'grok-voice');
     visuals = visuals.filter(live).map(o => o.id === 'fake-html' ? { ...o, label: 'Demo only: clickable draft (no provider)' } : o);
+    // Keep configured consent scopes and the existing unavailable presentation, but
+    // remove the delegated voice endpoint from admission until the operator fixes
+    // the explicit fast route. A saved visitor choice cannot bypass this policy.
+    const voiceError = provider === 'openrouter' && voiceBinding && voices.some(o => o.id === 'elevenlabs' && o.binding) &&
+      (reaction.legal?.evidence?.voiceReactionModel !== reaction.model || reaction.effort !== 'none' ||
+        bindingReason({ binding: reaction, plugin: { manifest: openRouterManifest }, preset: 'best', policy }));
+    if (voiceError) {
+      console.error('Voice configuration error: OPENROUTER_SPEECH_MODEL is required for voice and must name an explicitly qualified fast reaction route with effort none; voice start refused.');
+      policy = { ...policy, endpoints: (policy?.endpoints ?? []).filter(endpoint => endpoint !== voiceBinding.endpoint) };
+    }
     const offered = new Set([...voices, ...visuals].map(o => o.binding?.plugin ?? o.id));
     return {
       best: { plugins: [provider, ...extras.filter(id => offered.has(id))], policy, choices: { models: [route], voices, visuals,
-        defaults: { model: route.id, voice: voices.find(o => o.id !== 'grok-voice' && o.binding)?.id ?? 'off', visuals: visuals[0]?.id ?? 'off' } } },
+        defaults: { model: route.id, voice: voiceError ? 'off' : voices.find(o => o.id !== 'grok-voice' && o.binding)?.id ?? 'off', visuals: visuals[0]?.id ?? 'off' } } },
       eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
     };
   }

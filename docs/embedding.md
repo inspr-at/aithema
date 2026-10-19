@@ -1286,6 +1286,28 @@ not conversation processing policy. Never infer legal qualification from a
 technical plugin manifest. Plugin contract `apiVersion` ranges describe a
 protocol, not the CalVer3 package compatibility promise.
 
+### Required fast reaction route for demo voice (AIT-380)
+
+The OpenRouter demo requires an explicit `OPENROUTER_SPEECH_MODEL` for delegated
+ElevenLabs voice. Select and qualify a fast reaction model that supports no
+thinking; the demo explicitly configures its reaction effort as `none`. The
+analysis model, effort and token ceiling remain separate. Analysis may continue
+in the background and never gates the spoken reaction.
+
+Missing or blank speech configuration, mismatched/expired account evidence, or a
+reaction effort other than `none` refuses voice start. The operator receives:
+`Voice configuration error: OPENROUTER_SPEECH_MODEL is required for voice and must name an explicitly qualified fast reaction route with effort none; voice start refused.`
+This error is written only to the server log. Visitors receive the existing
+voice-unavailable state; saved voice settings cannot bypass the refusal. Text-only
+hosts can still use `OPENROUTER_MODEL`, but that text route never qualifies voice
+implicitly. No model is silently substituted for the required voice route.
+
+When a model option supplies separate `reaction` and `understanding` bindings,
+a generic effort selection cannot raise reaction above its configured effort.
+The analysis lane retains the selected effort. The same ceiling applies to shared bindings when voice is selected. Shared
+single-binding text-only options retain their existing effort-selection behavior. The demo's `none` setting is
+explicit; the runtime does not impose it on every host binding.
+
 ### Claude HTML bindings
 
 `createClaudeHTML` accepts an `anthropic/claude-*` model (including

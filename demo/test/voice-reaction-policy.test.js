@@ -48,7 +48,8 @@ test('AIT-380: unqualified or thinking reaction bindings refuse voice; explicit 
 test('AIT-380: generic efforts preserve the split reaction ceiling and analysis selection; held analysis never blocks reaction', { timeout: 5000 }, async t => {
   const configured = openRouterConfig(values), storage = new SQLiteStorage(), bodies = [];
   const held = Promise.withResolvers(), started = Promise.withResolvers();
-  t.after(() => { held.resolve(); storage.close(); });
+  let pending;
+  t.after(async () => { held.resolve(); await pending; storage.close(); });
   const plugin = createOpenRouterReasoning({ binding: configured.reaction, prices: configured.prices, resolveSecret: () => 'offline-fixture',
     async fetchImpl(_url, init) {
       const body = JSON.parse(init.body); bodies.push(body);
@@ -58,13 +59,12 @@ test('AIT-380: generic efforts preserve the split reaction ceiling and analysis 
     } });
   const presets = presetsFor(configured.reaction, configured.understanding);
   const route = presets.best.choices.models[0]; route.efforts = ['none', 'low', 'high']; route.effort = 'high';
-  const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, expiresAt: Date.now() + 60_000 }) };
+  const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
   const runtime = createPluginRuntime({ storage, consent, presets, registry: new PluginRegistry().register(plugin) });
   const session = storage.create({ ownerToken: 'fixture-owner', settings: { model: route.id, effort: 'high' } });
   const request = { system: 'Fixture', messages: [{ role: 'user', content: 'Hello' }], schema: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] } };
   const understanding = await runtime.admit({ session, lane: 'understanding', operation: 'structured', request });
-  const pending = understanding.plugin.structured(request, understanding.options).finally(() => understanding.finish());
-  t.after(async () => { held.resolve(); await pending; });
+  pending = understanding.plugin.structured(request, understanding.options).finally(() => understanding.finish());
   await started.promise;
   const reaction = await runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options: { voiceReply: true } });
   let reply = '';
@@ -74,7 +74,10 @@ test('AIT-380: generic efforts preserve the split reaction ceiling and analysis 
   assert.deepEqual(bodies.map(body => [body.model, body.reasoning]), [[analysis, { effort: 'high' }], [speech, { enabled: false }]]);
   held.resolve(); await pending;
   for (const effort of ['none', 'low']) {
-    const selected = { ...storage.get(session.id), settings: { ...session.settings, effort } };
+    const current = storage.get(session.id);
+    storage.changeSettings(session.id, { processingPreset: 'best', settings: { ...current.settings, effort } },
+      { ownerToken: 'fixture-owner', baseRevision: current.settings.revision });
+    const selected = storage.get(session.id);
     const admitted = await runtime.admit({ session: selected, lane: 'reaction', operation: 'stream', request });
     assert.equal(admitted.binding.effort, 'none'); admitted.finish({ failed: true });
   }
