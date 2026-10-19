@@ -16,7 +16,7 @@ const stopStream = stream => { for (const track of stream?.getTracks() ?? []) { 
 // SDK 1.17.0 requests a preliminary stream and publishes/attaches input before
 // onConversationCreated. Guard acquisition for the entire call, including SDK
 // device resets. A paused setup receives silence made without a physical device.
-function microphoneCapture(mediaDevices, AudioContext, onMicrophoneState) {
+function microphoneCapture(mediaDevices, AudioContext, onMicrophoneState, permissions) {
   let enabled = true, ended = false, released = false, operations = 0, acquisitionEpoch = 0, context, destination;
   const streams = new Set(), silentStreams = new Set();
   const original = mediaDevices?.getUserMedia, descriptor = mediaDevices && Object.getOwnPropertyDescriptor(mediaDevices, 'getUserMedia');
@@ -33,7 +33,10 @@ function microphoneCapture(mediaDevices, AudioContext, onMicrophoneState) {
     const epoch = acquisitionEpoch;
     let stream;
     try {
-      onMicrophoneState?.('requesting');
+      let permission;
+      try { permission = await permissions?.query({ name: 'microphone' }); } catch { /* Some browsers omit this permission query. */ }
+      if (ended || !enabled || epoch !== acquisitionEpoch) throw new PluginError('cancelled');
+      if (!permission || permission.state === 'prompt') onMicrophoneState?.('requesting');
       stream = await original.call(mediaDevices, constraints);
     } catch (error) { error.phase = 'microphone'; throw error; }
     // Pause/close can race the permission prompt or native device acquisition.
@@ -81,7 +84,7 @@ function microphoneCapture(mediaDevices, AudioContext, onMicrophoneState) {
 export function createElevenLabsClient(ports = {}) {
   const { sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000,
   mediaDevices = globalThis.navigator?.mediaDevices, AudioContext = globalThis.AudioContext,
-  document = globalThis.document,
+  document = globalThis.document, permissions = globalThis.navigator?.permissions,
   persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000 } = ports;
   if (!control?.start || !control?.close || !control?.pause || !control?.resume || !control?.heartbeat ||
     typeof persistEvent !== 'function' || ![closeTimeoutMs, persistenceTimeoutMs, drainTimeoutMs].every(value => Number.isFinite(value) && value > 0) ||
@@ -537,12 +540,16 @@ export function createElevenLabsClient(ports = {}) {
               ['connection_state_changed', 'socket_error', 'websocket_error', 'transport_error'].includes(context?.type))) void lifecycle.recover().catch(() => {});
           },
         };
+        // Verified agent provisioning supplies the default spoken AI opener.
+        // A fresh call cannot override that guarantee with a silent greeting.
+        if (current === 1 && !request.providerSessionId && receipt.overrides?.agent?.firstMessage === '')
+          throw new PluginError('invalid-output', 'Fresh voice connection requires its spoken opener');
         const implementation = await getSdk();
         if (!active()) throw new PluginError('cancelled');
         if (mediaDevices && !mediaDevices.getUserMedia && !paused && inputOn) throw Object.assign(new Error('Microphone API unavailable'), { name: 'NoMediaAPIError', phase: 'microphone' });
         capture ??= microphoneCapture(mediaDevices, AudioContext, phase => {
           if (active() && !paused && inputOn) options.onMicrophoneState?.(phase);
-        });
+        }, permissions);
         capture.setEnabled(!paused && inputOn);
         const pending = capture.run(() => implementation.startSession({
           ...(receipt.credential.connectionType === 'websocket'

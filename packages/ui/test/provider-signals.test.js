@@ -1,5 +1,13 @@
-import { test as nodeTest } from 'node:test';
-const test = (name, run) => nodeTest(name, { timeout: 5000 }, run);
+import { test as nodeTest, after } from 'node:test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+const checks = [];
+const test = (name, run) => nodeTest(name, { timeout: 5000 }, async t => { await run(t); checks.push({ provider: name.includes('elevenlabs') ? 'elevenlabs' : name.includes('grok-voice') ? 'grok-voice' : 'shared', assert: name, clock: 'controlled', pass: true }); });
+after(async () => {
+  if (!process.env.AITHEMA_EVIDENCE_DIR) return;
+  await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+  await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait383-state-checks.json'), JSON.stringify({ checks }, null, 2));
+});
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { AudioRail } from '../src/audio-rail.js';
@@ -74,4 +82,32 @@ test('AIT-383 non-microphone AbortError retains admission/deadline/connection co
   for (const [code, key] of [['not-admitted', 'voiceAdmissionDenied'], ['deadline', 'voiceDeadline'], [undefined, 'voiceConnectionFailed']]) {
     rail.failure(Object.assign(new Error('request aborted'), { name: 'AbortError', code })); assert.equal(rail.errorKey, key);
   }
+});
+for (const provider of ['elevenlabs', 'grok-voice']) {
+  test(`AIT-383 ${provider}: real credential preparation has its own 30 s guard`, async t => {
+    const credential = Promise.withResolvers(), { rail, current } = setup(t, provider, { credential: credential.promise });
+    t.after(() => credential.resolve());
+    const start = rail.start(); await flush(); assert.equal(rail.startupPhase, null); assert.equal(current.acquired, 0);
+    await advance(t, 30_000); await start; assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(current.acquired, 0);
+  });
+  for (const name of ['NotReadableError', 'OverconstrainedError', 'AbortError', 'Error']) test(`AIT-383 ${provider}: real ${name} remains attributed to microphone acquisition`, async t => {
+    const { rail } = setup(t, provider, { microphoneError: Object.assign(new Error('device failed'), { name }) });
+    await rail.start(); assert.equal(rail.errorKey, name === 'NotReadableError' ? 'voiceMicBusy' : 'voiceMicFailed');
+  });
+  test(`AIT-383 ${provider}: user-final arms S5; long reply and visitor silence never re-arm it`, async t => {
+    const { rail, current } = setup(t, provider); await rail.start();
+    current.event({ type: 'final', turnId: 'user-1', role: 'user', text: 'Frage' }); await flush(); assert.ok(rail.replyTimer);
+    await advance(t, 15_000); assert.equal(rail.errorKey, 'voiceNoReply');
+    current.audio(); await flush(); assert.equal(rail.errorKey, null); assert.equal(rail.replyTimer, null);
+    await advance(t, 16_000); assert.equal(rail.errorKey, null);
+    current.event({ type: 'listening' }); await flush(); await advance(t, 16_000); assert.equal(rail.errorKey, null);
+  });
+}
+test('AIT-383 physical PCM no API and already-granted acquisition preserve provenance', async () => {
+  const phases = [];
+  await assert.rejects(createPCMCapture({ mediaDevices: {} })({ onAudio() {}, onMicrophoneState: p => phases.push(p) }), { name: 'NoMediaAPIError', phase: 'microphone' });
+  assert.deepEqual(phases, []);
+  const failure = new DOMException('busy', 'NotReadableError');
+  await assert.rejects(createPCMCapture({ permissions: { async query() { return { state: 'granted' }; } }, mediaDevices: { async getUserMedia() { throw failure; } } })({ onAudio() {}, onMicrophoneState: p => phases.push(p) }), { name: 'NotReadableError', phase: 'microphone' });
+  assert.deepEqual(phases, [], 'already-granted permission never reports an open prompt');
 });

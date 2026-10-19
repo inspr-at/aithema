@@ -38,11 +38,11 @@ export function currentVoiceClient(provider, { permission = Promise.resolve(), e
     sdk.conversation = conversation; opts.onConversationCreated?.(conversation); opts.onConnect({ conversationId: conversation.getId() });
     await connection; return conversation;
   } };
-  const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices, persistEvent: async () => {} })
+  const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices, permissions: { async query() { return { state: 'prompt' }; } }, persistEvent: async () => {} })
     : createGrokVoiceClient({ control,
       async openRelay() {
         const frames = voiceEvents(); streams.push(frames);
-        return { frames: { async *[Symbol.asyncIterator]() { for await (const event of frames) yield event.type === 'audio' ? event : { type: 'event', event: { callId: currentCallId, ...event } }; } }, async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } };
+        return { frames: { async *[Symbol.asyncIterator]() { for await (const event of frames) yield event.frame ?? { type: 'event', event: { callId: currentCallId, ...event } }; } }, async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } };
       },
       async capture(opts) { capture = opts; acquired++; opts.onMicrophoneState?.('requesting'); await permission; if (microphoneError) throw Object.assign(microphoneError, { phase: 'microphone' }); opts.onMicrophoneState?.('granted'); await connection; return { stop() {} }; },
       player: { play(_bytes, opts) { opts.onStarted?.(); }, stop() {} } });
@@ -59,7 +59,7 @@ export function currentVoiceClient(provider, { permission = Promise.resolve(), e
     event(event) { if (provider === 'elevenlabs') {
       if (event.type === 'final') callbacks.onMessage({ role: event.role === 'assistant' ? 'agent' : 'user', message: event.text, event_id: event.event_id ?? 10 });
       else callbacks.onModeChange({ mode: event.type });
-    } else streams.at(-1).push(event); },
+    } else streams.at(-1).push({ callId: currentCallId, ...event }); },
     audio(text = 'Eine richtige Antwort.') {
       if (provider === 'elevenlabs') {
         callbacks.onModeChange({ mode: 'speaking' });
@@ -67,7 +67,7 @@ export function currentVoiceClient(provider, { permission = Promise.resolve(), e
         const conversation = sdk.conversation;
         conversation.connection.handleMessage({ type: 'audio', audio_event: { event_id: 20,
           alignment: { chars: [...text] } } });
-      } else streams.at(-1).push({ type: 'audio', playbackRevision: 0, format: 'pcm_s16le', sampleRateHz: 16000, channels: 1, bytes: new Uint8Array([1, 1]) });
+      } else streams.at(-1).push({ type: 'speaking', callId: currentCallId, frame: { type: 'audio', playbackRevision: 0, format: 'pcm_s16le', sampleRateHz: 16000, channels: 1, bytes: new Uint8Array([1, 1]) } });
     },
     end() { for (const stream of streams) stream.end(); } };
 }

@@ -430,6 +430,7 @@ export class AudioRail {
       // Only requesting opens S1 and suspends this guard; grant starts a fresh
       // 30 s provider deadline. Cleanup/cooldown above remain outside both.
       if (microphonePhases) connectDeadline();
+      const continuing = Boolean(this.waitingCall);
       const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
         signal: controller.signal, holdSignal: holdController.signal,
         // Today's clients retain main's option and their own deadline scopes.
@@ -461,7 +462,7 @@ export class AudioRail {
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.startupPhase = null; this.state = 'listening';
       clearTimeout(connectTimer); this.stopReplyWatch();
-      if (this.client.manifest?.liveVoice?.capabilities?.opener === true) this.awaitReply(session, generation);
+      if (!continuing && this.client.manifest?.liveVoice?.capabilities?.opener === true) this.awaitReply(session, generation);
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;

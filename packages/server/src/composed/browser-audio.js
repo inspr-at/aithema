@@ -3,7 +3,7 @@ const cancelled = () => new DOMException('Capture cancelled', 'AbortError');
 /** Permission denial is surfaced to the host; a late permission result cannot
  * resurrect a stopped capture. onFault feeds the existing lifecycle controller. */
 export function createPCMCapture({ mediaDevices = globalThis.navigator?.mediaDevices, AudioContext: Context = globalThis.AudioContext, AudioWorkletNode: Worklet = globalThis.AudioWorkletNode,
-  workletURL = new URL('./pcm-capture-worklet.js', import.meta.url), onTiming = () => {}, onFault = () => {},
+  permissions = globalThis.navigator?.permissions, workletURL = new URL('./pcm-capture-worklet.js', import.meta.url), onTiming = () => {}, onFault = () => {},
   audioProcessing = true, clock = () => performance.now() } = {}) {
   return async function capture({ signal, onAudio, onMicrophoneState, onError = () => {} }) {
     let stream, context, source, node, stopped = false, pending = 0, tail = Promise.resolve(), level = 0, levelAt = -Infinity;
@@ -20,7 +20,10 @@ export function createPCMCapture({ mediaDevices = globalThis.navigator?.mediaDev
       if (signal?.aborted) throw cancelled();
       try {
         if (typeof mediaDevices?.getUserMedia !== 'function') throw Object.assign(new Error('Microphone API unavailable'), { name: 'NoMediaAPIError' });
-        onMicrophoneState?.('requesting');
+        let permission;
+        try { permission = await permissions?.query({ name: 'microphone' }); } catch { /* Not exposed by every browser. */ }
+        if (stopped || signal?.aborted) throw cancelled();
+        if (!permission || permission.state === 'prompt') onMicrophoneState?.('requesting');
         stream = await mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000,
         echoCancellation: audioProcessing, noiseSuppression: audioProcessing, autoGainControl: false }, video: false });
       } catch (error) { error.phase = 'microphone'; throw error; }
