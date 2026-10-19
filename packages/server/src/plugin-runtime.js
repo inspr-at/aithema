@@ -587,7 +587,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         for (const feature of FEATURES) {
           const result = await boundedEvaluate(session, preset, feature);
           matrix[preset][feature] = result.reason ? featureUnavailable(result.reason) : { available: true, reason: null };
-          if (visual(feature)) matrix[preset][feature].consentPurposes = [...new Set(runtime.scopes({ ...session, processingPreset: preset, concepts: [] }, { feature }).map(scope => scope.purpose))];
+          if (visual(feature)) matrix[preset][feature].consentPurposes = [...new Set(runtime.scopes({ ...session, processingPreset: preset,
+            settings: preset === (session.processingPreset ?? 'best') ? session.settings : {}, concepts: [] }, { feature }).map(scope => scope.purpose))];
           // Paused reloads need the stage's ordinary words. This nested verdict
           // is presentation only; the outer verdict and admission stay paused.
           if ((visual(feature) || feature === 'analysis') && result.reason === 'session paused') {

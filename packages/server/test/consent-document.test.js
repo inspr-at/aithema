@@ -262,7 +262,10 @@ for (const provenance of ['recorded', 'legacy']) for (const visuals of ['off', '
   assert.equal(grant.status, 200);
   const purposes = new Set(grants[0].scopes.map(scope => scope.purpose));
   assert.ok(purposes.has('drafts') && purposes.has('images'), 'grant retains both producers');
-  if (provenance === 'recorded' && visuals === 'both') assert.ok(purposes.has('other-drafts'), 'grant also includes the CURRENT option B');
+  if (provenance === 'recorded' && visuals === 'both') {
+    assert.ok(purposes.has('other-drafts'), 'grant also includes the CURRENT option B');
+    for (const operation of ['generate', 'edit']) assert.ok(grants[0].scopes.some(scope => scope.purpose === 'other-drafts' && scope.operation === operation), `current choice ${operation} scope is granted exactly`);
+  }
 });
 
 for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plugin', 'missing legal']) test(`AIT-369 R2 provenance: ${change} keeps the admitted purpose, legacy fails closed`, async t => {
