@@ -146,6 +146,15 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 13);
 
+// AIT-350 round 8: combined AIT-349/AIT-350 file, committed-head
+// mbp2606 run 1de9553a45-66313: all 4 top-level tests PASS with evidence.
+// 2.072055459s + 1.871234s + 10.523680s + 1.545596917s
+// = 16.012566376s; ceil(observed * 1.25) = 21s. Retain the slower
+// prior CI floor of 28s until the combined file is re-measured in CI.
+// Both complete tests remain in this file; no capacity policy changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 21);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
