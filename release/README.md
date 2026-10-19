@@ -2,8 +2,9 @@
 
 The sole version authority is `release/version.json`; package manifests and the
 lockfile mirror its exact coordinate. An owner-authorized candidate reservation
-does not authorize a tag or publication. All commands below run on mbp2606 or CI,
-never on mbp2607. Commit first: the packer reads committed Git blobs only and
+does not authorize a tag or publication. Candidate and consumer commands below
+run on mbp2606 or CI; §6 documents the bounded OPS pack/verify rehearsal exception
+on mbp2607. Commit first: the packer reads committed Git blobs only and
 excludes env files without opening them. The remote lane transfers `git archive`;
 its tracked `export-subst` marker carries the original commit and epoch, and
 archive packing is checked against Git packing byte for byte. Only use archives
@@ -671,8 +672,9 @@ The order is **lock tag → prep → gates → true merge → marker → cut →
    verification. It opens `RELEASE-WINDOW` with `open X C` **before** checking
    ancestry, the active marker, absence of `vX`, absence of a published sequence
    ≥ N, and agreement with the report's C and both digests. It checks out C,
-   rehearses on mbp2606 or an authorized CI runner, recomputes the normalized
-   digest and checks the marker before pushing `vX` at C. Only OPS's cut creates
+   rehearses on mbp2606 first (OPS-393 guard); if mbp2606 refuses or is unreachable, once on mbp2607 under the shared lock while mbp2607 is GREEN; or on an authorized CI runner.
+   On mbp2607 only `npm ci --ignore-scripts` + pack + verify; no tests, no browsers; one serialized run (Markus's rule, AEON-LEAD 2026-10-19 13:14).
+   It recomputes the normalized digest and checks the marker before pushing `vX` at C. Only OPS's cut creates
    `v*`. The tag starts the existing release workflow; no separate manual release
    creation or registry publication is involved.
 7. OPS waits for the release run, verifies the immutable published set with
@@ -690,6 +692,12 @@ the exact verified published artifact set; start2/start3 still require their own
 deploy go. A changed artifact set always receives a new coordinate.
 
 ### Exact normalized-byte contract (§ 6)
+
+`AITHEMA_CANONICAL_RELEASE=1` requires Node 24 and GNU tar, enforced by
+`assertCanonicalReleaseToolchain` in `release/lib/tarball.mjs`. The Macs have
+bsdtar, so candidate evidence built there is non-canonical. That is fine: the
+normalized digest is member-level and excludes tarball digests. OPS's cut rehearses
+canonically with pinned Node 24.21.0 + GNU tar 1.35 (nixpkgs).
 
 `node release/normalize.mjs <release-directory>` verifies the full archive set,
 including module/source bindings and provenance recomputation, then hashes a
@@ -725,7 +733,10 @@ Immediately after building and verifying `dist/release`, a separate step runs
 **verify → gate → attest → create**. The gate requires an annotated marker
 pointing directly to the tagged C, valid version/N/C/manifest/normalized-digest
 fields, the active marker for N, no published sequence ≥ N, no
-`release-failed/vX`, and the built set's matching normalized digest. Releases are
+`release-failed/vX`, no other unpublished `v*` of N without a failed-terminal
+marker, and the built set's matching normalized digest. Other in-flight `v*`
+sequences are read from `release/version.json` at their tagged commits; an
+unreadable sequence refuses admission. Releases are
 read through paginated GETs with the workflow's own token. Inside the gate,
 `candidate/*`, `release-failed/*` and `v*` tags are fetched again from origin
 before deciding, even though checkout uses complete Git history

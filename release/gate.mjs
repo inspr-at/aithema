@@ -78,6 +78,7 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
     { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
   if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page))) throw new Error('Invalid published release response');
   const history = JSON.parse(readFileSync(join(root, 'release/history.json'))).releases;
+  const publishedTags = new Set();
   for (const release of pages.flat()) {
     if (release.draft === true) continue;
     if (release.draft !== false || !/^v[0-9.]+$/u.test(release.tag_name ?? '')) throw new Error('Unknown published release coordinate');
@@ -93,6 +94,21 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
       throw new Error('Published release sequence or source binding invalid');
     }
     if (published.release_sequence >= selected.release_sequence) throw new Error(`Published release sequence ${published.release_sequence} >= ${selected.release_sequence}`);
+    publishedTags.add(tag);
+  }
+  // A pushed v-tag remains in flight until publication or an explicit terminal
+  // failure. Read its sequence at that commit, including remote-only tags just
+  // fetched above; neither a missing candidate marker nor a draft closes it.
+  for (const tag of tags.filter(tag => tag.startsWith('v') && `refs/tags/${tag}` !== ref)) {
+    if (publishedTags.has(tag) || tags.includes(`release-failed/${tag}`)) continue;
+    let sequence;
+    try {
+      sequence = JSON.parse(git(['show', `refs/tags/${tag}^{commit}:release/version.json`])).release_sequence;
+      if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error('Invalid release sequence');
+    } catch (cause) {
+      throw new Error(`Unreadable release sequence for in-flight ${tag}`, { cause });
+    }
+    if (sequence === selected.release_sequence) throw new Error(`Another in-flight tag ${tag} claims release sequence ${sequence}`);
   }
   const manifest = JSON.parse(readFileSync(join(directory, 'release-set.json')));
   if (manifest.mode !== 'release' || manifest.source.commit !== commit || manifest.version !== source.version ||
