@@ -95,6 +95,8 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
     t.after(() => handlers.close());
     const response = await handlers.handle(new Request(`https://host.example.test/api/sessions/${h.session.id}/voice`, {
       method: 'POST', headers: { 'x-aithema-session-token': h.owner }, body: JSON.stringify({ callId: 'refused' }) }));
+    assert.equal((await h.runtime.matrix(h.session)).best.voice.reason, 'binding evidence unverified');
+    assert.equal((await h.runtime.catalog(h.session)).presets.best.voices[0].reason, 'binding evidence unverified');
     assert.equal(response.status, 403);
     assert.deepEqual(await response.json(), { error: 'not-admitted' });
     assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
