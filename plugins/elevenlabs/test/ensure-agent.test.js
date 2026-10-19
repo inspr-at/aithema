@@ -513,3 +513,35 @@ test('AIT-224: owned GET failure prevents every PATCH, including secret rotation
   }), /agent-api-get-503/);
   assert.deepEqual(writes(fake), []);
 });
+
+const requiredClientEvents = ['conversation_initiation_metadata', 'asr_initiation_metadata', 'audio', 'interruption',
+  'user_transcript', 'tentative_user_transcript', 'agent_response', 'agent_response_correction',
+  'agent_chat_response_part', 'agent_response_metadata', 'agent_tool_response', 'ping'];
+
+test('AIT-379: ensure writes the complete native end-call event contract', async t => {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  await ensureAgent(options(storage, fake));
+  assert.deepEqual(fake.agents[0].conversation_config.conversation.client_events, requiredClientEvents);
+});
+for (const drift of ['missing end-call event', 'missing setting', 'extra event', 'duplicate event', 'reordered']) {
+  test(`AIT-379: incomplete or drifted event readback fails actionably: ${drift}`, async t => {
+    const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = []; t.after(() => storage.close());
+    await assert.rejects(ensureAgent({ ...options(storage, fake, logs), fetchImpl: async (url, init) => {
+      const response = await fetch(url, init);
+      if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
+      const saved = await response.json();
+      saved.conversation_config.conversation.client_events = drift === 'missing end-call event'
+        ? requiredClientEvents.filter(event => event !== 'agent_tool_response')
+        : drift === 'missing setting' ? undefined
+        : drift === 'extra event' ? [...requiredClientEvents, 'unexpected_event']
+        : drift === 'duplicate event' ? [...requiredClientEvents, 'ping'] : [...requiredClientEvents].reverse();
+      return Response.json(saved);
+    } }), error => {
+      assert.equal(error.message, 'agent-readback-mismatch');
+      assert.deepEqual(error.fields, ['conversation_config.conversation.client_events']);
+      assert.match(error.remediation, /client_events.*agent_tool_response.*ensure/);
+      return true;
+    });
+    assert.deepEqual(logs.at(-1).fields, ['conversation_config.conversation.client_events']);
+  });
+}

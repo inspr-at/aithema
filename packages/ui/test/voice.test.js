@@ -1347,3 +1347,19 @@ for (const copy of [de, en]) for (const ledgerFirst of [false, true]) {
     assert.equal(root.querySelectorAll('.voice-state').length, 1, 'reuse the existing charge status');
   });
 }
+
+for (const copy of [de, en]) test(`AIT-379: ${copy.display.locale} native end shows the existing ended state and permits restart`, async t => {
+  const { rail, root, events } = fixture(t); rail.copy = copy;
+  await rail.start();
+  events.push({ type: 'ended', reason: 'provider-end' }); events.end(); await tick();
+  assert.equal(root.dataset.state, 'idle'); assert.equal(root.dataset.call, 'none');
+  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceEnded);
+  assert.equal(root.hasAttribute('data-message'), false);
+  assert.equal(rail.button('start').disabled, false);
+  assert.equal(rail.button('retry').disabled, true);
+  let restarts = 0;
+  rail.client.start = async () => { restarts++; return { callId: 'restarted', providerSessionId: 'new-provider',
+    events: voiceEvents(), async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { this.events.end(); return { closureConfirmed: true }; } }; };
+  await rail.start(); assert.equal(restarts, 1); assert.equal(root.dataset.call, 'active');
+});
