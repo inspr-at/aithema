@@ -260,6 +260,60 @@ test('mint failure is stable without automatic retries, and off-route responses 
   }
 });
 
+const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+test('AIT-358: each explicit Reload mints once, hides in flight and focuses the fresh frame or repeated-failure action', async () => {
+  const element = setup(testDocument()), root = element.shadowRoot, pending = [];
+  let calls = 0;
+  await render(element, { ...source(), mint: () => {
+    if (++calls === 1) return Promise.reject(new Error('unavailable'));
+    return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+  } });
+  const button = root.querySelector('.reload'); assert.ok(button, 'failure offers Reload');
+  assert.equal(button.textContent, 'Reload'); assert.equal(button.disabled, false);
+  const status = root.querySelector('.state'); assert.equal(status.getAttribute('aria-live'), 'polite');
+  assert.equal(status.tabIndex, -1);
+  button.focus(); button.click(); button.click(); await settle();
+  assert.equal(calls, 2, 'a double click cannot start a second in-flight mint');
+  assert.equal(element.state, 'loading'); assert.equal(button.disabled, true);
+  assert.equal(button.getAttribute('aria-hidden'), 'true', 'loading Reload is hidden in its reserved slot');
+  assert.equal(button.style.visibility, 'hidden'); assert.equal(button.hidden, false);
+  assert.equal(root.activeElement, status);
+  pending[0].resolve(await source().mint()); await settle();
+  assert.equal(element.state, 'ready'); assert.equal(root.activeElement, root.querySelector('iframe'));
+  assert.equal(button.getAttribute('aria-hidden'), 'true');
+  await render(element, { ...source(), mint: async () => { throw new Error('unavailable'); } });
+  button.click(); await settle();
+  assert.equal(element.state, 'failure'); assert.equal(button.disabled, false);
+  assert.equal(root.activeElement, button); element.remove();
+});
+
+test('AIT-358: messages cannot request Reload; replacement and disconnect retire pending reloads', async () => {
+  const element = setup(testDocument()), root = element.shadowRoot, pending = [];
+  let calls = 0;
+  const value = { ...source(), mint: signal => {
+    if (++calls === 1) return Promise.reject(new Error('unavailable'));
+    return new Promise(resolve => pending.push({ signal, resolve }));
+  } };
+  await render(element, value);
+  window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'reload' } })); await settle();
+  assert.equal(calls, 1, 'draft messages cannot re-mint');
+  const button = root.querySelector('.reload'); assert.ok(button);
+  button.click(); await settle(); assert.equal(calls, 2);
+  await render(element, source()); const current = root.querySelector('iframe');
+  assert.equal(pending[0].signal.aborted, true);
+  pending[0].resolve(await source().mint()); await settle();
+  assert.equal(root.querySelector('iframe'), current, 'stale reload cannot replace a new revision');
+  calls = 0; await render(element, value); button.click(); await settle(); element.remove();
+  // Detached test documents do not deliver custom-element disconnect callbacks.
+  element.disconnectedCallback();
+  assert.equal(pending[1].signal.aborted, true);
+  pending[1].resolve(await source().mint()); await settle(); assert.equal(root.querySelector('iframe'), null);
+  const policy = setup(testDocument()); policy.artifact = { ...source(), previewURL: undefined };
+  const hidden = policy.shadowRoot.querySelector('.reload'); assert.ok(hidden);
+  assert.equal(hidden.disabled, true); assert.equal(hidden.getAttribute('aria-hidden'), 'true');
+  hidden.click(); await settle(); assert.equal(policy.state, 'policy'); policy.remove();
+});
+
 
 test('pre-load budget expires into failure, never navigation, and only explicit retry mints again', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] }); mockChannels(t);
@@ -279,7 +333,14 @@ test('pre-load budget expires into failure, never navigation, and only explicit 
     assert.equal(element.state, 'failure'); assert.equal(calls, 1, 'timeouts do not automatically spend another capability');
     frame.dispatchEvent(new window.Event('load')); assert.equal(element.state, 'failure', 'a late response cannot revive a timed-out generation');
     await render(element, value); assert.equal(calls, 2, 'explicit reopen mints a fresh capability');
-    assert.ok(root.querySelector('iframe')); element.remove();
+    assert.ok(root.querySelector('iframe'));
+    t.mock.timers.tick(budget);
+    const reload = root.querySelector('.reload'); reload.click(); await settle();
+    assert.equal(calls, 3, 'Reload after expiry mints exactly once');
+    assert.ok(root.querySelector('iframe'));
+    t.mock.timers.tick(budget);
+    assert.equal(element.state, 'failure');
+    assert.equal(root.activeElement, reload, 'a repeated route timeout returns focus to Reload'); element.remove();
   }
 });
 
@@ -334,8 +395,9 @@ test('a replaced pre-load timer cannot discard a newer generation', async t => {
 });
 
 test('AIT-353: localized visitor copy, operator guidance and a persistent decorative alert slot', async () => {
-  assert.equal(de.conceptPreview.failure, 'Der Entwurf konnte nicht geladen werden. Schließen Sie die Vorschau und öffnen Sie sie später erneut.');
-  assert.equal(en.conceptPreview.failure, 'The draft could not be loaded. Close the preview and reopen it later.');
+  assert.equal(de.conceptPreview.failure, 'Der Entwurf konnte nicht geladen werden.');
+  assert.equal(en.conceptPreview.failure, 'The draft could not be loaded.');
+  assert.equal(de.conceptPreview.reload, 'Neu laden'); assert.equal(en.conceptPreview.reload, 'Reload');
   assert.equal(de.conceptPreview.label, 'Entwurf, generiert');
   assert.equal(en.conceptPreview.label, 'Draft, generated');
   assert.equal(de.conceptPreview.policy, 'Die Vorschau ist auf dieser Website nicht freigeschaltet.');
@@ -350,6 +412,10 @@ test('AIT-353: localized visitor copy, operator guidance and a persistent decora
     let finish;
     await render(element, { ...source(), mint: () => new Promise(resolve => { finish = resolve; }) });
     assert.equal(element.state, 'loading');
+    const reload = root.querySelector('.reload');
+    assert.equal(reload.style.visibility, 'hidden'); assert.equal(reload.getAttribute('aria-hidden'), 'true');
+    assert.equal(reload.disabled, true); assert.equal(reload.hidden, false);
+    assert.equal(reload.parentElement, root.querySelector('.state-operator').parentElement, 'operator and Reload share a reserved slot');
     finish(await source().mint()); for (let i = 0; i < 8; i++) await Promise.resolve();
     assert.equal(element.state, 'ready'); assert.equal(root.querySelector('.state').getAttribute('aria-hidden'), 'true');
     await render(element, { ...source(), mint: async () => { throw new Error('fixture'); } });
