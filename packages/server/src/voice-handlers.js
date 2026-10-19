@@ -252,7 +252,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (!continuation) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'start', tabId });
     const logical = storage.voiceLifecycle(sessionId, callId);
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
-      tabId: logical.controllingTabId, epoch: logical.epoch,
+      tabId: logical.controllingTabId, epoch: logical.epoch, explicitCompositionResume: continuation && explicitResume,
       conversationConsentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
       settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening', authority };
     sessions.set(sessionId, entry); calls.set(callId, entry);
@@ -325,16 +325,27 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (!entry || entry.closing || request.sessionId !== entry.sessionId ||
         request.providerSessionId && request.providerSessionId !== entry.call?.providerSessionId) return false;
       const session = sessionFor(entry);
-      await runtime.checkVoice(session, { ...options, existingCall: true });
+      // A trusted explicit Resume may establish its replacement transport while
+      // the durable pause remains held. Input/reasoning still wait for Resume ack.
+      const resuming = entry.explicitCompositionResume === true && (!entry.call || request.connectingRelay === true);
+      await runtime.checkVoice(session, { ...options, existingCall: true, allowPaused: resuming });
       const fresh = sessionFor(entry);
-      return !entry.closing && !fresh.paused && !fresh.consentWithdrawn &&
+      return !entry.closing && (!fresh.paused || resuming) && !fresh.consentWithdrawn &&
         voiceAuthorizationRevision(fresh) === voiceAuthorizationRevision(session);
     },
     async commitCoordinator(envelope, options = {}) {
       if (envelope?.source !== 'server-coordinator') throw new PluginError('not-admitted');
       const { sessionId, callId, providerSessionId, callbackBody } = envelope.payload;
       const entry = calls.get(callId), fresh = sessionFor(entry);
-      if (entry.closing || entry.sessionId !== sessionId || entry.call?.providerSessionId !== providerSessionId || fresh.paused) throw new PluginError('not-admitted');
+      if (entry.sessionId !== sessionId || entry.call?.providerSessionId !== providerSessionId || fresh.paused) throw new PluginError('not-admitted');
+      if (options.role === 'interrupted') {
+        const result = storage.postVoiceEvent(sessionId, callId, providerSessionId, { type: 'interrupted', callId,
+          providerSessionId, turnId: `${providerSessionId}:${options.replyId}`, heardLength: 'unknown' },
+        { ownerToken: entry.ownerToken });
+        if (!result.replayed) publish(sessionId, result.event);
+        return result;
+      }
+      if (entry.closing) throw new PluginError('not-admitted');
       const role = options.role ?? 'user', text = role === 'assistant' ? options.text : callbackBody.messages.at(-1)?.content;
       const turnId = `${providerSessionId}:${role === 'assistant' ? options.replyId : callbackBody.metadata?.utteranceId}`;
       const result = storage.postVoiceEvent(sessionId, callId, providerSessionId,
@@ -686,6 +697,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
+          if (body.event?.type === 'interrupted') throw new PluginError('not-admitted', 'Coordinator interruption authority required');
+          if (body.event?.type === 'heard' && entry.admission.plugin.manifest.liveVoice?.capabilities.heard === 'unavailable') {
+            throw new PluginError('not-admitted', 'Provider heard position unavailable');
+          }
           if (playbackActivity) {
             if (body.event.callId !== callId || body.event.providerSessionId !== entry.call.providerSessionId) throw new TypeError('Invalid voice activity');
             entry.playback = body.event.type;

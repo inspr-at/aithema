@@ -6,6 +6,7 @@ const excluded = new Set(['packages/server/src/local-voice.js', 'packages/server
   'plugins/elevenlabs/src/components.js']);
 
 const json = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
+const exportTargets = value => typeof value === 'string' ? [value] : Object.values(value ?? {}).flatMap(exportTargets);
 export function moduleFiles(files, pkg) {
   const folder = posix.dirname(pkg.path), prefix = folder + '/';
   const members = new Map();
@@ -23,9 +24,10 @@ export function moduleFiles(files, pkg) {
         const targetBytes = files.get(metadataPath);
         if (!targetBytes) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
         const metadata = JSON.parse(targetBytes);
-        const subpath = './' + target.split('/src/')[1].replace(/\.(?:d\.ts|js)$/u, '');
-        if (!metadata.exports?.[subpath]) throw new Error(`Missing package export: ${metadata.name}/${subpath}`);
-        return introducer + quote + metadata.name + '/' + subpath.slice(2) + quote;
+        const sourcePath = './' + posix.relative(posix.dirname(metadataPath), target);
+        const subpath = Object.entries(metadata.exports ?? {}).find(([, value]) => exportTargets(value).includes(sourcePath))?.[0];
+        if (!subpath) throw new Error(`Missing package export: ${metadata.name}/${sourcePath}`);
+        return introducer + quote + metadata.name + (subpath === '.' ? '' : '/' + subpath.slice(2)) + quote;
       }));
     }
     members.set(local, content);

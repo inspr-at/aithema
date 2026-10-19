@@ -86,7 +86,7 @@ export interface VoiceSession {
   resume(options: VoiceCommandOptions): Promise<{ acknowledged: true; paused: false }>;
   setInput(on: boolean, options: VoiceCommandOptions): Promise<void>;
   setOutput(on: boolean, options: VoiceCommandOptions): Promise<void>;
-  sendText(text: string, options: VoiceCommandOptions): Promise<void>;
+  sendText(text: string, options: VoiceCommandOptions & { deliveryId?: string }): Promise<void>;
   updateContext(context: object | string, options: VoiceCommandOptions): Promise<void>;
   interrupt(options: VoiceCommandOptions): Promise<void>;
   retryPlayback?(options: VoiceCommandOptions): Promise<void>;

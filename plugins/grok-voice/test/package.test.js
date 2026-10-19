@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { checkBoundaries } from '../../../scripts/check-boundaries.mjs';
 import { validateManifest } from '@inspr/aithema-core/plugins';
 import { config, operation } from './fixtures.js';
 
@@ -44,9 +46,11 @@ test('package publication remains deferred to package 8 and imports use supporte
   assert.deepEqual(Object.keys(pkg.dependencies), ['@inspr/aithema-core', '@inspr/aithema-server']);
   for (const file of ['server', 'components', 'configuration', 'manifest', 'stt', 'tts', 'client']) {
     const source = await readFile(new URL(`../src/${file}.js`, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /from\s+['"]\.\.\//u);
+    // AIT-350: browser/shared modules load exported source URLs; server-only modules use package subpaths.
+    if (!['configuration', 'manifest', 'client'].includes(file)) assert.doesNotMatch(source, /from\s+['"]\.\.\//u);
     assert.doesNotMatch(source, /composed-voice\/src|process\.env|fetch\(/u);
   }
+  assert.deepEqual(checkBoundaries(fileURLToPath(new URL('../../../', import.meta.url))), [], 'Grok browser source URLs must resolve declared public exports');
   const coordinator = await readFile(new URL('../../../packages/server/src/voice-coordinator.js', import.meta.url), 'utf8');
   assert.doesNotMatch(coordinator, /plugins\/|aithema-plugin|\.\.\//u);
 });

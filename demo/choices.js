@@ -26,15 +26,16 @@ export const demoModels = Object.freeze({
  * A provider route keeps its configured effort: response styles need a host that has
  * sized its token ceilings for reasoning.
  */
-export function demoPresets({ provider = 'mock', reaction, understanding = reaction, voicePlugin, voiceBinding, imagePlugin, imageBinding,
+export function demoPresets({ provider = 'mock', reaction, understanding = reaction, voicePlugin, voiceBinding, grokPlugin, grokBinding, imagePlugin, imageBinding,
   htmlPlugin, htmlBinding, htmlDemo = false, policy }) {
   const option = (id, label, plugin, binding, kind) => ({ id, label, ...(kind ? { kind } : {}), ...(plugin?.manifest.id === id ? { binding } : {}) });
   let voices = [option('fake-voice', 'Demo only: simulated voice', voicePlugin, voiceBinding), option('elevenlabs', 'ElevenLabs', voicePlugin, voiceBinding)];
+  if (grokPlugin) voices.push(option('grok-voice', 'Grok Voice (xAI)', grokPlugin, grokBinding));
   // One Visuals control: HTML click-dummies and image concepts are alternatives of one choice.
   let visuals = [option('fake-html', 'Demo only: clickable draft', htmlPlugin, htmlBinding, 'html'),
     option('claude-html', 'Clickable draft', htmlPlugin, htmlBinding, 'html'),
     option('fake-images', 'Demo only: sample images', imagePlugin, imageBinding), option('openai-images', 'OpenAI GPT Image 2', imagePlugin, imageBinding)];
-  const extras = [voicePlugin, imagePlugin, htmlPlugin].filter(Boolean).map(plugin => plugin.manifest.id);
+  const extras = [voicePlugin, grokPlugin, imagePlugin, htmlPlugin].filter(Boolean).map(plugin => plugin.manifest.id);
   if (provider !== 'mock') {
     // START-consented concrete models begin with openai, anthropic or x-ai.
     // A separate alias/ namespace avoids collisions without allowing ~ in client settings.
@@ -45,17 +46,17 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
       label: replyName === understandingName ? replyName : `${replyName} / ${understandingName}` };
     // Only configured live providers; the operator's explicit fake HTML is labelled a demo.
     const live = o => o.binding && (!o.id.startsWith('fake-') || htmlDemo && o.id === 'fake-html');
-    voices = voices.filter(live);
+    voices = voices.filter(o => live(o) || o.id === 'grok-voice');
     visuals = visuals.filter(live).map(o => o.id === 'fake-html' ? { ...o, label: 'Demo only: clickable draft (no provider)' } : o);
-    const offered = new Set([...voices, ...visuals].map(o => o.binding.plugin));
+    const offered = new Set([...voices, ...visuals].map(o => o.binding?.plugin ?? o.id));
     return {
       best: { plugins: [provider, ...extras.filter(id => offered.has(id))], policy, choices: { models: [route], voices, visuals,
-        defaults: { model: route.id, voice: voices[0]?.id ?? 'off', visuals: visuals[0]?.id ?? 'off' } } },
+        defaults: { model: route.id, voice: voices.find(o => o.id !== 'grok-voice' && o.binding)?.id ?? 'off', visuals: visuals[0]?.id ?? 'off' } } },
       eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
     };
   }
   const external = { id: 'openrouter/openai/gpt-4.1-mini', label: 'GPT-4.1 mini via OpenRouter' };
-  const voice = voices.find(o => o.binding)?.id ?? 'off', images = visuals.find(o => o.binding)?.id ?? 'off';
+  const voice = voices.find(o => o.id !== 'grok-voice' && o.binding)?.id ?? 'off', images = visuals.find(o => o.binding)?.id ?? 'off';
   const plugins = ['mock', ...extras];
   return {
     // Best models: the host's recommendation, with voice and visual concepts ready.

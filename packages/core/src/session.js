@@ -57,8 +57,13 @@ export function applyEvent(session, event) {
   if (event.type === 'turn.final') {
     const data = event.data.role === 'assistant' && ('question_short' in event.data || 'options' in event.data)
       ? { ...event.data, ...parseReply(event.data) } : event.data;
-    next.transcript.push(withAITextOrigin(data));
+    next.transcript.push(withAITextOrigin({ ...data, ...(next.voiceInterruptions?.[data.id]
+      ? { interruption: next.voiceInterruptions[data.id] } : {}) }));
     if (event.data.role === 'user') next.inputRevision += 1;
+  } else if (event.type === 'voice.interrupted') {
+    next.voiceInterruptions = { ...next.voiceInterruptions, [event.data.id]: event.data.interruption };
+    next.transcript = next.transcript.map(turn => turn.id === event.data.id && turn.role === 'assistant'
+      ? { ...turn, interruption: event.data.interruption } : turn);
   } else if (event.type === 'turn.annotated') {
     // Reply identity/ordering annotates transcript only, never operation state.
     next.transcript = next.transcript.map(turn => turn.id === event.data.id ? { ...turn, ...event.data } : turn);

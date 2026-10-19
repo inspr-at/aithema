@@ -7,7 +7,7 @@ export const ttsWire = {
   done: { type: 'audio.done', trace_id: '00000000-0000-4000-8000-000000000345' },
   interrupted: { type: 'audio.clear' },
 };
-export function ttsHarness({ mode: initial = 'completed', onSend, onRead } = {}) {
+export function ttsHarness({ mode: initial = 'completed', onSend, onRead, audioBytes = 4 } = {}) {
   let mode = initial, requests = 0, active = 0, reads = 0;
   const sent = [], urls = [], stalled = () => new Promise(() => {});
   const connect = async ({ url }) => {
@@ -22,7 +22,7 @@ export function ttsHarness({ mode: initial = 'completed', onSend, onRead } = {})
       : mode === 'noncanonical-base64' ? [{ ...ttsWire.audio, delta: 'AAB=' }]
       : mode === 'odd-pcm' ? [{ ...ttsWire.audio, delta: 'AA==' }]
       : mode === 'provider-error' ? [{ type: 'error', message: 'Synthetic failure' }]
-      : [ttsWire.audio, ...(mode === 'missing-final' ? [] : [mode === 'interrupted' ? ttsWire.interrupted
+      : [{ ...ttsWire.audio, delta: Buffer.alloc(audioBytes).toString('base64') }, ...(mode === 'missing-final' ? [] : [mode === 'interrupted' ? ttsWire.interrupted
         : mode === 'missing-trace' ? { type: 'audio.done' } : ttsWire.done])];
     return { close, send(value) { sent.push(JSON.parse(value)); return onSend?.(JSON.parse(value)); },
       events: { [Symbol.asyncIterator]() { return this; }, next() {

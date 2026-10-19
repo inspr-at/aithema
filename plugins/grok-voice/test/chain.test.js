@@ -13,9 +13,9 @@ import { ttsHarness } from './tts-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const pcm = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 
-function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0 } = {}) {
+function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0, ttsMode = 'completed', ttsAudioBytes = 4 } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'owner' });
-  const voice = binding(), stt = sttHarness(), tts = ttsHarness(), consumed = [], reports = [], coverage = [], played = [], persisted = [];
+  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode, audioBytes: ttsAudioBytes }), consumed = [], reports = [], coverage = [], played = [], persisted = [], reasoningRequests = [], controlErrors = [];
   const budget = new SQLiteBudgetLedger(storage), accounting = createComposedComponentAccounting({ storage, budget });
   voice.visitorMicroPerMinute = visitorMicroPerMinute;
   const reasoning = { plugin: 'fixture-reasoning', model: 'admitted-answer', endpoint: 'https://reasoning.test',
@@ -31,7 +31,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
   } };
   const reasoningPlugin = { binding: reasoning, manifest: publicReasoningManifest(reasoning.plugin, 'Fixture reasoning', reasoning.endpoint),
     health: async () => ({ available: true }), structured() { assert.fail('Voice reasoning must use streaming'); }, async *stream(request, options) {
-      await options.attempt.consume(); consumed.push('reasoning');
+      await options.attempt.consume(); consumed.push('reasoning'); reasoningRequests.push(request);
       assert.ok(request.messages.some(message => message.role === 'user' && message.content === 'Hello world.'));
       yield 'Which company?'; await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 1,
         usage: { inputTokens: 2, outputTokens: 3 } });
@@ -61,7 +61,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
   }) };
   for (const action of ['close', 'pause', 'resume', 'heartbeat', 'recover']) control[action] = async identity => {
     const response = await post(`/${identity.callId}/${action}`, { ...identity, tabId: 'tab' });
-    const value = await response.json(); if (!response.ok) throw Object.assign(new Error(value.error), { status: response.status, code: value.error }); return value;
+    const value = await response.json(); if (!response.ok) { controlErrors.push({ action, ...value }); throw Object.assign(new Error(value.error), { status: response.status, code: value.error }); } return value;
   };
   let onAudio, captureStops = 0, stops = 0;
   const client = createGrokVoiceClient({ control,
@@ -70,7 +70,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
     capture: async options => { onAudio = options.onAudio; return { stop() { captureStops++; } }; },
     player: { play(bytes, format) { played.push({ bytes, ...format }); }, stop() { stops++; } } });
   t.after(async () => { p.networkRelay?.close(); await handlers.close(); storage.close(); });
-  return { storage, session, runtime, post, p, client, control, played, consumed, reports, coverage, persisted,
+  return { storage, session, runtime, post, p, client, control, played, consumed, reports, coverage, persisted, reasoningRequests, controlErrors,
     audio: bytes => onAudio(bytes), get captureStops() { return captureStops; }, get stops() { return stops; } };
 }
 
@@ -135,4 +135,58 @@ test('AIT-346: withdrawal fences queued output and stops browser media', async t
   for (let i = 0; i < 15; i++) await tick();
   assert.equal(h.played.length, 0); assert.ok(h.captureStops > 0); assert.ok(h.stops > 0);
   await session.close().catch(() => {});
+});
+
+for (const denied of ['voice-xai', undefined]) test(`AIT-350: Settings switches binding only with current Grok consent (${denied ?? 'granted'}) without starting media`, async t => {
+  const h = fixture(t, { denied }), session = { ...h.storage.get(h.session.id), settings: { ...h.storage.get(h.session.id).settings, voice: 'off' } };
+  const catalog = await h.runtime.catalog(session), voice = catalog.presets.best.voices[0];
+  const result = await h.runtime.validate(session, { voice: voice.id });
+  if (denied) assert.deepEqual(result, { status: 409, error: 'setting-not-allowed', field: 'voice', reason: 'current processing consent required' });
+  else assert.equal(result.settings.voice, voice.id);
+  assert.deepEqual(voice.facts.providerProcessing, { vendor: 'xAI', recipientCountries: ['US'], processingCountries: null, verification: 'current' });
+  assert.equal(voice.facts.hostCountries, undefined, 'recipient nationality cannot qualify the processing vial');
+  assert.deepEqual(h.consumed, [], 'catalogue and Settings never start paid components');
+});
+
+test('AIT-349: real Grok chain interrupts synthesis locally, persists full reply once, and recovers with model awareness', async t => {
+  const h = fixture(t, { ttsAudioBytes: 48000 });
+  const session = await h.client.start({ callId: 'truthful-chain' }, { deadlineAt: Date.now() + 5000 });
+  t.after(() => session.close().catch(() => {}));
+  await h.audio(pcm()); await h.audio(Buffer.alloc(16000));
+  for (let i = 0; i < 200 && !h.played.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(h.played.length, 1);
+  const before = h.stops, interrupt = session.interrupt();
+  assert.ok(h.stops > before, 'browser silence precedes remote acknowledgement');
+  await interrupt; await session.interrupt();
+  for (let i = 0; i < 15; i++) await tick();
+  const reply = h.storage.get(h.session.id).transcript.find(turn => turn.role === 'assistant');
+  assert.equal(reply.content, 'Which company?'); assert.deepEqual(reply.interruption, { heardLength: 'unknown' });
+  assert.equal(h.persisted.filter(event => event.type === 'voice.interrupted').length, 1);
+  const original = session.providerSessionId;
+  await session.pause();
+  try { await session.resume(); } catch (error) { t.diagnostic(JSON.stringify(h.controlErrors)); throw error; }
+  assert.notEqual(session.providerSessionId, original);
+  assert.deepEqual(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).interruption, { heardLength: 'unknown' });
+  assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
+  assert.equal(h.played.length, 1, 'recovery never replays old synthesis');
+  await session.sendText('Continue', { deliveryId: 'after-recovery' });
+  for (let i = 0; i < 200 && h.reasoningRequests.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(h.reasoningRequests.length, 2);
+  assert.match(h.reasoningRequests[1].system, /heard length is unknown/u);
+  assert.ok(h.reasoningRequests[1].messages.some(message => message.content.includes('Which company?')));
+});
+
+test('AIT-349: an authenticated browser cannot invent a Grok heard prefix or truncate the generated record', async t => {
+  const h = fixture(t), session = await h.client.start({ callId: 'unavailable-heard' }, { deadlineAt: Date.now() + 5000 });
+  t.after(() => session.close());
+  await h.audio(pcm()); await h.audio(Buffer.alloc(16000));
+  for (let i = 0; i < 200 && !h.played.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  const reply = h.storage.get(h.session.id).transcript.find(turn => turn.role === 'assistant');
+  assert.ok(reply);
+  const response = await h.post(`/${session.callId}/events`, { providerSessionId: session.providerSessionId, epoch: session.epoch, tabId: 'tab',
+    event: { type: 'heard', callId: session.callId, providerSessionId: session.providerSessionId, turnId: reply.id, prefix: 'Which' } });
+  assert.equal(response.status, 403);
+  assert.equal(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).content, 'Which company?');
+  assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
+  await session.close();
 });

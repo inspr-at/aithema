@@ -12,7 +12,7 @@ import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtif
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SETTINGS_REVISIONS = 1000;
-const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId'];
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId', 'interruption'];
 
 // Only core-owned session rows belong here. Host extensions are cleaned by retired.
 export const CORE_RETIREMENT_TABLES = Object.freeze([
@@ -623,7 +623,7 @@ export class SQLiteStorage {
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId', 'interruption'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -834,9 +834,10 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session, guard);
       if (session.paused || session.consentWithdrawn) throw new ConflictError('Voice publication blocked');
       const { type, turnId } = value;
-      if (!['final', 'heard', 'reply'].includes(type) || typeof turnId !== 'string' || turnId.length > 256 ||
+      if (!['final', 'heard', 'reply', 'interrupted'].includes(type) || typeof turnId !== 'string' || turnId.length > 256 ||
         !turnId.startsWith(providerId + ':') || value.callId !== callId ||
         (type === 'final' && (!['user', 'assistant'].includes(value.role) || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 16000)) ||
+        (type === 'interrupted' && (value.heardLength !== 'unknown' || Object.hasOwn(value, 'heard') || Object.hasOwn(value, 'prefix'))) ||
         (type === 'heard' && (typeof value.prefix !== 'string' || value.prefix.length > 16000)) ||
         (type === 'reply' && (typeof value.replyId !== 'string' || !/^chatcmpl-[a-zA-Z0-9_-]{1,100}$/u.test(value.replyId)))) throw new TypeError('Invalid voice event');
       const clientId = 'voice:' + hash(JSON.stringify({ callId, turnId, type, ...(type === 'heard' ? { prefix: value.prefix } : {}) }));
@@ -848,7 +849,11 @@ export class SQLiteStorage {
       }
       const turn = session.transcript.find(t => t.id === turnId);
       let event;
-      if (type === 'reply') {
+      if (type === 'interrupted') {
+        if (turn && (turn.role !== 'assistant' || turn.erased || turn.withdrawn)) throw new ConflictError('Reply transcript unavailable');
+        event = this.#append(session, 'voice.interrupted', { id: turnId, callId, providerSessionId: providerId,
+          interruption: { heardLength: 'unknown' } });
+      } else if (type === 'reply') {
         if (!turn || turn.role !== 'assistant' || turn.erased || turn.withdrawn) throw new ConflictError('Reply transcript missing');
         if (!guard.replyId || turn.replyId === guard.replyId) return { event: this.read(id).findLast(event =>
           ['turn.final', 'turn.corrected', 'turn.annotated'].includes(event.type) && event.data.id === turnId), replayed: true };

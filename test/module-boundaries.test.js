@@ -225,3 +225,16 @@ test('speech conformance kits share the supported core root export', async () =>
   }
   await assert.rejects(import('@inspr/aithema-core/speech-conformance'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
 });
+
+test('AIT-350: only the reference server can load the exact Grok host-module expression', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-grok-host-edge-'));
+  mkdirSync(resolve(dir, 'demo'));
+  const source = 'import(pathToFileURL(resolve(process.env.AITHEMA_GROK_VOICE_HOST_MODULE)).href);';
+  writeFileSync(resolve(dir, 'demo/server.js'), source);
+  assert.deepEqual(checkBoundaries(dir), []);
+  writeFileSync(resolve(dir, 'demo/other.js'), source);
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Non-literal')));
+  writeFileSync(resolve(dir, 'demo/other.js'), '');
+  writeFileSync(resolve(dir, 'demo/server.js'), source.replace('GROK_VOICE', 'OTHER'));
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Non-literal')));
+});
