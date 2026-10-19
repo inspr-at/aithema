@@ -910,7 +910,10 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     const validate = async (state, message, focus = false) => {
       const s = await snapshot(); assert.equal(s.state, state, label); assert.equal(s.text, s.copy[message], label);
       assert.equal(s.polite, 'polite'); assert.equal(s.role, 'status'); assert.equal(s.theme, theme);
-      if (focus) assert.equal(s.focused, 'retry', `${label}: focus goes to recovery action`);
+      if (focus) {
+        assert.equal(s.focused, 'retry', `${label}: focus goes to recovery action`);
+        assert.equal(await page.$eval('#retry', node => { const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }), true, `${label}: focused recovery action is visible`);
+      }
       assert.ok(s.lines <= (width === 390 ? 2 : 1), `${label}/${state}: reserved text rows (${s.lines})`);
       assert.equal(s.textFits, true, `${label}/${state}: all copy fits`);
       assert.equal(s.announcements.filter(a => a.state === state).at(-1)?.text, s.text);
@@ -935,7 +938,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     await page.evaluate(async () => { const f = consentDeadline; f.stallGet = false; f.lateGets.at(-1).resolve(Response.json({ ...f.contract, selected: f.selected })); await f.flush(); f.api = await f.mounting; });
     // mount returns after its original timeout; the retried load settles separately.
     await page.waitForFunction(() => document.querySelector('#consent-status').dataset.state === 'ready');
-    await page.evaluate(async () => { document.querySelector('[data-select-all]').click(); document.querySelector('[data-grant]').click(); await consentDeadline.flush(); });
+    await page.evaluate(async () => { document.querySelector('[data-select-all]').click(); const bottom = document.querySelector('.consent-actions--bottom [data-grant]'); bottom.scrollIntoView({ block: 'center', behavior: 'instant' }); bottom.focus({ preventScroll: true }); bottom.click(); await consentDeadline.flush(); });
     const saving = await validate('saving', 'saving'); assert.equal(saving.revokeDisabled, false); stable(loading, saving, 'C1-C2');
     await page.evaluate(() => consentDeadline.advance(9999)); assert.equal((await snapshot()).state, 'saving');
     await page.evaluate(() => consentDeadline.advance(1));
@@ -973,4 +976,63 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     assert.equal(checks.at(-1).targets44px, true);
   }
   if (evidence) await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-376 Tick v1', checks }, null, 2));
+});
+
+
+// Probe every actual status string, including legacy errors, with the page's
+// real typography. Legacy screenshots are reached through the mounted page.
+test('AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-consent-fit-'));
+  const demo = await startDemo(directory); let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); } });
+  browser = await launch(directory, 'consent-fit'); const page = await browser.newPage();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setViewport({ width: 390, height: 1000 }); await page.setRequestInterception(true);
+  page.on('request', request => { if (new URL(request.url()).pathname === '/demo/consent.js') void request.respond({ status: 200, contentType: 'text/javascript', body: '' }); else void request.continue(); });
+  for (const locale of ['de', 'en']) {
+    await page.goto(`${demo.url}/consent/?session=fit`, { waitUntil: 'networkidle0' });
+    await page.evaluate(async ({ locale, items }) => {
+      localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-theme', 'light');
+      const [{ mountConsentPage }, { withDemoConsentCopy }, language] = await Promise.all([import('/demo/consent-page.js'), import('/demo/consent-copy.js'), import(`/packages/ui/src/i18n/${locale}.js`)]);
+      const copy = withDemoConsentCopy(language[locale]), f = window.consentFit = { copy, mode: 'ready' };
+      f.api = await mountConsentPage({ navigate: () => {}, fetchImpl: async path => {
+        if (path === '/demo/config') return Response.json({ processingConsent: { contract: 'v1', items } });
+        if (path === '/api/sessions/fit') return Response.json({ id: 'fit', locale, engine: {}, consentRevision: 1 });
+        if (f.mode === 'failed') throw new Error('Fixture failed read');
+        if (f.mode === 'missing') return new Response(null, { status: 404 });
+        return Response.json({ contract: f.mode === 'stale' ? 'v2' : 'v1', items, selected: [], consentRevision: 1 });
+      }, submit: async () => Response.json({ error: 'host-consent-required' }, { status: 409 }) });
+    }, { locale, items: CONSENT_ITEMS });
+    const fit = async name => {
+      const result = await page.evaluate(() => {
+        const text = document.querySelector('#status-text'), retry = document.querySelector('#retry'), range = document.createRange(); range.selectNodeContents(text);
+        const bounds = text.getBoundingClientRect(), action = retry.getBoundingClientRect(), ink = [...range.getClientRects()].filter(r => r.width);
+        return { text: text.textContent, fits: ink.every(r => r.left >= bounds.left && r.right <= bounds.right + .01 && r.bottom <= bounds.bottom + .01 && r.bottom <= action.top), lines: new Set(ink.map(r => r.y)).size };
+      });
+      assert.equal(result.fits, true, `${locale}/${name}: text stays inside its slot above the action row`);
+      checks.push({ locale, width: 390, state: name, ...result });
+    };
+    for (const state of ['stale', 'failed', 'missing']) {
+      await page.evaluate(async state => { const f = consentFit; f.mode = 'ready'; await f.api.load(); f.mode = state;
+        if (state === 'stale') { document.querySelector('[data-select-all]').click(); await f.api.save(); } else await f.api.load();
+      }, state);
+      assert.equal(await page.$eval('#consent-status', node => node.dataset.state), state);
+      await fit(state);
+      if (evidence) {
+        await page.evaluate(async () => { document.activeElement?.blur(); scrollTo(0, 0); await document.fonts.ready; await Promise.all(document.getAnimations().map(a => a.finished)); });
+        await page.mouse.move(-10, -10); await settleEvidenceFrame(page);
+        await page.screenshot({ path: join(evidence, `ait375a-390-light-${locale}-${state}.png`), fullPage: false, captureBeyondViewport: false });
+      }
+    }
+    const names = await page.evaluate(() => {
+      const h = consentFit.copy.host, c = h.consentPage;
+      consentFit.messages = { loading: c.loading, saving: c.saving, loadTimeout: c.loadTimeout, saveUnconfirmed: c.saveUnconfirmed, notSavedYet: c.notSavedYet,
+        withdrawUnconfirmed: c.withdrawUnconfirmed, stale: c.stale, failed: h.consentFailed, missing: c.missing, withdrawn: h.consentWithdrawn,
+        processingSaved: h.processingSaved, allowed: h.consentAllowed, processingWaiting: h.processingWaiting, required: h.consentRequired, unavailable: '' };
+      return Object.keys(consentFit.messages);
+    });
+    for (const name of names) { await page.$eval('#status-text', (node, name) => { node.textContent = consentFit.messages[name]; }, name); await fit(name); }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait375a-fit-checks.json'), JSON.stringify({ commit: evidenceCommit, checks }, null, 2));
 });
