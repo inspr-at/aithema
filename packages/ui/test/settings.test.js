@@ -1,3 +1,4 @@
+import { BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
@@ -982,8 +983,8 @@ for (const copy of [de, en]) for (const rated of [false, true]) {
   });
 }
 
-for (const [copy, plain] of [[de, 'Sprache ist derzeit nicht verfügbar'], [en, 'Voice is currently unavailable']]) {
-  for (const reason of ['binding evidence unverified', 'delegated reasoning: binding evidence unverified']) {
+for (const [copy, plain] of [[de, 'Derzeit nicht verfügbar'], [en, 'Currently unavailable']]) {
+  for (const reason of BINDING_REASON_CODES.flatMap(code => [code, `delegated reasoning: ${code}`])) {
     for (const surface of ['settings', 'chooser']) {
       test(`AIT-380 round 3 ${copy.display.locale}: ${surface} refusal after offer stays neutral (${reason})`, async t => {
         const pending = Promise.withResolvers(); t.after(() => pending.resolve(new Response(null, { status: 503 })));

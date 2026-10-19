@@ -397,7 +397,7 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
   assert.ok(root.querySelector('.display-foot .engine__value'));
   assert.equal(root.querySelector('.settings-open').getAttribute('aria-haspopup'), 'dialog');
   assert.equal(root.querySelector('.preset-choice'), null, 'presets change through acknowledged settings, never a raw select');
-  const expired = en.reasons['binding evidence expired'];
+  const expired = en.chooser.unavailable;
   assert.ok(root.querySelector('.features').textContent.includes(expired), 'machine reasons show in the page language');
   assert.ok(!root.querySelector('.features li').classList.contains('unavailable'));
   root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));

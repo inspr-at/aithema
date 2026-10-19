@@ -1,3 +1,4 @@
+import { BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
@@ -1374,7 +1375,7 @@ test('AIT-380 round 2: retained voice admission refusal uses neutral copy across
   }
 });
 
-for (const reason of ['binding evidence unverified', 'delegated reasoning: binding evidence unverified']) {
+for (const reason of BINDING_REASON_CODES.flatMap(code => [code, `delegated reasoning: ${code}`])) {
   test(`AIT-380 round 3: retained rail refusal is plain across locales (${reason})`, t => {
     const { rail, root } = fixture(t);
     rail.failure({ code: 'not-admitted', reason });

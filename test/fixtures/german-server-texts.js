@@ -65,3 +65,9 @@ export const VOICE_REASON_CODES = [
   'secret-list-invalid', 'secret-name-ambiguous', 'secret-ownership-unproven', 'secret-create-invalid', 'agent-create-invalid',
   'agent-readback-mismatch',
 ];
+
+// AIT-380 Tick v2: technical evidence refusals use feature-neutral visitor copy.
+export const BINDING_REASON_CODES = [
+  'manifest evidence expired', 'binding evidence unverified', 'binding evidence mismatch',
+  'binding evidence not yet valid', 'binding evidence expired',
+];
