@@ -307,7 +307,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             endAt = Math.max(frameEndAt, now() + durationMs);
             // Fragment dispatch does not start a new speaking phase. Extra
             // control polls at sentence boundaries can delay paced PCM.
-            if (!speaking) { speaking = true; event({ type: 'speaking' }); }
+            if (!speaking) { speaking = true; event({ type: 'speaking', audio: true, filler: false }); }
             await voiceOperation(opts, () => {
               // The speaking event can synchronously trigger silence. Fence
               // publication again inside the host callback.

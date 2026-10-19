@@ -290,10 +290,10 @@ export class AudioRail {
       error?.name === 'NotFoundError' ? 'voiceMicMissing' :
       error?.name === 'NotReadableError' ? 'voiceMicBusy' :
       error?.name === 'NoMediaAPIError' ? 'voiceMicUnavailable' :
-      ['OverconstrainedError', 'AbortError'].includes(error?.name) || error?.phase === 'microphone' ? 'voiceMicFailed' :
       error?.code === 'not-admitted' ? 'voiceAdmissionDenied' :
       error?.code === 'voice-conflict' ? 'voiceConflict' :
-      error?.code === 'deadline' ? 'voiceDeadline' : 'voiceConnectionFailed';
+      error?.code === 'deadline' ? 'voiceDeadline' :
+      error?.name === 'OverconstrainedError' || error?.phase === 'microphone' ? 'voiceMicFailed' : 'voiceConnectionFailed';
     this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
     this.retryAt = voiceRetryAt(error);
     this.render();

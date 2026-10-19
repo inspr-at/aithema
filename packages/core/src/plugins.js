@@ -28,8 +28,9 @@ export const MANIFEST_SCHEMA = object({
   })),
   liveVoice: object({ reasoning: { enum: ['delegated', 'native'] },
     transcript: object({ finality: { enum: ['fragments', 'turns'] }, persistence: { enum: ['durable', 'memory-only'] } }),
-    capabilities: object(Object.fromEntries(['sendText', 'updateContext', 'setInput', 'setOutput', 'pause', 'resume', 'interrupt', 'heard']
-      .map(k => [k, capability]))),
+    capabilities: object({ ...Object.fromEntries(['sendText', 'updateContext', 'setInput', 'setOutput', 'pause', 'resume', 'interrupt', 'heard',
+      'onMicrophoneState', 'replyStarted'].map(k => [k, capability])), opener: { type: 'boolean' } },
+      ['sendText', 'updateContext', 'setInput', 'setOutput', 'pause', 'resume', 'interrupt', 'heard']),
     billing: object({ visitor: string, upstream: string }),
     ownership: object(Object.fromEntries(['stt', 'tts', 'turnTaking'].map(k => [k, { enum: ['provider', 'server', 'browser'] }]))),
     optionalCapabilities: object(Object.fromEntries(['forceInterrupt', 'alignment', 'playbackRetry', 'metering', 'speakText'].map(k => [k, capability])), []),

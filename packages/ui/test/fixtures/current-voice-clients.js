@@ -6,7 +6,7 @@ import { voiceEvents } from '../../../core/src/live-voice.js';
 // by the controlled-clock regression and the viewport evidence (no provider I/O).
 export function currentVoiceClient(provider, { permission = Promise.resolve(), enabled = false, connection = Promise.resolve(), credential = Promise.resolve(), microphoneError } = {}) {
   const requests = [], options = [], streams = [];
-  let callbacks, capture, generation = 0, acquired = 0;
+  let callbacks, capture, currentCallId, generation = 0, acquired = 0;
   const receipt = request => {
     const providerSessionId = `fixture-${++generation}`, until = Date.now() + 300_000;
     return { callId: request.callId, providerSessionId, epoch: 1,
@@ -16,7 +16,7 @@ export function currentVoiceClient(provider, { permission = Promise.resolve(), e
         opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } } };
   };
   const control = {
-    async start(request, opts) { requests.push('start'); options.push(opts); await credential; return receipt(request); },
+    async start(request, opts) { currentCallId = request.callId; requests.push('start'); options.push(opts); await credential; return receipt(request); },
     async recover(request) { requests.push('recover'); return receipt(request); },
     async close() { return { closureConfirmed: true, usage: { costEstimated: false } }; },
     async pause() { return { acknowledged: true, paused: true }; },
@@ -42,10 +42,10 @@ export function currentVoiceClient(provider, { permission = Promise.resolve(), e
     : createGrokVoiceClient({ control,
       async openRelay() {
         const frames = voiceEvents(); streams.push(frames);
-        return { frames: { async *[Symbol.asyncIterator]() { for await (const event of frames) yield { type: 'event', event }; } }, async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } };
+        return { frames: { async *[Symbol.asyncIterator]() { for await (const event of frames) yield event.type === 'audio' ? event : { type: 'event', event: { callId: currentCallId, ...event } }; } }, async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } };
       },
       async capture(opts) { capture = opts; acquired++; opts.onMicrophoneState?.('requesting'); await permission; if (microphoneError) throw Object.assign(microphoneError, { phase: 'microphone' }); opts.onMicrophoneState?.('granted'); await connection; return { stop() {} }; },
-      player: { play() {}, stop() {} } });
+      player: { play(_bytes, opts) { opts.onStarted?.(); }, stop() {} } });
   // Keep AIT-377's compatibility assertions for undeclared clients verbatim.
   const legacy = { ...client, manifest: structuredClone(client.manifest),
     start(request, opts) { const { onMicrophoneState, ...rest } = opts; return client.start(request, rest); } };
@@ -67,7 +67,7 @@ export function currentVoiceClient(provider, { permission = Promise.resolve(), e
         const conversation = sdk.conversation;
         conversation.connection.handleMessage({ type: 'audio', audio_event: { event_id: 20,
           alignment: { chars: [...text] } } });
-      } else streams.at(-1).push({ type: 'speaking', audio: true, filler: false });
+      } else streams.at(-1).push({ type: 'audio', playbackRevision: 0, format: 'pcm_s16le', sampleRateHz: 16000, channels: 1, bytes: new Uint8Array([1, 1]) });
     },
     end() { for (const stream of streams) stream.end(); } };
 }

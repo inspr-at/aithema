@@ -30,7 +30,9 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       if (stopped || hold || !input || recording) return;
       const controller = new AbortController(); captureController = controller;
       const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
-      const next = await capture({ signal, format: 'pcm_s16le', sampleRateHz: 16000,
+      const next = await capture({ signal, onMicrophoneState: phase => {
+        if (!stopped && !hold && input && !signal.aborted && captureController === controller && mediaOwner === owner) options.onMicrophoneState?.(phase);
+      }, format: 'pcm_s16le', sampleRateHz: 16000,
         onError: () => { if (!stopped && !hold) void lifecycle.recover(); },
         onAudio: audio => {
           if (stopped || hold || !input || mediaOwner !== owner) return Promise.resolve();
@@ -93,7 +95,9 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
               if (!terminalEventSent) { terminalEventSent = true; events.push(frame.event); }
               await session.close({ reason: frame.event.reason }); return;
             }
-            events.push(frame.event);
+            // A server frame proves generation, while the device port proves
+            // audible start. Autoplay-blocked or muted audio cannot clear S5.
+            events.push(frame.event.type === 'speaking' ? { ...frame.event, audio: false } : frame.event);
           }
         }
         if (!stopped && source === transport) {
@@ -113,7 +117,10 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       // Failures can arrive after pause, interruption or replacement; only the owning flight may affect the rail.
       void Promise.resolve().then(() => {
         if (!pendingPlayback.has(token)) return;
-        return player.play(frame.bytes, { format: frame.format, sampleRateHz: frame.sampleRateHz, channels: frame.channels, replyId: frame.replyId });
+        return player.play(frame.bytes, { format: frame.format, sampleRateHz: frame.sampleRateHz, channels: frame.channels, replyId: frame.replyId, onStarted: () => {
+          if (!stopped && !hold && output && !playbackBlocked && source === transport && pendingPlayback.has(token))
+            events.push({ type: 'speaking', callId: grant.callId, providerSessionId: grant.providerSessionId, audio: true, filler: frame.filler === true });
+        } });
       }).catch(error => {
         if (stopped || source !== transport || !pendingPlayback.has(token)) return;
         if (error?.name === 'NotAllowedError') {

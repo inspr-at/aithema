@@ -40,7 +40,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     permission.resolve(); await flush(); assert.equal(rail.startupPhase, null);
     await advance(t, 29_999); assert.equal(rail.state, 'connecting');
     await advance(t, 1); await start; assert.equal(rail.errorKey, 'voiceDeadline');
-    assert.equal(rail.controller, null);
+    assert.equal(rail.controller.signal.aborted, true);
   });
   test(`AIT-383 ${provider}: grant at 20 s fails at 50 s`, async t => {
     const permission = Promise.withResolvers(), connection = Promise.withResolvers();
