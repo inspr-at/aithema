@@ -943,10 +943,12 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     await page.evaluate(async () => { consentDeadline.posts[0].resolve(Response.json({ granted: true })); await consentDeadline.flush(); });
     const late = await snapshot(); assert.equal(late.state, unknown.state); assert.equal(late.text, unknown.text); assert.deepEqual(late.returns, []);
     await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
+    await page.waitForFunction(() => document.querySelector('#consent-status').dataset.state === 'ready');
     const different = await validate('ready', 'notSavedYet');
     assert.equal(different.grantDisabled, false); assert.equal(different.fieldsDisabled, false); assert.equal(different.posts.length, 1); stable(saving, different, 'C4-reread-different');
     // The matching GET is authoritative and returns without another POST.
     await page.evaluate(async () => { document.querySelector('[data-select-all]').click(); document.querySelector('[data-grant]').click(); await consentDeadline.flush(); await consentDeadline.advance(10000); consentDeadline.selected = consentDeadline.contract.items.map(i => i.id); document.querySelector('#retry').click(); await consentDeadline.flush(); });
+    await page.waitForFunction(() => consentDeadline.returns.length === 1);
     assert.deepEqual((await snapshot()).returns, ['/?saved=1']); assert.equal((await snapshot()).posts.length, 2);
     await page.evaluate(async () => { const f = consentDeadline; f.returns.length = 0; await f.api.load(); document.querySelector('[data-grant]').click(); await f.flush(); });
     assert.equal((await snapshot()).revokeDisabled, false); await shot('C5');
