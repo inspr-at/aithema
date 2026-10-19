@@ -1221,3 +1221,18 @@ for (const kind of ['html', 'image']) test(`AIT-365 R2: a grant changed list can
   assert.equal(root.querySelector('.concept-html').artifact, null);
   assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
 });
+
+for (const kind of ['html', 'image']) test(`AIT-365 R2 E1 ${kind}: a stale missing selection cannot suppress withdrawal removal`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open(kind); await tick();
+  const feature = kind === 'html' ? 'html' : 'images';
+  view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // Exercise the synchronous removal helper with an explicit withdrawal direction.
+  view.reviseConsent([feature === 'html' ? 'html-drafts' : feature], false);
+  assert.equal(view.dialog.open, false, 'a stale document is not proof of a grant during withdrawal');
+  assert.equal(view.items.some(item => item.id === kind), false);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+});
