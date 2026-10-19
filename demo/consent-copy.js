@@ -19,6 +19,11 @@ const hostCopy = {
       off: 'Die lokalen Demo-Modelle und die Test-Sprache verwenden Ihr Gespräch, um zu antworten und ein Verständnis aufzubauen.',
     },
     consentPage: {
+      loadTimeout: 'Die Einwilligungen konnten nicht geladen werden. Versuchen Sie es erneut.',
+      saveUnconfirmed: 'Ihre Auswahl wurde nicht bestätigt. Laden Sie den aktuellen Stand, bevor Sie erneut speichern.',
+      loadCurrent: 'Aktuellen Stand laden',
+      notSavedYet: 'Ihre Auswahl ist noch nicht gespeichert.',
+      withdrawUnconfirmed: 'Der Widerruf wurde nicht bestätigt. Versuchen Sie es erneut.',
       mockRecipients: 'Empfänger: die lokale Demo; keine weiteren Auftragsverarbeiter.',
       mockConsequence: 'Ohne Einwilligung bleibt die Demo-Verarbeitung nicht verfügbar.',
       mockTerms: 'Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.',
@@ -33,6 +38,11 @@ const hostCopy = {
       off: 'The local demo models and simulated voice use your conversation to reply and build understanding.',
     },
     consentPage: {
+      loadTimeout: "Couldn't load your permissions. Try again.",
+      saveUnconfirmed: "Your choice wasn't confirmed. Load the current state before saving again.",
+      loadCurrent: 'Load current state',
+      notSavedYet: "Your choice isn't saved yet.",
+      withdrawUnconfirmed: "Withdrawal wasn't confirmed. Try again.",
       mockRecipients: 'Recipient: the local demo; no upstream processors.',
       mockConsequence: 'Without consent, demo processing remains unavailable.',
       mockTerms: 'This covers conversation data, item version 1, for twelve months. Grants live in memory; grant again after a server restart.',

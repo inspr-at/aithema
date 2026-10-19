@@ -835,3 +835,135 @@ async function postRelease297(browserPage, t, legalHTML) {
     }
   }
 }
+
+// AIT-376: reuse one browser and page for the deadline matrix. All consent I/O
+// is deferred in-page; the real page, legal document, CSS and action wiring run.
+test('AIT-376: consent deadline viewport matrix, focus, announcements and zero movement', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-consent-deadlines-'));
+  const demo = await startDemo(directory); let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); } });
+  browser = await launch(directory, 'consent-deadlines');
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/demo/consent.js') void request.respond({ status: 200, contentType: 'text/javascript', body: '' });
+    else void request.continue();
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const matrix = [
+    { width: 1440, theme: 'light', locale: 'de' }, { width: 1440, theme: 'light', locale: 'en' },
+    { width: 390, theme: 'light', locale: 'de' }, { width: 390, theme: 'light', locale: 'en' },
+    { width: 1440, theme: 'dark', locale: 'de' },
+  ];
+  for (const variant of matrix) {
+    const { width, theme, locale } = variant, label = `${width}/${theme}/${locale}`;
+    await page.setViewport({ width, height: width === 390 ? 1000 : 900 });
+    await page.goto(`${demo.url}/consent/?session=deadline&return=%2F%3Fsaved%3D1`, { waitUntil: 'networkidle0' });
+    await page.evaluate(async ({ theme, locale }) => {
+      localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-demo-theme', theme);
+      const [{ mountConsentPage }, { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL }, { withDemoConsentCopy }, language] = await Promise.all([
+        import('/demo/consent-page.js'), import('/demo/processing-consent.js'), import('/demo/consent-copy.js'), import(`/packages/ui/src/i18n/${locale}.js`),
+      ]);
+      const contract = { contract: 'deadline-v1', items: CONSENT_ITEMS, intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
+      let now = 0, sequence = 0;
+      const timers = new Map(), flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
+      const f = window.consentDeadline = { stallGet: true, posts: [], gets: [], returns: [], lateGets: [], selected: ['voice-elevenlabs'],
+        copy: withDemoConsentCopy(language[locale]).host.consentPage, announcements: [], contract, flush };
+      const status = document.querySelector('#consent-status');
+      new MutationObserver(records => {
+        for (const record of records) if (record.target === document.querySelector('#status-text')) f.announcements.push({ state: status.dataset.state, text: record.target.textContent });
+      }).observe(status, { childList: true, subtree: true });
+      f.advance = async ms => { now += ms; for (const [key, timer] of [...timers]) if (timer.at <= now) { timers.delete(key); timer.fn(); } await flush(); };
+      const clock = { setTimeout(fn, delay) { const key = ++sequence; timers.set(key, { fn, at: now + delay }); return key; }, clearTimeout(key) { timers.delete(key); } };
+      f.mounting = mountConsentPage({ clock, navigate: path => f.returns.push(path), fetchImpl: async (path, options) => {
+        f.gets.push({ path, signal: options.signal });
+        if (path === '/demo/config') return Response.json({ processingConsent: contract, voiceMode: 'off' });
+        if (path === '/api/sessions/deadline') return Response.json({ id: 'deadline', locale, engine: {}, consentRevision: 1, consentWithdrawn: false });
+        if (f.stallGet) { const answer = Promise.withResolvers(); f.lateGets.push(answer); return answer.promise; }
+        return Response.json({ ...contract, selected: f.selected });
+      }, submit: (path, body, options) => {
+        const answer = Promise.withResolvers(); f.posts.push({ body, signal: options.signal, ...answer }); return answer.promise;
+      } });
+      await flush();
+    }, variant);
+    const snapshot = () => page.evaluate(() => {
+      const f = window.consentDeadline, status = document.querySelector('#consent-status'), text = document.querySelector('#status-text'), action = document.querySelector('#retry');
+      const selectors = ['#consent-status', '#status-text', '#retry', ...['top', 'bottom'].flatMap(position => ['[data-back]', '[data-revoke]', '[data-select-all]', '[data-grant]'].map(selector => `.consent-actions--${position} ${selector}`))];
+      const range = document.createRange(); range.selectNodeContents(text);
+      const rects = [...range.getClientRects()].filter(r => r.width > 0), lines = new Set(rects.map(r => r.y)).size;
+      return { state: status.dataset.state, text: text.textContent, copy: f.copy, action: action.textContent, focused: document.activeElement?.id,
+        polite: status.getAttribute('aria-live'), role: status.getAttribute('role'), checked: document.querySelectorAll('input:checked').length,
+        grantDisabled: document.querySelector('[data-grant]').disabled, revokeDisabled: document.querySelector('[data-revoke]').disabled,
+        fieldsDisabled: document.querySelector('fieldset').disabled, boxes: selectors.map(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return [r.x, r.y + scrollY, r.width, r.height]; }),
+        lines, textFits: text.scrollHeight <= text.clientHeight && rects.every(r => r.right <= text.getBoundingClientRect().right + .01),
+        announcements: f.announcements, posts: f.posts.map(p => ({ body: p.body, aborted: p.signal.aborted })), returns: f.returns };
+    });
+    const shot = async state => {
+      if (!evidence || theme === 'dark' && !['C3', 'C4'].includes(state)) return;
+      await page.evaluate(async () => { document.activeElement?.blur(); window.scrollTo(0, 0); await document.fonts.ready; await Promise.all(document.getAnimations().map(a => a.finished)); });
+      await page.mouse.move(-10, -10);
+      await settleEvidenceFrame(page);
+      await page.screenshot({ path: join(evidence, `ait375a-${width}-${theme}-${locale}-${state}.png`), fullPage: false, captureBeyondViewport: false });
+    };
+    const validate = async (state, message, focus = false) => {
+      const s = await snapshot(); assert.equal(s.state, state, label); assert.equal(s.text, s.copy[message], label);
+      assert.equal(s.polite, 'polite'); assert.equal(s.role, 'status');
+      if (focus) assert.equal(s.focused, 'retry', `${label}: focus goes to recovery action`);
+      assert.ok(s.lines <= (width === 390 ? 2 : 1), `${label}/${state}: reserved text rows (${s.lines})`);
+      assert.equal(s.textFits, true, `${label}/${state}: all copy fits`);
+      assert.equal(s.announcements.filter(a => a.state === state).at(-1)?.text, s.text);
+      return s;
+    };
+    const stable = (before, after, journey) => {
+      // Text ink may use fewer lines; its reserved element and every button stay fixed.
+      assert.deepEqual(after.boxes, before.boxes, `${label}/${journey}: movementPx 0`);
+      checks.push({ ...variant, journey, movementPx: 0 });
+    };
+    await page.evaluate(() => document.fonts.ready);
+    const loading = await validate('loading', 'loading'); await shot('C1');
+    await page.evaluate(() => consentDeadline.advance(7999)); assert.equal((await snapshot()).state, 'loading');
+    await page.evaluate(() => consentDeadline.advance(1));
+    const timedOut = await validate('load-timeout', 'loadTimeout', true);
+    assert.equal(timedOut.checked, 0); assert.equal(timedOut.fieldsDisabled, true); assert.equal(timedOut.revokeDisabled, true);
+    stable(loading, timedOut, 'C1-C3'); await shot('C3');
+    await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
+    const retried = await validate('loading', 'loading'); stable(loading, retried, 'C3-C1');
+    await page.evaluate(async () => { const f = consentDeadline; f.stallGet = false; f.lateGets.at(-1).resolve(Response.json({ ...f.contract, selected: f.selected })); await f.flush(); f.api = await f.mounting; });
+    // mount returns after its original timeout; the retried load settles separately.
+    await page.waitForFunction(() => document.querySelector('#consent-status').dataset.state === 'ready');
+    await page.evaluate(async () => { document.querySelector('[data-select-all]').click(); document.querySelector('[data-grant]').click(); await consentDeadline.flush(); });
+    const saving = await validate('saving', 'saving'); assert.equal(saving.revokeDisabled, false);
+    await page.evaluate(() => consentDeadline.advance(9999)); assert.equal((await snapshot()).state, 'saving');
+    await page.evaluate(() => consentDeadline.advance(1));
+    const unknown = await validate('save-unconfirmed', 'saveUnconfirmed', true);
+    assert.equal(unknown.action, unknown.copy.loadCurrent); assert.equal(unknown.posts[0].aborted, true); assert.equal(unknown.grantDisabled, true);
+    stable(saving, unknown, 'C2-C4'); await shot('C4');
+    await page.evaluate(async () => { consentDeadline.posts[0].resolve(Response.json({ granted: true })); await consentDeadline.flush(); });
+    const late = await snapshot(); assert.equal(late.state, unknown.state); assert.equal(late.text, unknown.text); assert.deepEqual(late.returns, []);
+    await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
+    const different = await validate('ready', 'notSavedYet');
+    assert.equal(different.grantDisabled, false); assert.equal(different.fieldsDisabled, false); assert.equal(different.posts.length, 1); stable(saving, different, 'C4-reread-different');
+    // The matching GET is authoritative and returns without another POST.
+    await page.evaluate(async () => { document.querySelector('[data-select-all]').click(); document.querySelector('[data-grant]').click(); await consentDeadline.flush(); await consentDeadline.advance(10000); consentDeadline.selected = consentDeadline.contract.items.map(i => i.id); document.querySelector('#retry').click(); await consentDeadline.flush(); });
+    assert.deepEqual((await snapshot()).returns, ['/?saved=1']); assert.equal((await snapshot()).posts.length, 2);
+    await page.evaluate(async () => { const f = consentDeadline; f.returns.length = 0; await f.api.load(); document.querySelector('[data-grant]').click(); await f.flush(); });
+    assert.equal((await snapshot()).revokeDisabled, false); await shot('C5');
+    await page.evaluate(async () => { document.querySelector('[data-revoke]').click(); await consentDeadline.flush(); });
+    const withdrawal = await snapshot(); assert.equal(withdrawal.posts[2].aborted, true); assert.equal(withdrawal.posts[3].body.granted, false); assert.deepEqual(withdrawal.posts[3].body.processing.items, []);
+    await page.evaluate(() => consentDeadline.advance(10000));
+    const withdrawn = await validate('withdraw-unconfirmed', 'withdrawUnconfirmed', true); await shot('C5-timeout');
+    await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
+    const repeated = await snapshot(); assert.deepEqual(repeated.posts[4].body, repeated.posts[3].body);
+    // One DOM text mutation per state entry, including repeated entries.
+    const entries = await page.evaluate(() => consentDeadline.announcements);
+    for (let i = 1; i < entries.length; i++) assert.notDeepEqual(entries[i], entries[i - 1], `${label}: no duplicate announcement`);
+    checks.push({ ...variant, loadDeadlineMs: 8000, saveDeadlineMs: 10000, withdrawDeadlineMs: 10000, focusTarget: '#retry',
+      liveRegion: 'polite', liveRegionText: { C3: timedOut.text, C4: unknown.text, C5: withdrawn.text }, announcements: entries,
+      lateAnswerIgnored: true, rereadMatchNavigates: true, rereadMismatchEditable: true, noBlindRepost: true,
+      withdrawalAbortsSave: true, withdrawalReceived: true, withdrawalRetryIdempotent: true, noCheckedBoxesAfterLoadTimeout: true,
+      targets44px: [...timedOut.boxes.slice(2), ...unknown.boxes.slice(2)].every(r => r[2] >= 44 && r[3] >= 44), movementPx: 0 });
+    assert.equal(checks.at(-1).targets44px, true);
+  }
+  if (evidence) await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-376 Tick v1', checks }, null, 2));
+});
