@@ -256,6 +256,11 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .badge { font-size:.75rem; color:var(--aithema-muted); }
 .local__composer { display:grid; gap:.4rem; } .local__composer .actions { display:flex; justify-content:flex-end; gap:.5rem; }
 
+/* S3: use the available tall-desktop space so the Linux Chrome baseline's
+   full captions and footer fit. At 1280x800 the 47rem S1 frame stays intact. */
+@media(min-width:60rem) and (min-height:850px) {
+  dialog.settings { height:min(48rem,calc(100dvh - 1rem)); }
+}
 @media(max-width:75rem) { .settings-panel[data-panel=model] { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); }
   .settings-overview { grid-column:1/-1; }
   .settings__footer { grid-template-columns:minmax(0,1fr) auto auto; } }

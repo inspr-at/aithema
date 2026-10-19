@@ -11,9 +11,11 @@ export async function checkSettingsPolish(page, { evidence, shot, settle, regres
     checks.push({ ...context, assert: name, actual, expected, pass: actual === expected });
     if (actual !== expected) failures.push({ ...context, assert: name, actual, expected });
   };
+  // Tick fixes phone width only: the shorter General content needs a shorter
+  // phone viewport to exercise the requested S1 state without product filler.
   for (const [width, height, theme, state] of [
     [1280, 800, 'light', 's1-model'], [1280, 800, 'dark', 's1-model'],
-    [390, 844, 'light', 's1-model'], [390, 844, 'light', 's1-general'],
+    [390, 844, 'light', 's1-model'], [390, 740, 'light', 's1-general'],
     [390, 844, 'light', 's2-bottom'], [1440, 900, 'light', 's3-fits'],
     [1280, 800, 'light', 's4-visuals'], [1280, 800, 'dark', 's4-visuals'],
     [390, 844, 'light', 's4-visuals'], [1440, 900, 'light', 's5-voice'],
