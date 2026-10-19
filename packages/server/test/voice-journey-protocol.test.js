@@ -16,7 +16,7 @@ import { en } from '../../ui/src/i18n/en.js';
 
 // No sockets or provider credentials: the real provider token primitive consumes
 // an offline Response, then traverses the session route, control and rail.
-for (const retryAfter of ['12', null]) test(`AIT-378 R1 real token 429, Retry-After ${retryAfter}`, async t => {
+for (const retryAfter of ['12', null]) test(`AIT-378 R1 real token 429, Retry-After ${retryAfter}`, { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
   const h = voiceFixture(t), window = new Window(), root = window.document.createElement('div');
   window.document.body.append(root);
@@ -49,8 +49,10 @@ for (const retryAfter of ['12', null]) test(`AIT-378 R1 real token 429, Retry-Af
   assert.equal(requests.at(-1) - requests[0], retryAfter ? 12_000 : 0);
 });
 
-for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 'I1'} SDK confirmation persists through route and reload`, async t => {
-  const path = await temporaryDb(), h = voiceFixture(t, { path }), sdk = fakeSdk(), grant = await h.start();
+for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 'I1'} SDK confirmation persists through route and reload`, { timeout: 10_000 }, async t => {
+  const path = await temporaryDb(), h = voiceFixture(t, { path }), sdk = fakeSdk();
+  const started = await h.route('/voice', { callId: 'native-call', tabId: 'sdk-tab' });
+  assert.equal(started.status, 201); const grant = await started.json();
   grant.credential.conversationToken = `fixture-token-${grant.providerSessionId}`;
   const identity = { providerSessionId: grant.providerSessionId, epoch: grant.epoch, tabId: grant.controllingTabId };
   const finalStored = Promise.withResolvers();
@@ -58,7 +60,8 @@ for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 
     control: { start: async () => grant, close: async () => ({}), pause: async () => ({}), resume: async () => ({}), heartbeat: async () => ({}) },
     async persistEvent(event) {
       const response = await h.route(`/voice/${grant.callId}/events`, { ...identity, event });
-      assert.equal(response.status, 200); if (event.type === 'final') finalStored.resolve();
+      try { assert.equal(response.status, 200); if (event.type === 'final') finalStored.resolve(); }
+      catch (error) { finalStored.reject(error); throw error; }
     } });
   const session = await client.start({ callId: grant.callId }); t.after(() => session.close());
   const callbacks = sdk.starts[0], full = 'Heard. Unheard remainder.';
