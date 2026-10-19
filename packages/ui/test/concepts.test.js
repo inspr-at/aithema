@@ -886,3 +886,72 @@ for (const kind of ['html', 'image']) for (const phase of ['pending', 'failed'])
   assert.equal(root.querySelector('.concept-countdown').textContent, '');
   assert.equal(root.querySelector('.concept-rail').dataset.phase, 'idle');
 });
+
+
+for (const failure of ['http', 'network', 'snapshot-stall', 'document-http', 'document-stall', 'document-invalid']) test(`AIT-364 v1.1: ${failure} fails closed until a validated refresh`, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, revoked } = setup(t, { concepts: [item('image'), draft('html')], session: { conceptVisualKind: 'html', visualsBound: true } });
+  // Attach without opening an SSE transport; consent events still use the real refresh path.
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
+  await tick();
+  await view.load('image');
+  root.querySelector('.fold').click(); await view.paintCanvas();
+  root.querySelector('.concept-preview').focus(); view.open('html');
+  const staleSource = root.querySelector('.concept-html').artifact;
+  const fetchBefore = globalThis.fetch;
+  let recovering = false, release;
+  const stalled = new Promise(resolve => { release = resolve; });
+  const doc = () => ({ consentRevision: c.session.consentRevision, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/consent')) {
+      if (!recovering && failure === 'document-stall') await stalled;
+      if (!recovering && failure === 'document-http') return new Response(null, { status: 503 });
+      if (!recovering && failure === 'document-invalid') return Response.json({ ...doc(), consentRevision: -1 });
+      return Response.json(doc());
+    }
+    if (url.endsWith('/api/sessions/' + c.session.id)) {
+      if (!recovering && failure === 'http') return new Response(null, { status: 503 });
+      if (!recovering && failure === 'network') throw new Error('offline fixture');
+      if (!recovering && failure === 'snapshot-stall') await stalled;
+      return Response.json(c.session);
+    }
+    return fetchBefore(url, options);
+  });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
+  await tick();
+  if (failure.endsWith('stall')) {
+    t.mock.timers.tick(1999);
+    assert.equal(view.dialog.open, true, 'the accepted single refresh round has up to 2 s');
+    t.mock.timers.tick(1);
+  }
+  assert.equal(view.dialog.open, false, 'failure or the 2 s deadline closes the viewer');
+  assert.deepEqual(view.items, [], 'both kinds fail closed');
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelector('.canvas-html').artifact, null);
+  assert.equal(root.querySelectorAll('img[src]').length, 0);
+  assert.ok(revoked.length > 0, 'cached image URLs are revoked too');
+  assert.equal(root.querySelector('.canvas-empty').hidden, false);
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'));
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  t.mock.timers.tick(5000); view.update(c.session); view.render();
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone', 'unrelated updates cannot reopen or expire the fail-closed state');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  assert.equal(await view.load('image'), null);
+  recovering = true;
+  // A later ordinary feature refresh must revalidate coverage without a reload.
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  await tick(); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['image'], 'only the kind covered by the successful document returns');
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'ready');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'), 'recovery preserves focus');
+  await assert.rejects(staleSource.mint(), /Preview scope expired/);
+  view.open('image'); await tick();
+  assert.equal(view.dialog.open, true, 'the retained kind opens without reload');
+  assert.ok(root.querySelector('.concept-image').hasAttribute('src'));
+  release(); await tick();
+});
