@@ -292,7 +292,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: chromeSandboxArgs });
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
-  const page = await browser.newPage(), problems = [], checks = [];
+  const page = await browser.newPage(), problems = [], checks = [], regressions = [];
   page.on('pageerror', e => problems.push(e.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -354,17 +354,21 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     await page.mouse.move(-10, -10); await settle();
     if (evidence) await page.screenshot({ path: join(evidence, name + '.png'), fullPage: false, captureBeyondViewport: false });
   };
-  for (const [locale, width, theme] of [
-    ['de', 1440, 'light'], ['de', 390, 'light'], ['en', 1440, 'light'],
-    ['de', 1440, 'dark'], ['de', 390, 'dark'], ['de', 1024, 'light'],
+  // Collect all three Tick regressions before asserting, so the committed
+  // red-before run demonstrates each defect against the unchanged UI.
+  const expectLayout = (condition, detail) => { if (!condition) regressions.push(detail); };
+  for (const [locale, width, height, theme] of [
+    ['de', 1440, 900, 'light'], ['de', 390, 844, 'light'], ['en', 1440, 900, 'light'],
+    ['de', 1440, 900, 'dark'], ['de', 390, 844, 'dark'], ['de', 1024, 1000, 'light'],
+    ['de', 1280, 800, 'light'],
   ]) {
     await page.select('#theme', theme);
     assert.equal(await page.$eval('aithema-session', el => el.getAttribute('theme')), theme);
-    const prefix = `ait350-${locale}-${width}${theme === 'dark' ? '-dark' : ''}`;
+    const prefix = `ait350-${locale}-${width}${width === 1280 ? 'x800' : ''}${theme === 'dark' ? '-dark' : ''}`;
     // At 1024 only the two requested states need PNGs; all assertions still run.
-    const capture = state => width !== 1024 || ['both-options', 'grok-selected'].includes(state);
+    const capture = state => width === 1280 ? state === 'grok-selected' : width !== 1024 || ['both-options', 'grok-selected'].includes(state);
     const captureState = state => capture(state) ? shot(`${prefix}-${state}`) : settle();
-    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.setViewport({ width, height });
     await page.evaluate(async locale => {
       await window.ait350.reset(locale); await window.ait350.settle();
     }, locale);
@@ -379,7 +383,14 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
       await settle(); const current = await page.evaluate(() => window.ait350.geometry());
       const drift = Object.fromEntries(Object.keys(baseline).map(key => [key, Math.max(...baseline[key].map((v, i) => Math.abs(v - current[key][i])))]));
       assert.deepEqual(drift, { choice: 0, confirmationSlot: 0, detail: 0, detailBody: 0 }, `${locale}/${width}/${state}`);
-      checks.push({ locale, width, theme, state, drift, gaugeCaptions: await page.evaluate(measureGaugeCaptions) });
+      const gaugeCaptions = await page.evaluate(measureGaugeCaptions);
+      if (width === 1440 || width === 1280) {
+        for (const caption of gaugeCaptions) {
+          expectLayout(caption.rendered && !caption.clipped && !caption.detailTextClipped,
+            { point: 1, locale, width, height, theme, state, gauge: caption.gauge, clippedPx: caption.clippedPx, detailTextClippedPx: caption.detailTextClippedPx });
+        }
+      }
+      checks.push({ locale, width, height, theme, state, drift, gaugeCaptions });
     };
     await page.evaluate(() => window.ait350.q('#settings-select-voice').click());
     await measure('both-options'); await captureState('both-options');
@@ -409,16 +420,39 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     await captureState('grok-selected');
     await page.evaluate(() => window.ait350.q('.disclosure').open = true);
     await measure('provider-processing-detail'); await captureState('provider-processing-detail');
+    const disclosure = await page.evaluate(() => {
+      const q = selector => window.ait350.q(selector), summary = q('.disclosure summary');
+      const range = document.createRange(); range.selectNodeContents(summary.querySelector('span') ?? summary);
+      const text = range.getBoundingClientRect(), body = q('.disclosure__body'), geography = q('.disclosure-geography');
+      const paragraphRange = document.createRange(); paragraphRange.selectNodeContents(geography);
+      const lastLine = paragraphRange.getBoundingClientRect();
+      const css = getComputedStyle(body), note = q('[data-text="gaugeNote"]');
+      const summaryCss = getComputedStyle(summary), pseudo = getComputedStyle(summary, '::after');
+      const chevron = summary.querySelector('svg')?.getBoundingClientRect();
+      // Before the fix the chevron is a pseudo-element; account for its normal
+      // flex box so the old column-edge positioning is also measured.
+      const chevronLeft = chevron?.left ?? summary.getBoundingClientRect().right - parseFloat(summaryCss.paddingRight) -
+        parseFloat(pseudo.marginRight) - parseFloat(pseudo.width) - parseFloat(pseudo.borderLeftWidth) - parseFloat(pseudo.borderRightWidth);
+      return { paragraphGap: note.getBoundingClientRect().top - lastLine.bottom,
+        paragraphGapLimit: parseFloat(css.rowGap) + parseFloat(getComputedStyle(geography).lineHeight),
+        textLines: range.getClientRects().length, chevronGap: chevronLeft - text.right };
+    });
+    expectLayout(disclosure.paragraphGap <= disclosure.paragraphGapLimit,
+      { point: 2, locale, width, height, theme, ...disclosure });
+    if (width === 1024) expectLayout(disclosure.textLines === 1 && disclosure.chevronGap >= 6 && disclosure.chevronGap <= 8,
+      { point: 3, locale, width, height, theme, ...disclosure });
+    checks.push({ locale, width, height, theme, state: 'disclosure-layout', ...disclosure });
     await page.evaluate(() => window.ait350.q('.disclosure').open = false);
     if (width === 390) {
       await page.evaluate(() => window.ait350.q('[data-gauge="voice"]').scrollIntoView({ block: 'center' }));
       await settle();
-      checks.push({ locale, width, theme, state: 'grok-selected-vial', gaugeCaptions: await page.evaluate(measureGaugeCaptions) });
+      checks.push({ locale, width, height, theme, state: 'grok-selected-vial', gaugeCaptions: await page.evaluate(measureGaugeCaptions) });
       await shot(`${prefix}-grok-selected-vial`);
     }
     assert.deepEqual(await page.evaluate(() => ({ starts: window.ait350.starts, stops: window.ait350.stops })), { starts: 0, stops: 1 });
-    checks.push({ locale, width, theme, focusReturn: { switch: true, cancel: true, failedSave: true } });
+    checks.push({ locale, width, height, theme, focusReturn: { switch: true, cancel: true, failedSave: true } });
   }
   assert.deepEqual(problems, []);
   if (evidence) await writeFile(join(evidence, 'ait350-checks.json'), JSON.stringify({ capture: 'viewport', motion: 'reduced and settled', blurredBeforeCapture: true, checks }, null, 2));
+  assert.deepEqual(regressions, [], 'Tick UI QA 2026-10-19, AIT-350 -fix1, points 1–3');
 });
