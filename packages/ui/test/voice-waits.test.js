@@ -116,6 +116,12 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
       record(provider, `${name} maps to ${key}; full/narrow DE+EN; failure focus`, { focusTarget: retry ? 'voice-retry' : 'voice-start', retry });
     });
   }
+  test(`AIT-377 ${provider}: programmatic idle cleanup preserves focus outside the rail`, async t => {
+    const { rail } = fixture(t, provider), document = rail.root.ownerDocument;
+    const control = document.createElement('button'); document.body.append(control); control.focus();
+    await rail.close(); assert.equal(document.activeElement, control);
+    record(provider, 'programmatic idle cleanup preserves unrelated focus');
+  });
   test(`AIT-377 ${provider}: absent getUserMedia refuses before any client.start`, async t => {
     const { rail, calls } = fixture(t, provider);
     Object.defineProperty(rail.root.ownerDocument.defaultView, 'isSecureContext', { configurable: true, value: true });

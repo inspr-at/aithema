@@ -710,6 +710,7 @@ export class AudioRail {
     this.render();
   }
   close(reason) {
+    const returnFocus = this.button('close').getRootNode().activeElement === this.button('close');
     this.client?.stopReplay?.(); this.stopReplyWatch(); this.cooldownController?.abort();
     if (this.closing && !this.session && this.state !== 'connecting') {
       if (reason) void this.closingSession?.close({ reason }).catch(() => {});
@@ -733,7 +734,7 @@ export class AudioRail {
     this.errorKey = session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
-    this.button('start').focus({ preventScroll: true });
+    if (returnFocus) this.button('start').focus({ preventScroll: true });
     this.onEnd?.();
     const controller = this.controller;
     const closing = (async () => {

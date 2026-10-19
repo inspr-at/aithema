@@ -133,8 +133,10 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const { rail, requests } = fixture(t, provider, { startError: rateLimit(5000) });
     await rail.start(); t.mock.timers.tick(2000);
     const retry = rail.start(); await flush(); t.mock.timers.tick(2999); await flush();
-    assert.equal(requests.length, 1); t.mock.timers.tick(1); await retry;
-    assert.equal(requests.length, 2); assert.equal(requests[1][1], 105_000);
+    assert.equal(requests.length, 1); t.mock.timers.tick(1); await flush();
+    assert.equal(requests.length, 1, 'zero paints at the advertised deadline before dispatch');
+    t.mock.timers.tick(1); await retry;
+    assert.equal(requests.length, 2); assert.equal(requests[1][1], 105_001);
     record(provider, 'retry-after-elapsed', ['time before Retry counts towards retry-after; one request at advertised deadline']);
   });
   test(`AIT-361 ${provider}: ending a pending retry cancels its eventual start`, async t => {

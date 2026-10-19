@@ -561,7 +561,7 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
           const rail = window.ait377Rail;
           return [12, 9, 1, 0].map(n => { rail.countdown = n; rail.render(); const r = rail.root.querySelector('.voice-state').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; });
         });
-        assert.ok(countdownBoxes.every(box => JSON.stringify(box) === JSON.stringify(countdownBoxes[0])), 'countdown never resizes status');
+        assert.deepEqual(countdownBoxes, countdownBoxes.map(() => countdownBoxes[0]), 'countdown never resizes status');
         await page.evaluate(() => { window.ait377Rail.countdown = 12; window.ait377Rail.render(); });
       }
       const capture = !['idle', 'listening'].includes(state) && (theme !== 'dark' || state.startsWith('s4') || state === 's5');

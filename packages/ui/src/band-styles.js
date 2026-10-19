@@ -58,8 +58,8 @@ export const bandStyles = `
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:manual; }
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
-.voice-countdown { display:inline-block; min-width:2ch; text-align:center; font-variant-numeric:tabular-nums; }
-.audio-rail[data-startup-phase="cooldown"] .voice-state { font-variant-numeric:tabular-nums; }
+.voice-countdown { display:inline-block; width:2ch; text-align:center; font-variant-numeric:tabular-nums; }
+.audio-rail[data-startup-phase="cooldown"] .voice-state { width:100%; font-variant-numeric:tabular-nums; }
 .audio-rail[data-no-mic-api] .voice-retry { visibility:hidden; }
 .voice-state .consent-narrow::before { content:attr(data-copy); }
 @media(width < 600px) {
