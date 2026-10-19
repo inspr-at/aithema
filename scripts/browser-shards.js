@@ -120,6 +120,14 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 // shard counts, ceilings and check names stay unchanged.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 103);
+// AIT-364 v1.1 final product head 03f5b0bb, CI 39221011068:
+// preview shard 7/7 passed 23/23 in 57.604659634s (ceil(*1.25)=73s);
+// retain the slower 103s remote reservation. Consent-lines shard 5/7
+// passed 34/34 in 136.474920947s; ceil(*1.25)=171s supersedes 167s.
+// The snapshot fixture now advances its revision with consent saves.
+// Both PR observations remain outside trusted rolling-main history.
+browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
+  browserTestWeights['test/browser/consent-lines.test.js'], 171);
 // The same CI run, shard 5/7, passed all ten demo top-level tests in
 // 56.218506283s; ceil(*1.25) = 71s for the changed served-frame workload.
 // Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.
