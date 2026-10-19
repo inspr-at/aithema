@@ -1,10 +1,4 @@
 {
-  "test/browser-launch.test.js": {
-    "reads": [
-      "process.env"
-    ],
-    "reason": "Hermetic fake-CDP executable child-process environment forwarding for launcher retry coverage"
-  },
   "test/browser-matrix-coverage.test.js": {
     "reads": [
       "process.env",
@@ -26,6 +20,12 @@
     ],
     "reason": "Linux headless Chrome sandbox selection"
   },
+  "test/browser/confirmation-design.test.js": {
+    "reads": [
+      "GITHUB_SHA"
+    ],
+    "reason": "Evidence/source provenance; release test matches the run identifier"
+  },
   "test/browser/compact-footer-check.js": {
     "reads": [
       "GITHUB_EVENT_PATH",
@@ -40,18 +40,8 @@
     "reason": "Linux headless Chrome sandbox selection"
   },
   "test/browser/composed-qualification.test.js": {
-    "reads": [
-      "CI",
-      "CI",
-      "CI"
-    ],
+    "reads": ["CI", "CI", "CI"],
     "reason": "Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe"
-  },
-  "test/browser/confirmation-design.test.js": {
-    "reads": [
-      "GITHUB_SHA"
-    ],
-    "reason": "Evidence/source provenance; release test matches the run identifier"
   },
   "test/browser/credit-hold.test.js": {
     "reads": [
@@ -85,12 +75,6 @@
       "CI",
       "CI",
       "CI",
-      "CI"
-    ],
-    "reason": "Linux headless Chrome sandbox selection"
-  },
-  "test/browser/external-plugin.test.js": {
-    "reads": [
       "CI"
     ],
     "reason": "Linux headless Chrome sandbox selection"
@@ -142,11 +126,7 @@
     "reason": "Linux headless Chrome sandbox selection"
   },
   "test/browser/session-credits-check.js": {
-    "reads": [
-      "GITHUB_EVENT_PATH",
-      "GITHUB_EVENT_PATH",
-      "GITHUB_RUN_ID"
-    ],
+    "reads": ["GITHUB_EVENT_PATH", "GITHUB_EVENT_PATH", "GITHUB_RUN_ID"],
     "reason": "AIT-395 evidence binds the PR head and CI run from GitHub provenance"
   },
   "test/browser/start-journey.test.js": {
@@ -184,11 +164,7 @@
     "reason": "Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload"
   },
   "test/browser/voice-failure-helpers.js": {
-    "reads": [
-      "CI",
-      "GITHUB_EVENT_PATH",
-      "GITHUB_EVENT_PATH"
-    ],
+    "reads": ["CI", "GITHUB_EVENT_PATH", "GITHUB_EVENT_PATH"],
     "reason": "Linux headless Chrome sandbox selection and AIT-361 PR-head evidence provenance"
   },
   "test/browser/voice-presentation.test.js": {
@@ -210,53 +186,17 @@
     ],
     "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
   },
-  "test/fixtures/lane-race-ait197-proof.js": {
-    "reads": [
-      "process.env"
-    ],
-    "reason": "AIT-201 legacy-lane red proof forwards the child environment after removing NODE_TEST_CONTEXT"
-  },
-  "test/fixtures/lane-race-proof.js": {
-    "reads": [
-      "process.env"
-    ],
-    "reason": "AIT-201 lane-race red proof forwards the child environment after removing NODE_TEST_CONTEXT"
-  },
-  "test/fixtures/lane-race-validation.js": {
-    "reads": [
-      "process.env"
-    ],
-    "reason": "AIT-201 lane-race validation forwards the child environment after removing NODE_TEST_CONTEXT"
-  },
-  "test/fixtures/launch-browser.mjs": {
-    "reads": [
-      "destructure { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error }"
-    ],
-    "reason": "Pinned fake-CDP fixture controls; exact destructured keys and aliases required"
-  },
   "test/live/soak.js": {
     "reads": [
       "GITHUB_SHA"
     ],
     "reason": "Evidence/source provenance; release test matches the run identifier"
   },
-  "test/measurements/browser-comparison.js": {
-    "reads": [
-      "process.env"
-    ],
-    "reason": "Intentional browser measurement child-process environment forwarding; exact occurrence pinned"
-  },
   "test/release-prep.test.js": {
     "reads": [
       "GITHUB_RUN_ID"
     ],
     "reason": "Evidence/source provenance; release test matches the run identifier"
-  },
-  "test/release-workflow.test.js": {
-    "reads": [
-      "process.env"
-    ],
-    "reason": "Hermetic release-workflow child-process setup; exact occurrence pinned"
   },
   "test/soak/unit-worker.test.js": {
     "reads": [
@@ -280,16 +220,64 @@
       "env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR'] .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))"
     ]
   },
+  "test/unit-timeout.test.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+  },
+  "test/browser/external-plugin.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/measurements/browser-comparison.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "Intentional browser measurement child-process environment forwarding; exact occurrence pinned"
+  },
+  "test/release-workflow.test.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "Hermetic release-workflow child-process setup; exact occurrence pinned"
+  },
   "test/test-browser-setup.test.js": {
     "reads": [
       "process.env"
     ],
     "reason": "Isolated browser-path installer child process; exact occurrence pinned"
   },
-  "test/unit-timeout.test.js": {
+  "test/browser-launch.test.js": {
     "reads": [
       "process.env"
     ],
-    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+    "reason": "Hermetic fake-CDP executable child-process environment forwarding for launcher retry coverage"
+  },
+  "test/fixtures/launch-browser.mjs": {
+    "reads": [
+      "destructure { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error }"
+    ],
+    "reason": "Pinned fake-CDP fixture controls; exact destructured keys and aliases required"
+  },
+  "test/fixtures/lane-race-ait197-proof.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "AIT-201 legacy-lane red proof forwards the child environment after removing NODE_TEST_CONTEXT"
+  },
+  "test/fixtures/lane-race-proof.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "AIT-201 lane-race red proof forwards the child environment after removing NODE_TEST_CONTEXT"
+  },
+  "test/fixtures/lane-race-validation.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "AIT-201 lane-race validation forwards the child environment after removing NODE_TEST_CONTEXT"
   }
 }

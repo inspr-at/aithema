@@ -238,6 +238,16 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
   browserTestWeights['test/browser/voice-presentation.test.js'], 212);
 
+// AIT-395: mbp2606 run 8a0b4bf728-25023 measured the new session matrix
+// at 14.409444250s, plus the existing AIT-376 workloads (not represented in
+// this file's older rolling samples) at 9.211162292s + 2.740752833s.
+// Preserve the 88.370s mature baseline and add ceil(26.361359375 * 1.25)=33s;
+// ceil(88.370 + 33)=122s. The complete remote run passed these workloads;
+// its unrelated manual axe audit failed (CI disables that manual-only path).
+// Re-measure the complete workload from PR CI; no capacity limits change.
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 122);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
