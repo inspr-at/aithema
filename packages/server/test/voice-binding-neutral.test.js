@@ -57,7 +57,7 @@ test('AIT-102: another provider admits, discovers scope, extends and reconciles 
   const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(createMockReasoning()).register(plugin), now: () => now, consent,
     presets: { best: { plugins: ['mock', raw.plugin], bindings: { ...mockPresets().best.bindings, voice: binding }, policy: { endpoints: [raw.endpoint] } } } });
   assert.equal((await runtime.matrix(session)).best.voice.available, true);
-  const [scope] = runtime.scopes(session);
+  const [scope] = runtime.scopes(session, { feature: 'voice' });
   assert.equal(scope.model, 'conversation-v2'); assert.equal(scope.plugin, 'neutral-voice');
   const admitted = await runtime.admitVoice({ session, request: { callId: 'fixture-call' } });
   const attempt = admitted.options.attempt;
