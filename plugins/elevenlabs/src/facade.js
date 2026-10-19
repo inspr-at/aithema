@@ -242,7 +242,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         if (pinned.purposePolicy) yield* committedPurposeSegments(pinned, admission, invocationOptions, {
           beforeOutput, onRetry, reportAllowed,
           admit: request => voiceOperation(invocationOptions, bounded => admitReasoning({ callId: call.callId, request,
-            messages, options: { ...bounded, signal: invocationOptions.signal }, safeguardRetry: true })),
+            messages, options: { deadlineAt: bounded.deadlineAt, signal: invocationOptions.signal }, safeguardRetry: true })),
           scope: value => { safeScope = value; },
         });
         else yield* admission.plugin.stream(admission.request ?? input, invocationOptions);
