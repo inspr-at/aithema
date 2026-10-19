@@ -11,7 +11,9 @@ import { browserPath, evidenceCommit } from './start2-display-helpers.js';
 export async function checkVoiceFailures(t) {
   // State-only timing checks use mock clocks and the actual offline provider clients.
   // Run them in this artifact-producing job as well so one receipt carries every assert.
-  await promisify(execFile)(process.execPath, ['--test', '--test-concurrency=2', 'packages/ui/test/voice-failure.test.js'], { timeout: 30_000 });
+  await promisify(execFile)(process.execPath, ['--test', '--test-concurrency=2', 'packages/ui/test/voice-failure.test.js'], { timeout: 30_000,
+    // A nested test runner needs a fresh context; forward only fixture inputs.
+    env: { PATH: process.env.PATH, AITHEMA_EVIDENCE_DIR: process.env.AITHEMA_EVIDENCE_DIR } });
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ait361-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
