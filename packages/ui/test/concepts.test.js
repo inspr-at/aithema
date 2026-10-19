@@ -960,17 +960,18 @@ for (const failure of ['http', 'network', 'snapshot-stall', 'document-http', 'do
   assert.deepEqual(view.items.map(i => i.id), ['image'], 'a late stalled response cannot restore withdrawn coverage');
 });
 
-test('AIT-364 v1.1: fail-closed expiry cancels an earlier kind notice without stealing focus', async t => {
+test('AIT-364 v1.1: fail-closed expiry cancels an earlier kind notice without stealing focus', { timeout: 10_000 }, async t => {
   let view;
   const update = ConceptView.prototype.update;
   t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
   const { c, root } = setup(t, { concepts: [draft('html')], session: { conceptVisualKind: 'html', visualsBound: true } });
   t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
   await tick();
-  root.querySelector('.concept-preview').focus(); view.open('html');
+  root.querySelector('.concept-preview').focus();
   const fetchBefore = globalThis.fetch;
   let release;
   const stalled = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     if (url.endsWith('/consent')) {
       await stalled;
