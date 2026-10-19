@@ -17,7 +17,7 @@ export function treeDigest(files) {
 
 // A tiny, real workspace and module archive, through the production tar writer.
 export function releaseSet(t, { mode = 'candidate', commit = 'a'.repeat(40), mutateFiles = () => {},
-  mutateManifest = () => {}, mutateModule = () => {}, badProvenance = false, run = 'candidate-run' } = {}) {
+  mutateManifest = () => {}, mutateModule = () => {}, mutateProvenance = () => {}, badProvenance = false, run = 'candidate-run' } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'aithema-normalize-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const directory = join(root, 'out'); mkdirSync(directory);
@@ -38,6 +38,8 @@ export function releaseSet(t, { mode = 'candidate', commit = 'a'.repeat(40), mut
     privateSourceCommit: commit, currentSourceCommit: commit, exportMtimeEpoch: 1792411200,
     runtimeTreeDigest: badProvenance ? digest('wrong') : treeDigest(files), lockDigest: digest(files.get('package-lock.json')),
   })));
+  const provenance = JSON.parse(files.get('release/source-provenance.json'));
+  mutateProvenance(provenance); files.set('release/source-provenance.json', json(provenance));
   const inventory = members => [...members].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([path, bytes]) => ({ path, size: bytes.length, sha256: digest(bytes) }));
   const writeArchive = (name, members) => {

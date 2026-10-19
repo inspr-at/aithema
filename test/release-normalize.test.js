@@ -68,3 +68,20 @@ for (const mode of [undefined, 'dry-run', 'anything']) test(`runtime mode ${mode
     for (const path of ['release/runtime.json', 'packages/server/src/release-runtime.json']) files.set(path, json(runtime));
   } }).directory));
 });
+
+for (const [label, mutateProvenance] of [
+  ['added key', p => { p.extra = true; }],
+  ['missing key', p => { delete p.normalization_note; }],
+  ['lineage leaf', p => { p.private_source_commit = 'b'.repeat(40); }],
+  ['note leaf', p => { p.normalization_note = 'changed'; }],
+]) test(`provenance ${label} remains bound`, t => {
+  const expected = normalizedDigest(releaseSet(t).directory);
+  refusesChange(expected, releaseSet(t, { mode: 'release', mutateProvenance }).directory);
+});
+for (const [label, mutateFiles] of [
+  ['added member', files => files.set('release/extra-runtime.json', json({ mode: 'release' }))],
+  ['missing member', files => files.delete('release/ordinary.json')],
+]) test(`${label} cannot normalize away`, t => {
+  const expected = normalizedDigest(releaseSet(t).directory);
+  refusesChange(expected, releaseSet(t, { mode: 'release', mutateFiles }).directory);
+});
