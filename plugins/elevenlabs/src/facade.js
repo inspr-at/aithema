@@ -248,7 +248,20 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         else yield* admission.plugin.stream(admission.request ?? input, invocationOptions);
       };
       iterator = (body.stream === true ? generate() : admission.plugin.stream(admittedRequest, invocationOptions))[Symbol.asyncIterator]();
-      let first = body.stream === true ? null : await next(); // Dispatch/auth failures can still be returned as HTTP errors.
+      // Keep pre-output admission/consent refusals as HTTP errors. A stalled
+      // first segment may hold headers only until the first-audio deadline.
+      let first, firstPending, firstTimer, holdingDue = false;
+      if (body.stream === true) {
+        firstPending = next(); firstPending.catch(() => {});
+        try {
+          const due = Symbol('first-audio');
+          const result = await Promise.race([firstPending, new Promise(resolve => {
+            firstTimer = setTimeout(() => resolve(due), Math.max(0, turnStartedAt + FIRST_AUDIO_DEADLINE_MS - now()));
+          })]);
+          if (result === due) holdingDue = true;
+          else { first = result; firstPending = null; }
+        } finally { clearTimeout(firstTimer); }
+      } else first = await next();
       const locale = pinned.locale;
       const stripped = () => {
         try { onOpenerStripped?.(); } catch { /* Diagnostics cannot affect paid work. */ }
@@ -271,7 +284,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       }
       const encoder = new TextEncoder(), opener = new ReplyOpenerStream(locale, { bufferNormal: false });
       let roleSent = false, size = 0, content = '', streamEnded = false, cancelled = false, openerCounted = false;
-      let holdingTimer, firstPending, holdingSent = false, hasValidatedContent = false;
+      let holdingTimer, holdingSent = false, hasValidatedContent = false;
       const enqueue = (controller, text) => {
         const bytes = encoder.encode(text); controller.enqueue(bytes); responseBytes += bytes.byteLength;
       };
@@ -285,10 +298,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       };
       return new Response(new ReadableStream({
         start(controller) {
-          // Dispatch once even if the HTTP reader stalls; its lifetime still expires.
-          firstPending = next(); firstPending.catch(() => {});
           // A fixed, pre-validated segment is independent of generation, validation and retries.
-          holdingTimer = setTimeout(() => {
+          const hold = () => {
             if (streamEnded || hasValidatedContent || holdingSent) return;
             try {
               (invocationOptions?.signal ?? scope.signal).throwIfAborted(); beforeOutput?.();
@@ -296,7 +307,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
               holdingSent = true; content = HOLDING_LINES[locale === 'de' ? 'de' : 'en'];
               enqueue(controller, `data: ${JSON.stringify(frame({ content }))}\n\n`);
             } catch (error) { void streamFailure(error); }
-          }, Math.max(0, turnStartedAt + FIRST_AUDIO_DEADLINE_MS - now()));
+          };
           streamFailure = async error => {
             if (streamEnded) return; streamEnded = true; clearTimeout(holdingTimer);
             const code = codeFor(error);
@@ -306,6 +317,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
               if (!cancelled) { enqueue(controller, `data: ${JSON.stringify({ error: code })}\n\n`); controller.close(); }
             } finally { logResult(code); }
           };
+          if (holdingDue) hold();
+          else holdingTimer = setTimeout(hold, Math.max(0, turnStartedAt + FIRST_AUDIO_DEADLINE_MS - now()));
         },
         async pull(controller) {
           if (streamEnded) return;
