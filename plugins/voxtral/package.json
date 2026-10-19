@@ -12,7 +12,8 @@
     "./server": "./src/server.js",
     "./components": "./src/index.js",
     "./configuration": "./src/configuration.js",
-    "./manifest": "./src/manifest.js"
+    "./manifest": "./src/manifest.js",
+    "./client": "./src/client.js"
   },
   "dependencies": {
     "@inspr/aithema-core": "261019093518.0.0",

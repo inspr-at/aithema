@@ -47,7 +47,10 @@ test('AIT-329: supported entrypoints preserve component identity and separate li
   assert.equal(manifest.liveVoice.capabilities.heard, 'unavailable');
   assert.equal(manifest.configSchema.additionalProperties, false);
   assert.equal(manifest.entrypoints.server, './src/server.js');
-  assert.equal(manifest.entrypoints.browser, undefined, 'client assembly belongs to AIT-330');
+  assert.equal(manifest.entrypoints.browser, './src/client.js');
+  const client = await import('@inspr/aithema-plugin-voxtral/client');
+  assert.equal(client.manifest, manifest);
+  assert.deepEqual(Object.keys(client), ['manifest'], 'client assembly belongs to AIT-330');
 });
 
 test('AIT-329: private workspace has exact dependencies and keeps the boundary policy', async () => {
@@ -62,7 +65,8 @@ test('AIT-329: private workspace has exact dependencies and keeps the boundary p
   assert.deepEqual(checkBoundaries(fileURLToPath(new URL('../../../', import.meta.url))), []);
   for (const file of ['index', 'configuration', 'server', 'manifest']) {
     const source = await readFile(new URL(`../src/${file}.js`, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /from\s+['"]\.\.\//u, 'use public package imports for server-only entrypoints');
+    if (['index', 'server'].includes(file)) assert.doesNotMatch(source, /from\s+['"]\.\.\//u, 'use public package imports for server-only entrypoints');
+    else assert.match(source, /from ['"]\.\.\/\.\.\/\.\.\/packages\/core\/src\/plugins\.js['"]/u, 'browser metadata uses a relative public source URL');
     assert.doesNotMatch(source, /elevenlabs|composed-voice\/src|process\.env|\bfetch\(/u);
   }
 });

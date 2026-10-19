@@ -1,8 +1,8 @@
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { deepFreeze } from '@inspr/aithema-core/plugins';
-import { preflightVoiceComposition, VoiceCompositionError } from '@inspr/aithema-core/voice-components';
+import { preflightVoiceComposition, VoiceCompositionError, componentInvocation } from '@inspr/aithema-core/voice-components';
 import { createVoxtralSTT, createVoxtralTTS } from './index.js';
-import { validateVoxtralConfiguration, STT_FORMAT, TTS_FORMAT } from './configuration.js';
+import { validateVoxtralConfiguration, STT_FORMAT, TTS_FORMAT, STT_MODEL, TTS_MODEL } from './configuration.js';
 
 export * from './index.js';
 export { validateVoxtralConfiguration, STT_MODEL, TTS_MODEL } from './configuration.js';
@@ -32,7 +32,19 @@ export function createVoxtralComponents({ composition, ...options } = {}) {
   const guard = (port, role) => {
     const wrapper = Object.create(port);
     const check = async (input, operation) => {
-      const ready = await voiceOperation(operation, () => preflight);
+      let ready;
+      try { ready = await voiceOperation(operation, () => preflight); }
+      catch (error) {
+        if (['cancelled', 'deadline'].includes(error?.code) && operation?.attempt && typeof operation.report === 'function') {
+          // Release an already supplied claim through shared once-only accounting.
+          // A pre-aborted scope guarantees zero consume and zero dispatch, even
+          // when the shared negotiation timed out before the caller's deadline.
+          const signal = AbortSignal.abort(new DOMException('Preflight wait ended', error.code === 'deadline' ? 'TimeoutError' : 'AbortError'));
+          await componentInvocation({ ...operation, signal }, { role,
+            unit: role === 'stt' ? 'seconds' : 'characters', model: role === 'stt' ? STT_MODEL : TTS_MODEL });
+        }
+        throw error;
+      }
       const format = role === 'stt' ? ready.capture : ready.playback;
       if (input?.format !== format.encoding) throw new VoiceCompositionError(
         role === 'stt' ? 'composition-capture-format' : 'composition-playback-format', 'Invocation must match the preflight audio format');

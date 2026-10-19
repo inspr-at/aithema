@@ -1,4 +1,4 @@
-import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { deepFreeze } from '../../../packages/core/src/plugins.js';
 
 export const STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
 export const TTS_MODEL = 'voxtral-mini-tts-2603';

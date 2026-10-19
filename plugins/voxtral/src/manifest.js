@@ -1,4 +1,4 @@
-import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { STT_MODEL, TTS_MODEL, EVIDENCE_DATE } from './configuration.js';
 
 // Preserve the existing speech component identity independently of the pipeline.
@@ -19,7 +19,7 @@ export const componentManifest = deepFreeze({ id: 'voxtral', version: '0.0.0', a
 // Pipeline metadata only. Account admission and supported assembly follow in
 // AIT-331/AIT-330; this manifest does not establish regional eligibility.
 export const manifest = deepFreeze({ id: 'voxtral-voice', version: '0.0.0', apiVersion: '^1.0.0',
-  kinds: ['live-voice'], placement: 'server', entrypoints: { server: './src/server.js' },
+  kinds: ['live-voice'], placement: 'server', entrypoints: { server: './src/server.js', browser: './src/client.js' },
   configSchema: { type: 'object', properties: {}, additionalProperties: false },
   vendor: componentManifest.vendor, presentation: componentManifest.presentation,
   liveVoice: { reasoning: 'delegated', transcript: { finality: 'turns', persistence: 'durable' },
