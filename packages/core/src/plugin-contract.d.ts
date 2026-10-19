@@ -53,7 +53,7 @@ export interface LiveVoiceDeclaration {
   optionalCapabilities?: Partial<Record<'forceInterrupt' | 'alignment' | 'playbackRetry' | 'metering' | 'speakText', VoiceCapability>>;
 }
 export type VoiceEvent = { callId: string; providerSessionId?: string; generation?: string | number; epoch?: number } & (
-  { type: 'listening' | 'speaking'; replay?: boolean; completed?: boolean; audio?: boolean; filler?: boolean } |
+  { type: 'listening' | 'speaking'; replay?: boolean; completed?: boolean; audio?: boolean; filler?: boolean; replyId?: string } |
   { type: 'recovering' | 'recovered' } |
   { type: 'waiting'; reason?: string; /** Absolute, capped retry-after deadline. */ retryAt?: number } |
   { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string; filler?: boolean } |

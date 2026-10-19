@@ -293,7 +293,8 @@ export class AudioRail {
       error?.code === 'not-admitted' ? 'voiceAdmissionDenied' :
       error?.code === 'voice-conflict' ? 'voiceConflict' :
       error?.code === 'deadline' ? 'voiceDeadline' :
-      error?.name === 'OverconstrainedError' || error?.phase === 'microphone' ? 'voiceMicFailed' : 'voiceConnectionFailed';
+      error?.name === 'OverconstrainedError' || error?.phase === 'microphone' ||
+      error?.name === 'AbortError' && !error?.phase && !this.declaredSignal('onMicrophoneState') && typeof error?.code !== 'string' ? 'voiceMicFailed' : 'voiceConnectionFailed';
     this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
     this.retryAt = voiceRetryAt(error);
     this.render();
@@ -497,7 +498,7 @@ export class AudioRail {
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
       this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; controller.abort();
-      if (this.startupPhase === 'microphone' && !error.code) error.phase = 'microphone';
+      if (this.startupPhase === 'microphone' && typeof error.code !== 'string' && !error.phase) error.phase = 'microphone';
       this.startupPhase = null; this.stopReplyWatch();
       this.state = this.waitingCall ? 'waiting' : 'failed'; this.failure(error);
     } finally { clearTimeout(connectTimer); }

@@ -18,7 +18,12 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
     assertVoiceMediaGrant(grant, now());
     const events = voiceEvents(); let transport, recording, input = true, output = true, stopped = false,
       playbackRevision = 0, holdRevision = 0, hold = false, session, closing, pendingPlaybackBytes = 0, speechActive = false, speechSilenceMs = 0, lastSpeechAt = 0, captureController, playbackBlocked = false, blockedFrame, terminalEventSent = false;
-    const owner = Symbol('composed-media'), pendingPlayback = new Set();
+    const owner = Symbol('composed-media'), pendingPlayback = new Set(), retiredReplies = new Set(), playbackReplies = new Set();
+    const retirePlayback = () => {
+      for (const replyId of playbackReplies) retiredReplies.add(replyId);
+      playbackReplies.clear();
+      stopPlayback('user-turn');
+    };
     const stopPlayback = (origin = 'interrupt') => {
       if (mediaOwner === owner) player.stop({ origin });
       pendingPlayback.clear(); pendingPlaybackBytes = 0; blockedFrame = undefined;
@@ -67,7 +72,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
           if (!input) await next.command('setInput', false);
           if (!output) await next.command('setOutput', false);
         } catch (error) { await next.disconnect(); throw error; }
-        transport = next; grant = replacement; playbackRevision = 0; playbackBlocked = false;
+        transport = next; grant = replacement; retiredReplies.clear(); playbackReplies.clear(); playbackRevision = 0; playbackBlocked = false;
         void read(transport); return { providerSessionId: grant.providerSessionId,
           spendDeadlineAt: replacement.opaque.spendDeadlineAt, browserLivenessDeadlineAt: replacement.opaque.browserLivenessDeadlineAt };
       },
@@ -83,12 +88,13 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
           if (frame.providerSessionId !== undefined && frame.providerSessionId !== grant.providerSessionId ||
             frame.epoch !== undefined && frame.epoch !== grant.opaque.epoch) throw new PluginError('not-admitted');
           if (frame.type === 'silence') { stopPlayback(); playbackRevision = Math.max(playbackRevision, frame.playbackRevision); }
-          else if (frame.type === 'audio' && !hold && output && frame.playbackRevision >= playbackRevision) {
+          else if (frame.type === 'audio' && !retiredReplies.has(frame.replyId) && !hold && output && frame.playbackRevision >= playbackRevision) {
             if (!(frame.bytes instanceof Uint8Array) || !['pcm_f32le', 'pcm_s16le'].includes(frame.format) ||
               pendingPlaybackBytes + frame.bytes.byteLength > 256_000) throw new PluginError('limit', 'Playback queue full');
             playbackRevision = frame.playbackRevision;
             if (!playbackBlocked) playFrame(frame, source);
           } else if (frame.type === 'event') {
+            if (frame.event.type === 'final' && frame.event.role === 'user') retirePlayback();
             if (frame.event.type === 'waiting') { hold = true; holdRevision++; localStop(); lifecycle.wait(frame.event.reason); }
             else if (frame.event.type === 'ended') {
               stop(); lifecycle.end(frame.event.reason);
@@ -113,13 +119,14 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       }
     }
     function playFrame(frame, source) {
+      if (frame.replyId) playbackReplies.add(frame.replyId);
       const token = { size: frame.bytes.byteLength }; pendingPlayback.add(token); pendingPlaybackBytes += token.size;
       // Failures can arrive after pause, interruption or replacement; only the owning flight may affect the rail.
       void Promise.resolve().then(() => {
         if (!pendingPlayback.has(token)) return;
         return player.play(frame.bytes, { format: frame.format, sampleRateHz: frame.sampleRateHz, channels: frame.channels, replyId: frame.replyId, onStarted: () => {
-          if (!stopped && !hold && output && !playbackBlocked && source === transport && pendingPlayback.has(token))
-            events.push({ type: 'speaking', callId: grant.callId, providerSessionId: grant.providerSessionId, audio: true, filler: frame.filler === true });
+          if (!stopped && !hold && output && !playbackBlocked && source === transport && pendingPlayback.has(token) && !retiredReplies.has(frame.replyId))
+            events.push({ type: 'speaking', callId: grant.callId, providerSessionId: grant.providerSessionId, audio: true, filler: frame.filler === true, replyId: frame.replyId });
         } });
       }).catch(error => {
         if (stopped || source !== transport || !pendingPlayback.has(token)) return;
@@ -192,6 +199,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
           const source = transport, revision = holdRevision, providerSessionId = grant.providerSessionId, epoch = grant.opaque.epoch;
           return voiceOperation(opts, bounded => {
             if (stopped || hold || source !== transport || revision !== holdRevision) throw new PluginError('not-admitted');
+            retirePlayback();
             return source.command('sendText', text, { deliveryId: opts.deliveryId ?? crypto.randomUUID(),
               providerSessionId, epoch, deadlineAt: bounded.deadlineAt });
           });
