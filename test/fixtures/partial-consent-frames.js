@@ -191,7 +191,7 @@ export async function partialConsentFrames(t) {
       const schedule = window.setTimeout.bind(window);
       // Unit tests advance the real 1999/2000 ms boundary. This wire fixture
       // invokes that exact callback without adding real waits to the shard.
-      window.setTimeout = (callback, delay, ...args) => delay === 2000 ? (window.expireConsent = callback, 0) : schedule(callback, delay, ...args);
+      window.setTimeout = (callback, delay, ...args) => delay === 2000 && !window.expireConsent ? (window.expireConsent = callback, 0) : schedule(callback, delay, ...args);
     });
     a.refreshFailure = failure === 'http' ? 'http' : null;
     a.holdConsentRead = failure === 'document-stall'; a.heldConsentRead = null;
@@ -218,17 +218,23 @@ export async function partialConsentFrames(t) {
     // Blurring is only for the shot. Restore keyboard focus before revalidation.
     await a.evaluate(() => c.shadowRoot.querySelector('.concept-preview').focus());
     a.refreshFailure = null; a.holdConsentRead = false;
-    await a.evaluate(() => { window.watchFailClosed = false; view.retry(); });
+    await a.evaluate(() => { window.watchFailClosed = false; });
     await a.waitForFunction(() => view.items.length === 1 && view.items[0].id === 'image');
     const recovered = await a.evaluate(() => inspect());
     assert.equal(recovered.state, 'ready'); assert.equal(recovered.notice, ''); assert.equal(recovered.focus, 'concept-preview');
     if (JSON.stringify(await a.evaluate(() => boxes())) !== JSON.stringify(baseline)) t.diagnostic(JSON.stringify({ baselineLayout, recoveredLayout: await layout() }));
     assert.deepEqual(await a.evaluate(() => boxes()), baseline, 'successful revalidation shifts 0 px');
+    if (width === 1440 && evidence) {
+      await a.evaluate(async () => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
+      await a.mouse.move(-10, -10);
+      const recoveredFile = 'ait364-1440-light-de-recovered.png';
+      await a.screenshot({ path: join(evidence, recoveredFile), fullPage: false, captureBeyondViewport: false }); shots.push(recoveredFile);
+    }
     if (a.heldConsentRead) { await a.heldConsentRead.continue(); a.heldConsentRead = null; }
     await a.evaluate(() => view.open('image'));
     await a.waitForFunction(() => view.dialog.open && c.shadowRoot.querySelector('.concept-image').hasAttribute('src'));
     assert.deepEqual(await a.evaluate(() => view.items.map(i => i.id)), ['image'], 'covered images reopen without reload; withdrawn HTML stays gone');
-    checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, recovered, retainedOpenable: true });
+    checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, automaticRecovery: true, recovered, retainedOpenable: true });
   });
   if (evidence) {
     const report = JSON.stringify({ spec: 'AIT-364 Tick v1.1', shots, checks }, null, 2);
