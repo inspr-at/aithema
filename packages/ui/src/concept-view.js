@@ -775,7 +775,7 @@ export class ConceptView {
       try {
         const bytes = await this.load(current.id);
         if (!bytes || !inspectHTML(bytes).ok) throw new Error();
-        if (epoch !== this.#epoch || sessionId !== this.#session.id) return;
+        if (epoch !== this.#epoch || sessionId !== this.#session.id || !this.items.some(c => c.id === current.id)) return;
         url = URL.createObjectURL(new Blob([frameDocument(new TextDecoder().decode(bytes), { standalone: true })], { type: HTML_MEDIA_TYPE }));
         const link = document.createElement('a'); link.href = url; link.download = `concept-${current.id}.html`; link.click();
       } catch { this.root.querySelector('.concept-viewer-message').textContent = this.copy.conceptDraftFailed; }
@@ -786,7 +786,7 @@ export class ConceptView {
       // A real owner-authenticated GET on the image route, never a provider URL.
       const response = await fetch(this.sameOrigin(this.path(`/${current.id}/image?download=1`)), { headers: this.headers(), cache: 'no-store' });
       if (!response.ok) throw new Error(); const blob = await response.blob();
-      if (epoch !== this.#epoch || sessionId !== this.#session.id) return;
+      if (epoch !== this.#epoch || sessionId !== this.#session.id || !this.items.some(c => c.id === current.id)) return;
       url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url;
       link.download = `concept-${current.id}.${current.mediaType.split('/')[1]}`; link.click();
     } catch { this.root.querySelector('.concept-viewer-message').textContent = this.copy.conceptImageFailed; }

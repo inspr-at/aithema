@@ -146,7 +146,7 @@ export class AithemaSession extends HTMLElement {
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.element.open;
-    clearTimeout(this.#consentRefresh?.timer); this.#consentRefresh = null;
+    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); this.#consentRefresh = null;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
@@ -183,7 +183,9 @@ export class AithemaSession extends HTMLElement {
     this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), this.#options.host?.version ?? {}, { locale: this.#session.locale });
     this.#watchBrand(); this.#footerMedia?.addEventListener?.('change', this.#footerListener); this.#footerListener?.();
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
-    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
+    this.#concept?.connect(); this.#connect();
+    if (this.#consentRefresh) { this.#consentRefresh.retryTimer = null; void this.#refreshFeatures(); }
+    this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
     this.#questionCard?.connect();
@@ -191,6 +193,8 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer);
+    if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; }
     clearTimeout(this.#clarifyNoticeTimer);
     this.#cancelUploads();
     this.#stopReconciling();
@@ -2556,7 +2560,7 @@ export class AithemaSession extends HTMLElement {
   #watchConsentRefresh() {
     // Repeated saves cannot extend an already open verification window.
     if (this.#consentRefresh) return;
-    const pending = { sessionId: this.#session.id };
+    const pending = { sessionId: this.#session.id, retries: 0 };
     this.#consentRefresh = pending;
     // Coverage is bounded from the event, including snapshot and document reads.
     pending.timer = setTimeout(() => this.#failConsentRefresh(pending), 2000);
@@ -2565,17 +2569,55 @@ export class AithemaSession extends HTMLElement {
   #failConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
     clearTimeout(pending.timer);
+    pending.failed = true; pending.attempt = null;
     this.#concept.failClosedConsent();
+    if (pending.retryTimer || !this.isConnected) return;
+    if (pending.retries >= 3) { pending.exhausted = true; return; }
+    const delay = [2000, 4000, 8000][pending.retries++];
+    pending.retryTimer = setTimeout(() => {
+      pending.retryTimer = null;
+      if (pending === this.#consentRefresh && this.isConnected) void this.#refreshFeatures(true);
+    }, delay);
+    pending.retryTimer.unref?.();
   }
-  async #refreshFeatures() {
+  #retryStaleConsentRefresh(pending) {
+    if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
+    // Journal activity can overtake either read. Retry the current cursor once
+    // immediately, without extending the event's original verification deadline.
+    // A persistently stale host or a failed window uses the bounded backoff.
+    if (!pending.failed && pending.staleCursor !== this.#cursor) {
+      pending.staleCursor = this.#cursor;
+      void this.#refreshFeatures(true);
+    } else this.#failConsentRefresh(pending);
+  }
+  async #refreshFeatures(consentRetry = false) {
     if (this.#session.processingPreset === 'device') return;
     const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
+    if (consentRetry && pending?.exhausted) return;
+    // Ordinary refresh triggers remain useful after the automatic budget ends.
+    if (pending) { clearTimeout(pending.retryTimer); pending.retryTimer = null; }
+    const attempt = {};
+    if (pending) {
+      pending.attempt = attempt;
+      // Retries must also time out: a stalled attempt cannot hold the budget open.
+      if (pending.failed) {
+        clearTimeout(pending.timer);
+        pending.timer = setTimeout(() => this.#failConsentRefresh(pending), 2000);
+        pending.timer.unref?.();
+      }
+    }
+    const active = () => sessionId === this.#session.id && pending === this.#consentRefresh && (!pending || pending.attempt === attempt);
+    const fail = () => { if (active()) this.#failConsentRefresh(pending); };
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
-      if (!response.ok) { this.#failConsentRefresh(pending); return; }
+      if (!active()) return;
+      if (!response.ok) { fail(); return; }
       const session = await response.json();
-      if (revision !== this.#session.consentRevision || session.consentRevision !== revision) return;
-      if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
+      if (!active()) return;
+      if (revision !== this.#session.consentRevision || session.consentRevision !== revision ||
+        session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) {
+        this.#retryStaleConsentRefresh(pending); return;
+      }
       this.#session.featureMatrix = session.featureMatrix;
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
       if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
@@ -2596,15 +2638,17 @@ export class AithemaSession extends HTMLElement {
       try {
         const consent = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
         const doc = consent.ok ? await consent.json() : null;
-        if (sessionId === this.#session.id && revision === this.#session.consentRevision && session.seq === this.#cursor &&
-          doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features &&
-          (pending === this.#consentRefresh)) {
-          clearTimeout(pending?.timer);
-          if (pending === this.#consentRefresh) this.#consentRefresh = null;
+        if (!active()) return;
+        if (revision !== this.#session.consentRevision || session.seq !== this.#cursor) {
+          this.#retryStaleConsentRefresh(pending); return;
+        }
+        if (doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) {
+          clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer);
+          this.#consentRefresh = null;
           this.#concept.update(this.#session, doc, true);
-        } else this.#failConsentRefresh(pending);
-      } catch { this.#failConsentRefresh(pending); }
-    } catch { this.#failConsentRefresh(pending); }
+        } else fail();
+      } catch { fail(); }
+    } catch { fail(); }
   }
   async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
