@@ -165,6 +165,15 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 30);
 
+// AIT-362: PR #320 CI 39215911919, head 1b2be006, shard 5/7
+// measured all four composed-media tests: 1.213731427 + 3.200874379
+// + 19.466447911 + 2.751333913 = 26.632387630s.
+// ceil(observed * 1.25) = 34s. The Settings test completed its full matrix
+// and failed only the documented fit-state assertions; retain this diagnostic
+// floor outside trusted rolling-main history. No capacity policy changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 34);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
