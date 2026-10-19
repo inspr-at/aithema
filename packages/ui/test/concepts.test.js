@@ -1215,9 +1215,9 @@ for (const kind of ['html', 'image']) for (const directed of [false, true]) test
   const feature = kind === 'html' ? 'html' : 'images';
   const snapshot = c.session;
   snapshot.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   view.update(snapshot); state.snapshot = () => new Promise(() => {});
   assert.equal(view.covered(kind), false, 'the setup starts with this kind uncovered');
-  t.mock.timers.enable({ apis: ['setTimeout'] });
   view.reviseConsent([kind === 'html' ? 'html-drafts' : 'images'], true, directed ? [] : undefined);
   assert.equal(view.items.some(item => item.id === kind), false, 'changed can add removals but never grant coverage');
   view.open(kind); assert.equal(view.dialog.open, false);

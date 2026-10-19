@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256 } from './lib/digest.mjs';
@@ -22,7 +23,7 @@ export function buildCandidate(output, sourceRef = 'HEAD') {
   }
   const consumer = testConsumer(first);
   const evidence = { schema: 'aithema-candidate-evidence/1', version: manifest.version, source_commit: manifest.source.commit,
-    built_at: new Date().toISOString(), runner: process.env.GITHUB_ACTIONS ? 'GitHub Actions' : 'mbp2606',
+    built_at: new Date().toISOString(), runner: process.env.GITHUB_ACTIONS ? `GitHub Actions ${process.env.GITHUB_RUN_ID}` : hostname(),
     toolchain: { node: process.versions.node, tar: execFileSync('tar', ['--version'], { encoding: 'utf8' }).split('\n')[0] },
     reproducible: true, builds: 2, manifest_sha256: 'sha256:' + sha256(readFileSync(join(first, 'release-set.json'))),
     normalized_digest: normalizedDigest(first),
