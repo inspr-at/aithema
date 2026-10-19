@@ -498,6 +498,7 @@ export class AudioRail {
           this.root.querySelector('.voice-caption').textContent = '';
         }
         if (event.type === 'ended') {
+          this.retryConnecting = false; this.retryAt = 0;
           this.notices.clear();
           this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; this.journal?.clear();
           this.busy = false; this.pauseCommand = null; this.beating = false; this.hidePending = false; this.playbackBlocked = false;
