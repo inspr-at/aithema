@@ -1126,10 +1126,15 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     await shadow(page, c => { const pane = c.shadowRoot.querySelector('.settings__body'); pane.scrollTop = pane.scrollHeight; });
     await frame(page);
     const before = await boxes(page, geometry), label = await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent);
-    await otherDecision(false);
-    const count = posts.length;
+    // AIT-398 red-before: force the withdrawal refresh to take the broad GET
+    // hold before Save, then let the editor's own stale reload finish first.
     page.heldConsentReload = null; page.holdConsentReload = true;
+    await otherDecision(false);
+    for (let attempt = 0; !page.heldConsentReload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.ok(page.heldConsentReload, 'withdrawal background refresh took the consent GET hold');
+    const count = posts.length;
     await page.locator('aithema-session >>> .done').click();
+    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.save-status').textContent === text, notice[locale]);
     for (let attempt = 0; !page.heldConsentReload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
     assert.ok(page.heldConsentReload, 'reload request is held while the visitor sees their current items');
     const busy = await shadow(page, c => {
