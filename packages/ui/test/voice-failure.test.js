@@ -1,8 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
 import { Window } from 'happy-dom';
 import { createVoiceControl } from '../src/voice-control.js';
 import { AudioRail } from '../src/audio-rail.js';
@@ -12,6 +11,7 @@ import { createGrokVoiceClient } from '../../../plugins/grok-voice/src/client.js
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
+import { failureCopy } from './fixtures/voice-failure-copy.js';
 
 const checks = [];
 const record = (provider, state, assertions, extra = {}) => checks.push(...assertions.map(assert => ({ provider, state, theme: 'light', locale: 'de', width: 1440, assert, stateOnly: true, clock: 'mock', ...extra, pass: true })));
@@ -152,11 +152,49 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     }
   });
 }
-test('AIT-361: DE and EN copy files remain byte-identical to the binding base', async () => {
-  for (const [locale, digest] of [['de', 'de1b89bba7bed88d2f13e7cd2500190f85e756772276c37cb5c42c2559fb95a3'], ['en', '3b4378f1f70073a79dfc6e2694e0e29af6e061a8da75dbc87d1a4ac46d82b195']]) {
-    const path = `packages/ui/src/i18n/${locale}.js`;
-    assert.equal(createHash('sha256').update(await readFile(new URL(`../../../${path}`, import.meta.url))).digest('hex'), digest);
-    for (const provider of ['elevenlabs', 'grok-voice']) checks.push({ provider, state: 'copy', theme: 'light', locale, width: 1440, assert: 'i18n key sets and bytes unchanged from 5d015ba6', diff: 0, pass: true });
+// Expose only binding-base keys during rendering and check every string read
+// against its original text. Enumeration uses that same scoped key set, so a
+// different feature can add locale entries without extending this contract.
+function existingFailureCopy(actual, expected, path) {
+  return new Proxy(expected, {
+    get(target, key) {
+      assert.ok(Object.hasOwn(target, key), `${path}.${String(key)} must be an existing binding-base copy key`);
+      const name = `${path}.${String(key)}`;
+      if (typeof target[key] === 'object') return existingFailureCopy(actual?.[key], target[key], name);
+      assert.equal(actual?.[key], target[key], `${name} must retain its exact pre-AIT-361 text`);
+      return actual[key];
+    },
+  });
+}
+
+test('AIT-361: failure rendering reads only existing, unchanged DE and EN copy', async t => {
+  for (const [locale, copy] of [['de', de], ['en', en]]) {
+    const expected = failureCopy[locale];
+    for (const provider of ['elevenlabs', 'grok-voice']) {
+      const { rail } = fixture(t, provider);
+      rail.copy = existingFailureCopy(copy, expected, locale);
+      for (const errorKey of ['voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'voiceRecoveryFailed', 'voicePlaybackBlocked']) {
+        rail.state = errorKey === 'voicePlaybackBlocked' ? 'listening' : 'failed';
+        rail.session = errorKey === 'voicePlaybackBlocked' ? { callId: 'offline-copy-fixture' } : null;
+        rail.errorKey = errorKey; rail.render();
+        const status = rail.root.querySelector('.voice-state');
+        assert.equal(status.getAttribute('aria-label'), expected[errorKey]);
+        assert.equal(status.querySelector('.consent-wide').textContent, expected[errorKey]);
+        assert.equal(status.querySelector('.consent-narrow').dataset.copy, expected.voiceMessagesNarrow[errorKey]);
+      }
+      rail.errorKey = null;
+      for (const state of ['recovering', 'waiting', 'connecting']) {
+        rail.state = state; rail.paused = state === 'waiting'; rail.render();
+        const status = rail.root.querySelector('.voice-state');
+        assert.equal(status.getAttribute('aria-label'), expected.voiceStates[state]);
+        assert.equal(status.querySelector('.consent-wide').textContent, expected.voiceStates[state]);
+        assert.equal(status.querySelector('.consent-narrow').dataset.copy, expected.voiceStatesNarrow[state]);
+      }
+      // This fixture has no live provider call to close during cleanup.
+      rail.session = null;
+      checks.push({ provider, state: 'copy', theme: 'light', locale, width: 1440,
+        assert: 'failure rendering reads only existing keys with exact text from 5d015ba6', diff: 0, pass: true });
+    }
   }
 });
 
