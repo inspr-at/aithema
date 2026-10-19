@@ -308,9 +308,11 @@ for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plug
   assert.ok(!doc.features.html.includes('other-drafts') || change === 'preset switch' || change === 'rebound id', 'an unresolved producer cannot borrow a different purpose');
   assert.deepEqual(runtime.scopes({ ...current, concepts: current.concepts.filter(c => c.id === 'recorded') }, { feature: 'html', delivered: true }).map(s => s.purpose), ['drafts']);
   assert.equal(current.concepts.find(c => c.id === 'recorded').consentScope, undefined, 'private scope is absent from snapshots');
+  assert.equal(await runtime.processingAllowed(current, scope), false, 'consent-only processing checks the admitted purpose independently of binding availability');
   assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), false);
-  assert.ok(coverageCalls.every(purpose => purpose === 'drafts'), 'publication never borrows a different purpose');
+  assert.equal(coverageCalls.at(-1), 'drafts', 'publication checks the admitted purpose even after a switch');
   allowedPurpose = 'drafts';
+  assert.equal(await runtime.processingAllowed(current, scope), true, 'restoring admitted consent alone passes processing but cannot restore publication');
   assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), false, 'consent cannot replace a matching current binding and its full publication gate');
   if (change.startsWith('missing')) {
     assert.deepEqual(doc.features.html, []);
