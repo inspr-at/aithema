@@ -114,8 +114,8 @@ svg { display:block; flex:none; }
 :is(.voice-input, .voice-output)[aria-pressed="false"] { color:var(--aithema-muted); background:color-mix(in srgb,var(--aithema-line) 28%,var(--aithema-surface)); }
 .audio-rail :is(.pause, .voice-pause) { color:var(--aithema-paper); background:var(--aithema-ink); border-color:var(--aithema-ink); }
 .audio-rail :is(.pause, .voice-pause):hover:not(:disabled) { background:var(--aithema-ink); }
-/* All disabled Pause controls share the recovering treatment. */
-.audio-rail button:is(.pause, .voice-pause):disabled { color:var(--aithema-muted); background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); border-color:color-mix(in srgb,var(--aithema-line) 70%,transparent); cursor:not-allowed; }
+/* Disabled opacity mutes neutral ink; exhausted rails retain their neutral colour. */
+.audio-rail button:is(.pause, .voice-pause):disabled { color:var(--aithema-ink); background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); border-color:color-mix(in srgb,var(--aithema-line) 70%,transparent); cursor:not-allowed; }
 .voice-icon--resume, :is(.pause, .voice-pause)[aria-pressed="true"] .voice-icon:not(.voice-icon--resume) { visibility:hidden; }
 :is(.pause, .voice-pause)[aria-pressed="true"] .voice-icon--resume { visibility:visible; }
 .audio-rail .voice-close { color:var(--aithema-error); }
