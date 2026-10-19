@@ -12,12 +12,12 @@ import { runElevenLabsReply, elevenLabsReplyChunk, elevenLabsCompletion } from '
 const spendReason = error => ['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error?.message) ? error.message : undefined;
 const turnReason = error => /^voice-turn-(?:obsolete|replay-expired|replacement-required|revoked|fenced|limit)$/u.test(error?.message) ? error.message : undefined;
 const digest = value => createHash('sha256').update(value).digest();
-// Observed growth (~72 KiB / 4 min) projects to ~2.1 MiB at the 120-minute voice cap.
-// 8 MiB leaves room for faster turns, JSON overhead and multibyte text, while remaining bounded.
 // Leave 1.5 s after the first-audio deadline, and 0.5 s below the provider's ~7 s budget.
 export const VOICE_CALLBACK_TIMEOUT_MS = 6500;
 export const FIRST_AUDIO_DEADLINE_MS = 5000;
 const HOLDING_LINES = Object.freeze({ de: 'Einen Moment, bitte.', en: 'One moment, please.' });
+// Observed growth (~72 KiB / 4 min) projects to ~2.1 MiB at the 120-minute voice cap.
+// 8 MiB leaves room for faster turns, JSON overhead and multibyte text, while remaining bounded.
 export const MAX_COMPLETION_REQUEST_BYTES = 8 * 1_048_576;
 const codeFor = error => error instanceof PluginError && PLUGIN_ERROR_CODES.includes(error.code) ? error.code : 'provider';
 export function bearerMatches(header, secret) {
@@ -58,11 +58,21 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
     const json = (error, status, reason) => reply({ error, ...(reason ? { reason } : {}) }, status, error);
     if (request.method !== 'POST') return json('method-not-allowed', 405);
     const localCancellation = new AbortController();
-    const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: Date.now() + timeoutMs });
+    const callbackDeadlineAt = Date.now() + timeoutMs;
+    const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: callbackDeadlineAt });
     let admission, iterator, invocationOptions, invocationScope, reports = 0, finishPromise, callTimer, callSignal, callAbort, streamFailure;
     const cleanup = async failed => {
       finishPromise ??= Promise.resolve().then(async () => {
-        try { if (admission?.finish) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => admission.finish({ failed })); }
+        try {
+          if (admission?.finish) {
+            // Always start settlement, even after expiry, but never extend HTTP
+            // lifetime while awaiting an uncooperative accounting port.
+            const settlement = Promise.resolve().then(() => admission.finish({ failed }));
+            settlement.catch(() => {});
+            await voiceOperation({ deadlineAt: Math.min(callbackDeadlineAt,
+              invocationOptions?.deadlineAt ?? Infinity, Date.now() + 1000) }, () => settlement);
+          }
+        }
         finally { clearTimeout(callTimer); callSignal?.removeEventListener('abort', callAbort);
           invocationOptions?.signal.removeEventListener('abort', expire);
           invocationScope?.dispose(); scope.signal.removeEventListener('abort', expire); scope.dispose(); }
