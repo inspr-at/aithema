@@ -59,7 +59,7 @@ export async function checkVoiceFailures(t) {
           callout: rect(status), anchor: rect(anchor), header: rect(root.querySelector('.band')), position: getComputedStyle(status).position,
           narrow: getComputedStyle(status.querySelector('.consent-narrow')).display,
           focus: root.activeElement?.className ?? null, accessibleName: status.getAttribute('aria-label'), text: status.textContent,
-          providerLimit: rail.copy.providerLimit, label: rail.copy[rail.errorKey] ?? rail.copy.voiceStates[rail.root.dataset.state],
+          providerLimit: rail.copy.voiceReasonsNarrow.providerLimit, label: rail.copy[rail.errorKey] ?? rail.copy.voiceStates[rail.root.dataset.state],
           calloutFocusable: status.tabIndex >= 0 || Boolean(status.querySelector('button,a,input,[tabindex]')), state: rail.root.dataset.state,
           playbackLabel: rail.button('playback').title, live: Boolean(rail.session) };
       };

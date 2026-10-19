@@ -42,8 +42,8 @@ function fixture(t, provider, { startError, recoveryError } = {}) {
 }
 function noLimit(rail) {
   for (const copy of [de, en]) { rail.copy = copy; rail.render(); const status = rail.root.querySelector('.voice-state');
-    assert.ok(!status.textContent.includes(copy.providerLimit)); assert.ok(!status.getAttribute('aria-label').includes(copy.providerLimit));
-    assert.ok(!status.querySelector('.consent-narrow')?.dataset.copy.includes(copy.providerLimit)); }
+    assert.ok(!status.textContent.includes(copy.voiceReasonsNarrow.providerLimit)); assert.ok(!status.getAttribute('aria-label').includes(copy.voiceReasonsNarrow.providerLimit));
+    assert.ok(!status.querySelector('.consent-narrow')?.dataset.copy.includes(copy.voiceReasonsNarrow.providerLimit)); }
 }
 for (const provider of ['elevenlabs', 'grok-voice']) {
   for (const retryAfterMs of [5000, 120_000, undefined]) test(`AIT-361 ${provider}: start 429 retry-after ${retryAfterMs ?? 'absent'}`, async t => {
