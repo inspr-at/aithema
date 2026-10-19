@@ -543,11 +543,13 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
   const local = facadeFixture({ timeoutMs, deadlineAt: Date.now() + 60_000, ports: {
     turnOperations, ...(defaultTimeout ? { timeoutMs: undefined } : {}),
     buildRequest: () => snapshot,
-    async admitReasoning({ request, options }) {
-      const index = admissions.length; admissions.push(request);
+    async admitReasoning({ request, options, transformRequest }) {
+      const index = admissions.length;
       await admissionGate?.promise;
+      const admitted = transformRequest ? transformRequest(snapshot) : snapshot;
+      admissions.push(admitted);
       const opts = invocationOptions(options); reports.push(opts.reports);
-      return { request: snapshot, options: opts, finish: async () => { finishes.push(index);
+      return { request: admitted, options: opts, finish: async () => { finishes.push(index);
         if (!opts.reports.length) opts.report({ attemptId: opts.attempt.attemptId, outcome: 'uncertain' });
         await settlementGate?.promise; },
         plugin: { async *stream(input, invocation) {
@@ -555,7 +557,7 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
           const accounting = await beginInvocation(invocation); let completed = false;
           try {
             accounting.dispatch();
-            for (const step of attempts[index] ?? []) {
+            for (const step of (typeof attempts[index] === 'function' ? attempts[index](input) : attempts[index]) ?? []) {
               if (step.gate) await new Promise((resolve, reject) => {
                 const abort = () => reject(new PluginError('cancelled'));
                 invocation.signal.addEventListener('abort', abort, { once: true });
@@ -580,7 +582,7 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
     });
     return state;
   };
-  t.after(async () => { settlementGate?.resolve(); finalizationGate?.resolve(); for (const attempt of attempts) for (const step of attempt) step.gate?.resolve();
+  t.after(async () => { settlementGate?.resolve(); finalizationGate?.resolve(); for (const attempt of attempts) for (const step of typeof attempt === 'function' ? [] : attempt) step.gate?.resolve();
     admissionGate?.resolve(); await Promise.all(states.map(state => state.done)); });
   return { ...local, observe, snapshot, admissions, completions, reports, finishes, started, get maxLive() { return maxLive; } };
 }
@@ -739,4 +741,69 @@ test('AIT-381: deferred settlement cannot extend the overall callback beyond 6.5
   t.mock.timers.tick(1); await flush(); assert.equal(state.ended, true);
   assert.equal(state.text.includes('"error":"deadline"'), true); assert.equal(state.text.includes('[DONE]'), false);
   settlementGate.resolve(); await state.done; assert.equal(h.finishes.length, 1);
+});
+
+for (const count of [2, 3]) test(`AIT-381 r2: ${count} off-scope segments speak one redirect per reply`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const rest = Promise.withResolvers();
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment('Unrelated advice.', 'off')}` },
+    { gate: rest, text: ',' + Array.from({ length: count - 1 }, () => spokenSegment('More unrelated advice.', 'off')).join(',') + ']}' }]] });
+  const state = h.observe(); await flush();
+  assert.equal(spokenText(state), 'Which project should we clarify?');
+  t.mock.timers.tick(5000); await flush();
+  rest.resolve(); await state.done;
+  assert.equal(spokenText(state), 'Which project should we clarify?');
+  assert.equal(h.completions[0].content, spokenText(state));
+  assert.equal(h.admissions.length, 1); assert.equal(h.reports[0].length, 1);
+});
+
+test('AIT-381 r2: mid-reply rejection validates each retry segment normally', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const rest = Promise.withResolvers();
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment('A focused start. ')}` },
+    { gate: rest, text: `,${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+    [{ text: `{"segments":[${spokenSegment('What should improve? ')},${spokenSegment('Who is affected?')}]}` }]] });
+  const state = h.observe(); await flush(); assert.equal(spokenText(state), 'A focused start. ');
+  rest.resolve(); await state.done;
+  assert.equal(spokenText(state), 'A focused start. What should improve? Who is affected?');
+  assert.equal(state.text.includes('PRIVATE_PINNED_CANARY'), false);
+  assert.equal(h.admissions.length, 2); assert.equal(h.maxLive, 1);
+  assert.ok(h.reports.every(items => items.length === 1));
+});
+
+test('AIT-381 r2: retry context contains committed speech so the opening is spoken once', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const rest = Promise.withResolvers(), opening = 'A focused start. ';
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment(opening)}` },
+    { gate: rest, text: `,${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+    input => [{ text: `{"segments":[${spokenSegment(input.messages.some(message => message.role === 'assistant' && message.content === opening)
+      ? 'What should improve?' : opening + 'What should improve?')}]}` }]] });
+  const state = h.observe(); await flush(); assert.equal(spokenText(state), opening);
+  rest.resolve(); await state.done;
+  const retry = h.started[1];
+  assert.ok(retry.messages.some(message => message.role === 'assistant' && message.content === opening));
+  assert.equal(JSON.stringify(retry.messages).includes('PRIVATE_PINNED_CANARY'), false);
+  assert.equal(spokenText(state), opening + 'What should improve?');
+  assert.equal(spokenText(state).split(opening).length - 1, 1);
+});
+
+test('AIT-381 r2 / AIT-388: both admissions quote and hash the exact dispatched segment request', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const admissionGate = Promise.withResolvers();
+  const h = spokenFixture(t, { admissionGate, attempts: [[{ text: `{"segments":[${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+    [{ text: `{"segments":[${spokenSegment('What should improve?')},${spokenSegment(' Who is affected?')}]}` }]] });
+  const state = h.observe(); await flush();
+  h.snapshot.messages = [...h.snapshot.messages, { role: 'user', content: 'Input saved during admission' }];
+  h.snapshot.system += '\nFresh admitted context';
+  admissionGate.resolve(); await state.done;
+  assert.equal(h.started.length, 2);
+  for (let index = 0; index < 2; index++) {
+    const admitted = h.admissions[index], dispatched = h.started[index];
+    assert.ok(dispatched.messages.some(message => message.content === 'Input saved during admission'));
+    assert.ok(dispatched.system.includes('Fresh admitted context'));
+    assert.ok(admitted.schema.properties.segments, 'admission quotes the delivery schema too');
+    assert.equal(createHash('sha256').update(JSON.stringify(admitted)).digest('hex'),
+      createHash('sha256').update(JSON.stringify(dispatched)).digest('hex'));
+    assert.deepEqual(dispatched, admitted);
+  }
 });
