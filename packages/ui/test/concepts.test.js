@@ -1181,3 +1181,15 @@ test('AIT-365 E1/E2: a mixed future scope still removes the known withdrawn kind
   assert.equal(view.dialog.open, false); assert.deepEqual(view.items.map(i => i.id), ['image']);
   t.mock.timers.tick(2000); assert.deepEqual(view.items, [], 'unknown scope still carries the full fail-closed duty');
 });
+
+test('AIT-365 E3: a persistently lagging grant document still fails closed at the original 2 s boundary', async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html');
+  state.document = () => Response.json({ consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  grant(); await tick();
+  assert.equal(view.dialog.open, true);
+  t.mock.timers.tick(1999); assert.equal(view.dialog.open, true);
+  t.mock.timers.tick(1); assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+});
