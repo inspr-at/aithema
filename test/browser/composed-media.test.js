@@ -381,7 +381,9 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     const baseline = await page.evaluate(() => window.ait350.geometry());
     const phoneBaseline = width === 390 ? await page.evaluate(() => {
       const f = window.ait350, top = f.q('#settings-select-voice').getBoundingClientRect().top;
-      f.aboveChoice = [...f.dialog.querySelectorAll('.settings__header, .settings__body *')]
+      // Measure persistent layout boxes, including the full fields above the
+      // choice. Their selected-value text children are replaced on render.
+      f.aboveChoice = [...f.dialog.querySelectorAll('.settings__header, .settings__body .settings-field, .settings__body legend, .settings__body .presets, .settings__body .select, .settings__body .effort-area')]
         .filter(node => node.getClientRects().length && node.getBoundingClientRect().bottom <= top);
       f.phoneGeometry = () => {
         const box = node => { const b = node.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
