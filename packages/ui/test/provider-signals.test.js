@@ -111,3 +111,82 @@ test('AIT-383 physical PCM no API and already-granted acquisition preserve prove
   await assert.rejects(createPCMCapture({ permissions: { async query() { return { state: 'granted' }; } }, mediaDevices: { async getUserMedia() { throw failure; } } })({ onAudio() {}, onMicrophoneState: p => phases.push(p) }), { name: 'NotReadableError', phase: 'microphone' });
   assert.deepEqual(phases, [], 'already-granted permission never reports an open prompt');
 });
+
+// Gate 1 regressions use the server's actual 30 s browser lease. The spend
+// budget is independent and remains long enough for the visitor's decision.
+for (const heldMs of [45_000, 60_000]) test(`AIT-383 elevenlabs: ${heldMs / 1000} s prompt renews a 30 s server lease and connects`, async t => {
+  const permission = Promise.withResolvers();
+  const { rail, current } = setup(t, 'elevenlabs', { permission: permission.promise });
+  t.after(() => permission.resolve());
+  const start = rail.start(); await flush();
+  await advance(t, heldMs);
+  assert.equal(current.leaseExpired, false, 'server must not close the call during S1');
+  assert.ok(current.leases.length >= 4, 'startup renews the lease every 10 s');
+  permission.resolve(); await start; await flush();
+  assert.equal(rail.state, 'listening'); assert.equal(rail.paused, false);
+  assert.equal(rail.session.lifecycle.state.browserLivenessDeadlineAt, current.leaseDeadlineAt, 'connected uses the latest renewal');
+  await advance(t, 16_000); assert.equal(current.leaseExpired, false);
+});
+test('AIT-383 elevenlabs: credential guard pauses for the prompt but remains bounded after grant without a rail timer', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const permission = Promise.withResolvers(), connection = Promise.withResolvers(), phases = [];
+  const current = currentVoiceClient('elevenlabs', { enabled: true, permission: permission.promise, connection: connection.promise, credentialTtlMs: 20_000 });
+  const started = current.client.start({ callId: 'bounded-credential' }, { onMicrophoneState: p => phases.push(p) }).then(session => ({ session }), error => ({ error }));
+  let result; void started.then(value => { result = value; });
+  t.after(async () => { permission.resolve(); connection.resolve(); await flush(); await result?.session?.close(); current.end(); });
+  await flush(); assert.deepEqual(phases, ['requesting']);
+  await advance(t, 60_000); assert.equal(result, undefined, 'permission wait does not consume credential budget');
+  permission.resolve(); await flush(); assert.deepEqual(phases, ['requesting', 'granted']);
+  await advance(t, 19_999); assert.equal(result, undefined);
+  await advance(t, 1); assert.equal(result?.error?.code, 'deadline', 'SDK credential phase is still bounded without the rail');
+});
+test('AIT-383 elevenlabs: unqualified chunks do not queue activity round trips ahead of finals', async t => {
+  const { rail, current } = setup(t, 'elevenlabs'); await rail.start();
+  current.speaking(rail.session.callId); await flush();
+  for (let i = 0; i < 50; i++) current.audio('', { mode: false });
+  current.event({ type: 'final', role: 'user', text: 'Frage', event_id: 21 });
+  await flush();
+  assert.equal(current.activities.filter(e => e.type === 'speaking').length, 1, 'one activity report per transition, never per chunk');
+  assert.ok(rail.replyTimer, 'user final reaches the rail without chunk round trips');
+});
+test('AIT-383 elevenlabs: late filler cannot restart playback after listening', async t => {
+  const { rail, current } = setup(t, 'elevenlabs'); await rail.start();
+  current.audio('Einen Moment, bitte.'); await flush();
+  current.event({ type: 'listening' }); await flush();
+  current.audio('', { mode: false }); await flush();
+  assert.equal(rail.state, 'listening');
+  assert.equal(rail.session.lifecycle.state.checkpoint.playbackPending, false);
+  assert.deepEqual(current.activities.map(e => e.type), ['speaking', 'listening']);
+});
+for (const enabled of [false, true]) test(`AIT-383 ${enabled ? 'declared prompt' : 'undeclared client'}: bare DOMException AbortError keeps microphone copy`, async t => {
+  const { rail } = setup(t, 'elevenlabs');
+  const failure = new DOMException('microphone acquisition aborted', 'AbortError');
+  rail.client = { manifest: { liveVoice: { capabilities: enabled ? { onMicrophoneState: 'native' } : {} } },
+    async start(_request, opts) { if (enabled) opts.onMicrophoneState('requesting'); throw failure; } };
+  await rail.start(); assert.equal(rail.errorKey, 'voiceMicFailed');
+});
+for (const turn of ['user-final', 'typed']) test(`AIT-383 grok-voice: queued previous reply cannot clear S5 after ${turn}`, async t => {
+  const { rail, current } = setup(t, 'grok-voice', { deferPlayback: true }); await rail.start();
+  current.audio('Old reply', { replyId: 'reply-A' }); await flush();
+  const previous = current.playback.at(-1); assert.equal(previous.replyId, 'reply-A');
+  if (turn === 'typed') await rail.sendText('New question');
+  else { current.event({ type: 'final', role: 'user', turnId: 'user-B', text: 'New question' }); await flush(); }
+  assert.ok(rail.replyTimer);
+  previous.onStarted(); await flush(); assert.ok(rail.replyTimer, 'queued old device start cannot satisfy the new turn');
+  current.audio('Late old frame', { replyId: 'reply-A' }); await flush();
+  assert.equal(current.playback.length, 1, 'late frame from retired reply is ignored');
+  await advance(t, 15_000); assert.equal(rail.errorKey, 'voiceNoReply');
+  current.audio('New reply', { replyId: 'reply-B' }); await flush();
+  current.playback.at(-1).onStarted(); await flush(); assert.equal(rail.errorKey, null);
+  assert.equal(rail.state, 'speaking');
+  current.playback.forEach(p => p.finish());
+});
+test('AIT-383 grok-voice: physical reply start carries the frame reply id', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const current = currentVoiceClient('grok-voice', { enabled: true });
+  const session = await current.client.start({ callId: 'reply-identity' });
+  t.after(async () => { await session.close(); current.end(); });
+  current.audio('Reply', { replyId: 'reply-identity-B' });
+  const { value } = await session.events[Symbol.asyncIterator]().next();
+  assert.equal(value.audio, true); assert.equal(value.replyId, 'reply-identity-B');
+});
