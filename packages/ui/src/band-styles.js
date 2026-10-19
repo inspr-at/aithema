@@ -55,9 +55,12 @@ export const bandStyles = `
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:var(--voice-message-width,min(280px,calc(100vw - 32px))); top:var(--voice-message-top,calc(100% + 8px)); max-width:none;
-  left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:auto; }
+  left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:manual; }
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
+.voice-countdown { display:inline-block; min-width:2ch; text-align:center; font-variant-numeric:tabular-nums; }
+.audio-rail[data-startup-phase="cooldown"] .voice-state { font-variant-numeric:tabular-nums; }
+.audio-rail[data-no-mic-api] .voice-retry { visibility:hidden; }
 .voice-state .consent-narrow::before { content:attr(data-copy); }
 @media(width < 600px) {
   /* A permanent two-line row below the 44px controls also fits at 320px. */
@@ -75,6 +78,15 @@ export const bandStyles = `
   .voice-state .consent-wide { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .voice-state .consent-narrow { display:inline-block; white-space:nowrap; }
   .voice-state .consent-action { flex:none; white-space:nowrap; }
+  /* Device guidance needs the full recovery instruction, anchored without resizing the rail. */
+  .band .audio-rail[data-device-message] .voice-state {
+    top:var(--voice-message-top); left:var(--voice-message-left); width:var(--voice-message-width); height:auto;
+    display:block; padding:.6rem .85rem; border:1px solid var(--aithema-line); border-radius:12px;
+    background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); text-align:left;
+    font-size:.8rem; line-height:1.45; hyphens:manual;
+  }
+  .audio-rail[data-device-message] .consent-wide { position:static; width:auto; height:auto; padding:0; overflow:visible; clip-path:none; white-space:normal; }
+  .audio-rail[data-device-message] .consent-narrow { display:none; }
 }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }

@@ -12,6 +12,17 @@ import { watchVoiceHeartbeat, voiceAuthorityLost, voiceRetryAt } from '../../cor
 // End and Retry call, Sound and Enable sound), so no state change moves a control.
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 const TAKEOVER_DEADLINE_MS = 10_000;
+const MIC_FAILURES = ['voiceMicDenied', 'voiceMicMissing', 'voiceMicBusy', 'voiceMicUnavailable', 'voiceMicFailed'];
+// Unlike a provider deadline, a visitor-controlled permission prompt is unbounded.
+function startupWait(pending, signal, timeoutMs) {
+  let timer, abort;
+  const cancelled = new Promise((_, reject) => {
+    abort = () => reject(signal.reason ?? new DOMException('Startup cancelled', 'AbortError'));
+    if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true });
+  });
+  const timeout = timeoutMs === undefined ? new Promise(() => {}) : new Promise(resolve => { timer = setTimeout(resolve, timeoutMs); });
+  return Promise.race([pending === undefined ? new Promise(() => {}) : pending, cancelled, timeout]).finally(() => { clearTimeout(timer); signal.removeEventListener('abort', abort); });
+}
 export class AudioRail {
   constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, heartbeatMs });
@@ -119,7 +130,7 @@ export class AudioRail {
       const header = (this.root.closest('.band') ?? this.root).getBoundingClientRect();
       const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right);
       const width = Math.min(280, Math.max(0, maxRight - minLeft));
-      const anchor = (['voiceMicDenied', 'voiceMicMissing'].includes(this.errorKey) ? this.button(this.session ? 'input' : 'start')
+      const anchor = (MIC_FAILURES.includes(this.errorKey) ? this.button(this.session ? 'input' : 'start')
         : this.errorKey === 'voicePlaybackBlocked' ? this.button('playback')
         : this.state === 'failed' && !this.session && ['voiceConnectionFailed', 'voiceDeadline', 'voiceConflict'].includes(this.errorKey) ? this.button('retry')
         : this.root.querySelector('.voice-signal')).getBoundingClientRect();
@@ -193,6 +204,9 @@ export class AudioRail {
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
     this.root.toggleAttribute('data-call-reconciling', Boolean(this.endedCall && !this.endedCall.settled) && !active && state === 'idle');
+    this.root.toggleAttribute('data-device-message', ['voiceMicBusy', 'voiceMicUnavailable', 'voiceMicFailed', 'voiceNoReply'].includes(this.errorKey));
+    this.root.toggleAttribute('data-no-mic-api', this.errorKey === 'voiceMicUnavailable');
+    this.root.dataset.startupPhase = this.startupPhase ?? '';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
     this.root.toggleAttribute('data-moved', Boolean(this.moved));
     this.root.toggleAttribute('data-message', !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded', 'voiceMoved'].includes(this.errorKey));
@@ -201,17 +215,27 @@ export class AudioRail {
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
     paintConsentLine(this.root.querySelector('.voice-state'), { copy: c, feature: 'voice',
       verdict: active || transitional || usedUp || this.error ? { available: true } : available,
-      text: usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
+      text: usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
+      this.startupPhase ? c.voiceStates[this.startupPhase] : active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);
     const status = this.root.querySelector('.voice-state');
     const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
-    if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, narrowVoiceStatus(c, sentence, {
+    if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, this.startupPhase === 'cooldown' ? c.voiceCooldownNarrow.replace('{s}', this.countdown) : narrowVoiceStatus(c, sentence, {
       reason: this.usedUp?.() ? this.endReason?.() : this.allowanceDenied ? this.errorReason : available.rawReason,
       nextTier: this.nextTier?.(),
     }));
+    if (this.startupPhase === 'cooldown') {
+      const wide = status.querySelector('.consent-wide'), narrow = status.querySelector('.consent-narrow');
+      const parts = sentence.split(String(this.countdown));
+      if (wide && parts.length === 2) {
+        const digits = status.ownerDocument.createElement('span'); digits.className = 'voice-countdown'; digits.textContent = String(this.countdown);
+        wide.replaceChildren(parts[0], digits, parts[1]);
+      }
+      if (narrow) narrow.style.minWidth = '7ch';
+    }
     if (status.getAttribute('aria-label') !== sentence) status.setAttribute('aria-label', sentence);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover || this.moved ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
@@ -220,7 +244,7 @@ export class AudioRail {
       const button = this.button(name); button.querySelector('.voice-label').textContent = label; button.title = label;
       const command = { input: 'setInput', output: 'setOutput', pause: this.pauseIntent ? 'resume' : 'pause' }[name];
       button.disabled = name === 'start' ? active || transitional || this.state === 'closing' || !available.available || !this.client
-        : name === 'retry' ? active || this.state !== 'failed' || !available.available
+        : name === 'retry' ? active || this.state !== 'failed' || !available.available || this.errorKey === 'voiceMicUnavailable'
         : name === 'playback' ? !this.playbackBlocked
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy && !(name === 'pause' && this.pauseCommand) || transitional || command && !this.capability(command));
       if (!usedUp && name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
@@ -259,12 +283,44 @@ export class AudioRail {
   failure(error) {
     this.errorKey = error?.status === 429 ? 'voiceConnectionFailed' : error?.name === 'NotAllowedError' ? 'voiceMicDenied' :
       error?.name === 'NotFoundError' ? 'voiceMicMissing' :
+      error?.name === 'NotReadableError' ? 'voiceMicBusy' :
+      error?.name === 'NoMediaAPIError' ? 'voiceMicUnavailable' :
+      ['OverconstrainedError', 'AbortError', 'UnknownCaptureError'].includes(error?.name) || error?.phase === 'microphone' ? 'voiceMicFailed' :
       error?.code === 'not-admitted' ? 'voiceAdmissionDenied' :
       error?.code === 'voice-conflict' ? 'voiceConflict' :
       error?.code === 'deadline' ? 'voiceDeadline' : 'voiceConnectionFailed';
     this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
     this.retryAt = voiceRetryAt(error);
     this.render();
+    if (this.state === 'failed') this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+  }
+  async cooldown(until, signal) {
+    const deadline = Math.min(until, Date.now() + 60_000);
+    this.startupPhase = 'cooldown';
+    try {
+      while (Date.now() < deadline) {
+        this.countdown = Math.ceil((deadline - Date.now()) / 1000); this.render();
+        await startupWait(undefined, signal, Math.min(1000, deadline - Date.now()));
+        signal.throwIfAborted();
+      }
+      this.countdown = 0; this.render();
+      // Let the zero paint before exchanging the status for Connecting.
+      await startupWait(undefined, signal, 1);
+      signal.throwIfAborted();
+    } finally { this.startupPhase = null; }
+  }
+  stopReplyWatch() { clearTimeout(this.replyTimer); this.replyTimer = null; }
+  awaitReply(session, generation) {
+    this.stopReplyWatch();
+    this.replyTimer = setTimeout(() => {
+      if (!this.current(session, generation) || this.paused || !['listening', 'speaking', 'thinking'].includes(this.state)) return;
+      if (!this.errorKey) { this.errorKey = 'voiceNoReply'; this.render(); }
+    }, 15_000);
+  }
+  receivedReply() {
+    this.stopReplyWatch();
+    if (this.errorKey === 'voiceNoReply') this.errorKey = null;
+    this.state = 'speaking';
   }
   async takeoverIdentity(retired, controller, deadlineAt) {
     const { signal } = controller;
@@ -334,25 +390,47 @@ export class AudioRail {
       return;
     }
     if (this.session) return;
-    const retryFocused = this.button('retry').getRootNode().activeElement === this.button('retry');
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
-    if (retryFocused) this.button('close').focus({ preventScroll: true });
+    this.button('close').focus({ preventScroll: true });
     this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
     if (this.root.ownerDocument.hidden) holdController.abort();
-    let session;
+    let session, connectTimer;
+    const connectDeadline = () => {
+      clearTimeout(connectTimer);
+      connectTimer = setTimeout(() => controller.abort(Object.assign(new Error('Voice connection deadline'), { code: 'deadline' })), 30_000);
+    };
     this.playbackRetry = null;
     try {
       // A reloaded page first ends the call its predecessor left behind.
-      await this.ready?.();
+      if (this.ready) {
+        this.startupPhase = 'cleanup'; this.render();
+        // The orphan owns its own cleanup. A slow/rejected cleanup cannot hold this click forever.
+        await startupWait(Promise.resolve().then(() => this.ready()).catch(() => {}), controller.signal, 5000);
+      }
       if (generation !== this.generation) return;
-      const wait = (this.retryAt ?? 0) - Date.now(); this.retryAt = 0;
-      if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+      const retryAt = this.retryAt; this.retryAt = 0;
+      if (retryAt > Date.now()) await this.cooldown(retryAt, controller.signal);
       if (generation !== this.generation) return;
+      this.startupPhase = null; this.render();
+      const view = this.root.ownerDocument.defaultView;
+      if (this.input && typeof view?.isSecureContext === 'boolean' &&
+        (!view.isSecureContext || typeof view.navigator.mediaDevices?.getUserMedia !== 'function')) {
+        throw Object.assign(new Error('Microphone API unavailable'), { name: 'NoMediaAPIError' });
+      }
+      connectDeadline();
       const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
         signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000,
+        // Provider owners must forward acquisition/grant; current clients do not yet expose it.
+        // Their internal deadline scopes must also exclude the permission wait.
+        onMicrophoneState: phase => {
+          if (generation !== this.generation || controller.signal.aborted || this.state !== 'connecting') return;
+          if (phase === 'requesting') { clearTimeout(connectTimer); this.startupPhase = 'microphone'; }
+          else if (phase === 'granted') { this.startupPhase = null; connectDeadline(); }
+          this.render();
+        },
         onPlaybackBlocked: retry => {
           if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) {
             this.playbackRetry = retry; this.reportPlaybackBlocked();
@@ -366,10 +444,13 @@ export class AudioRail {
         onResumeRequest: id => { if (generation === this.generation) this.rememberResume(id, revision); },
       });
       this.opening = opening;
-      try { session = await opening; }
+      // Ports which ignore AbortSignal still cannot retain this click. Close any late session.
+      void opening.then(late => { if (generation !== this.generation || controller.signal.aborted) void late.close().catch(() => {}); }, () => {});
+      try { session = await startupWait(opening, controller.signal); }
       finally { if (this.opening === opening) this.opening = null; }
       if (generation !== this.generation) { await session.close(); return; }
-      this.session = session; this.waitingCall = null; this.paused = false; this.state = 'listening';
+      this.session = session; this.waitingCall = null; this.paused = false; this.startupPhase = null; this.state = 'listening';
+      clearTimeout(connectTimer); this.awaitReply(session, generation);
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;
@@ -404,8 +485,10 @@ export class AudioRail {
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
       this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; controller.abort();
+      if (this.startupPhase === 'microphone' && !error.code) error.phase = 'microphone';
+      this.startupPhase = null; this.stopReplyWatch();
       this.state = this.waitingCall ? 'waiting' : 'failed'; this.failure(error);
-    }
+    } finally { clearTimeout(connectTimer); }
   }
   receiveState(state) {
     if (!state?.callId) return;
@@ -472,6 +555,12 @@ export class AudioRail {
       for await (const event of session.events) {
         if (!this.current(session, generation) || event.callId !== session.callId) return;
         if (['listening', 'speaking'].includes(event.type)) this.state = event.type;
+        if (!this.paused && !event.replay) {
+          if (['partial', 'final'].includes(event.type) && event.role === 'assistant' && event.text?.trim() &&
+            !event.filler && !['Einen Moment, bitte.', 'One moment, please.'].includes(event.text.trim())) this.receivedReply();
+          if (event.type === 'final' && event.role === 'user') this.awaitReply(session, generation);
+        }
+        if (['recovering', 'waiting', 'ended'].includes(event.type)) this.stopReplyWatch();
         if (event.replay && event.type === 'listening') this.notices.playbackEnded(event.completed);
         if (event.type === 'partial' && !this.paused) {
           this.root.querySelector('.voice-caption').textContent = this.onPartial ? '' : event.text;
@@ -483,6 +572,7 @@ export class AudioRail {
         if (event.type === 'recovered') {
           this.state = 'listening'; this.errorKey = null; this.journal?.update({ providerSessionId: session.providerSessionId });
           this.notices.recovered(event.recovery);
+          if (!this.paused) this.awaitReply(session, generation);
           void this.updateContext().catch(() => {});
         }
         if (event.type === 'waiting') {
@@ -499,15 +589,17 @@ export class AudioRail {
         }
         if (event.type === 'ended') {
           this.retryConnecting = false; this.retryAt = 0;
+          if (event.reason === 'provider-end') this.endedCall = { callId: session.callId, providerSessionId: session.providerSessionId };
           this.notices.clear();
           this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; this.journal?.clear();
           this.busy = false; this.pauseCommand = null; this.beating = false; this.hidePending = false; this.playbackBlocked = false;
           this.quiet(); this.onEnd?.();
           this.state = ['closed', 'cancelled', 'closure-uncertain', 'provider-end'].includes(event.reason) ? 'idle' : 'failed';
-          this.errorKey = event.reason === 'provider-end' ? 'voiceEnded' : event.reason === 'recovery-failed' ? 'voiceRecoveryFailed' :
+          this.errorKey = event.reason === 'provider-end' ? 'voiceClosureUncertain' : event.reason === 'recovery-failed' ? 'voiceRecoveryFailed' :
             event.reason === 'closure-uncertain' ? 'voiceClosureUncertain' :
             event.reason.includes('deadline') ? 'voiceDeadline' : this.state === 'failed' ? 'voiceConnectionFailed' : null;
           this.root.querySelector('.voice-caption').textContent = '';
+          if (event.reason === 'provider-end' && event.terminal) this.settlement({ callId: session.callId, providerSessionId: session.providerSessionId, terminal: event.terminal });
         }
         this.render();
       }
@@ -523,7 +615,7 @@ export class AudioRail {
     const session = this.session, generation = this.generation;
     const revision = ++this.pauseRevision;
     this.pauseCommand = { paused, revision };
-    if (paused) { this.paused = true; this.retryConnecting = false; }
+    if (paused) { this.paused = true; this.retryConnecting = false; this.stopReplyWatch(); }
     // Repaint the next visitor action while capture retains its acknowledged hold.
     this.onPause?.(Boolean(this.paused));
     const wait = paused ? 0 : Math.max(0, (this.retryAt ?? 0) - Date.now());
@@ -566,7 +658,10 @@ export class AudioRail {
   async sendText(text, options) {
     if (!this.session || this.paused || this.state === 'recovering' || !this.capability('sendText')) throw new Error('Voice text unavailable');
     this.notices.clear();
-    return this.session.sendText(text, options);
+    const session = this.session, generation = this.generation;
+    const result = await session.sendText(text, options);
+    if (this.current(session, generation)) this.awaitReply(session, generation);
+    return result;
   }
   async updateContext() {
     if (!this.session || this.paused || !this.capability('updateContext')) return;
@@ -611,7 +706,7 @@ export class AudioRail {
     this.render();
   }
   close(reason) {
-    this.client?.stopReplay?.();
+    this.client?.stopReplay?.(); this.stopReplyWatch();
     if (this.closing && !this.session && this.state !== 'connecting') {
       if (reason) void this.closingSession?.close({ reason }).catch(() => {});
       return this.closing;
@@ -629,11 +724,12 @@ export class AudioRail {
     this.stopHeartbeat?.(); clearInterval(this.meter); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
     this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null;
-    this.retryConnecting = false; this.retryAt = 0; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
+    this.startupPhase = null; this.retryConnecting = false; this.retryAt = 0; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.notices.clear();
     this.errorKey = session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
+    this.button('start').focus({ preventScroll: true });
     this.onEnd?.();
     const controller = this.controller;
     const closing = (async () => {
