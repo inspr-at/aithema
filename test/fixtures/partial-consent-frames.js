@@ -98,7 +98,7 @@ export async function partialConsentFrames(t) {
     const beforeMints = mints;
     await a.evaluate(feature => { window.removedFeature = feature; window.watching = true; window.noticeChanges = []; new MutationObserver(() => noticeChanges.push(c.shadowRoot.querySelector('.concept-withdrawn').textContent)).observe(c.shadowRoot.querySelector('.concept-withdrawn'), { childList: true, subtree: true, characterData: true }); }, feature);
     // B uses the real Settings dialog and save action. A receives SSE, never reloads.
-    await b.evaluate(() => { c.shadowRoot.querySelector('.settings-open').click(); c.shadowRoot.querySelector('[data-tab="general"]').click(); c.shadowRoot.querySelector('.general-consent-manage').click(); });
+    await b.evaluate(() => view.consent(c.shadowRoot.querySelector('.concept-preview')));
     await b.waitForFunction(() => c.shadowRoot.querySelector('.consent-items input[value="drafts"]'));
     await b.evaluate(kind => { c.shadowRoot.querySelector('.consent-items input[value="' + (kind === 'html' ? 'drafts' : 'images') + '"]').click(); c.shadowRoot.querySelector('.done').click(); }, kind);
     await a.waitForFunction(() => window.sameTick, { timeout: 5000 });
