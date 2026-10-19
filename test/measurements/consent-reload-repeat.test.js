@@ -5,13 +5,16 @@ import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 
 test('AIT-398: 30 consecutive stale-editor reload runs', { timeout: 840_000 }, async t => {
+  const childEnv = { ...process.env };
+  // A fresh node --test must not inherit the parent's recursive-run guard.
+  delete childEnv.NODE_TEST_CONTEXT;
   for (let repeat = 1; repeat <= 30; repeat++) {
     const started = Date.now();
     const { code, signal, output } = await new Promise((resolve, reject) => {
       let output = '';
       const child = spawn(process.execPath, ['--test', '--test-concurrency=1', '--test-reporter=spec',
         '--test-name-pattern=AIT-321: stale editor reload', 'test/browser/consent-lines.test.js'],
-      { stdio: ['ignore', 'pipe', 'pipe'] });
+      { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
       child.stdout.on('data', chunk => { output += chunk; });
       child.stderr.on('data', chunk => { output += chunk; });
       child.once('error', reject);
