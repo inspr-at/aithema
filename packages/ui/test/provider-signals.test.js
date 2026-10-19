@@ -1,4 +1,5 @@
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
+const test = (name, run) => nodeTest(name, { timeout: 5000 }, run);
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { AudioRail } from '../src/audio-rail.js';
