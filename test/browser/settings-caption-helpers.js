@@ -20,6 +20,11 @@ export function measureGaugeCaptions() {
   });
   return [...root.querySelectorAll('dialog.settings [data-gauge]')].map(gauge => {
     const caption = gauge.querySelector('figcaption'), detail = gauge.querySelector('.gauge__detail');
+    const rendered = caption.getClientRects().length > 0;
+    const hiddenBy = [];
+    for (let node = caption; node; node = node.parentElement) {
+      if (getComputedStyle(node).display === 'none') hiddenBy.push(node.className || node.tagName.toLowerCase());
+    }
     const captionBox = box(caption.getBoundingClientRect()), detailBox = box(detail.getBoundingClientRect());
     const range = document.createRange(); range.selectNodeContents(detail);
     const detailTextBox = box(range.getBoundingClientRect());
@@ -35,14 +40,15 @@ export function measureGaugeCaptions() {
       visibleBox = intersect(visibleBox, bounds, clipsX, clipsY);
     }
     visibleBox = intersect(visibleBox, { left: 0, top: 0, right: innerWidth, bottom: innerHeight });
-    const clippedPx = loss(captionBox, panelBox), visibleClippedPx = loss(captionBox, visibleBox);
-    const detailTextClippedPx = loss(detailTextBox, panelBox);
-    return { gauge: gauge.dataset.gauge, label: gauge.querySelector('.gauge__label').textContent, detail: detail.textContent,
+    // The scroll body can clip a caption even when the gauge panel itself fits.
+    const clippedPx = loss(captionBox, visibleBox), panelClippedPx = loss(captionBox, panelBox);
+    const detailTextClippedPx = loss(detailTextBox, visibleBox);
+    return { gauge: gauge.dataset.gauge, label: gauge.querySelector('.gauge__label').textContent, detail: detail.textContent, rendered, hiddenBy,
       captionBox, detailBox, detailTextBox, scrollHeight: caption.scrollHeight, clientHeight: caption.clientHeight,
       detailScrollHeight: detail.scrollHeight, detailClientHeight: detail.clientHeight,
       clippingContainer: { selector: '.gauge-panel', box: panelBox, visibleBox, scrollHeight: panel.scrollHeight, clientHeight: panel.clientHeight },
       clippingContainers, clipped: Object.values(clippedPx).some(px => px > 0), clippedPx,
       detailTextClipped: Object.values(detailTextClippedPx).some(px => px > 0), detailTextClippedPx,
-      clippedInViewport: Object.values(visibleClippedPx).some(px => px > 0), visibleClippedPx };
+      panelClipped: Object.values(panelClippedPx).some(px => px > 0), panelClippedPx };
   });
 }
