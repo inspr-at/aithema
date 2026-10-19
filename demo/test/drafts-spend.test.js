@@ -21,6 +21,7 @@ const document = '<!doctype html><html lang="en"><head><!-- Revision 1: Repairs.
 for (const mode of ['completed', 'invalid-output', 'http-error', 'http-zero', 'http-unknown-json', 'http-non-json', 'http-tokens-only',
   'cancelled-known', 'cancelled-unknown', 'unsent']) {
   test(`draft holds settle both ledgers: ${mode}`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
     const storage = new SQLiteStorage(); t.after(() => storage.close());
     const session = storage.create(), budget = new SQLiteBudgetLedger(storage);
     const configured = htmlConfig(values);
@@ -75,24 +76,30 @@ for (const mode of ['completed', 'invalid-output', 'http-error', 'http-zero', 'h
 }
 
 for (const mode of ['cancelled', 'deadline', 'oversized']) test(`HTTP error body reading stays bounded: ${mode}`, { timeout: 3000 }, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const storage = new SQLiteStorage(); t.after(() => storage.close());
   const { binding } = htmlConfig(values), spend = createSpendCap({ storage, account: binding.accountRef, capMicro: 10_000_000 });
   const controller = new AbortController(), reading = Promise.withResolvers();
   let cancelled = false;
   const plugin = createClaudeHTML({ binding, spend, resolveSecret: () => 'fixture',
-    fetchImpl: async () => new Response(new ReadableStream({ pull() { reading.resolve(); }, cancel() { cancelled = true; } }),
+    // Disable prefetch so reading resolves only when the body reader requests data.
+    fetchImpl: async () => new Response(new ReadableStream({ pull() { reading.resolve(); }, cancel() { cancelled = true; } },
+      { highWaterMark: 0 }),
       { status: 500, headers: mode === 'oversized' ? { 'content-length': String(4 * 1024 * 1024 + 1) } : {} }) });
   const reports = [], pending = plugin.generate({ prompt: 'Repairs' }, '', { signal: controller.signal,
     deadlineAt: Date.now() + (mode === 'deadline' ? 100 : 2000),
     attempt: { attemptId: crypto.randomUUID(), claimId: crypto.randomUUID(), consume() {} }, report: terminal => reports.push(terminal) });
   const rejected = assert.rejects(pending, { code: mode === 'oversized' ? 'provider' : mode });
   if (mode === 'cancelled') { await reading.promise; controller.abort(); }
+  if (mode === 'deadline') { await reading.promise; t.mock.timers.tick(100); }
   await rejected;
   assert.equal(cancelled, true); assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
   assert.equal(spend.snapshot().reservedMicro, 0); assert.equal(spend.snapshot().spentMicro, 0); assert.ok(spend.snapshot().uncertainMicro > 0);
 });
 
 test('AIT-134 gate: default JSON drafts ledger retains uncertain costs and reconciles in parity after restart', async t => {
+  // Accounting and reconciliation must not spend a real generation deadline.
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
   const path = await temporaryDb(), spendPath = `${path}.spend.json`, state = { final: false, queries: 0 };
   let storage, budget, plugin, runtime, spend;
   const reopen = () => {
@@ -475,7 +482,7 @@ test('AIT-134 round 4: reconciliation cannot settle another live writer', async 
 
 for (const lossAt of ['before dispatch', 'known-cost response', 'unknown-cost response']) {
   test(`AIT-134 round 4: lease loss ${lossAt} refuses draft publication and fences provider work`, async t => {
-    t.mock.timers.enable({ apis: ['setInterval'] });
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
     let clock = 1_000_000, calls = 0, dispatches = 0;
     const path = `${await temporaryDb()}.spend.json`, backing = createSpendLedger({ path, now: () => clock });
     const spend = { ...backing, reserve(micro, metadata) {
