@@ -11,7 +11,7 @@ export async function checkProviderSignals(page, evidence, configs, checks) {
       const { currentVoiceClient } = await import('/ait377-current-clients.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const c = document.querySelector('aithema-session'), session = structuredClone(window.ait377Seed);
-      const real = { now: Date.now, setTimeout, clearTimeout, setInterval, clearInterval }, timers = new Map();
+      const real = { now: Date.now, setTimeout: setTimeout.bind(window), clearTimeout: clearTimeout.bind(window), setInterval: setInterval.bind(window), clearInterval: clearInterval.bind(window) }, timers = new Map();
       let time = 100_000, next = -1;
       Date.now = () => time;
       const schedule = (fn, ms = 0, interval = false, args = []) => { const id = next--; timers.set(id, { fn, at: time + Math.max(0, ms), interval: interval ? Math.max(1, ms) : 0, args }); return id; };
