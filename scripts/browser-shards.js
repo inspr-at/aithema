@@ -118,6 +118,14 @@ browserTestWeights['test/browser/demo.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 23);
 
+// AIT-350 -fix1: passing CI 39204030409, 81364ab1, shard 2/7.
+// 1440x900, 1280x800, content-sized popover and single-column confirmation:
+// 1.134289473s + 2.968562343s + 14.438096212s = 18.540948028s.
+// ceil(observed * 1.25) = 24s, superseding the round-5 23s floor.
+// Source: browser-timings-2-of-7/batch-0.jsonl. No capacity policy changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 24);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
