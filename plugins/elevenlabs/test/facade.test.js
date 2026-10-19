@@ -532,7 +532,7 @@ test('AIT-130: admission cancellation while nonstream completion awaits cannot r
 
 // AIT-381: all clocks and provider/admission waits below are controlled; no live ports.
 const spokenSegment = (content, scope = 'in') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperations, timeoutMs = 6500, defaultTimeout = false, finalizationGate } = {}) {
+function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperations, timeoutMs = 6500, defaultTimeout = false, finalizationGate, settlementGate } = {}) {
   const snapshot = { system: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
     hiddenGuidance: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
     locale, purposePolicy: { offTopicLimit: 3, outputCheck: true, canary: 'PRIVATE_PINNED_CANARY',
@@ -547,8 +547,9 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
       const index = admissions.length; admissions.push(request);
       await admissionGate?.promise;
       const opts = invocationOptions(options); reports.push(opts.reports);
-      return { request: snapshot, options: opts, finish: () => { finishes.push(index);
-        if (!opts.reports.length) opts.report({ attemptId: opts.attempt.attemptId, outcome: 'uncertain' }); },
+      return { request: snapshot, options: opts, finish: async () => { finishes.push(index);
+        if (!opts.reports.length) opts.report({ attemptId: opts.attempt.attemptId, outcome: 'uncertain' });
+        await settlementGate?.promise; },
         plugin: { async *stream(input, invocation) {
           started.push(input); live++; maxLive = Math.max(maxLive, live);
           const accounting = await beginInvocation(invocation); let completed = false;
@@ -579,7 +580,7 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
     });
     return state;
   };
-  t.after(async () => { finalizationGate?.resolve(); for (const attempt of attempts) for (const step of attempt) step.gate?.resolve();
+  t.after(async () => { settlementGate?.resolve(); finalizationGate?.resolve(); for (const attempt of attempts) for (const step of attempt) step.gate?.resolve();
     admissionGate?.resolve(); await Promise.all(states.map(state => state.done)); });
   return { ...local, observe, snapshot, admissions, completions, reports, finishes, started, get maxLive() { return maxLive; } };
 }
@@ -725,4 +726,17 @@ test('AIT-381: provider cleanup that ignores abort cannot overlap another admitt
   assert.equal(h.admissions.length, 1); assert.equal(h.maxLive, 1);
   assert.equal(state.response.status, 504); assert.equal(state.text.includes('"error":"deadline"'), true);
   assert.equal(spokenText(state), '');
+});
+
+test('AIT-381: deferred settlement cannot extend the overall callback beyond 6.5 s', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const rest = Promise.withResolvers(), settlementGate = Promise.withResolvers();
+  const h = spokenFixture(t, { settlementGate,
+    attempts: [[{ text: `{"segments":[${spokenSegment('What should improve?')}` }, { gate: rest, text: ']}' }]] });
+  const state = h.observe(); await flush(); assert.equal(spokenText(state), 'What should improve?');
+  t.mock.timers.tick(6200); rest.resolve(); await flush(); assert.equal(h.finishes.length, 1);
+  t.mock.timers.tick(299); await flush(); assert.equal(state.ended, false);
+  t.mock.timers.tick(1); await flush(); assert.equal(state.ended, true);
+  assert.equal(state.text.includes('"error":"deadline"'), true); assert.equal(state.text.includes('[DONE]'), false);
+  settlementGate.resolve(); await state.done; assert.equal(h.finishes.length, 1);
 });
