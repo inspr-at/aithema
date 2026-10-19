@@ -18,9 +18,9 @@ export const wireLane = call => call.body.model === 'anthropic/claude-race' ? 'c
   : call.body.stream ? 'reaction' : 'understanding';
 export async function createLaneRaceHarness({ honorAbort = true, purposePolicy } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-lane-race-')), kit = createFakeProviderKit({ honorAbort });
-  const values = { OPENROUTER_MODEL: 'anthropic/race', OPENROUTER_ANALYSIS_EFFORT: 'low',
+  const values = { OPENROUTER_MODEL: 'anthropic/race', OPENROUTER_SPEECH_MODEL: 'anthropic/race-fast', OPENROUTER_ANALYSIS_EFFORT: 'low',
     AITHEMA_HTML_MODE: 'claude', AITHEMA_HTML_MODEL: 'anthropic/claude-race',
-    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/race': { prompt: 1e-6, completion: 2e-6 }, 'anthropic/claude-race': { prompt: 1e-6, completion: 2e-6 } }) };
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/race': { prompt: 1e-6, completion: 2e-6 }, 'anthropic/race-fast': { prompt: 1e-6, completion: 2e-6 }, 'anthropic/claude-race': { prompt: 1e-6, completion: 2e-6 } }) };
   const config = openRouterConfig(values), html = htmlConfig(values), storage = new SQLiteStorage();
   const consent = { grant: () => true, coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision,
     checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
