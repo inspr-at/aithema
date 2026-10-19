@@ -95,12 +95,14 @@ export class ConceptView {
     this.#paintCopy();
     // Move the same access and priced request nodes into the phone dock. There is
     // one keyboard target per action, and the composer status row stays untouched.
+    const foldSlot = document.createElement('div'); foldSlot.className = 'concept-fold-slot';
+    root.querySelector('.fold-view').insertBefore(foldSlot, root.querySelector('.drafts-canvas'));
     const phoneSlot = document.createElement('div'); phoneSlot.className = 'concept-phone-slot';
     root.querySelector('.composer-dock').prepend(phoneSlot);
     this.#phone = root.ownerDocument.defaultView.matchMedia('(max-width:600px)');
     this.#placeAccess = event => {
       const access = root.querySelector('.concept-access');
-      const parent = this.#phone.matches && this.#imageLayout ? phoneSlot : root.querySelector('.concept-bar');
+      const parent = root.querySelector('.workspace').hasAttribute('data-folded') ? foldSlot : this.#phone.matches && this.#imageLayout ? phoneSlot : root.querySelector('.concept-bar');
       if (access.parentNode !== parent) parent.prepend(access);
       guardConceptControls(root);
       if (event && this.#session) this.render();
@@ -449,6 +451,7 @@ export class ConceptView {
   }
   // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
   suspendCanvas() {
+    this.#placeAccess?.();
     this.#canvasEpoch++;
     const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
     if (draft) { draft.artifact = null; delete draft.dataset.id; }
@@ -456,6 +459,7 @@ export class ConceptView {
     this.root.querySelector('.canvas-status').textContent = '';
   }
   async paintCanvas() {
+    this.#placeAccess?.();
     const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
     if (!draft || !this.root.querySelector('.workspace')?.hasAttribute('data-folded')) return;
     if (!this.canShowCanvas()) { this.suspendCanvas(); return; }

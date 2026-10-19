@@ -222,6 +222,9 @@ svg { display:block; flex:none; }
 .concept-access .concept-rail { grid-column:1; }
 .concept-access .concept-preview-slot { grid-column:2; }
 .concept-withdrawn, .concept-phone-slot { display:none; }
+.concept-fold-slot:empty { display:none; }
+.fold-view:has(.concept-fold-slot:not(:empty)) { grid-template-rows:auto 44px minmax(0,1fr); }
+.concept-fold-slot .concept-access { visibility:visible; }
 /* Partial withdrawal uses the reserved access cell for the four-second notice.
    The same native access button remains a focus target when its item is gone. */
 .concept-access[data-partial-withdrawal] .concept-rail { visibility:hidden; }
