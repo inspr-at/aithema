@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, mockPresets, createVoiceCap } from '../src/index.js';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { temporaryDb } from '../../../test/helpers.js';
@@ -73,8 +74,10 @@ for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 
   if (prefix !== null) callbacks.onAgentResponseCorrection({ event_id: 8, original_agent_response: full, corrected_agent_response: prefix });
   // close drains captured persistence, without sleeps or a polling race.
   await session.close();
-  const reopened = new SQLiteStorage(path);
-  const turn = reopened.get(h.session.id).transcript.at(-1); reopened.close();
+  const turn = h.storage.get(h.session.id).transcript.at(-1);
+  const reopened = new DatabaseSync(path, { readOnly: true });
+  const durable = JSON.parse(reopened.prepare('SELECT snapshot FROM sessions WHERE id=?').get(h.session.id).snapshot); reopened.close();
+  assert.deepEqual(durable.transcript.at(-1).interruption, turn.interruption, 'fresh read-only connection sees the durable marker');
   assert.equal(turn.content, prefix ?? full);
   assert.equal(turn.interruption?.heardLength, prefix === null ? 'unknown' : prefix.length);
   const replayed = h.storage.read(h.session.id).filter(event => event.type === 'voice.interrupted');
