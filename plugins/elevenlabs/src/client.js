@@ -157,7 +157,7 @@ export function createElevenLabsClient(ports = {}) {
         if (value.type === 'partial') lifecycle.dispatch({ type: 'partial', sequence: captured });
         // Playback acknowledgements must not hold captured finals behind a
         // network round trip: Pause can reach the server while they wait.
-        const saved = ['final', 'heard', 'reply'].includes(value.type)
+        const saved = ['final', 'heard', 'reply', 'interrupted'].includes(value.type)
           ? (persistence = persistence.then(() => persist(value))) : null;
         saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
@@ -458,6 +458,7 @@ export function createElevenLabsClient(ports = {}) {
               // elements (and WebSocket gain) synchronously, outside persistence
               // and the command queue. Only a newer agent reply lifts this gate.
               conversation?.setVolume({ volume: outputVolume() });
+              if (!paused) emit({ type: 'interrupted', turnId: `${receipt.providerSessionId}:assistant:${eventId}`, heardLength: 'unknown' });
               for (const waiter of interruptionWaiters) waiter();
             }
             // Only the correction callback supplies heard text; interruption never invents it.

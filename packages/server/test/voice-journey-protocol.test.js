@@ -6,7 +6,8 @@ import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { temporaryDb } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
-import { fakeSdk } from '../../../plugins/elevenlabs/test/fixtures.js';
+import { mintConversationCredential } from '../../../plugins/elevenlabs/src/server.js';
+import { fakeSdk, binding } from '../../../plugins/elevenlabs/test/fixtures.js';
 import { Window } from 'happy-dom';
 import { AudioRail } from '../../ui/src/audio-rail.js';
 import { createVoiceControl } from '../../ui/src/voice-control.js';
@@ -51,6 +52,7 @@ for (const retryAfter of ['12', null]) test(`AIT-378 R1 real token 429, Retry-Af
 });
 
 for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 'I1'} SDK confirmation persists through route and reload`, { timeout: 10_000 }, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.now() });
   const path = await temporaryDb(), h = voiceFixture(t, { path }), sdk = fakeSdk();
   const started = await h.route('/voice', { callId: 'native-call', tabId: 'sdk-tab' });
   assert.equal(started.status, 201); const grant = await started.json();
@@ -58,7 +60,7 @@ for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 
   const identity = { providerSessionId: grant.providerSessionId, epoch: grant.epoch, tabId: grant.controllingTabId };
   const finalStored = Promise.withResolvers();
   const client = createElevenLabsClient({ sdk, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
-    control: { start: async () => grant, close: async () => ({}), pause: async () => ({}), resume: async () => ({}), heartbeat: async () => ({}) },
+    control: { start: async () => grant, close: async () => ({}), pause: async () => ({ acknowledged: true, paused: true }), resume: async () => ({ acknowledged: true, paused: false }), heartbeat: async () => ({}) },
     async persistEvent(event) {
       const response = await h.route(`/voice/${grant.callId}/events`, { ...identity, event });
       try { assert.equal(response.status, 200); if (event.type === 'final') finalStored.resolve(); }
@@ -69,7 +71,11 @@ for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 
   callbacks.onMessage({ role: 'agent', event_id: 8, message: full });
   callbacks.onModeChange({ mode: 'speaking' }); callbacks.onModeChange({ mode: 'listening' });
   await finalStored.promise;
+  t.mock.timers.tick(1000);
   assert.equal(h.storage.get(h.session.id).transcript.at(-1).interruption, undefined, 'I3 silence/end of reply never mark');
+  await session.pause();
+  assert.equal(h.storage.get(h.session.id).transcript.at(-1).interruption, undefined, 'I3 explicit pause never marks a barge-in');
+  await session.resume();
   callbacks.onInterruption({ event_id: 8 });
   if (prefix !== null) callbacks.onAgentResponseCorrection({ event_id: 8, original_agent_response: full, corrected_agent_response: prefix });
   // close drains captured persistence, without sleeps or a polling race.
@@ -102,6 +108,20 @@ for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 
     providerSessionId: grant.providerSessionId, turnId: `${grant.providerSessionId}:assistant:8`, heardLength: 'unknown' } });
   assert.equal(stale.status, 409, 'stale epoch cannot mark a reply');
 });
+
+
+for (const [header, expected] of [['Thu, 01 Jan 1970 00:01:52 GMT', '12'], ['not-a-delay', undefined]]) {
+  test(`AIT-378 provider Retry-After normalization: ${header}`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+    await assert.rejects(mintConversationCredential(binding, {}, {}, {
+      resolveSecret: () => 'offline-fixture',
+      fetchImpl: async () => Response.json({}, { status: 429, headers: { 'Retry-After': header } }),
+    }), error => {
+      assert.equal(error.code, 'rate-limit'); assert.equal(error.status, 429);
+      assert.equal(error.retryAfter, expected); return true;
+    });
+  });
+}
 
 // Isolated copy of the existing offline voice fixture; no test-module imports.
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost } = {}) {
