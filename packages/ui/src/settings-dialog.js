@@ -147,7 +147,7 @@ export class SettingsDialog {
       <figcaption><span class="gauge__label"></span><small class="gauge__detail"></small></figcaption></figure>`;
     const select = name => `<div class="select" data-select="${name}"><button type="button" class="select__button" id="settings-select-${name}"
       aria-haspopup="listbox" aria-expanded="false" aria-controls="settings-options-${name}" data-help="${name}"><span class="select__value"></span>${ICONS.chevron}</button>
-      <div class="select__menu" role="listbox" id="settings-options-${name}" hidden></div></div>`;
+      <div class="select__menu" data-menu="${name}" role="listbox" id="settings-options-${name}" hidden></div></div>`;
     // Static trusted markup only. Host, model and plugin text is assigned through textContent.
     this.#dialog.innerHTML = `<div class="settings__frame">
       <header class="settings__header"><slot class="settings-utilities" name="utilities"></slot><h2 class="settings__title" id="settings-title"></h2>
@@ -185,7 +185,7 @@ export class SettingsDialog {
         </section>
         <section class="settings-panel" role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" data-panel="local" hidden><div class="local-host"></div></section>
       </div>
-      <div class="settings__fade" aria-hidden="true"></div>
+      <div class="settings__menus"></div>
       <div class="settings-context"><span class="context-icon" aria-hidden="true">i</span><div class="context-text"><p class="context-message" role="status" aria-live="polite"></p></div></div>
       <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers"><span data-text="providers"></span>${ICONS.disclosureChevron}</summary>
           <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
@@ -238,12 +238,11 @@ export class SettingsDialog {
     for (const [name, label] of [['model', c.model], ['voice', c.voice], ['visuals', c.visuals]]) this.#q(`#settings-options-${name}`).setAttribute('aria-label', label);
   }
   #updateFade() {
-    const body = this.#q('.settings__body'), fade = this.#q('.settings__fade');
-    const bounds = body.getBoundingClientRect(), frame = body.parentElement.getBoundingClientRect();
-    fade.style.left = `${bounds.left - frame.left + body.clientLeft}px`;
-    fade.style.top = `${bounds.top - frame.top + body.clientTop + body.clientHeight - 24}px`;
-    fade.style.width = `${body.clientWidth}px`;
-    fade.dataset.visible = String(body.scrollTop + body.clientHeight < body.scrollHeight - 1);
+    const body = this.#q('.settings__body');
+    body.dataset.moreBelow = String(body.scrollTop + body.clientHeight < body.scrollHeight - 1);
+    for (const select of this.#all('.select')) {
+      if (!this.#menu(select).hidden) this.#positionMenu(select);
+    }
   }
   #observeFade() {
     this.#fadeObserver ??= new this.#dialog.ownerDocument.defaultView.ResizeObserver(() => this.#updateFade());
@@ -260,13 +259,13 @@ export class SettingsDialog {
       if (event.key !== 'Escape') return;
       const menu = this.#all('.select__menu').find(node => !node.hidden), disclosure = this.#q('.disclosure[open]');
       event.preventDefault(); event.stopPropagation();
-      if (menu) this.#closeMenu(menu.closest('.select'), true);
+      if (menu) this.#closeMenu(this.#q(`[data-select="${menu.id.slice('settings-options-'.length)}"]`), true);
       else if (disclosure) { disclosure.open = false; disclosure.querySelector('summary').focus(); }
       else this.close();
     });
     dialog.addEventListener('click', event => {
       if (event.target === dialog) { this.close(); return; }
-      for (const select of this.#all('.select')) if (!select.contains(event.target)) this.#closeMenu(select);
+      for (const select of this.#all('.select')) if (!select.contains(event.target) && !this.#menu(select).contains(event.target)) this.#closeMenu(select);
     });
     dialog.addEventListener('pointerover', event => { this.#hovered = event.target.closest?.('[data-help]') ?? null; this.#showHelp(); });
     dialog.addEventListener('pointerout', event => { this.#hovered = event.relatedTarget?.closest?.('[data-help]') ?? null; this.#showHelp(); });
@@ -329,13 +328,13 @@ export class SettingsDialog {
     });
   }
   #wireSelect(select) {
-    const button = select.querySelector('.select__button'), menu = select.querySelector('.select__menu');
+    const button = select.querySelector('.select__button'), menu = this.#menu(select);
     const options = () => [...menu.querySelectorAll('[role=option]')];
     button.addEventListener('click', () => {
       if (button.getAttribute('aria-disabled') === 'true') { this.#help = button.dataset.reason ? `${button.dataset.kind || 'unavailable'}:${button.dataset.reason}` : button.dataset.help; this.#showHelp(); return; }
       if (menu.hidden) this.#openMenu(select); else this.#closeMenu(select, true);
     });
-    select.addEventListener('keydown', event => {
+    const onKeydown = event => {
       if (button.getAttribute('aria-disabled') === 'true') return;
       if (event.key === 'Tab') { this.#closeMenu(select); return; }
       const items = options();
@@ -351,7 +350,11 @@ export class SettingsDialog {
         const item = items.find(node => node.querySelector('strong')?.textContent.trim().toLocaleLowerCase().startsWith(event.key.toLocaleLowerCase()));
         if (item) { event.preventDefault(); item.focus(); }
       }
-    });
+    };
+    select.addEventListener('keydown', onKeydown);
+    // A portaled menu no longer bubbles through its select; keep the same
+    // keyboard behaviour and let Escape reach the dialog's existing handler.
+    menu.addEventListener('keydown', event => { if (!select.contains(menu)) onKeydown(event); });
     menu.addEventListener('click', event => {
       const option = event.target.closest('[role=option]');
       if (!option) return;
@@ -368,22 +371,39 @@ export class SettingsDialog {
       else this.#change({ [name]: value });
     });
   }
+  #menu(select) { return this.#q('#' + select.querySelector('.select__button').getAttribute('aria-controls')); }
+  #positionMenu(select) {
+    const menu = this.#menu(select), button = select.querySelector('.select__button');
+    const body = this.#q('.settings__body').getBoundingClientRect();
+    const anchor = button.getBoundingClientRect(), frame = this.#q('.settings__frame').getBoundingClientRect();
+    // Coordinates stay in the dialog frame. Neither the select nor its scroll
+    // content moves, and the options remain inside the body's visible bounds.
+    menu.style.width = `${anchor.width}px`;
+    menu.style.left = `${anchor.left - frame.left}px`;
+    menu.style.right = 'auto'; menu.style.bottom = 'auto';
+    const above = anchor.top - body.top - 4, below = body.bottom - anchor.bottom - 4;
+    const desired = Math.min(menu.scrollHeight + 2, 272);
+    const opensAbove = below < desired && above > below;
+    select.dataset.menuAbove = String(opensAbove);
+    menu.style.maxHeight = `${Math.max(0, Math.min(272, opensAbove ? above : below))}px`;
+    const height = menu.getBoundingClientRect().height;
+    menu.style.top = `${Math.max(body.top, Math.min(body.bottom - height,
+      opensAbove ? anchor.top - height - 4 : anchor.bottom + 4)) - frame.top}px`;
+  }
   #openMenu(select) {
     for (const other of this.#all('.select')) if (other !== select) this.#closeMenu(other);
-    const menu = select.querySelector('.select__menu');
-    delete select.dataset.menuAbove;
+    const menu = this.#menu(select);
+    this.#q('.settings__menus').append(menu);
     menu.hidden = false;
-    // A fitted gauge panel need not leave scroll overflow below the fields.
-    // Keep the options inside the body without moving the visitor's choice.
-    const body = this.#q('.settings__body').getBoundingClientRect(), bounds = menu.getBoundingClientRect();
-    const spaceAbove = select.getBoundingClientRect().top - body.top;
-    if (bounds.bottom > body.bottom && spaceAbove > bounds.height) select.dataset.menuAbove = 'true';
+    this.#positionMenu(select);
     select.querySelector('.select__button').setAttribute('aria-expanded', 'true');
   }
   #closeMenu(select, focus = false) {
-    const menu = select.querySelector('.select__menu'), button = select.querySelector('.select__button');
+    const menu = this.#menu(select), button = select.querySelector('.select__button');
     if (menu.hidden) return;
     menu.hidden = true; button.setAttribute('aria-expanded', 'false');
+    // Return closed menus to their select for inactive-panel semantics.
+    select.append(menu); menu.removeAttribute('style');
     if (focus) button.focus();
   }
   /** Opens on the AI model tab; Continue is the chooser's Custom path. */
@@ -725,7 +745,7 @@ export class SettingsDialog {
     // until it arrives, rather than painting a fallback as an unavailable option.
     const loading = !this.#loadFailed && (Boolean(this.#pendingPreset) || (name === 'model' && !this.#catalog));
     if (loading) options = [];
-    const select = this.#q(`[data-select="${name}"]`), menu = select.querySelector('.select__menu'), button = select.querySelector('.select__button');
+    const select = this.#q(`[data-select="${name}"]`), menu = this.#menu(select), button = select.querySelector('.select__button');
     const key = JSON.stringify([options, selectedValue, disabled]);
     if (this.#paintKeys.get(name) !== key) {
       const active = this.#focused(), focused = active && menu.contains(active) ? active.dataset.value : undefined;

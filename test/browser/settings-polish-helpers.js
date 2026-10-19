@@ -45,6 +45,8 @@ export async function checkSettingsPolish(page, { evidence, shot, settle, regres
       const css = getComputedStyle(body), b = body.getBoundingClientRect(), dialog = f.dialog.getBoundingClientRect();
       const hitPoint = [b.x + body.clientWidth / 2, b.top + body.clientTop + body.clientHeight - 12];
       const hit = f.root.elementFromPoint(...hitPoint);
+      const tokenProbe = document.createElement('span'); tokenProbe.style.color = 'var(--aithema-line)';
+      f.dialog.append(tokenProbe); const lineColor = getComputedStyle(tokenProbe).color; tokenProbe.remove();
       const result = { maskImage: css.maskImage,
         background: css.backgroundColor, backgroundImage: css.backgroundImage,
         hitsContent: Boolean(hit && body.contains(hit)),
@@ -52,7 +54,7 @@ export async function checkSettingsPolish(page, { evidence, shot, settle, regres
         footerHairline: getComputedStyle(f.q('.settings-context')).borderTopWidth,
         footerHairlineStyle: getComputedStyle(f.q('.settings-context')).borderTopStyle,
         footerHairlineColor: getComputedStyle(f.q('.settings-context')).borderTopColor,
-        lineColor: getComputedStyle(f.dialog).getPropertyValue('--aithema-line').trim(),
+        lineColor,
         transition: css.transitionDuration, scrollTop: body.scrollTop, clientHeight: body.clientHeight, scrollHeight,
         topMargin: dialog.top, bottomMargin: innerHeight - dialog.bottom, dialogHeight: dialog.height,
         moreBelow: body.scrollTop + body.clientHeight < body.scrollHeight - 1 };
