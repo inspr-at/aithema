@@ -324,7 +324,7 @@ export class ConceptView {
   }
   accessFeature() {
     if (!this.items.length && ['html', 'image'].some(kind => this.unavailable(kind)))
-      return { available: false, rawReason: 'not configured', reason: this.copy.notConfigured };
+      return { available: false, rawReason: 'publication unavailable', reason: this.copy.notConfigured };
     if (this.#withdrawnKind && !this.covered(this.#withdrawnKind)) {
       const kind = this.#withdrawnKind === 'html' ? 'html' : 'images';
       return { available: false, rawReason: 'current processing consent required', reason: reasonText(this.copy, 'current processing consent required', kind) };

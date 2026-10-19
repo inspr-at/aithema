@@ -741,8 +741,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { reject(); continue; }
         const plugin = registry.get(binding.plugin);
         const model = plugin?.manifest.models.find(m => m.id === binding.model) ?? plugin?.manifest.models.find(m => m.id === '*');
-        if (!model?.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured ||
-          feature === 'html' && !model.formats.includes('text/html')) { reject(); continue; }
+        if (!model || feature === 'html' && !model.formats.includes('text/html')) { reject(); continue; }
+        if (!model.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured) continue;
         const scope = registry.isCanonicalMock(plugin) || !plugin.bind && localImplementation(plugin, feature) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
         if (!scope) reject();
         if (scope && !result.some(s => hash(s) === hash(scope))) result.push(structuredClone(scope));
