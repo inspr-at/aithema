@@ -167,6 +167,9 @@ export const bandStyles = `
   .concept-activity-text { align-self:center; }
   .concept-preview { padding-inline:0; gap:.5rem; white-space:nowrap; }
   .concept-preview-glyph { width:22px; height:22px; }
+  /* A surviving image uses the draft's reserved phone slot after consent
+     revalidation, so switching kinds cannot move the adjacent rail. */
+  .workspace[data-concept-layout="html"] .concept-preview-thumbs { width:22px; height:22px; }
   .concept-preview-glyph svg { width:22px; }
 }
 .host-credits__text { color:var(--aithema-ink); font-weight:400; white-space:nowrap; }

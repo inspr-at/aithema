@@ -751,3 +751,365 @@ test('AIT-299: detach and re-attach immediately enable controls while an old req
   second.resolve(Response.json({})); await tick();
   assert.equal(root.querySelector('.concept-request').disabled, false);
 });
+
+// AIT-364: scope loss must use the synchronous full-withdrawal redaction path.
+for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent removes every surface and cache, preserves the other kind`, { timeout: 10_000 }, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const removed = kind === 'html' ? draft('removed') : item('removed');
+  const retained = kind === 'html' ? item('retained') : draft('retained');
+  const { c, root, calls, revoked } = setup(t, { concepts: [retained, removed], session: { conceptVisualKind: kind, visualsBound: true } });
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
+  await tick();
+  const cached = await view.load('removed'); assert.ok(cached); t.diagnostic('removed bytes cached');
+  root.querySelector('.fold').click(); await view.paintCanvas(); t.diagnostic('canvas painted');
+  const access = root.querySelector('.concept-preview'); access.focus(); access.click(); await tick();
+  assert.equal(view.dialog.open, true);
+  const feature = kind === 'html' ? 'html' : 'images';
+  const snapshot = { ...c.session, consentRevision: c.session.consentRevision + 1,
+    featureMatrix: { best: { ...c.session.featureMatrix.best, [feature]: { available: false, reason: 'current processing consent required' } } } };
+  view.update(snapshot);
+  assert.equal(view.dialog.open, false, 'viewer closes synchronously');
+  assert.deepEqual(view.items.map(item => item.id), ['retained']);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelector('.canvas-html').dataset.id === 'removed', false);
+  assert.equal(root.querySelector('.canvas-empty').hidden, false, 'withdrawn canvas returns to its empty slot even when another kind remains');
+  assert.equal(root.querySelectorAll('img[data-id="removed"][src]').length, 0);
+  assert.equal(root.activeElement, access, 'focus returns to the access control');
+  if (kind === 'image') assert.ok(revoked.includes(cached), 'all removed object URLs are revoked in the update tick');
+  const reads = calls.length;
+  assert.equal(await view.load('removed'), null, 'cached removed bytes cannot be returned');
+  assert.equal(calls.length, reads, 'removed scope is never fetched again');
+  view.open('removed'); assert.equal(view.dialog.open, false, 'removed metadata cannot reopen a frame');
+  view.open('retained'); assert.equal(view.dialog.open, true, 'other kind stays openable');
+  assert.equal(root.querySelector('.concept-count').textContent, '1 of 1');
+  assert.equal(snapshot.transcript[0].content, 'An API dashboard');
+  const readsBeforeRegrant = calls.filter(call => /\/(html|image)$/u.test(call.url)).length;
+  view.update({ ...c.session, consentRevision: snapshot.consentRevision + 1 });
+  await view.load('removed'); t.diagnostic('regrant fetched fresh bytes');
+  assert.ok(calls.filter(call => /\/(html|image)$/u.test(call.url)).length > readsBeforeRegrant, 'regrant reads fresh bytes: removed cache was dropped');
+});
+
+for (const kind of ['html', 'image']) for (const copy of [de, en]) test(`AIT-364 ${kind}/${copy.display.locale}: notice expires into consent, never idle`, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { copy, concepts: [kind === 'html' ? draft('only') : item('only')], session: { conceptVisualKind: kind, visualsBound: true } });
+  const timers = t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+  const feature = kind === 'html' ? 'html' : 'images';
+  const snapshot = { ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    [feature]: { available: false, reason: 'current processing consent required' } } } };
+  root.querySelector('.concept-preview').focus(); root.querySelector('.concept-preview').click();
+  view.update(snapshot);
+  const expected = copy === de ? kind === 'html' ? 'Entwurf entfernt. Die Einwilligung für Entwürfe wurde widerrufen.' : 'Bild entfernt. Die Einwilligung für Bilder wurde widerrufen.'
+    : kind === 'html' ? 'Draft removed. Consent for drafts was withdrawn.' : 'Image removed. Consent for images was withdrawn.';
+  const notice = root.querySelector('.concept-withdrawn');
+  assert.equal(notice.textContent, expected);
+  assert.equal(notice.getAttribute('aria-live'), 'polite');
+  const expiry = timers.mock.calls.find(call => call.arguments[1] === 4000); assert.ok(expiry);
+  view.update(snapshot);
+  assert.equal(timers.mock.calls.filter(call => call.arguments[1] === 4000).length, 1, 'refresh cannot reannounce or restart notice');
+  expiry.arguments[0]();
+  assert.equal(notice.textContent, '');
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'consent');
+  assert.match(root.querySelector('.concept-activity-text').textContent, new RegExp(copy.featureConsent[feature]));
+});
+
+test('AIT-364: revision-matched document coverage wins over available features; stale documents cannot revoke', t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [item('image'), draft('html')] });
+  const doc = { consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } };
+  view.update(c.session, doc); assert.deepEqual(view.items.map(i => i.id), ['image', 'html']);
+  view.update(c.session, { ...doc, consentRevision: c.session.consentRevision });
+  assert.deepEqual(view.items.map(i => i.id), ['image']);
+});
+
+test('AIT-364: a 403 preview refusal cannot be retried by reopen or Reload', async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { calls } = setup(t, { concepts: [draft('denied')], previewResponse: () => new Response(null, { status: 403 }) });
+  const source = view.previewSource('denied');
+  await assert.rejects(source.mint(), /Preview unavailable/);
+  await assert.rejects(source.mint(), /Preview scope denied/);
+  await assert.rejects(view.previewSource('denied').mint(), /Preview scope denied/);
+  assert.equal(calls.filter(call => call.url.endsWith('/preview')).length, 1);
+});
+
+test('AIT-364: withdrawing images preserves an already open HTML frame and its mint scope', async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [draft('retained'), item('removed')], session: { conceptVisualKind: 'image', visualsBound: true } });
+  view.open('retained');
+  const source = root.querySelector('.concept-html').artifact;
+  view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best, images: { available: false, reason: 'current processing consent required' } } } });
+  assert.equal(view.dialog.open, true, 'a selected covered kind stays open');
+  assert.equal(root.querySelector('.concept-html').artifact, source, 'covered frame is not replaced');
+  assert.equal(root.querySelector('.concept-viewer-message').textContent, '', 'scope removal does not announce a new draft of the covered kind');
+  assert.equal(root.querySelector('.concept-count').textContent, '1 of 1');
+  assert.ok((await source.mint()).url, 'covered preview remains usable after the other scope is removed');
+});
+
+test('AIT-364: old scope work stays expired through a later regrant', async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [draft('scope')], session: { conceptVisualKind: 'html' } });
+  const oldSource = view.previewSource('scope');
+  view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    html: { available: false, reason: 'current processing consent required' } } } });
+  view.update({ ...c.session, consentRevision: 2 });
+  await assert.rejects(oldSource.mint(), /Preview scope expired/);
+  assert.ok((await view.previewSource('scope').mint()).url, 'new explicit coverage can use a fresh scope');
+});
+
+for (const kind of ['html', 'image']) for (const phase of ['pending', 'failed']) test(`AIT-364 ${kind}/${phase}: expired notice keeps consent ahead of a stale generation status`, t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [kind === 'html' ? draft('only') : item('only')], session: {
+    conceptVisualKind: kind, visualsBound: true, conceptStatus: { phase, error: phase === 'failed' ? 'source-removed' : undefined, startedAt: Date.now() } } });
+  const timers = t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+  const feature = kind === 'html' ? 'html' : 'images';
+  view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    [feature]: { available: false, reason: 'current processing consent required' } } } });
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  timers.mock.calls.find(call => call.arguments[1] === 4000).arguments[0]();
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'consent');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  assert.equal(root.querySelector('.concept-activity').hidden, false);
+  assert.match(root.querySelector('.concept-activity-text').textContent, new RegExp(en.featureConsent[feature]));
+  assert.equal(root.querySelector('.concept-countdown').textContent, '');
+  assert.equal(root.querySelector('.concept-rail').dataset.phase, 'idle');
+});
+
+
+for (const failure of ['http', 'network', 'snapshot-stall', 'document-http', 'document-stall', 'document-invalid']) test(`AIT-364 v1.1: ${failure} fails closed until a validated refresh`, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, revoked } = setup(t, { concepts: [item('image'), draft('html')], session: { conceptVisualKind: 'html', visualsBound: true } });
+  // Attach without opening an SSE transport; consent events still use the real refresh path.
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
+  await tick();
+  await view.load('image');
+  root.querySelector('.fold').click(); await view.paintCanvas();
+  root.querySelector('.concept-preview').focus(); view.open('html');
+  const staleSource = root.querySelector('.concept-html').artifact;
+  const fetchBefore = globalThis.fetch;
+  let recovering = false, release;
+  const stalled = new Promise(resolve => { release = resolve; });
+  const doc = () => ({ consentRevision: c.session.consentRevision, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/consent')) {
+      if (!recovering && failure === 'document-stall') await stalled;
+      if (!recovering && failure === 'document-http') return new Response(null, { status: 503 });
+      if (!recovering && failure === 'document-invalid') return Response.json({ ...doc(), consentRevision: -1 });
+      return Response.json(doc());
+    }
+    if (url.endsWith('/api/sessions/' + c.session.id)) {
+      if (!recovering && failure === 'http') return new Response(null, { status: 503 });
+      if (!recovering && failure === 'network') throw new Error('offline fixture');
+      if (!recovering && failure === 'snapshot-stall') await stalled;
+      return Response.json(c.session);
+    }
+    return fetchBefore(url, options);
+  });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
+  await tick();
+  if (failure.endsWith('stall')) {
+    t.mock.timers.tick(1000);
+    c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
+    await tick();
+    t.mock.timers.tick(999);
+    assert.equal(view.dialog.open, true, 'the accepted single refresh round has up to 2 s');
+    t.mock.timers.tick(1);
+  }
+  assert.equal(view.dialog.open, false, 'failure or the 2 s deadline closes the viewer');
+  assert.deepEqual(view.items, [], 'both kinds fail closed');
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelector('.canvas-html').artifact, null);
+  assert.equal(root.querySelectorAll('img[src]').length, 0);
+  assert.ok(revoked.length > 0, 'cached image URLs are revoked too');
+  assert.equal(root.querySelector('.canvas-empty').hidden, false);
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'));
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  t.mock.timers.tick(5000); view.update(c.session); view.render();
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone', 'unrelated updates cannot reopen or expire the fail-closed state');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  assert.equal(await view.load('image'), null);
+  recovering = true;
+  // A later ordinary feature refresh must revalidate coverage without a reload.
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  await tick(); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['image'], 'only the kind covered by the successful document returns');
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'ready');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'), 'recovery preserves focus');
+  await assert.rejects(staleSource.mint(), /Preview scope expired/);
+  view.open('image'); await tick();
+  assert.equal(view.dialog.open, true, 'the retained kind opens without reload');
+  assert.ok(root.querySelector('.concept-image').hasAttribute('src'));
+  release(); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['image'], 'a late stalled response cannot restore withdrawn coverage');
+});
+
+test('AIT-364 v1.1: fail-closed expiry cancels an earlier kind notice without stealing focus', { timeout: 10_000 }, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [draft('html')], session: { conceptVisualKind: 'html', visualsBound: true } });
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
+  await tick();
+  root.querySelector('.concept-preview').focus();
+  const fetchBefore = globalThis.fetch;
+  let release;
+  const stalled = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/consent')) {
+      await stalled;
+      return Response.json({ consentRevision: c.session.consentRevision, selected: [], features: { html: ['drafts'], images: ['images'] } });
+    }
+    if (url.endsWith('/api/sessions/' + c.session.id)) return Response.json({ ...c.session,
+      featureMatrix: { best: { ...c.session.featureMatrix.best, html: { available: false, reason: 'current processing consent required' } } } });
+    return fetchBefore(url, options);
+  });
+  const timers = [], schedule = globalThis.setTimeout, cancel = globalThis.clearTimeout;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (![2000, 4000].includes(delay)) return schedule(callback, delay, ...args);
+    const timer = { callback, delay, unref() {} }; timers.push(timer); return timer;
+  });
+  t.mock.method(globalThis, 'clearTimeout', timer => {
+    if (timers.includes(timer)) timer.cancelled = true; else cancel(timer);
+  });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
+  await tick();
+  assert.deepEqual(view.items, [], 'feature refusal redacts before the pending document answers');
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'));
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptDraftWithdrawn);
+  timers.find(timer => timer.delay === 2000).callback();
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  const kindNotice = timers.find(timer => timer.delay === 4000);
+  assert.equal(kindNotice.cancelled, true, 'fail-closed supersedes the earlier four-second kind notice');
+  if (!kindNotice.cancelled) kindNotice.callback();
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'), 'the superseded kind-notice timer cannot move focus to the hidden consent action');
+  release(); await tick();
+});
+
+// Gate 1b: successful consent reads must recover on their own, even on a busy journal.
+function consentRecoveryFixture(t) {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const fixture = setup(t, { concepts: [item('image'), draft('html')], session: { conceptVisualKind: 'html', visualsBound: true } });
+  const { c } = fixture;
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
+  const originalFetch = globalThis.fetch;
+  const state = { snapshots: 0, documents: 0, snapshot: () => Response.json(c.session),
+    document: () => Response.json({ consentRevision: c.session.consentRevision, selected: ['models', 'images', 'drafts'], features: { html: ['drafts'], images: ['images'] } }) };
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    if (url.endsWith('/api/sessions/' + c.session.id)) { state.snapshots++; return state.snapshot(); }
+    if (url.endsWith('/consent')) { state.documents++; return state.document(); }
+    return originalFetch(url, options);
+  });
+  const grant = () => c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
+  const busy = () => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'busy-' + c.session.seq, role: 'user', content: 'More context' } });
+  return { ...fixture, view, state, grant, busy };
+}
+
+for (const phase of ['snapshot', 'document']) test(`AIT-364 gate1b: busy grant during ${phase} read revalidates without hiding covered content or a manual trigger`, async t => {
+  const { c, root, view, state, grant, busy } = consentRecoveryFixture(t);
+  await tick(); view.open('html');
+  const source = root.querySelector('.concept-html').artifact;
+  const held = Promise.withResolvers(), read = state[phase];
+  let first = true;
+  state[phase] = () => { if (!first) return read(); first = false; const response = read(); return held.promise.then(() => response); };
+  t.after(() => held.resolve());
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  grant(); await tick(); busy();
+  held.resolve(); await tick(); await tick();
+  assert.ok(state.snapshots >= 2, 'a stale round automatically starts a current refresh');
+  t.mock.timers.tick(2000); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['image', 'html']);
+  assert.equal(view.dialog.open, true, 'a still-covered grant never closes the viewer');
+  assert.equal(root.querySelector('.concept-html').artifact, source);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  assert.equal(c.session.transcript.at(-1).content, 'More context');
+});
+
+test('AIT-364 gate1b: consent event supersedes an already in-flight feature refresh without manual recovery', async t => {
+  const { c, view, state, grant } = consentRecoveryFixture(t);
+  const held = Promise.withResolvers(); let first = true;
+  state.snapshot = () => { const response = Response.json(c.session); if (!first) return response; first = false; return held.promise.then(() => response); };
+  t.after(() => held.resolve());
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  grant(); held.resolve(); await tick(); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['image', 'html']);
+  assert.ok(state.documents >= 1);
+});
+
+for (const failure of ['http', 'document-http', 'snapshot-stall', 'document-stall']) test(`AIT-364 gate1b: ${failure} automatically recovers through 2 s backoff`, async t => {
+  const { root, view, state, grant } = consentRecoveryFixture(t);
+  await tick(); view.open('html');
+  const phase = failure.startsWith('document') ? 'document' : 'snapshot', read = state[phase];
+  const held = Promise.withResolvers(); let failing = true;
+  state[phase] = () => !failing ? read() : failure.endsWith('stall') ? held.promise : new Response(null, { status: 503 });
+  t.after(() => held.resolve(read()));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  grant(); await tick();
+  if (failure.endsWith('stall')) t.mock.timers.tick(2000);
+  assert.deepEqual(view.items, []); assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  failing = false;
+  const before = state.snapshots;
+  t.mock.timers.tick(1999); await tick(); assert.equal(state.snapshots, before);
+  t.mock.timers.tick(1); await tick(); await tick();
+  assert.equal(state.snapshots, before + 1);
+  assert.deepEqual(view.items.map(i => i.id), ['image', 'html'], 'backoff recovers without any new event');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  const after = state.snapshots;
+  t.mock.timers.tick(60_000); await tick(); assert.equal(state.snapshots, after, 'successful validation clears retry timers');
+});
+
+test('AIT-364 gate1b: failures retry only at 2/4/8 s, then remain fail-closed', async t => {
+  const { root, view, state, grant } = consentRecoveryFixture(t);
+  state.snapshot = () => new Response(null, { status: 503 });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  grant(); await tick();
+  assert.equal(state.snapshots, 1);
+  for (const [index, delay] of [2000, 4000, 8000].entries()) {
+    t.mock.timers.tick(delay - 1); await tick(); assert.equal(state.snapshots, index + 1);
+    t.mock.timers.tick(1); await tick(); assert.equal(state.snapshots, index + 2);
+  }
+  t.mock.timers.tick(60_000); await tick(); assert.equal(state.snapshots, 4, 'retry budget is exhausted');
+  assert.deepEqual(view.items, []); assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+});
+
+for (const operation of ['load', 'download']) test(`AIT-364 gate1b: late image ${operation} after images-only withdrawal sets no src or download`, async t => {
+  const held = Promise.withResolvers(); let pending = false, view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, downloads } = setup(t, { concepts: [draft('retained'), item('removed')], imageResponse: () => pending ? held.promise : new Response(new Uint8Array([137, 80, 78, 71])) });
+  await tick(); view.open('removed'); await tick();
+  // Force the viewer image GET itself to remain pending, as well as the download GET.
+  if (operation === 'load') {
+    view.update({ ...c.session, concepts: [draft('retained')] });
+    pending = true; view.update(c.session); view.open('removed');
+  } else { pending = true; root.querySelector('.concept-download').click(); }
+  const creates = URL.createObjectURL.mock.calls.length;
+  view.update({ ...c.session, consentRevision: c.session.consentRevision + 1, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    images: { available: false, reason: 'current processing consent required' } } } });
+  held.resolve(new Response(new Uint8Array([137, 80, 78, 71]))); await tick(); await tick();
+  assert.equal(URL.createObjectURL.mock.calls.length, creates, 'revoked image cannot create any new object URL');
+  assert.equal(root.querySelectorAll('img[data-id="removed"][src]').length, 0);
+  assert.equal(downloads.length, 0, 'revoked download never clicks an anchor');
+  assert.deepEqual(view.items.map(i => i.id), ['retained']);
+});
