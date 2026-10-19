@@ -105,13 +105,9 @@ test('AIT-134 gate: default JSON drafts ledger retains uncertain costs and recon
     const { binding } = htmlConfig(values);
     plugin = createClaudeHTML({ binding, spendPath, resolveSecret: () => 'fixture',
       fetchImpl: async (url, options) => {
-        if (options.method === 'POST') {
-          // AIT-367 red proof: simulate a runner pause after dispatch.
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
-          return Response.json({ id: 'gen-json-ledger',
+        if (options.method === 'POST') return Response.json({ id: 'gen-json-ledger',
           usage: { prompt_tokens: 10, completion_tokens: 20 },
           choices: [{ finish_reason: 'stop', message: { content: document } }] });
-        }
         state.queries++; assert.equal(new URL(url).searchParams.get('id'), 'gen-json-ledger');
         return Response.json(state.final ? { data: { id: 'gen-json-ledger', total_cost: 0.001234 } } : {},
           { status: state.final ? 200 : 404 });
