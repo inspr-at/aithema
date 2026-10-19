@@ -457,7 +457,7 @@ export class AudioRail {
       finally { if (this.opening === opening) this.opening = null; }
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.startupPhase = null; this.state = 'listening';
-      clearTimeout(connectTimer);
+      clearTimeout(connectTimer); this.stopReplyWatch();
       if (this.client.manifest?.liveVoice?.capabilities?.opener === true) this.awaitReply(session, generation);
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
       await session.setInput(this.input);
