@@ -1,0 +1,30 @@
+{
+  "name": "@inspr/aithema-plugin-voxtral",
+  "private": true,
+  "type": "module",
+  "version": "261019093518.0.0",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/server.js",
+    "./server": "./src/server.js",
+    "./components": "./src/index.js",
+    "./configuration": "./src/configuration.js",
+    "./manifest": "./src/manifest.js",
+    "./client": "./src/client.js"
+  },
+  "dependencies": {
+    "@inspr/aithema-core": "261019093518.0.0",
+    "@inspr/aithema-server": "261019093518.0.0"
+  },
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "plugins/voxtral"
+  }
+}

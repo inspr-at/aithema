@@ -101,6 +101,40 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 // CI/remote 56s forecast; rolling-main timing history stays unchanged.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 60);
+// AIT-364: green PR #318 CI 39213995186, head 984e56be, shard 7/7:
+// all 21 preview tests passed, including the six-case cross-tab matrix and
+// full withdrawal: 15.887813567 + 20.502053037 + 9.993410194
+// + 12.660817253 = 59.044094051s; ceil(observed * 1.25) = 74s.
+// Supersedes the failed diagnostic run's 73s floor. PR observations remain
+// outside trusted rolling-main timing history; no bin limits change.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 74);
+// AIT-364 v1.1: mbp2606 run 142aa936c7-79959 passed all 23 preview
+// tests, including the fail-closed HTTP/stalled-document viewports/recovery.
+// Full file top-level work: 15.340172292 + 49.269363583 + 6.804462292
+// + 10.460890042 = 81.874888209s; ceil(observed * 1.25) = 103s.
+// Keep this conservative diagnostic floor outside rolling-main history;
+// CI 39219688045 at 373cd96a, shard 7/7, passed all 23 preview tests:
+// 15.483274293 + 19.378860230 + 9.488300485 + 12.037914010
+// = 56.388349018s (ceil(*1.25) = 71s). Retain the slower remote floor;
+// shard counts, ceilings and check names stay unchanged.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 103);
+// AIT-364 round 3: mbp2606 b2f860fa66-74632 passed all 23 preview
+// tests, including automatic recovery and the recovered viewport shot.
+// Top-level work: 15.532410625 + 50.059817916 + 6.721846709
+// + 14.264702958 = 86.578778208s; ceil(*1.25) = 109s.
+// Preserve the measured remote floor outside rolling-main history.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 109);
+// AIT-364 v1.1 final product head 03f5b0bb, CI 39221011068:
+// preview shard 7/7 passed 23/23 in 57.604659634s (ceil(*1.25)=73s);
+// retain the slower 103s remote reservation. Consent-lines shard 5/7
+// passed 34/34 in 136.474920947s; ceil(*1.25)=171s supersedes 167s.
+// The snapshot fixture now advances its revision with consent saves.
+// Both PR observations remain outside trusted rolling-main history.
+browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
+  browserTestWeights['test/browser/consent-lines.test.js'], 171);
 // The same CI run, shard 5/7, passed all ten demo top-level tests in
 // 56.218506283s; ceil(*1.25) = 71s for the changed served-frame workload.
 // Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.
@@ -181,6 +215,15 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 36);
 
+// AIT-361: successful PR #321 CI 39221656013 at b82a0166, shard 4/7:
+// complete voice file 5/5 PASS, including both-provider failure evidence.
+// 51.184620521 + 18.207498239 + 51.977345350 + 16.106548610
+// + 7.695658067 = 145.171670787s; ceil(observed * 1.25) = 182s.
+// Source: browser-timings-4-of-7/batch-0.jsonl. Preserve trusted rolling-main
+// history; this diagnostic floor supersedes the earlier 174.746s floor.
+// Shard count, ceiling, workflow and check names remain unchanged.
+browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
+  browserTestWeights['test/browser/voice-presentation.test.js'], 182);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;

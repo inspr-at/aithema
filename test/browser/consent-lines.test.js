@@ -61,7 +61,7 @@ async function fixture(t, real = false, purpose = false, revision = false) {
       page.state.consentRevision = (page.state.consentRevision ?? 1) + 1;
       return json({ granted: true, consentRevision: page.state.consentRevision, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: page.state.consentRevision, conversationUnchanged: true } } });
     }
-    if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, featureMatrix: page.state.matrix });
+    if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, consentRevision: page.state.consentRevision ?? page.state.snapshot.consentRevision, featureMatrix: page.state.matrix });
     if (path.endsWith('/features') && !real) return json(page.state ? { featureMatrix: page.state.matrix } : {});
     if (path.endsWith('/retry') && page.state) return json({});
     if (path.endsWith('/events')) return request.continue({ headers: { ...request.headers(), 'last-event-id': '0' } });

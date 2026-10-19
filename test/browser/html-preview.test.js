@@ -879,3 +879,9 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
   console.log(`PASS AIT-353: ${checks.length} geometry states, 0 px; ${focus.length} focus checks; strict host todos removed`);
 
 });
+
+// Reuse this measured shard workload; no shard count or workflow changes.
+test('AIT-364: cross-tab single-item consent withdrawal removes HTML and images', { timeout: 60_000 }, async t => {
+  const { partialConsentFrames } = await import('../fixtures/partial-consent-frames.js');
+  await partialConsentFrames(t);
+});

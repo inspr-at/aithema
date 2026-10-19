@@ -114,6 +114,8 @@ svg { display:block; flex:none; }
 :is(.voice-input, .voice-output)[aria-pressed="false"] { color:var(--aithema-muted); background:color-mix(in srgb,var(--aithema-line) 28%,var(--aithema-surface)); }
 .audio-rail :is(.pause, .voice-pause) { color:var(--aithema-paper); background:var(--aithema-ink); border-color:var(--aithema-ink); }
 .audio-rail :is(.pause, .voice-pause):hover:not(:disabled) { background:var(--aithema-ink); }
+/* Disabled opacity mutes neutral ink; exhausted rails retain their neutral colour. */
+.audio-rail button:is(.pause, .voice-pause):disabled { color:var(--aithema-ink); background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); border-color:color-mix(in srgb,var(--aithema-line) 70%,transparent); cursor:not-allowed; }
 .voice-icon--resume, :is(.pause, .voice-pause)[aria-pressed="true"] .voice-icon:not(.voice-icon--resume) { visibility:hidden; }
 :is(.pause, .voice-pause)[aria-pressed="true"] .voice-icon--resume { visibility:visible; }
 .audio-rail .voice-close { color:var(--aithema-error); }
@@ -218,7 +220,26 @@ svg { display:block; flex:none; }
 /* AIT-282: the image access occupies a permanent 44px cell; every state
    overlays that cell. Specificity also preserves the reservation on phones. */
 .concept-access { display:contents; }
+.concept-fold-slot .concept-access { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; min-height:44px; min-width:0; }
+.concept-fold-slot .concept-access > * { grid-row:1; }
+.concept-fold-slot .concept-rail { grid-column:1; }
+.concept-fold-slot .concept-preview-slot { grid-column:2; }
 .concept-withdrawn, .concept-phone-slot { display:none; }
+.concept-fold-slot:empty { display:none; }
+.fold-view:has(.concept-fold-slot:not(:empty)) { grid-template-rows:auto 44px minmax(0,1fr); }
+.concept-fold-slot .concept-access { visibility:visible; }
+/* Partial withdrawal uses the reserved access cell for the four-second notice.
+   The same native access button remains a focus target when its item is gone. */
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-rail { visibility:hidden; }
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-withdrawn { display:block; grid-area:1/1; align-self:center; font-size:14px; color:var(--aithema-muted); pointer-events:none; }
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview-slot { visibility:visible; }
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview { visibility:visible !important; }
+.concept-preview[data-withdrawn] { visibility:visible !important; min-width:44px; }
+.concept-preview[data-withdrawn] > * { visibility:hidden; }
+.workspace .concept-access[data-scope-withdrawn] .concept-preview-slot { display:grid; }
+@media(min-width:601px) {
+  .workspace:not([data-concept-layout="image"]) .concept-bar:has(.concept-access[data-scope-withdrawn]) { grid-template-columns:minmax(0,1fr) auto; }
+}
 .concept-thread { display:contents; }
 .workspace[data-concept-layout="image"] .concept-thread { position:relative; min-height:0; display:grid; grid-template:minmax(0,1fr)/minmax(0,1fr); container-type:size; }
 .workspace[data-concept-layout="image"] .concept-thread > .transcript-shell { grid-area:1/1; z-index:1; }
@@ -663,4 +684,6 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 }
 @media(pointer:coarse) { .concept-viewer-controls button { min-height:2.75rem; } }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; animation:none !important; } .workspace, .understanding, .fill, .icon-slash { transition:none !important; } }
+.workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview-slot { visibility:visible; justify-self:end; }
+.workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview[data-withdrawn] { visibility:visible !important; }
 `;

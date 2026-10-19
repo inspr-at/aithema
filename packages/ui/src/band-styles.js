@@ -54,7 +54,7 @@ export const bandStyles = `
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
-.audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
+.audio-rail[data-message] .voice-state { width:var(--voice-message-width,min(280px,calc(100vw - 32px))); top:var(--voice-message-top,calc(100% + 8px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
@@ -167,6 +167,9 @@ export const bandStyles = `
   .concept-activity-text { align-self:center; }
   .concept-preview { padding-inline:0; gap:.5rem; white-space:nowrap; }
   .concept-preview-glyph { width:22px; height:22px; }
+  /* A surviving image uses the draft's reserved phone slot after consent
+     revalidation, so switching kinds cannot move the adjacent rail. */
+  .workspace[data-concept-layout="html"] .concept-preview-thumbs { width:22px; height:22px; }
   .concept-preview-glyph svg { width:22px; }
 }
 .host-credits__text { color:var(--aithema-ink); font-weight:400; white-space:nowrap; }
