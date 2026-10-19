@@ -1334,3 +1334,20 @@ test('AIT-365 R2: a removal-only scoped save cannot use the lagging grant-docume
   assert.equal(fail.mock.callCount(), 1, 'an authoritative removal-only delta is a withdrawal, even on a granted:true save');
   assert.deepEqual(view.items, []);
 });
+
+for (const kind of ['html', 'image']) test(`AIT-369 R3 ${kind}: binding refusal hides covered artifacts with neutral unavailable`, async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [kind === 'html' ? draft('bound') : item('bound')] });
+  await tick(); view.open('bound'); await tick();
+  const feature = kind === 'html' ? 'html' : 'images';
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'],
+    features: { html: ['drafts'], images: ['images'] }, unavailableFeatures: [feature] });
+  assert.equal(view.covered(kind), false);
+  assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  assert.equal(root.querySelector('.concept-access').hasAttribute('data-scope-withdrawn'), false);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll('img[src]').length, 0);
+  assert.equal(root.querySelector('.concept-activity-text').textContent.includes(en.notConfigured), true);
+});

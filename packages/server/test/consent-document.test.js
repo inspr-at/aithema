@@ -309,9 +309,9 @@ for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plug
   assert.deepEqual(runtime.scopes({ ...current, concepts: current.concepts.filter(c => c.id === 'recorded') }, { feature: 'html', delivered: true }).map(s => s.purpose), ['drafts']);
   assert.equal(current.concepts.find(c => c.id === 'recorded').consentScope, undefined, 'private scope is absent from snapshots');
   assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), false);
-  assert.equal(coverageCalls.at(-1), 'drafts', 'publication checks the admitted purpose even after a switch');
+  assert.ok(coverageCalls.every(purpose => purpose === 'drafts'), 'publication never borrows a different purpose');
   allowedPurpose = 'drafts';
-  assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), true, 'retained admitted consent keeps the recorded artifact publishable');
+  assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), false, 'consent cannot replace a matching current binding and its full publication gate');
   if (change.startsWith('missing')) {
     assert.deepEqual(doc.features.html, []);
     assert.ok(doc.unavailableFeatures.includes('html'), 'unresolvable legacy provenance is neutral unavailable');
