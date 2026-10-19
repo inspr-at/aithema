@@ -25,8 +25,8 @@ const syntheticDraftConsent = (page, artifactId) => shadow(page, (c, artifactId)
     if (!response.ok || (init.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/consent') ||
       !c.session.concepts.some(item => item.id === artifactId)) return response;
     const doc = await response.json(), id = 'fixture-delivered-draft';
-    return Response.json({ ...doc, consentRevision: c.session.consentRevision,
-      items: [...doc.items, { id, version: 1, title: 'Fixture draft', recipients: 'Offline fixture', text: 'Display this synthetic draft.' }],
+    return Response.json({ ...doc, contract: doc.contract ?? 'ait369-display-fixture', consentRevision: c.session.consentRevision,
+      items: [...(doc.items ?? [{ id: 'mock-processing', version: 1, title: 'Fixture processing', recipients: 'Offline fixture', text: 'Process this fixture.' }]), { id, version: 1, title: 'Fixture draft', recipients: 'Offline fixture', text: 'Display this synthetic draft.' }],
       selected: [...doc.selected, id], features: { ...doc.features, html: [id] } });
   };
 }, artifactId);
