@@ -75,7 +75,7 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
     admitted.finish();
     const request = { system: '', messages: [{ role: 'user', content: 'Hello' }] };
     for (const [lane, operation, effort] of [['reaction', 'stream', 'none'], ['understanding', 'structured', 'high']]) {
-      const entry = await h.runtime.admit({ session: h.session, lane, operation, request, options: { voiceReply: lane === 'reaction' } });
+      const entry = await h.runtime.admit({ session: h.session, lane, operation, request, options: { voiceReply: lane === 'reaction', ...(lane === 'reaction' ? { raw: h.understanding } : {}) } });
       assert.equal(entry.engine.effort, effort); entry.finish({ failed: true });
     }
   });
@@ -86,6 +86,8 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
       () => { h.model.bindings.reaction = h.reaction; h.advance(60_001); }]) {
       change();
       await assert.rejects(h.runtime.checkVoice(h.session, { existingCall: true, textReplay: true }), /fast reaction binding/u);
+      await assert.rejects(h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream',
+        request: { system: '', messages: [] }, options: { voiceReply: true } }), /fast reaction binding/u);
       await assert.rejects(h.runtime.admitVoice({ session: h.session, request: { callId: 'recovery' }, options: { voiceContinuation: true } }), /fast reaction binding/u);
     }
   });

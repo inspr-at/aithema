@@ -286,7 +286,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const reason = fastReactionReason(preset, selected.model, selected.voice);
       if (reason) return { reason: 'binding evidence unverified', configurationError: reason };
     }
-    const { raw, reason: unselected } = options.raw ? { raw: options.raw } : selectedBinding(session, preset, lane);
+    const { raw, reason: unselected } = options.raw && !(feature === 'text' && options.voiceReply === true)
+      ? { raw: options.raw } : selectedBinding(session, preset, lane);
     if (!raw) return { reason: unselected };
     if (!config.plugins?.includes(raw.plugin)) return { reason: 'plugin not in preset' };
     let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { return { reason: 'binding invalid' }; }
