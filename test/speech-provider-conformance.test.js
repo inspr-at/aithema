@@ -6,7 +6,7 @@ import { createElevenLabsSTT, createElevenLabsTTS, STT_FORMAT as elSTT, TTS_FORM
 import { fixtureSocket, fixtureConfig, fixtureConsent, fixtureBinding, sttWire, ttsWire } from '../plugins/elevenlabs/test/component-fixtures.js';
 
 const text = 'A😀 B';
-function local(provider, role) {
+function local(provider, role, createModule) {
   let mode, requests = 0, active = 0;
   const stalled = () => new Promise(() => {});
   const stalledEvents = () => ({ [Symbol.asyncIterator]() { return this; }, next: stalled,
@@ -59,9 +59,10 @@ function local(provider, role) {
       else { controller.close(); close(); }
     }, cancel: close }), { headers: { 'content-type': 'text/event-stream' } });
   };
-  const component = (provider === 'voxtral' ? role === 'stt' ? createVoxtralSTT : createVoxtralTTS
-    : role === 'stt' ? createElevenLabsSTT : createElevenLabsTTS)({ enabled: true, config: fixtureConfig,
-    consent: fixtureConsent(fixtureBinding(role)), resolveSecret: () => 'synthetic-only', connect, fetchImpl });
+  const componentOptions = { enabled: true, config: createModule ? { ...fixtureConfig, secretRef: 'private:voxtral/fixture' } : fixtureConfig,
+    consent: fixtureConsent(fixtureBinding(role)), resolveSecret: () => 'synthetic-only', connect, fetchImpl };
+  const component = createModule ? createModule(componentOptions)[role] : (provider === 'voxtral' ? role === 'stt' ? createVoxtralSTT : createVoxtralTTS
+    : role === 'stt' ? createElevenLabsSTT : createElevenLabsTTS)(componentOptions);
   return { component, fixtures: { formats: [provider === 'voxtral' ? role === 'stt' ? voxSTT : voxTTS : role === 'stt' ? elSTT : elTTS],
     incompatibleFormats: [[{ encoding: 'unsupported-fixture', sampleRateHz: 1, channels: 99 }]],
     prepare(value) { mode = value.mode; }, requestCount: () => requests, activeCount: () => active, observedMicro: () => 0,
@@ -158,4 +159,15 @@ test('grok TTS offline conformance', async t => {
   const result = await ttsConformance(component, { text: ttsText, voice: 'eve' }, h.fixtures);
   t.diagnostic(JSON.stringify({ provider: 'grok', role: 'tts', ...result }));
   assert.deepEqual(result.failures, [], JSON.stringify(result)); assert.equal(result.ok, true);
+});
+
+// AIT-329: the supported guarded module must pass the same offline speech kits.
+for (const role of ['stt', 'tts']) test(`voxtral supported module ${role} offline conformance`, async t => {
+  const { createVoxtralComponents } = await import('@inspr/aithema-plugin-voxtral');
+  const { component, fixtures } = local('voxtral', role, createVoxtralComponents);
+  const result = await (role === 'stt' ? sttConformance : ttsConformance)(component,
+    role === 'stt' ? { audio: new Uint8Array(64000), language: 'en' } : { text, voice: 'fixture-voice' }, fixtures);
+  t.diagnostic(JSON.stringify({ provider: 'voxtral-module', role, ...result }));
+  assert.deepEqual(result.failures, [], JSON.stringify(result));
+  assert.equal(result.ok, true);
 });

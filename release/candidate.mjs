@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { sha256 } from './lib/digest.mjs';
 import { testConsumer } from './consumer.mjs';
 import { verifyRelease } from './pack.mjs';
+import { normalizedDigest } from './normalize.mjs';
 
 export function buildCandidate(output, sourceRef = 'HEAD') {
   mkdirSync(output, { recursive: true });
@@ -24,6 +25,7 @@ export function buildCandidate(output, sourceRef = 'HEAD') {
     built_at: new Date().toISOString(), runner: process.env.GITHUB_ACTIONS ? 'GitHub Actions' : 'mbp2606',
     toolchain: { node: process.versions.node, tar: execFileSync('tar', ['--version'], { encoding: 'utf8' }).split('\n')[0] },
     reproducible: true, builds: 2, manifest_sha256: 'sha256:' + sha256(readFileSync(join(first, 'release-set.json'))),
+    normalized_digest: normalizedDigest(first),
     artifacts: manifest.artifacts.map(({ path, name, sha256 }) => ({ path, name, sha256 })), consumer };
   writeFileSync(join(output, 'candidate-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
   return evidence;

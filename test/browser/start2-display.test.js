@@ -1803,13 +1803,13 @@ test('AIT-246 round 3: person-facing visual options and provider description, DE
       const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
       c.shadowRoot.querySelector('.settings-open').click();
     }, locale);
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="visuals"] [data-value="claude-html"]'));
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#settings-options-visuals [data-value="claude-html"]'));
     await shadow(page, c => {
       const select = c.shadowRoot.querySelector('[data-select="visuals"]');
       select.scrollIntoView({ block: 'center' });
       select.querySelector('.select__button').click();
     });
-    const actual = await shadow(page, c => [...c.shadowRoot.querySelectorAll('[data-select="visuals"] [role="option"]')].map(node => ({
+    const actual = await shadow(page, c => [...c.shadowRoot.querySelectorAll('#settings-options-visuals [role="option"]')].map(node => ({
       id: node.dataset.value, label: node.querySelector('strong').textContent, description: node.querySelector('.option-label small')?.textContent ?? '',
     })));
     assert.deepEqual(actual.map(o => o.id), ['off', 'fake-html', 'claude-html', 'fake-images', 'openai-images']);
@@ -1823,7 +1823,7 @@ test('AIT-246 round 3: person-facing visual options and provider description, DE
     });
     await page.mouse.move(-1, -1);
     const visible = await shadow(page, c => {
-      const root = c.shadowRoot, option = root.querySelector('[data-select="visuals"] [data-value="claude-html"]');
+      const root = c.shadowRoot, option = root.querySelector('#settings-options-visuals [data-value="claude-html"]');
       const description = option.querySelector('.option-label small'), body = root.querySelector('.settings__body');
       const r = description.getBoundingClientRect(), b = body.getBoundingClientRect();
       return { menuOpen: !option.closest('[role="listbox"]').hidden, descriptionVisible: r.top >= b.top && r.bottom <= b.bottom && r.left >= 0 && r.right <= innerWidth,

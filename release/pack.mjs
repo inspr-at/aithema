@@ -137,7 +137,7 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
   return { directory, artifactPath, manifest };
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
-export function verifyRelease(directory) {
+export function verifyRelease(directory, { onArtifact = () => {} } = {}) {
   const manifest = JSON.parse(readFileSync(join(directory, 'release-set.json'))); parseVersion(manifest);
   if (manifest.schema !== 'aithema-release-set/1' || !['dry-run', 'candidate', 'release'].includes(manifest.mode) || !/^[a-f0-9]{40}$/u.test(manifest.source.commit) ||
     !Number.isSafeInteger(manifest.release_sequence) || manifest.release_sequence < 1 || !manifest.release_channel || manifest.artifacts.length < 1) throw new Error('Invalid release-set manifest');
@@ -176,6 +176,8 @@ export function verifyRelease(directory) {
       if (digest(bytes) !== file.sha256) throw new Error('Artifact member digest mismatch');
       members.set(file.path, bytes);
     }
+    // Consumers such as normalization reuse the verified member bytes, without extracting twice.
+    onArtifact(artifact, members);
     if (artifact.kind === 'module') {
       const declaredPackage = manifest.packages.find(pkg => pkg.name === artifact.name && pkg.publish);
       if (!workspaceMembers || !declaredPackage) throw new Error('Module lacks workspace binding');

@@ -996,7 +996,7 @@ export class SQLiteStorage {
       return this.#append(session, 'session.erased', { at: new Date().toISOString() });
     });
   }
-  reviseConsent(id, granted, guard = {}, { conversationUnchanged = false } = {}) {
+  reviseConsent(id, granted, guard = {}, { conversationUnchanged = false, changed, removed } = {}) {
     return this.#invalidationTransaction(() => {
       const session = this.get(id);
       // Compare inside the same synchronous transaction as invalidation and append.
@@ -1011,6 +1011,8 @@ export class SQLiteStorage {
       // deadline so granting consent again cannot restart its hour.
       if (!granted) this.#deleteOwnerCreditGuard(id);
       const event = this.#append(session, 'consent.revised', { granted, at: new Date().toISOString(),
+        ...(Array.isArray(changed) ? { changed: [...changed] } : {}),
+        ...(Array.isArray(removed) ? { removed: [...removed] } : {}),
         ...(conversationUnchanged ? { conversationUnchanged: true } : {}) });
       if (granted) {
         const suffix = inputRevision(session).split(':').slice(1).join(':');

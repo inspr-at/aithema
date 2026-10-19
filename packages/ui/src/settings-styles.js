@@ -19,7 +19,7 @@ dialog.settings { padding:0; margin:auto; border:1px solid var(--aithema-line); 
   background:linear-gradient(125deg,var(--aithema-surface),var(--aithema-paper)); box-shadow:var(--aithema-shadow-raised);
   font:.875rem/1.4 var(--aithema-font); }
 dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur(6px); }
-.settings__frame { display:flex; flex-direction:column; height:100%; min-height:0; }
+.settings__frame { position:relative; display:flex; flex-direction:column; height:100%; min-height:0; }
 .settings :is(button,input,select,textarea,summary,a,[tabindex]):focus-visible { outline:3px solid var(--aithema-accent); outline-offset:2px; }
 /* The unavailable email section retains programmatic screen-reader focus. */
 .settings #email-heading:focus { outline:none; }
@@ -43,6 +43,11 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings__tabs button[aria-selected=true] .tab-check { visibility:visible; }
 .tab-icon svg, .tab-check svg { display:block; width:100%; height:100%; }
 .settings__body { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:1.2rem 1.6rem; }
+/* Paint only: fade into the dialog's gradient without a surface-colour step.
+   Open menus live in the sibling layer, outside this masked subtree. */
+.settings__body[data-more-below=true] { mask-image:linear-gradient(to bottom, #000 calc(100% - 24px), transparent); }
+.settings__menus { position:absolute; inset:0; z-index:5; pointer-events:none; }
+.settings__menus > .select__menu { pointer-events:auto; }
 .settings-panel { display:grid; gap:1.4rem; min-width:0; }
 .settings-panel[data-panel=model] { grid-template-columns:minmax(0,1.08fr) minmax(0,1fr) minmax(0,.95fr); align-items:start; }
 .settings-column { display:grid; gap:1.4rem; align-content:start; min-width:0; }
@@ -79,9 +84,12 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .select__option:hover, .select__option:focus-visible { background:color-mix(in srgb,var(--aithema-accent) 10%,transparent); }
 .select__option[aria-selected=true] { background:color-mix(in srgb,var(--aithema-accent) 14%,var(--aithema-surface)); }
 .select__option[aria-disabled=true] { color:var(--aithema-muted); cursor:help; }
-.option-label { flex:1; min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:.1rem .5rem; }
-.option-label strong { font-weight:600; overflow-wrap:anywhere; }
-.option-label small { color:var(--aithema-muted); font-size:.72rem; border-left:1px solid var(--aithema-line); padding-left:.5rem; }
+.option-label { flex:1; min-width:0; display:grid; gap:.1rem; }
+.option-label strong { font-weight:600; min-width:0; overflow-wrap:anywhere;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.option-label small { color:var(--aithema-muted); font-size:.72rem; border:0; padding:0; }
+.option-label .option-status { width:auto; text-align:left; }
+.option-label .option-status:empty { display:none; }
 .option-check { flex:none; width:1rem; color:var(--aithema-accent); visibility:hidden; }
 .select__option[aria-selected=true] .option-check { visibility:visible; }
 /* Both provider lines and the inline confirmation always keep their geometry. */
@@ -90,9 +98,9 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 [data-select=voice] .select__label, [data-select=voice] .select__detail { grid-column:1/-1; }
 [data-select=voice] .preset-icon + .select__label { grid-column:2; grid-row:1; }
 .select__detail { display:block; height:2.5em; font-size:.72rem; line-height:1.25; font-weight:400; color:var(--aithema-muted); overflow:hidden; }
-[data-select=voice] .option-label { display:grid; gap:.1rem; }
-[data-select=voice] .option-label .option-detail { border:0; padding:0; font-weight:400; min-height:1.25em; }
-[data-select=voice] .option-status { display:none; }
+:is([data-select=voice],[data-menu=voice]) .option-label { display:grid; gap:.1rem; }
+:is([data-select=voice],[data-menu=voice]) .option-label .option-detail { border:0; padding:0; font-weight:400; min-height:1.25em; }
+:is([data-select=voice],[data-menu=voice]) .option-status { display:none; }
 .voice-switch-slot { display:grid; min-width:0; font-size:.75rem; line-height:1.5; }
 .voice-switch-slot>* { grid-area:1/1; min-width:0; }
 .voice-switch-measure { visibility:hidden; pointer-events:none; user-select:none; }
@@ -248,6 +256,11 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .badge { font-size:.75rem; color:var(--aithema-muted); }
 .local__composer { display:grid; gap:.4rem; } .local__composer .actions { display:flex; justify-content:flex-end; gap:.5rem; }
 
+/* S3: use the available tall-desktop space so the Linux Chrome baseline's
+   full captions and footer fit. At 1280x800 the 47rem S1 frame stays intact. */
+@media(min-width:60rem) and (min-height:850px) {
+  dialog.settings { height:min(48rem,calc(100dvh - 48px)); }
+}
 @media(max-width:75rem) { .settings-panel[data-panel=model] { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); }
   .settings-overview { grid-column:1/-1; }
   .settings__footer { grid-template-columns:minmax(0,1fr) auto auto; } }

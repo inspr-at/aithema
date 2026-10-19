@@ -1,28 +1,12 @@
-import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
-import { deepFreeze } from '../../../packages/core/src/plugins.js';
-import { voiceOperation } from '../../../packages/core/src/live-voice.js';
-import { componentInvocation, boundedEvents, TTS_SPEAK_BYTES, TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS } from '../../../packages/core/src/voice-components.js';
+import { PluginError, normalizedError } from '@inspr/aithema-core/invocation';
+import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
+import { componentInvocation, boundedEvents, TTS_SPEAK_BYTES, TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS } from '@inspr/aithema-core/voice-components';
 
-export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
-// Speech API PCM is float32 LE. It must never be sent to a PCM16 player.
-export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_f32le', sampleRateHz: 24000, channels: 1 });
-const STT_MODEL = 'voxtral-mini-transcribe-realtime-2602', TTS_MODEL = 'voxtral-mini-tts-2603';
-// Voxtral TTS uses injected fetch/SSE, not the qualification WebSocket connect.
-// Use core's 1 MiB decoded event ceiling and bounded SSE assembly independently
-// of HTTP read coalescing; the synthesis total remains 16,000,000 B.
-// See composed-voice/README.md for all transport and backlog bounds.
-export const manifest = deepFreeze({ id: 'voxtral', version: '0.0.0', apiVersion: '^1.0.0',
-  kinds: ['stt', 'tts'], placement: 'server', entrypoints: { server: './src/index.js' },
-  configSchema: { type: 'object', properties: {}, additionalProperties: true },
-  vendor: { name: 'Mistral', url: 'https://mistral.ai' },
-  models: [
-    { id: STT_MODEL, operations: ['transcribe', 'stream'], streaming: true, structured: false, efforts: ['none'],
-      languages: ['de', 'en'], germanQuality: 'unverified', formats: ['pcm_s16le'], processingLocations: ['unverified'],
-      qualification: 'unverified', evidence: [], expiresAt: null, cost: { unit: 'minute', inputMicro: 6000, outputMicro: 0, reviewedAt: '2026-10-14' } },
-    { id: TTS_MODEL, operations: ['speak'], streaming: true, structured: false, efforts: ['none'],
-      languages: ['de', 'en'], germanQuality: 'unverified', formats: ['pcm_f32le'], processingLocations: ['unverified'],
-      qualification: 'unverified', evidence: [], expiresAt: null, cost: { unit: 'character', inputMicro: 16, outputMicro: 0, reviewedAt: '2026-10-14' } },
-  ] });
+import { STT_FORMAT, TTS_FORMAT, STT_MODEL, TTS_MODEL } from './configuration.js';
+import { componentManifest as manifest } from './manifest.js';
+export { STT_FORMAT, TTS_FORMAT } from './configuration.js';
+export { componentManifest as manifest } from './manifest.js';
 
 function configuration(raw = {}) {
   const endpoint = raw.endpoint ?? 'https://api.mistral.ai', url = new URL(endpoint);
@@ -123,6 +107,8 @@ export function createVoxtralSTT({ enabled = false, config: raw, resolveSecret, 
     } });
 }
 
+// SSE assembly is bounded independently of HTTP read coalescing: core's
+// decoded event ceiling applies per message and synthesis totals 16,000,000 B.
 async function* speechEvents(body, options) {
   const reader = body?.getReader(); if (!reader) throw new PluginError('invalid-output');
   const decoder = new TextDecoder('utf-8', { fatal: true }); let pending = '';

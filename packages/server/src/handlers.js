@@ -274,8 +274,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     try { return await pending; }
     finally { if (consentDecisions.get(id) === settled) consentDecisions.delete(id); }
   }
-  async function consentDocument(session) {
-    const document = validateConsentDocument(await consent.describe(session.id));
+  async function consentDocument(session, options) {
+    const document = validateConsentDocument(await consent.describe(session.id, options));
     const ids = new Set(document.items?.map(item => item.id) ?? ['mock-processing']);
     const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
       pluginRuntime.scopes(session, { feature, delivered: true }).map(scope => ids.has(scope.purpose) ? scope.purpose
@@ -283,6 +283,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const unavailableFeatures = ['html', 'images'].filter(feature => !features[feature].length &&
       session.concepts?.some(item => !item.archived && !item.erased && !item.withdrawn && (item.mediaType === 'text/html' ? 'html' : 'images') === feature));
     return { ...document, features, unavailableFeatures, consentRevision: session.consentRevision };
+  }
+  async function consentEnrichment(session, options) {
+    // Enrichment must not hold a grant behind an unavailable host describe.
+    // A timed-out read cannot alter the event after the journal has committed.
+    let timer;
+    try {
+      return await Promise.race([consentDocument(session, options), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Consent enrichment timed out')), 250);
+      })]);
+    } finally { clearTimeout(timer); }
   }
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
@@ -625,10 +635,21 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             const revision = storage.authorize(id, ownerToken).consentRevision;
             if (revision !== current.consentRevision) throw new ConsentConflictError(revision);
           };
+          // Compare authoritative documents, never the caller's claimed changed scopes.
+          let previousDocument;
+          if (body.granted && consent.describe) {
+            try { previousDocument = await (body.intent === 'settings-save' && body.processing
+              ? consentDocument(current) : consentEnrichment(current)); }
+            catch (error) {
+              // Legacy grant-only hosts may expose an older describe shape.
+              // Preserve their POST contract; Settings still requires a valid editor document.
+              if (body.intent === 'settings-save' && body.processing) throw error;
+            }
+          }
+          checkCurrent();
           // The editor names withdrawal explicitly; existing host ledger updates keep their cascade.
           if (body.intent === 'settings-save' && body.granted && body.processing && consent.describe) {
-            const document = await consentDocument(current);
-            checkCurrent();
+            const document = previousDocument;
             if (document.contract === body.processing.contract && Array.isArray(body.processing.items) &&
               consentSaveEndsConversation(document, body.processing.items)) return json({ error: 'withdrawal-required' }, 409);
           }
@@ -640,8 +661,26 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             const granted = await consent.grant({ sessionId: id, consentRevision: current.consentRevision + 1, decision: body.processing,
               scopes: pluginRuntime.scopes?.(current) ?? [] });
             if (granted === false) return json({ error: 'host-consent-required' }, 409);
+            checkCurrent();
           }
-          const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged });
+          // Full withdrawal revokes every scope without waiting on host reads.
+          let changed = body.granted ? undefined : FEATURES.map(feature => feature === 'html' ? 'html-drafts' : feature);
+          let removed = body.granted ? undefined : [...changed];
+          if (previousDocument) {
+            // Revision-bound host ledgers have staged the accepted grant at the next
+            // revision; this read precedes the atomic journal commit.
+            const nextRevision = current.consentRevision + 1;
+            try {
+              const nextDocument = await consentEnrichment({ ...current, consentRevision: nextRevision }, { consentRevision: nextRevision, granted: true });
+              const covered = (doc, feature) => (doc.features[feature] ?? []).every(id => doc.selected.includes(id));
+              changed = FEATURES.filter(feature => covered(previousDocument, feature) !== covered(nextDocument, feature))
+                .map(feature => feature === 'html' ? 'html-drafts' : feature);
+              removed = FEATURES.filter(feature => covered(previousDocument, feature) && !covered(nextDocument, feature))
+                .map(feature => feature === 'html' ? 'html-drafts' : feature);
+            } catch { /* An unavailable enrichment read retains the legacy event/refresh path. */ }
+            checkCurrent();
+          }
+          const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged, changed, removed });
           if (event.data.conversationUnchanged) {
             broadcast(id, event); await conceptHandlers.lane.invalidate(id);
           } else await invalidate(id, event, 'consent-revised');

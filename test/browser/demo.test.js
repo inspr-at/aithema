@@ -250,7 +250,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         const settingsSaved = () => page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/settings`
           && response.request().method() === 'POST', { signal: controller.signal });
         await page.click('aithema-session >>> .settings-open');
-        await waitForShadow(page, 'dialog.settings[open] [data-select="model"] [role=option]');
+        await waitForShadow(page, 'dialog.settings[open] #settings-options-model [role=option]');
         assert.equal(await shadowFocus(page), 'done', 'focus moves into the settings dialog');
         const [, presetSaved] = await Promise.all([page.click('aithema-session >>> .preset-option[data-preset="custom"]'), settingsSaved()]);
         assert.equal(presetSaved.status(), 200, 'the server acknowledges the preset');
@@ -258,7 +258,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         smokeStep = 'settings model';
         await page.click('aithema-session >>> [data-select="model"] .select__button');
         const swift = await page.waitForFunction(() => [...document.querySelector('aithema-session').shadowRoot
-          .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Demo only: quick replies'));
+          .querySelectorAll('#settings-options-model [role=option]')].find(node => node.querySelector('strong').textContent === 'Demo only: quick replies'));
         const [, modelSaved] = await Promise.all([swift.click(), settingsSaved()]);
         assert.equal(modelSaved.status(), 200, 'the server acknowledges the model');
         // AIT-128: Continue confirmed the offered choice first (revision 1); the preset change here made revision 2.
@@ -322,7 +322,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         });
         const workspace = await shadowRect(page, '.workspace', { document: true });
         await page.click('aithema-session >>> .settings-open');
-        await waitForShadow(page, 'dialog.settings[open] [data-select="model"] [role=option]');
+        await waitForShadow(page, 'dialog.settings[open] #settings-options-model [role=option]');
         const box = await shadowRect(page, 'dialog.settings');
         assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 400 && box.y + box.height <= 800, `dialog fits 400x800: ${JSON.stringify(box)}`);
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 400), 'no horizontal overflow at 400 px');
@@ -1992,7 +1992,7 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     }
     for (const name of ['model', 'voice', 'visuals']) {
       await inShadow(page, (c, name) => c.shadowRoot.querySelector(`[data-select="${name}"] .select__button`).click(), name);
-      const labels = await inShadow(page, (c, name) => [...c.shadowRoot.querySelectorAll(`[data-select="${name}"] .option-label`)]
+      const labels = await inShadow(page, (c, name) => [...c.shadowRoot.querySelectorAll(`#settings-options-${name} .option-label`)]
         .filter(node => node.checkVisibility()).map(node => node.textContent), name);
       assert.ok(labels.length, `${name} menu exposes its option labels`);
       assert.doesNotMatch(labels.join('\n'), /mock/iu, `${name}: no visible option label exposes Mock`);

@@ -318,3 +318,120 @@ for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plug
     assert.equal(await runtime.publicationAllowed(current, { artifactId: 'legacy', visualKind: 'html', visuals: 'a' }), false);
   }
 });
+
+for (const initial of [[], ['models', 'drafts', 'images']]) test(`AIT-365: changed scopes come from authoritative documents (${initial.length ? 'withdraw' : 'grant'})`, async t => {
+  const storage = new SQLiteStorage(); let selected = [...initial];
+  const consent = { coverage: () => ({ covered: false }),
+    describe: () => ({ contract: 'private-contract', selected: [...selected], items: ['models', 'drafts', 'images'].map(id =>
+      ({ id, version: 1, title: 'Private title', recipients: 'Private recipient', text: 'Private terms' })) }),
+    conversationUnchanged: () => true,
+    // Deliberately differs from the submitted decision: never echo browser items.
+    grant: () => { selected = initial.length ? ['models', 'images'] : ['drafts']; return true; },
+  };
+  const pluginRuntime = createPluginRuntime({ storage, consent });
+  pluginRuntime.scopes = (session, { feature } = {}) => [{ purpose: feature === 'html' ? 'drafts' : feature === 'images' ? 'images' : 'models' }];
+  const handlers = createHandlers({ storage, consent, pluginRuntime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ granted: true, processing: { revision: 0, contract: 'private-contract', items: ['images'], changed: ['images'] }, changed: ['images'], removed: ['images'] }),
+  }));
+  assert.equal(response.status, 200);
+  const { event } = await response.json();
+  assert.deepEqual(event.data.changed, ['html-drafts']);
+  assert.deepEqual(event.data.removed, initial.length ? ['html-drafts'] : [], 'direction comes from the authoritative coverage delta');
+  assert.deepEqual(storage.read(session.id).find(e => e.seq === event.seq).data, event.data, 'durable replay carries exactly the same scopes');
+  assert.deepEqual(Object.keys(event.data).sort(), ['at', 'changed', 'conversationUnchanged', 'granted', 'removed']);
+  assert.doesNotMatch(JSON.stringify(event), /private-|Private|"drafts"/u, 'scope names only; no document data');
+});
+
+for (const describe of [() => ({ selected: [] }), () => { throw new Error('Legacy read unavailable'); }]) test('AIT-365: optional scope enrichment preserves legacy grant POSTs', async t => {
+  const storage = new SQLiteStorage(); let grants = 0;
+  const handlers = createHandlers({ storage, consent: { coverage: () => ({ covered: false }), describe, grant: () => { grants++; return true; } } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }),
+  }));
+  assert.equal(response.status, 200); assert.equal(grants, 1);
+  assert.equal(Object.hasOwn((await response.json()).event.data, 'changed'), false);
+  assert.equal(storage.get(session.id).consentRevision, 1);
+});
+
+for (const phase of ['previous', 'accepted']) test(`AIT-365 R2: legacy grant survives a hanging ${phase} enrichment read`, async t => {
+  const storage = new SQLiteStorage(); let reads = 0, grants = 0;
+  const consent = { coverage: () => ({ covered: false }),
+    describe: () => { reads++; return reads === (phase === 'previous' ? 1 : 2) ? new Promise(() => {}) : document(); },
+    grant: () => { grants++; return true; } };
+  const handlers = createHandlers({ storage, consent });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let response;
+  const saving = handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }),
+  })).then(result => { response = result; });
+  await new Promise(setImmediate);
+  t.mock.timers.tick(250); await new Promise(setImmediate);
+  assert.ok(response, 'optional describe enrichment cannot block a legacy grant beyond 250 ms');
+  await saving;
+  assert.equal(response.status, 200); assert.equal(grants, 1);
+  assert.equal(Object.hasOwn((await response.json()).event.data, 'changed'), false);
+  assert.equal(storage.get(session.id).consentRevision, 1);
+});
+
+test('AIT-365 R2: granted:false publishes every revoked scope without waiting for describe', async t => {
+  const storage = new SQLiteStorage(); let selected = ['models', 'drafts', 'images'], reads = 0, hanging = false;
+  const consent = { coverage: () => ({ covered: true }),
+    describe: () => { reads++; return hanging ? new Promise(() => {}) : { contract: 'host-v1', selected: [...selected],
+      items: ['models', 'drafts', 'images'].map(id => ({ id, version: 1, title: id, recipients: 'Local', text: 'Local terms' })) }; },
+    grant: () => true, withdraw: () => { selected = []; } };
+  const pluginRuntime = createPluginRuntime({ storage, consent });
+  pluginRuntime.scopes = (session, { feature } = {}) => [{ purpose: feature === 'html' ? 'drafts' : feature === 'images' ? 'images' : 'models' }];
+  const handlers = createHandlers({ storage, consent, pluginRuntime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const save = granted => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted, changed: [] }),
+  }));
+  assert.equal((await save(true)).status, 200);
+  hanging = true; const before = reads;
+  const response = await save(false);
+  assert.equal(response.status, 200); assert.equal(reads, before, 'withdrawal never waits for a host document');
+  const { event } = await response.json();
+  assert.ok(Array.isArray(event.data.changed), 'withdrawal must never omit changed when coverage is revoked');
+  assert.deepEqual(event.data.removed, event.data.changed, 'every full-withdrawal scope is a removal');
+  for (const scope of ['text', 'analysis', 'voice', 'transcription', 'images', 'html-drafts', 'uploads'])
+    assert.ok(event.data.changed.includes(scope), `revoked ${scope} is in the event`);
+  assert.deepEqual(storage.read(session.id).find(e => e.seq === event.seq).data, event.data);
+  assert.equal(storage.get(session.id).consentWithdrawn, true);
+  assert.deepEqual(selected, []);
+});
+
+test('AIT-365 R2: a grant changed hint cannot grant coverage or suppress authoritative removals', async t => {
+  const storage = new SQLiteStorage(); let selected = ['models', 'drafts'];
+  const consent = { coverage: () => ({ covered: false }),
+    describe: () => ({ contract: 'host-v1', selected: [...selected], items: ['models', 'drafts', 'images'].map(id =>
+      ({ id, version: 1, title: id, recipients: 'Local', text: 'Local terms' })) }),
+    conversationUnchanged: () => true,
+    grant: () => { selected = ['models']; return true; } };
+  const pluginRuntime = createPluginRuntime({ storage, consent });
+  pluginRuntime.scopes = (session, { feature } = {}) => [{ purpose: feature === 'html' ? 'drafts' : feature === 'images' ? 'images' : 'models' }];
+  const handlers = createHandlers({ storage, consent, pluginRuntime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const path = `http://localhost/api/sessions/${session.id}/consent`;
+  const response = await handlers.handle(ownedRequest(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ granted: true, changed: ['images'], processing: { revision: 0, items: ['images'] } }),
+  }));
+  assert.equal(response.status, 200);
+  const { event } = await response.json();
+  assert.deepEqual(event.data.changed, ['html-drafts'], 'the hint adds the actual removal and cannot claim an image grant');
+  assert.deepEqual(event.data.removed, ['html-drafts']);
+  const current = await (await handlers.handle(ownedRequest(path))).json();
+  assert.equal(current.features.images.every(id => current.selected.includes(id)), false, 'changed never overrides missing authoritative image coverage');
+  assert.equal(current.features.html.every(id => current.selected.includes(id)), false, 'the draft withdrawal remains authoritative');
+  assert.deepEqual(current.selected, ['models']);
+  assert.deepEqual(storage.read(session.id).find(e => e.seq === event.seq).data, event.data);
+});
