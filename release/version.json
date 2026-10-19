@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261019003029.0.0",
+  "version": "261019093518.0.0",
   "release_channel": "stable",
-  "release_sequence": 18,
+  "release_sequence": 19,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-360 seventh October candidate preparation for START-550; AEON-LEAD authorizes RC7 = START-550 first, immediately after #307/AIT-353 and #309/AIT-354 merge and before any further Grok package merges; Tick passed AIT-353 UI at 2026-10-19 02:05 Europe/Vienna; Grok voice deferred to RC8; follow AIT-356 route: candidate, coordinator release gate, then one Desk question for Markus; prepare only; OPS publishes only on Markus's Desk go; no tag, tag push, GitHub release or publication authorization"
+  "reservation_purpose": "AIT-366 eighth October candidate preparation; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19; includes #318/AIT-364 START-550 partial consent fix and #316/AIT-351 Grok Voice (not yet qualified in live use); prepare only, RC PR waits unmerged and merge freeze lasts until published; coordinator cross-family release gate, CI, signatures/checksums and Tick's UI look precede OPS publication on coordinator handoff; report to Markus afterwards, no new Desk question; no builder tag, tag push, GitHub release or publication"
 }
