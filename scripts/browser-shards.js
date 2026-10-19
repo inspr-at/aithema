@@ -129,9 +129,12 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // AIT-350 round 7: PR #315 CI 39206999982, 895129ae, shard 5/7 PASS.
 // Three settled open-menu captures and box checks: 1.151249632s +
 // 3.085387965s + 15.562711664s = 19.799349261s; ceil(*1.25) = 25s.
-// Source: browser-timings-5-of-7/batch-0.jsonl; supersedes the 24s floor.
+// Confirmation CI 39207582259, c43fade9, shard 5/7 PASS was slower:
+// 2.408554753s + 3.692719086s + 15.640518542s = 21.741792381s.
+// ceil(*1.25) = 28s supersedes the initial 25s and round-6 24s floors.
+// Source for both samples: browser-timings-5-of-7/batch-0.jsonl.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 25);
+  browserTestWeights['test/browser/composed-media.test.js'], 28);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
