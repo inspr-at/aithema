@@ -556,7 +556,6 @@ export function createElevenLabsClient(ports = {}) {
           throw new PluginError('invalid-output', 'Fresh voice connection requires its spoken opener');
         const implementation = await getSdk();
         if (!active()) throw new PluginError('cancelled');
-        if (mediaDevices && !mediaDevices.getUserMedia && !paused && inputOn) throw Object.assign(new Error('Microphone API unavailable'), { name: 'NoMediaAPIError', phase: 'microphone' });
         capture ??= microphoneCapture(mediaDevices, AudioContext, phase => {
           if (active() && !paused && inputOn) options.onMicrophoneState?.(phase);
         }, permissions);
