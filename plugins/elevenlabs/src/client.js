@@ -549,8 +549,10 @@ export function createElevenLabsClient(ports = {}) {
           },
         };
         // Verified agent provisioning supplies the default spoken AI opener.
-        // A fresh call cannot override that guarantee with a silent greeting.
-        if (current === 1 && !request.providerSessionId && receipt.overrides?.agent?.firstMessage === '')
+        // Capable fresh-call startup cannot override that guarantee with a silent
+        // greeting. Legacy starts and trusted continuations retain their contract.
+        if (options.onMicrophoneState && current === 1 && !request.providerSessionId &&
+          receipt.presentation !== 'continuation' && receipt.overrides?.agent?.firstMessage === '')
           throw new PluginError('invalid-output', 'Fresh voice connection requires its spoken opener');
         const implementation = await getSdk();
         if (!active()) throw new PluginError('cancelled');

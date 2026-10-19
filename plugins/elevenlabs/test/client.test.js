@@ -415,3 +415,10 @@ test('AIT-383: a hold during permission inspection keeps startup device-free', a
   assert.equal(local.sdk.acquired.length, 0); assert.deepEqual(phases, []);
   assert.equal(local.sdk.conversations[0].track.source, 'silence');
 });
+
+test('AIT-383: capable fresh startup refuses a silent opener override before SDK dispatch', async () => {
+  const local = fixture(), start = local.control.start;
+  local.control.start = async (...args) => ({ ...await start(...args), overrides: { agent: { language: 'de', firstMessage: '' } } });
+  await assert.rejects(local.client.start({ callId: 'silent-fresh' }, invocationOptions({ onMicrophoneState() {} })), { code: 'invalid-output' });
+  assert.equal(local.sdk.starts.length, 0);
+});
