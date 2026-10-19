@@ -1,104 +1,52 @@
 # Aithema 2026.10
 
-Version **261019093518.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261019131804.0.0**. Licensed under **AGPL-3.0-only**.
 
-Eighth October release: a second voice, Grok Voice by xAI (not yet qualified in live use), and a privacy fix for HTML drafts.
+Ninth October release: drafts stay private whatever the visuals setting, and clearer voice failures.
 
 ## What START and visitors notice
 
-- **Withdrawing one consent item clears its content (AIT-364 / START-550):**
-  withdrawing only “HTML drafts” removes displayed drafts within one consent
-  refresh, in every tab that receives the change. Withdrawing only “Images” does
-  the same for images. This also applies while another consent item remains
-  granted. When the component cannot confirm current consent, it hides the
-  affected content rather than leaving it visible.
-  **Deutsch:** Wird nur die Zustimmung zu „HTML-Entwürfen“ oder „Bildern“
-  zurückgezogen, verschwinden die jeweiligen Inhalte innerhalb einer
-  Aktualisierung des Zustimmungsstands in jedem Tab, der die Änderung erhält.
-- **A second, selectable voice (AIT-317, packages 1–8):** Grok Voice by xAI is
-  **not yet qualified in live use**. Settings lets visitors switch providers and
-  shows the recipient and processing detail. Switching can end the current call;
-  it never starts a new paid call automatically. Typed turns and call lifecycle
-  stay attached to the current call. Interrupted replies keep their complete
-  text and show **Unterbrochen** / **Interrupted** (AIT-348/349/350).
-- **Reload for HTML drafts (AIT-358):** when a preview fails, its failure message
-  now offers Reload. Each attempt requests a fresh preview capability.
+- **Draft privacy follows consent, whatever the visuals setting (AIT-369 / START-550 #2):**
+  withdrawing only “HTML drafts” removes delivered HTML drafts even when visuals
+  are Off or set to Images. Consent follows each delivered kind, never the
+  visuals choice. Unknown or unresolved content provenance fails closed: the
+  component hides content it cannot safely identify.
+- **Scoped withdrawal takes effect immediately (AIT-365):** a known withdrawn
+  kind disappears in the same moment the consent event arrives, in every tab
+  that receives it. Privacy first when the change is unknown: affected content
+  stays hidden until the change is confirmed. Other covered kinds remain usable.
+- **Clearer voice failures (AIT-361):** ElevenLabs and Grok Voice show persistent
+  failure messages for provider limits, lost connections and retry delays, with
+  recovery controls that reflect what is available. Retry waits for the stated
+  delay; visitors can continue typing. Grok Voice remains **not yet qualified
+  in live use**.
+- **Settings are easier to use (AIT-362):** a bottom fade shows when more content
+  is below, menu labels use the full width, and the edge rule is gone. Menus
+  preserve their keyboard and screen-reader behaviour.
 
 ## For hosts
 
-### Optional second voice: Grok Voice — not yet qualified in live use
+The backward-compatible `consent.revised` event can include `changed`, the scope
+names whose coverage changed, and `removed`, the scopes that lost coverage.
+These contain scope names only, never selected item IDs or ledger values;
+absent fields mean refresh through the existing path. Keep forwarding consent
+events to every tab. Known withdrawals remove the affected kind immediately;
+unknown changes keep content hidden until current consent is confirmed. See the
+[consent event contract](https://github.com/inspr-at/aithema/blob/v261019131804.0.0/docs/embedding.md#consent-documents-in-settings)
+for the revision-bound host ledger contract and fallback behaviour.
 
-The new `@inspr/aithema-plugin-grok-voice` package joins the release closure with
-exact core/server dependencies, supported component and client exports, and the
-server's coordinator, accounting, relay, browser helpers and capture worklet
-(AIT-351). It remains **not yet qualified in live use**. The pipeline is
-**xAI STT → Aithema's admitted reasoning → xAI TTS**; Aithema owns the answer.
-
-Register `createGrokVoiceProvider` and the separate reasoning plugin with the
-runtime, configure the parent and both speech component bindings, and mount the
-authenticated relay and voice controls. Start requires current ownership, consent,
-account and budget admission. Use **`voice-xai` v1**, with the manifest's exact
-DE/EN text, plus separate reasoning consent. The recipient is **SpaceXAI LLC
-(“SpaceXSI”)**, US seat. Processing is international with **no guaranteed region**;
-the US recipient seat is not a processing-location promise.
-
-Owner-use setup requires an xAI account with voice access and **Zero Data
-Retention switched on**, plus a **server-side secret reference** in the private
-binding. Supply opaque `accountRef` and `secretRef` references and dated,
-unexpired account evidence for ZDR, DPA, retention, transfers, contract and
-approval. Resolve the reference only on the server after admission. Never put a
-key or account evidence in browser configuration or documentation. Public policy
-and synthetic fixtures do not prove a particular account is ready for real speech.
-See the [host setup](https://github.com/inspr-at/aithema/blob/v261019093518.0.0/docs/embedding.md#grok-voice-host-setup-and-release-imports-ait-351)
-and [private configuration contract](https://github.com/inspr-at/aithema/blob/v261019093518.0.0/plugins/grok-voice/README.md#private-configuration-contract).
-
-### Charging, recovery and interruption
-
-For the optional Grok Voice pipeline (**not yet qualified in live use**), bind
-the parent with `maxMicro: 0` and `upstreamMicroPerMinute: 0`, its own visitor
-tariff and a bounded call duration. Bind STT/TTS separately to the admitted
-model, endpoint, account, secret reference and legal evidence. Visitor charging
-uses active duration **measured by Aithema**, excludes acknowledged pauses and is
-confirmed at close. Upstream STT/TTS are separate, fresh child claims for every
-utterance, fragment and retry. They remain **estimated** until a billed-cost
-receipt. TTS counts the Unicode code points actually sent, including spaces and
-emoji constituents.
-
-Cancel, timeout, abandonment and uncertain recovery retain consumed reservations;
-closing the parent cannot release unresolved children. Recovery needs fresh
-authorization, epochs and child claims and never replays old synthesis. Pause
-holds capture until the matching resume acknowledgement; retrying playback unlock
-does not dispatch new speech work.
-
-The approved interruption difference is deliberate: xAI reports **no heard
-position**. Keep the full generated reply, mark it **Unterbrochen** / **Interrupted**,
-and tell the model that heard length is unknown. Never infer a heard prefix from
-browser timing. ElevenLabs keeps its existing heard-prefix correction.
-
-### Browser modules and displayed content
-
-Grok Voice (**not yet qualified in live use**) and composed browser helpers in
-the source-hosted demo load natively from relative same-origin module URLs under
-`script-src 'self'`, without an import map; startup uses external modules.
-Packing rewrites cross-package URLs to declared package subpaths. Installed
-package consumers still need a bundler or, when unbundled, an import map; an
-inline map needs its exact CSP hash. Serve the shipped `pcm-capture-worklet.js`
-beside the server's browser-audio module.
-
-The partial-consent fix is inside the component. Keep propagating consent,
-erasure and session changes so every tab can remove affected content. Reload
-uses the existing owner-authenticated preview mint route and requests a fresh,
-single-use capability every time. The RC7 canonical preview route and strict
-frame policy remain required; see the embedding guide for the complete policy.
-The preview guarantee remains **no network; a self-reload is refused**.
+Releases are now admitted against an immutable candidate marker that binds the
+exact source commit and content digest; later changes on main do not change
+that candidate (AIT-363 B). Candidate evidence records the actual build host
+(AIT-370); published checksums and attestations still identify the shipped bytes.
 
 ## Breaking for hosts
 
-**None relative to RC7 (`v261019003029.0.0`).** Grok Voice (**not yet qualified
-in live use**) is opt-in; existing providers keep their integration. The consent
-fix is component-internal and Reload uses the existing mint API. Hosts choosing
-the new provider must supply its bindings, account evidence and consent. Hosts
-upgrading from before RC7 must still apply RC7's preview embedding changes.
+**None relative to RC8 (`v261019093518.0.0`).** Consent scopes are optional event
+fields; existing consumers can ignore them and absent fields retain the refresh
+path. The draft privacy, voice failure and Settings changes require no new host
+API, and candidate admission changes the release process. Hosts upgrading from
+before RC7 must still apply RC7's preview embedding requirements.
 
 ## What is included
 
@@ -121,10 +69,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261019093518.0.0` into a clean directory:
+Download the assets for `v261019131804.0.0` into a clean directory:
 
 ```sh
-gh release download v261019093518.0.0 --repo inspr-at/aithema
+gh release download v261019131804.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -147,7 +95,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261019093518.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261019131804.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -177,6 +125,6 @@ the product version.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261019093518.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261019131804.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.
