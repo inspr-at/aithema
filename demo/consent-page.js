@@ -201,7 +201,7 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     try {
       const response = await checked(operation, submit(`/api/sessions/${id}/consent`, { granted,
         ...(!withdraw || binding.processingConsent ? { processing: {
-          ...(!withdraw ? { revision: consentRevision } : {}),
+          ...(granted ? { revision: consentRevision } : {}),
           ...(binding.processingConsent ? { contract: rendered.contract, items } : {}) } } : {}) }, { signal: operation.controller.signal }));
       if (!response.ok) {
         if (response.status === 409) {
