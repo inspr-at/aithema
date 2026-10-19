@@ -723,11 +723,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const model = plugin?.manifest.models.find(m => m.id === binding.model) ?? plugin?.manifest.models.find(m => m.id === '*');
         if (!model?.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured ||
           feature === 'html' && !model.formats.includes('text/html')) continue;
-        const scope = registry.isCanonicalMock(plugin) || !plugin.bind && localImplementation(plugin, feature) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
-        if (scope && !result.some(s => hash(s) === hash(scope))) result.push(structuredClone(scope));
-        if (feature === 'voice') for (const child of plugin?.ports?.serverAdapter?.processingScopes?.() ?? []) {
-          if (!result.some(s => hash(s) === hash(child))) result.push(structuredClone(child));
-        }
+        // Build the complete voice scope set atomically. A broken provider
+        // denies its own admission; it must not break consent for other lanes.
+        let scopes;
+        try {
+          const scope = registry.isCanonicalMock(plugin) || !plugin.bind && localImplementation(plugin, feature) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
+          scopes = [...(scope ? [scope] : []), ...(feature === 'voice' ? plugin?.ports?.serverAdapter?.processingScopes?.() ?? [] : [])].map(scope => structuredClone(scope));
+        } catch (error) { if (feature === 'voice') continue; throw error; }
+        for (const scope of scopes) if (!result.some(s => hash(s) === hash(scope))) result.push(scope);
       }
       const voice = selectedBinding(session, preset, 'voice').raw;
       if (only === 'voice' && registry.get(voice?.plugin)?.manifest.liveVoice?.reasoning === 'delegated') {

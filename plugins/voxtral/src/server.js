@@ -68,4 +68,5 @@ export function createVoxtralComponents({ composition, ...options } = {}) {
     outputFormat: TTS_FORMAT.encoding, outputAudioFormat: TTS_FORMAT });
 }
 
-export { createVoxtralProviderAuthority } from './provider.js';
+export { createVoxtralProviderAuthority, createVoxtralVoiceProvider } from './provider.js';
+export { createVoxtralTransports } from './transports.js';

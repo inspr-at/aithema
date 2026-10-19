@@ -11,12 +11,16 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const collect = async source => { const out = []; for await (const value of source) out.push(value); return out; };
 function mounted(overrides = {}) {
   assert.equal(typeof server.createVoxtralVoiceProvider, 'function');
-  const f = fixture(); let dispatches = 0, admissions = 0;
+  const f = fixture(); f.setClock(Date.now());
+  for (const b of [...Object.values(f.componentBindings), f.hostProcessing[0].binding]) {
+    b.legal.evidence.verifiedAt = Date.now() - 1000; b.legal.evidence.expiresAt = Date.now() + 60000;
+  }
+  let dispatches = 0, admissions = 0;
   const parent = structuredClone(f.componentBindings.stt);
   Object.assign(parent, { plugin: 'voxtral-voice', model: 'voxtral-voice', maxDurationSeconds: 120, upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
   parent.legal.evidence.model = parent.model;
   const p = server.createVoxtralVoiceProvider({ ...f.args, binding: parent, enabled: true,
-    storage: { saveVoiceCall() {}, authorize() { return f.request.session; }, voiceLifecycle() { return { epoch: 1 }; } },
+    storage: { saveVoiceCall() {}, authorize(id, owner) { if (id !== f.request.session.id || owner !== 'owner') throw new Error('not owner'); return f.request.session; }, voiceLifecycle() { return { epoch: 1 }; } },
     resolveSecret() { dispatches++; assert.fail('No secrets in admission tests'); },
     connect() { dispatches++; assert.fail('No STT dispatch'); }, fetchImpl() { dispatches++; assert.fail('No TTS dispatch'); },
     authenticateRelay: request => request.headers.get('x-owner'), relayOrigin: 'https://host.test', ...overrides });
@@ -128,4 +132,33 @@ test('AIT-330: browser imports contain no credential or server transport graph a
   const worklet = await readFile(new URL('../../../packages/server/src/composed/pcm-capture-worklet.js', import.meta.url), 'utf8');
   assert.match(worklet, /registerProcessor\('composed-pcm-capture'/u);
   assert.equal(import.meta.resolve('@inspr/aithema-server/composed-voice/pcm-capture-worklet.js'), new URL('../../../packages/server/src/composed/pcm-capture-worklet.js', import.meta.url).href);
+});
+
+test('AIT-330: a real assembled segment mounts a single-use owner-bound grant', async t => {
+  const h = mounted(), reports = []; t.after(() => h.p.networkRelay.close());
+  let consumed = 0;
+  const segment = await h.p.start({ sessionId: 'session', callId: 'call', ownerToken: 'owner' }, {
+    deadlineAt: Date.now() + 5000, spendDeadlineAt: Date.now() + 60000, browserLivenessDeadlineAt: Date.now() + 60000,
+    attempt: { attemptId: 'parent', claimId: 'parent', maxMicro: 0, consume() { consumed++; } }, report: terminal => reports.push(terminal) });
+  t.after(() => segment.close());
+  const open = (grant, owner = 'owner') => h.routes[0].handle(new Request('https://host.test/composed/relay', {
+    method: 'POST', headers: { 'x-owner': owner, origin: 'https://host.test', 'x-composed-action': 'open' }, body: JSON.stringify(grant) }));
+  assert.equal((await open(segment.grant, 'other-owner')).status, 403);
+  assert.equal((await open({ ...segment.grant, callId: 'other-call' })).status, 403);
+  assert.equal((await open({ ...segment.grant, expiresAt: 1 })).status, 403);
+  assert.equal((await open(segment.grant)).status, 200);
+  assert.equal((await open(segment.grant)).status, 403);
+  assert.equal(consumed, 1); assert.equal(h.counts().dispatches, 0);
+  await segment.close(); assert.equal(reports.length, 1);
+});
+
+test('AIT-330: injected TTS fetch cannot redirect or change regional endpoint', async () => {
+  let requests = 0;
+  const transports = server.createVoxtralTransports({ endpoint: origin, fetchImpl(url, options) {
+    requests++; assert.equal(url, urls.tts); assert.equal(options.redirect, 'error'); return new Response('fixture');
+  } });
+  await transports.fetchImpl(urls.tts, { method: 'POST', redirect: 'error' });
+  await assert.rejects(transports.fetchImpl(urls.tts.replace('api.eu.', 'api.'), { method: 'POST', redirect: 'error' }), { code: 'not-admitted' });
+  await assert.rejects(transports.fetchImpl(urls.tts, { method: 'POST', redirect: 'follow' }), { code: 'not-admitted' });
+  assert.equal(requests, 1);
 });

@@ -147,3 +147,21 @@ test('AIT-330: late STT open after cancellation is closed without sending', asyn
   pending.resolve({ close() { closed++; }, send() { sends++; }, events: (async function* () {})() });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(closed, 1); assert.equal(sends, 0);
 });
+
+for (const detail of [null, { error: { code: 'moderation_blocked', message: 'synthetic private refusal' } }]) test(`AIT-330: HTTP 403 preserves bounded TTS refusal (${detail ? 'typed' : 'untyped'})`, async () => {
+  const reports = [], tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+    fetchImpl: async () => new Response(detail ? JSON.stringify(detail) : 'forbidden', { status: 403 }) });
+  await assert.rejects(collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, options(reports))), error => {
+    assert.equal(error.message, detail ? 'tts-moderation-refused' : 'tts-forbidden-or-moderation'); return true;
+  });
+  assert.equal(reports.length, 1);
+});
+
+test('AIT-330: oversized SSE message and invalid STT input retain their bounded failure', async () => {
+  const tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+    fetchImpl: async () => new Response('data: ' + 'x'.repeat(1500000), { headers: { 'content-type': 'text/event-stream' } }) });
+  await assert.rejects(collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, options([]))), { code: 'limit' });
+  const stt = createVoxtralSTT({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+    connect: async () => ({ send() {}, close() {}, events: (async function* () { yield '{"type":"session.created"}'; await new Promise(() => {}); })() }) });
+  await assert.rejects(collect(stt.stream({ format: 'pcm_s16le', audio: (async function* () { yield new Uint8Array(3); })() }, options([]))), { code: 'limit' });
+});
