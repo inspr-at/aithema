@@ -101,13 +101,14 @@ export class ConceptLane {
         finally { admitted.finish({ failed }); }
         const producer = admitted.visuals ? { visuals: admitted.visuals } : {};
         if (this.processingAllowed && !await this.processingAllowed(session, admitted.consentScope, options)) throw new PluginError('not-admitted');
-        if (!await untilCancelled(this.publicationAllowed(this.getSession(id), { ...options, ...producer }), scope.signal)) throw new PluginError('not-admitted');
+        if (!await untilCancelled(this.publicationAllowed(this.getSession(id), { ...options, ...producer, consentScope: admitted.consentScope }), scope.signal)) throw new PluginError('not-admitted');
         const latest = this.getSession(id), latestPrepared = this.prepare(latest), current = syncConceptIntent(latest, latestPrepared.referenceIds, { now: this.now(), policy: this.policy, refreshReferenceIds: latestPrepared.refreshReferenceIds });
         const disposition = conceptResultDisposition(current, job, this.policy);
         if (disposition.kind === 'reject') throw new PluginError('cancelled');
         const artifactId = crypto.randomUUID();
         const finished = reduceConceptIntent(current, { type: 'render-completed', id: requestId, artifactId, now: this.now() }, this.policy);
         this.complete(id, artifact, { id: artifactId, requestId, createdAt: this.now(), inputRevision: job.inputRevision, ...producer,
+          ...(admitted.consentScope ? { consentPurpose: admitted.consentScope.purpose, consentScope: admitted.consentScope } : {}),
           turnIds: job.turnIds, referenceIds: job.referenceIds, visualKind, operation: options.operation, disposition: disposition.kind, archived: false },
           { intent: finished, status: { phase: 'ready', requestId } });
         return 'completed';

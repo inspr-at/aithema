@@ -168,17 +168,27 @@ export class ConceptView {
     stage.addEventListener('touchend', e => { const delta = e.changedTouches[0]?.clientX - this.#touchX; if (Math.abs(delta) > 60) this.navigate(delta > 0 ? -1 : 1); }, { passive: true });
     this.connect();
   }
-  // Availability also includes temporary admission gates. Only consent loss
-  // removes delivered artifacts; pause, preset exclusion and budget do not.
+  // Delivered artifacts follow producer consent and publication availability.
+  // Temporary admission gates (pause, budget, visuals off) do not hide them.
   covered(kind) {
     const feature = kind === 'html' ? 'html' : 'images', session = this.#session;
-    if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || session.consentWithdrawn || session.tombstone) return false;
-    const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
-    if (isConsentReason(verdict?.reason) || isConsentReason(verdict?.unpaused?.reason)) return false;
+    if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || this.unavailable(kind) || session.consentWithdrawn || session.tombstone) return false;
     const doc = this.#consentDocument;
-    if (doc?.consentRevision === session.consentRevision && Array.isArray(doc.features?.[feature]))
-      return doc.features[feature].every(id => doc.selected.includes(id));
+    const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
+    const matchingDocument = doc?.consentRevision === session.consentRevision;
+    const ids = matchingDocument ? doc.features?.[feature] : undefined;
+    // A consent refusal for the producer still applies when the document matches.
+    // Purpose metadata distinguishes an unrelated current choice's refusal.
+    for (const decision of [verdict, verdict?.unpaused]) {
+      if (isConsentReason(decision?.reason) && (!matchingDocument || !decision.consentPurposes ||
+        decision.consentPurposes.some(purpose => ids?.includes(purpose === 'mock-conversation' ? 'mock-processing' : purpose)))) return false;
+    }
+    if (matchingDocument) return Array.isArray(ids) && ids.length > 0 && ids.every(id => doc.selected.includes(id));
     return true;
+  }
+  unavailable(kind) {
+    return this.#consentDocument?.consentRevision === this.#session?.consentRevision &&
+      this.#consentDocument.unavailableFeatures?.includes(kind === 'html' ? 'html' : 'images');
   }
   get items() { return this.#session?.consentWithdrawn || this.#session?.tombstone ? [] : (this.#session?.concepts ?? []).filter(c => this.covered(conceptKind(c)) && !c.archived && !c.erased && !c.withdrawn && !c.turnIds?.some(id => this.#session.transcript.some(turn => turn.id === id && (turn.erased || turn.withdrawn)))); }
   current() { return this.items.find(c => c.id === this.#selected); }
@@ -263,8 +273,8 @@ export class ConceptView {
       clearTimeout(this.#withdrawnTimer);
       // Keep the access reservation's kind when an earlier feature refusal
       // already removed its latest item before the refresh deadline fired.
-      this.#withdrawnKind = partial ? this.#consentRefreshFailed ? this.#withdrawnKind ?? conceptKind(previous) : conceptKind(partial) : undefined;
-      this.#withdrawnUntil = changedOwner || this.#consentRefreshFailed ? 0 : Date.now() + 4000;
+      this.#withdrawnKind = partial && !this.unavailable(conceptKind(partial)) ? this.#consentRefreshFailed ? this.#withdrawnKind ?? conceptKind(previous) : conceptKind(partial) : undefined;
+      this.#withdrawnUntil = changedOwner || this.#consentRefreshFailed || partial && this.unavailable(conceptKind(partial)) ? 0 : Date.now() + 4000;
       if (this.#withdrawnUntil) {
         this.#withdrawnTimer = consentTimeout(() => {
           this.#withdrawnUntil = 0;
@@ -333,6 +343,8 @@ export class ConceptView {
     }));
   }
   accessFeature() {
+    if (!this.items.length && ['html', 'image'].some(kind => this.unavailable(kind)))
+      return { available: false, rawReason: 'publication unavailable', reason: this.copy.notConfigured };
     if (this.#withdrawnKind && !this.covered(this.#withdrawnKind)) {
       const kind = this.#withdrawnKind === 'html' ? 'html' : 'images';
       return { available: false, rawReason: 'current processing consent required', reason: reasonText(this.copy, 'current processing consent required', kind) };
@@ -519,7 +531,7 @@ export class ConceptView {
     empty.hidden = Boolean(item); draft.hidden = !item || conceptKind(item) !== 'html'; image.hidden = !item || conceptKind(item) === 'html';
     if (!item) {
       this.suspendCanvas();
-      const feature = this.feature({ ignorePause: true });
+      const feature = this.accessFeature();
       const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
       empty.querySelector('svg').toggleAttribute('hidden', !line.action);
       const text = empty.querySelector(':scope > span');

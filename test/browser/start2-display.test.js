@@ -16,6 +16,21 @@ import { previewConfiguration } from '../../packages/server/src/html-preview.js'
 import { pixels, samePaint } from './png-pixels.js';
 import { mockIdentityReads, shadow, until, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 
+// AIT-369: these scenes inject delivered HTML into a provider-free server.
+// Give only those synthetic artifacts explicit coverage; empty lists now deny it.
+const syntheticDraftConsent = (page, artifactId) => shadow(page, (c, artifactId) => {
+  const fetch = window.fetch;
+  window.fetch = async (url, init = {}) => {
+    const response = await fetch(url, init);
+    if (!response.ok || (init.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/consent') ||
+      !c.session.concepts.some(item => item.id === artifactId)) return response;
+    const doc = await response.json(), id = 'fixture-delivered-draft';
+    return Response.json({ ...doc, contract: doc.contract ?? 'ait369-display-fixture', consentRevision: c.session.consentRevision,
+      items: [...(doc.items ?? [{ id: 'mock-processing', version: 1, title: 'Fixture processing', recipients: 'Offline fixture', text: 'Process this fixture.' }]), { id, version: 1, title: 'Fixture draft', recipients: 'Offline fixture', text: 'Display this synthetic draft.' }],
+      selected: [...doc.selected, id], features: { ...doc.features, html: [id] } });
+  };
+}, artifactId);
+
 // Observe completed rendering instead of paying a fixed 120ms after every
 // state. Timed reveal checks still own their explicit animation clocks.
 const settle = page => shadow(page, async c => {
@@ -716,6 +731,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await syntheticDraftConsent(page, 'canvas1');
   await shadow(page, c => { globalThis.regressionSeed = c.session; });
   async function scene(locale, theme, width) {
     copy = { en, de }[locale]; await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
@@ -1547,6 +1563,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
   await mockIdentityReads(page);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await syntheticDraftConsent(page, 'polish-ready');
   await shadow(page, c => {
     window.polishSeed = structuredClone(c.session);
     const fetch = window.fetch;

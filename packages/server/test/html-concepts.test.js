@@ -57,7 +57,7 @@ async function setup(t, { intercept, uiRenderLimits, both = false, path = ':memo
     assert.equal(storage.get(id).conceptStatus.phase, 'ready', JSON.stringify(storage.get(id).conceptStatus));
     return storage.get(id).concepts.at(-1);
   }
-  return { storage, handlers, runtime, records, presets, consent, id, call, turn, readiness, request, render };
+  return { storage, handlers, runtime, records, presets, registry, consent, id, call, turn, readiness, request, render };
 }
 
 test('HTML opt-in waits for a milestone; a new milestone uses edit with understanding, words, language and feedback', async t => {
@@ -522,4 +522,84 @@ test('AIT-352: full live registry returns a plain no-store 503 and permits a lat
   registry.mint({ sessionId: 'other-session-one' }); registry.mint({ sessionId: 'other-session-two' });
   now += 60000;
   assert.equal((await previewGet(h, await mintPreview(h, item.id))).status, 200, 'expired capacity permits a fresh mint');
+});
+
+
+test('AIT-369 R2: delivery persists its admitted purpose without exposing its private scope', async t => {
+  const h = await setup(t); await h.turn('first'); const artifact = await h.render();
+  assert.equal(artifact.consentPurpose, 'mock-conversation');
+  assert.equal(artifact.consentScope, undefined);
+  assert.equal(h.storage.conceptConsentScope(h.id, artifact.id).purpose, 'mock-conversation');
+});
+
+// AIT-369 gate 2: fixtures execute deterministic local bytes through an external
+// binding; no network/paid provider is installed or called.
+function publicationBinding() {
+  const base = { ...localHTMLBinding, maxMicro: 1000, rates: { inputMicro: 1, outputMicro: 1 } };
+  return { ...base, legal: { approved: true, countries: ['FR'], training: false, retention: 'fixture', purpose: 'drafts',
+    recipient: 'offline', processors: [], dataCategories: ['conversation'], consentVersion: 1,
+    evidence: { qualified: true, accountRef: base.accountRef, secretRef: base.secretRef, model: base.model, endpoint: base.endpoint,
+      routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60000 } } };
+}
+const publicationConsent = { grant() {}, coverage({ scope, consentRevision }) {
+  return { covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60000 };
+}, describe() { return { contract: 'ait369', selected: ['drafts'], items: [{ id: 'drafts', version: 1, title: 'Drafts', recipients: 'Offline', text: 'Fixture' }] }; } };
+function refusePublication(h, change) {
+  const config = h.presets.best, binding = config.bindings.html;
+  if (change === 'revoked legal') binding.legal.approved = false;
+  if (change === 'expired evidence') binding.legal.evidence.expiresAt = Date.now() - 1;
+  if (change === 'preset plugin removed') config.plugins = config.plugins.filter(id => id !== binding.plugin);
+  if (change === 'registry miss') {
+    const get = h.registry.get.bind(h.registry);
+    h.registry.get = id => id === binding.plugin ? undefined : get(id);
+  }
+  if (change === 'policy denied') config.policy.endpoints = [];
+  if (change === 'binding removed') delete config.bindings.html;
+}
+for (const change of ['revoked legal', 'expired evidence', 'preset plugin removed', 'registry miss', 'policy denied']) {
+  test(`AIT-369 R3 delivery: ${change} discards late stored-scope bytes`, async t => {
+    let h;
+    h = await setup(t, { htmlBinding: publicationBinding(), consent: publicationConsent, intercept: async ({ work }) => {
+      const artifact = await work(); refusePublication(h, change); return artifact;
+    } });
+    await h.turn('first'); h.readiness(); assert.equal((await h.request()).status, 202); await h.handlers.idle();
+    assert.equal(h.storage.get(h.id).concepts.length, 0, 'the full current binding gate applies after render');
+    assert.equal(h.storage.get(h.id).conceptStatus.phase, 'failed');
+  });
+  test(`AIT-369 R3 read/export: ${change} hides stored-scope drafts with neutral unavailable`, async t => {
+    const h = await setup(t, { htmlBinding: publicationBinding(), consent: publicationConsent });
+    await h.turn('first'); const item = await h.render();
+    refusePublication(h, change);
+    assert.equal((await h.call(`concepts/${item.id}/html`)).status, 403);
+    assert.equal((await h.call(`concepts/${item.id}/html?download=1`)).status, 403);
+    assert.equal((await h.call(`concepts/${item.id}/preview`, {})).status, 403);
+    const files = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()));
+    assert.deepEqual(JSON.parse(files['concepts-manifest.json']).withheld, [{ id: item.id, reason: 'publication-not-allowed' }]);
+    assert.ok(Object.keys(files).every(name => !name.startsWith('concepts/')));
+    const doc = await (await h.call('consent')).json();
+    assert.deepEqual(doc.features.html, ['drafts'], 'producer consent provenance remains intact');
+    assert.ok(doc.unavailableFeatures.includes('html'), 'binding refusal is neutral unavailable, never withdrawal');
+  });
+}
+for (const change of ['preset plugin removed', 'registry miss', 'binding removed']) test(`AIT-369 R3 mock delivery: ${change} passes through the full gate`, async t => {
+  let h;
+  h = await setup(t, { intercept: async ({ work }) => { const artifact = await work(); refusePublication(h, change); return artifact; } });
+  await h.turn('first'); h.readiness(); assert.equal((await h.request()).status, 202); await h.handlers.idle();
+  assert.equal(h.storage.get(h.id).concepts.length, 0);
+  assert.equal(h.storage.get(h.id).conceptStatus.phase, 'failed');
+});
+test('AIT-369 R3: exact scope matches a renamed current option while current visuals are off', async t => {
+  const binding = publicationBinding(), h = await setup(t, { htmlBinding: binding, consent: publicationConsent });
+  await h.turn('first'); const item = await h.render();
+  h.presets.best.choices = { models: [], visuals: [{ id: 'renamed', kind: 'html', binding }] };
+  const session = h.storage.get(h.id);
+  h.storage.append(h.id, 'settings.changed', { processingPreset: 'best', settings: { ...session.settings, visuals: 'off' } });
+  assert.equal(await h.runtime.publicationAllowed(h.storage.get(h.id), { artifactId: item.id, visualKind: 'html' }), true);
+  assert.equal((await h.call(`concepts/${item.id}/html`)).status, 200);
+  const doc = await (await h.call('consent')).json();
+  assert.deepEqual(doc.features.html, ['drafts']); assert.ok(!doc.unavailableFeatures.includes('html'));
+  const files = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()));
+  assert.ok(Object.keys(files).some(name => name.startsWith('concepts/')));
+  h.presets.best.choices.visuals[0].binding = { ...binding, legal: { ...binding.legal, recipient: 'different-recipient' } };
+  assert.equal(await h.runtime.publicationAllowed(h.storage.get(h.id), { artifactId: item.id, visualKind: 'html' }), false, 'same purpose is insufficient: the exact processingScope hash must match');
 });

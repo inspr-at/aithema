@@ -1114,6 +1114,75 @@ for (const operation of ['load', 'download']) test(`AIT-364 gate1b: late image $
   assert.deepEqual(view.items.map(i => i.id), ['retained']);
 });
 
+// AIT-369: a delivered kind needs an explicit, nonempty coverage list.
+for (const visuals of ['off', 'images', 'html', 'both']) for (const kind of ['html', 'image'])
+  for (const list of ['empty', 'missing']) test(`AIT-369 ${visuals}/${kind}/${list}: delivered coverage fails closed`, t => {
+    let view;
+    const update = ConceptView.prototype.update;
+    t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+    const { c } = setup(t, { concepts: [draft('html'), item('image')], session: { settings: { visuals } } });
+    const feature = kind === 'html' ? 'html' : 'images';
+    const features = { html: ['drafts'], images: ['images'] };
+    if (list === 'empty') features[feature] = []; else delete features[feature];
+    view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'], features });
+    assert.equal(view.covered(kind), false);
+    assert.deepEqual(view.items.map(i => i.id), [kind === 'html' ? 'image' : 'html']);
+  });
+
+for (const visuals of ['off', 'images', 'html', 'both']) test(`AIT-369 ${visuals}: kept consent preserves both delivered kinds`, t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [draft('html'), item('image')], session: { settings: { visuals } } });
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  assert.deepEqual(view.items.map(i => i.id), ['html', 'image']);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+});
+
+
+test('AIT-369: a different current provider cannot revoke a covered delivered producer', t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [draft('html'), item('image')] });
+  const session = { ...c.session, featureMatrix: { best: {
+    html: { available: false, reason: 'current processing consent required', consentPurposes: ['other-drafts'] },
+    images: { available: false, reason: 'current processing consent required', consentPurposes: ['other-images'] },
+  } } };
+  view.update(session, { consentRevision: session.consentRevision, selected: ['drafts', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  assert.deepEqual(view.items.map(i => i.id), ['html', 'image']);
+});
+
+for (const kind of ['html', 'image']) for (const paused of [false, true]) test(`AIT-369 R2 matrix ${kind}/${paused}: producer consent reason overrides a matching document`, t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [draft('html'), item('image')] });
+  const feature = kind === 'html' ? 'html' : 'images';
+  const reason = { available: false, reason: 'current processing consent required', consentPurposes: [kind === 'html' ? 'drafts' : 'images'] };
+  const session = { ...c.session, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    [feature]: paused ? { available: false, reason: 'session paused', unpaused: reason } : reason } } };
+  view.update(session, { consentRevision: session.consentRevision, selected: ['drafts', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  assert.equal(view.covered(kind), false);
+  assert.deepEqual(view.items.map(i => i.id), [kind === 'html' ? 'image' : 'html']);
+});
+
+for (const kind of ['html', 'image']) test(`AIT-369 R2 legacy ${kind}: unresolved provenance removes surfaces without a withdrawal claim`, async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [kind === 'html' ? draft('legacy') : item('legacy')] });
+  await tick(); view.open('legacy'); await tick();
+  const feature = kind === 'html' ? 'html' : 'images';
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['other'], features: { [feature]: [] }, unavailableFeatures: [feature] });
+  assert.equal(view.covered(kind), false);
+  assert.deepEqual(view.items, []);
+  assert.equal(view.dialog.open, false);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '', 'unknown provenance is not a withdrawal');
+  assert.equal(root.querySelector('.concept-access').hasAttribute('data-scope-withdrawn'), false);
+  assert.equal(root.querySelectorAll('img[src]').length, 0);
+  assert.equal(root.querySelector('.concept-image').hasAttribute('src'), false);
+  assert.equal(root.querySelector('.concept-activity-text').textContent.includes(en.notConfigured), true, 'reuse the neutral unavailable copy');
+});
+
 for (const kind of ['html', 'image']) test(`AIT-365 E1 ${kind}: scoped event removes surfaces before returning`, async t => {
   const { c, root, view, state } = consentRecoveryFixture(t);
   await tick(); view.open(kind); await tick();
@@ -1215,9 +1284,9 @@ for (const kind of ['html', 'image']) for (const directed of [false, true]) test
   const feature = kind === 'html' ? 'html' : 'images';
   const snapshot = c.session;
   snapshot.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   view.update(snapshot); state.snapshot = () => new Promise(() => {});
   assert.equal(view.covered(kind), false, 'the setup starts with this kind uncovered');
-  t.mock.timers.enable({ apis: ['setTimeout'] });
   view.reviseConsent([kind === 'html' ? 'html-drafts' : 'images'], true, directed ? [] : undefined);
   assert.equal(view.items.some(item => item.id === kind), false, 'changed can add removals but never grant coverage');
   view.open(kind); assert.equal(view.dialog.open, false);
@@ -1264,4 +1333,21 @@ test('AIT-365 R2: a removal-only scoped save cannot use the lagging grant-docume
   await tick();
   assert.equal(fail.mock.callCount(), 1, 'an authoritative removal-only delta is a withdrawal, even on a granted:true save');
   assert.deepEqual(view.items, []);
+});
+
+for (const kind of ['html', 'image']) test(`AIT-369 R3 ${kind}: binding refusal hides covered artifacts with neutral unavailable`, async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [kind === 'html' ? draft('bound') : item('bound')] });
+  await tick(); view.open('bound'); await tick();
+  const feature = kind === 'html' ? 'html' : 'images';
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'],
+    features: { html: ['drafts'], images: ['images'] }, unavailableFeatures: [feature] });
+  assert.equal(view.covered(kind), false);
+  assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  assert.equal(root.querySelector('.concept-access').hasAttribute('data-scope-withdrawn'), false);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll('img[src]').length, 0);
+  assert.equal(root.querySelector('.concept-activity-text').textContent.includes(en.notConfigured), true);
 });
