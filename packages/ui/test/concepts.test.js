@@ -1351,3 +1351,83 @@ for (const kind of ['html', 'image']) test(`AIT-369 R3 ${kind}: binding refusal 
   assert.equal(root.querySelectorAll('img[src]').length, 0);
   assert.equal(root.querySelector('.concept-activity-text').textContent.includes(en.notConfigured), true);
 });
+
+for (const visuals of ['off', 'images', 'html']) for (const kind of ['html', 'image', 'mixed'])
+  test(`AIT-386: only blob image sources for delivered ${kind} with visuals ${visuals}`, async t => {
+    const assigned = [], descriptor = Object.getOwnPropertyDescriptor(window.HTMLImageElement.prototype, 'src');
+    t.mock.method(window.HTMLImageElement.prototype, 'src', function (value) {
+      assigned.push({ value, className: this.className }); descriptor.set.call(this, value);
+    }, { setter: true });
+    let view; const update = ConceptView.prototype.update;
+    t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+    const concepts = kind === 'mixed' ? [item('image'), draft('html')] : [kind === 'html' ? draft('html') : item('image')];
+    const { c, root } = setup(t, { concepts, session: { settings: { visuals }, visualsBound: true,
+      conceptVisualKind: visuals === 'off' ? null : visuals === 'images' ? 'image' : 'html', conceptStatus: { phase: 'ready' } } });
+    view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'], features: { html: ['drafts'], images: ['images'] } });
+    await tick(); await tick();
+    for (const artifact of concepts) { view.open(artifact.id); await tick(); await tick(); view.close(); }
+    root.querySelector('.fold').click(); await view.paintCanvas(); await tick();
+    assert.deepEqual(view.items.map(i => i.id), concepts.map(i => i.id), 'kept consent preserves delivered artifacts');
+    assert.deepEqual(assigned.filter(({ value }) => typeof value !== 'string' || !value.startsWith('blob:')), [],
+      'every concept image setter, including backdrop, thumbnail, viewer and canvas, accepts only blob URLs');
+    for (const image of root.querySelectorAll('img[src]')) {
+      assert.ok(image.src.startsWith('blob:'));
+      assert.equal(conceptKind(concepts.find(i => i.id === image.dataset.id)), 'image', 'an HTML artifact never becomes an image');
+    }
+    if (visuals === 'off') assert.notEqual(view.visualKind(), 'image', 'Off is not an image rendering mode');
+  });
+
+for (const startsOff of [true, false]) test(`AIT-386: kept image paints its thumbnail and reserves image layout ${startsOff ? 'on reload with Off' : 'when switching to Off'}`, async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, calls } = setup(t, { concepts: [item('kept-image')], session: {
+    settings: { visuals: startsOff ? 'off' : 'images' }, conceptVisualKind: 'images', visualsBound: true,
+    conceptStatus: { phase: 'ready' } } });
+  await tick(); await tick();
+  const kept = { ...c.session, settings: { ...c.session.settings, visuals: 'off' } };
+  view.update(kept, { consentRevision: kept.consentRevision, selected: ['images'], features: { images: ['images'] } });
+  await tick(); await tick();
+  const thumbnail = root.querySelector('.concept-preview img[src]');
+  assert.ok(thumbnail, 'Off retains a painted thumbnail for the kept image');
+  assert.equal(thumbnail.dataset.id, 'kept-image');
+  const url = await view.loadImageURL('kept-image');
+  assert.ok(url.startsWith('blob:'));
+  assert.equal(thumbnail.src, url, 'thumbnail uses the URL minted by this view for this image');
+  assert.equal(calls.filter(call => call.url.includes('/concepts/kept-image/image')).length, 1, 'the image bytes are loaded once');
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout, 'image', 'AIT-282 reservation survives Off');
+  view.update({ ...kept, concepts: [], visualsBound: false });
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout, 'image', 'the established reservation survives none');
+});
+
+test('AIT-386: image APIs reject HTML items, bytes and URLs not minted for that image', async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { root, calls } = setup(t, { concepts: [draft('html'), item('image')], session: { visualsBound: true, conceptVisualKind: 'image' } });
+  await tick(); await tick();
+  const before = calls.length;
+  assert.equal(await view.loadImageURL('html'), null);
+  assert.equal(await view.loadDraftBytes('image'), null);
+  assert.equal(calls.length, before, 'wrong-kind loaders refuse before fetching');
+  const bytes = await view.loadDraftBytes('html'); assert.ok(bytes instanceof Uint8Array);
+  const url = await view.loadImageURL('image'); assert.ok(url.startsWith('blob:'));
+  const assigned = [], descriptor = Object.getOwnPropertyDescriptor(window.HTMLImageElement.prototype, 'src');
+  t.mock.method(window.HTMLImageElement.prototype, 'src', function (value) {
+    assigned.push(value); descriptor.set.call(this, value);
+  }, { setter: true });
+  for (const invalid of [bytes, String(bytes), 'https://example.invalid/draft', '/60,33,100', 'data:text/html,draft', 'blob:unowned']) {
+    view.clearThumbnail(); view.paintThumbnail('html', url); view.paintThumbnail('image', invalid);
+    const loader = t.mock.method(view, 'loadImageURL', async () => invalid);
+    view.clearBackdrop(); view.paintBackdrop(); view.open('image'); await tick();
+    root.querySelector('.fold').click(); await view.paintCanvas(); await tick();
+    view.close(); if (root.querySelector('.workspace').hasAttribute('data-folded')) root.querySelector('.fold').click();
+    loader.mock.restore();
+  }
+  assert.deepEqual(assigned, [], 'backdrop, thumbnail, viewer and canvas refuse every invalid image source at assignment');
+});
+
+for (const copy of [de, en]) test(`AIT-386: explicit HTML consent wording survives Off (${copy.display.locale})`, t => {
+  const { root } = setup(t, { copy, concepts: [], session: { settings: { visuals: 'off' }, conceptVisualKind: 'html', visualsBound: true,
+    featureMatrix: { best: { html: { available: false, reason: 'current processing consent required' } } } } });
+  assert.equal(root.querySelector('.concept-activity-text .consent-line-copy').textContent, `${copy.featureConsent.html}\u00a0· `);
+  assert.equal(root.querySelector('.concept-activity-text').dataset.consentFeature, 'html');
+});
