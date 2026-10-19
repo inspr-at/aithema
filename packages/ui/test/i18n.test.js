@@ -133,3 +133,11 @@ test('AIT-246 DE/EN visitor copy uses plain demo language throughout', () => {
     for (const text of strings(copy)) assert.doesNotMatch(text, /Klick-Dummy|click-dummy|\bfake\b|\bmock\b|Mock-/iu);
   }
 });
+
+
+test('AIT-380 round 2: voice evidence refusal uses existing neutral unavailable copy', () => {
+  for (const copy of [en, de]) {
+    assert.equal(reasonText(copy, 'binding evidence unverified', 'voice'), copy.reasons['voice-host-unavailable']);
+    assert.equal(reasonText(copy, 'binding evidence unverified', 'text'), copy.reasons['binding evidence unverified']);
+  }
+});

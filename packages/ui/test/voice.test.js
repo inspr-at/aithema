@@ -1363,3 +1363,13 @@ for (const copy of [de, en]) test(`AIT-379: ${copy.display.locale} native end sh
     async close() { this.events.end(); return { closureConfirmed: true }; } }; };
   await rail.start(); assert.equal(restarts, 1); assert.equal(root.dataset.call, 'active');
 });
+
+
+test('AIT-380 round 2: retained voice admission refusal uses neutral copy across locales', t => {
+  const { rail } = fixture(t);
+  rail.errorKey = 'voiceAdmissionDenied'; rail.errorReason = 'binding evidence unverified';
+  for (const copy of [en, de]) {
+    rail.copy = copy;
+    assert.equal(rail.error, copy.reasons['voice-host-unavailable']);
+  }
+});

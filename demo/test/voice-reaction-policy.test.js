@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PluginRegistry } from '@inspr/aithema-core';
+import { PluginRegistry, bindingReason } from '@inspr/aithema-core';
 import { SQLiteStorage, createPluginRuntime, createVoiceProvider } from '@inspr/aithema-server';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { openRouterConfig } from '../openrouter-config.js';
 import { qualifyStartBinding } from '../processing-consent.js';
 import { prepareVoiceRuntime } from '../voice-availability.js';
 import { demoPresets } from '../choices.js';
+
+import { manifest as grokManifest } from '../../plugins/grok-voice/src/manifest.js';
+import { manifest as composedManifest } from '../../packages/server/src/composed/manifest.js';
 
 const analysis = 'openai/analysis-fixture', speech = 'anthropic/reaction-fixture';
 const values = { OPENROUTER_MODEL: analysis, OPENROUTER_SPEECH_MODEL: speech, OPENROUTER_ANALYSIS_EFFORT: 'high',
@@ -129,3 +132,48 @@ test('AIT-380: a saved voice selection cannot start through a missing speech rou
     error => error.code === 'not-admitted' && error.message === 'binding evidence unverified');
   assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
 });
+
+// Exercise each configured transport independently and alongside ElevenLabs.
+for (const manifest of [grokManifest, composedManifest]) {
+  const id = manifest.id, model = id === 'grok-voice' ? id : 'composed';
+  const binding = qualifyStartBinding({ ...voiceBinding, plugin: id, model, endpoint: `https://${id}.example.test` });
+  const publicManifest = { ...manifest, kinds: ['live-voice'], models: manifest.models.filter(m => m.operations.includes('start')) };
+  const plugin = { manifest: publicManifest, health: async () => ({ available: true }),
+    start: () => assert.fail('refusal must precede voice start'),
+    bind(raw) { return { ...this, binding: raw }; } };
+  for (const alongside of [false, true]) test(`AIT-380 round 2: ${id} ${alongside ? 'alongside ElevenLabs' : 'alone'} requires its fast reaction route`, async t => {
+    const errors = []; t.mock.method(console, 'error', message => errors.push(message));
+    const configured = openRouterConfig(values);
+    const build = reaction => demoPresets({ provider: 'openrouter', reaction, understanding: configured.understanding,
+      ...(id === 'grok-voice' ? { grokPlugin: plugin, grokBinding: binding,
+        ...(alongside ? { voicePlugin: { manifest: { id: 'elevenlabs' } }, voiceBinding } : {}) }
+        : { voicePlugin: plugin, voiceBinding: binding,
+          ...(alongside ? { grokPlugin: { manifest: { id: 'grok-voice' } }, grokBinding: qualifyStartBinding({ ...voiceBinding, plugin: 'grok-voice', model: 'grok-voice' }) } : {}) }),
+      policy: { endpoints: [reaction.endpoint, binding.endpoint, voiceBinding.endpoint] } });
+    for (const reaction of [openRouterConfig({ ...values, OPENROUTER_SPEECH_MODEL: undefined }).reaction,
+      { ...configured.reaction, effort: 'high' }, { ...configured.reaction, legal: undefined }]) {
+      const presets = build(reaction), option = presets.best.choices.voices.find(o => o.id === id);
+      assert.ok(option?.binding, 'configured voice remains offered with its unavailable state');
+      assert.equal(presets.best.choices.defaults.voice, 'off');
+      for (const offered of presets.best.choices.voices.filter(o => o.binding)) {
+        assert.equal(offered.binding.legal.approved, false, offered.id);
+        assert.equal(presets.best.policy.endpoints.includes(offered.binding.endpoint), false, offered.id);
+      }
+      const storage = new SQLiteStorage();
+      try {
+        const runtime = createPluginRuntime({ storage, presets, registry: new PluginRegistry().register(plugin) });
+        const session = storage.create({ ownerToken: 'fixture-owner', settings: { voice: id } });
+        await assert.rejects(runtime.admitVoice({ session, request: { callId: 'saved-choice' } }),
+          error => error.code === 'not-admitted' && error.message === 'binding evidence unverified');
+        assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
+      } finally { storage.close(); }
+    }
+    assert.ok(errors.some(message => /OPENROUTER_SPEECH_MODEL.*required.*voice/iu.test(message)));
+    errors.length = 0;
+    const valid = build(configured.reaction), offered = valid.best.choices.voices.find(o => o.id === id);
+    assert.ok(offered?.binding, 'explicit route keeps configured voice offered');
+    assert.equal(bindingReason({ binding: offered.binding, plugin, preset: 'best', policy: valid.best.policy }), null);
+    assert.equal(valid.best.policy.endpoints.includes(binding.endpoint), true);
+    assert.deepEqual(errors, []);
+  });
+}
