@@ -319,8 +319,7 @@ export class AudioRail {
   }
   receivedReply() {
     this.stopReplyWatch();
-    if (this.errorKey === 'voiceNoReply') this.errorKey = null;
-    this.state = 'speaking';
+    if (this.errorKey === 'voiceNoReply') { this.errorKey = null; this.state = 'speaking'; }
   }
   async takeoverIdentity(retired, controller, deadlineAt) {
     const { signal } = controller;
