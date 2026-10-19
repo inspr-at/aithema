@@ -72,7 +72,8 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     clock.clearTimeout(operation.timer);
     if (active === operation) active = null;
   }
-  const withdrawalAvailable = () => !!session && (hasGrant || active?.kind === 'save' || pendingChoice?.granted);
+  // Until a pending choice is reconciled, it may already exist on the server.
+  const withdrawalAvailable = () => !!session && !!(hasGrant || pendingChoice);
   const matchesChoice = (current, choice) => Array.isArray(current.selected) && current.selected.length === choice.items.length
     && choice.items.every(item => current.selected.includes(item)) && (!choice.granted || !binding.processingConsent || current.contract === choice.contract);
   function saved() { remember(sessionKey, id, storage); navigate(returnTo); }

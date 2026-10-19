@@ -429,7 +429,9 @@ test('AIT-376: withdrawal can cancel a first grant with no previously recorded s
   const revoke = p.document.querySelector('[data-revoke]');
   assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false); revoke.click(); await p.flush();
   assert.equal(p.posts.length, 2); assert.equal(p.posts[0].signal.aborted, true); assert.equal(p.posts[1].body.granted, false);
+  assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false, 'withdrawal remains available during its own pending request');
   await p.clock.advance(10000); assert.equal(p.state(), 'withdraw-unconfirmed');
+  assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false);
 });
 
 test('AIT-376: postJson passes the AbortSignal to the POST transport', async t => {
