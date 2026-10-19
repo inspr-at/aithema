@@ -1231,7 +1231,7 @@ export class AithemaSession extends HTMLElement {
     // The session pause speaks once in the composer, including an idle rail.
     const railState = root.querySelector('.voice-state');
     if (this.#session.paused && [this.#copy.paused, this.#copy.voiceStates.paused].includes(railState.textContent)) railState.textContent = '';
-    if (rail?.session || rail?.waitingCall || rail?.state === 'connecting') {
+    if (rail?.session || rail?.waitingCall || ['connecting', 'failed'].includes(rail?.state)) {
       const command = rail.button('pause'); pause.dataset.voiceCommand = '';
       // Waiting can stay Waiting while a takeover receipt changes its command.
       // Mirror every rail render instead of waiting for a state transition.

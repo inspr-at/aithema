@@ -53,7 +53,7 @@ export interface LiveVoiceDeclaration {
 export type VoiceEvent = { callId: string; providerSessionId?: string; generation?: string | number; epoch?: number } & (
   { type: 'listening' | 'speaking'; replay?: boolean; completed?: boolean } |
   { type: 'recovering' | 'recovered' } |
-  { type: 'waiting'; reason?: string } |
+  { type: 'waiting'; reason?: string; /** Absolute, capped retry-after deadline. */ retryAt?: number } |
   { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string } |
   { type: 'heard'; turnId: string; prefix: string } |
   { type: 'ended'; reason: string }

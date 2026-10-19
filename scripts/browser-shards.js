@@ -199,6 +199,16 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 30);
 
+// AIT-361: successful PR #321 CI 39221656013 at b82a0166, shard 4/7:
+// complete voice file 5/5 PASS, including both-provider failure evidence.
+// 51.184620521 + 18.207498239 + 51.977345350 + 16.106548610
+// + 7.695658067 = 145.171670787s; ceil(observed * 1.25) = 182s.
+// Source: browser-timings-4-of-7/batch-0.jsonl. Preserve trusted rolling-main
+// history; this diagnostic floor supersedes the earlier 174.746s floor.
+// Shard count, ceiling, workflow and check names remain unchanged.
+browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
+  browserTestWeights['test/browser/voice-presentation.test.js'], 182);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
