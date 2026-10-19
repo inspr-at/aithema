@@ -981,15 +981,24 @@ test('AIT-364 v1.1: fail-closed expiry cancels an earlier kind notice without st
       featureMatrix: { best: { ...c.session.featureMatrix.best, html: { available: false, reason: 'current processing consent required' } } } });
     return fetchBefore(url, options);
   });
-  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const timers = [], schedule = globalThis.setTimeout, cancel = globalThis.clearTimeout;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (![2000, 4000].includes(delay)) return schedule(callback, delay, ...args);
+    const timer = { callback, delay, unref() {} }; timers.push(timer); return timer;
+  });
+  t.mock.method(globalThis, 'clearTimeout', timer => {
+    if (timers.includes(timer)) timer.cancelled = true; else cancel(timer);
+  });
   c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
   await tick();
   assert.deepEqual(view.items, [], 'feature refusal redacts before the pending document answers');
   assert.equal(root.activeElement, root.querySelector('.concept-preview'));
   assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptDraftWithdrawn);
-  t.mock.timers.tick(2000);
+  timers.find(timer => timer.delay === 2000).callback();
   assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
-  t.mock.timers.tick(4000);
+  const kindNotice = timers.find(timer => timer.delay === 4000);
+  assert.equal(kindNotice.cancelled, true, 'fail-closed supersedes the earlier four-second kind notice');
+  if (!kindNotice.cancelled) kindNotice.callback();
   assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
   assert.equal(root.activeElement, root.querySelector('.concept-preview'), 'the superseded kind-notice timer cannot move focus to the hidden consent action');
   release(); await tick();
