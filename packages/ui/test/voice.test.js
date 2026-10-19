@@ -1,3 +1,4 @@
+import { BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
@@ -1363,3 +1364,27 @@ for (const copy of [de, en]) test(`AIT-379: ${copy.display.locale} native end sh
     async close() { this.events.end(); return { closureConfirmed: true }; } }; };
   await rail.start(); assert.equal(restarts, 1); assert.equal(root.dataset.call, 'active');
 });
+
+
+test('AIT-380 round 2: retained voice admission refusal uses neutral copy across locales', t => {
+  const { rail } = fixture(t);
+  rail.errorKey = 'voiceAdmissionDenied'; rail.errorReason = 'binding evidence unverified';
+  for (const copy of [en, de]) {
+    rail.copy = copy;
+    assert.equal(rail.error, copy.reasons['voice-host-unavailable']);
+  }
+});
+
+for (const reason of BINDING_REASON_CODES.flatMap(code => [code, `delegated reasoning: ${code}`])) {
+  test(`AIT-380 round 3: retained rail refusal is plain across locales (${reason})`, t => {
+    const { rail, root } = fixture(t);
+    rail.failure({ code: 'not-admitted', reason });
+    for (const [copy, plain] of [[de, 'Sprache ist derzeit nicht verfügbar'], [en, 'Voice is currently unavailable']]) {
+      rail.copy = copy; rail.render();
+      assert.equal(rail.error, plain);
+      assert.equal(root.querySelector('.voice-state').getAttribute('aria-label'), plain);
+      assert.equal(root.querySelector('.voice-state .consent-wide').textContent, plain);
+      assert.equal(rail.errorReason, reason, 'the raw lane stays available for diagnostics');
+    }
+  });
+}

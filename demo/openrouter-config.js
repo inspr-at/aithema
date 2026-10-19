@@ -21,8 +21,7 @@ function integer(values, name, fallback) {
 export function openRouterConfig(values) {
   const understandingModel = values.OPENROUTER_MODEL?.trim();
   if (!understandingModel) throw new TypeError('OPENROUTER_MODEL is required when AITHEMA_PROVIDER=openrouter');
-  const speechModel = values.OPENROUTER_SPEECH_MODEL === undefined ? understandingModel : values.OPENROUTER_SPEECH_MODEL.trim();
-  if (!speechModel) throw new TypeError('OPENROUTER_SPEECH_MODEL must be a model id');
+  const speechModel = read(values, 'OPENROUTER_SPEECH_MODEL');
   let prices;
   try { prices = JSON.parse(values.AITHEMA_OPENROUTER_PRICES); }
   catch { throw new TypeError('AITHEMA_OPENROUTER_PRICES is required as JSON with prompt/completion USD per token for every configured model'); }
@@ -52,6 +51,10 @@ export function openRouterConfig(values) {
         // verified live 2026-10-09: USD per MILLION tokens; enforced before dispatch.
         max_price: providerMaxPrice(price) } });
   };
-  return { prices, capMicro, uncertainEstimateMicro, reaction: binding(speechModel, maxTokens, 'none'),
+  // Text-only hosts may reuse their text model. This is never voice qualification:
+  // demoPresets requires evidence of an explicitly configured reaction route.
+  const reaction = binding(speechModel ?? understandingModel, maxTokens, 'none');
+  reaction.legal.evidence.voiceReactionModel = speechModel ?? null;
+  return { prices, capMicro, uncertainEstimateMicro, reaction,
     understanding: binding(understandingModel, analysisMaxTokens, analysisEffort, analysisProviderIgnore) };
 }

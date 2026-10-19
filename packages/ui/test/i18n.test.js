@@ -4,10 +4,11 @@ import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { withDemoConsentCopy } from '../../../demo/consent-copy.js';
 import { reasonText, catalogLabel } from '../src/settings-dialog.js';
+import { reasonText as hostReasonText } from '../../../demo/reason-text.js';
 import { demoPresets } from '../../../demo/choices.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
-import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
+import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
 test('demo German consent stays verbatim START copy; all item versions and English server copy match', () => {
   const consent = locale => voiceManifest.presentation.translations.find(item => item.locale === locale).consentItem;
@@ -36,7 +37,7 @@ test('every inventoried feature, HTML, voice and provider reason has English and
       assert.ok(Object.hasOwn(bundle.reasons, code), code);
       assert.equal(typeof bundle.reasons[code], 'string', code);
       assert.ok(bundle.reasons[code].length > 0, code);
-      assert.equal(reasonText(bundle, code), bundle.reasons[code]);
+      assert.equal(reasonText(bundle, code), BINDING_REASON_CODES.includes(code) ? bundle.chooser.unavailable : bundle.reasons[code]);
     }
     assert.notEqual(de.reasons[code], en.reasons[code], code);
   }
@@ -45,7 +46,8 @@ test('every inventoried feature, HTML, voice and provider reason has English and
 test('compound voice reasons translate known codes and preserve unknown server text', () => {
   for (const bundle of [en, de]) {
     for (const code of FEATURE_REASON_CODES) {
-      assert.equal(reasonText(bundle, `delegated reasoning: ${code}`), bundle.reasons.delegated.replace('{reason}', bundle.reasons[code]));
+      assert.equal(reasonText(bundle, `delegated reasoning: ${code}`), BINDING_REASON_CODES.includes(code)
+        ? bundle.chooser.unavailable : bundle.reasons.delegated.replace('{reason}', bundle.reasons[code]));
     }
     for (const method of ['get', 'post', 'patch']) {
       assert.equal(reasonText(bundle, `agent-api-${method}-403`), bundle.reasons['agent-api'].replace('{status}', '403'));
@@ -133,3 +135,23 @@ test('AIT-246 DE/EN visitor copy uses plain demo language throughout', () => {
     for (const text of strings(copy)) assert.doesNotMatch(text, /Klick-Dummy|click-dummy|\bfake\b|\bmock\b|Mock-/iu);
   }
 });
+
+
+for (const [copy, generic, voice, drafts] of [
+  [de, 'Derzeit nicht verfügbar', 'Sprache ist derzeit nicht verfügbar', 'Visuelle Entwürfe sind gerade nicht verfügbar.'],
+  [en, 'Currently unavailable', 'Voice is currently unavailable', 'Visual drafts are not available right now.'],
+]) {
+  test(`AIT-380 Tick v2 ${copy.display.locale}: each feature × binding reason is exactly in its neutral allow-list`, () => {
+    const allow = { voice, images: drafts, html: drafts };
+    const jargon = /provider|contract|evidence|anbieter|vertrag|nachweis/iu;
+    for (const code of BINDING_REASON_CODES) for (const reason of [code, `delegated reasoning: ${code}`]) {
+      for (const feature of [undefined, 'voice', 'text', 'analysis', 'transcription', 'images', 'html', 'uploads']) {
+        const expected = allow[feature] ?? generic;
+        const visible = reasonText(copy, reason, feature);
+        assert.equal(visible, expected, `${feature}: ${reason}`);
+        assert.doesNotMatch(visible, jargon);
+        assert.equal(hostReasonText(copy, reason, feature), expected, `host ${feature}: ${reason}`);
+      }
+    }
+  });
+}
