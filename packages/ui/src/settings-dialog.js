@@ -147,7 +147,7 @@ export class SettingsDialog {
       <figcaption><span class="gauge__label"></span><small class="gauge__detail"></small></figcaption></figure>`;
     const select = name => `<div class="select" data-select="${name}"><button type="button" class="select__button" id="settings-select-${name}"
       aria-haspopup="listbox" aria-expanded="false" aria-controls="settings-options-${name}" data-help="${name}"><span class="select__value"></span>${ICONS.chevron}</button>
-      <div class="select__menu" data-menu="${name}" role="listbox" id="settings-options-${name}" hidden></div></div>`;
+      <div class="select__menu" data-menu="${name}" role="listbox" id="settings-options-${name}" aria-labelledby="settings-select-${name}" hidden></div></div>`;
     // Static trusted markup only. Host, model and plugin text is assigned through textContent.
     this.#dialog.innerHTML = `<div class="settings__frame">
       <header class="settings__header"><slot class="settings-utilities" name="utilities"></slot><h2 class="settings__title" id="settings-title"></h2>
@@ -336,12 +336,20 @@ export class SettingsDialog {
     });
     const onKeydown = event => {
       if (button.getAttribute('aria-disabled') === 'true') return;
-      if (event.key === 'Tab') { this.#closeMenu(select); return; }
+      if (event.key === 'Tab') {
+        if (!menu.hidden && menu.contains(event.target)) {
+          // Resume native forward tab order at the select, rather than the
+          // sibling layer. Reverse tabbing from an option stops at its button.
+          if (event.shiftKey) event.preventDefault();
+          this.#closeMenu(select, true);
+        } else this.#closeMenu(select);
+        return;
+      }
       const items = options();
       if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         event.preventDefault();
-        if (menu.hidden) this.#openMenu(select);
         const current = items.indexOf(this.#focused());
+        if (menu.hidden) this.#openMenu(select);
         const index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : current < 0
           ? Math.max(0, items.findIndex(item => item.getAttribute('aria-selected') === 'true'))
           : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
@@ -397,6 +405,7 @@ export class SettingsDialog {
     menu.hidden = false;
     this.#positionMenu(select);
     select.querySelector('.select__button').setAttribute('aria-expanded', 'true');
+    (menu.querySelector('[aria-selected="true"]') ?? menu.querySelector('[role=option]'))?.focus();
   }
   #closeMenu(select, focus = false) {
     const menu = this.#menu(select), button = select.querySelector('.select__button');
