@@ -42,7 +42,7 @@ export function currentVoiceClient(provider, { permission = Promise.resolve() } 
     : createGrokVoiceClient({ control,
       async openRelay() {
         const frames = voiceEvents(); streams.push(frames);
-        return { frames, async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } };
+        return { frames: { async *[Symbol.asyncIterator]() { for await (const event of frames) yield { type: 'event', event }; } }, async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } };
       },
       async capture(opts) { capture = opts; acquired++; await permission; return { stop() {} }; },
       player: { play() {}, stop() {} } });
@@ -50,7 +50,7 @@ export function currentVoiceClient(provider, { permission = Promise.resolve() } 
     recover() { if (provider === 'elevenlabs') callbacks.onDisconnect({ reason: 'error' }); else capture.onError(); },
     speaking(callId) {
       if (provider === 'elevenlabs') callbacks.onModeChange({ mode: 'speaking' });
-      else streams.at(-1).push({ type: 'event', event: { type: 'speaking', callId } });
+      else streams.at(-1).push({ type: 'speaking', callId });
     },
     end() { for (const stream of streams) stream.end(); } };
 }

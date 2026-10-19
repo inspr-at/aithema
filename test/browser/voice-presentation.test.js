@@ -491,8 +491,11 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
   const head = event?.pull_request?.head?.sha ?? evidenceCommit;
   page.on('pageerror', e => problems.push(e.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  const currentClientSource = (await readFile(new URL('../../packages/ui/test/fixtures/current-voice-clients.js', import.meta.url), 'utf8'))
+    .replaceAll('../../../../plugins/', '/plugins/').replaceAll('../../../core/', '/packages/core/');
   await page.setRequestInterception(true);
   page.on('request', request => {
+    if (new URL(request.url()).pathname === '/ait377-current-clients.js') return request.respond({ status: 200, contentType: 'text/javascript', body: currentClientSource });
     if (!request.url().startsWith(demo.url) && !request.url().startsWith('data:')) return request.abort();
     return new URL(request.url()).pathname.endsWith('/features') ? request.respond({ status: 200, contentType: 'application/json', body: '{}' }) : request.continue();
   });
@@ -514,7 +517,8 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
       session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'images', 'html'].map(key => [key, { available: true }]));
       session.transcript = [{ id: 'fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
-      c.configure({ copy, session, voiceClient: { manifest, async start() { throw new Error('Offline fixture'); } }, voicePresentation: manifest.presentation });
+      const declared = { ...manifest, liveVoice: { ...manifest.liveVoice, capabilities: { ...manifest.liveVoice.capabilities, onMicrophoneState: 'native', replyStarted: 'native' } } };
+      c.configure({ copy, session, voiceClient: { manifest: declared, async start() { throw new Error('Offline fixture'); } }, voicePresentation: manifest.presentation });
       const timer = c.shadowRoot.querySelector('.connection-timer');
       Object.defineProperty(timer, 'textContent', { configurable: true, get: () => '0:00', set() {} });
       document.documentElement.lang = locale; scrollTo(0, 0);
@@ -544,7 +548,7 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
           fullVisible: getComputedStyle(status.querySelector('.consent-wide')).clipPath === 'none',
           expected: rail.error ?? (state === 's2b' ? rail.copy.voiceCooldown.replace('{s}', 12) : rail.copy.voiceStates[rail.startupPhase ?? rail.state]) };
       }, state);
-      const meta = { provider, width, theme, locale, state };
+      const meta = { provider, width, theme, locale, state, behaviour: ['s1', 's3', 's5'].includes(state) ? 'declared capability fixture (AIT-383 pending)' : 'shared presentation' };
       baseline ??= result.boxes;
       assert.deepEqual(result.boxes, baseline, `${JSON.stringify(meta)}: movementPx 0`);
       assert.equal(result.liveText, result.expected); assert.equal(result.text, result.expected); assert.equal(result.live, 'polite');
@@ -574,10 +578,63 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
       checks.push({ ...meta, ...result, assert: 'copy, live text, 44 px targets, geometry, anchors, manual hyphens and reduced motion', movementPx: 0, file: capture && evidence ? file : null, pass: true });
     }
   }
+  // The gated states also need today's actual client projection. Only media,
+  // SDK and control boundaries are fake; manifests and client code are unchanged.
+  for (const provider of ['elevenlabs', 'grok-voice']) for (const [width, theme, locale] of configs) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+    const capabilities = await page.evaluate(async ({ provider, locale }) => {
+      const { currentVoiceClient } = await import('/ait377-current-clients.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const permission = Promise.withResolvers(), current = currentVoiceClient(provider, { permission: permission.promise });
+      const c = document.querySelector('aithema-session'), session = structuredClone(window.ait377Seed);
+      session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = provider;
+      session.engine.voice = { id: provider, offered: true };
+      session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'images', 'html'].map(key => [key, { available: true }]));
+      session.transcript = [{ id: 'fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.configure({ copy, session, voiceClient: current.client, voicePresentation: current.client.manifest.presentation });
+      const timer = c.shadowRoot.querySelector('.connection-timer');
+      Object.defineProperty(timer, 'textContent', { configurable: true, get: () => '0:00', set() {} });
+      document.documentElement.lang = locale; scrollTo(0, 0);
+      window.ait377Today = { current, permission, start: window.ait377Rail.start() };
+      return current.client.manifest.liveVoice.capabilities;
+    }, { provider, locale });
+    assert.equal(capabilities.onMicrophoneState, undefined); assert.equal(capabilities.replyStarted, undefined);
+    await page.waitForFunction(() => window.ait377Today.current.acquired > 0);
+    let baseline;
+    for (const state of ['s1', 's3', 's5']) {
+      if (state === 's5') await page.evaluate(async () => { window.ait377Today.permission.resolve(); await window.ait377Today.start; });
+      const result = await page.evaluate(async () => {
+        const rail = window.ait377Rail, root = rail.root.getRootNode(), status = root.querySelector('.voice-state');
+        root.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+        await Promise.all(root.querySelector('.band').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const rect = node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+        return { actualState: rail.state, startupPhase: rail.startupPhase, errorKey: rail.errorKey, watchdogOff: rail.replyTimer == null,
+          text: status.textContent, liveText: status.getAttribute('aria-label'), narrow: status.querySelector('.consent-narrow').dataset.copy,
+          expected: rail.copy.voiceStates[rail.state], expectedNarrow: rail.copy.voiceStatesNarrow[rail.state],
+          boxes: ['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => rect(root.querySelector(s))) };
+      });
+      assert.equal(result.actualState, state === 's5' ? 'listening' : 'connecting');
+      assert.equal(result.startupPhase, null); assert.equal(result.errorKey, null); assert.equal(result.watchdogOff, true);
+      assert.equal(result.text, result.expected); assert.equal(result.liveText, result.expected); assert.equal(result.narrow, result.expectedNarrow);
+      baseline ??= result.boxes; assert.deepEqual(result.boxes, baseline, 'today: movementPx 0');
+      const capture = theme !== 'dark' || state === 's5';
+      const file = `${provider}/today/ait377-${width}-${theme}-${locale}-${state}.png`;
+      if (capture && evidence) {
+        await page.mouse.move(-10, -10); await mkdir(join(evidence, provider, 'today'), { recursive: true });
+        await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+      }
+      checks.push({ provider, width, theme, locale, state, behaviour: "capability-gated (today's behaviour)", capabilitiesDeclared: false,
+        ...result, assert: 'real client: main copy/state, no rail deadline or S5; controlled timers in state checks', movementPx: 0, file: capture && evidence ? file : null, pass: true });
+    }
+    await page.evaluate(async () => { await window.ait377Rail.close(); window.ait377Today.current.end(); });
+  }
   assert.deepEqual(problems, []);
   if (evidence) await writeFile(join(evidence, 'ait377-checks.json'), JSON.stringify({ ticket: 'AIT-377', head, testedCommit: evidenceCommit,
     capture: 'viewport', reducedMotion: true, blurred: true, checks, problems,
-    limitations: ['S1/grant timing is a deferred-port contract fixture: production clients expose no acquisition/grant callback and retain their internal startup deadline.',
-      'Watchdog uses assistant transcripts. Qualified audio-only reply/filler metadata is not exposed by the current clients.',
+    limitations: ['S1 and grant-relative rail timer require declared onMicrophoneState; neither current client declares it (AIT-383).',
+      'S5 requires declared replyStarted with qualified audible non-filler speaking; neither current client declares it (AIT-383).',
+      'Declared capability shots are synthetic; today/ shots use real clients with offline ports and show Connecting before grant, Listening after connect.',
       'ElevenLabs native ended has no usage: retain pending charge until server settlement.'] }, null, 2));
 });

@@ -17,6 +17,9 @@ const micCopy = {
 };
 const checks = [];
 const flush = async () => { for (let n = 0; n < 8; n++) await new Promise(resolve => setImmediate(resolve)); };
+// Advance the real clients in regular turns so their sleep/wake guard sees
+// elapsed connected time, not a suspended browser resuming after a clock jump.
+const advance = async (t, ms) => { while (ms > 0) { const step = Math.min(ms, 1000); t.mock.timers.tick(step); await flush(); ms -= step; } };
 const full = rail => rail.root.querySelector('.voice-state').getAttribute('aria-label');
 const record = (provider, name, detail = {}) => checks.push({ provider, assert: name, clock: 'controlled', stateOnly: true, pass: true, ...detail });
 after(async () => {
@@ -146,7 +149,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     await send({ type: 'final', role: 'assistant', text: 'Die Antwort.', turnId: 'reply' }); assert.equal(rail.errorKey, null);
     await send({ type: 'final', role: 'user', text: 'Noch eine Frage.', turnId: 'next' });
     await rail.close(); t.mock.timers.tick(15_000); await flush(); assert.notEqual(rail.errorKey, 'voiceNoReply');
-    record(provider, '15 s opener and user-turn watchdog; filler ignored; late transcript clears; visitor silence never arms; End clears', { openerMs: 15000, replyMs: 15000, capability: 'replyStarted'  });
+    record(provider, '15 s opener and user-turn watchdog; filler ignored; late transcript clears; visitor silence never arms; End clears', { openerMs: 15000, replyMs: 15000, capability: 'replyStarted' });
   });
   test(`AIT-377 ${provider}: visitor speech holds the opener watch until the turn ends`, async t => {
     const { rail, send } = fixture(t, provider, { replyStarted: true }); await rail.start();
@@ -182,11 +185,11 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const start = rail.start(); await flush(); assert.ok(current.acquired > 0);
     for (const copy of [de, en]) { rail.copy = copy; rail.render(); assert.equal(full(rail), copy.voiceStates.connecting); }
     assert.equal(current.options[0].deadlineAt, 130_000, 'same client option as main');
-    t.mock.timers.tick(30_000); await flush();
+    await advance(t, 30_000);
     if (provider === 'grok-voice') {
       assert.equal(rail.state, 'connecting'); assert.equal(rail.errorKey, null);
       assert.equal(rail.controller.signal.aborted, false);
-      t.mock.timers.tick(30_000); await flush(); assert.equal(rail.state, 'connecting');
+      await advance(t, 30_000); assert.equal(rail.state, 'connecting');
       permission.resolve(); await start; assert.equal(rail.state, 'listening');
     } else {
       await start; assert.equal(rail.state, 'failed'); assert.equal(rail.errorKey, 'voiceDeadline');
@@ -199,14 +202,14 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const rail = new AudioRail({ root, client: current.client, copy: de, context: () => ({}), feature: () => ({ available: true }) });
     t.after(async () => { await rail.close(); rail.destroy(); current.end(); await window.happyDOM.abort(); });
     await rail.start(); assert.equal(rail.state, 'listening'); assert.equal(rail.replyTimer, null);
-    t.mock.timers.tick(15_000); await flush(); assert.equal(rail.errorKey, null);
+    await advance(t, 15_000); assert.equal(rail.errorKey, null);
     current.speaking(rail.session.callId); await flush(); assert.equal(rail.state, 'speaking');
-    t.mock.timers.tick(16_000); await flush(); assert.equal(rail.errorKey, null);
+    await advance(t, 16_000); assert.equal(rail.errorKey, null);
     current.recover(); await flush(); assert.equal(rail.state, 'listening');
     assert.equal(current.requests.filter(r => r === 'recover').length, 1); assert.equal(rail.replyTimer, null);
-    t.mock.timers.tick(15_000); await flush(); assert.equal(rail.errorKey, null);
+    await advance(t, 15_000); assert.equal(rail.errorKey, null);
     await rail.sendText('Eine Frage.'); assert.equal(rail.replyTimer, null);
-    t.mock.timers.tick(15_000); await flush(); assert.equal(rail.errorKey, null);
+    await advance(t, 15_000); assert.equal(rail.errorKey, null);
     record(provider, 'capability-gated (today\'s behaviour): no S5 on visitor silence, long audio, recovered or typed turn');
   });
   for (const terminal of [undefined, { closureConfirmed: true, usage: { costEstimated: true } }, { closureConfirmed: true, usage: { costEstimated: false } }]) test(`AIT-377 ${provider}: agent end charge state ${JSON.stringify(terminal)}`, async t => {
