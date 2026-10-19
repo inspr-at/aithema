@@ -1,4 +1,6 @@
 import { test } from 'node:test';
+import { SQLiteStorage, createHandlers } from '../../packages/server/src/index.js';
+import { ownedRequest, testToken } from '../../test/helpers.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
@@ -137,7 +139,7 @@ test('consent select all, selection label, grant and withdrawal use the rendered
   p.document.querySelector('[data-select-all]').click();
   assert.equal(grant.textContent, de.host.consentPage.all);
   grant.click(); await tick(() => p.returns.length === 1);
-  assert.deepEqual(p.posts, [{ granted: true, processing: { contract: 'rendered-v1', items: CONSENT_ITEMS.map(i => i.id) } }]);
+  assert.deepEqual(p.posts, [{ granted: true, processing: { revision: 0, contract: 'rendered-v1', items: CONSENT_ITEMS.map(i => i.id) } }]);
   assert.deepEqual(p.returns, ['/?from=consent#ready']);
   const revoked = await page(t, { selected: ['voice-elevenlabs'] });
   revoked.document.querySelector('[data-revoke]').click(); await tick(() => revoked.returns.length);
@@ -213,7 +215,7 @@ test('mock and uncontracted ElevenLabs use the same page without a voice or micr
   const mock = await page(t, { binding: { voiceMode: 'fake' } });
   assert.ok(mock.document.querySelector('#processing-items').textContent.includes(de.host.consentUse.off));
   mock.document.querySelector('[data-select-all]').click(); mock.document.querySelector('[data-grant]').click();
-  await tick(() => mock.returns.length); assert.deepEqual(mock.posts, [{ granted: true }]);
+  await tick(() => mock.returns.length); assert.deepEqual(mock.posts, [{ granted: true, processing: { revision: 0 } }]);
   const voice = await page(t, { binding: { voiceMode: 'elevenlabs' } });
   assert.equal(voice.document.querySelector('[data-grant]').disabled, true);
   assert.equal(voice.document.querySelector('#consent-text').textContent, de.voiceHostConsent);
@@ -278,4 +280,323 @@ test('German defaults independently of browser language, explicit choice wins an
   assert.equal(p.document.querySelector('#locale').selectedOptions[0].textContent, 'EN');
   assert.equal(p.document.querySelector('#locale').value, 'en');
   assert.equal(p.document.querySelector('#language-note').textContent, en.host.languageNext.replace('{language}', en.host.languages.de));
+});
+
+// AIT-376: these fixtures deliberately ignore abort and never settle until the
+// test delivers a late answer. Advancing this clock never waits on wall time.
+async function deadlinePage(t, { stallGet = false, selected = ['voice-elevenlabs'], locale = 'de', bindingOverride } = {}) {
+  const window = new Window({ url: 'http://localhost/consent/?session=s&return=%2F%3Fsaved%3D1' });
+  t.after(() => window.happyDOM.close());
+  window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
+  window.localStorage.setItem(localeKey, locale);
+  let now = 0, sequence = 0;
+  const timers = new Map(), posts = [], gets = [], returns = [];
+  const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
+  const clock = {
+    setTimeout(fn, delay) { const key = ++sequence; timers.set(key, { fn, at: now + delay }); return key; },
+    clearTimeout(key) { timers.delete(key); },
+    async advance(ms) { now += ms; for (const [key, timer] of [...timers]) if (timer.at <= now) { timers.delete(key); timer.fn(); } await flush(); },
+  };
+  const contract = { contract: 'rendered-v1', items: CONSENT_ITEMS, intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
+  const fixture = { stallGet, selected, posts, gets, returns, clock, flush, window, document: window.document, timers };
+  const fetchImpl = async (path, options = {}) => {
+    gets.push({ path, signal: options.signal });
+    const override = fixture.readOverride?.(path, options);
+    if (override) return override;
+    if (path === '/demo/config') return Response.json(bindingOverride ?? { processingConsent: contract, voiceMode: 'off' });
+    if (path === '/api/sessions/s') return Response.json({ id: 's', locale, engine: {}, consentRevision: 1, consentWithdrawn: false });
+    if (path.endsWith('/consent')) {
+      if (fixture.stallGet) { const answer = Promise.withResolvers(); fixture.lateGet = answer; return answer.promise; }
+      return Response.json({ ...contract, selected: fixture.selected });
+    }
+    assert.fail(`Unexpected request ${path}`);
+  };
+  fixture.mounting = mountConsentPage({ document: window.document, location: window.location, storage: window.localStorage,
+    clock, fetchImpl, navigate: path => returns.push(path), submit: (path, body, options = {}) => {
+      const answer = Promise.withResolvers(); posts.push({ path, body, signal: options.signal, ...answer }); return answer.promise;
+    } });
+  await flush();
+  if (!stallGet) fixture.api = await fixture.mounting;
+  fixture.state = () => window.document.querySelector('#consent-status').dataset.state;
+  fixture.message = () => window.document.querySelector('#status-text').textContent;
+  fixture.retry = () => window.document.querySelector('#retry');
+  fixture.choose = () => window.document.querySelector('[data-select-all]').click();
+  return fixture;
+}
+
+for (const locale of ['de', 'en']) {
+  const c = { de, en }[locale].host.consentPage;
+  test(`AIT-376 C1/C3/C6: whole GET load has an 8s deadline, fresh Retry and late-answer fence (${locale})`, async t => {
+    const p = await deadlinePage(t, { stallGet: true, locale });
+    await p.clock.advance(7999); assert.equal(p.state(), 'loading');
+    await p.clock.advance(1);
+    assert.equal(p.state(), 'load-timeout');
+    assert.equal(p.message(), c.loadTimeout);
+    assert.equal(p.retry().disabled, false); assert.equal(p.document.activeElement, p.retry());
+    assert.equal(p.document.querySelectorAll('input:checked').length, 0);
+    assert.equal(p.document.querySelector('#processing-items').disabled, true);
+    assert.equal(p.document.querySelector('[data-revoke]').disabled, true);
+    assert.equal(p.gets.at(-1).signal.aborted, true);
+    const late = p.lateGet;
+    p.retry().click(); await p.flush();
+    await p.clock.advance(7999); assert.equal(p.state(), 'loading');
+    await p.clock.advance(1); assert.equal(p.state(), 'load-timeout');
+    late.resolve(Response.json({ selected: ['voice-elevenlabs'] })); await p.flush();
+    assert.equal(p.state(), 'load-timeout'); assert.equal(p.message(), c.loadTimeout);
+    assert.equal(p.document.querySelectorAll('input:checked').length, 0);
+    assert.equal(p.document.querySelector('#consent-status').getAttribute('aria-live'), 'polite');
+    assert.equal(p.document.querySelector('#consent-status').getAttribute('role'), 'status');
+  });
+
+  for (const matches of [true, false]) test(`AIT-376 C2/C4/C6: 10s POST deadline re-reads rather than repeats; matches=${matches} (${locale})`, async t => {
+    const p = await deadlinePage(t, { locale });
+    p.choose(); void p.api.save(); await p.flush();
+    await p.clock.advance(9999); assert.equal(p.state(), 'saving');
+    await p.clock.advance(1); assert.equal(p.state(), 'save-unconfirmed');
+    assert.equal(p.message(), c.saveUnconfirmed); assert.equal(p.retry().textContent, c.loadCurrent);
+    assert.equal(p.document.activeElement, p.retry()); assert.equal(p.posts[0].signal.aborted, true);
+    assert.equal(p.document.querySelector('[data-grant]').disabled, true);
+    p.posts[0].resolve(Response.json({ granted: true })); await p.flush();
+    assert.equal(p.state(), 'save-unconfirmed'); assert.equal(p.message(), c.saveUnconfirmed); assert.deepEqual(p.returns, []);
+    p.selected = matches ? CONSENT_ITEMS.map(item => item.id) : ['voice-elevenlabs'];
+    p.retry().click(); await p.flush();
+    assert.equal(p.posts.length, 1, 'unknown save is never blindly repeated');
+    if (matches) assert.deepEqual(p.returns, ['/?saved=1']);
+    else {
+      assert.deepEqual(p.returns, []); assert.equal(p.state(), 'ready'); assert.equal(p.message(), c.notSavedYet);
+      assert.equal(p.document.querySelector('[data-grant]').disabled, false);
+      assert.equal(p.document.querySelector('#processing-items').disabled, false);
+      assert.deepEqual([...p.document.querySelectorAll('input:checked')].map(box => box.value), ['voice-elevenlabs']);
+    }
+    assert.equal(p.timers.size, 0);
+  });
+
+  test(`AIT-376 C5: withdrawal aborts saving immediately, times out and retries idempotently (${locale})`, async t => {
+    const p = await deadlinePage(t, { locale });
+    p.choose(); void p.api.save(); await p.flush();
+    const revoke = p.document.querySelector('[data-revoke]');
+    assert.equal(revoke.disabled, false); revoke.click(); await p.flush();
+    assert.equal(p.posts[0].signal.aborted, true);
+    assert.equal(p.posts.length, 2); assert.equal(p.posts[1].body.granted, false);
+    assert.deepEqual(p.posts[1].body.processing.items, []);
+    p.posts[0].resolve(Response.json({ granted: true })); await p.flush(); assert.deepEqual(p.returns, []);
+    await p.clock.advance(10000);
+    assert.equal(p.state(), 'withdraw-unconfirmed'); assert.equal(p.message(), c.withdrawUnconfirmed);
+    assert.equal(p.document.activeElement, p.retry()); assert.equal(p.retry().textContent, c.retry);
+    assert.equal(p.posts[1].signal.aborted, true);
+    p.retry().click(); await p.flush(); assert.equal(p.posts.length, 3);
+    assert.deepEqual(p.posts[2].body, p.posts[1].body);
+    p.selected = []; p.posts[2].resolve(Response.json({ granted: false })); await p.flush();
+    assert.deepEqual(p.returns, ['/?saved=1']); assert.equal(p.timers.size, 0);
+  });
+}
+
+
+test('AIT-376: config, session and verdict share one load deadline, including response bodies', async t => {
+  const p = await deadlinePage(t);
+  const config = Promise.withResolvers(), session = Promise.withResolvers();
+  p.readOverride = path => path === '/demo/config' ? config.promise : path === '/api/sessions/s' ? session.promise : null;
+  const loading = p.api.load(); await p.flush();
+  await p.clock.advance(7000); assert.equal(p.state(), 'loading');
+  config.resolve(Response.json({ processingConsent: { contract: 'v1', items: CONSENT_ITEMS } })); await p.flush();
+  await p.clock.advance(999); assert.equal(p.state(), 'loading');
+  await p.clock.advance(1); await loading;
+  assert.equal(p.state(), 'load-timeout');
+  assert.equal(p.gets.at(-1).signal.aborted, true);
+  session.resolve(Response.json({ id: 's', locale: 'en' })); await p.flush();
+  assert.equal(p.state(), 'load-timeout'); assert.equal(p.document.documentElement.lang, 'de');
+  const body = Promise.withResolvers();
+  p.readOverride = path => path === '/demo/config' ? { ok: true, json: () => body.promise } : null;
+  const retrying = p.api.load(); await p.flush(); await p.clock.advance(8000); await retrying;
+  assert.equal(p.state(), 'load-timeout');
+  body.resolve({ voiceMode: 'fake' }); await p.flush(); assert.equal(p.state(), 'load-timeout');
+});
+
+for (const phase of ['body', 'confirmation']) test(`AIT-376: save deadline includes ${phase} and fences its late result`, async t => {
+  const p = await deadlinePage(t), body = Promise.withResolvers();
+  p.choose(); const saving = p.api.save(); await p.flush();
+  if (phase === 'body') p.posts[0].resolve({ ok: true, json: () => body.promise });
+  else { p.stallGet = true; p.posts[0].resolve(Response.json({ granted: true })); }
+  await p.flush(); await p.clock.advance(10000); await saving;
+  assert.equal(p.state(), 'save-unconfirmed');
+  if (phase === 'body') body.resolve({ granted: true });
+  else p.lateGet.resolve(Response.json({ selected: CONSENT_ITEMS.map(item => item.id), contract: 'rendered-v1' }));
+  await p.flush(); assert.equal(p.state(), 'save-unconfirmed'); assert.deepEqual(p.returns, []);
+});
+
+test('AIT-376: withdrawal can cancel a first grant with no previously recorded selection', async t => {
+  const p = await deadlinePage(t, { selected: [] });
+  assert.equal(p.document.querySelector('[data-revoke]').hidden, true);
+  p.choose(); void p.api.save(); await p.flush();
+  const revoke = p.document.querySelector('[data-revoke]');
+  assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false); revoke.click(); await p.flush();
+  assert.equal(p.posts.length, 2); assert.equal(p.posts[0].signal.aborted, true); assert.equal(p.posts[1].body.granted, false);
+  assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false, 'withdrawal remains available during its own pending request');
+  await p.clock.advance(10000); assert.equal(p.state(), 'withdraw-unconfirmed');
+  assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false);
+});
+
+test('AIT-376: postJson passes the AbortSignal to the POST transport', async t => {
+  const { postJson } = await import('../post-json.js');
+  const original = globalThis.fetch, controller = new AbortController(); let sent;
+  t.after(() => { globalThis.fetch = original; });
+  globalThis.fetch = (url, options) => { sent = { url, ...options }; return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })); };
+  const request = postJson('/api/sessions/s/consent', { granted: false }, { signal: controller.signal });
+  assert.equal(sent.method, 'POST'); assert.equal(sent.body, '{"granted":false}'); assert.equal(sent.signal, controller.signal);
+  controller.abort(); await assert.rejects(request, { name: 'AbortError' });
+});
+
+
+test('AIT-376: a stalled reconciliation gets 8s and Retry retains the intended choice', async t => {
+  const p = await deadlinePage(t); p.choose(); void p.api.save(); await p.flush();
+  await p.clock.advance(10000); assert.equal(p.state(), 'save-unconfirmed');
+  p.stallGet = true; p.retry().click(); await p.flush();
+  await p.clock.advance(8000); assert.equal(p.state(), 'load-timeout');
+  assert.equal(p.document.querySelectorAll('input:checked').length, 0);
+  p.stallGet = false; p.selected = CONSENT_ITEMS.map(item => item.id);
+  p.retry().click(); await p.flush();
+  assert.deepEqual(p.returns, ['/?saved=1']); assert.equal(p.posts.length, 1);
+});
+
+test('AIT-376: withdrawal starts its own fresh deadline even 9s into saving', async t => {
+  const p = await deadlinePage(t); p.choose(); void p.api.save(); await p.flush();
+  await p.clock.advance(9000); p.document.querySelector('[data-revoke]').click(); await p.flush();
+  assert.equal(p.posts[0].signal.aborted, true); assert.equal(p.posts.length, 2);
+  await p.clock.advance(9999); assert.equal(p.state(), 'saving');
+  await p.clock.advance(1); assert.equal(p.state(), 'withdraw-unconfirmed'); assert.equal(p.posts[1].signal.aborted, true);
+});
+
+
+for (const locale of ['de', 'en']) {
+  test(`AIT-376 round 2: revision conflict re-reads current choices without repeating a save (${locale})`, async t => {
+    const p = await deadlinePage(t, { locale });
+    let revision = 7;
+    p.readOverride = path => path.endsWith('/consent') ? Response.json({ contract: 'rendered-v1', items: CONSENT_ITEMS, selected: ['voice-elevenlabs'], consentRevision: revision }) : null;
+    await p.api.load(); p.choose(); void p.api.save(); await p.flush();
+    assert.equal(p.posts[0].body.processing.revision, 7, 'save uses the consent document revision, not the earlier session snapshot');
+    revision = 8; p.posts[0].resolve(Response.json({ error: 'consent-stale', consentRevision: 8 }, { status: 409 })); await p.flush();
+    assert.equal(p.state(), 'ready'); assert.equal(p.message(), { de, en }[locale].host.consentPage.notSavedYet);
+    assert.equal(p.document.querySelector('fieldset').disabled, false);
+    assert.deepEqual([...p.document.querySelectorAll('input:checked')].map(box => box.value), ['voice-elevenlabs']);
+    assert.equal(p.posts.length, 1); assert.deepEqual(p.returns, []);
+    p.choose(); void p.api.save(); await p.flush();
+    assert.equal(p.posts[1].body.processing.revision, 8);
+  });
+  test(`AIT-376 round 2: existing failed and stale messages retain assertive alert semantics (${locale})`, async t => {
+    for (const options of [{ fail: true }, { stale: true }]) {
+      const p = await page(t, { ...options, session: { id: 's', locale, engine: {} } });
+      p.document.querySelector('[data-select-all]').click(); p.document.querySelector('[data-grant]').click();
+      await tick(() => ['failed', 'stale'].includes(p.document.querySelector('#consent-status').dataset.state));
+      assert.equal(p.document.querySelector('#consent-status').getAttribute('role'), 'alert');
+      assert.equal(p.document.querySelector('#consent-status').getAttribute('aria-live'), 'assertive');
+      if (options.stale) {
+        p.document.querySelector('#retry').click(); await tick(() => p.document.querySelector('#consent-status').dataset.state === 'ready');
+        assert.equal(p.document.querySelector('#consent-status').getAttribute('role'), 'status');
+        assert.equal(p.document.querySelector('#consent-status').getAttribute('aria-live'), 'polite');
+      }
+    }
+  });
+}
+
+test('AIT-376 round 2: a sent grant arriving after withdrawal is refused by the real server', async t => {
+  const storage = new SQLiteStorage(), selected = new Set(), responses = [], returns = [];
+  const contract = { contract: 'same-terms', items: CONSENT_ITEMS };
+  const consent = { coverage: () => ({ covered: false }), describe: () => ({ ...contract, selected: [...selected] }),
+    grant: ({ decision }) => { decision.items.forEach(item => selected.add(item)); return true; }, withdraw: () => selected.clear() };
+  const handlers = createHandlers({ storage, consent });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const window = new Window({ url: `http://localhost/consent/?session=${session.id}` });
+  t.after(async () => { await window.happyDOM.close(); await handlers.close(); storage.close(); });
+  window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
+  const send = (path, body) => handlers.handle(ownedRequest(`http://localhost${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+  const held = Promise.withResolvers(); let sentGrant, withdrawal;
+  const api = await mountConsentPage({ document: window.document, location: window.location, storage: window.localStorage,
+    fetchImpl: path => path === '/demo/config' ? Response.json({ processingConsent: contract }) : handlers.handle(ownedRequest(`http://localhost${path}`)),
+    navigate: path => returns.push(path), submit: async (path, body, { signal }) => {
+      if (body.granted) { sentGrant = { path, body, signal }; await held.promise; }
+      else withdrawal = body;
+      const response = await send(path, body); responses.push({ granted: body.granted, status: response.status }); return response;
+    } });
+  window.document.querySelector('[data-select-all]').click(); const saving = api.save();
+  await tick(() => sentGrant);
+  await api.save(true);
+  assert.equal(sentGrant.signal.aborted, true); assert.equal(Object.hasOwn(withdrawal.processing, 'revision'), false);
+  assert.deepEqual(returns, ['/']); assert.deepEqual([...selected], []);
+  held.resolve(); await saving; await tick(() => responses.length === 2);
+  assert.deepEqual(responses, [{ granted: false, status: 200 }, { granted: true, status: 409 }]);
+  assert.equal(storage.get(session.id).consentWithdrawn, true);
+  assert.deepEqual((await (await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`))).json()).selected, []);
+  assert.deepEqual(returns, ['/'], 'late refusal cannot repaint or navigate again');
+});
+
+
+for (const matches of [false, true]) test(`AIT-376 round 2: a 409 always re-reads into not-saved-yet, even when choices match=${matches}`, async t => {
+  const p = await deadlinePage(t);
+  p.choose(); void p.api.save(); await p.flush();
+  p.selected = matches ? CONSENT_ITEMS.map(item => item.id) : [];
+  p.posts[0].resolve(Response.json({ error: 'consent-stale', consentRevision: 2 }, { status: 409 })); await p.flush();
+  assert.equal(p.state(), 'ready'); assert.equal(p.message(), de.host.consentPage.notSavedYet);
+  assert.equal(p.document.querySelector('fieldset').disabled, false);
+  assert.equal(p.posts.length, 1); assert.deepEqual(p.returns, []);
+});
+
+for (const granted of [false, true]) test(`AIT-376 round 3: stale revision ${granted ? 'grant is refused and re-read' : 'empty selection withdraws an existing grant'}`, async t => {
+  const storage = new SQLiteStorage(), selected = new Set(), posts = [], reads = [], returns = [];
+  const contract = { contract: 'same-terms', items: CONSENT_ITEMS };
+  const consent = { coverage: () => ({ covered: false }), describe: () => ({ ...contract, selected: [...selected] }),
+    grant: ({ decision }) => { selected.clear(); decision.items.forEach(item => selected.add(item)); return true; },
+    withdraw: () => selected.clear() };
+  const handlers = createHandlers({ storage, consent });
+  const session = storage.create({ demo: true, locale: 'de', ownerToken: testToken });
+  const window = new Window({ url: `http://localhost/consent/?session=${session.id}` });
+  t.after(async () => { await window.happyDOM.close(); await handlers.close(); storage.close(); });
+  window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
+  const path = `/api/sessions/${session.id}/consent`;
+  const send = body => handlers.handle(ownedRequest(`http://localhost${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }));
+  const initial = { granted: true, processing: { revision: 0, contract: contract.contract, items: ['voice-elevenlabs'] } };
+  assert.equal((await send(initial)).status, 200);
+  const loadedRevision = storage.get(session.id).consentRevision;
+  await mountConsentPage({ document: window.document, location: window.location, storage: window.localStorage,
+    fetchImpl: requestPath => {
+      reads.push(requestPath);
+      return requestPath === '/demo/config' ? Response.json({ processingConsent: contract })
+        : handlers.handle(ownedRequest(`http://localhost${requestPath}`));
+    },
+    navigate: returnPath => returns.push(returnPath), submit: async (requestPath, body) => {
+      assert.equal(requestPath, path);
+      const response = await send(body); posts.push({ body, status: response.status }); return response;
+    } });
+  assert.equal(window.document.querySelectorAll('input:checked').length, 1);
+  // A second writer advances the revision while this page still holds its grant.
+  assert.equal((await send({ ...initial, processing: { ...initial.processing, revision: loadedRevision } })).status, 200);
+  assert.equal(storage.get(session.id).consentRevision, loadedRevision + 1);
+  reads.length = 0;
+  window.document.querySelectorAll('input').forEach(box => { box.checked = granted; });
+  window.document.querySelector('input').dispatchEvent(new window.Event('change', { bubbles: true }));
+  const button = window.document.querySelector('[data-grant]');
+  if (!granted) assert.equal(button.textContent, de.host.revoke);
+  button.click();
+  await tick(() => returns.length || window.document.querySelector('#status-text').textContent === de.host.consentPage.notSavedYet);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].body.granted, granted);
+  assert.equal(posts[0].status, granted ? 409 : 200);
+  assert.equal(Object.hasOwn(posts[0].body.processing, 'revision'), granted);
+  assert.equal(storage.get(session.id).consentWithdrawn, !granted);
+  const current = await (await handlers.handle(ownedRequest(`http://localhost${path}`))).json();
+  assert.deepEqual(current.selected, granted ? ['voice-elevenlabs'] : []);
+  if (granted) {
+    assert.equal(posts[0].body.processing.revision, loadedRevision);
+    assert.deepEqual(reads, ['/demo/config', `/api/sessions/${session.id}`, path]);
+    assert.equal(window.document.querySelector('#consent-status').dataset.state, 'ready');
+    assert.equal(window.document.querySelector('#status-text').textContent, de.host.consentPage.notSavedYet);
+    assert.equal(window.document.querySelector('fieldset').disabled, false);
+    assert.deepEqual([...window.document.querySelectorAll('input:checked')].map(box => box.value), ['voice-elevenlabs']);
+    assert.deepEqual(returns, []);
+  } else {
+    assert.deepEqual(reads, [path]);
+    assert.notEqual(window.document.querySelector('#status-text').textContent, de.host.consentPage.notSavedYet);
+    assert.deepEqual(returns, ['/']);
+  }
 });
