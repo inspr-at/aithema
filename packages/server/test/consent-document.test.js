@@ -285,7 +285,7 @@ for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plug
   const handlers = createHandlers({ storage, consent, pluginRuntime: runtime });
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ ownerToken: testToken });
-  const artifact = await producer.generate({ prompt: 'Offline draft' }, '', { attempt: { consume() {} }, report() {} });
+  const artifact = await producer.generate({ prompt: 'Offline draft' }, '', { attempt: { attemptId: 'fixture', claimId: 'fixture', consume() {} }, report() {} });
   const scope = processingScope(original, 'generate');
   for (const recorded of [true, false]) {
     const id = recorded ? 'recorded' : 'legacy';
