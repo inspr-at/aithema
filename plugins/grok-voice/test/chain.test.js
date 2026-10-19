@@ -47,8 +47,10 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
         await admission.attempt.consume(); consumed.push(role);
       } }, report(terminal) { reports.push(terminal); return admission.report(terminal); } };
     } });
+  const understanding = { ...reasoning, model: 'analysis-only', legal: { ...reasoning.legal,
+    evidence: { ...reasoning.legal.evidence, model: 'analysis-only' } } };
   const registry = new PluginRegistry().register(p).register(reasoningPlugin);
-  const settings = { plugins: ['grok-voice', reasoning.plugin], bindings: { voice, reaction: reasoning, understanding: reasoning },
+  const settings = { plugins: ['grok-voice', reasoning.plugin], bindings: { voice, reaction: reasoning, understanding },
     policy: { endpoints: [voice.endpoint, reasoning.endpoint] } };
   const runtime = createPluginRuntime({ storage, budget, registry, consent, presets: { best: settings, eu: settings } });
   if (preset !== 'best') storage.db.prepare('UPDATE sessions SET snapshot=json_set(snapshot,\'$.processingPreset\',?) WHERE id=?').run(preset, session.id);

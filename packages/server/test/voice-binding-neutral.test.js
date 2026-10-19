@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { createDurationBinding, durationPluginMatches } from '../src/voice-binding.js';
-import { PluginRegistry, publicReasoningManifest } from '@inspr/aithema-core';
+import { PluginRegistry, publicReasoningManifest, createMockReasoning } from '@inspr/aithema-core';
 import { SQLiteStorage } from '../src/storage.js';
-import { createPluginRuntime } from '../src/plugin-runtime.js';
+import { mockPresets, createPluginRuntime } from '../src/plugin-runtime.js';
 
 const raw = { plugin: 'neutral-voice', model: 'conversation-v2', effort: 'none', endpoint: 'https://voice.example.test',
   accountRef: 'fixture', secretRef: 'fixture-ref', maxMicro: 1200, maxTokens: 1,
@@ -54,8 +54,8 @@ test('AIT-102: another provider admits, discovers scope, extends and reconciles 
     health: async () => ({ available: true }), start() { throw new Error('Admission must not dispatch'); } };
   const consent = { coverage: async ({ scope, consentRevision }) => ({ covered: true, scope, ...scope,
     consentRevision, checkedAt: now, expiresAt: now + 100_000 }) };
-  const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(plugin), now: () => now, consent,
-    presets: { best: { plugins: [raw.plugin], bindings: { voice: binding }, policy: { endpoints: [raw.endpoint] } } } });
+  const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(createMockReasoning()).register(plugin), now: () => now, consent,
+    presets: { best: { plugins: ['mock', raw.plugin], bindings: { ...mockPresets().best.bindings, voice: binding }, policy: { endpoints: [raw.endpoint] } } } });
   assert.equal((await runtime.matrix(session)).best.voice.available, true);
   const [scope] = runtime.scopes(session);
   assert.equal(scope.model, 'conversation-v2'); assert.equal(scope.plugin, 'neutral-voice');
