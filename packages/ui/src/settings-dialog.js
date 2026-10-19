@@ -367,7 +367,7 @@ export class SettingsDialog {
       const option = event.target.closest('[role=option]');
       if (!option) return;
       this.#help = option.dataset.reason ? `${option.dataset.kind || 'unavailable'}:${option.dataset.reason}` : option.dataset.help;
-      if (option.getAttribute('aria-disabled') === 'true') { this.#showHelp(); return; }
+      if (option.getAttribute('aria-disabled') === 'true') { option.focus(); this.#showHelp(); return; }
       this.#closeMenu(select, true);
       const name = select.dataset.select, value = option.dataset.value;
       if (name === 'model') {
