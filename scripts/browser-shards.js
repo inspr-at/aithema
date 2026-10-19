@@ -107,15 +107,16 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 browserTestWeights['test/browser/demo.test.js'] = Math.max(
   browserTestWeights['test/browser/demo.test.js'], 71);
 
-// AIT-350 round 5: PR #315 CI 39198042858, 23645eb2, shard 2/7:
+// AIT-350 round 5: PR #315 CI 39198540390, 1caf98ee, shard 2/7:
 // physical media/lifecycle/Settings file 3/3 PASS, including dark DE
-// and 1024 evidence. Top-level work: 1.009506382s + 2.799301767s
-// + 11.987586353s = 15.796394502s; ceil(*1.25) = 20s, replacing
-// the prior 16s floor. Source: browser-timings-2-of-7/batch-0.jsonl.
+// and 1024 evidence. Top-level work: 1.249225096s + 3.238451189s
+// + 13.683266318s = 18.170942603s; ceil(*1.25) = 23s. This slower
+// confirmation supersedes the initial 20s round-5 floor (15.796394502s).
+// Source: browser-timings-2-of-7/batch-0.jsonl.
 // Keep this diagnostic floor outside trusted rolling-main history;
 // no shard count, ceiling, workflow or check-name changes.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 20);
+  browserTestWeights['test/browser/composed-media.test.js'], 23);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
