@@ -82,7 +82,9 @@ for (const mode of ['cancelled', 'deadline', 'oversized']) test(`HTTP error body
   const controller = new AbortController(), reading = Promise.withResolvers();
   let cancelled = false;
   const plugin = createClaudeHTML({ binding, spend, resolveSecret: () => 'fixture',
-    fetchImpl: async () => new Response(new ReadableStream({ pull() { reading.resolve(); }, cancel() { cancelled = true; } }),
+    // Disable prefetch so reading resolves only when the body reader requests data.
+    fetchImpl: async () => new Response(new ReadableStream({ pull() { reading.resolve(); }, cancel() { cancelled = true; } },
+      { highWaterMark: 0 }),
       { status: 500, headers: mode === 'oversized' ? { 'content-length': String(4 * 1024 * 1024 + 1) } : {} }) });
   const reports = [], pending = plugin.generate({ prompt: 'Repairs' }, '', { signal: controller.signal,
     deadlineAt: Date.now() + (mode === 'deadline' ? 100 : 2000),
