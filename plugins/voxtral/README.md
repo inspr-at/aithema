@@ -1,6 +1,31 @@
-# Voxtral component adapters — offline contract fixtures
+# Voxtral module — not yet qualified in live use
 
-`src/index.js` exports realtime STT and streamed TTS components. Both default to
+The private workspace package `@inspr/aithema-plugin-voxtral` adds supported
+`/server`, `/components`, `/configuration`, `/manifest`, and `/client`
+entrypoints. The root exports `createVoxtralComponents`, which validates private server configuration
+and guards each operation behind the shared AIT-328 preflight. Supply a
+`private:…` secret reference and an explicit saved `voiceId`; inline credentials
+and unknown configuration fields are rejected. Await `preflight` before admitting
+any claims. Cancelled preflight waits settle supplied claims once with zero cost
+and no consumption through shared component accounting. Capture must be
+PCM16/16 kHz/mono and playback float32/24 kHz/mono;
+invocations cannot change the negotiated format or saved voice. Preflight checks
+syntax and the selected voice, without proving voice ownership or availability.
+
+The component manifest keeps `id: voxtral` and STT/TTS kinds. The separate live
+pipeline manifest uses `id: voxtral-voice`. It describes the intended composed
+pipeline, not an assembled live provider. Both remain unqualified with unverified
+processing locations and no heard-position receipt. The browser entrypoint exports
+metadata only through relative public source URLs, as required by the live manifest
+schema; client assembly remains deferred. AIT-331 owns account/evidence and
+regional admission; AIT-330 owns transport,
+relay and browser assembly using `@inspr/aithema-server/composed-voice` exports
+and relative public browser source URLs under `script-src 'self'`. AIT-332 owns
+charging integration. The package stays `private: true` until AIT-339 includes it
+in the released modules; no release version or inclusion policy changes here.
+
+`/components` (`src/index.js`) preserves the existing realtime STT and streamed
+TTS helpers and their fixture configuration for source consumers. Both default to
 disabled and require explicitly injected transports and a private `resolveSecret`
 function. There is no default network client, environment lookup, or stored key.
 Configuration accepts an HTTPS API origin, secret reference, saved voice ID,
@@ -26,5 +51,6 @@ Tariffs default to the public estimates of $0.006/min STT and $16/million TTS
 characters, reported as estimates with their source. Missing terminal evidence
 retains uncertain exposure, including cancelled dispatched requests. No fixture
 proves vendor accuracy, latency, remote closure, retention, or regional eligibility.
-The single $25 live run, account/legal checks, keys, and ElevenLabs comparison
-remain with the controller/OPS under Markus's Mistral-first decision.
+Account/legal evidence, credentials and any future live qualification remain
+with the controller/OPS. AIT-329 uses offline fixtures only, with no provider API
+calls, keys or paid runs.
