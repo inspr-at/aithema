@@ -105,10 +105,11 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const result = emit(id, storage.transitionHost(id, (state, session) => {
       const identity = host.identity?.project?.({ session }, state.identity) ?? state.identity;
       const result = reduceIdentity(identity, { ...event, now: clock(identity) });
-      // Removing an old lock must also work after identity/privacy configuration
-      // is removed. A projection that collects a different address still needs permission.
+      // Removing only an old lock must work after identity/privacy configuration
+      // is removed. Address projection or host persistence still needs permission.
       const liftingLock = event.type === 'policy' && state.identity.verificationRequired === true &&
-        result.state.verificationRequired === false && result.state.address === state.identity.address;
+        result.state.verificationRequired === false && result.state.address === state.identity.address &&
+        host.identity?.persist == null;
       if (result.state.address && !liftingLock) assertAddressCollectionAllowed();
       erased = host.identity?.persist?.({ session }, result.state)?.erased === true;
       // Visitor-wide confirmation may retire historical line actions in this
