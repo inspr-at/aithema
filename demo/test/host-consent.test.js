@@ -539,3 +539,64 @@ for (const matches of [false, true]) test(`AIT-376 round 2: a 409 always re-read
   assert.equal(p.document.querySelector('fieldset').disabled, false);
   assert.equal(p.posts.length, 1); assert.deepEqual(p.returns, []);
 });
+
+for (const granted of [false, true]) test(`AIT-376 round 3: stale revision ${granted ? 'grant is refused and re-read' : 'empty selection withdraws an existing grant'}`, async t => {
+  const storage = new SQLiteStorage(), selected = new Set(), posts = [], reads = [], returns = [];
+  const contract = { contract: 'same-terms', items: CONSENT_ITEMS };
+  const consent = { coverage: () => ({ covered: false }), describe: () => ({ ...contract, selected: [...selected] }),
+    grant: ({ decision }) => { selected.clear(); decision.items.forEach(item => selected.add(item)); return true; },
+    withdraw: () => selected.clear() };
+  const handlers = createHandlers({ storage, consent });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const window = new Window({ url: `http://localhost/consent/?session=${session.id}` });
+  t.after(async () => { await window.happyDOM.close(); await handlers.close(); storage.close(); });
+  window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
+  const path = `/api/sessions/${session.id}/consent`;
+  const send = body => handlers.handle(ownedRequest(`http://localhost${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }));
+  const initial = { granted: true, processing: { revision: 0, contract: contract.contract, items: ['voice-elevenlabs'] } };
+  assert.equal((await send(initial)).status, 200);
+  const loadedRevision = storage.get(session.id).consentRevision;
+  await mountConsentPage({ document: window.document, location: window.location, storage: window.localStorage,
+    fetchImpl: requestPath => {
+      reads.push(requestPath);
+      return requestPath === '/demo/config' ? Response.json({ processingConsent: contract })
+        : handlers.handle(ownedRequest(`http://localhost${requestPath}`));
+    },
+    navigate: returnPath => returns.push(returnPath), submit: async (requestPath, body) => {
+      assert.equal(requestPath, path);
+      const response = await send(body); posts.push({ body, status: response.status }); return response;
+    } });
+  assert.equal(window.document.querySelectorAll('input:checked').length, 1);
+  // A second writer advances the revision while this page still holds its grant.
+  assert.equal((await send({ ...initial, processing: { ...initial.processing, revision: loadedRevision } })).status, 200);
+  assert.equal(storage.get(session.id).consentRevision, loadedRevision + 1);
+  reads.length = 0;
+  window.document.querySelectorAll('input').forEach(box => { box.checked = granted; });
+  window.document.querySelector('input').dispatchEvent(new window.Event('change', { bubbles: true }));
+  const button = window.document.querySelector('[data-grant]');
+  if (!granted) assert.equal(button.textContent, de.host.revoke);
+  button.click();
+  await tick(() => returns.length || window.document.querySelector('#status-text').textContent === de.host.consentPage.notSavedYet);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].body.granted, granted);
+  assert.equal(posts[0].status, granted ? 409 : 200);
+  assert.equal(Object.hasOwn(posts[0].body.processing, 'revision'), granted);
+  assert.equal(storage.get(session.id).consentWithdrawn, !granted);
+  const current = await (await handlers.handle(ownedRequest(`http://localhost${path}`))).json();
+  assert.deepEqual(current.selected, granted ? ['voice-elevenlabs'] : []);
+  if (granted) {
+    assert.equal(posts[0].body.processing.revision, loadedRevision);
+    assert.deepEqual(reads, ['/demo/config', `/api/sessions/${session.id}`, path]);
+    assert.equal(window.document.querySelector('#consent-status').dataset.state, 'ready');
+    assert.equal(window.document.querySelector('#status-text').textContent, de.host.consentPage.notSavedYet);
+    assert.equal(window.document.querySelector('fieldset').disabled, false);
+    assert.deepEqual([...window.document.querySelectorAll('input:checked')].map(box => box.value), ['voice-elevenlabs']);
+    assert.deepEqual(returns, []);
+  } else {
+    assert.deepEqual(reads, [path]);
+    assert.notEqual(window.document.querySelector('#status-text').textContent, de.host.consentPage.notSavedYet);
+    assert.deepEqual(returns, ['/']);
+  }
+});
