@@ -672,10 +672,13 @@ test('AIT-378: confirmed interruption and provider cooldown viewport evidence', 
         const root = c.shadowRoot, row = root.querySelector('[data-id="journey-reply"]');
         const above = root.querySelector('[data-id="journey-above"]');
         const box = () => { const r = above.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
-        const before = box(), beforeMeta = row.querySelector('strong').getBoundingClientRect();
-        const metadataBefore = [beforeMeta.x, beforeMeta.y, beforeMeta.width, beforeMeta.height];
+        const before = box();
         const receive = (type, data) => c.receive({ seq: c.session.seq + 1, type, data });
         if (state === 'I1') receive('turn.corrected', { id: 'journey-reply', role: 'assistant', content: prefix });
+        // Truncation may resize this reply. Measure marker insertion against
+        // the heard-prefix row; rows above are still compared across both events.
+        const beforeMeta = row.querySelector('strong').getBoundingClientRect();
+        const metadataBefore = [beforeMeta.x, beforeMeta.y, beforeMeta.width, beforeMeta.height];
         if (state !== 'I3') receive('voice.interrupted', { id: 'journey-reply', interruption: { heardLength: state === 'I1' ? prefix.length : 'unknown' } });
         const marker = row.querySelector('.voice-interruption'), meta = row.querySelector('strong').getBoundingClientRect();
         if (marker) marker.querySelector('[role="tooltip"]').style.display = 'block';
