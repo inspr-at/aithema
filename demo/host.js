@@ -121,7 +121,7 @@ async function adopt(session) {
       grokVoiceClient = createGrokVoiceClient({ control: ports.control, network: { url: '/api/voice/grok/relay' } });
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
-    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client,
+    component.configure({ concepts: { previewURL: binding.previewURL }, voiceClient: liveVoiceClient ?? fakeVoice?.client,
       voiceClients: { ...(liveVoiceClient ? { elevenlabs: liveVoiceClient } : {}), ...(fakeVoice ? { 'fake-voice': fakeVoice.client } : {}), ...(grokVoiceClient ? { 'grok-voice': grokVoiceClient } : {}) }, voicePresentation: (locale, voice) => voice?.id === 'grok-voice' ? grokVoiceClient?.manifest.presentation : binding.voicePresentation,
       consentPresentation: (locale, item) => item.id === 'voice-xai' ? grokVoiceClient?.manifest.presentation : binding.voicePresentation, copy: componentCopy(), session,
       paimosImportUrl: binding.paimosImportUrl, paimosImportVersion: binding.paimosImportVersion,
