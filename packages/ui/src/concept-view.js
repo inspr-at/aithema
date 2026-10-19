@@ -226,7 +226,7 @@ export class ConceptView {
     this.#session = session;
     if (consentDocument) this.#consentDocument = consentDocument;
     if (this.#canvasWithdrawnKind && this.covered(this.#canvasWithdrawnKind)) this.#canvasWithdrawnKind = undefined;
-    const partial = !changedOwner && !session.consentWithdrawn && !session.tombstone && this.#visible.find(item => !this.covered(conceptKind(item)));
+    const partial = !changedOwner && !session.consentWithdrawn && !session.tombstone && (this.#consentRefreshFailed ? this.#visible.at(-1) : this.#visible.find(item => !this.covered(conceptKind(item))));
     if (partial) {
       for (const kind of ['html', 'image']) if (this.#visible.some(item => conceptKind(item) === kind && !this.covered(kind))) this.#scopeEpoch[kind]++;
       for (const id of this.#loads.keys()) if (!this.items.some(item => item.id === id)) this.#loads.delete(id);
@@ -550,7 +550,8 @@ export class ConceptView {
       const failureCopy = text.querySelector('.consent-line-copy') ?? text;
       paintFailureLine(failureCopy, failureCopy.textContent);
     }
-    access.toggleAttribute('data-scope-withdrawn', Boolean(this.#withdrawnKind && !this.covered(this.#withdrawnKind)));
+    access.toggleAttribute('data-scope-withdrawn', Boolean(this.#consentRefreshFailed || this.#withdrawnKind && !this.covered(this.#withdrawnKind)));
+    access.toggleAttribute('data-refresh-failed', this.#consentRefreshFailed);
     access.toggleAttribute('data-partial-withdrawal', Boolean(!this.#consentRefreshFailed && this.#withdrawnKind && state === 'gone'));
     const notice = this.root.querySelector('.concept-withdrawn');
     const key = this.#withdrawnKind === 'html' ? 'conceptDraftWithdrawn' : 'conceptImageWithdrawn';

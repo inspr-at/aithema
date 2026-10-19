@@ -923,7 +923,10 @@ for (const failure of ['http', 'network', 'snapshot-stall', 'document-http', 'do
   c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
   await tick();
   if (failure.endsWith('stall')) {
-    t.mock.timers.tick(1999);
+    t.mock.timers.tick(1000);
+    c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
+    await tick();
+    t.mock.timers.tick(999);
     assert.equal(view.dialog.open, true, 'the accepted single refresh round has up to 2 s');
     t.mock.timers.tick(1);
   }
@@ -954,4 +957,5 @@ for (const failure of ['http', 'network', 'snapshot-stall', 'document-http', 'do
   assert.equal(view.dialog.open, true, 'the retained kind opens without reload');
   assert.ok(root.querySelector('.concept-image').hasAttribute('src'));
   release(); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['image'], 'a late stalled response cannot restore withdrawn coverage');
 });

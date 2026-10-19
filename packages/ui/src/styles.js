@@ -228,10 +228,10 @@ svg { display:block; flex:none; }
 .concept-fold-slot .concept-access { visibility:visible; }
 /* Partial withdrawal uses the reserved access cell for the four-second notice.
    The same native access button remains a focus target when its item is gone. */
-.concept-access[data-partial-withdrawal] .concept-rail { visibility:hidden; }
-.concept-access[data-partial-withdrawal] .concept-withdrawn { display:block; grid-area:1/1; align-self:center; font-size:14px; color:var(--aithema-muted); pointer-events:none; }
-.concept-access[data-partial-withdrawal] .concept-preview-slot { visibility:visible; }
-.concept-access[data-partial-withdrawal] .concept-preview { visibility:visible !important; }
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-rail { visibility:hidden; }
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-withdrawn { display:block; grid-area:1/1; align-self:center; font-size:14px; color:var(--aithema-muted); pointer-events:none; }
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview-slot { visibility:visible; }
+.concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview { visibility:visible !important; }
 .concept-preview[data-withdrawn] { visibility:visible !important; min-width:44px; }
 .concept-preview[data-withdrawn] > * { visibility:hidden; }
 .workspace .concept-access[data-scope-withdrawn] .concept-preview-slot { display:grid; }
@@ -682,6 +682,6 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 }
 @media(pointer:coarse) { .concept-viewer-controls button { min-height:2.75rem; } }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; animation:none !important; } .workspace, .understanding, .fill, .icon-slash { transition:none !important; } }
-.workspace[data-concept-layout="image"] .concept-access[data-partial-withdrawal] .concept-preview-slot { visibility:visible; justify-self:end; }
-.workspace[data-concept-layout="image"] .concept-access[data-partial-withdrawal] .concept-preview[data-withdrawn] { visibility:visible !important; }
+.workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview-slot { visibility:visible; justify-self:end; }
+.workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview[data-withdrawn] { visibility:visible !important; }
 `;
