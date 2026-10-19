@@ -44,7 +44,9 @@ export function voiceTranscriptTransition({ pending = null, finalized = new Map(
 /** Occupy only the existing bubble metadata line; insertion has no layout effect. */
 export function paintVoiceInterruption(row, turn, copy) {
   let marker = row.querySelector('.voice-interruption');
-  if (turn.role !== 'assistant' || turn.erased || turn.withdrawn || turn.interruption?.heardLength !== 'unknown') {
+  const heardLength = turn.interruption?.heardLength;
+  const confirmed = heardLength === 'unknown' || Number.isSafeInteger(heardLength) && heardLength >= 0;
+  if (turn.role !== 'assistant' || turn.erased || turn.withdrawn || !confirmed) {
     marker?.remove(); return;
   }
   if (!marker) {
@@ -58,5 +60,9 @@ export function paintVoiceInterruption(row, turn, copy) {
   }
   marker.setAttribute('aria-label', copy.voiceInterrupted);
   marker.querySelector('.voice-interruption-label').textContent = copy.voiceInterrupted;
-  marker.querySelector('[role="tooltip"]').textContent = copy.voiceInterruptedDescription;
+  const tooltip = marker.querySelector('[role="tooltip"]');
+  tooltip.textContent = heardLength === 'unknown' ? copy.voiceInterruptedDescription : copy.voiceInterruptedKnownDescription;
+  // A heard prefix can leave a shorter bubble than the full generated reply.
+  // Keep its new tooltip compact without moving the existing marker anchor.
+  tooltip.style.maxWidth = heardLength === 'unknown' ? '' : 'min(210px,65vw)';
 }

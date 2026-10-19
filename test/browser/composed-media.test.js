@@ -5,6 +5,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
+import { evidenceCommit } from './start2-display-helpers.js';
 import { measureGaugeCaptions } from './settings-caption-helpers.js';
 import { checkSettingsMenuAccessibility, checkSettingsPolish } from './settings-polish-helpers.js';
 import { startChild } from '../helpers.js';
@@ -617,4 +618,123 @@ test('AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px', {
   assert.deepEqual(problems, []);
   if (evidence) await writeFile(join(evidence, 'ait349-checks.json'), JSON.stringify({ ticket: 'AIT-349', capture: 'viewport',
     reducedMotion: true, qualification: 'not yet qualified in live use', providerCalls: 0, checks, problems }, null, 2));
+});
+
+test('AIT-378: confirmed interruption and provider cooldown viewport evidence', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'voice-journey-ui-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: chromeSandboxArgs });
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  const page = await browser.newPage(), checks = [], problems = [], external = [];
+  page.on('pageerror', error => problems.push(error.message));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    if (!request.url().startsWith(demo.url) && !request.url().startsWith('data:')) {
+      external.push(request.url()); return request.abort();
+    }
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: '{}' });
+    if (path.endsWith('/voice') && request.method() === 'POST') return request.respond({ status: 429,
+      headers: { 'retry-after': '12' }, contentType: 'application/json', body: '{"error":"rate-limit"}' });
+    return request.continue();
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  await page.select('#theme', 'light');
+  await page.evaluate(() => { window.ait378Seed = structuredClone(document.querySelector('aithema-session').session); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const settled = async () => {
+    await page.evaluate(async () => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      root.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await Promise.all(root.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+    });
+    await page.mouse.move(-10, -10);
+  };
+  for (const [width, locale] of [[1440, 'de'], [1440, 'en'], [390, 'de']]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    for (const state of ['I1', 'I2', 'I3']) {
+      const result = await page.evaluate(async ({ locale, state }) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const c = document.querySelector('aithema-session'), session = structuredClone(window.ait378Seed);
+        const prefix = locale === 'de' ? 'Die Website soll einfach sein.' : 'The website should be simple.';
+        const full = prefix + (locale === 'de' ? ' Auch die Einrichtung und die spätere Pflege sollen wenig Zeit benötigen.'
+          : ' Setup and ongoing maintenance should also take very little time.');
+        session.locale = locale; session.transcript = [
+          { id: 'journey-above', role: 'user', content: locale === 'de' ? 'Was empfehlen Sie für die Website?' : 'What do you suggest for the website?' },
+          { id: 'journey-reply', role: 'assistant', content: full }];
+        c.configure({ copy, session }); document.documentElement.lang = locale;
+        await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const root = c.shadowRoot, row = root.querySelector('[data-id="journey-reply"]');
+        const above = root.querySelector('[data-id="journey-above"]');
+        const box = () => { const r = above.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+        const before = box();
+        const receive = (type, data) => c.receive({ seq: c.session.seq + 1, type, data });
+        if (state === 'I1') receive('turn.corrected', { id: 'journey-reply', role: 'assistant', content: prefix });
+        // Truncation may resize this reply. Measure marker insertion against
+        // the heard-prefix row; rows above are still compared across both events.
+        const beforeMeta = row.querySelector('strong').getBoundingClientRect();
+        const metadataBefore = [beforeMeta.x, beforeMeta.y, beforeMeta.width, beforeMeta.height];
+        if (state !== 'I3') receive('voice.interrupted', { id: 'journey-reply', interruption: { heardLength: state === 'I1' ? prefix.length : 'unknown' } });
+        const marker = row.querySelector('.voice-interruption'), meta = row.querySelector('strong').getBoundingClientRect();
+        if (marker) marker.querySelector('[role="tooltip"]').style.display = 'block';
+        const tipBox = marker?.querySelector('[role="tooltip"]').getBoundingClientRect(), rowBox = row.getBoundingClientRect();
+        const tooltipFits = !tipBox || tipBox.left >= rowBox.left && tipBox.right <= rowBox.right;
+        return { state, tooltipFits, text: row.querySelector('.turn-text').textContent, expectedText: state === 'I1' ? prefix : full,
+          marker: Boolean(marker), label: marker?.getAttribute('aria-label') ?? null,
+          tooltip: marker?.querySelector('[role="tooltip"]')?.textContent ?? null,
+          expectedTooltip: state === 'I1' ? (locale === 'de' ? 'Die Wiedergabe wurde an dieser Stelle unterbrochen.' : 'Playback was interrupted here.')
+            : state === 'I2' ? copy.voiceInterruptedDescription : null,
+          before, after: box(), metadataBefore, metadataAfter: [meta.x, meta.y, meta.width, meta.height],
+          sameNode: row === root.querySelector('[data-id="journey-reply"]'), font: getComputedStyle(row).fontFamily };
+      }, { locale, state });
+      assert.equal(result.text, result.expectedText); assert.equal(result.marker, state !== 'I3');
+      assert.equal(result.label, state === 'I3' ? null : locale === 'de' ? 'Unterbrochen' : 'Interrupted');
+      assert.equal(result.tooltip, result.expectedTooltip); assert.equal(result.sameNode, true);
+      assert.equal(result.tooltipFits, true, 'tooltip remains inside the reply bubble');
+      assert.deepEqual(result.after, result.before, 'transcript rows above move 0 px');
+      assert.deepEqual(result.metadataAfter, result.metadataBefore, 'marker retains the AIT-349 metadata geometry');
+      checks.push({ pass: true, width, theme: 'light', locale, providers: ['elevenlabs', 'grok-voice'], movementPx: 0, ...result });
+      if (state !== 'I3') {
+        await settled();
+        if (evidence) await page.screenshot({ path: join(evidence, `ait378-${width}-light-${locale}-${state}.png`), fullPage: false, captureBeyondViewport: false });
+      }
+    }
+  }
+  await page.setViewport({ width: 1440, height: 900 });
+  const cooldown = await page.evaluate(async () => {
+    const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+    const { createVoiceControl } = await import('/packages/ui/src/voice-control.js');
+    const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+    const c = document.querySelector('aithema-session'), session = structuredClone(window.ait378Seed);
+    session.locale = 'de'; session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs';
+    session.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
+    session.featureMatrix.best.voice = { available: true, reason: null };
+    session.transcript = [{ id: 'retry-person', role: 'user', content: 'Ich möchte über meine Website sprechen.' }];
+    const { control } = createVoiceControl({ sessionId: session.id });
+    const client = { manifest, start: request => control.start(request) };
+    const render = AudioRail.prototype.render;
+    AudioRail.prototype.render = function () { window.ait378Rail = this; return render.call(this); };
+    c.configure({ copy, session, voiceClient: client, voicePresentation: manifest.presentation });
+    const rail = window.ait378Rail; await rail.start();
+    const retryAt = rail.retryAt, sampledAt = Date.now(), delay = retryAt - sampledAt;
+    window.ait378Retry = rail.start(); await Promise.resolve();
+    return { retryAt, sampledAt, delay, state: rail.state, text: rail.root.querySelector('.voice-state').getAttribute('aria-label') };
+  });
+  assert.ok(cooldown.delay >= 11_800 && cooldown.delay <= 12_000);
+  assert.equal(cooldown.state, 'connecting'); assert.equal(cooldown.text, 'Verbindung wird aufgebaut …');
+  await settled();
+  if (evidence) await page.screenshot({ path: join(evidence, 'ait378-1440-light-de-R1.png'), fullPage: false, captureBeyondViewport: false });
+  await page.evaluate(() => window.ait378Rail.close());
+  checks.push({ pass: true, state: 'R1', width: 1440, theme: 'light', locale: 'de', ...cooldown });
+  assert.deepEqual(problems, []); assert.deepEqual(external, []);
+  if (evidence) await writeFile(join(evidence, 'ait378-checks.json'), JSON.stringify({ ticket: 'AIT-378',
+    testedCommit: evidenceCommit, capture: 'viewport', reducedMotion: true, focusBlurred: true,
+    providerCalls: 0, checks, problems, external }, null, 2));
 });
