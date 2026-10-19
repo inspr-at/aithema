@@ -132,7 +132,7 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-ui'));
   assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-plugin-elevenlabs'));
   verifyRelease(a.directory);
-  assert.equal(a.manifest.artifacts.filter(artifact => artifact.kind === 'module').length, 15);
+  assert.equal(a.manifest.artifacts.filter(artifact => artifact.kind === 'module').length, 16);
   // Inspect actual packed bytes, including unexported files, for dangling imports.
   for (const artifact of a.manifest.artifacts.filter(artifact => artifact.kind === 'module')) {
     const archive = join(a.directory, artifact.path);
@@ -322,7 +322,7 @@ test('AIT-350: native Grok browser sources pack to declared package subpaths and
     "import { createGrokVoiceClient, manifest } from '@inspr/aithema-plugin-grok-voice/client'; if (typeof createGrokVoiceClient !== 'function' || manifest.id !== 'grok-voice') throw new Error('Grok browser exports missing'); console.log('PASS isolated packed Grok browser graph');"],
   { cwd: directory, encoding: 'utf8', stdio: 'pipe' });
   assert.match(output, /PASS isolated packed Grok browser graph/u);
-  t.diagnostic('release:pack moduleFiles rewrites all 11 Grok browser cross-package imports; isolated package import passes, including composed-voice export aliases. Grok remains private until AIT-351.');
+  t.diagnostic('release:pack moduleFiles rewrites all 11 Grok browser cross-package imports; isolated package import passes, including composed-voice export aliases. AIT-351 includes Grok in the release closure; publication remains separately gated.');
 });
 
 

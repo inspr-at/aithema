@@ -2,7 +2,7 @@
 
 Aithema uses **INSPR-CalVer3**; `release/version.json` is the
 single version authority. The root workspace is private. The release packer
-emits independently installable core, server, UI and twelve provider/integration
+emits independently installable core, server, UI and thirteen provider/integration
 plugin tarballs, with exact dependency pins, plus a retained workspace archive.
 Aithema is published as immutable [GitHub releases](https://github.com/inspr-at/aithema/releases)
 with signed, attested tarballs. Hosts pin a release with `deployment-pin.json`
@@ -19,7 +19,7 @@ lifecycle into a consuming application.
 For candidate validation on the build runner, retain the candidate directory
 and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
-From a separate host directory, install **all fifteen** module tarballs so npm
+From a separate host directory, install **all sixteen** module tarballs so npm
 can resolve their exact mutual dependencies without a registry publication:
 
 ```sh
@@ -32,7 +32,7 @@ bundler resolves the UI and its core dependency; an unbundled browser needs an
 import map for each exported package subpath. Workspace source browser URLs
 are converted to declared package subpaths by `release:pack`.
 
-For a published release, install the same fifteen modules by release URL in
+For a published release, install the same sixteen modules by release URL in
 one invocation, rather than from a package registry. The URL pattern is:
 
 ```sh
@@ -40,7 +40,7 @@ npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<
 ```
 
 Use the exact `v<version>` tag and module filenames from `release-set.json`, and
-pass all fifteen module URLs together. First download and verify the attested
+pass all sixteen module URLs together. First download and verify the attested
 SHA256SUMS, manifest and tarballs as described in the [release route](../release/README.md).
 Commit the host lockfile with the URL resolutions and **sha512 integrity**; use
 `npm ci` for repeat deployments and retain the verified artifacts for rollback.
@@ -1227,12 +1227,16 @@ import { createOOXMLExtractor } from '@inspr/aithema-plugin-extract-ooxml';
 import { createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
 import { createZitadelOIDC } from '@inspr/aithema-plugin-zitadel-oidc';
 import { manifest as elevenLabsManifest } from '@inspr/aithema-plugin-elevenlabs/manifest';
+import { createGrokVoiceProvider } from '@inspr/aithema-plugin-grok-voice';
 ```
 
 OpenRouter/Mistral are server reasoning adapters; device is browser-only.
 ElevenLabs has separate server/client exports behind neutral live-voice ports;
 the adapter owns STT, TTS and turn-taking, with delegated reasoning. The shipped
 fake-voice sources are deterministic fixtures, not another qualified pipeline.
+Grok uses xAI speech components with Aithema's separately admitted reasoning;
+it remains **not yet qualified in live use**. See the
+[Grok host setup](#grok-voice-host-setup-and-release-imports-ait-351).
 OpenAI images, Claude HTML and Codex image generation preserve artifact
 provenance and their distinct lifetime/cost contracts. Text/PDF/OOXML extractors
 run bounded offline workers. SMTP and Zitadel implement host integration,
@@ -1666,8 +1670,90 @@ with trusted server ports for authorization, utterance commits and relay playbac
 `callDurationSeconds({ maxDurationSeconds })` validates the call-duration ceiling
 in seconds (default 900, integer range 1–86400); hosts explicitly supply their own
 ceiling, such as 3600 for a one-hour call. The coordinator caps the spend deadline
-by this ceiling. This export does not release a composed or Grok pipeline: both
-are **not yet qualified in live use**. Grok publication is deferred to package 8.
+by this ceiling. AIT-351 includes Grok and these supported helpers in the next
+release closure. The source-only composed prototype stays excluded. Grok is
+**not yet qualified in live use**; fixture qualification does not change that
+label. Inclusion does not authorize publication or live activation.
+
+### Grok Voice host setup and release imports (AIT-351)
+
+```js
+import { createGrokVoiceProvider, createGrokComponents } from '@inspr/aithema-plugin-grok-voice/server';
+import { createGrokVoiceClient } from '@inspr/aithema-plugin-grok-voice/client';
+import { manifest as grokManifest } from '@inspr/aithema-plugin-grok-voice/manifest';
+import { createComposedVoiceCoordinator, callDurationSeconds } from '@inspr/aithema-server/composed-voice';
+import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server';
+import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
+import { createComposedComponentAccounting } from '@inspr/aithema-server/composed-voice/accounting';
+import { createComposedVoiceAuthority } from '@inspr/aithema-server/composed-voice/authority';
+```
+
+Install the module tarballs at the exact coordinate in `release/version.json`,
+including Grok's exact core/server dependencies. In the source-hosted demo, Grok's
+browser modules and composed client helpers use relative public source URLs and
+load natively without an import map under `script-src 'self'`; startup stays in
+external same-origin modules, as in the UI. Release packing rewrites cross-package
+source URLs to declared package subpaths. A host using these installed package
+subpaths needs a bundler or, when unbundled, an import map, as for the UI. An inline
+import map needs the exact hash in the host's CSP as described above. Serve
+`src/composed/pcm-capture-worklet.js` beside the installed server
+browser-audio module so its relative `new URL()` resolves. The server's
+`./composed-voice/browser-audio` export and that adjacent worklet ship together.
+Never import workspace paths or `plugins/composed-voice/src/*` from an installed host.
+
+Architecture (b) is **xAI STT → Aithema's admitted reasoning → xAI TTS**.
+xAI never writes answers. Register `createGrokVoiceProvider` and Aithema's
+separate reasoning plugin with the host runtime. Configure the parent and both
+component bindings and current consent coverage. The provider uses the ordinary
+Rule C reply executor and durable child accounting. Mount the authenticated relay
+and normal voice controls described above; supply `createGrokVoiceClient` with
+those control/network ports. Imports and construction are offline. Start requires
+current ownership, consent, account and budget admission.
+
+Owner use needs an xAI account with voice access and **Zero Data Retention
+switched on**, plus a server-side secret reference in the private binding.
+**Never ask for a key.** The host resolves that reference privately; no credential
+or account evidence belongs in browser configuration. Supply the validated
+`accountRef`, `secretRef` and dated, unexpired `accountEvidence` for ZDR, DPA,
+retention, transfer, contract and approval; see the
+[private configuration contract](../plugins/grok-voice/README.md#private-configuration-contract).
+Bind the parent with `maxMicro: 0`, `upstreamMicroPerMinute: 0`, its separate
+visitor tariff and a bounded call duration. Bind STT/TTS separately to the exact
+model, endpoint, account, secret reference and current legal evidence. Account
+evidence does not grant session consent or establish live-use qualification.
+
+Markus approved xAI as a direct recipient (AIT-317, Desk dc3ec428).
+Use **`voice-xai` v1**, with the exact DE/EN consent item from the public manifest;
+retain separate reasoning consent. The recipient is **SpaceXAI LLC (“SpaceXSI”)**,
+US seat, international processing, **no guaranteed region**. Settings shows the
+US recipient seat separately from international/no-guaranteed-location processing;
+neither the seat nor the endpoint is a processing guarantee.
+
+Visitor charging is server-side **measured by Aithema**: active duration excludes
+only acknowledged pauses and is confirmed at close. Upstream STT/TTS have fresh
+child claims for every utterance, fragment and retry and remain **estimated**
+until a billed-cost receipt. TTS counts the Unicode code points actually sent,
+including spaces and emoji constituents. Cancel, timeout, abandonment or uncertain
+recovery keeps consumed reservations; parent close cannot release unresolved
+children. The measurement/confirmation section below gives the exact calculation.
+
+Recovery uses fresh epochs, authorization and child admissions and never silently
+replays old synthesis. Acknowledged pause holds capture until matching resume
+acknowledgement. Playback-unlock retries dispatch no new speech work.
+On interruption, stop playback, keep the full generated answer, display
+**Unterbrochen** / **Interrupted**, and tell the model the heard length is unknown.
+xAI reports no heard position. This is the approved difference from ElevenLabs's
+existing heard-prefix correction; never infer a prefix from browser timing.
+
+Evidence is limited to public docs read **2026-10-18** and synthetic offline
+fixtures. Dated prices: REST STT **$0.10/hour**, streaming STT **$0.20/hour**,
+TTS **$15/1M characters**. No billed-cost receipt, live acoustic qualification or
+German speech quality is claimed. The
+[plugin evidence table](../plugins/grok-voice/README.md#public-evidence) records
+source links and limits. Keep the manifest and notes label exactly **not yet
+qualified in live use** until Markus has used it. Tick's morning QA of packages
+5–7 and LEAD's RC decision precede merge; a later RC needs Markus's Desk go to
+publish. This package creates no tag, release or publication.
 
 ### Voice charge measurement and confirmation (AIT-347)
 
