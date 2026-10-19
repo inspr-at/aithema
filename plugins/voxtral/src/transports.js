@@ -12,7 +12,7 @@ export function createVoxtralTransports({ endpoint, WebSocket, fetchImpl } = {})
     async connect({ url, headers, signal } = {}) {
       if (url !== targets.stt) throw new PluginError('not-admitted');
       if (typeof WebSocket !== 'function') throw new PluginError('unavailable');
-      if (signal?.aborted) throw new PluginError('cancelled');
+      if (signal?.aborted) throw new PluginError(signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled');
       const socket = new WebSocket(url, { headers, maxPayload: FRAME_BYTES, perMessageDeflate: false, followRedirects: false });
       const opening = Promise.withResolvers();
       let queue = [], queuedBytes = 0, waiter, failure, closed = false, opened = false, sendPending;

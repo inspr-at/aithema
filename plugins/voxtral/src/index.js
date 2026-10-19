@@ -41,7 +41,7 @@ function providerError(value, tts = false) {
     tts && status === 403 ? 'tts-forbidden-or-moderation' : status === 401 ? 'provider-authentication-failed' : status === 429 ? 'provider-rate-limited' : 'provider-request-failed');
 }
 
-/** No default transport: PR 4a can only use an explicitly injected fixture port. */
+/** Server-only component: host-injected transport and secret resolver. */
 export function createVoxtralSTT({ enabled = false, config: raw, resolveSecret, connect } = {}) {
   const config = configuration(raw);
   const stream = async function* ({ audio, format }, options) {
@@ -191,7 +191,10 @@ export function createVoxtralTTS({ enabled = false, config: raw, resolveSecret, 
           const detail = await errorDetail(response.body, opts);
           throw providerError({ ...detail, status: response.status }, true);
         }
-        if (!response.headers.get('content-type')?.startsWith('text/event-stream')) throw new PluginError('invalid-output');
+        if (!response.headers.get('content-type')?.startsWith('text/event-stream')) {
+          void response.body?.cancel().catch(() => {});
+          throw new PluginError('invalid-output');
+        }
         for await (const event of speechEvents(response.body, opts)) {
           if (event.type === 'speech.audio.delta') {
             if (typeof event.audio_data !== 'string' || event.audio_data.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(event.audio_data)) throw new PluginError('invalid-output');

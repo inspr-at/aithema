@@ -165,3 +165,16 @@ test('AIT-330: oversized SSE message and invalid STT input retain their bounded 
     connect: async () => ({ send() {}, close() {}, events: (async function* () { yield '{"type":"session.created"}'; await new Promise(() => {}); })() }) });
   await assert.rejects(collect(stt.stream({ format: 'pcm_s16le', audio: (async function* () { yield new Uint8Array(3); })() }, options([]))), { code: 'limit' });
 });
+
+for (const late of [false, true]) test(`AIT-330: ${late ? 'late cancelled' : 'non-SSE'} TTS response cancels its body`, async () => {
+  const controller = new AbortController(), entered = Promise.withResolvers(), pending = Promise.withResolvers(); let cancelled = 0;
+  const response = new Response(new ReadableStream({ cancel() { cancelled++; } }));
+  const tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+    fetchImpl() { entered.resolve(); return late ? pending.promise : response; } });
+  const work = collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, { ...options([]), signal: controller.signal }));
+  const rejected = assert.rejects(work, { code: late ? 'cancelled' : 'invalid-output' });
+  await entered.promise;
+  if (late) { controller.abort(); await rejected; pending.resolve(response); }
+  await rejected; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(cancelled, 1);
+});

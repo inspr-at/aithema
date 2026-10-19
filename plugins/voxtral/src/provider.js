@@ -22,7 +22,7 @@ const sameReasoning = (a, b) => ['plugin', 'model', 'endpoint', 'accountRef', 's
   a?.legal?.evidence?.dpaRef === b?.legal?.evidence?.dpaRef;
 const snapshot = value => value === undefined ? undefined : deepFreeze(structuredClone(value));
 
-/** Private, effect-free authority for AIT-330's future assembly. Pair each binding
+/** Private, effect-free authority for the supported assembly. Pair each binding
  * with the actual component/reasoning manifest and every host processor. The
  * mounted host must use these checks for admission AND delivery of late results,
  * and supply its authoritative synchronous session reader. No claims or ports for
@@ -159,7 +159,6 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
   return Object.freeze({ evaluate, admissionReason, processingScopes, processingDetail,
     ports: Object.freeze({ serverAdapter: adapter }) });
 }
-
 
 /** Supported host assembly. Host callbacks own session/reasoning selection and
  * re-enter AIT-331 on every authorization, including late result delivery.
