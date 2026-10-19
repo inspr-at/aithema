@@ -1,5 +1,6 @@
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, mockPresets,
   SQLiteBudgetLedger, createVoiceCap, VOICE_CAP_REASON, VOICE_DAY_CAP_REASON } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
@@ -261,7 +262,7 @@ test('AIT-138 fix 3: exhaustion reports are owner authenticated, validated, and 
   assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'ended', 'exhaustion cannot undo explicit hang-up');
 });
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost, purposePolicy } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -313,7 +314,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
   } };
   const host = createHost?.({ storage, now });
-  let handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
+  let handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, purposePolicy, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
@@ -633,9 +634,9 @@ test('voice facade uses per-call auth, route binding, session reasoning and sepa
   assert.equal((await facade()).status, 401);
 });
 
-async function voicePromptFixture(t, prepare = () => {}, { stream } = {}) {
+async function voicePromptFixture(t, prepare = () => {}, { stream, callbackStream, purposePolicy } = {}) {
   const requests = [], base = createMockReasoning();
-  const h = voiceFixture(t, { reasoning: { ...base, async *stream(request, options) {
+  const h = voiceFixture(t, { purposePolicy, reasoning: { ...base, async *stream(request, options) {
     requests.push(request); yield* (stream ? stream(request, options) : base.stream(request, options));
   }, async structured(request, options) {
     // Keep background understanding from adding a separate focused-question message.
@@ -650,7 +651,7 @@ async function voicePromptFixture(t, prepare = () => {}, { stream } = {}) {
   };
   const callbackResponse = messages => h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
       method: 'POST', headers: { authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ aithema_call: grant.callId, messages }) }));
+      body: JSON.stringify({ aithema_call: grant.callId, messages, stream: callbackStream }) }));
   const callback = async messages => {
     const response = await callbackResponse(messages);
     assert.equal(response.status, 200); await response.json();
@@ -3367,4 +3368,51 @@ test('AIT-263: paused playback acknowledgements keep the call and still fence re
   assert.equal((await h.route(`/voice/${grant.callId}/resume`, identity)).status, 200);
   h.coverage(false);
   assert.equal((await activity('listening')).status, 403, 'revoked coverage cannot update activity');
+});
+
+test('AIT-381 r2 / AIT-388: streaming admissions hash the dispatched request after a saved input and on retry', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  let generation = 0;
+  const h = await voicePromptFixture(t, () => {}, { callbackStream: true,
+    purposePolicy: { purpose: 'Clarify a project', offTopicLimit: 3, outputCheck: true, canary: 'REJECTED_FIXTURE_CANARY' },
+    async *stream(request, options) {
+      const accounting = await core.beginInvocation(options); let completed = false;
+      try {
+        accounting.dispatch();
+        const contents = generation++ ? ['What should improve?', ' Who is affected?'] : ['A focused start. ', 'REJECTED_FIXTURE_CANARY'];
+        yield JSON.stringify({ segments: contents.map(content => ({ content, scope: 'in', question_short: null, options: [] })) });
+        accounting.usage({ inputTokens: 1, outputTokens: 1 }); completed = true;
+      } finally { await accounting.finish(completed); }
+    } });
+  const quoted = [], admit = h.runtime.admit;
+  h.runtime.admit = args => { if (args.lane === 'reaction') quoted.push(structuredClone(args.request)); return admit(args); };
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), checkVoice = h.runtime.checkVoice;
+  h.runtime.checkVoice = async (...args) => {
+    await checkVoice(...args); h.runtime.checkVoice = checkVoice; entered.resolve(); await release.promise;
+  };
+  t.after(() => release.resolve());
+  const callback = h.callbackResponse([{ role: 'user', content: 'My project' }]);
+  await entered.promise;
+  assert.equal((await h.route('/turns', { clientEventId: 'r2-admission-gap', content: 'Input saved during admission',
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId })).status, 200);
+  assert.equal(h.requests.length, 0);
+  release.resolve();
+  const response = await callback; assert.equal(response.status, 200);
+  const wire = await response.text();
+  assert.equal(wire.includes('REJECTED_FIXTURE_CANARY'), false);
+  assert.equal(h.requests.length, 2); assert.equal(quoted.length, 2);
+  const rows = h.storage.db.prepare("SELECT request_sha256 FROM budget_attempts WHERE lane='reaction' ORDER BY rowid").all();
+  assert.equal(rows.length, 2);
+  for (let index = 0; index < 2; index++) {
+    const dispatched = h.requests[index];
+    assert.ok(dispatched.messages.some(message => message.content === 'Input saved during admission'));
+    assert.ok(quoted[index].schema.properties.segments, 'cost admission includes the spoken segment schema');
+    assert.deepEqual(dispatched, quoted[index]);
+    assert.equal(rows[index].request_sha256, createHash('sha256').update(JSON.stringify(dispatched)).digest('hex'));
+  }
+  assert.equal(h.requests[1].messages.at(-1).role, 'user');
+  assert.deepEqual(JSON.parse(h.requests[1].messages.at(-1).content), {
+    kind: 'spoken-continuation', committedSpeech: 'A focused start. ',
+    instruction: 'Continue after the committed speech without repeating it. This host context is not a person turn.',
+  });
 });
