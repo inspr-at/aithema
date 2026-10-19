@@ -53,7 +53,7 @@ export class ConceptView {
   #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #previewRetryAt = 0; #previewDenied = new Map();
-  #consentRefreshFailed = false; #consentDocument; #visible = []; #withdrawnKind; #scopeEpoch = { html: 0, image: 0 };
+  #consentRefreshFailed = false; #consentDocument; #pendingScopes = new Set(); #visible = []; #withdrawnKind; #scopeEpoch = { html: 0, image: 0 };
   #canvasEpoch = 0; #canvasCopy; #stageFeature; #canvasWithdrawnKind;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
@@ -171,7 +171,7 @@ export class ConceptView {
   // removes delivered artifacts; pause, preset exclusion and budget do not.
   covered(kind) {
     const feature = kind === 'html' ? 'html' : 'images', session = this.#session;
-    if (!session || this.#consentRefreshFailed || session.consentWithdrawn || session.tombstone) return false;
+    if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || session.consentWithdrawn || session.tombstone) return false;
     const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
     if (isConsentReason(verdict?.reason) || isConsentReason(verdict?.unpaused?.reason)) return false;
     const doc = this.#consentDocument;
@@ -207,6 +207,21 @@ export class ConceptView {
     } catch { /* Server idle spending is disabled even if teardown loses this signal. */ }
   }
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
+  reviseConsent(changed) {
+    // Unknown names still take the session's bounded refresh path. Known names
+    // can remove their surfaces immediately even in a mixed future event.
+    if (!Array.isArray(changed)) return;
+    for (const scope of changed) {
+      if (!['html-drafts', 'images'].includes(scope)) continue;
+      const kind = scope === 'html-drafts' ? 'html' : 'image', feature = kind === 'html' ? 'html' : 'images';
+      const doc = this.#consentDocument;
+      // A client document can lag a server grant. A known missing selection is
+      // an addition, so preserve delivered surfaces until the new read confirms it.
+      if (Array.isArray(doc?.features?.[feature]) && !doc.features[feature].every(id => doc.selected.includes(id))) continue;
+      if (this.covered(kind)) this.#pendingScopes.add(kind);
+    }
+    this.update(this.#session);
+  }
   failClosedConsent() {
     this.#consentRefreshFailed = true;
     // A refusal may already have removed the last item. Its four-second
@@ -215,6 +230,7 @@ export class ConceptView {
     this.update(this.#session);
   }
   update(session, consentDocument, consentVerified = false) {
+    if (consentVerified) this.#pendingScopes.clear();
     if (consentVerified && this.#consentRefreshFailed) {
       this.#consentRefreshFailed = false;
       this.#withdrawnUntil = 0;
@@ -225,7 +241,7 @@ export class ConceptView {
     const previous = this.#visible.at(-1), wasPending = this.#session?.conceptStatus?.phase === 'pending';
     const lostSource = wasPending && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn &&
       !session.transcript.some(next => next.id === turn.id && !next.erased && !next.withdrawn));
-    if (changedOwner) { this.#consentRefreshFailed = false; this.#canvasWithdrawnKind = undefined; this.#consentDocument = undefined; this.#previewDenied.clear(); this.#withdrawnKind = undefined; this.#previewRetryAt = 0; this.#stageFeature = undefined; this.#imageLayout = false; }
+    if (changedOwner) { this.#pendingScopes.clear(); this.#consentRefreshFailed = false; this.#canvasWithdrawnKind = undefined; this.#consentDocument = undefined; this.#previewDenied.clear(); this.#withdrawnKind = undefined; this.#previewRetryAt = 0; this.#stageFeature = undefined; this.#imageLayout = false; }
     this.#session = session;
     if (consentDocument) this.#consentDocument = consentDocument;
     if (this.#canvasWithdrawnKind && this.covered(this.#canvasWithdrawnKind)) this.#canvasWithdrawnKind = undefined;

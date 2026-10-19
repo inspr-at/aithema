@@ -146,7 +146,7 @@ export class AithemaSession extends HTMLElement {
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.element.open;
-    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); this.#consentRefresh = null;
+    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
@@ -193,8 +193,8 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
-    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer);
-    if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; }
+    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
+    if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; this.#concept?.failClosedConsent(); }
     clearTimeout(this.#clarifyNoticeTimer);
     this.#cancelUploads();
     this.#stopReconciling();
@@ -2427,7 +2427,7 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
-      if (consentRevised) this.#watchConsentRefresh();
+      if (consentRevised) { this.#watchConsentRefresh(); this.#concept.reviseConsent(event.data.changed); }
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
       const invalidation = ['turn.withdrawn', 'session.erased'].includes(event.type) ||
@@ -2568,7 +2568,7 @@ export class AithemaSession extends HTMLElement {
   }
   #failConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
-    clearTimeout(pending.timer);
+    clearTimeout(pending.timer); clearTimeout(pending.documentTimer); pending.documentTimer = null;
     pending.failed = true; pending.attempt = null;
     this.#concept.failClosedConsent();
     if (pending.retryTimer || !this.isConnected) return;
@@ -2643,9 +2643,18 @@ export class AithemaSession extends HTMLElement {
           this.#retryStaleConsentRefresh(pending); return;
         }
         if (doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) {
-          clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer);
+          clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer); clearTimeout(pending?.documentTimer);
           this.#consentRefresh = null;
           this.#concept.update(this.#session, doc, true);
+        } else if (pending && Number.isSafeInteger(doc?.consentRevision) && doc.consentRevision >= 0 && doc.consentRevision < revision && !pending.failed) {
+          // The host ledger can trail the journal. Keep the original 2 s
+          // watchdog and wait for its new document without hiding covered bytes.
+          clearTimeout(pending.documentTimer);
+          pending.documentTimer = setTimeout(() => {
+            pending.documentTimer = null;
+            if (active() && this.isConnected) void this.#refreshFeatures(true);
+          }, 100);
+          pending.documentTimer.unref?.();
         } else fail();
       } catch { fail(); }
     } catch { fail(); }

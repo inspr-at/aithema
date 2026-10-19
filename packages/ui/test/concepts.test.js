@@ -1156,8 +1156,8 @@ for (const failure of [false, true]) test(`AIT-365 E4: detach pending verificati
 });
 
 for (const changed of [undefined, ['html-drafts']]) test(`AIT-365 E3 ${JSON.stringify(changed)}: server ahead of the client document never hides covered content`, async t => {
-  const { c, root, view, state } = consentRecoveryFixture(t);
-  await tick(); view.open('html');
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html'); await tick();
   // A stale denial from the old revision must not revoke the server's newer grant.
   state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
   view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
@@ -1167,8 +1167,17 @@ for (const changed of [undefined, ['html-drafts']]) test(`AIT-365 E3 ${JSON.stri
   await tick();
   assert.equal(view.dialog.open, true, 'an older consent document waits within the verification window');
   assert.equal(root.querySelector('.concept-html').artifact, source);
-  t.mock.timers.tick(100); state.document = () => Response.json({ consentRevision: c.session.consentRevision, selected: ['models', 'images', 'drafts'], features: { html: ['drafts'], images: ['images'] } });
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision, selected: ['models', 'images', 'drafts'], features: { html: ['drafts'], images: ['images'] } });
   t.mock.timers.tick(100); await tick(); await tick();
   assert.equal(view.dialog.open, true); assert.equal(root.querySelector('.concept-html').artifact, source);
   t.mock.timers.tick(2000); await tick(); assert.deepEqual(view.items.map(i => i.id), ['image', 'html'], 'the newer document clears the watchdog');
+});
+
+test('AIT-365 E1/E2: a mixed future scope still removes the known withdrawn kind synchronously', async t => {
+  const { c, view, state } = consentRecoveryFixture(t);
+  await tick(); view.open('html'); state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts', 'future-scope'] } });
+  assert.equal(view.dialog.open, false); assert.deepEqual(view.items.map(i => i.id), ['image']);
+  t.mock.timers.tick(2000); assert.deepEqual(view.items, [], 'unknown scope still carries the full fail-closed duty');
 });
