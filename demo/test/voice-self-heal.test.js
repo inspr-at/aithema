@@ -263,8 +263,8 @@ for (const provider of ['mock', 'openrouter']) test(`AIT-161 fix1 ${provider}: o
     AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID: 'template-agent',
     AITHEMA_VOICE_HOST_MODULE: fileURLToPath(new URL('../../test/fixtures/voice-self-heal-host.js', import.meta.url)),
     ELEVENLABS_API_KEY: 'fixture-key', AITHEMA_VOICE_FACADE_SECRET: 'fixture-bearer', OPENROUTER_API_KEY: 'fixture-key',
-    OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'openai/fixture',
-    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': { prompt: 1e-7, completion: 5e-7 } }),
+    OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'openai/fixture-fast',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': { prompt: 1e-7, completion: 5e-7 }, 'openai/fixture-fast': { prompt: 1e-7, completion: 5e-7 } }),
   };
   const healthy = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...settings, AITHEMA_TEST_VOICE_FAILURE: 'none' });
   t.after(() => healthy.kill());
