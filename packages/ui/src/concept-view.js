@@ -367,7 +367,8 @@ export class ConceptView {
     this.#unbound = unbound;
     // A host with no visuals retains its existing layout. Once this conversation
     // has bound images, keep its reservation through all states, including none.
-    this.#imageLayout = this.visualKind() === 'image' && (this.#imageLayout || !unbound);
+    const kind = this.visualKind();
+    this.#imageLayout = kind !== 'html' && (this.#imageLayout || kind === 'image' && !unbound || Boolean(this.latestImage()));
     this.root.querySelector('.concept-rail').hidden = unbound && !this.items.length;
     this.root.querySelector('.concept-bar').toggleAttribute('data-no-drafts', !this.#imageLayout && unbound && !this.items.length);
     this.root.querySelector('.workspace').dataset.conceptLayout = this.#imageLayout ? 'image' : this.visualKind() === 'html' ? 'html' : 'unbound';
@@ -436,8 +437,8 @@ export class ConceptView {
     for (const image of preview.querySelectorAll('img')) image.hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
     const previewLabel = this.#phone.matches && this.#imageLayout ? this.copy.conceptPhoneReady : view;
     preview.querySelector('.concept-preview-label').textContent = previewLabel; preview.setAttribute('aria-label', gone && !latest ? this.root.querySelector('.concept-withdrawn').textContent : previewLabel);
-    if (latest && !latestDraft && (this.visualKind() === 'html' || !this.backdropHidden())) void this.loadImageURL(latest.id).then(url => {
-      if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() === 'html' || !this.backdropHidden())) this.paintThumbnail(latest.id, url);
+    if (latest && !latestDraft && (this.visualKind() !== 'image' || !this.backdropHidden())) void this.loadImageURL(latest.id).then(url => {
+      if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() !== 'image' || !this.backdropHidden())) this.paintThumbnail(latest.id, url);
     });
     else this.clearThumbnail();
     this.paintBackdrop();
