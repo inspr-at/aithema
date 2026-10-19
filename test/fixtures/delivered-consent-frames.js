@@ -60,7 +60,7 @@ export async function deliveredConsentFrames(t) {
         const mintReq = { url: '/fixture/mint', method: 'POST', headers: req.headers, async *[Symbol.asyncIterator]() { yield '<!doctype html><html><head><title>Draft</title></head><body><h1>Offline draft</h1></body></html>'; } };
         return preview(mintReq, res);
       }
-      if (path.endsWith('/html')) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end('<!doctype html><html><body>Offline draft</body></html>'); }
+      if (path.endsWith('/html')) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end('<!doctype html><html><head><title>Offline draft</title></head><body>Offline draft</body></html>'); }
       if (path.endsWith('/image')) { res.writeHead(200, { 'content-type': 'image/png' }); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')); }
       if (path.endsWith('/settings')) return json({ presets: {} });
       if (path.startsWith('/api/')) return json(session);
@@ -88,7 +88,6 @@ export async function deliveredConsentFrames(t) {
     { state: 'missing-list', width: 1440, kind: 'image', visuals: 'html', list: 'missing' },
   ];
   for (const config of configs) await t.test(`${config.state}/${config.width}`, async () => {
-    try {
     const { width, kind, visuals, mixed, kept } = config;
     visualChoice = visuals; coverageList = config.list;
     session = createSession({ demo: true }); session.id = 'ait369'; session.locale = 'de'; session.consentRevision = 1;
@@ -152,7 +151,6 @@ export async function deliveredConsentFrames(t) {
     await a.mouse.move(-10, -10);
     if (evidence) { const file = `ait369-${width}-light-de-${config.state}.png`; await a.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file); }
     checks.push({ ...config, ...result, movementPx: 0, keptSampledEveryFrame: Boolean(kept), downloadChecked: true, viewportOnly: true });
-    } catch (error) { console.error(config.state, error); throw error; }
   });
   if (evidence) await writeFile(join(evidence, 'ait369-checks.json'), JSON.stringify({ shots, checks,
     unit: 'AIT-369: empty/missing coverage for both kinds across off/images/html/both; kept coverage across all choices',

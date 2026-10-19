@@ -683,5 +683,5 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 @media(pointer:coarse) { .concept-viewer-controls button { min-height:2.75rem; } }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; animation:none !important; } .workspace, .understanding, .fill, .icon-slash { transition:none !important; } }
 .workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview-slot { visibility:visible; justify-self:end; }
-.workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview[data-withdrawn] { visibility:visible !important; }
+.workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview { visibility:visible !important; }
 `;
