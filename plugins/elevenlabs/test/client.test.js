@@ -422,3 +422,27 @@ test('AIT-383: capable fresh startup refuses a silent opener override before SDK
   await assert.rejects(local.client.start({ callId: 'silent-fresh' }, invocationOptions({ onMicrophoneState() {} })), { code: 'invalid-output' });
   assert.equal(local.sdk.starts.length, 0);
 });
+
+test('AIT-383: real server lease stays open through a 60 s permission prompt and grant', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const permission = Promise.withResolvers(), local = fixture(), startControl = local.control.start, phases = [];
+  local.sdk.beforeAcquire = () => permission.promise;
+  local.control.start = (request, opts) => startControl(request, invocationOptions({ ...opts,
+    deadlineAt: Date.now() + 30_000, spendDeadlineAt: Date.now() + 180_000, browserLivenessDeadlineAt: Date.now() + 30_000 }));
+  const starting = local.client.start({ callId: 'server-lease-permission' }, { onMicrophoneState: phase => phases.push(phase) });
+  let session;
+  t.after(async () => { permission.resolve(); await session?.close(); });
+  // Give each heartbeat the same event-loop turns as an actual browser timer.
+  const settle = async () => { for (let i = 0; i < 12; i++) await flush(); };
+  await settle(); assert.deepEqual(phases, ['requesting']);
+  const serverSession = [...local.sessions.values()][0];
+  assert.equal(serverSession.snapshot().browserLivenessDeadlineAt, 130_000);
+  for (let second = 0; second < 60; second++) { t.mock.timers.tick(1000); await settle(); }
+  assert.equal(serverSession.signal.aborted, false, 'real server lifetime must not expire at 30 s');
+  assert.equal(serverSession.snapshot().browserLivenessDeadlineAt, 190_000);
+  permission.resolve(); session = await starting;
+  assert.equal(session.lifecycle.state.state, 'active');
+  assert.equal(session.lifecycle.state.browserLivenessDeadlineAt, serverSession.snapshot().browserLivenessDeadlineAt);
+  await session.heartbeat(); assert.equal(serverSession.signal.aborted, false);
+  await session.close(); assert.equal(serverSession.snapshot().terminal.reason, 'closed');
+});

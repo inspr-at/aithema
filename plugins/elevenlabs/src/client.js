@@ -316,7 +316,7 @@ export function createElevenLabsClient(ports = {}) {
           lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
           playbackInterrupted = true; conversation?.setVolume({ volume: outputVolume() });
         };
-        const audioTexts = new Map(), replyTexts = new Map(), qualifiedAudio = new Set(), observedAudio = new Set();
+        const audioTexts = new Map(), replyTexts = new Map(), qualifiedAudio = new Set();
         const nonFiller = text => {
           const value = text?.trim();
           return Boolean(value) && !['Einen Moment, bitte.', 'One moment, please.'].some(line => line.startsWith(value));
@@ -329,10 +329,11 @@ export function createElevenLabsClient(ports = {}) {
           // runs ahead. Only aligned non-filler words can qualify that stream.
           const holdingPrefix = !audioTexts.has(eventId) && ['Einen Moment, bitte.', 'One moment, please.'].some(line => knownText?.trim().startsWith(line));
           const filler = holdingPrefix || !nonFiller(knownText);
-          if (filler && observedAudio.has(eventId)) return;
-          observedAudio.add(eventId);
-          emit({ type: 'speaking', audio: true, filler });
-          if (!filler) qualifiedAudio.add(eventId);
+          // SDK mode owns activity for unqualified/holding PCM. Such chunks
+          // can arrive after listening and must never reopen playback.
+          if (filler) return;
+          emit({ type: 'speaking', audio: true, filler: false });
+          qualifiedAudio.add(eventId);
           if (audioTexts.size > 256) audioTexts.delete(audioTexts.keys().next().value);
         };
         const replyIds = new Map(), confirmedInterruptions = new Set();
