@@ -13,11 +13,13 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage'];
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   let cookie = '', failRecovery = false; const paths = [], failures = [];
+  let releaseDelayedTurn = () => {};
   const notifications = eventProbe(), render = AudioRail.prototype.render, consume = AudioRail.prototype.consume;
   t.mock.method(AudioRail.prototype, 'render', function () {
     render.call(this);
     notifications.record({ source: 'render', state: this.root.dataset.state, busy: Boolean(this.busy),
       input: this.input, startDisabled: this.button('start').disabled, retryDisabled: this.button('retry').disabled });
+    releaseDelayedTurn();
   });
   t.mock.method(AudioRail.prototype, 'consume', function (session, generation) {
     session.events = observedVoiceEvents(session.events, event => notifications.record({ source: 'voice', event }));
@@ -41,10 +43,38 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     await import('../host.js');
     const c = document.querySelector('aithema-session'), root = c.shadowRoot;
     c.addEventListener('aithema-event', ({ detail: event }) => notifications.record({ source: 'session', event }));
+    // Force an HTTP/SSE ordering that a busy unit worker can encounter: a
+    // later journal event arrives before the spoken user turn. Gap recovery
+    // adopts the server snapshot before the delayed turn is replayed.
+    const receive = c.receive;
+    let delayedTurn, overtakingSeq, reordered = false;
+    t.mock.method(c, 'receive', function (event) {
+      if (!reordered && event.type === 'turn.final' && event.data.role === 'user' && event.data.content.includes('public API')) {
+        delayedTurn ??= event;
+        return;
+      }
+      if (delayedTurn && event.seq > delayedTurn.seq) overtakingSeq ??= event.seq;
+      return receive.call(this, event);
+    });
+    releaseDelayedTurn = () => {
+      if (!delayedTurn || !overtakingSeq || c.session.seq < overtakingSeq) return;
+      const event = delayedTurn; delayedTurn = null; reordered = true;
+      queueMicrotask(() => {
+        receive.call(c, event);
+        t.diagnostic(`AIT-390 forced snapshot adoption before delayed turn ${event.seq}`);
+      });
+    };
+    let step = 0;
     const act = (action, ...predicates) => {
+      const currentStep = ++step;
+      t.diagnostic(`AIT-390 action ${currentStep} started`);
       const after = notifications.events.length;
       const ready = Promise.all(predicates.map(predicate => notifications.waitFor(predicate, after)));
-      action(); return ready;
+      action();
+      const aborted = new Promise((_, reject) => t.signal.addEventListener('abort', () => reject(t.signal.reason), { once: true }));
+      return Promise.race([ready, aborted]).then(value => {
+        t.diagnostic(`AIT-390 action ${currentStep} completed`); return value;
+      });
     };
     const voice = (type, predicate = () => true) => notice => notice.source === 'voice' && notice.event.type === type && predicate(notice.event);
     const session = (type, predicate = () => true) => notice => notice.source === 'session' && notice.event.type === type && predicate(notice.event);
