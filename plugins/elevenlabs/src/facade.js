@@ -465,11 +465,16 @@ function spokenPurposeRequest(request, { retry = false, promptOnly = false, comm
   const schema = { type: 'object', additionalProperties: false, required: ['segments'], properties: {
     segments: { type: 'array', minItems: 1, maxItems: 8, items: purposeReplySchema } } };
   return { ...request, schema, ...(promptOnly ? { replySchemaConstrained: false } : {}),
-    messages: [...request.messages, ...(committed ? [{ role: 'assistant', content: committed }] : [])],
+    // Host context must end in a user turn: Claude treats assistant-final as a
+    // prefill and rejects it when thinking is enabled.
+    messages: [...request.messages, ...(committed ? [{ role: 'user', content: JSON.stringify({
+      kind: 'spoken-continuation', committedSpeech: committed,
+      instruction: 'Continue after the committed speech without repeating it. This host context is not a person turn.',
+    }) }] : [])],
     system: request.system + '\nFor spoken delivery, replace the single reply envelope above with {"segments":[reply,...]}. '
       + 'Each reply is one short, independently committed spoken segment matching the original reply schema, including its scope. '
       + 'Do not split words or sentences across segments. Return only this JSON object. '
-      + (retry ? 'The previous output was rejected. The final assistant message, when present, is the speech already committed in this reply. '
+      + (retry ? 'The previous output was rejected. The final spoken-continuation host context, when present, records speech already committed in this reply. '
         + 'Continue after it without repeating it. Never echo rejected text.' : '') };
 }
 
@@ -537,6 +542,9 @@ async function* committedPurposeSegments(pinned, initial, options, ports) {
     } catch (error) {
       if (error.responseFormatUnsupported === true && !promptOnly) promptOnly = true;
       else if (error !== rejected && !(error instanceof TypeError) && !(error instanceof SyntaxError) && error.code !== 'invalid-output') throw error;
+      // The redirect has completed this reply. Still close and settle the
+      // current generation in finally, without admitting a discarded retry.
+      if (redirected) return;
       ports.onRetry?.('purpose-segment-rejected');
     } finally {
       cancellation.abort();

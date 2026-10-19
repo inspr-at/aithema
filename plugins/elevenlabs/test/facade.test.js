@@ -822,12 +822,14 @@ test('AIT-381 r2: retry context contains committed speech so the opening is spok
   const rest = Promise.withResolvers(), opening = 'A focused start. ';
   const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment(opening)}` },
     { gate: rest, text: `,${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
-    input => [{ text: `{"segments":[${spokenSegment(input.messages.some(message => message.role === 'assistant' && message.content === opening)
+    input => [{ text: `{"segments":[${spokenSegment(input.messages.at(-1).role === 'user'
+      && JSON.parse(input.messages.at(-1).content).committedSpeech === opening
       ? 'What should improve?' : opening + 'What should improve?')}]}` }]] });
   const state = h.observe(); await flush(); assert.equal(spokenText(state), opening);
   rest.resolve(); await state.done;
   const retry = h.started[1];
-  assert.ok(retry.messages.some(message => message.role === 'assistant' && message.content === opening));
+  assert.equal(retry.messages.at(-1).role, 'user');
+  assert.equal(JSON.parse(retry.messages.at(-1).content).committedSpeech, opening);
   assert.equal(JSON.stringify(retry.messages).includes('PRIVATE_PINNED_CANARY'), false);
   assert.equal(spokenText(state), opening + 'What should improve?');
   assert.equal(spokenText(state).split(opening).length - 1, 1);
@@ -866,8 +868,8 @@ test('AIT-381 r2: continuation context uses emitted speech including holding cop
   const committed = spokenText(state);
   assert.equal(committed, 'One moment, please. It sounds useful. ');
   reject.resolve(); await state.done;
-  assert.equal(h.started[1].messages.at(-1).role, 'assistant');
-  assert.equal(h.started[1].messages.at(-1).content, committed);
+  assert.equal(h.started[1].messages.at(-1).role, 'user');
+  assert.equal(JSON.parse(h.started[1].messages.at(-1).content).committedSpeech, committed);
   assert.equal(spokenText(state), committed + 'Who is affected?');
   assert.equal(spokenText(state).includes('Thank you.'), false);
 });
