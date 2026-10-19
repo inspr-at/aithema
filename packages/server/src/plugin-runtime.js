@@ -777,11 +777,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const current = storage.get(session.id), preset = current.processingPreset ?? 'best';
       if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash || current.consentRevision !== session.consentRevision) return false;
       const admitted = consentScope ?? (artifactId ? storage.conceptConsentScope?.(session.id, artifactId) : null);
-      if (admitted) return runtime.processingAllowed(session, admitted, { signal, deadlineAt });
-      // No stored scope means legacy provenance: resolve exactly its kind binding.
+      if (admitted && (admitted.plugin || consentScope)) return runtime.processingAllowed(session, admitted, { signal, deadlineAt });
+      // The shared local mock scope has no producer identity. Keep its existing
+      // configuration gate; external scopes already pin the exact producer.
+      // Legacy provenance also resolves exactly its kind binding.
       if (artifactId) {
         const artifact = current.concepts?.find(item => item.id === artifactId);
-        if (!artifact || artifact.consentPurpose) return false;
+        if (!artifact || artifact.consentPurpose && !admitted) return false;
         const raw = artifact.visuals
           ? choicesFor(preset)?.visuals.find(option => option.id === artifact.visuals && option.kind === selected)?.binding
           : presets[preset]?.bindings?.[selected];
