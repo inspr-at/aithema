@@ -134,7 +134,7 @@ test('AIT-380: a saved voice selection cannot start through a missing speech rou
 });
 
 // Fixture evidence is private host qualification, independent of START's provider allowlist.
-const qualifyVoiceFixture = raw => ({ ...raw, legal: { ...voiceBinding.legal,
+const qualifyVoiceFixture = ({ agentId, publicFacadeBaseUrl, ...raw }) => ({ ...raw, legal: { ...voiceBinding.legal,
   evidence: { ...voiceBinding.legal.evidence, model: raw.model, endpoint: raw.endpoint } } });
 // Exercise each configured transport independently and alongside another voice option.
 for (const manifest of [grokManifest, composedManifest]) {

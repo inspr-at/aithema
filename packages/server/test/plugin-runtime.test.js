@@ -732,5 +732,8 @@ test('AIT-380 round 2: separate reaction binding without effort accepts the offe
   const admission = await runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream',
     request: { system: 'Fixture', messages: [{ role: 'user', content: 'Hello' }] } });
   try { assert.equal(admission.engine.effort, 'high'); }
-  finally { admission.finish(); }
+  finally {
+    admission.options.report({ attemptId: admission.options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+    admission.finish();
+  }
 });
