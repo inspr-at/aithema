@@ -225,6 +225,11 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       // Bound admission through executor hand-off, without making PCM ingress
       // wait for a prior spoken turn to finish or extending the caller deadline.
       const handoff = voiceOperation(bounded, async ({ signal: admissionSignal }) => {
+        // An admitted typed turn is a visitor-confirmed interruption too.
+        // Fence queued/synthesizing audio and persist its provenance before
+        // the next turn takes its playback revision and commit checkpoint.
+        // Cached delivery retries returned above must not interrupt again.
+        silence('typed-interruption');
         // Host publication can succeed before admission or the final event
         // refuses this attempt. Derive its receipt identity from the delivery,
         // not the capture sequence, so retries (also after restart) dedupe it.

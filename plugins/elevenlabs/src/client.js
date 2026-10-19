@@ -635,10 +635,23 @@ export function createElevenLabsClient(ports = {}) {
         terminal: reason => { void close(reason).catch(() => {}); }, onEvent: event => emit(event),
         async renew(opts) {
           const previous = identity();
-          const ack = await voiceOperation({ ...opts,
+          const renewalOptions = { ...opts,
             signal: opts?.signal ? AbortSignal.any([opts.signal, commandCancellation.signal]) : commandCancellation.signal,
             deadlineAt: Math.min(opts?.deadlineAt ?? Infinity, grant.spendDeadlineAt, grant.browserLivenessDeadlineAt),
-          }, bounded => control.heartbeat(previous, bounded));
+          };
+          let ack;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try { ack = await voiceOperation(renewalOptions, bounded => control.heartbeat(previous, bounded)); break; }
+            catch (error) {
+              const transient = error?.status >= 500 || error?.code === 'deadline' || !error?.code && !error?.status;
+              if (conversation || generation !== 1 || ended || transportBlocked || renewalOptions.signal.aborted || !transient) throw error;
+              // No provider connection exists yet (possibly still in S1).
+              // Retry only this renewal within its original deadline/lease;
+              // replacing a nonexistent transport would cancel the prompt.
+              // Exhaustion defers to the next beat and the real lease expiry.
+              if (attempt === 2) return { acknowledged: true, deferred: true };
+            }
+          }
           if (!ended && !transportBlocked && grant.providerSessionId === previous.providerSessionId && Number.isFinite(ack?.browserLivenessDeadlineAt)) {
             grant = { ...grant, browserLivenessDeadlineAt: ack.browserLivenessDeadlineAt };
           }
