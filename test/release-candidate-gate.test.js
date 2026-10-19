@@ -203,3 +203,72 @@ test('tag refresh failure closes admission before reading releases', t => {
   refused(f.run(), /fetch|remote|repository/iu);
   assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')));
 });
+
+// The sequence claim comes from the tagged commit, never the current checkout
+// or the coordinate's lexical order. The competing tag need not have a marker.
+function competingRelease(f, coordinate, sequence, { contents = json({ ...version, version: coordinate, release_sequence: sequence }), remoteOnly = false } = {}) {
+  writeFileSync(join(f.root, 'release/version.json'), contents);
+  f.git(['add', 'release/version.json']);
+  f.git(['commit', '-qm', 'competing release claim', '--signoff']);
+  const tag = `v${coordinate}`;
+  f.git(['tag', '-a', tag, '-m', 'competing cut']);
+  f.git(['checkout', '--detach', f.commit]);
+  if (remoteOnly) {
+    f.git(['push', '-q', 'origin', `refs/tags/${tag}`]);
+    f.git(['tag', '-d', tag]);
+  }
+  return tag;
+}
+
+for (const coordinate of ['261019115959.0.0', '261019120001.0.0']) {
+  test(`candidate gate refuses another in-flight v-tag of sequence N: ${coordinate}`, t => {
+    const f = fixture(t); f.tag();
+    competingRelease(f, coordinate, version.release_sequence, { remoteOnly: true });
+    refused(f.run(), /in.flight.*sequence|sequence.*in.flight/iu);
+  });
+}
+
+test('a draft release leaves another v-tag of sequence N in flight', t => {
+  const f = fixture(t); f.tag();
+  const tag = competingRelease(f, '261019115959.0.0', version.release_sequence);
+  f.published([{ tag_name: tag, draft: true }]);
+  refused(f.run(), /in.flight.*sequence|sequence.*in.flight/iu);
+});
+
+test('a failed-terminal competing v-tag of sequence N permits admission', t => {
+  const f = fixture(t); f.tag();
+  const tag = competingRelease(f, '261019115959.0.0', version.release_sequence);
+  f.git(['tag', '-a', `release-failed/${tag}`, '-m', 'terminal failure']);
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+});
+
+for (const sequence of [version.release_sequence - 1, version.release_sequence + 1]) {
+  test(`an unpublished v-tag of another sequence (${sequence}) permits admission`, t => {
+    const f = fixture(t); f.tag();
+    competingRelease(f, '261019115959.0.0', sequence);
+    const result = f.run();
+    assert.equal(result.status, 0, result.stderr);
+  });
+}
+
+for (const [name, contents] of [
+  ['invalid JSON', '{broken JSON'],
+  ['missing sequence', json({ ...version, release_sequence: undefined })],
+  ['string sequence', json({ ...version, release_sequence: String(version.release_sequence) })],
+  ['zero sequence', json({ ...version, release_sequence: 0 })],
+  ['unsafe sequence', json({ ...version, release_sequence: Number.MAX_SAFE_INTEGER + 1 })],
+]) test(`another v-tag with unreadable sequence refuses: ${name}`, t => {
+  const f = fixture(t); f.tag();
+  competingRelease(f, '261019115959.0.0', undefined, { contents });
+  refused(f.run(), /unreadable.*sequence|sequence.*unreadable/iu);
+});
+
+test('another v-tag without version.json refuses admission', t => {
+  const f = fixture(t); f.tag();
+  f.git(['rm', 'release/version.json']);
+  f.git(['commit', '-qm', 'no release sequence source', '--signoff']);
+  f.git(['tag', 'v261019115959.0.0']);
+  f.git(['checkout', '--detach', f.commit]);
+  refused(f.run(), /unreadable.*sequence|sequence.*unreadable/iu);
+});
