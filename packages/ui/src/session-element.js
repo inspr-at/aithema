@@ -15,7 +15,7 @@ import { SETTINGS_OFF, isDynamicReason, isConsentReason, CONSENT_REASON } from '
 import { aiNotice } from '../../core/src/ai-notice.js';
 import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
-import { voiceTranscriptTransition } from './voice-transcript.js';
+import { voiceTranscriptTransition, paintVoiceInterruption } from './voice-transcript.js';
 import { styles } from './styles.js';
 import { actorRoleStyles } from './actor-role-styles.js';
 import { settingsStyles } from './settings-styles.js';
@@ -537,7 +537,7 @@ export class AithemaSession extends HTMLElement {
       state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
-      consentPresentation: this.#options.voicePresentation,
+      consentPresentation: this.#options.consentPresentation ?? this.#options.voicePresentation,
       consentDocument: async () => {
         const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/consent`, { headers: this.#headers() });
         if (!response.ok) throw new Error('Consent document unavailable');
@@ -1466,6 +1466,7 @@ export class AithemaSession extends HTMLElement {
         if (t.role === 'user' && !sign.firstChild) sign.innerHTML = icon('person');
         row.querySelector('.turn-text').textContent = t.erased ? copy.withdrawn : t.content;
         row.querySelector('.turn-text').removeAttribute('tabindex');
+        paintVoiceInterruption(row, t, copy);
         const focusQuestion = !t.erased && !t.withdrawn && t.role === 'assistant' && this.#clarifyReplies.get(t.focusRequestId);
         let meta = row.querySelector('.clarify-meta');
         if (focusQuestion) {
@@ -2374,7 +2375,7 @@ export class AithemaSession extends HTMLElement {
       this.receive(event);
       const voiceText = voiceSession && voiceSession === this.#rail.session && event.data.voiceCallId === voiceSession.callId;
       if (voiceText) {
-        await this.#rail.sendText(content);
+        await this.#rail.sendText(content, { deliveryId: this.#pending.clientEventId });
         if (sessionId !== this.#session.id) return;
       }
       if (!option && input.value === content) input.value = '';
@@ -2472,6 +2473,7 @@ export class AithemaSession extends HTMLElement {
         // A changed model, effort or preset supersedes the running reply on the server:
         // its partial text goes, and late fragments tagged with an older revision are ignored.
         const after = this.#session.settings;
+        if (settingsBefore?.voice !== after.voice) void this.#rail?.close('provider-changed');
         if (presetBefore !== this.#session.processingPreset || settingsBefore?.model !== after.model || settingsBefore?.effort !== after.effort) {
           this.#partials.clear(); this.#reasoningRevision = after.revision ?? 0;
         }
