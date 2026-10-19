@@ -3,7 +3,6 @@ import { featureConsentText, reasonSeparator } from './consent-line.js';
 
 // Shared with native browser hosts through the public display entrypoint.
 export { reasonSeparator };
-export { neutralBindingReason } from './reason-text.js';
 
 // Public names take precedence; unknown routes may use only a curated, localized host label.
 export const MODEL_DISPLAY_NAMES = Object.freeze({
