@@ -1253,3 +1253,15 @@ for (const kind of ['html', 'image']) for (const directed of [false, true]) test
   assert.equal(root.querySelector('.concept-html').artifact, null);
   assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
 });
+
+test('AIT-365 R2: a removal-only scoped save cannot use the lagging grant-document wait', async t => {
+  const { c, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html');
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  const fail = t.mock.method(view, 'failClosedConsent');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'], removed: ['html-drafts'] } });
+  await tick();
+  assert.equal(fail.mock.callCount(), 1, 'an authoritative removal-only delta is a withdrawal, even on a granted:true save');
+  assert.deepEqual(view.items, []);
+});
