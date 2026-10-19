@@ -62,9 +62,13 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
           window.replayRequests.push(request); if (window.replayUnavailable) throw Object.assign(new Error(), { code: 'provider' });
           return { kind: 'audio', audio: { format: 'pcm_16000', data: btoa('\0'.repeat(320_000)) } };
         } };
+      const finalAcknowledged = Promise.withResolvers();
       const client = createElevenLabsClient({ sdk, control, mediaDevices: {}, document,
         persistEvent: async event => { window.replayPersisted.push(event);
-          if (event.type === 'final') c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: event.turnId, role: event.role, content: event.text } });
+          if (event.type === 'final') {
+            c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: event.turnId, role: event.role, content: event.text } });
+            finalAcknowledged.resolve();
+          }
         } });
       c.configure({ copy, session, voiceClient: client, voicePresentation: client.manifest.presentation });
       const rail = window.replayRail; rail.feature = () => ({ available: true });
@@ -72,7 +76,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       if (!rail.session) throw new Error(`Replay fixture could not start: ${rail.errorKey}`);
       window.replayCallbacks.onModeChange({ mode: 'speaking' });
       window.replayCallbacks.onMessage({ role: 'agent', message: window.replayText, event_id: 2 });
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await finalAcknowledged.promise;
       window.replayCallbacks.onDisconnect();
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy); scrollTo(0, 0);
     }, locale);
@@ -164,21 +168,28 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false, 'pending reply keeps its disabled button');
     await capture('disabled');
     await page.evaluate(() => { window.replayRail.notices.recovery.lastReplyText = window.replayText; window.replayRail.render(); });
-    await shadow(page, c => { c.shadowRoot.querySelector('.turn:not(.user)').remove(); window.replayRail.render(); });
+    // Establish absence in the acknowledged session, so a queued repaint cannot
+    // restore a row removed only from the DOM. c.session is a snapshot clone.
+    await shadow(page, c => {
+      c.receive({ seq: c.session.seq + 1, type: 'turn.corrected', data: {
+        id: window.replayRail.notices.recovery.lastReplyTurnId, content: '', erased: true,
+      } });
+    });
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.turn:not(.user)').length), 0);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true, 'real recovery without a rendered assistant bubble hides replay');
     await shadow(page, c => {
-      const text = window.replayText; c.session.transcript.push({ id: 'old-identical-reply', role: 'assistant', content: text });
-      const row = document.createElement('li'); row.className = 'turn'; row.dataset.id = 'old-identical-reply';
-      const body = document.createElement('span'); body.className = 'turn-text'; body.textContent = text; row.append(body);
-      c.shadowRoot.querySelector('.transcript-shell ol').append(row); window.replayRail.render();
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: 'old-identical-reply', role: 'assistant', content: window.replayText,
+      } });
     });
-    // AIT-372: force a late acknowledgement between the fixture's DOM edit and
+    // AIT-372: force a late acknowledgement between the fixture transition and
     // its read. Any journal acknowledgement repaints the durable transcript.
     const repainted = await shadow(page, c => {
       const id = window.replayRail.notices.recovery.lastReplyTurnId;
       c.receive({ seq: c.session.seq + 1, type: 'turn.annotated', data: { id } });
       return [...c.shadowRoot.querySelectorAll('.turn:not(.user)')].map(row => row.dataset.id);
     });
+    assert.deepEqual(repainted, ['old-identical-reply'], 'only the other identical reply is rendered after acknowledgement');
     t.diagnostic(`AIT-372 forced acknowledgement rendered: ${JSON.stringify(repainted)}`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true, 'an older identical bubble cannot stand in for the acknowledged reply');
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').hidden), true);
