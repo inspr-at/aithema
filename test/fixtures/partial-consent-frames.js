@@ -230,5 +230,9 @@ export async function partialConsentFrames(t) {
     assert.deepEqual(await a.evaluate(() => view.items.map(i => i.id)), ['image'], 'covered images reopen without reload; withdrawn HTML stays gone');
     checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, recovered, retainedOpenable: true });
   });
-  if (evidence) await writeFile(join(evidence, 'ait364-checks.json'), JSON.stringify({ shots, checks }, null, 2));
+  if (evidence) {
+    const report = JSON.stringify({ spec: 'AIT-364 Tick v1.1', shots, checks }, null, 2);
+    await writeFile(join(evidence, 'ait364-checks.json'), report);
+    await writeFile(join(evidence, 'checks.json'), report);
+  }
 }

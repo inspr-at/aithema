@@ -109,6 +109,14 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 // outside trusted rolling-main timing history; no bin limits change.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 74);
+// AIT-364 v1.1: mbp2606 run 142aa936c7-79959 passed all 23 preview
+// tests, including the fail-closed HTTP/stalled-document viewports/recovery.
+// Full file top-level work: 15.340172292 + 49.269363583 + 6.804462292
+// + 10.460890042 = 81.874888209s; ceil(observed * 1.25) = 103s.
+// Keep this conservative diagnostic floor outside rolling-main history;
+// remeasure in PR CI without changing shard counts, ceilings or check names.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 103);
 // The same CI run, shard 5/7, passed all ten demo top-level tests in
 // 56.218506283s; ceil(*1.25) = 71s for the changed served-frame workload.
 // Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.
