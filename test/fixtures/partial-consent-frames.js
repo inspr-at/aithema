@@ -184,6 +184,8 @@ export async function partialConsentFrames(t) {
     await a.evaluate(async () => { c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas(); c.shadowRoot.querySelector('.concept-preview').focus(); view.open('image'); });
     await a.waitForFunction(() => c.shadowRoot.querySelector('.canvas-html').state === 'ready' && c.shadowRoot.querySelector('.concept-image').hasAttribute('src'));
     const baseline = await a.evaluate(() => boxes());
+    const layout = () => a.evaluate(() => Object.fromEntries(['.concept-access', '.concept-rail', '.concept-preview-slot', '.concept-preview', '.concept-preview-thumbs', '.concept-preview-glyph', '.concept-preview-text', '.concept-withdrawn'].map(s => { const n = c.shadowRoot.querySelector(s), b = n.getBoundingClientRect(), css = getComputedStyle(n); return [s, { width: b.width, columns: css.gridTemplateColumns, display: css.display, text: n.textContent, hidden: n.hidden }]; })));
+    const baselineLayout = await layout();
     await a.evaluate(() => {
       window.watchFailClosed = true;
       const schedule = window.setTimeout.bind(window);
@@ -207,6 +209,7 @@ export async function partialConsentFrames(t) {
     assert.equal(result.iframeCount, 0); assert.equal(result.open, false); assert.equal(result.focus, 'concept-preview');
     assert.equal(result.state, 'gone'); assert.equal(result.notice, 'Entwurf zurückgezogen'); assert.equal(result.live, 'polite');
     assert.ok(result.revoked.length > 0); assert.deepEqual(result.transcript, ['Keep this transcript.']);
+    if (JSON.stringify(await a.evaluate(() => boxes())) !== JSON.stringify(baseline)) t.diagnostic(JSON.stringify({ baselineLayout, failedLayout: await layout() }));
     assert.deepEqual(await a.evaluate(() => boxes()), baseline, 'fail-closed removal shifts 0 px');
     await a.evaluate(async () => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
     await a.mouse.move(-10, -10);

@@ -238,7 +238,9 @@ export class ConceptView {
       if (!partial) { this.#epoch++; this.#loads.clear(); }
       if (!partial || !valid.has(this.#backdropId)) this.clearBackdrop();
       clearTimeout(this.#withdrawnTimer);
-      this.#withdrawnKind = partial ? conceptKind(partial) : undefined;
+      // Keep the access reservation's kind when an earlier feature refusal
+      // already removed its latest item before the refresh deadline fired.
+      this.#withdrawnKind = partial ? this.#consentRefreshFailed ? this.#withdrawnKind ?? conceptKind(previous) : conceptKind(partial) : undefined;
       this.#withdrawnUntil = changedOwner || this.#consentRefreshFailed ? 0 : Date.now() + 4000;
       if (this.#withdrawnUntil) {
         this.#withdrawnTimer = setTimeout(() => {
