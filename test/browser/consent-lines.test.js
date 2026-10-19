@@ -1101,7 +1101,8 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
   await shadow(page, c => {
     const receive = c.receive.bind(c);
     c.receive = event => {
-      if (globalThis.delayedConsentEvents && event.type === 'consent.revised' && !event.data.granted) {
+      // Reconnects replay history; delay only a withdrawal receive() would apply.
+      if (globalThis.delayedConsentEvents && event.type === 'consent.revised' && !event.data.granted && event.seq > c.session.seq) {
         globalThis.delayedConsentEvents.push(event); return;
       }
       receive(event);
