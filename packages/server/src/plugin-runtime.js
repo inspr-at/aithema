@@ -130,6 +130,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   // combination at registration, then recheck the selected route at admission:
   // saved choices, host recovery and expired evidence cannot bypass this rule.
   const voiceConfigurationErrors = new Set();
+  const fastReactionRefusal = reason => Object.assign(new PluginError('not-admitted', reason), { reason: 'voice-host-unavailable' });
   function fastReactionReason(preset, model, voice) {
     if (localVoiceImplementation(registry.get(voice?.binding?.plugin))) return null;
     const reaction = model?.bindings.reaction, understanding = model?.bindings.understanding;
@@ -862,9 +863,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         session.processingPreset ?? 'best', 'voice', options);
       const current = storage.get(session.id);
       conversationLimits.assertOpen(session.id);
+      if (result.configurationError) throw fastReactionRefusal(result.configurationError);
       if (result.reason || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn ||
         (!allowPaused && current.paused) || voiceAuthorizationRevision(current) !== voiceAuthorizationRevision(session) ||
-        selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.configurationError ?? (result.reason === 'budget denied' ? 'host-limit' : result.reason ?? 'Session changed'));
+        selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason === 'budget denied' ? 'host-limit' : result.reason ?? 'Session changed');
       return result;
     },
     /** Publication resolves provenance against today's full binding gate. */
@@ -1059,7 +1061,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const selected = visualKind(session), html = lane === 'concept' && selected === 'html';
       if (lane === 'concept' && options.visualKind && options.visualKind !== selected) throw new PluginError('not-admitted', 'Visual kind changed');
       const result = await boundedEvaluate(purposeAssessment && session.pauseReason === 'purpose' ? { ...session, paused: false } : session, session.processingPreset ?? 'best', lane === 'concept' ? selected : lane === 'reaction' ? 'text' : 'analysis', { ...options, operation, costRequest: request });
-      if (result.reason) throw new PluginError(result.reason.startsWith('UI render limit reached') ? 'rate-limit' : 'not-admitted', result.configurationError ?? result.reason);
+      if (result.configurationError) throw fastReactionRefusal(result.configurationError);
+      if (result.reason) throw new PluginError(result.reason.startsWith('UI render limit reached') ? 'rate-limit' : 'not-admitted', result.reason);
       options.signal?.throwIfAborted();
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
       const { binding, plugin } = result;

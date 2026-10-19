@@ -6,6 +6,7 @@ import { createVoiceTurnOperations } from './voice-turns.js';
 import { createVoiceDiagnostics, voiceReconciliationAge } from './voice-observability.js';
 
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { 'cache-control': 'no-store', ...headers } });
+const voiceConfigurationRefused = error => error instanceof PluginError && error.code === 'not-admitted' && error.reason === 'voice-host-unavailable';
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events|takeover|replay)|/(replay))?$`, 'u');
 // Route declarations are adapter-owned; parameter syntax is shared by the mount.
@@ -243,6 +244,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     };
     void settle(); return closing;
   }
+  async function checkVoice(entry, session, options) {
+    try { return await runtime.checkVoice(session, options); }
+    catch (error) {
+      if (voiceConfigurationRefused(error)) void close(entry, error.reason, 'cancelled');
+      throw error;
+    }
+  }
   async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false, tabId = null, explicitResume = false) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
@@ -300,6 +308,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state } });
       return receipt(entry.call);
     } catch (error) {
+      if (voiceConfigurationRefused(error)) {
+        void close(entry, error.reason, 'cancelled');
+        if (!entry.call) publish(sessionId, { type: 'voice.state', data: { callId, state: 'ended', reason: error.reason } });
+      }
       revoke(entry); controller.abort(); if (!entry.call) entry.admission?.finish();
       if (!continuation && !entry.call) endAuthority(sessionId, callId);
       if (sessions.get(sessionId) === entry) sessions.delete(sessionId);
@@ -328,7 +340,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       // A trusted explicit Resume may establish its replacement transport while
       // the durable pause remains held. Input/reasoning still wait for Resume ack.
       const resuming = entry.explicitCompositionResume === true && (!entry.call || request.connectingRelay === true);
-      await runtime.checkVoice(session, { ...options, existingCall: true, allowPaused: resuming });
+      await checkVoice(entry, session, { ...options, existingCall: true, allowPaused: resuming });
       const fresh = sessionFor(entry);
       return !entry.closing && (!fresh.paused || resuming) && !fresh.consentWithdrawn &&
         voiceAuthorizationRevision(fresh) === voiceAuthorizationRevision(session);
@@ -384,7 +396,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       let session = sessionFor(entry);
       for (let retry = 0; ; retry++) {
         try {
-          await runtime.checkVoice(session, { ...options, existingCall: true });
+          await checkVoice(entry, session, { ...options, existingCall: true });
           // Build and admit from one snapshot, including input saved while the
           // voice check awaited. The facade must dispatch this admitted request.
           session = sessionFor(entry);
@@ -415,6 +427,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               request.safeguardRevision ? undefined : JSON.stringify(['voice', callId, messages.filter(message => message.role === 'user').length]));
           } };
         } catch (error) {
+          if (voiceConfigurationRefused(error)) { void close(entry, error.reason, 'cancelled'); throw error; }
           // sessionFor strictly fences ownership, consent and withdrawal before
           // considering a retry. Only append-only finals are benign at dispatch.
           let fresh;
@@ -480,7 +493,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return { acknowledged: true, paused: true };
     }
     const session = sessionFor(entry);
-    await runtime.checkVoice(session, { ...opts, allowPaused: true, existingCall: true });
+    await checkVoice(entry, session, { ...opts, allowPaused: true, existingCall: true });
     const ack = await entry.call.resume({ ...opts, guard: { authorizationRevision: voiceAuthorizationRevision(session) } });
     storage.transitionVoiceLifecycle(entry.sessionId, entry.callId, { type: 'resume-acknowledged' });
     return ack;
@@ -679,7 +692,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         const playbackActivity = action === 'events' && ['speaking', 'listening'].includes(body.event?.type);
         // Cleanup is always permitted. Every other command needs current binding coverage.
         try {
-          await runtime.checkVoice(session, { ...options(request), allowPaused: playbackActivity || ['resume', 'heartbeat', 'recover'].includes(action), existingCall: true });
+          await checkVoice(entry, session, { ...options(request), allowPaused: playbackActivity || ['resume', 'heartbeat', 'recover'].includes(action), existingCall: true });
           session = sessionFor(entry);
         } catch (error) {
           if (!(error instanceof ConflictError) && error.message !== 'session paused') void close(entry, 'call-authorization-lost', 'cancelled');
@@ -773,7 +786,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
-          ...(VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
+          ...(voiceConfigurationRefused(error) ? { reason: error.reason } : VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
           error.status === 429 && error.retryAfter !== undefined ? { 'retry-after': error.retryAfter } : {});
         return json({ error: 'voice-unavailable' }, 503);
       }
