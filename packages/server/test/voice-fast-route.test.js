@@ -100,7 +100,8 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
     assert.equal((await h.runtime.matrix(h.session)).best.voice.reason, 'binding evidence unverified');
     assert.equal((await h.runtime.catalog(h.session)).presets.best.voices[0].reason, 'binding evidence unverified');
     assert.equal(response.status, 403);
-    assert.deepEqual(await response.json(), { error: 'not-admitted' });
+    assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'voice-host-unavailable' });
+    assert.equal(h.storage.voiceLifecycle(h.session.id, 'refused').state, 'ended');
     assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
   });
 }
