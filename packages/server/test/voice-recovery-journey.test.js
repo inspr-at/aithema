@@ -15,7 +15,9 @@ import { eventProbe } from '../../../test/voice-test-events.js';
 test('AIT-382 / START-416: transport close, Pause, Resume, late settlement and a competing tab', { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
   const h = fixture(), window = new Window(), document = window.document;
-  const style = document.createElement('style'); style.textContent = styles; document.head.append(style);
+  // Happy DOM omits the browser's initial visibility value unless it is declared.
+  const style = document.createElement('style');
+  style.textContent = `html { visibility: visible; }\n${styles}`; document.head.append(style);
   const root = document.createElement('div'); root.className = 'audio-rail'; document.body.append(root);
   const requests = [], notices = eventProbe(), renders = eventProbe();
   let rail;
