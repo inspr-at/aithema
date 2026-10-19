@@ -13,12 +13,12 @@ invocations cannot change the negotiated format or saved voice. Preflight checks
 syntax and the selected voice, without proving voice ownership or availability.
 
 The component manifest keeps `id: voxtral` and STT/TTS kinds. The separate live
-pipeline manifest uses `id: voxtral-voice`. It describes the intended composed
-pipeline, not an assembled live provider. Both remain unqualified with unverified
+pipeline manifest uses `id: voxtral-voice`. It describes the assembled composed
+pipeline. Both remain unqualified with unverified
 processing locations and no heard-position receipt. The browser entrypoint exports
-metadata only through relative public source URLs, as required by the live manifest
-schema; client assembly remains deferred. AIT-331 adds the private account/evidence and regional authority described below;
-AIT-330 owns transport,
+`createVoxtralVoiceClient` and metadata through relative public source URLs, as
+required by the live manifest schema. AIT-331 adds the private account/evidence and regional authority described below;
+AIT-330 supplies transport,
 relay and browser assembly using `@inspr/aithema-server/composed-voice` exports
 and relative public browser source URLs under `script-src 'self'`. AIT-332 owns
 charging integration. The package stays `private: true` until AIT-339 includes it
@@ -58,8 +58,8 @@ calls, keys or paid runs.
 AIT-331 adds `createVoxtralProviderAuthority` and
 `validateVoxtralAccountConfiguration` on the server/root entrypoint, and
 `voxtralEndpoints` on server/root/configuration. The authority is an admission
-building block, without an assembled live provider. AIT-330 must merge
-`authority.ports.serverAdapter` into its server adapter, pass the actual selected
+building block. `createVoxtralVoiceProvider` merges
+`authority.ports.serverAdapter` into its server adapter. Pass the actual selected
 `componentBindings` and `plugins` for `stt`, `reasoning`, and `tts`, and list every
 host processor as `{ binding, plugin, operation }` in nonempty `hostProcessing`.
 Supply `consent.coverage` and an authoritative synchronous `getSession(id)`.
@@ -128,3 +128,53 @@ evidence cannot replace the visitor's consent.
 Until those records exist the EU option stays unavailable. Regional-only evidence
 is described as “Processed in Mistral's EU/EFTA region; account and control data may
 be processed elsewhere.” Global routing has no inference-location commitment.
+
+AIT-330 exports `createVoxtralVoiceProvider` and `createVoxtralTransports` on
+`/server` (and root). The provider requires `enabled: true`, the private account
+configuration, a zero-upstream parent binding, component bindings, reasoning
+plugin, complete host processing, consent, `getSession`, storage and explicit
+`resolveSecret`/`connect`/`fetchImpl` ports. Alternatively inject a server-side
+ws-compatible `WebSocket` constructor; it is never selected from globals.
+`createVoxtralTransports({ endpoint, WebSocket, fetchImpl })` returns both ports;
+its exact STT/TTS URL checks use AIT-331's allowlist and disable redirects.
+The saved regional origin is retained without any global fallback. Keys are
+resolved only inside server component invocation after a separately admitted claim.
+
+The ordinary voice mount supplies `bindCallbacks` authorities, including the
+current reasoning/session authorization and late-result fence. Provide a private
+`admitComponent(request)` port that returns a separately admitted speech claim;
+the assembly adds the immutable role binding and checks mounted authorization.
+No reservation formula or automatic speech charging is installed here (AIT-332).
+The adapter awaits component preflight before admission and start. A deadline
+while preflight is pending cannot consume a claim or resolve a credential.
+A supplied `authenticateRelay(request)` returns the existing authenticated owner;
+`relayOrigin` pins the host origin. The mount registers `POST /composed/relay`.
+No owner identity is taken from a grant or URL, and grants remain single-use.
+
+`createVoxtralVoiceClient({ control, network, audio })` uses the shared composed
+browser media, authenticated network relay, PCM capture and float32 player.
+The control port provides `start`, `close`, `pause`, `resume`, `heartbeat` and
+`recover` (plus `takeover` when offered by the host). Tests may inject `openRelay`,
+`capture`, and `player` instead. Construction starts no media. Existing lifecycle,
+input/output meters and `retryPlayback` remain available on the returned session;
+blocked playback invokes `onPlaybackBlocked` for the existing explicit retry gesture.
+The shared capture asset is available as
+`@inspr/aithema-server/composed-voice/pcm-capture-worklet.js` and is resolved by the
+shared capture factory relative to its own browser source URL. Serve that asset
+and its public module graph under the host's existing same-origin static mount.
+
+Server WebSocket reassembly is capped at 256,000 bytes; the application queue
+holds at most 16 messages and 512,000 bytes, and send buffering is capped too.
+SSE messages retain the shared wire ceiling, 1 MiB decoded-event ceiling and
+16,000,000-byte synthesis ceiling. Cancellation closes sockets, cancels readers,
+and closes/cancels late transport results. TTS preserves auth/rate-limit failures
+and safe moderation reasons: `tts-moderation-refused` for recognized machine
+markers, `tts-forbidden-or-moderation` for an otherwise unclassified HTTP 403.
+Provider text is never copied into those errors. A 403 alone does not distinguish
+authentication from content moderation; see the [Mistral speech guide](https://docs.mistral.ai/studio/audio/text_to_speech/speech).
+
+AIT-330's offline fixtures are `test/fixtures.js` (synthetic regional account,
+DPA and host chain), `test/wire.test.js` (request shapes and fragmented SSE),
+and `test/assembly.test.js` (injected WebSocket, relay grants and browser media).
+No fixture proves live qualification, acoustic quality, physical sample rate,
+latency, retention, regional availability or remote cancellation.

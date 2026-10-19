@@ -47,8 +47,10 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
       plugin: { manifest: snapshot(part.plugin?.manifest) }, operation: part.operation })));
   } catch { invalid = 'current Mistral account and complete host processing evidence required'; }
 
-  function linkReason(part, { preset, policy }, clock) {
-    const { role, binding, plugin, operation } = part;
+  function linkReason(part, { preset, policy, reasoningBinding }, clock) {
+    const { role, plugin, operation } = part;
+    const binding = role === 'reasoning' && part.binding
+      ? { ...part.binding, effort: reasoningBinding?.effort ?? part.binding.effort ?? 'none' } : part.binding;
     if (!binding || !plugin.manifest || plugin.manifest.id !== binding.plugin) return 'component binding mismatch';
     const model = plugin.manifest.models?.find(model => model.id === binding.model || model.id === '*');
     if (!operation || !model?.operations?.includes(operation)) return 'operation unsupported';
@@ -86,7 +88,7 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
       if (!reason) {
         try {
           reason = part.role === 'reasoning' && reasoningBinding !== undefined && !sameReasoning(reasoningBinding, part.binding)
-            ? SELECTED_REASONING : linkReason(part, { preset, policy }, clock);
+            ? SELECTED_REASONING : linkReason(part, { preset, policy, reasoningBinding }, clock);
         }
         catch { reason = 'invalid processing binding'; }
       }
@@ -97,7 +99,7 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
     // check must never turn international reasoning into an EU claim.
     let euEligible = !reason;
     if (euEligible) for (const part of parts) {
-      try { if (linkReason(part, { preset: 'eu', policy }, clock)) euEligible = false; }
+      try { if (linkReason(part, { preset: 'eu', policy, reasoningBinding }, clock)) euEligible = false; }
       catch { euEligible = false; }
     }
     return deepFreeze({ reason, available: reason === null, euEligible, links });

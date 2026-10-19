@@ -319,3 +319,32 @@ test('AIT-330: failed voice scope construction preserves other consent scopes', 
   assert.deepEqual(runtime.scopes(session), text);
   assert.deepEqual(runtime.scopes(session, { feature: 'voice' }), text, 'delegated reasoning still needs consent; broken voice scopes are omitted');
 });
+
+test('AIT-330: runtime effort choices admit the same reasoning identity', async t => {
+  const f = fixture(), storage = new SQLiteStorage(); t.after(() => storage.close());
+  const clock = Date.now(); f.setClock(clock); f.args.getSession = id => storage.get(id);
+  for (const b of [...Object.values(f.componentBindings), f.hostProcessing[0].binding]) {
+    b.legal.evidence.verifiedAt = clock - 1000; b.legal.evidence.expiresAt = clock + 60000;
+  }
+  const reasoningManifest = structuredClone(f.plugins.reasoning.manifest);
+  reasoningManifest.models[0].efforts = ['none', 'low'];
+  f.plugins.reasoning.manifest = reasoningManifest;
+  const authority = f.create(), parent = structuredClone(f.componentBindings.stt);
+  Object.assign(parent, { plugin: 'voxtral-voice', model: 'voxtral-voice', maxDurationSeconds: 120, upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
+  parent.legal.evidence.model = parent.model;
+  const session = storage.create({ ownerToken: 'owner', processingPreset: 'eu', settings: { model: 'mistral', effort: 'low', voice: 'voice', visuals: 'off' } });
+  const noDispatch = () => assert.fail('Matrix cannot dispatch');
+  const voice = { binding: parent, manifest, health: async () => ({ available: true }), start: noDispatch,
+    ports: { serverAdapter: { ...authority.ports.serverAdapter, binding: parent, validateConfig() {}, startSegment: noDispatch, stopSegment: noDispatch, reconciliationEvidence: noDispatch } } };
+  const reasoning = { ...f.plugins.reasoning, binding: f.componentBindings.reasoning, health: async () => ({ available: true }), stream: noDispatch, structured: noDispatch };
+  const registry = new PluginRegistry().register(voice).register(reasoning);
+  const settings = { plugins: ['voxtral-voice', 'mistral'], policy: f.request.policy,
+    choices: { models: [{ id: 'mistral', binding: f.componentBindings.reasoning, efforts: ['none', 'low'], effort: 'none' }],
+      voices: [{ id: 'voice', binding: parent }], defaults: { model: 'mistral', voice: 'voice', effort: 'none' } } };
+  const runtime = createPluginRuntime({ storage, registry, consent: f.consent, presets: { eu: settings } });
+  const matrix = await runtime.matrix(session);
+  assert.equal(matrix.eu.text.available, true, matrix.eu.text.reason);
+  assert.equal(matrix.eu.voice.available, true, matrix.eu.voice.reason);
+  assert.equal((await authority.admissionReason({ ...f.request, session, reasoningBinding: { ...f.componentBindings.reasoning, effort: 'low' } })), null);
+  assert.equal(authority.evaluate({ ...f.request, reasoningBinding: { ...f.componentBindings.reasoning, effort: 'unsupported' } }).reason, 'effort not supported');
+});
