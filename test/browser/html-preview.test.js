@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from './launch.js';
+// Dynamic fixtures must share a file-owned teardown, registered before tests run.
+import './shared-browser.js';
 import { HTML_PREVIEW_HOST_CSP, htmlPreviewHostPolicy, inspectHTML } from '@inspr/aithema-core';
 import { previewFixture } from '../fixtures/html-preview-route.js';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
