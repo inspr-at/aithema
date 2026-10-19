@@ -863,7 +863,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     await page.setViewport({ width, height: width === 390 ? 1000 : 900 });
     await page.goto(`${demo.url}/consent/?session=deadline&return=%2F%3Fsaved%3D1`, { waitUntil: 'networkidle0' });
     await page.evaluate(async ({ theme, locale, contract, voicePresentation }) => {
-      localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-demo-theme', theme);
+      localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-theme', theme);
       const [{ mountConsentPage }, { withDemoConsentCopy }, language] = await Promise.all([
         import('/demo/consent-page.js'), import('/demo/consent-copy.js'), import(`/packages/ui/src/i18n/${locale}.js`),
       ]);
@@ -893,7 +893,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       const selectors = ['#consent-status', '#status-text', '#retry', ...['top', 'bottom'].flatMap(position => ['[data-back]', '[data-revoke]', '[data-select-all]', '[data-grant]'].map(selector => `.consent-actions--${position} ${selector}`))];
       const range = document.createRange(); range.selectNodeContents(text);
       const rects = [...range.getClientRects()].filter(r => r.width > 0), lines = new Set(rects.map(r => r.y)).size;
-      return { state: status.dataset.state, text: text.textContent, copy: f.copy, action: action.textContent, focused: document.activeElement?.id,
+      return { state: status.dataset.state, text: text.textContent, copy: f.copy, action: action.textContent, focused: document.activeElement?.id, theme: document.documentElement.dataset.theme,
         polite: status.getAttribute('aria-live'), role: status.getAttribute('role'), checked: document.querySelectorAll('input:checked').length,
         grantDisabled: document.querySelector('[data-grant]').disabled, revokeDisabled: document.querySelector('[data-revoke]').disabled,
         fieldsDisabled: document.querySelector('fieldset').disabled, boxes: selectors.map(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return [r.x, r.y + scrollY, r.width, r.height]; }),
@@ -909,7 +909,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     };
     const validate = async (state, message, focus = false) => {
       const s = await snapshot(); assert.equal(s.state, state, label); assert.equal(s.text, s.copy[message], label);
-      assert.equal(s.polite, 'polite'); assert.equal(s.role, 'status');
+      assert.equal(s.polite, 'polite'); assert.equal(s.role, 'status'); assert.equal(s.theme, theme);
       if (focus) assert.equal(s.focused, 'retry', `${label}: focus goes to recovery action`);
       assert.ok(s.lines <= (width === 390 ? 2 : 1), `${label}/${state}: reserved text rows (${s.lines})`);
       assert.equal(s.textFits, true, `${label}/${state}: all copy fits`);
@@ -934,7 +934,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     // mount returns after its original timeout; the retried load settles separately.
     await page.waitForFunction(() => document.querySelector('#consent-status').dataset.state === 'ready');
     await page.evaluate(async () => { document.querySelector('[data-select-all]').click(); document.querySelector('[data-grant]').click(); await consentDeadline.flush(); });
-    const saving = await validate('saving', 'saving'); assert.equal(saving.revokeDisabled, false);
+    const saving = await validate('saving', 'saving'); assert.equal(saving.revokeDisabled, false); stable(loading, saving, 'C1-C2');
     await page.evaluate(() => consentDeadline.advance(9999)); assert.equal((await snapshot()).state, 'saving');
     await page.evaluate(() => consentDeadline.advance(1));
     const unknown = await validate('save-unconfirmed', 'saveUnconfirmed', true);
@@ -953,17 +953,19 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     await page.evaluate(async () => { const f = consentDeadline; f.returns.length = 0; await f.api.load(); document.querySelector('[data-grant]').click(); await f.flush(); });
     assert.equal((await snapshot()).revokeDisabled, false); await shot('C5');
     await page.evaluate(async () => { document.querySelector('[data-revoke]').click(); await consentDeadline.flush(); });
-    const withdrawal = await snapshot(); assert.equal(withdrawal.posts[2].aborted, true); assert.equal(withdrawal.posts[3].body.granted, false); assert.deepEqual(withdrawal.posts[3].body.processing.items, []);
+    const withdrawal = await snapshot(); stable(saving, withdrawal, 'C2-C5'); assert.equal(withdrawal.posts[2].aborted, true); assert.equal(withdrawal.posts[3].body.granted, false); assert.deepEqual(withdrawal.posts[3].body.processing.items, []);
     await page.evaluate(() => consentDeadline.advance(10000));
-    const withdrawn = await validate('withdraw-unconfirmed', 'withdrawUnconfirmed', true); await shot('C5-timeout');
+    const withdrawn = await validate('withdraw-unconfirmed', 'withdrawUnconfirmed', true); stable(saving, withdrawn, 'C5-timeout'); await shot('C5-timeout');
     await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
     const repeated = await snapshot(); assert.deepEqual(repeated.posts[4].body, repeated.posts[3].body);
     // One DOM text mutation per state entry, including repeated entries.
     const entries = await page.evaluate(() => consentDeadline.announcements);
     for (let i = 1; i < entries.length; i++) assert.notDeepEqual(entries[i], entries[i - 1], `${label}: no duplicate announcement`);
+    assert.deepEqual(Object.fromEntries(['loading', 'ready', 'saving', 'load-timeout', 'save-unconfirmed', 'withdraw-unconfirmed'].map(state => [state, entries.filter(e => e.state === state).length])),
+      { loading: 4, ready: 3, saving: 4, 'load-timeout': 1, 'save-unconfirmed': 2, 'withdraw-unconfirmed': 1 }, `${label}: one text mutation per entered state`);
     checks.push({ ...variant, loadDeadlineMs: 8000, saveDeadlineMs: 10000, withdrawDeadlineMs: 10000, focusTarget: '#retry',
       liveRegion: 'polite', liveRegionText: { C3: timedOut.text, C4: unknown.text, C5: withdrawn.text }, announcements: entries,
-      lateAnswerIgnored: true, rereadMatchNavigates: true, rereadMismatchEditable: true, noBlindRepost: true,
+      announcesOncePerState: true, lateAnswerIgnored: true, rereadMatchNavigates: true, rereadMismatchEditable: true, noBlindRepost: true,
       withdrawalAbortsSave: true, withdrawalReceived: true, withdrawalRetryIdempotent: true, noCheckedBoxesAfterLoadTimeout: true,
       targets44px: [...timedOut.boxes.slice(2), ...unknown.boxes.slice(2)].every(r => r[2] >= 44 && r[3] >= 44), movementPx: 0 });
     assert.equal(checks.at(-1).targets44px, true);

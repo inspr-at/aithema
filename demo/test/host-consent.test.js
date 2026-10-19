@@ -441,3 +441,23 @@ test('AIT-376: postJson passes the AbortSignal to the POST transport', async t =
   assert.equal(sent.method, 'POST'); assert.equal(sent.body, '{"granted":false}'); assert.equal(sent.signal, controller.signal);
   controller.abort(); await assert.rejects(request, { name: 'AbortError' });
 });
+
+
+test('AIT-376: a stalled reconciliation gets 8s and Retry retains the intended choice', async t => {
+  const p = await deadlinePage(t); p.choose(); void p.api.save(); await p.flush();
+  await p.clock.advance(10000); assert.equal(p.state(), 'save-unconfirmed');
+  p.stallGet = true; p.retry().click(); await p.flush();
+  await p.clock.advance(8000); assert.equal(p.state(), 'load-timeout');
+  assert.equal(p.document.querySelectorAll('input:checked').length, 0);
+  p.stallGet = false; p.selected = CONSENT_ITEMS.map(item => item.id);
+  p.retry().click(); await p.flush();
+  assert.deepEqual(p.returns, ['/?saved=1']); assert.equal(p.posts.length, 1);
+});
+
+test('AIT-376: withdrawal starts its own fresh deadline even 9s into saving', async t => {
+  const p = await deadlinePage(t); p.choose(); void p.api.save(); await p.flush();
+  await p.clock.advance(9000); p.document.querySelector('[data-revoke]').click(); await p.flush();
+  assert.equal(p.posts[0].signal.aborted, true); assert.equal(p.posts.length, 2);
+  await p.clock.advance(9999); assert.equal(p.state(), 'saving');
+  await p.clock.advance(1); assert.equal(p.state(), 'withdraw-unconfirmed'); assert.equal(p.posts[1].signal.aborted, true);
+});
