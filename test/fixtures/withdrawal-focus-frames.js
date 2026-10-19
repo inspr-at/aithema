@@ -33,7 +33,7 @@ export async function withdrawalFocusFrames(t) {
       hit=r.elementFromPoint(old.x,old.y),nb=box(notice),cb=box(chevron),overlaps=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
       return {focus:r.activeElement?.className,documentFocus:document.activeElement===c,focusVisible:!!r.activeElement&&visible(r.activeElement),
         notice:notice.textContent,noticeBox:nb,chevronBox:cb,gap:nb.top-cb.bottom,chevronOverlap:overlaps(nb,cb),
-        overlaps:[...r.querySelectorAll('.turn,.turn-role,.composer')].filter(n=>overlaps(nb,box(n))).map(n=>n.className),
+        overlaps:[...r.querySelectorAll('.turn,.speaker-name,.composer')].filter(n=>overlaps(nb,box(n))).map(n=>n.className),
         tileAbsent:!visible(tile),hitTile:!!hit?.closest('.concept-preview'),hit:hit?.className,
         hitTranscriptOrComposer:!!hit?.closest('.conversation,.transcript-shell,.composer-dock'),
         outline:getComputedStyle(notice).outlineStyle,layout:r.querySelector('.workspace').dataset.conceptLayout,boxes:boxes()};};
