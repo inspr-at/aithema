@@ -114,7 +114,10 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 // Full file top-level work: 15.340172292 + 49.269363583 + 6.804462292
 // + 10.460890042 = 81.874888209s; ceil(observed * 1.25) = 103s.
 // Keep this conservative diagnostic floor outside rolling-main history;
-// remeasure in PR CI without changing shard counts, ceilings or check names.
+// CI 39219688045 at 373cd96a, shard 7/7, passed all 23 preview tests:
+// 15.483274293 + 19.378860230 + 9.488300485 + 12.037914010
+// = 56.388349018s (ceil(*1.25) = 71s). Retain the slower remote floor;
+// shard counts, ceilings and check names stay unchanged.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 103);
 // The same CI run, shard 5/7, passed all ten demo top-level tests in

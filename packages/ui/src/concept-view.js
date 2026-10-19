@@ -209,6 +209,9 @@ export class ConceptView {
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
   failClosedConsent() {
     this.#consentRefreshFailed = true;
+    // A refusal may already have removed the last item. Its four-second
+    // notice must not expire or move focus while verification is closed.
+    clearTimeout(this.#withdrawnTimer); this.#withdrawnUntil = 0;
     this.update(this.#session);
   }
   update(session, consentDocument, consentVerified = false) {
