@@ -318,7 +318,15 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
         defaults: f.session.settings, models: [{ id: 'mock', label: 'Demo only: sample replies', efforts: ['none'], facts: {} }],
         voices: [{ id: 'elevenlabs', label: 'ElevenLabs', status: 'available', facts: publicFacts('ElevenLabs', 'elevenlabs', ['US'], ['US']) },
           { id: 'grok-voice', label: 'Grok Voice (xAI)', status: f.status, reason: f.status === 'consent' ? 'current processing consent required' : f.status === 'unavailable' ? 'not configured' : null,
-            facts: publicFacts('xAI', 'grok-voice', ['US'], null) }], visuals: [] } } });
+            facts: publicFacts('xAI', 'grok-voice', ['US'], null) }],
+        // Offline catalog choices make the lowest menu cross the body edge;
+        // an empty catalog only renders the short "Off" row and cannot do so.
+        visuals: [
+          { id: 'codex-imagegen', label: 'Codex image generation', kind: 'images', status: 'available', facts: { vendor: 'OpenAI' } },
+          { id: 'claude-html', label: 'Clickable draft', kind: 'html', status: 'available', facts: { vendor: 'Anthropic' } },
+          { id: 'fake-images', label: 'Demo only: sample images', kind: 'images', status: 'available', facts: {} },
+          { id: 'fake-html', label: 'Demo only: clickable draft', kind: 'html', status: 'available', facts: {} },
+        ] } } });
       editor = new SettingsDialog({ dialog, copy: locale === 'de' ? de : en, ports: {
         state: () => ({ session: f.session, voiceActive: f.active }), catalog: async () => f.catalog(),
         endCall: async () => { f.stops++; f.active = false; }, newConversation: () => f.starts++,
