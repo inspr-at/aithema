@@ -43,4 +43,3 @@ export function fixture() {
   return { config, componentBindings, plugins, hostProcessing, consent, covered, args, request, create,
     setClock: value => { clock = value; }, setSession: value => { session = value; } };
 }
-

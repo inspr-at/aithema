@@ -133,6 +133,7 @@ test('AIT-330: browser imports contain no credential or server transport graph a
   assert.match(source, /packages\/server\/src\/composed/u);
   const worklet = await readFile(new URL('../../../packages/server/src/composed/pcm-capture-worklet.js', import.meta.url), 'utf8');
   assert.match(worklet, /registerProcessor\('composed-pcm-capture'/u);
+  await import('@inspr/aithema-server/composed-voice/pcm-capture-worklet.js');
   assert.equal(import.meta.resolve('@inspr/aithema-server/composed-voice/pcm-capture-worklet.js'), new URL('../../../packages/server/src/composed/pcm-capture-worklet.js', import.meta.url).href);
 });
 
