@@ -133,22 +133,25 @@ test('AIT-380: a saved voice selection cannot start through a missing speech rou
   assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
 });
 
-// Exercise each configured transport independently and alongside ElevenLabs.
+// Fixture evidence is private host qualification, independent of START's provider allowlist.
+const qualifyVoiceFixture = raw => ({ ...raw, legal: { ...voiceBinding.legal,
+  evidence: { ...voiceBinding.legal.evidence, model: raw.model, endpoint: raw.endpoint } } });
+// Exercise each configured transport independently and alongside another voice option.
 for (const manifest of [grokManifest, composedManifest]) {
   const id = manifest.id, model = id === 'grok-voice' ? id : 'composed';
-  const binding = qualifyStartBinding({ ...voiceBinding, plugin: id, model, endpoint: `https://${id}.example.test` });
+  const binding = qualifyVoiceFixture({ ...voiceBinding, plugin: id, model, endpoint: `https://${id}.example.test` });
   const publicManifest = { ...manifest, kinds: ['live-voice'], models: manifest.models.filter(m => m.operations.includes('start')) };
   const plugin = { manifest: publicManifest, health: async () => ({ available: true }),
     start: () => assert.fail('refusal must precede voice start'),
     bind(raw) { return { ...this, binding: raw }; } };
-  for (const alongside of [false, true]) test(`AIT-380 round 2: ${id} ${alongside ? 'alongside ElevenLabs' : 'alone'} requires its fast reaction route`, async t => {
+  for (const alongside of [false, true]) test(`AIT-380 round 2: ${id} ${alongside ? 'alongside another voice option' : 'alone'} requires its fast reaction route`, async t => {
     const errors = []; t.mock.method(console, 'error', message => errors.push(message));
     const configured = openRouterConfig(values);
     const build = reaction => demoPresets({ provider: 'openrouter', reaction, understanding: configured.understanding,
       ...(id === 'grok-voice' ? { grokPlugin: plugin, grokBinding: binding,
         ...(alongside ? { voicePlugin: { manifest: { id: 'elevenlabs' } }, voiceBinding } : {}) }
         : { voicePlugin: plugin, voiceBinding: binding,
-          ...(alongside ? { grokPlugin: { manifest: { id: 'grok-voice' } }, grokBinding: qualifyStartBinding({ ...voiceBinding, plugin: 'grok-voice', model: 'grok-voice' }) } : {}) }),
+          ...(alongside ? { grokPlugin: { manifest: { id: 'grok-voice' } }, grokBinding: qualifyVoiceFixture({ ...voiceBinding, plugin: 'grok-voice', model: 'grok-voice' }) } : {}) }),
       policy: { endpoints: [reaction.endpoint, binding.endpoint, voiceBinding.endpoint] } });
     for (const reaction of [openRouterConfig({ ...values, OPENROUTER_SPEECH_MODEL: undefined }).reaction,
       { ...configured.reaction, effort: 'high' }, { ...configured.reaction, legal: undefined }]) {
