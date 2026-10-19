@@ -229,8 +229,14 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // Source: browser-timings-4-of-7/batch-0.jsonl. Preserve trusted rolling-main
 // history; this diagnostic floor supersedes the earlier 174.746s floor.
 // Shard count, ceiling, workflow and check names remain unchanged.
+// AIT-377 round 2: PR #335 CI 39278021621, head 93af88fe, shard 3/7:
+// six voice tests PASS, including real-current-client viewport evidence.
+// Complete file 169.072317337s; ceil(observed * 1.25) = 212s.
+// The expanded AIT-377 matrix alone is 20.913732296s; whole bin 329.831597003s.
+// Source: browser-timings-3-of-7/batch-0.jsonl. Supersedes the 206s round-1
+// floor; rolling-main history, shard count, ceiling and check names stay intact.
 browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
-  browserTestWeights['test/browser/voice-presentation.test.js'], 182);
+  browserTestWeights['test/browser/voice-presentation.test.js'], 212);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;

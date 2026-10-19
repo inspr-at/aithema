@@ -201,6 +201,8 @@ for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 
   let reconciling = false, delay = false, callsStarted = 0, firstCallId;
   const voiceClient = { async start({ callId }) {
     callsStarted++; firstCallId ??= callId; const events = voiceEvents();
+    // This fixture tests settlement, not AIT-377's silent-opener deadline.
+    events.push({ type: 'final', callId, role: 'assistant', text: 'Offline opener.', turnId: `opener-${callsStarted}` });
     return { callId, providerSessionId: `outage-${callsStarted}`, events,
       async setInput() {}, async setOutput() {}, async updateContext() {},
       async close() { events.end(); throw new Error('voice terminal unavailable'); } };
@@ -262,6 +264,8 @@ for (const copy of [de, en]) for (const lostTerminal of [false, true]) test(`AIT
   let identity;
   const voiceClient = { async start({ callId }) {
     identity = { callId, providerSessionId: 'fast-settle' }; const events = voiceEvents();
+    // A reply keeps the unchanged 15 s live-ledger assertion about settlement.
+    events.push({ type: 'final', callId, role: 'assistant', text: 'Offline opener.', turnId: 'fast-settle-opener' });
     return { ...identity, events, async setInput() {}, async setOutput() {}, async updateContext() {},
       async close() { events.end(); if (lostTerminal) throw new Error('terminal lost');
         return { closureConfirmed: false, reconciliationPending: true }; } };

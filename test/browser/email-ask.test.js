@@ -35,9 +35,9 @@ const stable = (before, after, label) => {
 
 // Only this test supplies fixture values. The shipped component reads every
 // tier, price, balance, address and ask record through its normal host routes.
-async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off' } = {}) {
+async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0 } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion } = options;
+    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs } = options;
     const canConfirm = delivery && confirmationEnabled;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
@@ -87,6 +87,8 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
         if (accepted) state.ask.revision = (state.ask.revision ?? 0) + 1;
         return Response.json({ accepted, emailAsk: state.ask, emailAskAfter: state.after, lowEmailAsk: state.lowClaim, nowMs: Date.now() });
       }
+      // The post-save credit refresh also reads consent before sending a link.
+      if (consentDelayMs && path.endsWith('/consent')) await new Promise(resolve => setTimeout(resolve, consentDelayMs));
       return window.ait164Fetch(url, init);
     };
     for (const n of c.querySelectorAll('[slot="legal"]')) n.remove();
@@ -108,7 +110,7 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `u${i}`, role: 'user', content: locale === 'de' ? 'Ja.' : 'Yes.' } });
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `a${i}`, role: 'assistant', content: locale === 'de' ? 'Wie soll es weitergehen?' : 'How would you like to continue?' } }); };
     if (voice) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion });
+  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs });
   await until(page, () => {
     const c = document.querySelector('aithema-session'), s = window.ait164;
     return s.creditsReads > 0 && s.visitorReads > 0 && s.identityReads > 0 &&
@@ -292,7 +294,8 @@ test('AIT-168: Settings saves only with confirmation disabled and saves plus req
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
   for (const locale of ['de', 'en']) for (const enabled of [false, true]) {
-    await fixture(page, locale, { delivery: true, confirmationEnabled: enabled });
+    // Keep the follow-up read pending beyond paint so save cannot stand in for completion.
+    await fixture(page, locale, { delivery: true, confirmationEnabled: enabled, consentDelayMs: 300 });
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').dataset.emailMode), enabled ? 'mail' : 'save');
@@ -304,6 +307,9 @@ test('AIT-168: Settings saves only with confirmation disabled and saves plus req
     }
     await until(page, () => window.ait164.address === 'settings@example.test');
     await settle(page);
+    // Saving the address is only the first acknowledgement. In mail mode the
+    // form stays busy through the credit/consent refresh and confirmation request.
+    if (enabled) await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog .verify-send').getAttribute('aria-disabled') === 'false');
     assert.deepEqual(await page.evaluate(() => window.ait164.requests), enabled ? ['save', 'link'] : ['save']);
     assert.equal(await page.evaluate(() => window.ait164.credits().tiers.current), 'emailGiven');
     if (!enabled) {

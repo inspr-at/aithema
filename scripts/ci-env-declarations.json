@@ -168,10 +168,13 @@
       "CI",
       "CI",
       "CI",
+      "CI",
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH",
       "GITHUB_EVENT_PATH",
       "GITHUB_EVENT_PATH"
     ],
-    "reason": "Linux headless Chrome sandbox selection and PR-head evidence provenance"
+    "reason": "Linux headless Chrome sandbox selection and AIT-179/AIT-302/AIT-377 PR-head evidence provenance"
   },
   "test/ci-slot-sharing.test.js": {
     "reads": [

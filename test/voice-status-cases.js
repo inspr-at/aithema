@@ -1,14 +1,16 @@
 import { isConsentReason } from '../packages/core/src/settings.js';
 
-// Every source used by AudioRail.render(), including translated admission refusals.
-export const voiceMessageKeys = ['voiceMicDenied', 'voiceMicMissing', 'voiceAdmissionDenied', 'voiceConflict', 'voiceDeadline',
+// Compact header variants retain the AIT-302 two-line visual contract.
+const compactVoiceMessageKeys = ['voiceMicDenied', 'voiceMicMissing', 'voiceAdmissionDenied', 'voiceConflict', 'voiceDeadline',
   'voiceConnectionFailed', 'voiceRecoveryFailed', 'voiceMoved', 'voiceClosureUncertain', 'voiceEnded', 'voicePauseFailed', 'voicePlaybackBlocked'];
+// Expanded S4/S5 callouts have their own full-copy viewport matrix in AIT-377.
+export const voiceMessageKeys = [...compactVoiceMessageKeys, 'voiceMicBusy', 'voiceMicUnavailable', 'voiceMicFailed', 'voiceNoReply'];
 export function voiceStatusCases(copy) {
   return [
     ...creditStatusCases(copy),
     { id: 'consent', full: copy.featureConsent.voice, kind: 'consent' },
     ...Object.entries(copy.voiceStates).map(([id, full]) => ({ id, full, kind: 'state' })),
-    ...voiceMessageKeys.map(id => ({ id, full: copy[id], kind: 'error' })),
+    ...compactVoiceMessageKeys.map(id => ({ id, full: copy[id], kind: 'error' })),
     { id: 'notConfigured', full: copy.notConfigured, kind: 'unavailable' },
     { id: 'unknown-host-reason', full: 'A host-defined availability explanation', kind: 'unavailable' },
     ...Object.entries(copy.reasons).map(([reason, full], index) => ({ id: `reason-${index}`, reason, full: isConsentReason(reason) ? copy.featureConsent.voice : full, kind: isConsentReason(reason) ? 'consent' : 'reason' })),

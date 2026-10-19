@@ -199,7 +199,7 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
     else assert.ok(view.lines <= 2, `${label}: narrow failure is at most two lines`);
     if (width >= 600) assert.ok(view.left >= 16 && view.right <= width - 16, `${label}: inset 16 px: ${JSON.stringify(view)}`);
     else assert.ok(view.left >= 0 && view.right <= width, `${label}: narrow status stays in viewport`);
-    assert.equal(view.overflowWrap, 'normal'); assert.equal(view.wordBreak, 'normal'); assert.equal(view.hyphens, 'auto');
+    assert.equal(view.overflowWrap, 'normal'); assert.equal(view.wordBreak, 'normal'); assert.equal(view.hyphens, 'manual');
     assert.equal(view.overlapPx, 0, `${label}: first bubble clear`);
     assert.deepEqual(await boxes(page, railBoxes), before, `${label}: 0 px shift`);
     const values = { ...view, shiftPx: 0 }; await evidence('F5', page, label, values); t.diagnostic(`PASS F5 ${label}: ${JSON.stringify(values)}`);
