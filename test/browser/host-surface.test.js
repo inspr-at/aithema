@@ -893,7 +893,9 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       const selectors = ['#consent-status', '#status-text', '#retry', ...['top', 'bottom'].flatMap(position => ['[data-back]', '[data-revoke]', '[data-select-all]', '[data-grant]'].map(selector => `.consent-actions--${position} ${selector}`))];
       const range = document.createRange(); range.selectNodeContents(text);
       const rects = [...range.getClientRects()].filter(r => r.width > 0), lines = new Set(rects.map(r => r.y)).size;
+      const actionRect = action.getBoundingClientRect();
       return { state: status.dataset.state, text: text.textContent, copy: f.copy, action: action.textContent, focused: document.activeElement?.id, theme: document.documentElement.dataset.theme,
+        actionVisible: actionRect.top >= 0 && actionRect.bottom <= innerHeight,
         polite: status.getAttribute('aria-live'), role: status.getAttribute('role'), checked: document.querySelectorAll('input:checked').length,
         grantDisabled: document.querySelector('[data-grant]').disabled, revokeDisabled: document.querySelector('[data-revoke]').disabled,
         fieldsDisabled: document.querySelector('fieldset').disabled, boxes: selectors.map(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return [r.x, r.y + scrollY, r.width, r.height]; }),
@@ -912,7 +914,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       assert.equal(s.polite, 'polite'); assert.equal(s.role, 'status'); assert.equal(s.theme, theme);
       if (focus) {
         assert.equal(s.focused, 'retry', `${label}: focus goes to recovery action`);
-        assert.equal(await page.$eval('#retry', node => { const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }), true, `${label}: focused recovery action is visible`);
+        assert.equal(s.actionVisible, true, `${label}: focused recovery action is visible`);
       }
       assert.ok(s.lines <= (width === 390 ? 2 : 1), `${label}/${state}: reserved text rows (${s.lines})`);
       assert.equal(s.textFits, true, `${label}/${state}: all copy fits`);
@@ -957,7 +959,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     assert.deepEqual((await snapshot()).returns, ['/?saved=1']); assert.equal((await snapshot()).posts.length, 2);
     await page.evaluate(async () => { const f = consentDeadline; f.returns.length = 0; await f.api.load(); document.querySelector('[data-grant]').click(); await f.flush(); });
     assert.equal((await snapshot()).revokeDisabled, false); await shot('C5');
-    await page.evaluate(async () => { document.querySelector('[data-revoke]').click(); await consentDeadline.flush(); });
+    await page.evaluate(async () => { const bottom = document.querySelector('.consent-actions--bottom [data-revoke]'); bottom.scrollIntoView({ block: 'center', behavior: 'instant' }); bottom.focus({ preventScroll: true }); bottom.click(); await consentDeadline.flush(); });
     const withdrawal = await snapshot(); stable(saving, withdrawal, 'C2-C5'); assert.equal(withdrawal.posts[2].aborted, true); assert.equal(withdrawal.posts[3].body.granted, false); assert.deepEqual(withdrawal.posts[3].body.processing.items, []);
     await page.evaluate(() => consentDeadline.advance(10000));
     const withdrawn = await validate('withdraw-unconfirmed', 'withdrawUnconfirmed', true); stable(saving, withdrawn, 'C5-timeout'); await shot('C5-timeout');
@@ -969,7 +971,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     assert.deepEqual(Object.fromEntries(['loading', 'ready', 'saving', 'load-timeout', 'save-unconfirmed', 'withdraw-unconfirmed'].map(state => [state, entries.filter(e => e.state === state).length])),
       { loading: 4, ready: 3, saving: 4, 'load-timeout': 1, 'save-unconfirmed': 2, 'withdraw-unconfirmed': 1 }, `${label}: one text mutation per entered state`);
     checks.push({ ...variant, loadDeadlineMs: 8000, saveDeadlineMs: 10000, withdrawDeadlineMs: 10000, focusTarget: '#retry',
-      liveRegion: 'polite', liveRegionText: { C3: timedOut.text, C4: unknown.text, C5: withdrawn.text }, announcements: entries,
+      focusVisible: [timedOut, unknown, withdrawn].every(s => s.actionVisible), liveRegion: 'polite', liveRegionText: { C3: timedOut.text, C4: unknown.text, C5: withdrawn.text }, announcements: entries,
       announcesOncePerState: true, lateAnswerIgnored: true, lateLoadIgnored: true, lateSaveIgnored: true, rereadMatchNavigates: true, rereadMismatchEditable: true, noBlindRepost: true,
       withdrawalAbortsSave: true, withdrawalReceived: true, withdrawalRetryIdempotent: true, noCheckedBoxesAfterLoadTimeout: true,
       targets44px: [...timedOut.boxes.slice(2), ...unknown.boxes.slice(2)].every(r => r[2] >= 44 && r[3] >= 44), movementPx: 0 });
@@ -988,6 +990,7 @@ test('AIT-376 round 2: every DE/EN status fits at 390, including stale failed an
   browser = await launch(directory, 'consent-fit'); const page = await browser.newPage();
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  if (evidence) await mkdir(evidence, { recursive: true });
   await page.setViewport({ width: 390, height: 1000 }); await page.setRequestInterception(true);
   page.on('request', request => { if (new URL(request.url()).pathname === '/demo/consent.js') void request.respond({ status: 200, contentType: 'text/javascript', body: '' }); else void request.continue(); });
   for (const locale of ['de', 'en']) {

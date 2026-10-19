@@ -29,7 +29,7 @@ export async function mountConsentPage({ document = globalThis.document, locatio
   const text = (selector, value) => { document.querySelector(selector).textContent = value; };
   const bundles = { de: withDemoConsentCopy(de), en: withDemoConsentCopy(en) };
   let copy = bundles[preferredLocale(storage)], binding, session, rendered, selected = [], hasGrant = false, busy = true, usable = false, retryAction;
-  let active, pendingChoice;
+  let active, pendingChoice, consentRevision;
   // Scope the reserved slots to this page. The shared host stylesheet is also
   // used by the conversation surface, outside this change's write set.
   const style = document.createElement('style');
@@ -38,10 +38,10 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     .consent-actions [data-revoke][hidden], #consent-status #retry[hidden] { display:inline-flex!important; visibility:hidden; }
     #consent-status { display:grid; grid-template-columns:minmax(0,1fr) 224px; gap:16px; align-items:center; min-height:44px; }
     #status-text { display:block; min-height:21px; }
-    #consent-status #retry { width:224px; min-height:44px; display:inline-flex; align-items:center; justify-content:flex-start; }
+    #consent-status #retry { width:224px; min-height:44px; scroll-margin-block:8px; display:inline-flex; align-items:center; justify-content:flex-start; }
     @media(max-width:600px) {
       .consent-actions [data-revoke] { width:100%; }
-      #consent-status { grid-template-columns:minmax(0,1fr); grid-template-rows:42px 44px; gap:4px; }
+      #consent-status { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(42px,auto) 44px; gap:4px; }
       #status-text { min-height:42px; font-size:13px; line-height:21px; }
     }`;
   document.head.append(style);
@@ -102,7 +102,9 @@ export async function mountConsentPage({ document = globalThis.document, locatio
   }
   function state(name, message, retry, focus = false) {
     status.dataset.state = name;
-    status.setAttribute('role', 'status');
+    const alert = ['failed', 'stale'].includes(name);
+    status.setAttribute('role', alert ? 'alert' : 'status');
+    status.setAttribute('aria-live', alert ? 'assertive' : 'polite');
     status.setAttribute('aria-atomic', 'false');
     // Updating only the text node once avoids repeated announcements on paint.
     if (document.querySelector('#status-text').textContent !== message) text('#status-text', message);
@@ -111,7 +113,10 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     action.setAttribute('aria-live', 'off');
     action.textContent = name === 'save-unconfirmed' ? copy.host.consentPage.loadCurrent : copy.host.consentPage.retry;
     action.hidden = !retry; action.disabled = !retry;
-    if (focus && retry) action.focus({ preventScroll: true });
+    if (focus && retry) {
+      action.focus({ preventScroll: true });
+      action.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    }
     updateActions();
   }
   function renderItems() {
@@ -144,7 +149,7 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     if (!response.ok) throw Object.assign(new Error('Request failed'), { status: response.status });
     return checked(operation, response.json());
   }
-  async function load(choice) {
+  async function load(choice, notSaved = false) {
     busy = true; usable = false;
     selected = []; fieldset.querySelectorAll('input').forEach(box => { box.checked = false; });
     paint(); state('loading', copy.host.consentPage.loading);
@@ -164,19 +169,20 @@ export async function mountConsentPage({ document = globalThis.document, locatio
         busy = false; state('unavailable', ''); return;
       }
       const current = await get(`/api/sessions/${id}/consent`, operation);
+      consentRevision = current.consentRevision ?? session.consentRevision ?? 0;
       if (choice && matchesChoice(current, choice)) { pendingChoice = null; saved(); return; }
       // The per-session contract is the authoritative current document.
       if (binding.processingConsent && current.contract) rendered = current;
       selected = current.selected ?? [];
       hasGrant = selected.length > 0; pendingChoice = null;
       usable = true; busy = false; renderItems(); paint();
-      state('ready', choice ? copy.host.consentPage.notSavedYet : session.consentWithdrawn ? copy.host.consentWithdrawn : selected.length ? binding.processingConsent ? copy.host.processingSaved : copy.host.consentAllowed : binding.processingConsent ? copy.host.processingWaiting : copy.host.consentRequired);
+      state('ready', choice || notSaved ? copy.host.consentPage.notSavedYet : session.consentWithdrawn ? copy.host.consentWithdrawn : selected.length ? binding.processingConsent ? copy.host.processingSaved : copy.host.consentAllowed : binding.processingConsent ? copy.host.processingWaiting : copy.host.consentRequired);
     } catch (error) {
       if (active !== operation) return;
       busy = false;
-      if (error.deadline) state('load-timeout', copy.host.consentPage.loadTimeout, () => load(choice), true);
+      if (error.deadline) state('load-timeout', copy.host.consentPage.loadTimeout, () => load(choice, notSaved), true);
       else if ([403, 404, 410].includes(error.status)) { session = null; state('missing', copy.host.consentPage.missing); }
-      else state('failed', copy.host.consentFailed, () => load(choice));
+      else state('failed', copy.host.consentFailed, () => load(choice, notSaved));
     } finally { finish(operation); }
   }
   async function save(withdraw = false) {
@@ -194,8 +200,16 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     busy = true; state('saving', copy.host.consentPage.saving);
     try {
       const response = await checked(operation, submit(`/api/sessions/${id}/consent`, { granted,
-        ...(binding.processingConsent ? { processing: { contract: rendered.contract, items } } : {}) }, { signal: operation.controller.signal }));
+        ...(!withdraw || binding.processingConsent ? { processing: {
+          ...(!withdraw ? { revision: consentRevision } : {}),
+          ...(binding.processingConsent ? { contract: rendered.contract, items } : {}) } } : {}) }, { signal: operation.controller.signal }));
       if (!response.ok) {
+        if (response.status === 409) {
+          const conflict = await checked(operation, response.json());
+          // The rejected write cannot be retried against an unseen revision.
+          // Re-read into an editable, explicitly unsaved state, even if equal.
+          if (conflict.error === 'consent-stale') { await load(undefined, true); return; }
+        }
         if (response.status === 409 && binding.processingConsent) {
           const current = await get(`/api/sessions/${id}/consent`, operation);
           if (current.contract !== rendered.contract) { busy = false; usable = false; state('stale', copy.host.consentPage.stale, () => load()); return; }
