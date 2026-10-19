@@ -1,6 +1,6 @@
-import { PluginError } from '@inspr/aithema-core/invocation';
-import { voiceEvents, voiceOperation, assertVoiceMediaGrant } from '@inspr/aithema-core/live-voice';
-import { voiceAuthorityLost, createVoiceLifecycleController } from '@inspr/aithema-core/voice-lifecycle-controller';
+import { PluginError } from '../../../core/src/invocation.js';
+import { voiceEvents, voiceOperation, assertVoiceMediaGrant } from '../../../core/src/live-voice.js';
+import { voiceAuthorityLost, createVoiceLifecycleController } from '../../../core/src/voice-lifecycle-controller.js';
 import { manifest } from './manifest.js';
 
 /** Host media ports supply physical capture/playback. Offline tests inject them;

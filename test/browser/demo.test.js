@@ -1115,16 +1115,29 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
   });
 
 // The shown draft: preview state, the revision its frame holds, and the viewer's words.
-const draftView = page => inShadow(page, c => {
-  const r = c.shadowRoot, preview = r.querySelector('.concept-html'), frame = preview.shadowRoot.querySelector('iframe');
-  return { state: preview.state, hidden: preview.hidden, revision: /Revision (\d+)/u.exec(frame?.getAttribute('srcdoc') ?? '')?.[1] ?? null,
-    sandbox: frame?.getAttribute('sandbox') ?? null, title: r.querySelector('#concept-title').textContent, count: r.querySelector('.concept-count').textContent,
-    label: preview.shadowRoot.querySelector('.label-text').textContent, image: !r.querySelector('.concept-image').hidden };
-});
-const waitDraft = (page, revision) => until(page, revision => {
-  const preview = document.querySelector('aithema-session').shadowRoot.querySelector('.concept-html');
-  return preview.state === 'ready' && preview.shadowRoot.querySelector('iframe')?.getAttribute('srcdoc').includes(`Revision ${revision}`);
-}, revision);
+const servedDraft = async page => {
+  const element = await page.$('aithema-session >>> .concept-html >>> iframe');
+  if (!element) return null;
+  const frame = await element.contentFrame(); await element.dispose();
+  await frame.waitForFunction(() => document.readyState === 'complete' && /Revision (\d+)/u.test(document.documentElement.outerHTML));
+  return frame;
+};
+const draftView = async page => {
+  const view = await inShadow(page, c => {
+    const r = c.shadowRoot, preview = r.querySelector('.concept-html'), frame = preview.shadowRoot.querySelector('iframe');
+    return { state: preview.state, hidden: preview.hidden, revision: null,
+      sandbox: frame?.getAttribute('sandbox') ?? null, title: r.querySelector('#concept-title').textContent, count: r.querySelector('.concept-count').textContent,
+      label: preview.shadowRoot.querySelector('.label-text').textContent, image: !r.querySelector('.concept-image').hidden };
+  });
+  const frame = await servedDraft(page);
+  if (frame) view.revision = await frame.evaluate(() => /Revision (\d+)/u.exec(document.documentElement.outerHTML)?.[1] ?? null);
+  return view;
+};
+const waitDraft = async (page, revision) => {
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-html').state === 'ready');
+  const frame = await servedDraft(page);
+  await frame.waitForFunction(revision => document.documentElement.outerHTML.includes(`Revision ${revision}`), {}, revision);
+};
 const VIEWER_CONTROLS = ['.concept-close', '.concept-count', '.concept-stage', '.concept-html', '.concept-previous', '.concept-next', '.concept-download',
   '.concept-regenerate', '.concept-up', '.concept-down', '.concept-reject', '.concept-guidance-options button'];
 const boxes = page => Promise.all(VIEWER_CONTROLS.map(selector => box(page, selector)));
@@ -1171,15 +1184,15 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     const problems = [];
     const watch = page => {
       page.on('pageerror', error => problems.push(`pageerror ${error.message}`));
-      // The preview's host-policy probe is blocked by design: that refusal proves frame-src 'none' is enforced.
-      page.on('console', message => { if (message.type() === 'error' && !/^Framing '' violates the following Content Security Policy directive: "frame-src 'none'"/u.test(message.text())) problems.push(`console ${message.text()}`); });
+      // The preview's host-policy probe is blocked by design: that refusal proves the exact route frame policy is enforced.
+      page.on('console', message => { if (message.type() === 'error' && !(message.text().startsWith("Framing '' violates") && message.text().includes(`frame-src ${demo.url}/_aithema/html-preview`))) problems.push(`console ${message.text()}`); });
       page.on('response', response => { if (response.status() >= 400) problems.push(`${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`); });
     };
     const page = await browser.newPage(); await preparePage(page, ['en-US', 'en']); watch(page);
     // Headless Chrome follows the machine's colour scheme; light and dark are each set explicitly.
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     const draftRequests = [];
-    page.on('request', request => { if (/\/concepts\/[^/]+\/(?:html|image)/u.test(request.url())) draftRequests.push([request.resourceType(), new URL(request.url()).pathname.split('/').at(-1)]); });
+    page.on('request', request => { if (/\/concepts\/[^/]+\/(?:html|image|preview)/u.test(request.url()) || new URL(request.url()).pathname === '/_aithema/html-preview') draftRequests.push([request.resourceType(), new URL(request.url()).pathname.split('/').at(-1)]); });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     // The mock's slot-filling turn earns the first milestone, so the request renders at once.
@@ -1198,11 +1211,11 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     }), { label: 'Open clickable draft', glyph: true, image: false }, 'the rail thumbnail is a draft glyph, never a live frame');
     await page.mouse.move(0, 0); await shot(page, 'en-light-1440-rail');
 
-    // The viewer renders the draft in the sandboxed preview from fetched bytes.
+    // The viewer renders the draft in the sandboxed preview from a fresh scoped route.
     await inShadow(page, c => c.shadowRoot.querySelector('.concept-tab').click());
     await waitDraft(page, 1);
     assert.deepEqual(await draftView(page), { state: 'ready', hidden: false, revision: '1', sandbox: 'allow-scripts', title: 'Draft revision 1', count: '1 of 1',
-      label: 'Draft — generated', image: false });
+      label: 'Draft, generated', image: false });
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-download').textContent), 'Download draft');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-disclosure').textContent), 'Demo only: clickable draft, local demo, no AI provider');
     await shot(page, 'en-light-1440-viewer');
@@ -1292,7 +1305,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open);
     assert.equal(await inShadow(page, (c, id) => c.session.concepts.find(item => item.id === id).archived, shown), true);
     await waitForShadow(page, '.concept-activity-text', { text: 'Draft revision 2 is ready.' });
-    assert.ok(draftRequests.length > 0 && draftRequests.every(([type, route]) => type === 'fetch' && route === 'html'), `drafts load as fetched data only: ${JSON.stringify(draftRequests)}`);
+    assert.ok(draftRequests.length > 0 && draftRequests.some(([type, route]) => type === 'document' && route === 'html-preview') && draftRequests.every(([type, route]) => type === 'fetch' && route === 'preview' || type === 'document' && route === 'html-preview'), `drafts mount fresh scoped route sources: ${JSON.stringify(draftRequests)}`);
     await page.mouse.move(0, 0); await shot(page, 'en-light-1440-after-reject');
     await page.setViewport({ width: 400, height: 800 }); await shot(page, 'en-light-400-rail');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]); await shot(page, 'en-dark-400-rail');
@@ -1314,7 +1327,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await inShadow(german, c => c.shadowRoot.querySelector('.concept-tab').click()); await waitDraft(german, 1);
     assert.deepEqual(await draftView(german), { state: 'ready', hidden: false, revision: '1', sandbox: 'allow-scripts', title: 'Entwurf, Fassung 1', count: '1 von 1',
       label: 'Entwurf, generiert', image: false });
-    assert.match(await inShadow(german, c => c.shadowRoot.querySelector('.concept-html').shadowRoot.querySelector('iframe').getAttribute('srcdoc')), /<p>Fassung 1<\/p>/u, 'the German draft says Fassung');
+    assert.match(await (await servedDraft(german)).evaluate(() => document.documentElement.outerHTML), /<p>Fassung 1<\/p>/u, 'the German draft says Fassung');
     assert.deepEqual(await inShadow(german, c => ['.concept-previous', '.concept-next', '.concept-download', '.concept-up', '.concept-reject', '.concept-close']
       .map(selector => c.shadowRoot.querySelector(selector).textContent)),
     ['Vorheriger', 'Nächster', 'Entwurf herunterladen', 'Gefällt mir', 'Ablehnen und ausblenden', 'Zurück zum Gespräch']);
@@ -1326,7 +1339,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await german.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]); await shot(german, 'de-light-400-viewer');
     await context.close();
     assert.deepEqual(problems, []);
-    t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
+    t.diagnostic(`Drafts: requested, rendered sandboxed from fresh scoped sources (${draftRequests.length} mint/document requests), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
   });
 
 test('document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)',

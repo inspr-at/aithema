@@ -1,4 +1,4 @@
-import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { deepFreeze } from '../../../core/src/plugins.js';
 export const manifest = deepFreeze({ id: 'composed-voice', version: '0.0.0', apiVersion: '^1.0.0', kinds: ['live-voice'],
   placement: 'server', entrypoints: { server: './src/server.js', browser: './src/client.js' },
   configSchema: { type: 'object', properties: {}, additionalProperties: true },

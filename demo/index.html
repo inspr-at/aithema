@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="script-src 'self'">
 <link rel="icon" href="data:,"><title>Aithema</title>
 <script src="/demo/theme-init.js"></script><link rel="stylesheet" href="/demo/host.css">
 </head><body class="conversation-page"><main class="aithema-shell"><aithema-session>
@@ -15,5 +15,4 @@
 <button id="outbox-open" type="button" aria-haspopup="dialog" data-demo-only hidden></button>
 <section id="fake-voice" hidden><p id="fake-label"></p><button id="fake-say" type="button"></button><button id="fake-interrupt" type="button"></button><button id="fake-disconnect" type="button"></button></section></aside><footer class="colophon"><a id="source" href="https://github.com/inspr-at/aithema">Quellcode</a><a id="license" href="https://github.com/inspr-at/aithema/blob/main/LICENSE">AGPL-3.0-only</a></footer><dialog id="outbox" aria-labelledby="outbox-title" data-demo-only><h2 id="outbox-title">Demo only: test email outbox</h2><p id="outbox-note"></p><p id="ai-notice"></p><ul id="outbox-list"></ul>
 <p id="outbox-status" role="status"></p><button id="outbox-close" type="button">Close</button></dialog>
-<script type="importmap">{"imports":{"@inspr/aithema-core/invocation":"/packages/core/src/invocation.js","@inspr/aithema-core/live-voice":"/packages/core/src/live-voice.js","@inspr/aithema-core/plugins":"/packages/core/src/plugins.js","@inspr/aithema-core/voice-lifecycle-controller":"/packages/core/src/voice-lifecycle-controller.js","@inspr/aithema-server/composed-voice/client":"/packages/server/src/composed/client.js","@inspr/aithema-server/composed-voice/network-client":"/packages/server/src/composed/network-client.js","@inspr/aithema-server/composed-voice/browser-audio":"/packages/server/src/composed/browser-audio.js"}}</script>
 <script type="module" src="/demo/host.js"></script></body></html>

@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
 import { browserForFile } from './shared-browser.js';
+import { previewDocument } from '../../packages/core/src/ui-html.js';
+import { previewConfiguration } from '../../packages/server/src/html-preview.js';
 import { a11yEvidenceMode } from './matrix-coverage.js';
 import { shadow, until, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 
@@ -35,6 +37,24 @@ export async function auditMainSurfaces(t, evidence) {
   await mkdir(evidence, { recursive: true });
   const axePath = createRequire(import.meta.url).resolve('axe-core/axe.min.js');
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  // Representative generated content is a local fixture; retain the production
+  // response CSP and a fresh consumed source for the opaque document audit.
+  let sequence = 0; const sources = new Set();
+  const representative = '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Evidence draft</title></head><body><h1>Invoice approval</h1><p>Local evidence fixture.</p><button type="button">Approve invoice</button></body></html>';
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/concepts/a11y-image/preview')) {
+      const cap = String(++sequence).padStart(43, 'a'); sources.add(cap);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ url: url.origin + '/_aithema/html-preview?cap=' + cap, expiresInMs: 60000 }) });
+    }
+    if (url.pathname === '/_aithema/html-preview') {
+      const valid = sources.delete(url.searchParams.get('cap'));
+      return request.respond({ status: valid ? 200 : 403, headers: { 'content-type': 'text/html', 'content-security-policy': previewConfiguration(url.origin + url.pathname).csp },
+        body: valid ? previewDocument(representative) : 'Forbidden' });
+    }
+    return request.continue();
+  });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await page.addScriptTag({ path: axePath });
@@ -102,7 +122,7 @@ export async function auditMainSurfaces(t, evidence) {
       c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      c.configure({ session, copy, ...(state.endsWith('voice') ? { voiceClient: {} } : {}), host: { credits: true, version: { version: '261015164601.0.0', version_scheme: 'inspr-calver-3',
+      c.configure({ session, copy, concepts: { previewURL: location.origin + '/_aithema/html-preview' }, ...(state.endsWith('voice') ? { voiceClient: {} } : {}), host: { credits: true, version: { version: '261015164601.0.0', version_scheme: 'inspr-calver-3',
         commit: 'c285d360', date: '2026-10-17T10:00:00Z' }, ...(role ? { actorRole: { labels } } : {}) } });
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       window.scrollTo(0, 0);

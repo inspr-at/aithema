@@ -663,7 +663,7 @@ The browser configures the element already present in that shell:
 import { AithemaSession } from '@inspr/aithema-ui';
 import { en } from '@inspr/aithema-ui/i18n/en';
 import { createVoiceControl } from '@inspr/aithema-ui/voice-control';
-import { AithemaHTMLPreview, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-ui/html-preview';
+import { AithemaHTMLPreview } from '@inspr/aithema-ui/html-preview';
 
 const token = crypto.randomUUID();
 const response = await fetch('/api/sessions', {
@@ -676,12 +676,12 @@ const element = document.querySelector('aithema-session');
 element.configure({ copy: en, session, sessionToken: token, baseUrl: '' });
 // Import registers <aithema-session> and <aithema-html-preview>.
 // createVoiceControl handles neutral voice commands; supply adapter clients separately.
-// Use HTML_PREVIEW_HOST_CSP when serving pages that embed generated HTML previews.
+// Configure concepts.previewURL and enforce htmlPreviewHostPolicy(previewURL), as below.
 ```
 
-AIT-352 adds an opt-in server contract for the forthcoming route-based preview
-component (AIT-353); the existing `srcdoc` component continues to use
-`HTML_PREVIEW_HOST_CSP` unchanged. Configure the public URL explicitly:
+AIT-352 and AIT-353 use an owner-minted route source for executable previews.
+Configure the same canonical public URL on the server and component; there is no
+raw `srcdoc` fallback:
 
 ```js
 import { htmlPreviewHostPolicy } from '@inspr/aithema-core';
@@ -689,6 +689,7 @@ const previewURL = 'https://start.example.test/_aithema/html-preview';
 const handlers = createHandlers({ /* storage, runtime, ownership, ... */
   concepts: { previewURL }
 });
+element.configure({ copy: en, session, sessionToken: token, concepts: { previewURL } });
 const previewFramePolicy = htmlPreviewHostPolicy(previewURL);
 // frame-src https://start.example.test/_aithema/html-preview; child-src 'none'
 ```
@@ -698,6 +699,20 @@ retaining its strict script policy. Use the canonical exact URL without a query,
 fragment, credentials or trailing slash. Do not keep another enforced
 `frame-src 'none'` policy when switching to the route. Missing server configuration
 disables minting; invalid configuration throws at startup.
+
+For a host with a hash-approved import map, the **page response header** can be:
+
+```http
+Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-<base64-SHA256-of-exact-import-map-bytes>'; frame-src https://start.example.test/_aithema/html-preview; child-src 'none'; object-src 'none'; base-uri 'self'
+```
+
+Replace the hash with the digest of the exact inline import-map text and keep
+startup code in external same-origin modules. Without an inline import map,
+`script-src 'self'` suffices, as in the demo. The component verifies the enforced
+frame policy with a scriptless `data:` frame probe; no head-meta declaration is
+required. Remove any legacy head meta with `frame-src 'none'`: enforced policies
+intersect, so an additional denial would still block the route. An overbroad
+`frame-src 'self'` or a report-only policy fails the component's policy check.
 
 The parent calls `POST /api/sessions/:id/concepts/:artifactId/preview` with its
 normal owner authentication (header-token or host cookie adapter). No body is
@@ -711,7 +726,8 @@ The parent mounts that URL in an iframe with `sandbox="allow-scripts"` and
 `allow-same-origin`, top navigation, forms, popups or downloads.
 
 `GET /_aithema/html-preview?cap=…` accepts only the capability, bypassing
-owner cookies/headers and host authentication middleware. Tokens contain 256
+owner cookies/headers and application session-auth middleware. A surrounding
+reverse-proxy basic-auth gate still applies, as shown below. Tokens contain 256
 CSPRNG bits, are stored only as hashes in a bounded process-local registry
 (default 1024 entries), and expire in 60 seconds measured by a monotonic clock.
 GET consumes the token before asynchronous checks. HEAD always returns `405`
@@ -745,6 +761,70 @@ redirects or sets cookies. Keep the exact path ahead of login/SPA fallbacks;
 strip cookies/owner headers and `Set-Cookie` at the reverse proxy, preserve the
 application CSP, and redact `cap` from access logs/analytics. Do not append the
 host page's script policy to preview responses or cache capability URLs.
+For the OPS Caddy deployment, put the **exact-path** preview handler inside the
+existing basic-auth gate, before the generic proxy. This example keeps that gate
+on every path; supply the existing password hash through Caddy's environment and
+retain the host's request-body limit. Set the host page CSP per page route,
+never as a global header that also lands on the preview response.
+
+```caddyfile
+start.example.test {
+    log {
+        format filter {
+            wrap json
+            fields {
+                request>uri query {
+                    replace cap REDACTED
+                }
+                request>headers>X-Aithema-Session-Token delete
+            }
+        }
+    }
+    handle {
+        basic_auth {
+            operator {$BASIC_AUTH_HASH}
+        }
+        request_body {
+            max_size 32MB
+        }
+        handle /_aithema/html-preview {
+            reverse_proxy 127.0.0.1:8093 {
+                header_up -Cookie
+                header_up -Authorization
+                header_up -X-Aithema-Session-Token
+                header_down -Set-Cookie
+                flush_interval -1
+            }
+        }
+        handle {
+            reverse_proxy 127.0.0.1:8093 {
+                flush_interval -1
+            }
+        }
+    }
+}
+```
+
+Do not use `handle_path` (it strips the path), a wildcard path matcher, a login
+redirect or an SPA fallback for this route. `Authorization` is checked at the
+outer basic-auth gate and removed before proxying the preview; `Cookie` and the
+owner token are removed too. The log filter redacts the `cap` query value in
+`request.uri` and deletes the custom session-token header, which Caddy does not
+redact by default. Apply equivalent redaction to any other access logs, traces or
+analytics; never log the full capability URL. No new signing secret is needed.
+
+The registry belongs to one server process. A restart invalidates outstanding
+capabilities. Multiple instances must send mint and redemption to the same
+process (for example with routing affinity); a capability minted elsewhere is
+refused, and the parent must request a new mint on retry. Do not solve routing
+misses or browser retries by making capabilities reusable. An already delivered
+draft cannot have its bytes recalled: the host must propagate withdrawal,
+consent revocation, erasure and session changes so the component removes it.
+The security guarantee is **no network; a self-reload is refused**. The initial
+capability redemption and an explicitly attempted self-reload reach the preview
+route; the latter receives a plain `403`. The sandbox and page CSP block outbound
+draft fetches, images, forms, popups, top navigation and other-page navigation.
+
 The raw owner-only `/html` download remains an octet-stream attachment with
 scripts disabled; standalone exports remain script-disabled too. Neither uses
 the readiness bootstrap or the preview response's digest.

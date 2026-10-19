@@ -1,8 +1,8 @@
-import { PluginError } from '@inspr/aithema-core/invocation';
-import { assertVoiceMediaGrant, voiceOperation } from '@inspr/aithema-core/live-voice';
-import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
-import { createNetworkRelayClient } from '@inspr/aithema-server/composed-voice/network-client';
-import { createPCMCapture, createPCMPlayer } from '@inspr/aithema-server/composed-voice/browser-audio';
+import { PluginError } from '../../../packages/core/src/invocation.js';
+import { assertVoiceMediaGrant, voiceOperation } from '../../../packages/core/src/live-voice.js';
+import { createComposedBrowserMedia } from '../../../packages/server/src/composed/client.js';
+import { createNetworkRelayClient } from '../../../packages/server/src/composed/network-client.js';
+import { createPCMCapture, createPCMPlayer } from '../../../packages/server/src/composed/browser-audio.js';
 import { manifest } from './manifest.js';
 export { manifest } from './manifest.js';
 

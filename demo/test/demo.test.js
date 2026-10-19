@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { startChild, temporaryDb, post } from '../../test/helpers.js';
-import { inputRevision } from '@inspr/aithema-core';
+import { inputRevision, htmlPreviewHostPolicy } from '@inspr/aithema-core';
 function rawStatus(url, options) {
   return new Promise((resolve, reject) => {
     const outgoing = request(url, options, response => { response.resume(); resolve(response.statusCode); });
@@ -16,14 +16,17 @@ test('demo serves native UI modules, labelled mock host and persistent handlers'
   assert.match(html, /<title>Aithema<\/title>/u);
   assert.match(html, /<html lang="de">/u);
   assert.match(html, /<aside class="demo-strip" data-demo-only hidden/u);
-  assert.equal(page.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
-  assert.match(html, /<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">/u);
+  const previewURL = running.url + '/_aithema/html-preview', expectedPolicy = `script-src 'self'; ${htmlPreviewHostPolicy(previewURL)}`;
+  assert.equal(page.headers.get('content-security-policy'), expectedPolicy);
+  assert.ok(html.includes('<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">'));
+  assert.doesNotMatch(html, /frame-src 'none'/u);
   for (const method of ['GET', 'HEAD']) {
     const response = await fetch(running.url + '/demo/index.html', { method });
-    assert.equal(response.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
+    assert.equal(response.headers.get('content-security-policy'), expectedPolicy);
     await response.body?.cancel();
   }
   const config = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.equal(config.previewURL, previewURL);
   assert.match(config.label, /Mock reasoning/); assert.equal(config.verificationRequired, false);
   for (const path of ['/demo/host.js', '/packages/ui/src/session-element.js', '/packages/ui/src/post-json.js', '/packages/ui/src/i18n/en.js', '/packages/core/src/readiness.js', '/plugins/device/src/index.js', '/packages/core/src/chat-completions.js', '/packages/core/src/plugins.js', '/packages/core/src/invocation.js', '/packages/core/src/presets.js']) {
     const r = await fetch(running.url + path); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /javascript/);
@@ -90,6 +93,13 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
   for (const headers of [{}, { 'content-type': 'text/plain' }, { 'content-type': 'application/jsonp' }]) {
     assert.equal((await fetch(running.url + '/api/sessions', { method: 'POST', headers, body: '{}' })).status, 415);
   }
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const cookie = created.headers.get('set-cookie').split(';')[0];
+  const mintURL = running.url + `/api/sessions/${session.id}/concepts/fixture/preview`;
+  for (const headers of [{}, { 'content-type': 'text/plain' }, { 'content-type': 'application/jsonp' }]) {
+    assert.equal((await fetch(mintURL, { method: 'POST', headers: { cookie, ...headers }, body: '{}' })).status, 415,
+      'owner preview mints have the same JSON-only guard as other owner POSTs');
+  }
   assert.equal((await fetch(running.url + '/api/sessions', { method: 'POST',
     headers: { 'content-type': 'application/json; charset=utf-8' }, body: '{}' })).status, 201);
 });
@@ -130,6 +140,14 @@ test('postJson sends the JSON content type the server requires', async t => {
     ['/api/sessions', 'POST', 'application/json', '{}'],
     ['/api/sessions/s/turns', 'POST', 'application/json', '{"clientEventId":"c","content":"Hello"}'],
   ]);
+});
+test('preview mints use the common JSON mutation helper with no-store and redirect refusal', async t => {
+  const { postJson } = await import('../../packages/ui/src/post-json.js');
+  let init; t.mock.method(globalThis, 'fetch', async (_url, options) => { init = options; return Response.json({}); });
+  const controller = new AbortController();
+  await postJson('/api/sessions/s/concepts/a/preview', {}, { sessionToken: 'fixture-owner', signal: controller.signal, cache: 'no-store', redirect: 'error' });
+  assert.equal(init.cache, 'no-store'); assert.equal(init.redirect, 'error'); assert.equal(init.signal, controller.signal);
+  assert.equal(init.method, 'POST'); assert.equal(init.body, '{}'); assert.equal(init.headers['x-aithema-session-token'], 'fixture-owner');
 });
 test('client JavaScript mutations use postJson except native operator logout and configured Paimos handoff', async () => {
   const { readFile } = await import('node:fs/promises');
