@@ -74,8 +74,6 @@ export async function sessionCreditsCheck(t) {
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       document.documentElement.lang = locale;
       c.configure({ copy, session, host: { credits: true, verification: canCollect } });
-      // Keep the popup open for settled viewport evidence and row geometry.
-      c.shadowRoot.querySelector('.host-credits').setAttribute('data-pinned', '');
       f.expected = state === 'k5' ? '0' : new Intl.NumberFormat(locale).format(limitMicro / 10_000);
     }, { state, locale, theme, switchTo, equal, canCollect, upgrade });
     await until(page, () => {
@@ -83,6 +81,7 @@ export async function sessionCreditsCheck(t) {
       return root.querySelector('.host-credits__value').textContent === window.ait395.expected &&
         (root.querySelector('.credits-email').hidden || root.querySelector('.credits-email').textContent.length > 0);
     });
+    await shadow(page, c => { c.shadowRoot.querySelector('.host-credits__button').click(); });
     await settle();
   };
   const measure = () => shadow(page, c => {

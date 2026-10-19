@@ -295,6 +295,7 @@ export class HostSurface {
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
     const scoped = this.#credits?.scope === 'session', capped = scoped && this.#credits.dailyCapReached;
     line.toggleAttribute('data-session-credits', scoped); line.toggleAttribute('data-daily-cap', capped);
+    setText(line.querySelector('.host-credits__measure-cap'), scoped ? c.dailyCapShort : '');
     const tierText = text => scoped ? text.replace(/ Credits/gu, '\u00a0Credits') : text;
     const reservedLimit = owner ? Math.max(owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger)) : null;
     const warningLimit = this.#credits?.lowAtMaxMicro ?? this.#credits?.lowAtMicro;

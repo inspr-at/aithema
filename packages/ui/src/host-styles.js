@@ -197,6 +197,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
 /* Footer labels share a cell. The track and the neighboring controls never move. */
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
+.host-credits__measure-cap { visibility:hidden; white-space:nowrap; }
 .host-credits__stack { display:grid; justify-items:center; }
 .host-credits__stack > * { grid-area:1/1; }
 /* Keep both numeric slots and the unit at the reserved start. */

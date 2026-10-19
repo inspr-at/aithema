@@ -790,3 +790,20 @@ test('AIT-395: callbacks ignoring context keep the complete owner-wide receipt s
   assert.deepEqual(await (await f.call(`/api/sessions/${s.id}/credits`)).json(), before);
   assert.equal(Object.hasOwn(before, 'scope'), false);
 });
+
+for (const privacy of [false, true]) test(`AIT-395: session tier offers respect daily cap and privacy (privacy ${privacy})`, async t => {
+  const f = fixture(t, { demo: false, privacyDocumentConfigured: privacy }), s = await f.create();
+  const wallet = f.host.wallet(owner);
+  t.mock.method(f.host, 'wallet', () => Object.create(wallet, { creditScope: { value: 'session' } }));
+  let dailyCapReached = true;
+  t.mock.method(f.host, 'creditTiers', () => ({ current: 'emailGiven', next: 'emailConfirmed', delta: 7_500_000, canConfirm: true, dailyCapReached,
+    allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: 10_000_000 } }));
+  for (const capped of [true, false]) {
+    dailyCapReached = capped;
+    const receipt = await (await f.call(`/api/sessions/${s.id}/credits`)).json();
+    assert.equal(receipt.dailyCapReached, capped);
+    assert.equal(receipt.tiers.next, !capped && privacy ? 'emailConfirmed' : null);
+    assert.equal(receipt.tiers.delta, !capped && privacy ? 7_500_000 : 0);
+    assert.equal(receipt.tiers.canConfirm, !capped && privacy);
+  }
+});
