@@ -2,7 +2,7 @@
   "name": "@inspr/aithema-plugin-voxtral",
   "private": true,
   "type": "module",
-  "version": "261019093518.0.0",
+  "version": "261019131804.0.0",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=24"
@@ -16,8 +16,8 @@
     "./client": "./src/client.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261019093518.0.0",
-    "@inspr/aithema-server": "261019093518.0.0"
+    "@inspr/aithema-core": "261019131804.0.0",
+    "@inspr/aithema-server": "261019131804.0.0"
   },
   "files": [
     "src/"
