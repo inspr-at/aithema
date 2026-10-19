@@ -243,3 +243,16 @@ for (const initial of [[], ['models', 'drafts', 'images']]) test(`AIT-365: chang
   assert.deepEqual(Object.keys(event.data).sort(), ['at', 'changed', 'conversationUnchanged', 'granted']);
   assert.doesNotMatch(JSON.stringify(event), /private-|Private|"drafts"/u, 'scope names only; no document data');
 });
+
+for (const describe of [() => ({ selected: [] }), () => { throw new Error('Legacy read unavailable'); }]) test('AIT-365: optional scope enrichment preserves legacy grant POSTs', async t => {
+  const storage = new SQLiteStorage(); let grants = 0;
+  const handlers = createHandlers({ storage, consent: { coverage: () => ({ covered: false }), describe, grant: () => { grants++; return true; } } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }),
+  }));
+  assert.equal(response.status, 200); assert.equal(grants, 1);
+  assert.equal(Object.hasOwn((await response.json()).event.data, 'changed'), false);
+  assert.equal(storage.get(session.id).consentRevision, 1);
+});

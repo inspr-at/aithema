@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createSession, applyEvent } from '../../packages/core/src/index.js';
 
 // Reuses AIT-364's browser, page and offline server within its measured file.
-export async function scopedConsentEdges({ t, a, session, setSession, setSelected, features, url, evidence }) {
+export async function scopedConsentEdges({ t, a, isCI, session, setSession, setSelected, features, url, evidence }) {
   const checks = [], shots = [];
   const heldRead = async () => {
     for (let i = 0; i < 300 && !a.heldConsentRead; i++) await new Promise(resolve => setTimeout(resolve, 10));
@@ -62,7 +62,7 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
     assert.equal(immediate.images.includes(kind), false, 'all revoked image src values are removed synchronously');
     if (kind === 'html') assert.equal(immediate.iframeCount, 0);
     assert.deepEqual(immediate.ids, [kind === 'html' ? 'image' : 'html']);
-    assert.ok(immediate.eventToRemovalMs < (process.env.CI ? 50 : 5), `eventToRemovalMs=${immediate.eventToRemovalMs}`);
+    assert.ok(immediate.eventToRemovalMs < (isCI ? 50 : 5), `eventToRemovalMs=${immediate.eventToRemovalMs}`);
     assert.deepEqual(immediate.geometry, baseline, 'event moves thread/composer/rail/header/access/canvas 0 px');
     await capture(width, `scoped-${kind}`);
     await releaseSnapshots(); await a.waitForFunction(() => window.verifiedRevision === c.session.consentRevision);

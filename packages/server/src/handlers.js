@@ -624,7 +624,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (revision !== current.consentRevision) throw new ConsentConflictError(revision);
           };
           // Compare authoritative documents, never the caller's claimed changed scopes.
-          const previousDocument = body.granted && consent.describe ? await consentDocument(current) : null;
+          let previousDocument;
+          if (body.granted && consent.describe) {
+            try { previousDocument = await consentDocument(current); }
+            catch (error) {
+              // Legacy grant-only hosts may expose an older describe shape.
+              // Preserve their POST contract; Settings still requires a valid editor document.
+              if (body.intent === 'settings-save' && body.processing) throw error;
+            }
+          }
           checkCurrent();
           // The editor names withdrawal explicitly; existing host ledger updates keep their cascade.
           if (body.intent === 'settings-save' && body.granted && body.processing && consent.describe) {
@@ -647,11 +655,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             // Revision-bound host ledgers have staged the accepted grant at the next
             // revision; this read precedes the atomic journal commit.
             const nextRevision = current.consentRevision + 1;
-            const nextDocument = await consentDocument({ ...current, consentRevision: nextRevision }, { consentRevision: nextRevision, granted: true });
+            try {
+              const nextDocument = await consentDocument({ ...current, consentRevision: nextRevision }, { consentRevision: nextRevision, granted: true });
+              const covered = (doc, feature) => (doc.features[feature] ?? []).every(id => doc.selected.includes(id));
+              changed = FEATURES.filter(feature => covered(previousDocument, feature) !== covered(nextDocument, feature))
+                .map(feature => feature === 'html' ? 'html-drafts' : feature);
+            } catch { /* An unavailable enrichment read retains the legacy event/refresh path. */ }
             checkCurrent();
-            const covered = (doc, feature) => (doc.features[feature] ?? []).every(id => doc.selected.includes(id));
-            changed = FEATURES.filter(feature => covered(previousDocument, feature) !== covered(nextDocument, feature))
-              .map(feature => feature === 'html' ? 'html-drafts' : feature);
           }
           const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged, changed });
           if (event.data.conversationUnchanged) {

@@ -11,7 +11,7 @@ import { browserForFile } from '../browser/shared-browser.js';
 import { installConsentClock } from './consent-clock.js';
 import { scopedConsentEdges } from './scoped-consent-edges.js';
 
-export async function partialConsentFrames(t) {
+export async function partialConsentFrames(t, { isCI } = {}) {
   const startedAt = performance.now();
   const root = new URL('../../', import.meta.url).pathname, streams = new Set(), preview = previewFixture();
   let session, selected, eventChanged, mints = 0;
@@ -242,7 +242,7 @@ export async function partialConsentFrames(t) {
     assert.deepEqual(await a.evaluate(() => view.items.map(i => i.id)), ['image'], 'covered images reopen without reload; withdrawn HTML stays gone');
     checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, changed, state: 'E2', ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, automaticRecovery: true, recovered, retainedOpenable: true });
   });
-  const scoped = await scopedConsentEdges({ t, a, session: () => session, setSession: value => { session = value; }, setSelected: value => { selected = value; }, features, url: `http://127.0.0.1:${server.address().port}/`, evidence });
+  const scoped = await scopedConsentEdges({ t, a, isCI, session: () => session, setSession: value => { session = value; }, setSelected: value => { selected = value; }, features, url: `http://127.0.0.1:${server.address().port}/`, evidence });
   if (evidence) {
     await writeFile(join(evidence, 'ait365-checks.json'), JSON.stringify({ spec: 'AIT-365 Tick v1', shots: scoped.shots, checks: [...checks.filter(c => c.state === 'E2'), ...scoped.checks], controlledClock: true, totalWallTimeMs: performance.now() - startedAt }, null, 2));
     const report = JSON.stringify({ spec: 'AIT-364 Tick v1.1', shots, checks, controlledClock: true, totalWallTimeMs: performance.now() - startedAt }, null, 2);

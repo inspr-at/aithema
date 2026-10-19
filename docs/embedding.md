@@ -1111,7 +1111,7 @@ processing and mock ledgers support this context. Ledgers whose `describe`
 already returns the accepted selection can ignore the second argument.
 
 The field is optional for backward compatibility: hosts without `describe`,
-legacy events and full withdrawals retain the previous shape. Full withdrawals
+legacy/unavailable documents, legacy events and full withdrawals retain the previous shape. Full withdrawals
 bypass host document reads so host latency cannot delay revocation. Existing
 consumers can ignore `changed`. The UI removes a known withdrawn artifact kind
 synchronously in the handler, then verifies through the normal refresh. A
