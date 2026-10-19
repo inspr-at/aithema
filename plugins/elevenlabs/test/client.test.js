@@ -449,7 +449,9 @@ test('AIT-383: real server lease stays open through a 60 s permission prompt and
 
 test('AIT-383 round 3: one heartbeat hiccup during the prompt retries without cancelling startup', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
-  const permission = Promise.withResolvers(), local = fixture(), start = local.control.start,
+  // Isolate one permission decision; the default fixture separately covers
+  // the SDK's preliminary acquisition followed by its main input acquisition.
+  const permission = Promise.withResolvers(), local = fixture({ sdk: fakeSdk({ preliminaryCapture: false }) }), start = local.control.start,
     heartbeat = local.control.heartbeat, phases = [];
   let renewals = 0, recoveries = 0, closures = 0, session;
   local.sdk.beforeAcquire = () => permission.promise;
