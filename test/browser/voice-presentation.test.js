@@ -470,3 +470,113 @@ test('AIT-361: both provider fixtures, failure anchors, disabled Pause and retry
   const { checkVoiceFailures } = await import('./voice-failure-helpers.js');
   await checkVoiceFailures(t);
 });
+
+test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', { timeout: 90_000 }, async t => {
+  const { execFile } = await import('node:child_process'), { promisify } = await import('node:util');
+  // Controlled state assertions and viewport assertions share this CI artifact receipt.
+  await promisify(execFile)(process.execPath, ['--test', '--test-concurrency=2', '--test-timeout=15000', 'packages/ui/test/voice-waits.test.js'], {
+    timeout: 40_000, env: { PATH: process.env.PATH, AITHEMA_EVIDENCE_DIR: process.env.AITHEMA_EVIDENCE_DIR },
+  });
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait377-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  let browser;
+  t.after(async () => { await browser?.close(); await demo.kill(); });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, problems = [], checks = [];
+  if (evidence) { await mkdir(evidence, { recursive: true }); checks.push(...JSON.parse(await readFile(join(evidence, 'ait377-state-checks.json'), 'utf8')).checks); }
+  const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+  const head = event?.pull_request?.head?.sha ?? evidenceCommit;
+  page.on('pageerror', e => problems.push(e.message));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    if (!request.url().startsWith(demo.url) && !request.url().startsWith('data:')) return request.abort();
+    return new URL(request.url()).pathname.endsWith('/features') ? request.respond({ status: 200, contentType: 'application/json', body: '{}' }) : request.continue();
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await page.evaluate(async () => {
+    const { AudioRail } = await import('/packages/ui/src/audio-rail.js'), render = AudioRail.prototype.render;
+    AudioRail.prototype.render = function () { window.ait377Rail = this; return render.call(this); };
+    window.ait377Seed = structuredClone(document.querySelector('aithema-session').session);
+  });
+  const configs = [[1440, 'light', 'de'], [1440, 'light', 'en'], [1440, 'dark', 'de'], [390, 'light', 'de'], [390, 'light', 'en']];
+  for (const provider of ['elevenlabs', 'grok-voice']) for (const [width, theme, locale] of configs) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+    await page.evaluate(async ({ provider, locale }) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`), { manifest } = await import(`/plugins/${provider}/src/manifest.js`);
+      const c = document.querySelector('aithema-session'), session = structuredClone(window.ait377Seed);
+      session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = provider;
+      session.engine.voice = { id: provider, offered: true };
+      session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'images', 'html'].map(key => [key, { available: true }]));
+      session.transcript = [{ id: 'fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.configure({ copy, session, voiceClient: { manifest, async start() { throw new Error('Offline fixture'); } }, voicePresentation: manifest.presentation });
+      const timer = c.shadowRoot.querySelector('.connection-timer');
+      Object.defineProperty(timer, 'textContent', { configurable: true, get: () => '0:00', set() {} });
+      document.documentElement.lang = locale; scrollTo(0, 0);
+    }, { provider, locale });
+    await page.evaluate(() => document.fonts.ready);
+    let baseline;
+    const states = ['idle', 's1', 's2a', 's2b', 's3', 'listening', 's4-busy', 'idle', 's4-no-api', 'idle', 's4-other', 'idle', 's5', 'listening'];
+    for (const state of states) {
+      const result = await page.evaluate(async state => {
+        const rail = window.ait377Rail, root = rail.root.getRootNode();
+        rail.startupPhase = ({ s1: 'microphone', s2a: 'cleanup', s2b: 'cooldown' })[state] ?? null;
+        rail.state = ['s1', 's2a', 's2b', 's3'].includes(state) ? 'connecting' : state.startsWith('s4') ? 'failed' : state === 's5' ? 'listening' : state;
+        rail.session = ['listening', 's5'].includes(state) ? {} : null; rail.paused = false; rail.waitingCall = null;
+        rail.countdown = 12; rail.errorKey = ({ 's4-busy': 'voiceMicBusy', 's4-no-api': 'voiceMicUnavailable', 's4-other': 'voiceMicFailed', s5: 'voiceNoReply' })[state] ?? null;
+        rail.render(); rail.waveform.baseline(); root.activeElement?.blur(); document.activeElement?.blur();
+        await Promise.all(root.querySelector('.band').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const rect = node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+        const status = root.querySelector('.voice-state'), css = getComputedStyle(status);
+        const anchor = state.startsWith('s4') ? rail.button('start') : root.querySelector('.voice-signal');
+        return { boxes: ['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => rect(root.querySelector(s))),
+          callout: rect(status), anchor: rect(anchor), hyphens: css.hyphens, text: status.textContent, liveText: status.getAttribute('aria-label'), live: status.getAttribute('aria-live'),
+          retryVisible: getComputedStyle(rail.button('retry')).visibility !== 'hidden', closeEnabled: !rail.button('close').disabled,
+          targets: ['start', 'input', 'output', 'close', 'retry'].map(n => rect(rail.button(n)).slice(2)),
+          animationCount: root.querySelector('.band').getAnimations({ subtree: true }).filter(a => a.playState === 'running').length,
+          softHyphens: status.textContent.includes('\u00ad'), overflow: status.scrollWidth > status.clientWidth,
+          fullVisible: getComputedStyle(status.querySelector('.consent-wide')).clipPath === 'none',
+          expected: rail.error ?? (state === 's2b' ? rail.copy.voiceCooldown.replace('{s}', 12) : rail.copy.voiceStates[rail.startupPhase ?? rail.state]) };
+      }, state);
+      const meta = { provider, width, theme, locale, state };
+      baseline ??= result.boxes;
+      assert.deepEqual(result.boxes, baseline, `${JSON.stringify(meta)}: movementPx 0`);
+      assert.equal(result.liveText, result.expected); assert.equal(result.text, result.expected); assert.equal(result.live, 'polite');
+      assert.ok(result.targets.every(([w, h]) => w >= 44 && h >= 44));
+      assert.equal(result.animationCount, 0, `${state}: reduced motion has no animated indicator`);
+      if (['s1', 's2a', 's2b', 's3'].includes(state)) assert.equal(result.closeEnabled, true);
+      if (state.startsWith('s4') || state === 's5') {
+        assert.equal(result.hyphens, 'manual'); assert.equal(result.softHyphens, false); assert.equal(result.overflow, false); assert.equal(result.fullVisible, true);
+        assert.ok(Math.abs(result.callout[1] - result.anchor[1] - result.anchor[3] - 8) <= 1, 'callout anchor +8 px');
+      }
+      if (state.startsWith('s4')) assert.equal(result.retryVisible, state !== 's4-no-api');
+      if (state === 's2b') {
+        const countdownBoxes = await page.evaluate(() => {
+          const rail = window.ait377Rail;
+          return [12, 9, 1, 0].map(n => { rail.countdown = n; rail.render(); const r = rail.root.querySelector('.voice-state').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; });
+        });
+        assert.ok(countdownBoxes.every(box => JSON.stringify(box) === JSON.stringify(countdownBoxes[0])), 'countdown never resizes status');
+        await page.evaluate(() => { window.ait377Rail.countdown = 12; window.ait377Rail.render(); });
+      }
+      const capture = !['idle', 'listening'].includes(state) && (theme !== 'dark' || state.startsWith('s4') || state === 's5');
+      const file = `ait377-${width}-${theme}-${locale}-${state}${provider === 'grok-voice' ? '-grok-voice' : ''}.png`;
+      if (capture && evidence) {
+        await page.mouse.move(-10, -10);
+        await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+      }
+      checks.push({ ...meta, ...result, assert: 'copy, live text, 44 px targets, geometry, anchors, manual hyphens and reduced motion', movementPx: 0, file: capture && evidence ? file : null, pass: true });
+    }
+  }
+  assert.deepEqual(problems, []);
+  if (evidence) await writeFile(join(evidence, 'ait377-checks.json'), JSON.stringify({ ticket: 'AIT-377', head, testedCommit: evidenceCommit,
+    capture: 'viewport', reducedMotion: true, blurred: true, checks, problems,
+    limitations: ['S1/grant timing is a deferred-port contract fixture: production clients expose no acquisition/grant callback and retain their internal startup deadline.',
+      'Watchdog uses assistant transcripts. Qualified audio-only reply/filler metadata is not exposed by the current clients.',
+      'ElevenLabs native ended has no usage: retain pending charge until server settlement.'] }, null, 2));
+});

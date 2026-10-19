@@ -30,7 +30,7 @@ function fixture(t, provider, { ready, opening, microphone = false, error } = {}
     if (error) throw error;
     return opening ? opening.promise : session;
   } };
-  const rail = new AudioRail({ root, copy: de, client, ready, feature: () => ({ available: true }) });
+  const rail = new AudioRail({ root, copy: de, client, ready, context: () => ({}), feature: () => ({ available: true }) });
   t.after(async () => { rail.destroy(); events.end(); opening?.resolve(session); await window.happyDOM.abort(); });
   return { rail, calls, session, events, closes, send: async event => { events.push({ callId: session.callId, ...event }); await flush(); } };
 }
