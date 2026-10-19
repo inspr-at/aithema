@@ -683,7 +683,9 @@ test('AIT-378: confirmed interruption and provider cooldown viewport evidence', 
         if (state !== 'I3') receive('voice.interrupted', { id: 'journey-reply', interruption: { heardLength: state === 'I1' ? prefix.length : 'unknown' } });
         const marker = row.querySelector('.voice-interruption'), meta = row.querySelector('strong').getBoundingClientRect();
         if (marker) marker.querySelector('[role="tooltip"]').style.display = 'block';
-        return { state, text: row.querySelector('.turn-text').textContent, expectedText: state === 'I1' ? prefix : full,
+        const tipBox = marker?.querySelector('[role="tooltip"]').getBoundingClientRect(), rowBox = row.getBoundingClientRect();
+        const tooltipFits = !tipBox || tipBox.left >= rowBox.left && tipBox.right <= rowBox.right;
+        return { state, tooltipFits, text: row.querySelector('.turn-text').textContent, expectedText: state === 'I1' ? prefix : full,
           marker: Boolean(marker), label: marker?.getAttribute('aria-label') ?? null,
           tooltip: marker?.querySelector('[role="tooltip"]')?.textContent ?? null,
           expectedTooltip: state === 'I1' ? (locale === 'de' ? 'Die Wiedergabe wurde an dieser Stelle unterbrochen.' : 'Playback was interrupted here.')
@@ -694,6 +696,7 @@ test('AIT-378: confirmed interruption and provider cooldown viewport evidence', 
       assert.equal(result.text, result.expectedText); assert.equal(result.marker, state !== 'I3');
       assert.equal(result.label, state === 'I3' ? null : locale === 'de' ? 'Unterbrochen' : 'Interrupted');
       assert.equal(result.tooltip, result.expectedTooltip); assert.equal(result.sameNode, true);
+      assert.equal(result.tooltipFits, true, 'tooltip remains inside the reply bubble');
       assert.deepEqual(result.after, result.before, 'transcript rows above move 0 px');
       assert.deepEqual(result.metadataAfter, result.metadataBefore, 'marker retains the AIT-349 metadata geometry');
       checks.push({ pass: true, width, theme: 'light', locale, providers: ['elevenlabs', 'grok-voice'], movementPx: 0, ...result });

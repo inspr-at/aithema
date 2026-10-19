@@ -60,6 +60,9 @@ export function paintVoiceInterruption(row, turn, copy) {
   }
   marker.setAttribute('aria-label', copy.voiceInterrupted);
   marker.querySelector('.voice-interruption-label').textContent = copy.voiceInterrupted;
-  marker.querySelector('[role="tooltip"]').textContent = heardLength === 'unknown'
-    ? copy.voiceInterruptedDescription : copy.voiceInterruptedKnownDescription;
+  const tooltip = marker.querySelector('[role="tooltip"]');
+  tooltip.textContent = heardLength === 'unknown' ? copy.voiceInterruptedDescription : copy.voiceInterruptedKnownDescription;
+  // A heard prefix can leave a shorter bubble than the full generated reply.
+  // Keep its new tooltip compact without moving the existing marker anchor.
+  tooltip.style.maxWidth = heardLength === 'unknown' ? '' : 'min(210px,65vw)';
 }
