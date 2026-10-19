@@ -84,10 +84,10 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
           dispatch({ type: 'connected', ...receipt });
           onEvent({ type: 'recovered' }); return true;
         } catch (error) {
+          const retryAt = voiceRetryAt(error, now());
           await failedReplacement();
           if (ended() || revision !== continuityRevision) return false;
           if (continuityLoss(error)) { hold(continuityLoss(error)); return false; }
-          const retryAt = voiceRetryAt(error, now());
           // An advertised rate-limit wait needs explicit visitor intent; do not
           // spend the remaining automatic attempts inside the refused window.
           if (error?.status === 429 && retryAt) { await exhausted(retryAt); return false; }

@@ -4,6 +4,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Window } from 'happy-dom';
+import { createVoiceControl } from '../src/voice-control.js';
 import { AudioRail } from '../src/audio-rail.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { fakeSdk } from '../../../plugins/elevenlabs/test/fixtures.js';
@@ -13,7 +14,7 @@ import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 
 const checks = [];
-const record = (provider, state, assertions, extra = {}) => checks.push(...assertions.map(assert => ({ provider, state, theme: 'light', locale: 'de', width: 1440, assert, ...extra, pass: true })));
+const record = (provider, state, assertions, extra = {}) => checks.push(...assertions.map(assert => ({ provider, state, theme: 'light', locale: 'de', width: 1440, assert, stateOnly: true, clock: 'mock', ...extra, pass: true })));
 after(async () => {
   if (!process.env.AITHEMA_EVIDENCE_DIR) return;
   await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
@@ -50,9 +51,10 @@ function fixture(t, provider, { startError, recoveryError } = {}) {
     allowRecovery: () => { failRecovery = false; } };
 }
 function noLimit(rail) {
-  for (const copy of [de, en]) { rail.copy = copy; rail.render(); const status = rail.root.querySelector('.voice-state');
+  for (const [locale, copy] of [['de', de], ['en', en]]) { rail.copy = copy; rail.render(); const status = rail.root.querySelector('.voice-state');
     assert.ok(!status.textContent.includes(copy.voiceReasonsNarrow.providerLimit)); assert.ok(!status.getAttribute('aria-label').includes(copy.voiceReasonsNarrow.providerLimit));
-    assert.ok(!status.querySelector('.consent-narrow')?.dataset.copy.includes(copy.voiceReasonsNarrow.providerLimit)); }
+    assert.ok(!status.querySelector('.consent-narrow')?.dataset.copy.includes(copy.voiceReasonsNarrow.providerLimit));
+    checks.push({ provider: rail.client.manifest.id, state: rail.errorKey ?? rail.state, theme: 'light', locale, width: 1440, stateOnly: true, assert: 'no providerLimit in full text, accessible name or narrow copy', pass: true }); }
 }
 for (const provider of ['elevenlabs', 'grok-voice']) {
   for (const retryAfterMs of [5000, 120_000, undefined]) test(`AIT-361 ${provider}: start 429 retry-after ${retryAfterMs ?? 'absent'}`, async t => {
@@ -90,6 +92,15 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     assert.equal(requests.at(-1)[1] - began, wait); assert.equal(rail.state, 'listening'); noLimit(rail);
     record(provider, 'recovery429', ['recovery 429 leads to F4 waiting', 'Continue shows existing connecting status while waiting', 'Continue waits retry-after, capped at 60 s, then one recovery request', 'absent retry-after continues immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
+  test(`AIT-361 ${provider}: retry-after is an absolute advertised deadline`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const { rail, requests } = fixture(t, provider, { startError: rateLimit(5000) });
+    await rail.start(); t.mock.timers.tick(2000);
+    const retry = rail.start(); await flush(); t.mock.timers.tick(2999); await flush();
+    assert.equal(requests.length, 1); t.mock.timers.tick(1); await retry;
+    assert.equal(requests.length, 2); assert.equal(requests[1][1], 105_000);
+    record(provider, 'retry-after-elapsed', ['time before Retry counts towards retry-after; one request at advertised deadline']);
+  });
   test(`AIT-361 ${provider}: ending a pending retry cancels its eventual start`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
     const { rail, requests } = fixture(t, provider, { startError: rateLimit(5000) });
@@ -115,4 +126,15 @@ test('AIT-361: DE and EN copy files remain byte-identical to the binding base', 
     assert.equal(createHash('sha256').update(await readFile(new URL(`../../../${path}`, import.meta.url))).digest('hex'), digest);
     for (const provider of ['elevenlabs', 'grok-voice']) checks.push({ provider, state: 'copy', theme: 'light', locale, width: 1440, assert: 'i18n key sets and bytes unchanged from 5d015ba6', diff: 0, pass: true });
   }
+});
+
+for (const seconds of [5, 120, null]) test(`AIT-361: control preserves HTTP 429 retry-after ${seconds}`, async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'limit' }, {
+    status: 429, headers: seconds === null ? {} : { 'retry-after': String(seconds) },
+  }));
+  const { control } = createVoiceControl({ sessionId: 'offline-fixture' });
+  for (const action of ['start', 'recover']) await assert.rejects(control[action]({ callId: 'offline-call' }), error => {
+    assert.equal(error.status, 429); assert.equal(error.retryAfterMs, seconds === null ? undefined : seconds * 1000); return true;
+  });
+  for (const provider of ['elevenlabs', 'grok-voice']) record(provider, 'http429', ['HTTP start/recovery 429 preserves retry-after without providerLimit mapping'], { retryAfterMs: seconds === null ? null : seconds * 1000 });
 });

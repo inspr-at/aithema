@@ -69,9 +69,12 @@ export async function checkVoiceFailures(t) {
           callout: rect(status), anchor: rect(anchor), header: rect(root.querySelector('.band')), position: getComputedStyle(status).position,
           narrow: getComputedStyle(status.querySelector('.consent-narrow')).display,
           focus: root.activeElement?.className ?? null, accessibleName: status.getAttribute('aria-label'), text: status.textContent,
-          providerLimit: rail.copy.voiceReasonsNarrow.providerLimit, label: rail.copy[rail.errorKey] ?? rail.copy.voiceStates[rail.root.dataset.state],
+          providerLimit: rail.copy.voiceReasonsNarrow.providerLimit, label: rail.error ?? rail.copy.voiceStates[rail.root.dataset.state],
           calloutFocusable: status.tabIndex >= 0 || Boolean(status.querySelector('button,a,input,[tabindex]')), state: rail.root.dataset.state,
-          playbackLabel: rail.button('playback').title, live: Boolean(rail.session) };
+          playbackLabel: rail.button('playback').title, playbackVisible: getComputedStyle(rail.button('playback')).visibility === 'visible',
+          retryVisible: getComputedStyle(rail.button('retry')).visibility === 'visible',
+          svgIcons: [...root.querySelectorAll('.voice-cell button')].every(button => Boolean(button.querySelector('svg'))),
+          italic: getComputedStyle(status).fontStyle !== 'normal', live: Boolean(rail.session) };
       };
       document.documentElement.lang = locale; scrollTo(0, 0);
     }, { provider, locale });
@@ -84,7 +87,7 @@ export async function checkVoiceFailures(t) {
         rail.session = ['recovering', 'voicePlaybackBlocked', 'waiting'].includes(state) ? { callId: 'fixture', providerSessionId: 'fixture-provider' } : null;
         rail.state = state === 'recovering' ? 'recovering' : state === 'waiting' ? 'waiting' : ['idle', 'consent'].includes(state) ? 'idle' : state === 'voicePlaybackBlocked' ? 'listening' : 'failed';
         rail.paused = state === 'waiting'; rail.errorKey = state.startsWith('voice') ? state : null;
-        rail.playbackBlocked = state === 'voicePlaybackBlocked'; rail.errorReason = state === 'voiceAdmissionDenied' ? 'processing-consent-required' : null;
+        rail.playbackBlocked = state === 'voicePlaybackBlocked'; rail.errorReason = state === 'voiceAdmissionDenied' ? 'current processing consent required' : null;
         rail.feature = () => state === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: rail.copy.featureConsent.voice } : { available: true };
         if (state === 'start429') rail.failure({ status: 429, code: 'limit', retryAfterMs: 5000 });
         rail.render(); rail.waveform.baseline();
@@ -93,7 +96,7 @@ export async function checkVoiceFailures(t) {
       baseline ??= result.boxes;
       expect(JSON.stringify(result.boxes) === JSON.stringify(baseline), { ...meta, assert: '0 px cells and status slot across show, anchor change and hide', movementPx: Math.max(...result.boxes.flatMap((r, i) => Object.keys(r).map(k => Math.abs(r[k] - baseline[i][k])))) });
       if (state === 'recovering') reference = result.pause;
-      if (['recovering', 'voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state)) {
+      if (state === 'recovering' || result.pause.disabled && !result.live) {
         expect(result.pause.disabled && result.pause.cursor === 'not-allowed' && result.pause.background !== result.inkFill, { ...meta, assert: 'disabled Pause attribute and cursor', actual: result.pause });
         expect(['background', 'border', 'color', 'glyph'].every(k => result.pause[k] === reference[k]), { ...meta, assert: 'Pause equals F5 fill, border, icon colour and glyph', actual: result.pause, reference });
       }
@@ -109,8 +112,11 @@ export async function checkVoiceFailures(t) {
         } else expect(result.narrow !== 'none' && result.callout.width > result.anchor.width && result.callout.top === result.boxes[4].top + 44,
           { ...meta, assert: 'phone narrow status below controls, no floating callout', actual: result });
       }
+      if (['voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state))
+        expect(!result.live && result.retryVisible, { ...meta, assert: 'F1/F2 no live call; Retry visible in end slot' });
+      expect(result.svgIcons && !result.italic, { ...meta, assert: 'SVG control icons and no italic failure copy' });
       if (state === 'start429') expect(!result.text.includes(result.providerLimit) && !result.accessibleName.includes(result.providerLimit), { ...meta, assert: '429 never providerLimit, full and narrow' });
-      if (state === 'voicePlaybackBlocked') expect(result.live && result.playbackLabel === (locale === 'de' ? 'Ton aktivieren' : 'Enable sound'), { ...meta, assert: 'F3 stays live with existing playback label' });
+      if (state === 'voicePlaybackBlocked') expect(result.live && result.playbackVisible && result.playbackLabel === (locale === 'de' ? 'Ton aktivieren' : 'Enable sound'), { ...meta, assert: 'F3 stays live with existing playback label' });
       const shot = ['voiceMicDenied'].includes(state) || width === 1440 && theme === 'light' && locale === 'de' && ['voiceConnectionFailed', 'voicePlaybackBlocked', 'waiting', 'voiceRecoveryFailed', 'recovering'].includes(state);
       if (shot && evidence) {
         await page.evaluate(async () => {
@@ -126,6 +132,15 @@ export async function checkVoiceFailures(t) {
         checks.push({ ...meta, assert: 'settled blurred viewport evidence', file: name, pass: true });
       }
     }
+    const focus = await page.evaluate(() => {
+      const rail = window.ait361Rail; rail.state = 'failed'; rail.session = null; rail.paused = false;
+      rail.errorKey = 'voiceMicDenied'; rail.render(); rail.button('retry').focus();
+      return ['voiceMicMissing', 'voiceConflict', 'voiceAdmissionDenied', 'voiceRecoveryFailed', null].map(key => {
+        rail.errorKey = key; rail.render(); return window.ait361Read().focus;
+      });
+    });
+    expect(focus.every(value => value === 'voice-retry'), { provider, width, theme, locale, state: 'callout-focus',
+      assert: 'show, anchor change and hide never take focus from Retry', actual: focus });
     if (width === 1024) for (const offset of [-600, 600]) {
       const result = await page.evaluate(offset => {
         const rail = window.ait361Rail; rail.state = 'listening'; rail.session = { callId: 'fixture' };
