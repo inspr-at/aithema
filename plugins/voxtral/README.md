@@ -63,11 +63,18 @@ building block, without an assembled live provider. AIT-330 must merge
 `componentBindings` and `plugins` for `stt`, `reasoning`, and `tts`, and list every
 host processor as `{ binding, plugin, operation }` in nonempty `hostProcessing`.
 Supply `consent.coverage` and an authoritative synchronous `getSession(id)`.
-Call `admissionReason({ session, preset, policy }, options)` both before dispatch
-and before accepting late results. It rechecks every link through core's
+The adapter opts into the runtime's `requiresReasoningBinding` contract, so the
+feature matrix and admission pass the session's actual selected reasoning binding.
+Direct callers must pass that authoritative selection as
+`admissionReason({ session, preset, policy, reasoningBinding }, options)` both
+before dispatch and before accepting late results. Missing or changed reasoning
+bindings are denied; a qualified alternative provider cannot form an EU chain.
+It rechecks every link through core's
 `bindingReason`, the captured consent revision and current session after each
 coverage await, then all grants and evidence again before success. Replaced
-bindings require a new authority. `evaluate` reports independent link verdicts
+bindings require a new authority. Consent-scope construction errors propagate
+and admission fails closed; an empty scope list never substitutes for consent.
+`evaluate` reports independent link verdicts
 and `euEligible`; it does not itself grant consent. The adapter hook feeds the
 ordinary feature matrix. `processingDetail()` supplies safe account-processing
 copy for AIT-337, without evidence references, account identity or a new region

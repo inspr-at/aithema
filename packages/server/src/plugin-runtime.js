@@ -291,7 +291,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const admissionReason = plugin.ports?.serverAdapter?.admissionReason;
     if (feature === 'voice' && admissionReason) {
       try {
-        const reason = await admissionReason({ session, preset, policy: config.policy }, options);
+        // Opt-in authorities must qualify the same session selection that the
+        // delegated reasoning lane will dispatch, including preset defaults.
+        const selection = plugin.ports.serverAdapter.requiresReasoningBinding === true
+          ? { reasoningBinding: selectedBinding(session, preset, 'reaction').raw } : {};
+        const reason = await admissionReason({ session, preset, policy: config.policy, ...selection }, options);
         if (reason) return { reason };
       } catch { return { reason: 'voice components unavailable' }; }
     }

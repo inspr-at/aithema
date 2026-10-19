@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { bindingReason, processingScope, consentReason, EU_COUNTRIES } from '@inspr/aithema-core';
 import { deepFreeze } from '@inspr/aithema-core/plugins';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
@@ -8,6 +9,9 @@ const OPERATIONS = { stt: 'stream', reasoning: 'stream', tts: 'speak' };
 const CONSENT = 'current processing consent required';
 const sameSet = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && new Set(a).size === a.length && a.every(value => b.includes(value));
 const euCountries = countries => Array.isArray(countries) && countries.length > 0 && countries.every(country => EU_COUNTRIES.includes(country));
+const emptyRouting = routing => routing === undefined || routing !== null && typeof routing === 'object' &&
+  [Object.prototype, null].includes(Object.getPrototypeOf(routing)) && Reflect.ownKeys(routing).length === 0;
+const SELECTED_REASONING = 'selected reasoning binding must match the Voxtral authority';
 const snapshot = value => value === undefined ? undefined : deepFreeze(structuredClone(value));
 
 /** Private, effect-free authority for AIT-330's future assembly. Pair each binding
@@ -22,8 +26,13 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
   const endpoint = ['https://api.mistral.ai', 'https://api.eu.mistral.ai'].includes(raw?.endpoint) ? raw.endpoint : null;
   let config, parts = [], invalid;
   try {
-    parts = ROLES.map(role => ({ role, binding: snapshot(componentBindings?.[role]),
-      plugin: { manifest: snapshot(plugins?.[role]?.manifest) }, operation: OPERATIONS[role] }));
+    parts = ROLES.map(role => {
+      const binding = componentBindings?.[role];
+      // Check the original too: cloning can erase custom prototypes or keys.
+      if (!emptyRouting(binding?.routing)) throw new TypeError('Invalid Mistral routing');
+      return { role, binding: snapshot(binding),
+        plugin: { manifest: snapshot(plugins?.[role]?.manifest) }, operation: OPERATIONS[role] };
+    });
     config = validateVoxtralAccountConfiguration(raw, { now: now() });
     if (!Array.isArray(hostProcessing) || !hostProcessing.length) throw new TypeError();
     parts.push(...hostProcessing.map((part, index) => ({ role: `host:${index}`, binding: snapshot(part.binding),
@@ -46,7 +55,7 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
     if (binding.plugin !== (role === 'reasoning' ? 'mistral' : 'voxtral') ||
       binding.accountRef !== config.accountRef || binding.endpoint !== config.endpoint ||
       binding.secretRef !== config.secretRef || binding.model !== e.services[role].model ||
-      Object.keys(binding.routing ?? {}).length || binding.legal.evidence.dpaRef !== e.dpaRef ||
+      !emptyRouting(binding.routing) || binding.legal.evidence.dpaRef !== e.dpaRef ||
       binding.legal.recipient !== e.recipient || !sameSet(binding.legal.countries, e.recipientCountries) ||
       binding.legal.training !== false) return 'Mistral account/service evidence mismatch';
     if (preset === 'eu') {
@@ -57,7 +66,7 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
     }
     return null;
   }
-  function evaluate({ preset, policy } = {}) {
+  function evaluate({ preset, policy, reasoningBinding } = {}) {
     let accountReason = invalid;
     if (!accountReason) {
       try { validateVoxtralAccountConfiguration(config, { now: now() }); }
@@ -67,7 +76,10 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
     for (const part of parts) {
       let reason = accountReason;
       if (!reason) {
-        try { reason = linkReason(part, { preset, policy }, clock); }
+        try {
+          reason = part.role === 'reasoning' && reasoningBinding !== undefined && !isDeepStrictEqual(reasoningBinding, part.binding)
+            ? SELECTED_REASONING : linkReason(part, { preset, policy }, clock);
+        }
         catch { reason = 'invalid processing binding'; }
       }
       links[part.role] = { reason, available: reason === null };
@@ -83,8 +95,8 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
     return deepFreeze({ reason, available: reason === null, euEligible, links });
   }
   const processingScopes = () => {
-    try { return invalid ? [] : parts.map(part => snapshot(processingScope(part.binding, part.operation))); }
-    catch { return []; }
+    if (invalid || parts.length < ROLES.length + 1) throw new TypeError('Complete processing scopes required');
+    return parts.map(part => snapshot(processingScope(part.binding, part.operation)));
   };
   function processingDetail() {
     // These are safe presentation data, not evidence or chain qualification.
@@ -105,7 +117,8 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
   }
   async function admissionReason(request = {}, options) {
     // Capture selection and revision before awaiting any external authority.
-    const selection = snapshot({ preset: request.preset, policy: request.policy });
+    const selection = snapshot({ preset: request.preset, policy: request.policy, reasoningBinding: request.reasoningBinding });
+    if (!selection.reasoningBinding) return SELECTED_REASONING;
     const id = request.session?.id, revision = request.session?.consentRevision, activePreset = request.session?.processingPreset;
     const initial = evaluate(selection); if (initial.reason) return initial.reason;
     let session;
@@ -132,7 +145,7 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
       return evaluate(selection).reason;
     } catch { return CONSENT; }
   }
-  const adapter = Object.freeze({ admissionReason, processingScopes, processingDetail });
+  const adapter = Object.freeze({ requiresReasoningBinding: true, admissionReason, processingScopes, processingDetail });
   return Object.freeze({ evaluate, admissionReason, processingScopes, processingDetail,
     ports: Object.freeze({ serverAdapter: adapter }) });
 }
