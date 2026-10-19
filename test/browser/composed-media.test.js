@@ -462,17 +462,21 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
       const css = getComputedStyle(body), note = q('[data-text="gaugeNote"]');
       const summaryCss = getComputedStyle(summary), pseudo = getComputedStyle(summary, '::after');
       const chevron = summary.querySelector('svg')?.getBoundingClientRect();
+      const chevronInk = summary.querySelector('svg path')?.getBoundingClientRect();
       // Before the fix the chevron is a pseudo-element; account for its normal
       // flex box so the old column-edge positioning is also measured.
       const chevronLeft = chevron?.left ?? summary.getBoundingClientRect().right - parseFloat(summaryCss.paddingRight) -
         parseFloat(pseudo.marginRight) - parseFloat(pseudo.width) - parseFloat(pseudo.borderLeftWidth) - parseFloat(pseudo.borderRightWidth);
       return { paragraphGap: note.getBoundingClientRect().top - lastLine.bottom,
         paragraphGapLimit: parseFloat(css.rowGap) + parseFloat(getComputedStyle(geography).lineHeight),
-        textLines: range.getClientRects().length, chevronGap: chevronLeft - text.right };
+        textLines: range.getClientRects().length, chevronGap: chevronLeft - text.right,
+        chevronInkGap: chevronInk ? chevronInk.left - text.right : chevronLeft - text.right };
     });
     expectLayout(disclosure.paragraphGap <= disclosure.paragraphGapLimit,
       { point: 2, locale, width, height, theme, ...disclosure });
     if (width === 1024) expectLayout(disclosure.textLines === 1 && disclosure.chevronGap >= 6 && disclosure.chevronGap <= 8,
+      { point: 3, locale, width, height, theme, ...disclosure });
+    if (width === 1024) expectLayout(disclosure.chevronInkGap >= 6 && disclosure.chevronInkGap <= 8,
       { point: 3, locale, width, height, theme, ...disclosure });
     checks.push({ locale, width, height, theme, state: 'disclosure-layout', ...disclosure });
     await page.evaluate(() => window.ait350.q('.disclosure').open = false);

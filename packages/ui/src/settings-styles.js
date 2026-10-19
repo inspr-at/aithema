@@ -74,6 +74,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .select__value { flex:1; min-width:0; display:flex; align-items:center; gap:.6rem; font-weight:550; }
 .select__menu { position:absolute; z-index:5; left:0; right:0; top:calc(100% + .25rem); max-height:17rem; overflow-y:auto; overscroll-behavior:contain;
   padding:.3rem; border:1px solid var(--aithema-line); border-radius:.7rem; background:var(--aithema-surface); box-shadow:0 8px 28px #09252d24; }
+.select[data-menu-above=true] .select__menu { top:auto; bottom:calc(100% + .25rem); }
 .select__option { display:flex; align-items:center; gap:.55rem; width:100%; padding:.45rem .5rem; border:0; border-radius:.45rem; background:transparent; text-align:left; }
 .select__option:hover, .select__option:focus-visible { background:color-mix(in srgb,var(--aithema-accent) 10%,transparent); }
 .select__option[aria-selected=true] { background:color-mix(in srgb,var(--aithema-accent) 14%,var(--aithema-surface)); }
