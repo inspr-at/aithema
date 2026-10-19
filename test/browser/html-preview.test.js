@@ -903,19 +903,20 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
   const preview = previewFixture(), requests = [], socketRequests = [], checks = [], shots = [];
   let phase = 'bootstrap';
   const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
-    body{margin:0} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
+    body{margin:0} aithema-session,ait386-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
     </style></head><body><script type="module">
     import '/packages/ui/src/session-element.js';
     import {ConceptView} from '/packages/ui/src/concept-view.js';
     import {de} from '/packages/ui/src/i18n/de.js';
     const update=ConceptView.prototype.update;
     ConceptView.prototype.update=function(){window.view=this;return update.apply(this,arguments);};
-    window.mount=session=>{window.c?.remove();const c=document.createElement('aithema-session');window.c=c;
+    customElements.define('ait386-session',class extends customElements.get('aithema-session'){connectedCallback(){}});
+    window.mount=session=>{window.c?.remove();const c=document.createElement('ait386-session');window.c=c;
       c.configure({session,copy:de,sessionToken:'fixture-owner',concepts:{previewURL:location.origin+'/_aithema/html-preview'}});
       c.setAttribute('theme','light');c.setAttribute('motion','off');
       // Render without SSE: the wire fixture's only runtime traffic is through
       // authenticated concept routes and the scoped HTML preview document.
-      c.connectedCallback=()=>{}; document.body.append(c); view.update(session,{consentRevision:session.consentRevision,
+      document.body.append(c); view.update(session,{consentRevision:session.consentRevision,
         selected:['drafts','images'],features:{html:['drafts'],images:['images']}});};
     window.ready=true;
     </script></body></html>`;
