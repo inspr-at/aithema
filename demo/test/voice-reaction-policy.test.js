@@ -1,15 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PluginRegistry } from '@inspr/aithema-core';
-import { SQLiteStorage, createPluginRuntime } from '@inspr/aithema-server';
+import { SQLiteStorage, createPluginRuntime, createVoiceProvider } from '@inspr/aithema-server';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { openRouterConfig } from '../openrouter-config.js';
+import { qualifyStartBinding } from '../processing-consent.js';
 import { demoPresets } from '../choices.js';
 
 const analysis = 'openai/analysis-fixture', speech = 'anthropic/reaction-fixture';
 const values = { OPENROUTER_MODEL: analysis, OPENROUTER_SPEECH_MODEL: speech, OPENROUTER_ANALYSIS_EFFORT: 'high',
   AITHEMA_OPENROUTER_PRICES: JSON.stringify(Object.fromEntries([analysis, speech].map(model => [model, { prompt: 1e-7, completion: 1e-7 }]))) };
-const voiceBinding = { plugin: 'elevenlabs', endpoint: 'https://voice.example.test' };
+const voiceBinding = qualifyStartBinding({ plugin: 'elevenlabs', model: 'fixture-agent', agentId: 'fixture-agent', effort: 'none',
+  endpoint: 'https://voice.example.test', accountRef: 'fixture', secretRef: 'fixture-ref', maxMicro: 60_000,
+  maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60, minRunwaySeconds: 1,
+  upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 60_000, publicFacadeBaseUrl: 'https://facade.example.test' });
 function presetsFor(reaction, understanding) {
   return demoPresets({ provider: 'openrouter', reaction, understanding,
     voicePlugin: { manifest: { id: 'elevenlabs' } }, voiceBinding,
@@ -83,4 +87,22 @@ test('AIT-380: generic efforts preserve the split reaction ceiling and analysis 
     try { for await (const _chunk of admitted.plugin.stream(request, admitted.options)) {} }
     finally { admitted.finish(); }
   }
+});
+
+test('AIT-380: a saved voice selection cannot start through a missing speech route', async t => {
+  t.mock.method(console, 'error', () => {});
+  const configured = openRouterConfig({ ...values, OPENROUTER_SPEECH_MODEL: undefined });
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const plugin = createVoiceProvider({ storage, binding: { agentId: voiceBinding.agentId, secretRef: voiceBinding.secretRef,
+    apiBaseUrl: voiceBinding.endpoint, upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 60_000 },
+    resolveSecret: () => assert.fail('refusal must precede secret resolution'),
+    fetchImpl: () => assert.fail('refusal must precede provider traffic') });
+  const reasoning = createOpenRouterReasoning({ binding: configured.reaction, prices: configured.prices,
+    resolveSecret: () => assert.fail('refusal must precede reasoning'), fetchImpl: () => assert.fail('no provider traffic') });
+  const presets = presetsFor(configured.reaction, configured.understanding);
+  const runtime = createPluginRuntime({ storage, presets, registry: new PluginRegistry().register(reasoning).register(plugin) });
+  const session = storage.create({ ownerToken: 'fixture-owner', settings: { model: presets.best.choices.defaults.model, voice: 'elevenlabs' } });
+  await assert.rejects(runtime.admitVoice({ session, request: { callId: 'refused-call' } }),
+    error => error.code === 'not-admitted' && error.message === 'endpoint not allowed');
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
 });
