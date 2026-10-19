@@ -402,3 +402,16 @@ test('AIT-263: playback activity reaches the server before it is exposed to focu
   assert.deepEqual(activity.map(event => event.type), ['speaking', 'listening']);
   assert.deepEqual(exposed, ['speaking', 'final', 'listening', 'ended']);
 });
+
+test('AIT-383: a hold during permission inspection keeps startup device-free', async t => {
+  const local = fixture(), permission = Promise.withResolvers(), inspected = Promise.withResolvers(), hold = new AbortController(), phases = [];
+  const { createElevenLabsClient } = await import('../src/client.js');
+  const client = createElevenLabsClient({ control: local.control, sdk: local.sdk,
+    mediaDevices: local.sdk.mediaDevices, AudioContext: local.sdk.AudioContext, persistEvent: async () => {},
+    permissions: { query() { inspected.resolve(); return permission.promise; } } });
+  const starting = client.start({ callId: 'held-permission-inspection' }, invocationOptions({ holdSignal: hold.signal, onMicrophoneState: p => phases.push(p) }));
+  await inspected.promise; hold.abort(); permission.resolve({ state: 'prompt' });
+  const session = await starting; t.after(() => session.close());
+  assert.equal(local.sdk.acquired.length, 0); assert.deepEqual(phases, []);
+  assert.equal(local.sdk.conversations[0].track.source, 'silence');
+});

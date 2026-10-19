@@ -35,7 +35,8 @@ function microphoneCapture(mediaDevices, AudioContext, onMicrophoneState, permis
     try {
       let permission;
       try { permission = await permissions?.query({ name: 'microphone' }); } catch { /* Some browsers omit this permission query. */ }
-      if (ended || !enabled || epoch !== acquisitionEpoch) throw new PluginError('cancelled');
+      if (ended) throw new PluginError('cancelled');
+      if (!enabled || epoch !== acquisitionEpoch) return silence();
       if (!permission || permission.state === 'prompt') onMicrophoneState?.('requesting');
       stream = await original.call(mediaDevices, constraints);
     } catch (error) { error.phase = 'microphone'; throw error; }
