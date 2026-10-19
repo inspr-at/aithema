@@ -593,7 +593,7 @@ test('AIT-369 R3: exact scope matches a renamed current option while current vis
   await h.turn('first'); const item = await h.render();
   h.presets.best.choices = { models: [], visuals: [{ id: 'renamed', kind: 'html', binding }] };
   const session = h.storage.get(h.id);
-  h.storage.append(h.id, 'settings.changed', { settings: { ...session.settings, visuals: 'off' } });
+  h.storage.append(h.id, 'settings.changed', { processingPreset: 'best', settings: { ...session.settings, visuals: 'off' } });
   assert.equal(await h.runtime.publicationAllowed(h.storage.get(h.id), { artifactId: item.id, visualKind: 'html' }), true);
   assert.equal((await h.call(`concepts/${item.id}/html`)).status, 200);
   const doc = await (await h.call('consent')).json();
