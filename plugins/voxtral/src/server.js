@@ -5,7 +5,7 @@ import { createVoxtralSTT, createVoxtralTTS } from './index.js';
 import { validateVoxtralConfiguration, STT_FORMAT, TTS_FORMAT, STT_MODEL, TTS_MODEL } from './configuration.js';
 
 export * from './index.js';
-export { validateVoxtralConfiguration, STT_MODEL, TTS_MODEL } from './configuration.js';
+export { validateVoxtralConfiguration, validateVoxtralAccountConfiguration, voxtralEndpoints, STT_MODEL, TTS_MODEL } from './configuration.js';
 export { manifest, componentManifest } from './manifest.js';
 
 /** Guarded speech selection using AIT-328's pure preflight. Await preflight
@@ -67,3 +67,5 @@ export function createVoxtralComponents({ composition, ...options } = {}) {
   return Object.freeze({ stt: guard(stt, 'stt'), tts: guard(tts, 'tts'), preflight,
     outputFormat: TTS_FORMAT.encoding, outputAudioFormat: TTS_FORMAT });
 }
+
+export { createVoxtralProviderAuthority } from './provider.js';
