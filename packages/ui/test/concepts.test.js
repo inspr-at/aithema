@@ -1377,6 +1377,28 @@ for (const visuals of ['off', 'images', 'html']) for (const kind of ['html', 'im
     if (visuals === 'off') assert.notEqual(view.visualKind(), 'image', 'Off is not an image rendering mode');
   });
 
+for (const startsOff of [true, false]) test(`AIT-386: kept image paints its thumbnail and reserves image layout ${startsOff ? 'on reload with Off' : 'when switching to Off'}`, async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, calls } = setup(t, { concepts: [item('kept-image')], session: {
+    settings: { visuals: startsOff ? 'off' : 'images' }, conceptVisualKind: 'images', visualsBound: true,
+    conceptStatus: { phase: 'ready' } } });
+  await tick(); await tick();
+  const kept = { ...c.session, settings: { ...c.session.settings, visuals: 'off' } };
+  view.update(kept, { consentRevision: kept.consentRevision, selected: ['images'], features: { images: ['images'] } });
+  await tick(); await tick();
+  const thumbnail = root.querySelector('.concept-preview img[src]');
+  assert.ok(thumbnail, 'Off retains a painted thumbnail for the kept image');
+  assert.equal(thumbnail.dataset.id, 'kept-image');
+  const url = await view.loadImageURL('kept-image');
+  assert.ok(url.startsWith('blob:'));
+  assert.equal(thumbnail.src, url, 'thumbnail uses the URL minted by this view for this image');
+  assert.equal(calls.filter(call => call.url.includes('/concepts/kept-image/image')).length, 1, 'the image bytes are loaded once');
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout, 'image', 'AIT-282 reservation survives Off');
+  view.update({ ...kept, concepts: [], visualsBound: false });
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout, 'image', 'the established reservation survives none');
+});
+
 test('AIT-386: image APIs reject HTML items, bytes and URLs not minted for that image', async t => {
   let view; const update = ConceptView.prototype.update;
   t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });

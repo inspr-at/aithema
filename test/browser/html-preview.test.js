@@ -900,7 +900,7 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
   const { browserForFile } = await import('./shared-browser.js');
   const source = '<!doctype html><html><head><title>Offline draft</title></head><body><h1>Offline draft</h1></body></html>';
   const bytesPath = '/' + [...new TextEncoder().encode(source)].join(',');
-  const preview = previewFixture(), requests = [], socketRequests = [], checks = [], shots = [];
+  const preview = previewFixture(), requests = [], socketRequests = [], checks = [], keptImages = [], shots = [];
   let phase = 'bootstrap';
   const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
     body{margin:0} aithema-session,ait386-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
@@ -965,7 +965,7 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
   const sessionFor = (visuals, kind) => {
     const session = createSession({ demo: true }); session.id = 'ait386'; session.locale = 'de'; session.visualsBound = true;
     session.settings.visuals = visuals; session.settings.origin = 'chosen';
-    session.conceptVisualKind = visuals === 'off' ? null : visuals === 'images' ? 'image' : 'html';
+    session.conceptVisualKind = visuals === 'html' ? 'html' : 'images';
     session.transcript = [{ id: 'source', role: 'user', content: 'Ein Dashboard für unser Team.' }]; session.inputRevision = 1;
     const artifact = type => ({ id: type, mediaType: type === 'html' ? 'text/html' : 'image/png', turnIds: ['source'], referenceIds: [], feedback: { vote: 'clear', chips: [] } });
     session.concepts = kind === 'mixed' ? [artifact('image'), artifact('html')] : [artifact(kind)]; session.conceptStatus = { phase: 'ready' };
@@ -998,6 +998,23 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
         await page.waitForNetworkIdle({ idleTime: 100 }); await shoot('after-1440');
         await page.setViewport({ width: 390, height: 900 }); await shoot('after-390');
       }
+      if (visuals === 'off' && kind === 'image') {
+        for (const width of [1440, 390]) {
+          await page.setViewport({ width, height: 900 });
+          await page.waitForNetworkIdle({ idleTime: 100 }); await settle();
+          const kept = await page.evaluate(async () => {
+            const thumbnail = c.shadowRoot.querySelector('.concept-preview img[src]');
+            return { src: thumbnail?.getAttribute('src'), id: thumbnail?.dataset.id,
+              minted: await view.loadImageURL('image'), layout: c.shadowRoot.querySelector('.workspace').dataset.conceptLayout };
+          });
+          assert.ok(kept.src?.startsWith('blob:'), 'Off keeps a painted image thumbnail');
+          assert.equal(kept.id, 'image');
+          assert.equal(kept.src, kept.minted, 'the thumbnail uses this view’s object URL for the kept image');
+          assert.equal(kept.layout, 'image', 'AIT-282 keeps the image layout reservation under Off');
+          keptImages.push({ visuals, kind, width, kept });
+          await shoot(`kept-image-after-${width}`);
+        }
+      }
       await page.evaluate(async () => {
         for (const item of view.items) {
           view.open(item.id);
@@ -1020,7 +1037,7 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
       checks.push({ visuals, kind, images, ids });
     }
   } finally {
-    if (evidence) await writeFile(join(evidence, 'ait386-requests.json'), JSON.stringify({ shots, checks, requests, socketRequests,
+    if (evidence) await writeFile(join(evidence, 'ait386-requests.json'), JSON.stringify({ shots, checks, keptImages, requests, socketRequests,
       baseline: 'Explicit replay of the pre-fix Uint8Array-to-backdrop.src assignment; synthetic offline draft only.',
       offline: true, viewportOnly: true }, null, 2));
   }
