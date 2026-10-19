@@ -92,6 +92,7 @@ const DELEGATED = 'delegated reasoning: ';
 export function reasonText(copy, reason, feature) {
   if (feature && isConsentReason(reason)) return featureConsentText(copy, feature);
   const reasons = copy.reasons ?? {};
+  if (feature === 'voice' && reason === 'binding evidence unverified') return reasons['voice-host-unavailable'];
   if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
     return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length), feature));
   }

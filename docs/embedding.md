@@ -1288,8 +1288,8 @@ protocol, not the CalVer3 package compatibility promise.
 
 ### Required fast reaction route for demo voice (AIT-380)
 
-The OpenRouter demo requires an explicit `OPENROUTER_SPEECH_MODEL` for delegated
-ElevenLabs voice. Select and qualify a fast reaction model that supports no
+The OpenRouter demo requires an explicit `OPENROUTER_SPEECH_MODEL` for every
+configured voice option: ElevenLabs, Grok voice and composed voice. Select and qualify a fast reaction model that supports no
 thinking; the demo explicitly configures its reaction effort as `none`. The
 analysis model, effort and token ceiling remain separate. Analysis may continue
 in the background and never gates the spoken reaction.
@@ -1304,7 +1304,8 @@ hosts can still use `OPENROUTER_MODEL`, but that text route never qualifies voic
 implicitly. No model is silently substituted for the required voice route.
 
 When a model option supplies separate `reaction` and `understanding` bindings,
-a generic effort selection cannot raise reaction above its configured effort.
+a generic effort selection cannot raise reaction above its explicitly configured
+effort. A host binding without an explicit effort keeps the offered selection.
 The analysis lane retains the selected effort. The same ceiling applies to shared bindings when voice is selected. Shared
 single-binding text-only options retain their existing effort-selection behavior. The demo's `none` setting is
 explicit; the runtime does not impose it on every host binding.

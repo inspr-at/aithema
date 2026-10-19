@@ -152,7 +152,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       // Explicit lane bindings reserve reaction's latency budget independently.
       // Shared text-only options retain their effort-selector contract; selecting
       // voice applies the reaction ceiling to those options as well.
-      const effort = lane === 'reaction' && (raw !== selection.model.bindings.understanding || selection.voice?.binding) &&
+      const effort = lane === 'reaction' && EFFORT_ORDER.includes(raw.effort) && (raw !== selection.model.bindings.understanding || selection.voice?.binding) &&
         EFFORT_ORDER.indexOf(selection.effort) > EFFORT_ORDER.indexOf(raw.effort) ? raw.effort : selection.effort;
       return { raw: { ...raw, effort } };
     }

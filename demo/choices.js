@@ -32,6 +32,7 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
   htmlPlugin, htmlBinding, htmlDemo = false, policy }) {
   const option = (id, label, plugin, binding, kind) => ({ id, label, ...(kind ? { kind } : {}), ...(plugin?.manifest.id === id ? { binding } : {}) });
   let voices = [option('fake-voice', 'Demo only: simulated voice', voicePlugin, voiceBinding), option('elevenlabs', 'ElevenLabs', voicePlugin, voiceBinding)];
+  if (voicePlugin?.manifest.id === 'composed-voice') voices.push(option('composed-voice', voicePlugin.manifest.presentation.label, voicePlugin, voiceBinding));
   if (grokPlugin) voices.push(option('grok-voice', 'Grok Voice (xAI)', grokPlugin, grokBinding));
   // One Visuals control: HTML click-dummies and image concepts are alternatives of one choice.
   let visuals = [option('fake-html', 'Demo only: clickable draft', htmlPlugin, htmlBinding, 'html'),
@@ -53,16 +54,17 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
     // Keep configured consent scopes and the existing unavailable presentation, but
     // remove the delegated voice endpoint from admission until the operator fixes
     // the explicit fast route. A saved visitor choice cannot bypass this policy.
-    const voiceError = provider === 'openrouter' && voiceBinding && voices.some(o => o.id === 'elevenlabs' && o.binding) &&
+    const voiceError = provider === 'openrouter' && voices.some(o => o.binding) &&
       (reaction.legal?.evidence?.voiceReactionModel !== reaction.model || reaction.effort !== 'none' ||
         bindingReason({ binding: reaction, plugin: { manifest: openRouterManifest }, preset: 'best', policy }));
     if (voiceError) {
       console.error('Voice configuration error: OPENROUTER_SPEECH_MODEL is required for voice and must name an explicitly qualified fast reaction route with effort none; voice start refused.');
       // Recovery republishes voice choices under a freshly extended policy.
       // Carry the refusal on the private binding as well as the endpoint gate.
-      voices = voices.map(option => option.id === 'elevenlabs' && option.binding
+      const voiceEndpoints = new Set(voices.filter(option => option.binding).map(option => option.binding.endpoint));
+      voices = voices.map(option => option.binding
         ? { ...option, binding: { ...option.binding, legal: { ...option.binding.legal, approved: false } } } : option);
-      policy = { ...policy, endpoints: (policy?.endpoints ?? []).filter(endpoint => endpoint !== voiceBinding.endpoint) };
+      policy = { ...policy, endpoints: (policy?.endpoints ?? []).filter(endpoint => !voiceEndpoints.has(endpoint)) };
     }
     const offered = new Set([...voices, ...visuals].map(o => o.binding?.plugin ?? o.id));
     return {

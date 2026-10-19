@@ -161,7 +161,9 @@ The demo stays on the mock even when provider environment variables exist.
 OpenRouter requires `OPENROUTER_MODEL` for understanding and
 `AITHEMA_OPENROUTER_PRICES` for every configured model; missing or invalid values
 refuse startup. `OPENROUTER_SPEECH_MODEL` selects reaction replies (spoken and
-typed, including the voice facade) and defaults to `OPENROUTER_MODEL`.
+typed, including the voice facade). Voice requires this explicit, qualified fast
+route with effort `none`; omission refuses every configured voice option. Only
+text-only hosts may default to `OPENROUTER_MODEL`.
 `OPENROUTER_ANALYSIS_EFFORT` selects understanding reasoning effort and defaults
 to `none`; reaction always uses `none`. Both model settings also accept OpenRouter
 family aliases such as `~anthropic/claude-opus-latest` and
@@ -2897,7 +2899,7 @@ Readiness of voice is separately visible in
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
 | `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |
 | `OPENROUTER_MODEL` | Required understanding model id or `~<provider>/<family>-latest` alias when `AITHEMA_PROVIDER=openrouter`; no default; only START-consented OpenAI, Anthropic or xAI providers are admitted |
-| `OPENROUTER_SPEECH_MODEL` | Reaction model id or latest alias for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
+| `OPENROUTER_SPEECH_MODEL` | Reaction model id or latest alias for spoken and typed replies and the voice facade; explicit qualified fast route with effort `none` required for every voice option (omission refuses voice); only text-only hosts default to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
 | `OPENROUTER_MAX_TOKENS` | Reply token ceiling for reaction/speech; default `1200`; used in the per-request spend ceiling |
 | `OPENROUTER_ANALYSIS_MAX_TOKENS` | Understanding token ceiling; default `8000`; START found lower values truncated real analyses; used in the per-request spend ceiling |
 | `OPENROUTER_MAX_INPUT_TOKENS` | Hard input bound, independent of price; default `131072`; conservatively enforced from UTF-8 bytes of serialized messages before money reservation and again before dispatch, including zero prompt prices |
