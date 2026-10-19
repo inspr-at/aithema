@@ -5,7 +5,7 @@ import { icon } from './icons.js';
 import { setText } from './dom.js';
 import { Waveform } from './waveform.js';
 import { RecoveryNotices } from './recovery-notices.js';
-import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-lifecycle-controller.js';
+import { watchVoiceHeartbeat, voiceAuthorityLost, voiceRetryAt } from '../../core/src/voice-lifecycle-controller.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3). The presentation is
 // START's conversation rail (index.astro .v2__conversation-rail): an orb dock, icon controls in fixed
 // cells and the waveform with one status phrase. Alternatives share a cell (Start and the microphone,
@@ -116,9 +116,17 @@ export class AudioRail {
     if (this.root.hasAttribute('data-message')) {
       const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
       const viewport = this.root.ownerDocument.documentElement.clientWidth;
-      const width = Math.min(280, viewport - 32);
-      const left = Math.max(16, Math.min(signal.left, viewport - 16 - width));
+      const header = (this.root.closest('.band') ?? this.root).getBoundingClientRect();
+      const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right);
+      const width = Math.min(280, Math.max(0, maxRight - minLeft));
+      const anchor = (['voiceMicDenied', 'voiceMicMissing'].includes(this.errorKey) ? this.button(this.session ? 'input' : 'start')
+        : this.errorKey === 'voicePlaybackBlocked' ? this.button('playback')
+        : this.state === 'failed' && !this.session && ['voiceConnectionFailed', 'voiceDeadline', 'voiceConflict'].includes(this.errorKey) ? this.button('retry')
+        : this.root.querySelector('.voice-signal')).getBoundingClientRect();
+      const left = Math.max(minLeft, Math.min((anchor.left + anchor.right - width) / 2, maxRight - width));
+      this.root.style.setProperty('--voice-message-width', `${width}px`);
       this.root.style.setProperty('--voice-message-left', `${left - signal.left}px`);
+      this.root.style.setProperty('--voice-message-top', `${anchor.bottom + 8 - signal.top}px`);
     }
     const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
     const range = this.root.ownerDocument.createRange();
@@ -173,14 +181,14 @@ export class AudioRail {
   render() {
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
     const c = this.copy, active = Boolean(this.session || this.waitingCall), available = this.feature(),
-      transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
+      transitional = this.retryConnecting || ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     // The feature preview can deny new work because an admitted segment holds
     // the allowance. Only a wallet verdict or an actual admission refusal ends it.
     const usedUp = Boolean(this.usedUp?.()) || this.allowanceDenied;
     const creditEnding = Boolean(this.ending?.());
     const usedUpLabel = c.voiceStates[this.endReason?.() === 'one-hour' ? 'timeExpired' : 'usedUp'];
     this.root.toggleAttribute('data-used-up', usedUp && !creditEnding); this.root.toggleAttribute('data-credit-ending', creditEnding);
-    const state = this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;
+    const state = this.retryConnecting ? 'connecting' : this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
@@ -249,14 +257,13 @@ export class AudioRail {
     this.onRender?.(this);
   }
   failure(error) {
-    this.errorKey = error?.name === 'NotAllowedError' ? 'voiceMicDenied' :
+    this.errorKey = error?.status === 429 ? 'voiceConnectionFailed' : error?.name === 'NotAllowedError' ? 'voiceMicDenied' :
       error?.name === 'NotFoundError' ? 'voiceMicMissing' :
       error?.code === 'not-admitted' ? 'voiceAdmissionDenied' :
       error?.code === 'voice-conflict' ? 'voiceConflict' :
       error?.code === 'deadline' ? 'voiceDeadline' : 'voiceConnectionFailed';
-    this.errorReason = error?.code === 'not-admitted' ? error.reason : null;
-    // A conflict may say when the earlier call's lease ends; Retry then waits it out.
-    this.retryAt = error?.code === 'voice-conflict' && error.retryAfterMs > 0 ? Date.now() + Math.min(error.retryAfterMs, 60_000) : 0;
+    this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
+    this.retryAt = voiceRetryAt(error);
     this.render();
   }
   async takeoverIdentity(retired, controller, deadlineAt) {
@@ -327,8 +334,10 @@ export class AudioRail {
       return;
     }
     if (this.session) return;
+    const retryFocused = this.button('retry').getRootNode().activeElement === this.button('retry');
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
+    if (retryFocused) this.button('close').focus({ preventScroll: true });
     this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
@@ -477,6 +486,7 @@ export class AudioRail {
           void this.updateContext().catch(() => {});
         }
         if (event.type === 'waiting') {
+          this.retryConnecting = false; this.retryAt = event.retryAt ?? 0;
           this.pauseRevision++; this.pauseCommand = null; this.busy = false;
           this.state = 'waiting'; this.paused = true; this.moved ||= event.reason === 'ownership-lost';
           this.errorKey = this.allowanceDenied ? 'voiceAdmissionDenied' : this.moved ? 'voiceMoved' : null; this.quiet();
@@ -512,11 +522,16 @@ export class AudioRail {
     const session = this.session, generation = this.generation;
     const revision = ++this.pauseRevision;
     this.pauseCommand = { paused, revision };
-    if (paused) this.paused = true;
+    if (paused) { this.paused = true; this.retryConnecting = false; }
     // Repaint the next visitor action while capture retains its acknowledged hold.
     this.onPause?.(Boolean(this.paused));
+    const wait = paused ? 0 : Math.max(0, (this.retryAt ?? 0) - Date.now());
+    if (wait) { this.retryConnecting = true; this.errorKey = null; }
     this.busy = true; this.render();
     try {
+      if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+      if (!this.current(session, generation) || revision !== this.pauseRevision) return;
+      if (!paused) this.retryAt = 0;
       const ack = await session[paused ? 'pause' : 'resume'](paused ? undefined : {
         onResumeRequest: id => { if (this.current(session, generation)) this.rememberResume(id, revision); },
       });
@@ -527,7 +542,7 @@ export class AudioRail {
     } catch { if (this.current(session, generation) && revision === this.pauseRevision) this.errorKey = 'voicePauseFailed'; }
     finally {
       if (this.current(session, generation) && revision === this.pauseRevision) {
-        this.busy = false; this.pauseCommand = null; this.onPause?.(Boolean(this.paused)); this.render(); this.settle();
+        this.retryConnecting = false; this.busy = false; this.pauseCommand = null; this.onPause?.(Boolean(this.paused)); this.render(); this.settle();
       }
     }
   }
@@ -613,7 +628,7 @@ export class AudioRail {
     this.stopHeartbeat?.(); clearInterval(this.meter); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
     this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null;
-    this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
+    this.retryConnecting = false; this.retryAt = 0; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.notices.clear();
     this.errorKey = session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }

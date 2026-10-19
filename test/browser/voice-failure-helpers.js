@@ -83,7 +83,7 @@ export async function checkVoiceFailures(t) {
         const rail = window.ait361Rail;
         rail.session = ['recovering', 'voicePlaybackBlocked', 'waiting'].includes(state) ? { callId: 'fixture', providerSessionId: 'fixture-provider' } : null;
         rail.state = state === 'recovering' ? 'recovering' : state === 'waiting' ? 'waiting' : ['idle', 'consent'].includes(state) ? 'idle' : state === 'voicePlaybackBlocked' ? 'listening' : 'failed';
-        rail.paused = state === 'waiting'; rail.errorKey = state === 'waiting' ? 'voiceRecoveryFailed' : state.startsWith('voice') ? state : null;
+        rail.paused = state === 'waiting'; rail.errorKey = state.startsWith('voice') ? state : null;
         rail.playbackBlocked = state === 'voicePlaybackBlocked'; rail.errorReason = state === 'voiceAdmissionDenied' ? 'processing-consent-required' : null;
         rail.feature = () => state === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: rail.copy.featureConsent.voice } : { available: true };
         if (state === 'start429') rail.failure({ status: 429, code: 'limit', retryAfterMs: 5000 });
@@ -97,7 +97,7 @@ export async function checkVoiceFailures(t) {
         expect(result.pause.disabled && result.pause.cursor === 'not-allowed' && result.pause.background !== result.inkFill, { ...meta, assert: 'disabled Pause attribute and cursor', actual: result.pause });
         expect(['background', 'border', 'color', 'glyph'].every(k => result.pause[k] === reference[k]), { ...meta, assert: 'Pause equals F5 fill, border, icon colour and glyph', actual: result.pause, reference });
       }
-      if (state.startsWith('voice') || ['start429', 'waiting'].includes(state)) {
+      if (state.startsWith('voice') || state === 'start429') {
         expect(result.accessibleName === result.label && !result.calloutFocusable, { ...meta, assert: 'full accessible name and callout takes no focus', actual: result });
         if (width >= 600) {
           const desired = (result.anchor.left + result.anchor.right - result.callout.width) / 2;
@@ -111,7 +111,7 @@ export async function checkVoiceFailures(t) {
       }
       if (state === 'start429') expect(!result.text.includes(result.providerLimit) && !result.accessibleName.includes(result.providerLimit), { ...meta, assert: '429 never providerLimit, full and narrow' });
       if (state === 'voicePlaybackBlocked') expect(result.live && result.playbackLabel === (locale === 'de' ? 'Ton aktivieren' : 'Enable sound'), { ...meta, assert: 'F3 stays live with existing playback label' });
-      const shot = ['voiceMicDenied'].includes(state) || width === 1440 && theme === 'light' && locale === 'de' && ['voiceConnectionFailed', 'voicePlaybackBlocked', 'waiting', 'recovering'].includes(state);
+      const shot = ['voiceMicDenied'].includes(state) || width === 1440 && theme === 'light' && locale === 'de' && ['voiceConnectionFailed', 'voicePlaybackBlocked', 'waiting', 'voiceRecoveryFailed', 'recovering'].includes(state);
       if (shot && evidence) {
         await page.evaluate(async () => {
           const root = document.querySelector('aithema-session').shadowRoot;

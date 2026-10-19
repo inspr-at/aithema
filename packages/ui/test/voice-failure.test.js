@@ -29,7 +29,7 @@ function fixture(t, provider, { startError, recoveryError } = {}) {
     const providerSessionId = `fixture-${++generation}`, until = Date.now() + 180_000;
     return { callId: request.callId, providerSessionId, epoch: 1,
       spendDeadlineAt: until, browserLivenessDeadlineAt: until,
-      credential: { providerSessionId, ttlMs: 180_000, connectionType: 'webrtc', conversationToken: `fixture-token-${providerSessionId}` },
+      credential: { providerSessionId, ttlMs: 60_000, connectionType: 'webrtc', conversationToken: `fixture-token-${providerSessionId}` },
       mediaGrant: { callId: request.callId, providerSessionId, expiresAt: until,
         opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } } };
   };

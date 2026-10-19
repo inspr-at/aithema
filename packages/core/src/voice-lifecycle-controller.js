@@ -1,6 +1,11 @@
 import { PluginError } from './invocation.js';
 import { createVoiceLifecycle, reduceVoiceLifecycle } from './voice-lifecycle.js';
 
+// Retry-after is a bounded absolute deadline, shared by startup and recovery.
+export const voiceRetryAt = (error, now = Date.now()) =>
+  (error?.status === 429 || error?.code === 'voice-conflict') && error.retryAfterMs > 0
+    ? now + Math.min(error.retryAfterMs, 60_000) : 0;
+
 export const voiceAuthorityLost = error => error?.status === 403 || error?.code === 'not-admitted' || error?.code === 'auth';
 const continuityLoss = error => error?.code === 'voice-ownership-lost' ? 'ownership-lost'
   : error?.code === 'voice-restart-required' ? 'server-restart' : null;
@@ -37,11 +42,11 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
       dispatch({ type: 'sleep' }); hold('wake');
     }
   };
-  const exhausted = async () => {
+  const exhausted = async (retryAt = 0) => {
     dispatch({ type: 'recovery-exhausted' }); stopMedia();
     try { await persistWaiting({ reason: 'recovery-failed', attempts: state.attempts }); }
     catch { /* Local media stays stopped if the server is temporarily unreachable. */ }
-    if (!ended()) onEvent({ type: 'waiting', reason: 'recovery-failed' });
+    if (!ended()) onEvent({ type: 'waiting', reason: 'recovery-failed', ...(retryAt ? { retryAt } : {}) });
   };
   const schedule = () => {
     clearTimeout(timer);
@@ -82,6 +87,10 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
           await failedReplacement();
           if (ended() || revision !== continuityRevision) return false;
           if (continuityLoss(error)) { hold(continuityLoss(error)); return false; }
+          const retryAt = voiceRetryAt(error, now());
+          // An advertised rate-limit wait needs explicit visitor intent; do not
+          // spend the remaining automatic attempts inside the refused window.
+          if (error?.status === 429 && retryAt) { await exhausted(retryAt); return false; }
           if (voiceAuthorityLost(error)) { dispatch({ type: 'withdraw' }); terminal('call-authorization-lost'); return false; }
           dispatch({ type: 'recovery-failed' });
         }
