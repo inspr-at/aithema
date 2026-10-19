@@ -5,6 +5,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
+import { measureGaugeCaptions } from './settings-caption-helpers.js';
 import { startChild } from '../helpers.js';
 
 const chromeSandboxArgs = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [];
@@ -353,7 +354,16 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     await page.mouse.move(-10, -10); await settle();
     if (evidence) await page.screenshot({ path: join(evidence, name + '.png'), fullPage: false, captureBeyondViewport: false });
   };
-  for (const [locale, width] of [['de', 1440], ['de', 390], ['en', 1440]]) {
+  for (const [locale, width, theme] of [
+    ['de', 1440, 'light'], ['de', 390, 'light'], ['en', 1440, 'light'],
+    ['de', 1440, 'dark'], ['de', 390, 'dark'], ['de', 1024, 'light'],
+  ]) {
+    await page.select('#theme', theme);
+    assert.equal(await page.$eval('aithema-session', el => el.getAttribute('theme')), theme);
+    const prefix = `ait350-${locale}-${width}${theme === 'dark' ? '-dark' : ''}`;
+    // At 1024 only the two requested states need PNGs; all assertions still run.
+    const capture = state => width !== 1024 || ['both-options', 'grok-selected'].includes(state);
+    const captureState = state => capture(state) ? shot(`${prefix}-${state}`) : settle();
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.evaluate(async locale => {
       await window.ait350.reset(locale); await window.ait350.settle();
@@ -369,13 +379,13 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
       await settle(); const current = await page.evaluate(() => window.ait350.geometry());
       const drift = Object.fromEntries(Object.keys(baseline).map(key => [key, Math.max(...baseline[key].map((v, i) => Math.abs(v - current[key][i])))]));
       assert.deepEqual(drift, { choice: 0, confirmationSlot: 0, detail: 0, detailBody: 0 }, `${locale}/${width}/${state}`);
-      checks.push({ locale, width, state, drift });
+      checks.push({ locale, width, theme, state, drift, gaugeCaptions: await page.evaluate(measureGaugeCaptions) });
     };
     await page.evaluate(() => window.ait350.q('#settings-select-voice').click());
-    await measure('both-options'); await shot(`ait350-${locale}-${width}-both-options`);
+    await measure('both-options'); await captureState('both-options');
     for (const status of ['consent', 'unavailable']) {
       await page.evaluate(status => { const f = window.ait350; f.status = status; f.editor.setCatalog(f.catalog()); }, status);
-      await measure(status); await shot(`ait350-${locale}-${width}-${status === 'consent' ? 'consent-required' : status}`);
+      await measure(status); await captureState(status === 'consent' ? 'consent-required' : status);
     }
     await page.evaluate(() => {
       const f = window.ait350; f.status = 'available'; f.active = true; f.editor.setCatalog(f.catalog());
@@ -383,7 +393,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     });
     await measure('in-call-confirmation');
     assert.ok(await page.evaluate(() => ['#settings-select-voice', '.voice-switch-apply', '.voice-switch-cancel'].every(s => window.ait350.q(s).getBoundingClientRect().height >= 44)), '44 px voice targets');
-    await shot(`ait350-${locale}-${width}-in-call-confirmation`);
+    await captureState('in-call-confirmation');
     await page.evaluate(() => window.ait350.q('.voice-switch-cancel').click()); await settle();
     assert.equal(await page.evaluate(() => window.ait350.root.activeElement === window.ait350.q('#settings-select-voice')), true);
     await measure('cancel');
@@ -396,16 +406,18 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     await page.waitForFunction(() => window.ait350.session.settings.voice === 'grok-voice');
     await measure('grok-selected');
     assert.equal(await page.evaluate(() => window.ait350.root.activeElement === window.ait350.q('#settings-select-voice')), true);
-    await shot(`ait350-${locale}-${width}-grok-selected`);
+    await captureState('grok-selected');
     await page.evaluate(() => window.ait350.q('.disclosure').open = true);
-    await measure('provider-processing-detail'); await shot(`ait350-${locale}-${width}-provider-processing-detail`);
+    await measure('provider-processing-detail'); await captureState('provider-processing-detail');
     await page.evaluate(() => window.ait350.q('.disclosure').open = false);
     if (width === 390) {
       await page.evaluate(() => window.ait350.q('[data-gauge="voice"]').scrollIntoView({ block: 'center' }));
-      await shot(`ait350-${locale}-${width}-grok-selected-vial`);
+      await settle();
+      checks.push({ locale, width, theme, state: 'grok-selected-vial', gaugeCaptions: await page.evaluate(measureGaugeCaptions) });
+      await shot(`${prefix}-grok-selected-vial`);
     }
     assert.deepEqual(await page.evaluate(() => ({ starts: window.ait350.starts, stops: window.ait350.stops })), { starts: 0, stops: 1 });
-    checks.push({ locale, width, focusReturn: { switch: true, cancel: true, failedSave: true } });
+    checks.push({ locale, width, theme, focusReturn: { switch: true, cancel: true, failedSave: true } });
   }
   assert.deepEqual(problems, []);
   if (evidence) await writeFile(join(evidence, 'ait350-checks.json'), JSON.stringify({ capture: 'viewport', motion: 'reduced and settled', blurredBeforeCapture: true, checks }, null, 2));
