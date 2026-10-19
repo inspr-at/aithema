@@ -87,13 +87,23 @@ test('AIT-380: generic efforts preserve the split reaction ceiling and analysis 
     try { for await (const _chunk of admitted.plugin.stream(request, admitted.options)) {} }
     finally { admitted.finish(); }
   }
+  // A generic shared model option is also capped when voice is selected.
+  route.bindings.understanding = route.bindings.reaction;
+  const current = storage.get(session.id);
+  storage.changeSettings(session.id, { processingPreset: 'best', settings: { ...current.settings, effort: 'high', voice: 'elevenlabs' } },
+    { ownerToken: 'fixture-owner', baseRevision: current.settings.revision });
+  const shared = await runtime.admit({ session: storage.get(session.id), lane: 'reaction', operation: 'stream', request });
+  assert.equal(shared.engine.effort, 'none');
+  try { for await (const _chunk of shared.plugin.stream(request, shared.options)) {} }
+  finally { shared.finish(); }
+
 });
 
 test('AIT-380: a saved voice selection cannot start through a missing speech route', async t => {
   t.mock.method(console, 'error', () => {});
   const configured = openRouterConfig({ ...values, OPENROUTER_SPEECH_MODEL: undefined });
   const storage = new SQLiteStorage(); t.after(() => storage.close());
-  const plugin = createVoiceProvider({ storage, binding: { agentId: voiceBinding.agentId, secretRef: voiceBinding.secretRef,
+  const plugin = createVoiceProvider({ storage, staticFacade: true, binding: { agentId: voiceBinding.agentId, secretRef: voiceBinding.secretRef,
     apiBaseUrl: voiceBinding.endpoint, upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 60_000 },
     resolveSecret: () => assert.fail('refusal must precede secret resolution'),
     fetchImpl: () => assert.fail('refusal must precede provider traffic') });
