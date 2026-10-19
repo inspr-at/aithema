@@ -91,6 +91,37 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
       await assert.rejects(h.runtime.admitVoice({ session: h.session, request: { callId: 'recovery' }, options: { voiceContinuation: true } }), /fast reaction binding/u);
     }
   });
+  test(`AIT-397: ${manifest.id} active call ends cleanly when its fast route is lost`, async t => {
+    const h = fixture(t, manifest), closed = [];
+    h.registry.get(manifest.id).start = async (request, options) => {
+      await options.attempt.consume();
+      const call = { ...request, providerSessionId: 'offline-call', signal: new AbortController().signal,
+        spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
+        snapshot: () => ({ paused: false }), heartbeat: () => assert.fail('refused route must not renew media'),
+        async close(reason) {
+          closed.push(reason);
+          const terminal = { attemptId: options.attempt.attemptId, providerSessionId: call.providerSessionId,
+            outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
+            usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } };
+          await options.report(terminal); return terminal;
+        } };
+      return call;
+    };
+    const handlers = createHandlers({ storage: h.storage, pluginRuntime: h.runtime, voice: {} });
+    t.after(() => handlers.close());
+    const post = (suffix, body) => handlers.handle(new Request(`https://host.example.test/api/sessions/${h.session.id}/voice${suffix}`, {
+      method: 'POST', headers: { 'x-aithema-session-token': h.owner }, body: JSON.stringify(body) }));
+    const started = await post('', { callId: 'active-call', tabId: 'fixture-tab' });
+    assert.equal(started.status, 201);
+    const receipt = await started.json();
+    h.model.bindings.reaction = h.understanding;
+    const response = await post('/active-call/heartbeat', { ...receipt, tabId: 'fixture-tab' });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'voice-host-unavailable' });
+    await handlers.idle();
+    assert.equal(h.storage.voiceLifecycle(h.session.id, 'active-call').state, 'ended');
+    assert.deepEqual(closed, ['voice-host-unavailable']);
+  });
   test(`AIT-397: ${manifest.id} invalid custom host returns only the neutral visitor failure`, async t => {
     const h = fixture(t, manifest, failures.missing);
     const handlers = createHandlers({ storage: h.storage, pluginRuntime: h.runtime, voice: {} });
