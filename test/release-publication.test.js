@@ -68,7 +68,8 @@ else process.exit(90);
   // This fixture exercises the publication shell, while release-candidate-gate
   // exercises the actual admission command against Git and API fixtures.
   writeFileSync(join(cwd, 'bin/node'), '#!/bin/sh\n[ "$1" = release/gate.mjs ] && [ "$2" = candidate ]\n', { mode: 0o755 });
-  const command = steps().find(step => step.run?.includes('gh release create')).run;
+  const command = [steps().find(step => step.run?.includes('release/gate.mjs candidate')).run,
+    steps().find(step => step.run?.includes('gh release create')).run].join('\n');
   const env = { PATH: `${join(cwd, 'bin')}:/usr/bin:/bin`, GITHUB_REF_NAME: 'v261019120000.0.0',
     GITHUB_REF: 'refs/tags/v261019120000.0.0', GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
   const run = () => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], { cwd, env, encoding: 'utf8' });

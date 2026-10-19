@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -44,6 +44,11 @@ jobs:
         run: node release/pack.mjs pack dist/release "$GITHUB_REF"
       - name: Verify the same bytes
         run: node release/pack.mjs verify dist/release
+      - name: Admit only the active approved candidate
+        id: candidate-gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node release/gate.mjs candidate "$GITHUB_REF"
       - name: Test consumers against the exact archives to be shipped
         run: node release/consumer.mjs dist/release
       - name: Generate SHA256SUMS from the tested release set
@@ -90,9 +95,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Admission shares this step's workflow token; failure stops before
-          # arming cleanup or creating any release. All reads are read-only.
-          node release/gate.mjs candidate "$GITHUB_REF"
           cleanup_failed_release() {
             trap - ERR
             echo "release publication or immutability verification failed; attempting release deletion (tag retained)" >&2
@@ -117,7 +119,7 @@ jobs:
           fi
           trap - ERR
       - name: Retain the tested set and portable consumer deployment
-        if: always()
+        if: always() && steps.candidate-gate.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aithema-reset-${{ github.ref_name }}

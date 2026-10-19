@@ -8,10 +8,38 @@ import { normalizedDigest } from './normalize.mjs';
 const isDigest = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value);
 const isCommit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value);
 
+function markerMessage(object) {
+  const split = object.indexOf('\n\n');
+  if (split < 0) throw new Error('Invalid candidate marker object');
+  // Signed annotated tags are also valid. Signatures are outside the JSON message.
+  const message = object.slice(split + 2).split(/\n-----BEGIN (?:PGP SIGNATURE|SSH SIGNATURE)-----/u)[0].trim();
+  return JSON.parse(message);
+}
+
+// Helpers can validate the exact output of `git cat-file -p refs/tags/...`
+// before pushing a marker. This checks both its JSON and direct commit binding.
+export function parseCandidateMarker(tag, object) {
+  try {
+    const header = object.slice(0, object.indexOf('\n\n')).split('\n');
+    const value = markerMessage(object);
+    parseVersion({ ...value, version_scheme: 'inspr-calver-3' });
+    if (tag !== `candidate/v${value.version}` || !Number.isSafeInteger(value.release_sequence) || value.release_sequence < 1 ||
+      !isCommit(value.source_commit) || !isDigest(value.manifest_sha256) || !isDigest(value.normalized_digest) ||
+      !header.includes('type commit') || header[0] !== `object ${value.source_commit}`) throw new Error('Invalid fields or commit');
+    return value;
+  } catch (cause) {
+    throw new Error(`Invalid candidate marker fields or commit: ${tag}`, { cause });
+  }
+}
+
 export function candidateGate(ref, { root = process.cwd(), directory = join(root, 'dist/release') } = {}) {
   const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const source = JSON.parse(readFileSync(join(root, 'release/version.json')));
   assertReleaseTag(ref, source);
+  git(['fetch', '--no-tags', 'origin',
+    'refs/tags/candidate/*:refs/tags/candidate/*',
+    'refs/tags/release-failed/*:refs/tags/release-failed/*',
+    'refs/tags/v*:refs/tags/v*']);
   const commit = git(['rev-parse', '--verify', `${ref}^{commit}`]);
   if (git(['rev-parse', 'HEAD']) !== commit) throw new Error('Tagged commit differs from checked-out candidate');
   const tags = git(['tag', '--list']).split('\n');
@@ -21,22 +49,23 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
   function marker(tag) {
     const fullRef = `refs/tags/${tag}`;
     if (git(['cat-file', '-t', fullRef]) !== 'tag') throw new Error(`Candidate marker must be annotated: ${tag}`);
-    const object = git(['cat-file', '-p', fullRef]);
-    const split = object.indexOf('\n\n');
-    const header = object.slice(0, split).split('\n');
-    // Signed annotated tags are also valid. Signatures are outside the JSON message.
-    const message = object.slice(split + 2).split(/\n-----BEGIN (?:PGP SIGNATURE|SSH SIGNATURE)-----/u)[0].trim();
-    const value = JSON.parse(message);
-    parseVersion({ ...value, version_scheme: 'inspr-calver-3' });
-    if (tag !== `candidate/v${value.version}` || !Number.isSafeInteger(value.release_sequence) || value.release_sequence < 1 ||
-      !isCommit(value.source_commit) || !isDigest(value.manifest_sha256) || !isDigest(value.normalized_digest) ||
-      !header.includes('type commit') || header[0] !== `object ${value.source_commit}`) throw new Error(`Invalid candidate marker fields or commit: ${tag}`);
-    return value;
+    return parseCandidateMarker(tag, git(['cat-file', '-p', fullRef]));
   }
   const selected = marker(name);
   if (selected.source_commit !== commit || selected.release_sequence !== source.release_sequence) throw new Error('Candidate marker commit or sequence mismatch');
   for (const tag of tags.filter(tag => tag.startsWith('candidate/v'))) {
-    const other = tag === name ? selected : marker(tag);
+    let other;
+    try {
+      other = tag === name ? selected : marker(tag);
+    } catch (error) {
+      // A broken immutable marker must still close its claimed sequence. An
+      // unrelated (or unreadable) sequence cannot poison all future releases.
+      let sequence;
+      try { sequence = markerMessage(git(['cat-file', '-p', `refs/tags/${tag}`])).release_sequence; } catch { /* no readable claim */ }
+      if (sequence === selected.release_sequence || typeof sequence === 'string' && Number(sequence) === selected.release_sequence) throw error;
+      console.warn(`Warning: ignoring malformed ${tag} (sequence ${sequence ?? 'unknown'}, candidate sequence ${selected.release_sequence}): ${error.message}`);
+      continue;
+    }
     if (other.release_sequence === selected.release_sequence && compareVersions(
       { ...other, version_scheme: 'inspr-calver-3' }, { ...selected, version_scheme: 'inspr-calver-3' }) > 0) {
       throw new Error(`Candidate marker superseded by active ${tag}`);

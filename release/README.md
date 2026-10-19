@@ -480,7 +480,11 @@ The order is **lock tag → prep → gates → true merge → marker → cut →
    ```
 
    Values here are illustrative. The real marker copies the retained evidence's
-   values exactly. Keep the marker name, C and both digests in the release ticket
+   values exactly. Before pushing, the coordinator's helper calls the exported
+   `parseCandidateMarker(tagName, annotatedTagObject)` from `release/gate.mjs`
+   with the `candidate/vX` name and the complete `git cat-file -p` tag object;
+   this validates the JSON fields and direct commit binding. Keep the marker
+   name, C and both digests in the release ticket
    and the report/handoff. Of all `candidate/v*` markers for N, the latest valid
    CalVer3 version is active. Older markers remain immutable, superseded history.
 6. OPS owns the entire cut or re-run under that shared exclusive lock, through
@@ -535,33 +539,62 @@ for installation, signatures and rollback.
 
 ### Publication admission, authority and serialization (§ 7 / § 7a)
 
-After building and verifying `dist/release`, and before `gh release create`,
-`node release/gate.mjs candidate "$GITHUB_REF"` requires an annotated marker
+Immediately after building and verifying `dist/release`, a separate step runs
+`node release/gate.mjs candidate "$GITHUB_REF"` with the workflow's own
+`GITHUB_TOKEN` for read-only admission. It precedes attestation and creation:
+**verify → gate → attest → create**. The gate requires an annotated marker
 pointing directly to the tagged C, valid version/N/C/manifest/normalized-digest
 fields, the active marker for N, no published sequence ≥ N, no
 `release-failed/vX`, and the built set's matching normalized digest. Releases are
-read through paginated GETs with the workflow's own token. Tags are read from
-checkout's complete Git history (`fetch-depth: 0`); published legacy coordinates
-use the explicit commit-bound history ledger, later coordinates the version
-source at their tag. Unknown or unreadable metadata refuses admission.
+read through paginated GETs with the workflow's own token. Inside the gate,
+`candidate/*`, `release-failed/*` and `v*` tags are fetched again from origin
+before deciding, even though checkout uses complete Git history
+(`fetch-depth: 0`). A failed refresh refuses admission. One fixed `release` concurrency group
+serializes all release refs, with no cancellation of an in-progress run.
+Published legacy coordinates use the explicit commit-bound history ledger;
+later coordinates use the version source at their tag. Unknown or unreadable
+published metadata refuses admission. A malformed own marker, or another
+malformed marker claiming N, also refuses. Malformed unrelated or unreadable
+markers emit a warning without blocking other sequences. No refused candidate
+gets an attestation or a retained release artifact.
 
 OPS makes `v*`, `candidate/*`, `release-lock/*` and `release-failed/*` immutable
-with tag rulesets. GitHub can limit creating `v*` to the **admin role**, but
+with tag rulesets. A ruleset limits creating `v*` to the **admin role**, but
 cannot separate the coordinator and OPS: both sessions use the same admin
 account, `markus-barta`. No distinct identity, new key or scope is claimed.
 Tooling supplies the narrower role rule: only OPS's cut creates `v*`; the
 coordinator's helper refuses `refs/tags/v*` and pushes only markers and lock tags.
-Both take the same exclusive lock for their entire operations. The coordinator
-never pushes a marker while RELEASE-WINDOW is open.
+Their separation is **procedural**, not enforced by operator identity. Both take
+`~/.aeon/lead/aeon/AITHEMA-RELEASE.lock` on mbp2607: OPS for the whole cut or
+re-run, from opening RELEASE-WINDOW through verification, and the coordinator
+for every marker or lock-tag push. The coordinator never pushes a marker while
+RELEASE-WINDOW is open; OPS opens it before re-checking admission and closes it
+only after verification or a recorded failure.
 
-An admin-capable session could still push an old `v*` manually on a historical
-reserved commit whose workflow lacks the candidate gate. This remains an
-accepted procedural admin risk. OPS repeats the legacy-run audit immediately
-before activation: all historical release tags must have published releases,
-with no drafts or outstanding failed/re-runnable/tag-less coordinates. Otherwise
-activation waits. Historical re-runs then fail at creation because their immutable
-release already exists. Role controls, the helper refusal, immutable releases
-and verification of every publication make this visible and bounded.
+A separate **no-bypass deny ruleset**, with no bypass actors (including admins),
+denies creation of historical reserved-but-unpublished tags
+`v261017073156.0.0` and `v261017100846.0.0`. These were the only such coordinates
+in the 2026-10-19 09:31 inventory of reserved versions on main's ancestry versus
+published tags. OPS repeats the inventory immediately before go-live and adds
+any new entry. The first B candidate reserves a fresh coordinate. From B on,
+every superseded coordinate is added to this deny ruleset when superseded,
+in addition to the candidate gate refusing non-active markers.
+
+**Residual admin risk:** with the no-bypass deny ruleset in place, a manual push
+of a denied historical coordinate cannot publish it. Publishing it would first
+require an admin to deliberately change or disable the ruleset. Coordinates
+off the deny list are either already published (immutable, so a new tag fails)
+or post-B (the workflow gate refuses a non-active marker). The remaining risk
+is a deliberate admin action against the rulesets, accepted as procedural and
+visible through immutable releases and `verify-release`. The admin-role limit,
+helper refusal, shared lock and RELEASE-WINDOW protocol mitigate accidental
+pushes under the shared account; they do not distinguish OPS's identity.
+
+OPS also repeats the legacy-run audit immediately before activation: all
+historical release tags must have published releases, with no drafts or
+outstanding failed/re-runnable coordinates. Otherwise activation waits.
+Historical re-runs then fail at creation because their immutable release already
+exists. This audit complements the reserved-but-unpublished deny inventory.
 
 ### Terminal states and failed-cut recovery (§ 7b)
 
@@ -624,13 +657,14 @@ bytes; its tag must exactly match the reservation and C must belong to main.
 The Ubuntu/Node 24/GNU tar job keeps every existing check:
 
 1. Require ancestry and the exact reserved tag, install the locked closure,
-   pack once into `dist/release` and verify every archive.
+   pack once into `dist/release` and verify every archive. Immediately admit the
+   active candidate against refreshed tags and published sequences.
 2. Test consumers against those exact archives: scratch install, locked
    reinstall, dependency replacement and exact rollback.
 3. Bind consumer evidence to the source, manifest and all module hashes; generate
    SHA256SUMS and reject an unexpected or missing archive.
 4. Attest every tarball, checksum, manifest and evidence file with the pinned
-   provenance action. Check the candidate before creation.
+   provenance action, after candidate admission has succeeded.
 5. Arm cleanup, create the draft with its exact tested assets, publish it, then
    require immutability. Retain the full portable consumer deployment for 90 days.
 
