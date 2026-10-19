@@ -12,7 +12,7 @@ import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -972,9 +972,5 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       targets44px: [...timedOut.boxes.slice(2), ...unknown.boxes.slice(2)].every(r => r[2] >= 44 && r[3] >= 44), movementPx: 0 });
     assert.equal(checks.at(-1).targets44px, true);
   }
-  if (evidence) {
-    const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : {};
-    await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: event.pull_request?.head.sha ?? evidenceCommit,
-      testedMergeCommit: evidenceCommit, ciRunId: process.env.GITHUB_RUN_ID ?? null, spec: 'AIT-376 Tick v1', checks }, null, 2));
-  }
+  if (evidence) await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-376 Tick v1', checks }, null, 2));
 });
