@@ -959,3 +959,37 @@ for (const failure of ['http', 'network', 'snapshot-stall', 'document-http', 'do
   release(); await tick();
   assert.deepEqual(view.items.map(i => i.id), ['image'], 'a late stalled response cannot restore withdrawn coverage');
 });
+
+test('AIT-364 v1.1: fail-closed expiry cancels an earlier kind notice without stealing focus', async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [draft('html')], session: { conceptVisualKind: 'html', visualsBound: true } });
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
+  await tick();
+  root.querySelector('.concept-preview').focus(); view.open('html');
+  const fetchBefore = globalThis.fetch;
+  let release;
+  const stalled = new Promise(resolve => { release = resolve; });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/consent')) {
+      await stalled;
+      return Response.json({ consentRevision: c.session.consentRevision, selected: [], features: { html: ['drafts'], images: ['images'] } });
+    }
+    if (url.endsWith('/api/sessions/' + c.session.id)) return Response.json({ ...c.session,
+      featureMatrix: { best: { ...c.session.featureMatrix.best, html: { available: false, reason: 'current processing consent required' } } } });
+    return fetchBefore(url, options);
+  });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
+  await tick();
+  assert.deepEqual(view.items, [], 'feature refusal redacts before the pending document answers');
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'));
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptDraftWithdrawn);
+  t.mock.timers.tick(2000);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  t.mock.timers.tick(4000);
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  assert.equal(root.activeElement, root.querySelector('.concept-preview'), 'the superseded kind-notice timer cannot move focus to the hidden consent action');
+  release(); await tick();
+});
