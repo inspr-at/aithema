@@ -760,6 +760,7 @@ for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent rem
   const removed = kind === 'html' ? draft('removed') : item('removed');
   const retained = kind === 'html' ? item('retained') : draft('retained');
   const { c, root, calls, revoked } = setup(t, { concepts: [retained, removed], session: { conceptVisualKind: kind, visualsBound: true } });
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
   await tick();
   const cached = await view.load('removed'); assert.ok(cached); t.diagnostic('removed bytes cached');
   root.querySelector('.workspace').setAttribute('data-folded', ''); await view.paintCanvas(); t.diagnostic('canvas painted');
@@ -835,4 +836,18 @@ test('AIT-364: a 403 preview refusal cannot be retried by reopen or Reload', asy
   await assert.rejects(source.mint(), /Preview scope denied/);
   await assert.rejects(view.previewSource('denied').mint(), /Preview scope denied/);
   assert.equal(calls.filter(call => call.url.endsWith('/preview')).length, 1);
+});
+
+test('AIT-364: withdrawing images preserves an already open HTML frame and its mint scope', async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [draft('retained'), item('removed')], session: { conceptVisualKind: 'image', visualsBound: true } });
+  view.open('retained');
+  const source = root.querySelector('.concept-html').artifact;
+  view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best, images: { available: false, reason: 'current processing consent required' } } } });
+  assert.equal(view.dialog.open, true, 'a selected covered kind stays open');
+  assert.equal(root.querySelector('.concept-html').artifact, source, 'covered frame is not replaced');
+  assert.equal(root.querySelector('.concept-count').textContent, '1 of 1');
+  assert.ok((await source.mint()).url, 'covered preview remains usable after the other scope is removed');
 });

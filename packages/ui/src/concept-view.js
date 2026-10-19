@@ -221,12 +221,18 @@ export class ConceptView {
     const valid = new Set(this.items.map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
     if (changedOwner || partial || previous && !valid.has(previous.id) || !wasRevoked && (session.consentWithdrawn || session.tombstone) || lostSource || wasPending && session.conceptStatus?.error === 'source-removed') {
-      this.#epoch++; this.#loads.clear(); this.clearBackdrop();
+      if (!partial) { this.#epoch++; this.#loads.clear(); }
+      if (!partial || !valid.has(this.#backdropId)) this.clearBackdrop();
       clearTimeout(this.#withdrawnTimer);
       this.#withdrawnKind = partial ? conceptKind(partial) : undefined;
       this.#withdrawnUntil = changedOwner ? 0 : Date.now() + 4000;
       if (this.#withdrawnUntil) {
-        this.#withdrawnTimer = setTimeout(() => { this.#withdrawnUntil = 0; const accessFocused = this.root.activeElement === this.root.querySelector('.concept-preview'); this.render(); if (accessFocused && !this.items.length) this.root.querySelector('.concept-activity-text .consent-action')?.focus(); }, 4000);
+        this.#withdrawnTimer = setTimeout(() => {
+          this.#withdrawnUntil = 0;
+          const accessFocused = this.root.activeElement === this.root.querySelector('.concept-preview');
+          this.render();
+          if (accessFocused && !this.items.length) this.root.querySelector('.concept-activity-text .consent-action')?.focus();
+        }, 4000);
         this.#withdrawnTimer.unref?.();
       }
     }
@@ -247,7 +253,8 @@ export class ConceptView {
       (canvasId || canvas?.artifact || canvasImage?.hasAttribute('src')) && !valid.has(canvasId)) this.suspendCanvas();
     // Redact revoked content immediately.
     if (changedOwner || session.consentWithdrawn || session.tombstone || this.#selected && !valid.has(this.#selected)) {
-      this.#epoch++; this.root.querySelector('.concept-image').removeAttribute('src'); this.root.querySelector('.concept-disclosure').textContent = '';
+      if (!partial) this.#epoch++;
+      this.root.querySelector('.concept-image').removeAttribute('src'); this.root.querySelector('.concept-disclosure').textContent = '';
       this.root.querySelector('.concept-html').artifact = null;
       this.paintGuidance([]); this.close();
     }
@@ -510,7 +517,7 @@ export class ConceptView {
     } catch { /* Storage is optional, including reads in private mode. */ }
   }
   backdropHidden() {
-    return this.visualKind() !== 'image' || this.#unbound || this.#withdrawnUntil > Date.now() ||
+    return this.visualKind() !== 'image' || this.#unbound || (this.#withdrawnUntil > Date.now() && (!this.#withdrawnKind || !this.items.length)) ||
       ['pending', 'failed'].includes(this.#session?.conceptStatus?.phase) || Boolean(this.#requestError) || !this.items.at(-1);
   }
   paintBackdropState(unbound) {
