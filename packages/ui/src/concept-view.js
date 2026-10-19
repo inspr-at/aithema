@@ -539,6 +539,7 @@ export class ConceptView {
       const failureCopy = text.querySelector('.consent-line-copy') ?? text;
       paintFailureLine(failureCopy, failureCopy.textContent);
     }
+    access.toggleAttribute('data-scope-withdrawn', Boolean(this.#withdrawnKind && !this.covered(this.#withdrawnKind)));
     access.toggleAttribute('data-partial-withdrawal', Boolean(this.#withdrawnKind && state === 'gone'));
     const notice = this.root.querySelector('.concept-withdrawn');
     const key = this.#withdrawnKind === 'html' ? 'conceptDraftWithdrawn' : 'conceptImageWithdrawn';

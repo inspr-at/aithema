@@ -217,10 +217,11 @@ svg { display:block; flex:none; }
 
 /* AIT-282: the image access occupies a permanent 44px cell; every state
    overlays that cell. Specificity also preserves the reservation on phones. */
-.concept-access { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; min-height:44px; min-width:0; }
-.concept-access > * { grid-row:1; }
-.concept-access .concept-rail { grid-column:1; }
-.concept-access .concept-preview-slot { grid-column:2; }
+.concept-access { display:contents; }
+.concept-fold-slot .concept-access { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; min-height:44px; min-width:0; }
+.concept-fold-slot .concept-access > * { grid-row:1; }
+.concept-fold-slot .concept-rail { grid-column:1; }
+.concept-fold-slot .concept-preview-slot { grid-column:2; }
 .concept-withdrawn, .concept-phone-slot { display:none; }
 .concept-fold-slot:empty { display:none; }
 .fold-view:has(.concept-fold-slot:not(:empty)) { grid-template-rows:auto 44px minmax(0,1fr); }
@@ -233,6 +234,10 @@ svg { display:block; flex:none; }
 .concept-access[data-partial-withdrawal] .concept-preview { visibility:visible !important; }
 .concept-preview[data-withdrawn] { visibility:visible !important; min-width:44px; }
 .concept-preview[data-withdrawn] > * { visibility:hidden; }
+.workspace .concept-access[data-scope-withdrawn] .concept-preview-slot { display:grid; }
+@media(min-width:601px) {
+  .workspace .concept-bar:has(.concept-access[data-scope-withdrawn]) { grid-template-columns:minmax(0,1fr) auto; }
+}
 .concept-thread { display:contents; }
 .workspace[data-concept-layout="image"] .concept-thread { position:relative; min-height:0; display:grid; grid-template:minmax(0,1fr)/minmax(0,1fr); container-type:size; }
 .workspace[data-concept-layout="image"] .concept-thread > .transcript-shell { grid-area:1/1; z-index:1; }
