@@ -69,7 +69,7 @@ export async function scopedConsentEdges({ t, a, isCI, session, setSession, setS
     const confirmed = await a.evaluate(() => ({ ...inspect(), geometry: boxes() }));
     assert.equal(confirmed.notice, immediate.notice, 'refresh keeps the same withdrawal notice');
     assert.deepEqual(confirmed.ids, immediate.ids); assert.deepEqual(confirmed.geometry, baseline, 'confirmation moves 0 px');
-    checks.push({ width, theme: 'light', locale: 'de', state: 'E1', kind, ...immediate, confirmed, movementPx: 0, sameNotice: true, viewportOnly: true });
+    checks.push({ width, theme: 'light', locale: 'de', edge: 'E1', kind, ...immediate, confirmed, movementPx: 0, sameNotice: true, viewportOnly: true });
   });
   for (const ahead of [false, true]) await t.test(`AIT-365 E3 grant/server-ahead=${ahead}`, async () => {
     await init();

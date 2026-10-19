@@ -240,11 +240,16 @@ export async function partialConsentFrames(t, { isCI } = {}) {
     await a.evaluate(() => view.open('image'));
     await a.waitForFunction(() => view.dialog.open && c.shadowRoot.querySelector('.concept-image').hasAttribute('src'));
     assert.deepEqual(await a.evaluate(() => view.items.map(i => i.id)), ['image'], 'covered images reopen without reload; withdrawn HTML stays gone');
-    checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, changed, state: 'E2', ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, automaticRecovery: true, recovered, retainedOpenable: true });
+    checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, changed, edge: 'E2', ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, automaticRecovery: true, recovered, retainedOpenable: true });
   });
   const scoped = await scopedConsentEdges({ t, a, isCI, session: () => session, setSession: value => { session = value; }, setSelected: value => { selected = value; }, features, url: `http://127.0.0.1:${server.address().port}/`, evidence });
+  const allChecks = [...checks.filter(c => c.edge === 'E2'), ...scoped.checks].map(check => ({ ...check, edge: check.edge ?? check.state }));
+  assert.deepEqual([...new Set(allChecks.map(check => check.edge))].sort(), ['E1', 'E2', 'E3', 'E4'], 'the evidence report carries every required edge');
+  assert.equal(allChecks.filter(check => check.edge === 'E2').length, 4, 'absent and unknown scope HTTP/stall results are retained');
+  assert.equal(allChecks.filter(check => check.edge === 'E1').length, 3, 'both widths and both artifact kinds are retained');
+  assert.ok(allChecks.every(check => check.width && check.theme && check.locale), 'every evidence entry records its display context');
   if (evidence) {
-    await writeFile(join(evidence, 'ait365-checks.json'), JSON.stringify({ spec: 'AIT-365 Tick v1', shots: scoped.shots, checks: [...checks.filter(c => c.state === 'E2'), ...scoped.checks], controlledClock: true, totalWallTimeMs: performance.now() - startedAt }, null, 2));
+    await writeFile(join(evidence, 'ait365-checks.json'), JSON.stringify({ spec: 'AIT-365 Tick v1', shots: scoped.shots, checks: allChecks, controlledClock: true, totalWallTimeMs: performance.now() - startedAt }, null, 2));
     const report = JSON.stringify({ spec: 'AIT-364 Tick v1.1', shots, checks, controlledClock: true, totalWallTimeMs: performance.now() - startedAt }, null, 2);
     await writeFile(join(evidence, 'ait364-checks.json'), report);
     await writeFile(join(evidence, 'checks.json'), report);
