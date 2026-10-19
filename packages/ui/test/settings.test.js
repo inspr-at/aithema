@@ -72,7 +72,7 @@ function fixture(t, { origin = 'default', model = 'mock', turns = 0, voiceClient
   t.after(async () => { c.remove(); await tick(); globalThis.fetch = original; });
   const root = c.shadowRoot, dialog = root.querySelector('dialog.settings');
   const q = selector => dialog.querySelector(selector);
-  const option = (name, label) => [...q(`[data-select="${name}"] .select__menu`).querySelectorAll('[role=option]')].find(node => node.querySelector('strong').textContent === label);
+  const option = (name, label) => [...q(`#settings-options-${name}`).querySelectorAll('[role=option]')].find(node => node.querySelector('strong').textContent === label);
   return { c, root, dialog, q, posts, option, ack, server };
 }
 async function opened(h) { h.c.openSettings(); await tick(); return h; }
@@ -244,6 +244,30 @@ test('Settings opens a labelled modal on the AI model tab with keyboard tabs and
   h.dialog.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   assert.equal(h.dialog.open, false); assert.ok(h.root.activeElement === opener, 'focus returns to the opener');
   assert.equal(h.posts.length, 0, 'opening and closing never saves');
+});
+
+test('Settings menu keyboard navigation, Escape and Tab survive the menu layer', async t => {
+  const h = await opened(fixture(t));
+  const button = h.q('#settings-select-model'), menu = h.q('#settings-options-model');
+  const key = (node, value) => node.dispatchEvent(new window.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true }));
+  key(button, 'ArrowDown');
+  const rows = [...menu.querySelectorAll('[role=option]')];
+  assert.equal(menu.hidden, false);
+  assert.equal(h.root.activeElement, rows.find(row => row.getAttribute('aria-selected') === 'true'));
+  key(h.root.activeElement, 'End');
+  assert.equal(h.root.activeElement, rows.at(-1));
+  key(h.root.activeElement, 'Home');
+  assert.equal(h.root.activeElement, rows[0]);
+  key(h.root.activeElement, 'ArrowDown');
+  assert.equal(h.root.activeElement, rows[1]);
+  key(h.root.activeElement, 'Escape');
+  assert.equal(menu.hidden, true);
+  assert.equal(h.root.activeElement, button);
+  assert.equal(h.dialog.open, true, 'Escape closes the menu before the dialog');
+  button.click(); key(menu.querySelector('[role=option]'), 'Tab');
+  assert.equal(menu.hidden, true);
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.equal(h.posts.length, 0, 'navigation never saves a setting');
 });
 
 test('choosing a model sends ids only and the panel shows the new choice only after the server acknowledges it', async t => {

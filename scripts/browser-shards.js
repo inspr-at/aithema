@@ -199,6 +199,22 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 30);
 
+// AIT-362: PR #320 CI 39215911919, head 1b2be006, shard 5/7
+// measured all four composed-media tests: 1.213731427 + 3.200874379
+// + 19.466447911 + 2.751333913 = 26.632387630s.
+// ceil(observed * 1.25) = 34s. The Settings test completed its full matrix
+// and failed only the documented fit-state assertions; retain this diagnostic
+// floor outside trusted rolling-main history. No capacity policy changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 34);
+
+// AIT-362 round 2: PR #320 CI 39222882719, head 44bb330a, shard 4/7.
+// All four composed-media tests passed: 1.213878431 + 3.106116869
+// + 21.247878435 + 2.718222266 = 28.286096001s; ceil(* 1.25) = 36s.
+// The v1.1 mask/margins/menu-opacity checks reuse the existing page/matrix.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 36);
+
 // AIT-361: successful PR #321 CI 39221656013 at b82a0166, shard 4/7:
 // complete voice file 5/5 PASS, including both-provider failure evidence.
 // 51.184620521 + 18.207498239 + 51.977345350 + 16.106548610
