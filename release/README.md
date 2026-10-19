@@ -209,7 +209,7 @@ Run order (the round-6 evidence rule above applies):
    `release/evidence.json` with `--signoff` for the implementation checkpoint.
 4. Repeat that command on the final committed head with
    `EVIDENCE_OUT="$PWD/dist/ait360-final"`. Retain the complete
-   `dist/ait366-final/candidate/` without another evidence-only commit. Its
+   `dist/ait360-final/candidate/` without another evidence-only commit. Its
    `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-360-seventh-release`, open the PR to main and wait for

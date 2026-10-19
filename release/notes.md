@@ -7,10 +7,14 @@ Eighth October release: a second voice, Grok Voice by xAI (not yet qualified in 
 ## What START and visitors notice
 
 - **Withdrawing one consent item clears its content (AIT-364 / START-550):**
-  withdrawing only “HTML drafts” removes displayed drafts at once, in every tab.
-  Withdrawing only “Images” does the same for images. This also applies while
-  another consent item remains granted. When the component cannot confirm current
-  consent, it hides the affected content rather than leaving it visible.
+  withdrawing only “HTML drafts” removes displayed drafts within one consent
+  refresh, in every tab that receives the change. Withdrawing only “Images” does
+  the same for images. This also applies while another consent item remains
+  granted. When the component cannot confirm current consent, it hides the
+  affected content rather than leaving it visible.
+  **Deutsch:** Wird nur die Zustimmung zu „HTML-Entwürfen“ oder „Bildern“
+  zurückgezogen, verschwinden die jeweiligen Inhalte innerhalb einer
+  Aktualisierung des Zustimmungsstands in jedem Tab, der die Änderung erhält.
 - **A second, selectable voice (AIT-317, packages 1–8):** Grok Voice by xAI is
   **not yet qualified in live use**. Settings lets visitors switch providers and
   shows the recipient and processing detail. Switching can end the current call;
