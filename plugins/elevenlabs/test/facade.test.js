@@ -11,6 +11,7 @@ import { PluginRegistry } from '../../../packages/core/src/plugins.js';
 import { createOpenRouterReasoning } from '../../openrouter/src/index.js';
 import { binding, openRouterPrices } from '../../../test/plugin-fixtures.js';
 import { testToken } from '../../../test/helpers.js';
+import { createVoiceTurnOperations } from '../../../packages/server/src/voice-turns.js';
 import { listen } from '../../../packages/server/src/http.js';
 
 function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
@@ -527,4 +528,215 @@ test('AIT-130: admission cancellation while nonstream completion awaits cannot r
   assert.deepEqual(await response.json(), { error: 'cancelled' });
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.logs.length, 1);
   assert.equal(JSON.parse(local.logs[0]).errorCode, 'cancelled');
+});
+
+// AIT-381: all clocks and provider/admission waits below are controlled; no live ports.
+const spokenSegment = (content, scope = 'in') => JSON.stringify({ content, scope, question_short: null, options: [] });
+function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperations, timeoutMs = 6500, defaultTimeout = false, finalizationGate, settlementGate } = {}) {
+  const snapshot = { system: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
+    hiddenGuidance: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
+    locale, purposePolicy: { offTopicLimit: 3, outputCheck: true, canary: 'PRIVATE_PINNED_CANARY',
+      purpose: 'Clarify the project', redirect: { en: 'Which project should we clarify?', de: 'Welches Vorhaben klären wir?' } },
+    schema: {}, messages: [{ role: 'user', content: 'A project' }] };
+  const admissions = [], completions = [], reports = [], finishes = [], started = [], states = [];
+  let live = 0, maxLive = 0;
+  const local = facadeFixture({ timeoutMs, deadlineAt: Date.now() + 60_000, ports: {
+    turnOperations, ...(defaultTimeout ? { timeoutMs: undefined } : {}),
+    buildRequest: () => snapshot,
+    async admitReasoning({ request, options }) {
+      const index = admissions.length; admissions.push(request);
+      await admissionGate?.promise;
+      const opts = invocationOptions(options); reports.push(opts.reports);
+      return { request: snapshot, options: opts, finish: async () => { finishes.push(index);
+        if (!opts.reports.length) opts.report({ attemptId: opts.attempt.attemptId, outcome: 'uncertain' });
+        await settlementGate?.promise; },
+        plugin: { async *stream(input, invocation) {
+          started.push(input); live++; maxLive = Math.max(maxLive, live);
+          const accounting = await beginInvocation(invocation); let completed = false;
+          try {
+            accounting.dispatch();
+            for (const step of attempts[index] ?? []) {
+              if (step.gate) await new Promise((resolve, reject) => {
+                const abort = () => reject(new PluginError('cancelled'));
+                invocation.signal.addEventListener('abort', abort, { once: true });
+                step.gate.promise.then(() => { invocation.signal.removeEventListener('abort', abort); resolve(); });
+                if (invocation.signal.aborted) abort();
+              });
+              if (step.text) yield step.text;
+            }
+            accounting.usage({ inputTokens: 1, outputTokens: 1 }); completed = true;
+          } finally { await finalizationGate?.promise; live--; await accounting.finish(completed); }
+        } } };
+    },
+    onCompletion: event => completions.push(event),
+  } });
+  const observe = () => {
+    const state = { response: null, text: '', ended: false }; states.push(state);
+    state.done = local.handler(local.request()).then(async response => {
+      state.response = response;
+      const reader = response.body.getReader(), decoder = new TextDecoder();
+      for (;;) { const item = await reader.read(); if (item.done) break; state.text += decoder.decode(item.value); }
+      state.ended = true;
+    });
+    return state;
+  };
+  t.after(async () => { settlementGate?.resolve(); finalizationGate?.resolve(); for (const attempt of attempts) for (const step of attempt) step.gate?.resolve();
+    admissionGate?.resolve(); await Promise.all(states.map(state => state.done)); });
+  return { ...local, observe, snapshot, admissions, completions, reports, finishes, started, get maxLive() { return maxLive; } };
+}
+const spokenText = state => state.text.split('\n\n').filter(frame => frame.startsWith('data: {'))
+  .map(frame => JSON.parse(frame.slice(6)).choices?.[0]?.delta?.content ?? '').join('');
+
+for (const [locale, holding] of [['en', 'One moment, please.'], ['de', 'Einen Moment, bitte.']]) {
+  test(`AIT-381: slow first token speaks one ${locale} holding line at 5 s, then validated content`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+    const source = Promise.withResolvers();
+    const h = spokenFixture(t, { locale, attempts: [[{ gate: source, text: `{"segments":[${spokenSegment('What should improve?')}]}` }]] });
+    const state = h.observe(); await flush();
+    t.mock.timers.tick(4999); await flush(); assert.equal(spokenText(state), '');
+    t.mock.timers.tick(1); await flush(); assert.equal(spokenText(state), holding);
+    t.mock.timers.tick(500); await flush(); assert.equal(spokenText(state), holding);
+    source.resolve(); await state.done;
+    assert.equal(spokenText(state), holding + ' What should improve?');
+    assert.equal(h.admissions.length, 1); assert.equal(h.completions[0].content, spokenText(state));
+    assert.equal(h.reports[0].length, 1); assert.equal(state.text.includes('[DONE]'), true);
+  });
+}
+
+test('AIT-381: a fast committed segment streams before the rest and suppresses holding copy', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const rest = Promise.withResolvers();
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment('A focused start. ')}` },
+    { gate: rest, text: `,${spokenSegment('What should improve?')}]}` }]] });
+  const state = h.observe(); await flush();
+  assert.equal(spokenText(state), 'A focused start. '); assert.equal(state.ended, false);
+  t.mock.timers.tick(5000); await flush(); assert.equal(spokenText(state), 'A focused start. ');
+  rest.resolve(); await state.done;
+  assert.equal(spokenText(state), 'A focused start. What should improve?');
+  assert.equal(h.completions.length, 1); assert.equal(h.completions[0].scope, 'in');
+});
+
+test('AIT-381: validation pins the turn-start policy through delayed admission and rejects a segment before output', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const admissionGate = Promise.withResolvers(), rest = Promise.withResolvers();
+  const h = spokenFixture(t, { admissionGate, attempts: [[{ text: `{"segments":[${spokenSegment('A focused start. ')}` },
+    { gate: rest, text: `,${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+  [{ text: `{"segments":[${spokenSegment('What should improve?')}]}` }]] });
+  const state = h.observe(); await flush();
+  h.snapshot.purposePolicy.canary = 'CHANGED_CANARY'; h.snapshot.purposePolicy.outputCheck = false;
+  h.snapshot.hiddenGuidance = 'Changed analysis'; admissionGate.resolve(); await flush();
+  assert.equal(spokenText(state), 'A focused start. ');
+  rest.resolve(); await state.done;
+  assert.equal(state.text.includes('PRIVATE_PINNED_CANARY'), false);
+  assert.equal(h.admissions.length, 2); assert.equal(h.maxLive, 1);
+  assert.equal(h.finishes.length, 2); assert.ok(h.reports.every(items => items.length === 1));
+});
+
+test('AIT-381: a stalled retry shares the original deadline and holding line; attempts are bounded', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const retry = Promise.withResolvers();
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment('const secret = 1;')}]}` }],
+    [{ gate: retry, text: `{"segments":[${spokenSegment('const secret = 2;')}]}` }]] });
+  const state = h.observe(); await flush();
+  assert.equal(h.admissions.length, 2); assert.equal(h.maxLive, 1); assert.equal(spokenText(state), '');
+  t.mock.timers.tick(5000); await flush(); assert.equal(spokenText(state), 'One moment, please.');
+  t.mock.timers.tick(1499); await flush(); assert.equal(spokenText(state), 'One moment, please.');
+  t.mock.timers.tick(1); await state.done;
+  assert.equal(state.text.includes('"error":"deadline"'), true); assert.equal(h.admissions.length, 2);
+  assert.equal((spokenText(state).match(/One moment, please\./gu) ?? []).length, 1);
+  assert.equal(state.text.includes('const secret'), false); assert.equal(h.completions.length, 0);
+});
+
+test('AIT-381: delayed analysis never delays the reaction segment', async t => {
+  const analysis = Promise.withResolvers(), rest = Promise.withResolvers(); let analysisDone = false;
+  analysis.promise.then(() => { analysisDone = true; });
+  t.after(() => analysis.resolve());
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment('What should improve?')}` }, { gate: rest, text: ']}' }]] });
+  const state = h.observe(); await flush();
+  assert.equal(analysisDone, false); assert.equal(spokenText(state), 'What should improve?');
+  rest.resolve(); await state.done; assert.equal(analysisDone, false);
+});
+
+test('AIT-381: deferred admission still gets the holding line at 5 s and the default callback expires at 6.5 s', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const admissionGate = Promise.withResolvers(), source = Promise.withResolvers();
+  const h = spokenFixture(t, { defaultTimeout: true, admissionGate,
+    attempts: [[{ gate: source, text: `{"segments":[${spokenSegment('What should improve?')}]}` }]] });
+  const state = h.observe(); await flush();
+  t.mock.timers.tick(5000); await flush(); assert.equal(spokenText(state), 'One moment, please.');
+  admissionGate.resolve(); await flush();
+  t.mock.timers.tick(1499); await flush(); assert.equal(state.ended, false);
+  t.mock.timers.tick(1); await state.done;
+  assert.equal(state.text.includes('"error":"deadline"'), true); assert.equal(h.completions.length, 0);
+  source.resolve(); await flush(); assert.equal(spokenText(state), 'One moment, please.');
+});
+
+test('AIT-381: duplicate callbacks join the durable writer across the bounded safety retry', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const storage = new SQLiteStorage(), session = storage.create(), retry = Promise.withResolvers();
+  const turns = createVoiceTurnOperations({ storage });
+  t.after(async () => { retry.resolve(); await turns.idle(); storage.close(); });
+  const h = spokenFixture(t, { turnOperations: { run: (context, execute, options) =>
+    turns.run({ ...context, sessionId: session.id }, execute, options) },
+  attempts: [[{ text: `{"segments":[${spokenSegment('const secret = 1;')}]}` }],
+    [{ gate: retry, text: `{"segments":[${spokenSegment('What should improve?')}]}` }]] });
+  const first = h.observe(), duplicate = h.observe(); await flush();
+  assert.equal(h.admissions.length, 2); assert.equal(h.maxLive, 1);
+  t.mock.timers.tick(5000); await flush();
+  assert.equal(spokenText(first), 'One moment, please.'); assert.equal(spokenText(duplicate), 'One moment, please.');
+  retry.resolve(); await Promise.all([first.done, duplicate.done]);
+  assert.equal(h.admissions.length, 2); assert.equal(h.started.length, 2); assert.equal(h.completions.length, 1);
+  assert.equal(spokenText(first), spokenText(duplicate)); assert.equal(first.text.includes('const secret'), false);
+  assert.equal(storage.voiceOperations(session.id).length, 1);
+  const replay = h.observe(); await replay.done; assert.equal(spokenText(replay), spokenText(first));
+  assert.equal(h.admissions.length, 2); assert.ok(h.reports.every(items => items.length === 1));
+});
+
+for (const content of ['Use const secret = 1;', 'PRIVATE_PINNED_CANARY',
+  'Pinned private specification has twelve consecutive words that must never be spoken aloud here.']) {
+  test(`AIT-381: a rejected ${content.startsWith('Use') ? 'code' : content.startsWith('PRIVATE') ? 'canary' : 'private specification'} segment never reaches TTS`, async t => {
+    const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment(content)}]}` }],
+      [{ text: `{"segments":[${spokenSegment('What should improve?')}]}` }]] });
+    const state = h.observe(); await state.done;
+    assert.equal(spokenText(state).includes(content), false); assert.equal(h.admissions.length, 2);
+    assert.equal(h.maxLive, 1); assert.equal(h.completions.length, 1); assert.equal(h.completions[0].scope, 'off');
+  });
+}
+
+test('AIT-381: fragmented JSON and escaped braces commit only the complete scoped segment', async t => {
+  const commit = Promise.withResolvers(), finish = Promise.withResolvers();
+  const wire = spokenSegment('A "quoted" project {with braces}.');
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${wire.slice(0, -1)}` },
+    { gate: commit, text: wire.slice(-1) }, { gate: finish, text: ']}' }]] });
+  const state = h.observe(); await flush(); assert.equal(spokenText(state), '');
+  commit.resolve(); await flush(); assert.equal(spokenText(state), 'A "quoted" project {with braces}.');
+  finish.resolve(); await state.done; assert.equal(state.text.includes('[DONE]'), true);
+});
+
+test('AIT-381: provider cleanup that ignores abort cannot overlap another admitted generation', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const finalizationGate = Promise.withResolvers();
+  const h = spokenFixture(t, { finalizationGate,
+    attempts: [[{ text: `{"segments":[${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+      [{ text: `{"segments":[${spokenSegment('What should improve?')}]}` }]] });
+  const state = h.observe(); await flush();
+  t.mock.timers.tick(999); await flush(); assert.equal(h.admissions.length, 1);
+  t.mock.timers.tick(1); await flush();
+  finalizationGate.resolve(); await state.done;
+  assert.equal(h.admissions.length, 1); assert.equal(h.maxLive, 1);
+  assert.equal(state.response.status, 504); assert.equal(state.text.includes('"error":"deadline"'), true);
+  assert.equal(spokenText(state), '');
+});
+
+test('AIT-381: deferred settlement cannot extend the overall callback beyond 6.5 s', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const rest = Promise.withResolvers(), settlementGate = Promise.withResolvers();
+  const h = spokenFixture(t, { settlementGate,
+    attempts: [[{ text: `{"segments":[${spokenSegment('What should improve?')}` }, { gate: rest, text: ']}' }]] });
+  const state = h.observe(); await flush(); assert.equal(spokenText(state), 'What should improve?');
+  t.mock.timers.tick(6200); rest.resolve(); await flush(); assert.equal(h.finishes.length, 1);
+  t.mock.timers.tick(299); await flush(); assert.equal(state.ended, false);
+  t.mock.timers.tick(1); await flush(); assert.equal(state.ended, true);
+  assert.equal(state.text.includes('"error":"deadline"'), true); assert.equal(state.text.includes('[DONE]'), false);
+  settlementGate.resolve(); await state.done; assert.equal(h.finishes.length, 1);
 });

@@ -82,7 +82,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   publish, onTurn, onClose, onActivity, onAssessment, onScopeRecorded, purposePolicy, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, callbackAdapter, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
   reconcileLookupTimeoutMs = 5000, log,
-  turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
+  turnReplayWindowMs, turnTimeoutMs = 6500, authorizeTurnReplacement } = {}) {
   if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set(), authorities = new Map(), reconciliations = new Map();

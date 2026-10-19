@@ -1,9 +1,10 @@
-import { collectPurposeReply } from '@inspr/aithema-core/safeguards';
+import { collectPurposeReply, purposeReplySchema, unsafeReplyOutput } from '@inspr/aithema-core/safeguards';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { PluginError, PLUGIN_ERROR_CODES } from '@inspr/aithema-core/invocation';
 import { operationScope } from '@inspr/aithema-core/reasoning';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { aiTextOrigin } from '@inspr/aithema-core/text-origin';
+import { unfenceReply } from '@inspr/aithema-core/reply';
 import { ReplyOpenerStream, stripThanksOpener } from '@inspr/aithema-core/reply-opener';
 import { readJson } from './server.js';
 import { runElevenLabsReply, elevenLabsReplyChunk, elevenLabsCompletion } from './reply.js';
@@ -11,6 +12,10 @@ import { runElevenLabsReply, elevenLabsReplyChunk, elevenLabsCompletion } from '
 const spendReason = error => ['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error?.message) ? error.message : undefined;
 const turnReason = error => /^voice-turn-(?:obsolete|replay-expired|replacement-required|revoked|fenced|limit)$/u.test(error?.message) ? error.message : undefined;
 const digest = value => createHash('sha256').update(value).digest();
+// Leave 1.5 s after the first-audio deadline, and 0.5 s below the provider's ~7 s budget.
+export const VOICE_CALLBACK_TIMEOUT_MS = 6500;
+export const FIRST_AUDIO_DEADLINE_MS = 5000;
+const HOLDING_LINES = Object.freeze({ de: 'Einen Moment, bitte.', en: 'One moment, please.' });
 // Observed growth (~72 KiB / 4 min) projects to ~2.1 MiB at the 120-minute voice cap.
 // 8 MiB leaves room for faster turns, JSON overhead and multibyte text, while remaining bounded.
 export const MAX_COMPLETION_REQUEST_BYTES = 8 * 1_048_576;
@@ -24,7 +29,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 
 /** A host resolves this private call object by route identity; body/model never select a binding. */
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
-  buildRequest, admitReasoning, onCompletion, onDelivered, staticSecretRef, now = Date.now, timeoutMs = 30_000,
+  buildRequest, admitReasoning, onCompletion, onDelivered, staticSecretRef, now = Date.now, timeoutMs = VOICE_CALLBACK_TIMEOUT_MS,
   maxRequestBytes = MAX_COMPLETION_REQUEST_BYTES, log = console.log, turnOperations,
   beforeAdmission, beforeOutput, onAdmission, onRetry, reportAllowed, onOpenerStripped, onBearerRejected } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
@@ -32,7 +37,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
     now() < Math.min(call.spendDeadlineAt, call.browserLivenessDeadlineAt);
   return async request => {
-    const started = performance.now();
+    const started = performance.now(), turnStartedAt = now();
     let requestBytes = 0, responseBytes = 0, status = 200, callIdHash = null, logged = false;
     const logResult = (errorCode = null) => {
       if (logged) return; logged = true;
@@ -53,11 +58,21 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
     const json = (error, status, reason) => reply({ error, ...(reason ? { reason } : {}) }, status, error);
     if (request.method !== 'POST') return json('method-not-allowed', 405);
     const localCancellation = new AbortController();
-    const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: Date.now() + timeoutMs });
+    const callbackDeadlineAt = Date.now() + timeoutMs;
+    const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: callbackDeadlineAt });
     let admission, iterator, invocationOptions, invocationScope, reports = 0, finishPromise, callTimer, callSignal, callAbort, streamFailure;
     const cleanup = async failed => {
       finishPromise ??= Promise.resolve().then(async () => {
-        try { if (admission?.finish) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => admission.finish({ failed })); }
+        try {
+          if (admission?.finish) {
+            // Always start settlement, even after expiry, but never extend HTTP
+            // lifetime while awaiting an uncooperative accounting port.
+            const settlement = Promise.resolve().then(() => admission.finish({ failed }));
+            settlement.catch(() => {});
+            await voiceOperation({ deadlineAt: Math.min(callbackDeadlineAt,
+              invocationOptions?.deadlineAt ?? Infinity, Date.now() + 1000) }, () => settlement);
+          }
+        }
         finally { clearTimeout(callTimer); callSignal?.removeEventListener('abort', callAbort);
           invocationOptions?.signal.removeEventListener('abort', expire);
           invocationScope?.dispose(); scope.signal.removeEventListener('abort', expire); scope.dispose(); }
@@ -70,7 +85,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       else if (iterator) void disposeIterator(iterator).then(() => cleanup(true)).catch(() => {});
     };
     scope.signal.addEventListener('abort', expire, { once: true });
-    const next = () => voiceOperation(invocationOptions, () => iterator.next());
+    const next = () => voiceOperation(invocationOptions ?? { signal: scope.signal }, () => iterator.next());
     const readBody = () => voiceOperation({ signal: scope.signal }, opts => readJson(request, maxRequestBytes,
       { signal: opts.signal, onBytes: bytes => { requestBytes = bytes; } }));
     try {
@@ -163,35 +178,41 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       }
       // Rebuild the trusted session prompt. Discard provider system/model/options and private callback fields.
       const input = await voiceOperation(opts, bounded => buildRequest({ callId: call.callId, messages }, bounded));
-      const latest = await voiceOperation(opts, bounded => getCall(request, bounded, expectedIdentity));
-      if (!active(latest) || latest.callId !== call.callId || latest.providerSessionId !== call.providerSessionId ||
-        latest.facadeSecretRef !== call.facadeSecretRef || latest.facadeCallId !== call.facadeCallId) throw new PluginError('not-admitted', 'Call changed');
-      beforeAdmission?.();
-      // The consume check outlives this bounded admission call. Retain the
-      // operation lifetime signal so closing/revoking the call still cancels it.
-      admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages,
-        options: { ...bounded, signal: opts.signal }, beforeAdmission, onRetry }));
-      if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
-        typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
-      beforeOutput?.();
-      onAdmission?.(admission.options.attempt.attemptId);
-      const textOrigin = aiTextOrigin(admission.producer ?? admission.plugin.binding ??
-        { model: admission.plugin.model, plugin: admission.plugin.manifest?.id ?? admission.plugin.id });
-      const report = admission.options.report;
-      const invocationDeadline = Math.min(deadlineAt, admission.options.deadlineAt ?? deadlineAt);
-      // One lifetime signal owns the earliest deadline, including a response nobody reads.
-      invocationScope = operationScope({ deadlineAt: invocationDeadline,
-        signal: admission.options.signal ? AbortSignal.any([scope.signal, admission.options.signal]) : scope.signal });
-      invocationOptions = { ...admission.options,
-        signal: invocationScope.signal, deadlineAt: invocationDeadline,
-        report(terminal) {
-          if (reportAllowed && !reportAllowed()) return;
-          if (++reports !== 1) throw new PluginError('already-claimed'); return report(terminal);
-        } };
-      invocationOptions.signal.addEventListener('abort', expire, { once: true });
-      // Admission may rebuild against a newer session snapshot after async checks.
-      const admittedRequest = admission.request ?? input;
-      if (admittedRequest.purposePolicy) {
+      // Later admission/analysis may rebuild its prompt; validation keeps this turn-start specification.
+      const pinned = pinSpecification(input);
+      let textOrigin;
+      const prepareInvocation = async () => {
+        const latest = await voiceOperation(opts, bounded => getCall(request, bounded, expectedIdentity));
+        if (!active(latest) || latest.callId !== call.callId || latest.providerSessionId !== call.providerSessionId ||
+          latest.facadeSecretRef !== call.facadeSecretRef || latest.facadeCallId !== call.facadeCallId) throw new PluginError('not-admitted', 'Call changed');
+        beforeAdmission?.();
+        // The consume check outlives this bounded admission call. Retain the
+        // operation lifetime signal so closing/revoking the call still cancels it.
+        admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages,
+          options: { ...bounded, signal: opts.signal }, beforeAdmission, onRetry }));
+        if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
+          typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
+        beforeOutput?.();
+        onAdmission?.(admission.options.attempt.attemptId);
+        textOrigin = aiTextOrigin(admission.producer ?? admission.plugin.binding ??
+          { model: admission.plugin.model, plugin: admission.plugin.manifest?.id ?? admission.plugin.id });
+        const report = admission.options.report;
+        const invocationDeadline = Math.min(deadlineAt, admission.options.deadlineAt ?? deadlineAt);
+        // One lifetime signal owns the earliest deadline, including a response nobody reads.
+        invocationScope = operationScope({ deadlineAt: invocationDeadline,
+          signal: admission.options.signal ? AbortSignal.any([scope.signal, admission.options.signal]) : scope.signal });
+        invocationOptions = { ...admission.options,
+          signal: invocationScope.signal, deadlineAt: invocationDeadline,
+          report(terminal) {
+            if (reportAllowed && !reportAllowed()) return;
+            if (++reports !== 1) throw new PluginError('already-claimed'); return report(terminal);
+          } };
+        invocationOptions.signal.addEventListener('abort', expire, { once: true });
+        // Admission may rebuild against a newer session snapshot after async checks.
+        return admission.request ?? input;
+      };
+      const admittedRequest = body.stream === true ? undefined : await prepareInvocation();
+      if (admittedRequest?.purposePolicy && body.stream !== true) {
         const initialAdmission = admission;
         const safe = await collectPurposeReply(admittedRequest, async function* (guardedRequest, attempt) {
           let selected = initialAdmission;
@@ -222,20 +243,36 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           replyId: id, content: guarded.text, textOrigin, engine: admission.engine, scope: safe.scope,
           safeguardRevision: admittedRequest.safeguardRevision }));
         await cleanup(false);
-        if (body.stream !== true) {
-          const response = reply(elevenLabsCompletion({ replyId: id, created }, guarded.text, { metadata: false }));
-          await onDelivered?.({ callId: call.callId }); return response;
-        }
-        const frames = [elevenLabsReplyChunk({ replyId: id, created }, { role: 'assistant' }),
-          elevenLabsReplyChunk({ replyId: id, created }, { content: guarded.text }),
-          elevenLabsReplyChunk({ replyId: id, created }, {}, 'stop')].map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n';
-        logResult();
-        const response = new Response(frames, { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
+        const response = reply(elevenLabsCompletion({ replyId: id, created }, guarded.text, { metadata: false }));
         await onDelivered?.({ callId: call.callId }); return response;
       }
-      iterator = admission.plugin.stream(admission.request ?? input, invocationOptions)[Symbol.asyncIterator]();
-      let first = await next(); // Dispatch/auth failures can still be returned as HTTP errors.
-      const locale = (admission.request ?? input).locale;
+      let safeScope;
+      const generate = async function* () {
+        await prepareInvocation();
+        if (pinned.purposePolicy) yield* committedPurposeSegments(pinned, admission, invocationOptions, {
+          beforeOutput, onRetry, reportAllowed,
+          admit: request => voiceOperation(invocationOptions, bounded => admitReasoning({ callId: call.callId, request,
+            messages, options: { deadlineAt: bounded.deadlineAt, signal: invocationOptions.signal }, safeguardRetry: true })),
+          scope: value => { safeScope = value; },
+        });
+        else yield* admission.plugin.stream(admission.request ?? input, invocationOptions);
+      };
+      iterator = (body.stream === true ? generate() : admission.plugin.stream(admittedRequest, invocationOptions))[Symbol.asyncIterator]();
+      // Keep pre-output admission/consent refusals as HTTP errors. A stalled
+      // first segment may hold headers only until the first-audio deadline.
+      let first, firstPending, firstTimer, holdingDue = false;
+      if (body.stream === true) {
+        firstPending = next(); firstPending.catch(() => {});
+        try {
+          const due = Symbol('first-audio');
+          const result = await Promise.race([firstPending, new Promise(resolve => {
+            firstTimer = setTimeout(() => resolve(due), Math.max(0, turnStartedAt + FIRST_AUDIO_DEADLINE_MS - now()));
+          })]);
+          if (result === due) holdingDue = true;
+          else { first = result; firstPending = null; }
+        } finally { clearTimeout(firstTimer); }
+      } else first = await next();
+      const locale = pinned.locale;
       const stripped = () => {
         try { onOpenerStripped?.(); } catch { /* Diagnostics cannot affect paid work. */ }
       };
@@ -257,19 +294,32 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       }
       const encoder = new TextEncoder(), opener = new ReplyOpenerStream(locale, { bufferNormal: false });
       let roleSent = false, size = 0, content = '', streamEnded = false, cancelled = false, openerCounted = false;
+      let holdingTimer, holdingSent = false, hasValidatedContent = false;
       const enqueue = (controller, text) => {
         const bytes = encoder.encode(text); controller.enqueue(bytes); responseBytes += bytes.byteLength;
       };
       const emitContent = (controller, text) => {
         if (opener.stripped && !openerCounted) { openerCounted = true; stripped(); }
         if (!text) return;
+        hasValidatedContent = true; clearTimeout(holdingTimer);
+        if (holdingSent && content === HOLDING_LINES[locale === 'de' ? 'de' : 'en']) text = ' ' + text;
         content += text;
         enqueue(controller, `data: ${JSON.stringify(frame({ content: text }))}\n\n`);
       };
       return new Response(new ReadableStream({
         start(controller) {
+          // A fixed, pre-validated segment is independent of generation, validation and retries.
+          const hold = () => {
+            if (streamEnded || hasValidatedContent || holdingSent) return;
+            try {
+              (invocationOptions?.signal ?? scope.signal).throwIfAborted(); beforeOutput?.();
+              if (!roleSent) { roleSent = true; enqueue(controller, `data: ${JSON.stringify(frame({ role: 'assistant' }))}\n\n`); }
+              holdingSent = true; content = HOLDING_LINES[locale === 'de' ? 'de' : 'en'];
+              enqueue(controller, `data: ${JSON.stringify(frame({ content }))}\n\n`);
+            } catch (error) { void streamFailure(error); }
+          };
           streamFailure = async error => {
-            if (streamEnded) return; streamEnded = true;
+            if (streamEnded) return; streamEnded = true; clearTimeout(holdingTimer);
             const code = codeFor(error);
             cancelReasoning(); void disposeIterator(iterator);
             try { await cleanup(true); } catch { /* Preserve the original failure; settlement must not hide its JSON error. */ }
@@ -277,6 +327,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
               if (!cancelled) { enqueue(controller, `data: ${JSON.stringify({ error: code })}\n\n`); controller.close(); }
             } finally { logResult(code); }
           };
+          if (holdingDue) hold();
+          else holdingTimer = setTimeout(hold, Math.max(0, turnStartedAt + FIRST_AUDIO_DEADLINE_MS - now()));
         },
         async pull(controller) {
           if (streamEnded) return;
@@ -287,12 +339,14 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             // straight through, and the completion receipt uses emitted bytes.
             while (!streamEnded) {
               const part = first; first = null;
-              const item = part ?? await next();
+              const pending = firstPending; firstPending = null;
+              const item = part ?? await (pending ?? next());
               if (item.done) {
                 if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
+                clearTimeout(holdingTimer);
                 beforeOutput?.();
                 emitContent(controller, opener.finish());
-                await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine }));
+                await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine, ...(safeScope ? { scope: safeScope, safeguardRevision: pinned.safeguardRevision } : {}) }));
                 await cleanup(false);
                 if (streamEnded) return; streamEnded = true;
                 const stop = frame({}); stop.choices[0].finish_reason = 'stop';
@@ -312,7 +366,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         },
         async cancel() {
           cancelled = true;
-          if (streamEnded) return; streamEnded = true;
+          if (streamEnded) return; streamEnded = true; clearTimeout(holdingTimer);
           // Abort the reasoning operation before iterator.return (it may be waiting on provider I/O).
           cancelReasoning(); await disposeIterator(iterator);
           try { await cleanup(true); } catch { /* A disconnected client still gets one failure log. */ }
@@ -330,4 +384,156 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
 }
 async function disposeIterator(iterator) {
   try { if (iterator?.return) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => iterator.return()); } catch { /* Host finish settles missing usage conservatively. */ }
+}
+
+// Copy only plain request data; policy callbacks remain host-owned functions.
+function pinSpecification(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(pinSpecification));
+  if (value && Object.getPrototypeOf(value) === Object.prototype) return Object.freeze(Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, pinSpecification(child)])));
+  return value;
+}
+
+/** A segment commits only at its closing JSON brace, including its own scope.
+ * Old providers may return one legacy envelope; that envelope commits at EOF.
+ * Parsing never releases partial strings, nested objects or JSON syntax to TTS.
+ */
+class PurposeSegments {
+  wire = ''; cursor = null; count = 0; separator = false;
+  scan = null; depth = 0; quoted = false; escaped = false;
+  push(delta) {
+    if (typeof delta !== 'string' || this.wire.length + delta.length > 300_000) throw new TypeError('Invalid reasoning stream');
+    this.wire += delta;
+    if (this.cursor === null) {
+      const prefix = /^\s*\{\s*"segments"\s*:\s*\[/u.exec(this.wire);
+      if (!prefix) return [];
+      this.cursor = prefix[0].length;
+    }
+    const segments = [];
+    for (;;) {
+      while (/\s/u.test(this.wire[this.cursor] ?? '') && this.cursor < this.wire.length) this.cursor++;
+      if (this.separator) {
+        if (this.wire[this.cursor] !== ',') break;
+        this.cursor++; this.separator = false;
+        while (/\s/u.test(this.wire[this.cursor] ?? '') && this.cursor < this.wire.length) this.cursor++;
+      }
+      if (this.cursor >= this.wire.length || this.wire[this.cursor] === ']') break;
+      if (this.wire[this.cursor] !== '{') throw new TypeError('Invalid segment');
+      let { depth, quoted, escaped } = this;
+      let end = this.scan ?? this.cursor;
+      for (; end < this.wire.length; end++) {
+        const char = this.wire[end];
+        if (quoted) {
+          if (!escaped && char === '"') quoted = false;
+          escaped = !escaped && char === '\\';
+        } else if (char === '"') quoted = true;
+        else if (char === '{' || char === '[') depth++;
+        else if (char === '}' || char === ']') { if (--depth === 0) { end++; break; } }
+      }
+      if (depth || quoted) {
+        this.scan = end; this.depth = depth; this.quoted = quoted; this.escaped = escaped; break;
+      }
+      this.scan = null; this.depth = 0; this.quoted = false; this.escaped = false;
+      if (++this.count > 8) throw new TypeError('Too many segments');
+      const raw = this.wire.slice(this.cursor, end); JSON.parse(raw);
+      segments.push(raw); this.cursor = end; this.separator = true;
+    }
+    return segments;
+  }
+  finish() {
+    if (this.cursor === null) return [this.wire];
+    const value = JSON.parse(this.wire);
+    if (Object.keys(value).length !== 1 || !Array.isArray(value.segments) || !this.count || value.segments.length !== this.count) {
+      throw new TypeError('Invalid segment envelope');
+    }
+    return [];
+  }
+}
+
+/** One admitted generation at a time; all segments/retries use the same pinned
+ * validation policy and original operation lifetime. No analysis lane is joined.
+ */
+async function* committedPurposeSegments(pinned, initial, options, ports) {
+  const schema = { type: 'object', additionalProperties: false, required: ['segments'], properties: {
+    segments: { type: 'array', minItems: 1, maxItems: 8, items: purposeReplySchema } } };
+  let accepted = '', scope = 'in', unsafe = false, promptOnly = false, lastRaw = '';
+  const rejected = new Error('Segment rejected');
+  const updateScope = value => { if (value === 'off' || scope === 'in') scope = value; ports.scope(scope); };
+  const validate = async raw => {
+    // Check accumulated visible text too: splitting a canary, code or private
+    // prompt span across individually valid envelopes cannot evade the policy.
+    const value = JSON.parse(unfenceReply(raw));
+    if (unsafeReplyOutput({ content: accepted + (value.content ?? '') }, pinned.purposePolicy, pinned.hiddenGuidance)) {
+      unsafe = true; throw rejected;
+    }
+    unsafe ||= unsafeReplyOutput(raw, pinned.purposePolicy, pinned.hiddenGuidance);
+    const safe = await collectPurposeReply(pinned, async function* (_, attempt) {
+      if (attempt) throw rejected;
+      yield raw;
+    });
+    // Preserve the existing sticky unsafe-output redirect across the retry.
+    if (unsafe && safe.scope !== 'off') {
+      return collectPurposeReply(pinned, async function* () {
+        yield JSON.stringify({ ...safe, scope: 'off' });
+      });
+    }
+    return safe;
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const request = { ...pinned, schema, ...(promptOnly ? { replySchemaConstrained: false } : {}),
+      system: pinned.system + '\nFor spoken delivery, replace the single reply envelope above with {"segments":[reply,...]}. '
+        + 'Each reply is one short, independently committed spoken segment matching the original reply schema, including its scope. '
+        + 'Do not split words or sentences across segments. Return only this JSON object. '
+        + (attempt ? 'The previous output was rejected. Continue safely without repeating already committed speech. Never echo rejected text.' : '') };
+    const selected = attempt ? await ports.admit(request) : initial;
+    const cancellation = new AbortController();
+    const lifetime = operationScope({ deadlineAt: Math.min(options.deadlineAt, selected.options.deadlineAt ?? options.deadlineAt),
+      signal: AbortSignal.any([options.signal, cancellation.signal, ...(selected.options.signal ? [selected.options.signal] : [])]) });
+    let count = 0, failed = true, stream;
+    const invocation = { ...selected.options, signal: lifetime.signal,
+      deadlineAt: Math.min(options.deadlineAt, selected.options.deadlineAt ?? options.deadlineAt),
+      report(terminal) {
+        if (ports.reportAllowed && !ports.reportAllowed()) return;
+        if (++count !== 1) throw new PluginError('already-claimed');
+        return (attempt ? selected.options : options).report(terminal);
+      } };
+    const parser = new PurposeSegments();
+    try {
+      stream = selected.plugin.stream(request, invocation)[Symbol.asyncIterator]();
+      const commit = async raw => {
+        lastRaw = raw;
+        const safe = await validate(raw);
+        ports.beforeOutput?.();
+        const guarded = initial.guardDirection?.(safe) ?? safe;
+        updateScope(guarded.scope); accepted += guarded.content;
+        return guarded.content;
+      };
+      for (;;) {
+        const item = await voiceOperation(invocation, () => stream.next());
+        if (item.done) break;
+        for (const raw of parser.push(item.value)) yield await commit(raw);
+      }
+      for (const raw of parser.finish()) yield await commit(raw);
+      if (count !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
+      failed = false; return;
+    } catch (error) {
+      if (error.responseFormatUnsupported === true && !promptOnly) promptOnly = true;
+      else if (error !== rejected && !(error instanceof TypeError) && !(error instanceof SyntaxError) && error.code !== 'invalid-output') throw error;
+      ports.onRetry?.('purpose-segment-rejected');
+    } finally {
+      cancellation.abort();
+      try {
+        // A provider that ignores abort must never overlap a paid retry. If its
+        // iterator cannot close inside the remaining budget, fail this reply.
+        if (stream?.return) await voiceOperation({ deadlineAt: Math.min(options.deadlineAt, Date.now() + 1000) }, () => stream.return());
+      } finally {
+        lifetime.dispose();
+        if (attempt) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => selected.finish({ failed }));
+      }
+    }
+  }
+  // Two admitted generations exhausted: retain the existing fixed safe fallback.
+  const fallback = await collectPurposeReply(pinned, async function* () { yield unsafe
+    ? JSON.stringify({ content: pinned.purposePolicy.canary, scope: 'off', question_short: null, options: [] }) : lastRaw; });
+  ports.beforeOutput?.(); updateScope(fallback.scope); yield fallback.content;
 }
