@@ -124,11 +124,9 @@ test('AIT-288: empty summary/signals render no section or placeholder before or 
     assert.equal(signals.children.length, 0, 'removed content leaves no stale row');
   }
 });
-test('AIT-390: in-order journal events dispatch aithema-event with the full event as detail', t => {
+test('AIT-390: in-order journal events dispatch aithema-event with the full event as detail', () => {
   const c = setup(), notifications = [];
   c.addEventListener('aithema-event', event => notifications.push(event));
-  // Red-before mutation: prove the host contract fails when dispatch is suppressed.
-  t.mock.method(c, 'dispatchEvent', () => true);
   const first = { sessionId: c.session.id, seq: 1, type: 'turn.final',
     data: { id: 'user', role: 'user', content: 'Host-visible input' } };
   const second = { sessionId: c.session.id, seq: 2, type: 'turn.final',
