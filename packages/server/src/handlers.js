@@ -278,9 +278,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const document = validateConsentDocument(await consent.describe(session.id));
     const ids = new Set(document.items?.map(item => item.id) ?? ['mock-processing']);
     const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
-      pluginRuntime.scopes(session, { feature }).map(scope => ids.has(scope.purpose) ? scope.purpose
+      pluginRuntime.scopes(session, { feature, delivered: true }).map(scope => ids.has(scope.purpose) ? scope.purpose
         : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
-    return { ...document, features, consentRevision: session.consentRevision };
+    const unavailableFeatures = ['html', 'images'].filter(feature => !features[feature].length &&
+      session.concepts?.some(item => !item.archived && !item.erased && !item.withdrawn && (item.mediaType === 'text/html' ? 'html' : 'images') === feature));
+    return { ...document, features, unavailableFeatures, consentRevision: session.consentRevision };
   }
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
@@ -660,10 +662,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const session = storage.get(id);
         // Each artifact is published under the coverage of the visuals option that produced it.
         const allowed = new Map();
-        const key = c => `${c.mediaType === 'text/html' ? 'html' : 'images'}|${c.operation ?? (c.referenceIds.length ? 'edit' : 'generate')}|${c.visuals ?? ''}`;
+        const key = c => `${c.mediaType === 'text/html' ? 'html' : 'images'}|${c.operation ?? (c.referenceIds.length ? 'edit' : 'generate')}|${c.visuals ?? ''}|${c.id}`;
         for (const concept of session.concepts ?? []) if (!allowed.has(key(concept))) {
           const [visualKind, operation, visuals] = key(concept).split('|');
-          allowed.set(key(concept), await pluginRuntime.publicationAllowed(session, { operation, visualKind, ...(visuals ? { visuals } : {}) }));
+          allowed.set(key(concept), await pluginRuntime.publicationAllowed(session, { operation, visualKind, artifactId: concept.id, ...(visuals ? { visuals } : {}) }));
         }
         const current = storage.authorize(id, ownerToken);
         if (current.seq !== session.seq) throw new ConflictError('Export changed');

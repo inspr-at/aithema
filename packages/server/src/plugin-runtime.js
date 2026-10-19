@@ -587,11 +587,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         for (const feature of FEATURES) {
           const result = await boundedEvaluate(session, preset, feature);
           matrix[preset][feature] = result.reason ? featureUnavailable(result.reason) : { available: true, reason: null };
+          if (visual(feature)) matrix[preset][feature].consentPurposes = [...new Set(runtime.scopes({ ...session, processingPreset: preset, concepts: [] }, { feature }).map(scope => scope.purpose))];
           // Paused reloads need the stage's ordinary words. This nested verdict
           // is presentation only; the outer verdict and admission stay paused.
           if ((visual(feature) || feature === 'analysis') && result.reason === 'session paused') {
             const unpaused = await boundedEvaluate({ ...session, paused: false }, preset, feature);
-            matrix[preset][feature].unpaused = unpaused.reason ? featureUnavailable(unpaused.reason) : { available: true, reason: null };
+            matrix[preset][feature].unpaused = { ...(unpaused.reason ? featureUnavailable(unpaused.reason) : { available: true, reason: null }),
+              ...(visual(feature) ? { consentPurposes: matrix[preset][feature].consentPurposes } : {}) };
           }
         }
       }
@@ -704,40 +706,50 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return { model: choices.defaults.model, effort: model?.efforts ? choices.defaults.effort ?? model.effort : null,
         voice: choices.defaults.voice, visuals: choices.defaults.visuals };
     },
-    /** Private processing scopes, including the producers of delivered visuals. */
-    scopes(session, { feature: only } = {}) {
+    /** Grants include today's choice and producers; documents use producers per delivered kind. */
+    scopes(session, { feature: only, delivered: coverageOnly = false } = {}) {
       const preset = session.processingPreset ?? 'best';
-      if (preset === 'device') return [];
       const result = [], kind = visualKind(session);
-      const delivered = (session.concepts ?? []).filter(artifact => !artifact.erased && !artifact.withdrawn && !artifact.archived);
-      const deliveredKinds = new Set(delivered.map(artifact => artifact.mediaType === 'text/html' ? 'html' : 'images'));
+      const artifacts = (session.concepts ?? []).filter(artifact => !artifact.erased && !artifact.withdrawn && !artifact.archived);
+      const deliveredKinds = new Set(artifacts.map(artifact => artifact.mediaType === 'text/html' ? 'html' : 'images'));
       const entries = [['text', 'stream'], ['analysis', 'structured'], ['voice', 'start'], [kind, 'generate'], [kind, 'edit']]
-        .filter(([feature]) => !deliveredKinds.has(feature))
+        .filter(([feature]) => preset !== 'device' && (!coverageOnly || !deliveredKinds.has(feature)))
         .map(([feature, operation]) => ({ feature, operation, raw: selectedBinding(session, preset, map[feature][0]).raw }));
-      // AIT-369: artifact.visuals records the producing option, independent of
-      // today's choice. Legacy artifacts use the preset's binding for their kind.
-      for (const artifact of delivered) {
+      const unresolved = new Set();
+      for (const artifact of artifacts) {
         const feature = artifact.mediaType === 'text/html' ? 'html' : 'images';
+        if (only && feature !== only) continue;
+        const scope = storage.conceptConsentScope?.(session.id, artifact.id);
+        if (artifact.consentPurpose) {
+          // The purpose is public provenance; the exact admitted scope stays private.
+          const producer = coverageOnly ? { purpose: artifact.consentPurpose } : scope;
+          if (producer && !result.some(s => hash(s) === hash(producer))) result.push(structuredClone(producer));
+          else if (!producer) unresolved.add(feature);
+          continue;
+        }
+        // Legacy artifacts resolve against today's binding, never another offered option.
         const raw = artifact.visuals
           ? choicesFor(preset)?.visuals.find(option => option.id === artifact.visuals && option.kind === feature)?.binding
           : presets[preset]?.bindings?.[feature];
-        for (const operation of ['generate', 'edit']) entries.push({ feature, operation, raw });
+        for (const operation of ['generate', 'edit']) entries.push({ feature, operation, raw, producer: true });
       }
-      for (const { feature, operation, raw } of entries) {
+      for (const { feature, operation, raw, producer } of entries) {
         if (only && feature !== only) continue;
-        if (!raw || !presets[preset]?.plugins?.includes(raw.plugin)) continue;
-        let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { continue; }
+        const reject = () => { if (producer) unresolved.add(feature); };
+        if (!raw || !presets[preset]?.plugins?.includes(raw.plugin)) { reject(); continue; }
+        let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { reject(); continue; }
         const plugin = registry.get(binding.plugin);
-        // Only operations the manifest supports and admission would run need consent.
         const model = plugin?.manifest.models.find(m => m.id === binding.model) ?? plugin?.manifest.models.find(m => m.id === '*');
         if (!model?.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured ||
-          feature === 'html' && !model.formats.includes('text/html')) continue;
+          feature === 'html' && !model.formats.includes('text/html')) { reject(); continue; }
         const scope = registry.isCanonicalMock(plugin) || !plugin.bind && localImplementation(plugin, feature) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
+        if (!scope) reject();
         if (scope && !result.some(s => hash(s) === hash(scope))) result.push(structuredClone(scope));
         if (feature === 'voice') for (const child of plugin?.ports?.serverAdapter?.processingScopes?.() ?? []) {
           if (!result.some(s => hash(s) === hash(child))) result.push(structuredClone(child));
         }
       }
+      if (coverageOnly && only && unresolved.has(only)) return [];
       const voice = selectedBinding(session, preset, 'voice').raw;
       if (only === 'voice' && registry.get(voice?.plugin)?.manifest.liveVoice?.reasoning === 'delegated') {
         for (const scope of runtime.scopes(session, { feature: 'text' })) if (!result.some(s => hash(s) === hash(scope))) result.push(scope);
@@ -760,9 +772,24 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
      * visuals off stops new renders without hiding earlier ones, and a later
      * provider's coverage never vouches for another provider's result.
      */
-    async publicationAllowed(session, { signal, deadlineAt = now() + healthMs, operation = 'generate', visualKind: selected = visualKind(session), visuals } = {}) {
+    async publicationAllowed(session, { signal, deadlineAt = now() + healthMs, operation = 'generate', visualKind: selected = visualKind(session), visuals, artifactId, consentScope } = {}) {
       const current = storage.get(session.id), preset = current.processingPreset ?? 'best';
       if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash || current.consentRevision !== session.consentRevision) return false;
+      const admitted = consentScope ?? (artifactId ? storage.conceptConsentScope?.(session.id, artifactId) : null);
+      if (admitted) return runtime.processingAllowed(session, admitted, { signal, deadlineAt });
+      // No stored scope means legacy provenance: resolve exactly its kind binding.
+      if (artifactId) {
+        const artifact = current.concepts?.find(item => item.id === artifactId);
+        if (!artifact || artifact.consentPurpose) return false;
+        const raw = artifact.visuals
+          ? choicesFor(preset)?.visuals.find(option => option.id === artifact.visuals && option.kind === selected)?.binding
+          : presets[preset]?.bindings?.[selected];
+        if (!raw) return false;
+        const result = await boundedEvaluate({ ...current, paused: false }, preset, selected, { signal, deadlineAt, operation, existingCall: true, raw });
+        const latest = storage.get(session.id);
+        return !result.reason && !signal?.aborted && !latest.tombstone && !latest.consentWithdrawn && latest.ownerHash === session.ownerHash &&
+          latest.consentRevision === session.consentRevision;
+      }
       const offered = (choicesFor(preset)?.visuals ?? []).filter(option => option.binding && option.kind === selected && (visuals === undefined || option.id === visuals));
       for (const option of offered) {
         const result = await boundedEvaluate({ ...current, paused: false }, preset, selected, { signal, deadlineAt, operation, existingCall: true, raw: option.binding });

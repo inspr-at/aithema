@@ -56,10 +56,10 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus });
     if (event) publish(id, event); return event;
   }
-  async function gate(session, { read = false, operation = 'generate', visualKind = runtime.visualKind(session), visuals } = {}) {
+  async function gate(session, { read = false, operation = 'generate', visualKind = runtime.visualKind(session), visuals, artifactId } = {}) {
     if (session.tombstone || session.consentWithdrawn || !read && session.paused) throw new PluginError('not-admitted');
     if (read) {
-      if (!await runtime.publicationAllowed(session, { operation, visualKind, ...(visuals ? { visuals } : {}) })) throw new PluginError('not-admitted');
+      if (!await runtime.publicationAllowed(session, { operation, visualKind, artifactId, ...(visuals ? { visuals } : {}) })) throw new PluginError('not-admitted');
     } else {
       const matrix = await runtime.matrix(session);
       const feature = matrix[session.processingPreset ?? 'best']?.[visualKind];
@@ -89,7 +89,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         if (!checked) return previewDenied(403, head);
         const { session, artifact } = checked;
         await gate(session, { read: true, visualKind: 'html', operation: artifact.operation ??
-          (artifact.referenceIds?.length ? 'edit' : 'generate'), visuals: artifact.visuals });
+          (artifact.referenceIds?.length ? 'edit' : 'generate'), visuals: artifact.visuals, artifactId: artifact.id });
         const current = previewArtifact(storage, scope);
         return current ? previewResponse(current.artifact, preview, head) : previewDenied(403, head);
       } catch (error) {
@@ -139,7 +139,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         const checked = previewArtifact(storage, scope);
         if (!checked) return json({ error: 'not-admitted' }, 403);
         await gate(session, { read: true, visualKind: 'html', operation: artifact.operation ??
-          (artifact.referenceIds?.length ? 'edit' : 'generate'), visuals: artifact.visuals });
+          (artifact.referenceIds?.length ? 'edit' : 'generate'), visuals: artifact.visuals, artifactId: artifact.id });
         storage.authorize(id, ownerToken);
         if (!previewArtifact(storage, scope)) return json({ error: 'not-admitted' }, 403);
         const token = previewCapabilities.mint(scope);
@@ -153,7 +153,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         if (stored?.erased) throw new NotFoundError();
         const visualKind = stored ? (stored.mediaType === HTML_MEDIA_TYPE ? 'html' : 'images') : runtime.visualKind(session);
         await gate(session, { read: true, visualKind, operation: stored?.operation ?? (stored?.referenceIds.length ? 'edit' : 'generate'),
-          visuals: stored?.visuals }); storage.authorize(id, ownerToken);
+          visuals: stored?.visuals, artifactId: stored?.id }); storage.authorize(id, ownerToken);
         if (!artifactId) return json({ items: storage.get(id).concepts ?? [], intent: storage.get(id).conceptIntent,
           status: storage.get(id).conceptStatus, visualKind, cost: runtime.imageQuote(session) });
         const artifact = storage.conceptArtifact(id, artifactId); if (artifact.erased) throw new NotFoundError();

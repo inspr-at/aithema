@@ -1049,8 +1049,12 @@ export class SQLiteStorage {
   conceptArtifact(id, artifactId) {
     const row = this.db.prepare('SELECT * FROM concept_artifacts WHERE session_id=? AND id=?').get(id, artifactId);
     if (!row || row.tombstone) return { id: artifactId, erased: true, tombstone: row?.tombstone ?? 'missing' };
-    const metadata = JSON.parse(row.metadata);
+    const { consentScope, ...metadata } = JSON.parse(row.metadata);
     return { ...metadata, bytes: new Uint8Array(row.bytes), dependencies: JSON.parse(row.dependencies) };
+  }
+  conceptConsentScope(id, artifactId) {
+    const row = this.db.prepare('SELECT metadata FROM concept_artifacts WHERE session_id=? AND id=? AND tombstone IS NULL').get(id, artifactId);
+    return row ? JSON.parse(row.metadata).consentScope ?? null : null;
   }
   canStoreConcept(id, bytes = MAX_IMAGE_BYTES) {
     return this.db.prepare('SELECT COALESCE(SUM(length(bytes)),0) AS n FROM concept_artifacts WHERE session_id=?').get(id).n + bytes <= MAX_CONCEPT_STORAGE_BYTES;
@@ -1074,10 +1078,11 @@ export class SQLiteStorage {
         }
       }
       dependencies.turnIds = [...new Set(dependencies.turnIds)]; dependencies.referenceIds = [...new Set(dependencies.referenceIds)];
-      const publicArtifact = { ...metadata, ...dependencies, mediaType: artifact.mediaType, width: artifact.width, height: artifact.height,
+      const { consentScope, ...publicMetadata } = metadata;
+      const publicArtifact = { ...publicMetadata, ...dependencies, mediaType: artifact.mediaType, width: artifact.width, height: artifact.height,
         promptDigest: artifact.promptDigest, provenance: artifact.provenance, feedback: { vote: 'clear', chips: [] } };
       this.db.prepare('INSERT INTO concept_artifacts VALUES (?,?,?,?,?,NULL)').run(metadata.id, id, artifact.bytes,
-        JSON.stringify(publicArtifact), JSON.stringify(dependencies));
+        JSON.stringify({ ...publicArtifact, ...(consentScope ? { consentScope } : {}) }), JSON.stringify(dependencies));
       return this.#append(session, 'concept.state', { ...state, artifact: publicArtifact });
     });
   }
