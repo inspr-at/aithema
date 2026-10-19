@@ -222,6 +222,7 @@ export async function partialConsentFrames(t) {
     await a.waitForFunction(() => view.items.length === 1 && view.items[0].id === 'image');
     const recovered = await a.evaluate(() => inspect());
     assert.equal(recovered.state, 'ready'); assert.equal(recovered.notice, ''); assert.equal(recovered.focus, 'concept-preview');
+    if (JSON.stringify(await a.evaluate(() => boxes())) !== JSON.stringify(baseline)) t.diagnostic(JSON.stringify({ baselineLayout, recoveredLayout: await layout() }));
     assert.deepEqual(await a.evaluate(() => boxes()), baseline, 'successful revalidation shifts 0 px');
     if (a.heldConsentRead) { await a.heldConsentRead.continue(); a.heldConsentRead = null; }
     await a.evaluate(() => view.open('image'));
