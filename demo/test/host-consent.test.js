@@ -547,7 +547,7 @@ for (const granted of [false, true]) test(`AIT-376 round 3: stale revision ${gra
     grant: ({ decision }) => { selected.clear(); decision.items.forEach(item => selected.add(item)); return true; },
     withdraw: () => selected.clear() };
   const handlers = createHandlers({ storage, consent });
-  const session = storage.create({ demo: true, ownerToken: testToken });
+  const session = storage.create({ demo: true, locale: 'de', ownerToken: testToken });
   const window = new Window({ url: `http://localhost/consent/?session=${session.id}` });
   t.after(async () => { await window.happyDOM.close(); await handlers.close(); storage.close(); });
   window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
