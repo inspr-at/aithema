@@ -1351,3 +1351,28 @@ for (const kind of ['html', 'image']) test(`AIT-369 R3 ${kind}: binding refusal 
   assert.equal(root.querySelectorAll('img[src]').length, 0);
   assert.equal(root.querySelector('.concept-activity-text').textContent.includes(en.notConfigured), true);
 });
+
+for (const visuals of ['off', 'images', 'html']) for (const kind of ['html', 'image', 'mixed'])
+  test(`AIT-386: only blob image sources for delivered ${kind} with visuals ${visuals}`, async t => {
+    const assigned = [], descriptor = Object.getOwnPropertyDescriptor(window.HTMLImageElement.prototype, 'src');
+    t.mock.method(window.HTMLImageElement.prototype, 'src', function (value) {
+      assigned.push({ value, className: this.className }); descriptor.set.call(this, value);
+    }, { setter: true });
+    let view; const update = ConceptView.prototype.update;
+    t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+    const concepts = kind === 'mixed' ? [item('image'), draft('html')] : [kind === 'html' ? draft('html') : item('image')];
+    const { c, root } = setup(t, { concepts, session: { settings: { visuals }, visualsBound: true,
+      conceptVisualKind: visuals === 'off' ? null : visuals === 'images' ? 'image' : 'html', conceptStatus: { phase: 'ready' } } });
+    view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'], features: { html: ['drafts'], images: ['images'] } });
+    await tick(); await tick();
+    for (const artifact of concepts) { view.open(artifact.id); await tick(); await tick(); view.close(); }
+    root.querySelector('.fold').click(); await view.paintCanvas(); await tick();
+    assert.deepEqual(view.items.map(i => i.id), concepts.map(i => i.id), 'kept consent preserves delivered artifacts');
+    assert.deepEqual(assigned.filter(({ value }) => typeof value !== 'string' || !value.startsWith('blob:')), [],
+      'every concept image setter, including backdrop, thumbnail, viewer and canvas, accepts only blob URLs');
+    for (const image of root.querySelectorAll('img[src]')) {
+      assert.ok(image.src.startsWith('blob:'));
+      assert.equal(conceptKind(concepts.find(i => i.id === image.dataset.id)), 'image', 'an HTML artifact never becomes an image');
+    }
+    if (visuals === 'off') assert.notEqual(view.visualKind(), 'image', 'Off is not an image rendering mode');
+  });

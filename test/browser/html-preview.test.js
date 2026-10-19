@@ -892,3 +892,136 @@ test('AIT-369: delivered coverage survives visual choices and revokes per kind',
   const { deliveredConsentFrames } = await import('../fixtures/delivered-consent-frames.js');
   await deliveredConsentFrames(t);
 });
+
+// AIT-386 stays in the existing preview shard: reuse one page for the request
+// matrix and two viewport pairs, without another browser file or shard bin.
+test('AIT-386: delivered artifacts never turn draft bytes into image requests', { timeout: 45_000 }, async t => {
+  const { createSession } = await import('../../packages/core/src/index.js');
+  const { browserForFile } = await import('./shared-browser.js');
+  const source = '<!doctype html><html><head><title>Offline draft</title></head><body><h1>Offline draft</h1></body></html>';
+  const bytesPath = '/' + [...new TextEncoder().encode(source)].join(',');
+  const preview = previewFixture(), requests = [], socketRequests = [], checks = [], shots = [];
+  let phase = 'bootstrap';
+  const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
+    body{margin:0} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
+    </style></head><body><script type="module">
+    import '/packages/ui/src/session-element.js';
+    import {ConceptView} from '/packages/ui/src/concept-view.js';
+    import {de} from '/packages/ui/src/i18n/de.js';
+    const update=ConceptView.prototype.update;
+    ConceptView.prototype.update=function(){window.view=this;return update.apply(this,arguments);};
+    window.mount=session=>{window.c?.remove();const c=document.createElement('aithema-session');window.c=c;
+      c.configure({session,copy:de,sessionToken:'fixture-owner',concepts:{previewURL:location.origin+'/_aithema/html-preview'}});
+      c.setAttribute('theme','light');c.setAttribute('motion','off');
+      // Render without SSE: the wire fixture's only runtime traffic is through
+      // authenticated concept routes and the scoped HTML preview document.
+      document.body.append(c); c.disconnectedCallback(); view.update(session,{consentRevision:session.consentRevision,
+        selected:['drafts','images'],features:{html:['drafts'],images:['images']}});};
+    window.ready=true;
+    </script></body></html>`;
+  const server = createServer(async (req, res) => {
+    socketRequests.push({ phase, method: req.method, path: req.url });
+    try {
+      const path = new URL(req.url, 'http://fixture').pathname;
+      if (await preview(req, res)) return;
+      if (/^\/api\/sessions\/ait386\/concepts\/[\w-]+\/preview$/u.test(path)) {
+        return preview({ url: '/fixture/mint', method: 'POST', headers: req.headers,
+          async *[Symbol.asyncIterator]() { yield source; } }, res);
+      }
+      if (path.endsWith('/html')) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end(source); }
+      if (path.endsWith('/image')) { res.writeHead(200, { 'content-type': 'image/png' }); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')); }
+      if (path.endsWith('/events')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.end(); }
+      if (path.endsWith('/eligibility')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{}'); }
+      if (path === '/') { res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': htmlPreviewHostPolicy(`http://${req.headers.host}/_aithema/html-preview`) }); return res.end(html); }
+      if (/^\/packages\/(?:ui|core)\/src\/[\w/-]+\.(?:js|json)$/u.test(path)) {
+        res.writeHead(200, { 'content-type': path.endsWith('.json') ? 'application/json' : 'text/javascript' }); return res.end(await readFile(join(root, path)));
+      }
+      res.writeHead(404); res.end();
+    } catch (error) { res.writeHead(500); res.end(error.message); }
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const browser = await browserForFile();
+  t.after(async () => { await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const page = await browser.newPage();
+  page.on('request', request => requests.push({ phase, method: request.method(), url: request.url(), type: request.resourceType() }));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
+  await page.setViewport({ width: 1440, height: 900 });
+  await page.goto(`http://127.0.0.1:${server.address().port}/`); await page.waitForFunction(() => window.ready);
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const settle = () => page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+  });
+  const shoot = async label => {
+    await settle(); await page.mouse.move(-10, -10);
+    const name = `ait386-${label}-light-de.png`; shots.push(name);
+    if (evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
+  };
+  const sessionFor = (visuals, kind) => {
+    const session = createSession({ demo: true }); session.id = 'ait386'; session.locale = 'de'; session.visualsBound = true;
+    session.settings.visuals = visuals; session.settings.origin = 'chosen';
+    session.conceptVisualKind = visuals === 'off' ? null : visuals === 'images' ? 'image' : 'html';
+    session.transcript = [{ id: 'source', role: 'user', content: 'Ein Dashboard für unser Team.' }]; session.inputRevision = 1;
+    const artifact = type => ({ id: type, mediaType: type === 'html' ? 'text/html' : 'image/png', turnIds: ['source'], referenceIds: [], feedback: { vote: 'clear', chips: [] } });
+    session.concepts = kind === 'mixed' ? [artifact('image'), artifact('html')] : [artifact(kind)]; session.conceptStatus = { phase: 'ready' };
+    session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'images', 'html'].map(feature => [feature,
+      ['text', 'analysis', visuals].includes(feature) ? { available: true } : { available: false, reason: visuals === 'off' ? 'visuals off' : 'visual kind not selected' }])) };
+    return session;
+  };
+  try {
+    // Explicit positive control for the historical defect, replayed at final
+    // head: the old backdrop path assigned its /html Uint8Array to img.src.
+    // This is intentionally isolated from the production request assertions.
+    for (const width of [1440, 390]) {
+      phase = `before-replay/${width}`; await page.setViewport({ width, height: 900 });
+      await page.evaluate(session => mount(session), sessionFor('off', 'html'));
+      await page.evaluate(async () => {
+        const response = await fetch('/api/sessions/ait386/concepts/html/html', { headers: { 'x-aithema-session-token': 'fixture-owner' }, cache: 'no-store' });
+        c.shadowRoot.querySelector('.concept-backdrop img').src = new Uint8Array(await response.arrayBuffer());
+      });
+      await page.waitForNetworkIdle({ idleTime: 100 }); await shoot(`before-replay-${width}`);
+      assert.ok(socketRequests.some(r => r.phase === phase && r.path === bytesPath), 'positive control observes the original bytes-as-path leak at the host');
+    }
+    for (const visuals of ['off', 'images', 'html']) for (const kind of ['html', 'image', 'mixed']) {
+      phase = `after/${visuals}/${kind}`;
+      await page.setViewport({ width: 1440, height: 900 });
+      await page.evaluate(session => mount(session), sessionFor(visuals, kind));
+      await settle();
+      if (visuals === 'off' && kind === 'html') {
+        await page.waitForNetworkIdle({ idleTime: 100 }); await shoot('after-1440');
+        await page.setViewport({ width: 390, height: 900 }); await shoot('after-390');
+      }
+      await page.evaluate(async () => {
+        for (const item of view.items) {
+          view.open(item.id);
+          if (item.mediaType !== 'text/html') await (view.loadImageURL?.(item.id) ?? view.load(item.id));
+          else await new Promise(resolve => setTimeout(resolve, 75));
+          view.close();
+        }
+        c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas();
+      });
+      await page.waitForNetworkIdle({ idleTime: 100 }); await settle();
+      const images = await page.evaluate(() => [...c.shadowRoot.querySelectorAll('img[src]')].map(image => ({ src: image.getAttribute('src'), id: image.dataset.id })));
+      checks.push({ visuals, kind, images, ids: await page.evaluate(() => view.items.map(i => i.id)) });
+    }
+  } finally {
+    if (evidence) await writeFile(join(evidence, 'ait386-requests.json'), JSON.stringify({ shots, checks, requests, socketRequests,
+      baseline: 'Explicit replay of the pre-fix Uint8Array-to-backdrop.src assignment; synthetic offline draft only.',
+      offline: true, viewportOnly: true }, null, 2));
+  }
+  const conceptRequest = raw => { const url = new URL(raw); return url.protocol === 'blob:' || url.protocol === 'data:' ||
+    url.origin === `http://127.0.0.1:${server.address().port}` && (/^\/api\/sessions\/ait386\/concepts\//u.test(url.pathname) || url.pathname === '/_aithema/html-preview'); };
+  const runtime = requests.filter(r => r.phase.startsWith('after/'));
+  assert.deepEqual(runtime.filter(r => !conceptRequest(r.url)), [], 'every runtime request stays within concept routes (or local blob/data resources)');
+  assert.deepEqual(socketRequests.filter(r => r.phase.startsWith('after/') && !conceptRequest(`http://127.0.0.1:${server.address().port}${r.path}`)), [], 'the host sees no request outside concept routes');
+  assert.equal(runtime.some(r => /\/(?:60,33,100|%3C!doctype)/iu.test(new URL(r.url).pathname)), false, 'no draft bytes in any request path');
+  for (const check of checks) for (const image of check.images) {
+    assert.ok(image.src.startsWith('blob:'), `${check.visuals}/${check.kind}: blob images only`);
+    assert.equal(image.id, 'image', 'an HTML artifact is never painted as an image');
+  }
+  assert.equal(checks.length, 9);
+  t.diagnostic(`AIT-386 request sweep: ${runtime.length} browser requests; no request outside concept routes; 9 states.`);
+});
