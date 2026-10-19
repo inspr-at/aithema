@@ -1086,6 +1086,48 @@ the captured revision before invalidation or append. A late grant returns 409
 `consent-stale` and cannot restore the server's withdrawn consent. Shared host
 ledgers must enforce their own atomic check; the server cannot undo host effects
 that occurred inside an already running grant port.
+The durable SSE event and POST acknowledgement share this additive shape:
+
+```js
+{ seq: 42, type: 'consent.revised', data: {
+  granted: true, at: '2026-10-19T10:14:00.000Z',
+  conversationUnchanged: true, // when the existing conversation is preserved
+  changed: ['html-drafts'],
+  removed: ['html-drafts'], // authoritative coverage losses, a subset of changed
+} }
+```
+
+For grants, `changed` contains only scope names whose coverage differs between the previous
+and accepted authoritative consent documents. Names are `text`, `analysis`,
+`voice`, `transcription`, `images`, `html-drafts` (the `html` feature), and
+`uploads`; unchanged coverage produces `[]`. It includes both additions and
+removals, never selected item IDs, terms, recipients, contract strings or ledger
+values. `removed` lists only the scopes that lost coverage; an empty list
+confirms no coverage losses even if the client's document is stale. Both fields contain
+only scope names, and caller-supplied values for either field are ignored. The server reads both
+documents through the host port, rather than trusting the submitted selection.
+For a revision-bound ledger, `describe(sessionId, { consentRevision, granted })`
+accepts an optional context for reading the staged grant at the next revision,
+before the journal commits it. `granted: true` indicates that accepted grant;
+ordinary GET reads keep using the current committed revision. The reference
+processing and mock ledgers support this context. Ledgers whose `describe`
+already returns the accepted selection can ignore the second argument.
+
+Both fields are optional for backward compatibility: hosts without `describe`,
+legacy/unavailable documents and legacy events retain the previous shape. Optional
+grant enrichment reads each have a 250 ms deadline; a timeout omits both fields
+and retains the legacy refresh path. Full withdrawals include every known scope
+in both fields as a revocation and bypass host document reads so host latency cannot delay it. Existing
+consumers can ignore these optional fields. The UI removes a known withdrawn artifact kind
+synchronously in the handler, then verifies through the normal refresh. A
+revision-matched client document showing missing coverage identifies an addition.
+With a stale client document, the server's `removed` list distinguishes grants
+from withdrawals, preserving covered surfaces through grants while waiting for
+the newer document. A stale document alone cannot delay scoped removal. Missing or unknown
+scope names use the existing refresh path. The original two-second fail-closed
+deadline and 2/4/8-second retry budget still apply; detach retains the unverified
+state and reattach remains closed until a successful read.
+
 A successful POST returns the committed `consentRevision`. The reference editor
 confirms it against the current document and the exact selected item IDs, so
 hosts may version their contract string on every grant or withdrawal. When the

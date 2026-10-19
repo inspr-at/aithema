@@ -1113,3 +1113,155 @@ for (const operation of ['load', 'download']) test(`AIT-364 gate1b: late image $
   assert.equal(downloads.length, 0, 'revoked download never clicks an anchor');
   assert.deepEqual(view.items.map(i => i.id), ['retained']);
 });
+
+for (const kind of ['html', 'image']) test(`AIT-365 E1 ${kind}: scoped event removes surfaces before returning`, async t => {
+  const { c, root, view, state } = consentRecoveryFixture(t);
+  await tick(); view.open(kind); await tick();
+  state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: [kind === 'html' ? 'html-drafts' : 'images'] } });
+  assert.equal(view.dialog.open, false, 'viewer closes in the event handler, without awaiting refresh');
+  assert.deepEqual(view.items.map(i => i.id), [kind === 'html' ? 'image' : 'html']);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+  assert.equal(await view.load(kind), null, 'revoked bytes cannot be loaded while verification is pending');
+});
+
+for (const changed of [undefined, ['future-scope']]) test(`AIT-365 E2 ${JSON.stringify(changed)}: legacy refresh deadline remains 2 s`, async t => {
+  const { c, view, state } = consentRecoveryFixture(t);
+  await tick(); view.open('html');
+  state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, ...(changed ? { changed } : {}) } });
+  assert.deepEqual(view.items.map(i => i.id), ['image', 'html']);
+  t.mock.timers.tick(1999); assert.equal(view.dialog.open, true);
+  t.mock.timers.tick(1); assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
+});
+
+for (const failure of [false, true]) test(`AIT-365 E4: detach pending verification, reattach ${failure ? 'fails' : 'succeeds'}`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  await tick(); view.open('html');
+  const held = Promise.withResolvers(); state.snapshot = () => held.promise;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  grant(); c.remove();
+  assert.deepEqual(view.items, [], 'detach retains the unverified duty and removes all surfaces');
+  state.snapshot = () => failure ? new Response('{}', { status: 503 }) : Response.json(c.session);
+  // The fixture suppressed initial connection only; exercise the real reattach.
+  c.connectedCallback = Object.getPrototypeOf(c).connectedCallback;
+  document.body.append(c);
+  assert.deepEqual(view.items, [], 'reattach is closed before any successful read');
+  held.resolve(Response.json(c.session)); await tick(); await tick();
+  assert.deepEqual(view.items.map(i => i.id), failure ? [] : ['image', 'html']);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, failure ? en.conceptWithdrawn : '');
+});
+
+for (const changed of [['html-drafts']]) test(`AIT-365 E3 ${JSON.stringify(changed)}: server ahead of the client document never hides covered content`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html'); await tick();
+  // A stale denial from the old revision must not revoke the server's newer grant.
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  const source = root.querySelector('.concept-html').artifact;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, ...(changed ? { changed } : {}), removed: [] } });
+  await tick();
+  assert.equal(view.dialog.open, true, 'an older consent document waits within the verification window');
+  assert.equal(root.querySelector('.concept-html').artifact, source);
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision, selected: ['models', 'images', 'drafts'], features: { html: ['drafts'], images: ['images'] } });
+  t.mock.timers.tick(100); await tick(); await tick();
+  assert.equal(view.dialog.open, true); assert.equal(root.querySelector('.concept-html').artifact, source);
+  t.mock.timers.tick(2000); await tick(); assert.deepEqual(view.items.map(i => i.id), ['image', 'html'], 'the newer document clears the watchdog');
+});
+
+test('AIT-365 E1/E2: a mixed future scope still removes the known withdrawn kind synchronously', async t => {
+  const { c, view, state } = consentRecoveryFixture(t);
+  await tick(); view.open('html'); state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts', 'future-scope'] } });
+  assert.equal(view.dialog.open, false); assert.deepEqual(view.items.map(i => i.id), ['image']);
+  t.mock.timers.tick(2000); assert.deepEqual(view.items, [], 'unknown scope still carries the full fail-closed duty');
+});
+
+test('AIT-365 E3: a persistently lagging grant document still fails closed at the original 2 s boundary', async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html');
+  state.document = () => Response.json({ consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  view.update(c.session, { consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'], removed: [] } }); await tick();
+  assert.equal(view.dialog.open, true);
+  t.mock.timers.tick(1999); assert.equal(view.dialog.open, true);
+  t.mock.timers.tick(1); assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+});
+
+for (const changed of [undefined, ['future-scope']]) for (const granted of [false, true]) test(`AIT-365 R2 E2 ${JSON.stringify(changed)}/granted=${granted}: older document fails closed without advancing time`, async t => {
+  const { c, root, view, state } = consentRecoveryFixture(t);
+  await tick(); view.open('html');
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: [], features: { html: ['drafts'], images: ['images'] } });
+  const fail = t.mock.method(view, 'failClosedConsent');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted, ...(granted ? { conversationUnchanged: true } : {}), ...(changed ? { changed } : {}) } });
+  await tick();
+  assert.equal(state.documents, 1);
+  assert.equal(fail.mock.callCount(), 1, 'AIT-364 rejects the older withdrawal document in the response tick');
+  assert.equal(root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
+});
+
+for (const kind of ['html', 'image']) for (const directed of [false, true]) test(`AIT-365 R2: a grant changed list cannot restore an already uncovered ${kind} kind/directed=${directed}`, async t => {
+  const { c, root, view, state } = consentRecoveryFixture(t);
+  await tick();
+  const feature = kind === 'html' ? 'html' : 'images';
+  const snapshot = c.session;
+  snapshot.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
+  view.update(snapshot); state.snapshot = () => new Promise(() => {});
+  assert.equal(view.covered(kind), false, 'the setup starts with this kind uncovered');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  view.reviseConsent([kind === 'html' ? 'html-drafts' : 'images'], true, directed ? [] : undefined);
+  assert.equal(view.items.some(item => item.id === kind), false, 'changed can add removals but never grant coverage');
+  view.open(kind); assert.equal(view.dialog.open, false);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+});
+
+for (const kind of ['html', 'image']) test(`AIT-365 R2 E1 ${kind}: a stale missing selection cannot suppress withdrawal removal`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open(kind); await tick();
+  const feature = kind === 'html' ? 'html' : 'images';
+  view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // Exercise the synchronous removal helper with an explicit withdrawal direction.
+  view.reviseConsent([feature === 'html' ? 'html-drafts' : feature], false);
+  assert.equal(view.dialog.open, false, 'a stale document is not proof of a grant during withdrawal');
+  assert.equal(view.items.some(item => item.id === kind), false);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+});
+
+for (const kind of ['html', 'image']) for (const directed of [false, true]) test(`AIT-365 R2 Low2 ${kind}/directed=${directed}: partial granted:true withdrawal ignores a stale missing selection in the event tick`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open(kind); await tick();
+  view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const scope = kind === 'html' ? 'html-drafts' : 'images';
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: [scope], ...(directed ? { removed: [scope] } : {}) } });
+  assert.equal(view.dialog.open, false, 'a stale missing selection cannot turn a server-confirmed removal into a grant');
+  assert.deepEqual(view.items.map(item => item.id), [kind === 'html' ? 'image' : 'html']);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+});
+
+test('AIT-365 R2: a removal-only scoped save cannot use the lagging grant-document wait', async t => {
+  const { c, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html');
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  const fail = t.mock.method(view, 'failClosedConsent');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'], removed: ['html-drafts'] } });
+  await tick();
+  assert.equal(fail.mock.callCount(), 1, 'an authoritative removal-only delta is a withdrawal, even on a granted:true save');
+  assert.deepEqual(view.items, []);
+});

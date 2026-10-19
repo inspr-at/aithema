@@ -883,5 +883,5 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
 // Reuse this measured shard workload; no shard count or workflow changes.
 test('AIT-364: cross-tab single-item consent withdrawal removes HTML and images', { timeout: 60_000 }, async t => {
   const { partialConsentFrames } = await import('../fixtures/partial-consent-frames.js');
-  await partialConsentFrames(t);
+  await partialConsentFrames(t, { isCI });
 });

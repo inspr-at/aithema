@@ -1,3 +1,4 @@
+import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
@@ -146,7 +147,7 @@ export class AithemaSession extends HTMLElement {
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.element.open;
-    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); this.#consentRefresh = null;
+    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
@@ -193,8 +194,8 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
-    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer);
-    if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; }
+    clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
+    if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; this.#concept?.failClosedConsent(); }
     clearTimeout(this.#clarifyNoticeTimer);
     this.#cancelUploads();
     this.#stopReconciling();
@@ -2427,7 +2428,7 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
-      if (consentRevised) this.#watchConsentRefresh();
+      if (consentRevised) { this.#watchConsentRefresh(event.data.granted, event.data.changed, event.data.removed); this.#concept.reviseConsent(event.data.changed, event.data.granted, event.data.removed); }
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
       const invalidation = ['turn.withdrawn', 'session.erased'].includes(event.type) ||
@@ -2557,24 +2558,30 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
-  #watchConsentRefresh() {
-    // Repeated saves cannot extend an already open verification window.
-    if (this.#consentRefresh) return;
-    const pending = { sessionId: this.#session.id, retries: 0 };
+  #watchConsentRefresh(granted, changed, removed) {
+    // Missing or unknown scopes retain AIT-364 exactly. Only an explicitly
+    // scoped grant may wait for a lagging host ledger under E3.
+    const scoped = Array.isArray(changed) && changed.every(scope =>
+      FEATURES.some(feature => (feature === 'html' ? 'html-drafts' : feature) === scope));
+    const removalOnly = scoped && Array.isArray(removed) && removed.length > 0 && changed.every(scope => removed.includes(scope));
+    const scopedGrant = granted === true && scoped && !removalOnly;
+    // Repeated saves cannot extend the window or inherit an older grant's wait.
+    if (this.#consentRefresh) { this.#consentRefresh.scopedGrant = scopedGrant; return; }
+    const pending = { sessionId: this.#session.id, retries: 0, scopedGrant };
     this.#consentRefresh = pending;
     // Coverage is bounded from the event, including snapshot and document reads.
-    pending.timer = setTimeout(() => this.#failConsentRefresh(pending), 2000);
+    pending.timer = consentTimeout(() => this.#failConsentRefresh(pending), 2000);
     pending.timer.unref?.();
   }
   #failConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
-    clearTimeout(pending.timer);
+    clearTimeout(pending.timer); clearTimeout(pending.documentTimer); pending.documentTimer = null;
     pending.failed = true; pending.attempt = null;
     this.#concept.failClosedConsent();
     if (pending.retryTimer || !this.isConnected) return;
     if (pending.retries >= 3) { pending.exhausted = true; return; }
     const delay = [2000, 4000, 8000][pending.retries++];
-    pending.retryTimer = setTimeout(() => {
+    pending.retryTimer = consentTimeout(() => {
       pending.retryTimer = null;
       if (pending === this.#consentRefresh && this.isConnected) void this.#refreshFeatures(true);
     }, delay);
@@ -2602,7 +2609,7 @@ export class AithemaSession extends HTMLElement {
       // Retries must also time out: a stalled attempt cannot hold the budget open.
       if (pending.failed) {
         clearTimeout(pending.timer);
-        pending.timer = setTimeout(() => this.#failConsentRefresh(pending), 2000);
+        pending.timer = consentTimeout(() => this.#failConsentRefresh(pending), 2000);
         pending.timer.unref?.();
       }
     }
@@ -2643,9 +2650,19 @@ export class AithemaSession extends HTMLElement {
           this.#retryStaleConsentRefresh(pending); return;
         }
         if (doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) {
-          clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer);
+          clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer); clearTimeout(pending?.documentTimer);
           this.#consentRefresh = null;
           this.#concept.update(this.#session, doc, true);
+        } else if (pending?.scopedGrant && !session.consentWithdrawn && Number.isSafeInteger(doc?.consentRevision) && doc.consentRevision >= 0 && doc.consentRevision < revision && !pending.failed) {
+          // A grant can lead its host ledger. Withdrawals retain AIT-364
+          // rejection in this response tick; only grants may use the original
+          // 2 s watchdog to wait without hiding covered bytes.
+          clearTimeout(pending.documentTimer);
+          pending.documentTimer = consentTimeout(() => {
+            pending.documentTimer = null;
+            if (active() && this.isConnected) void this.#refreshFeatures(true);
+          }, 100);
+          pending.documentTimer.unref?.();
         } else fail();
       } catch { fail(); }
     } catch { fail(); }
