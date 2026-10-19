@@ -24,7 +24,7 @@
       "owner_role": "product-owner",
       "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "workspace-package",
-      "release_surfaces": "fifteen npm-compatible module tarballs plus workspace/source archive, exact package/lock, SPDX SBOM; tag-only immutable GitHub release + SHA256SUMS + GitHub artifact attestations",
+      "release_surfaces": "sixteen npm-compatible module tarballs plus workspace/source archive, exact package/lock, SPDX SBOM; tag-only immutable GitHub release + SHA256SUMS + GitHub artifact attestations",
       "consumers": "release scripts; workspace dependency pins; npm; deployment pin; backup labels",
       "external_constraints": "npm SemVer syntax; no bounded integer/shortened coordinate"
     },
@@ -97,7 +97,7 @@
     {
       "item": "publishable module layout and exact pins",
       "status": "implemented",
-      "evidence": "release/pack.mjs; release/lib/modules.mjs; all fifteen package manifests"
+      "evidence": "release/pack.mjs; release/lib/modules.mjs; all sixteen package manifests"
     },
     {
       "item": "signatures/attestation",
