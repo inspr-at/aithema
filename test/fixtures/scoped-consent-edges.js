@@ -106,7 +106,9 @@ export async function scopedConsentEdges({ t, a, isCI, session, setSession, setS
     checks.push({ width: 1440, theme: 'light', locale: 'de', state: 'E3', serverAhead: ahead, samples, neverHidden: true, watchdogCleared: true });
   });
   await t.test('AIT-365 E3: lagging document keeps the original deadline', async () => {
-    await init(); const e = event(); a.holdConsentRead = true; a.heldConsentRead = null;
+    await init();
+    await a.evaluate(() => view.update(c.session, { consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } }));
+    const e = event(['html-drafts']); a.holdConsentRead = true; a.heldConsentRead = null;
     await a.evaluate(e => c.receive(e), e);
     const request = await heldRead();
     await request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ consentRevision: 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } }) });

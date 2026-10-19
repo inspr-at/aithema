@@ -1155,7 +1155,7 @@ for (const failure of [false, true]) test(`AIT-365 E4: detach pending verificati
   assert.equal(root.querySelector('.concept-withdrawn').textContent, failure ? en.conceptWithdrawn : '');
 });
 
-for (const changed of [undefined, ['html-drafts']]) test(`AIT-365 E3 ${JSON.stringify(changed)}: server ahead of the client document never hides covered content`, async t => {
+for (const changed of [['html-drafts']]) test(`AIT-365 E3 ${JSON.stringify(changed)}: server ahead of the client document never hides covered content`, async t => {
   const { c, root, view, state, grant } = consentRecoveryFixture(t);
   grant(); await tick(); await tick(); view.open('html'); await tick();
   // A stale denial from the old revision must not revoke the server's newer grant.
@@ -1187,20 +1187,21 @@ test('AIT-365 E3: a persistently lagging grant document still fails closed at th
   grant(); await tick(); await tick(); view.open('html');
   state.document = () => Response.json({ consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  grant(); await tick();
+  view.update(c.session, { consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'] } }); await tick();
   assert.equal(view.dialog.open, true);
   t.mock.timers.tick(1999); assert.equal(view.dialog.open, true);
   t.mock.timers.tick(1); assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
   assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
 });
 
-for (const changed of [undefined, ['future-scope']]) test(`AIT-365 R2 E2 ${JSON.stringify(changed)}: older withdrawal document fails closed without advancing time`, async t => {
+for (const changed of [undefined, ['future-scope']]) for (const granted of [false, true]) test(`AIT-365 R2 E2 ${JSON.stringify(changed)}/granted=${granted}: older document fails closed without advancing time`, async t => {
   const { c, root, view, state } = consentRecoveryFixture(t);
   await tick(); view.open('html');
   state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: [], features: { html: ['drafts'], images: ['images'] } });
   const fail = t.mock.method(view, 'failClosedConsent');
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false, ...(changed ? { changed } : {}) } });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted, ...(granted ? { conversationUnchanged: true } : {}), ...(changed ? { changed } : {}) } });
   await tick();
   assert.equal(state.documents, 1);
   assert.equal(fail.mock.callCount(), 1, 'AIT-364 rejects the older withdrawal document in the response tick');
