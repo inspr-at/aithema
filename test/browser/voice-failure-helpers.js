@@ -126,6 +126,17 @@ export async function checkVoiceFailures(t) {
         checks.push({ ...meta, assert: 'settled blurred viewport evidence', file: name, pass: true });
       }
     }
+    if (width === 1024) for (const offset of [-600, 600]) {
+      const result = await page.evaluate(offset => {
+        const rail = window.ait361Rail; rail.state = 'listening'; rail.session = { callId: 'fixture' };
+        rail.errorKey = 'voicePlaybackBlocked'; rail.playbackBlocked = true;
+        rail.root.style.transform = `translateX(${offset}px)`; rail.render(); return window.ait361Read();
+      }, offset);
+      const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right);
+      expect(result.callout.left >= left && result.callout.right <= right && Math.abs(result.callout.top - result.anchor.bottom - 8) <= 1,
+        { provider, width, theme, locale, state: 'clamped', offset, assert: 'explicit left/right clamp stays inside viewport and header', actual: result.callout });
+      await page.evaluate(() => { window.ait361Rail.root.style.transform = ''; window.ait361Rail.session = null; window.ait361Rail.render(); });
+    }
     if (width === 1440 && theme === 'light' && locale === 'de') {
       const before = await page.evaluate(() => {
         const rail = window.ait361Rail; rail.state = 'failed'; rail.failure({ status: 429, code: 'limit', retryAfterMs: 5000 });

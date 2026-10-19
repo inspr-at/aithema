@@ -90,6 +90,14 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     assert.equal(requests.at(-1)[1] - began, wait); assert.equal(rail.state, 'listening'); noLimit(rail);
     record(provider, 'recovery429', ['recovery 429 leads to F4 waiting', 'Continue shows existing connecting status while waiting', 'Continue waits retry-after, capped at 60 s, then one recovery request', 'absent retry-after continues immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
+  test(`AIT-361 ${provider}: ending a pending retry cancels its eventual start`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const { rail, requests } = fixture(t, provider, { startError: rateLimit(5000) });
+    await rail.start(); const retry = rail.start(); await flush();
+    await rail.close(); t.mock.timers.tick(5000); await retry; await flush();
+    assert.equal(requests.length, 1); assert.equal(rail.state, 'idle');
+    record(provider, 'cancelled-retry', ['End during wait fences the delayed start']);
+  });
   test(`AIT-361 ${provider}: F1/F2 remain failures, including misleading 429 admission codes`, async t => {
     const { rail } = fixture(t, provider);
     for (const [error, key] of [[{ name: 'NotAllowedError' }, 'voiceMicDenied'], [{ name: 'NotFoundError' }, 'voiceMicMissing'],
