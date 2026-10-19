@@ -1373,3 +1373,17 @@ test('AIT-380 round 2: retained voice admission refusal uses neutral copy across
     assert.equal(rail.error, copy.reasons['voice-host-unavailable']);
   }
 });
+
+for (const reason of ['binding evidence unverified', 'delegated reasoning: binding evidence unverified']) {
+  test(`AIT-380 round 3: retained rail refusal is plain across locales (${reason})`, t => {
+    const { rail, root } = fixture(t);
+    rail.failure({ code: 'not-admitted', reason });
+    for (const [copy, plain] of [[de, 'Sprache ist derzeit nicht verfügbar'], [en, 'Voice is currently unavailable']]) {
+      rail.copy = copy; rail.render();
+      assert.equal(rail.error, plain);
+      assert.equal(root.querySelector('.voice-state').getAttribute('aria-label'), plain);
+      assert.equal(root.querySelector('.voice-state .consent-wide').textContent, plain);
+      assert.equal(rail.errorReason, reason, 'the raw lane stays available for diagnostics');
+    }
+  });
+}

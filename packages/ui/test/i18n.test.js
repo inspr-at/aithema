@@ -4,6 +4,7 @@ import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { withDemoConsentCopy } from '../../../demo/consent-copy.js';
 import { reasonText, catalogLabel } from '../src/settings-dialog.js';
+import { reasonText as hostReasonText } from '../../../demo/reason-text.js';
 import { demoPresets } from '../../../demo/choices.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
@@ -45,7 +46,8 @@ test('every inventoried feature, HTML, voice and provider reason has English and
 test('compound voice reasons translate known codes and preserve unknown server text', () => {
   for (const bundle of [en, de]) {
     for (const code of FEATURE_REASON_CODES) {
-      assert.equal(reasonText(bundle, `delegated reasoning: ${code}`), bundle.reasons.delegated.replace('{reason}', bundle.reasons[code]));
+      assert.equal(reasonText(bundle, `delegated reasoning: ${code}`), code === 'binding evidence unverified'
+        ? bundle.reasons['voice-host-unavailable'] : bundle.reasons.delegated.replace('{reason}', bundle.reasons[code]));
     }
     for (const method of ['get', 'post', 'patch']) {
       assert.equal(reasonText(bundle, `agent-api-${method}-403`), bundle.reasons['agent-api'].replace('{status}', '403'));
@@ -141,3 +143,15 @@ test('AIT-380 round 2: voice evidence refusal uses existing neutral unavailable 
     assert.equal(reasonText(copy, 'binding evidence unverified', 'text'), copy.reasons['binding evidence unverified']);
   }
 });
+
+for (const [copy, plain] of [[de, 'Sprache ist derzeit nicht verfügbar'], [en, 'Voice is currently unavailable']]) {
+  test(`AIT-380 round 3 ${copy.display.locale}: evidence refusal is exactly neutral in every visitor context`, () => {
+    assert.equal(copy.reasons['binding evidence unverified'], plain);
+    for (const reason of ['binding evidence unverified', 'delegated reasoning: binding evidence unverified']) {
+      for (const feature of [undefined, 'voice', 'text', 'analysis', 'transcription', 'images', 'html', 'uploads']) {
+        assert.equal(reasonText(copy, reason, feature), plain, `${feature}: ${reason}`);
+      }
+      assert.equal(hostReasonText(copy, reason), plain, `host: ${reason}`);
+    }
+  });
+}

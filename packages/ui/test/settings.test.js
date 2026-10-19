@@ -37,11 +37,11 @@ function catalogFor(session) {
     custom: preset({ status: 'consent', reason: 'current processing consent required', defaults: { model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off' },
       models: models.slice(0, 2), voices, visuals }) } };
 }
-function fixture(t, { origin = 'default', model = 'mock', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity, loadIdentity, loadCatalog } = {}) {
+function fixture(t, { origin = 'default', model = 'mock', voice = 'fake-voice', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity, loadIdentity, loadCatalog } = {}) {
   let session = createSession({ demo: true });
   if (identity !== undefined) session.identity = identity;
   for (let i = 0; i < turns; i++) session = applyEvent(session, { seq: session.seq + 1, type: 'turn.final', data: { id: `t${i}`, role: 'user', content: 'Hello' } });
-  session.settings = { revision: 0, model, effort: 'none', voice: 'fake-voice', visuals: 'off', origin, at: null };
+  session.settings = { revision: 0, model, effort: 'none', voice, visuals: 'off', origin, at: null };
   session.engine = engineFor('best', session.settings);
   session.featureMatrix = { best: { text: available, analysis: available, voice: available, transcription: refused('not configured'), images: refused('visuals off') },
     eu: { text: refused('not configured'), analysis: refused('not configured') }, custom: { text: refused('current processing consent required') }, ...matrix };
@@ -980,4 +980,35 @@ for (const copy of [de, en]) for (const rated of [false, true]) {
     assert.equal(gauge.querySelector('.gauge__level').dataset.fill, '0');
     assert.equal(h.q('[data-gauge="cost"]').classList.contains('gauge--measured'), true, 'known free cost is a real zero');
   });
+}
+
+for (const [copy, plain] of [[de, 'Sprache ist derzeit nicht verfügbar'], [en, 'Voice is currently unavailable']]) {
+  for (const reason of ['binding evidence unverified', 'delegated reasoning: binding evidence unverified']) {
+    for (const surface of ['settings', 'chooser']) {
+      test(`AIT-380 round 3 ${copy.display.locale}: ${surface} refusal after offer stays neutral (${reason})`, async t => {
+        const pending = Promise.withResolvers(); t.after(() => pending.resolve(new Response(null, { status: 503 })));
+        const h = fixture(t, { copy, voice: surface === 'settings' ? 'off' : 'fake-voice', respond: () => pending.promise });
+        if (surface === 'settings') {
+          await opened(h);
+          h.q('[data-select="voice"] .select__button').click();
+          const option = h.option('voice', 'Fake voice');
+          assert.equal(option.getAttribute('aria-disabled'), 'false', 'voice was offered before the server refusal');
+          option.click();
+        } else {
+          assert.equal(h.root.querySelector('.chooser-option[data-preset="best"]').getAttribute('aria-disabled'), 'false');
+          h.root.querySelector('.chooser__continue').click();
+        }
+        await tick(6);
+        assert.equal(h.posts.length, 1);
+        assert.equal(h.posts[0].voice, 'fake-voice');
+        pending.resolve(Response.json({ error: 'setting-not-allowed', field: 'voice', reason }, { status: 409 }));
+        await tick(6);
+        const text = surface === 'settings' ? h.q('.notice-body .notice-text').textContent : h.root.querySelector('.chooser__error').textContent;
+        assert.equal(text, copy.settings.notAllowed.replace('{reason}', plain));
+        assert.doesNotMatch(text, /Provider contract not verified|Vertrag mit dem Anbieter nicht geprüft|Voice reasoning|Auswertung im Sprachgespräch/u);
+        assert.equal(h.posts.length, 1, 'a refusal never retries the offered option');
+        assert.equal(h.c.session.settings.revision, 0, 'the refused choice was never acknowledged');
+      });
+    }
+  }
 }

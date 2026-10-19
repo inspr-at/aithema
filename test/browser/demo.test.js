@@ -492,11 +492,10 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         : inner !== code ? de.reasons.delegated.replace('{reason}', de.reasons[inner]) : de.reasons[code];
       assert.deepEqual(rendered[index].labels, FEATURES.map(feature => de.features[feature]), code);
       assert.equal(rendered[index].reasons.length, FEATURES.length, code);
-      const voiceUnavailable = inner !== code
-        ? de.reasons.delegated.replace('{reason}', de.reasons['voice-host-unavailable']) : de.reasons['voice-host-unavailable'];
+      const voiceUnavailable = de.reasons['voice-host-unavailable'];
       assert.deepEqual(rendered[index].reasons, FEATURES.map(feature => inner === 'current processing consent required'
         ? de.featureConsent[feature === 'transcription' ? 'voice' : feature]
-        : feature === 'voice' && inner === 'binding evidence unverified' ? voiceUnavailable : expected), code);
+        : inner === 'binding evidence unverified' ? voiceUnavailable : expected), code);
       const english = status ? en.reasons['agent-api'].replace('{status}', status[1])
         : inner !== code ? en.reasons.delegated.replace('{reason}', en.reasons[inner]) : en.reasons[code];
       assert.ok(rendered[index].reasons.every(text => text !== english), `English reason leaked: ${code}`);
