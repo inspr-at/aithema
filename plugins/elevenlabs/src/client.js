@@ -284,7 +284,7 @@ export function createElevenLabsClient(ports = {}) {
           lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
           playbackInterrupted = true; conversation?.setVolume({ volume: outputVolume() });
         };
-        const replyIds = new Map();
+        const replyIds = new Map(), confirmedInterruptions = new Set();
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
           !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
           receipt.credential.providerSessionId !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Invalid voice credential receipt');
@@ -416,6 +416,9 @@ export function createElevenLabsClient(ports = {}) {
               ...(ordinal !== undefined ? { userTurnOrdinal: ordinal } : {}),
               ...(speaker === 'assistant' && replyIds.get(eventId) ? { replyId: replyIds.get(eventId) } : {}),
               ...(eventId !== undefined ? { event_id: eventId } : {}) });
+            if (speaker === 'assistant' && confirmedInterruptions.delete(eventId)) {
+              emit({ type: 'interrupted', turnId, heardLength: 'unknown' }, false);
+            }
           },
           onAgentResponseCorrection({ event_id: eventId, original_agent_response: original, corrected_agent_response: prefix }) {
             if (!active() || typeof original !== 'string' || typeof prefix !== 'string' || !original.startsWith(prefix)) return;
@@ -458,7 +461,16 @@ export function createElevenLabsClient(ports = {}) {
               // elements (and WebSocket gain) synchronously, outside persistence
               // and the command queue. Only a newer agent reply lifts this gate.
               conversation?.setVolume({ volume: outputVolume() });
-              if (!paused) emit({ type: 'interrupted', turnId: `${receipt.providerSessionId}:assistant:${eventId}`, heardLength: 'unknown' });
+              const turnId = `${receipt.providerSessionId}:assistant:${eventId}`;
+              // Keep metadata off the public transcript/heard event stream. If
+              // confirmation precedes the final, onMessage persists it afterward.
+              if (!paused) {
+                if (assistants.has(turnId)) emit({ type: 'interrupted', turnId, heardLength: 'unknown' }, false);
+                else {
+                  confirmedInterruptions.add(eventId);
+                  if (confirmedInterruptions.size > 256) confirmedInterruptions.delete(confirmedInterruptions.values().next().value);
+                }
+              }
               for (const waiter of interruptionWaiters) waiter();
             }
             // Only the correction callback supplies heard text; interruption never invents it.

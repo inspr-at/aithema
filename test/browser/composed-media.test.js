@@ -5,6 +5,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
+import { evidenceCommit } from './start2-display-helpers.js';
 import { measureGaugeCaptions } from './settings-caption-helpers.js';
 import { checkSettingsMenuAccessibility, checkSettingsPolish } from './settings-polish-helpers.js';
 import { startChild } from '../helpers.js';
@@ -730,8 +731,7 @@ test('AIT-378: confirmed interruption and provider cooldown viewport evidence', 
   await page.evaluate(() => window.ait378Rail.close());
   checks.push({ pass: true, state: 'R1', width: 1440, theme: 'light', locale: 'de', ...cooldown });
   assert.deepEqual(problems, []); assert.deepEqual(external, []);
-  const ciEvent = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   if (evidence) await writeFile(join(evidence, 'ait378-checks.json'), JSON.stringify({ ticket: 'AIT-378',
-    head: ciEvent?.pull_request?.head?.sha ?? process.env.GITHUB_SHA ?? null, ciCommit: process.env.GITHUB_SHA ?? null, capture: 'viewport', reducedMotion: true, focusBlurred: true,
+    testedCommit: evidenceCommit, capture: 'viewport', reducedMotion: true, focusBlurred: true,
     providerCalls: 0, checks, problems, external }, null, 2));
 });
