@@ -4,7 +4,7 @@ import * as server from '../src/server.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createPluginRuntime } from '../../../packages/server/src/plugin-runtime.js';
 import { componentManifest, manifest } from '../src/manifest.js';
-import { PluginRegistry, publicReasoningManifest } from '@inspr/aithema-core';
+import { PluginRegistry, publicReasoningManifest, bindingReason } from '@inspr/aithema-core';
 
 const at = Date.parse('2026-10-19T12:00:00Z');
 const origin = 'https://api.eu.mistral.ai';
@@ -41,7 +41,7 @@ function fixture() {
   const consent = { async coverage({ scope, consentRevision }) { covered.push(scope); return {
     ...scope, scope, covered: true, consentRevision, checkedAt: clock, expiresAt: clock + 10000 }; } };
   const args = { config, componentBindings, plugins, hostProcessing, consent, now: () => clock, getSession: () => session };
-  const request = { session, preset: 'eu', policy: { endpoints: [origin, 'https://host.test'] } };
+  const request = { session, reasoningBinding: componentBindings.reasoning, preset: 'eu', policy: { endpoints: [origin, 'https://host.test'] } };
   const create = () => { assert.equal(typeof server.createVoxtralProviderAuthority, 'function'); return server.createVoxtralProviderAuthority(args); };
   return { config, componentBindings, plugins, hostProcessing, consent, covered, args, request, create,
     setClock: value => { clock = value; }, setSession: value => { session = value; } };
@@ -229,7 +229,8 @@ for (const euOnly of [true, false]) test(`AIT-331: ordinary feature matrix uses 
   parent.plugin = 'voxtral-voice'; parent.model = 'voxtral-voice';
   Object.assign(parent.legal.evidence, { model: parent.model });
   Object.assign(parent, { maxDurationSeconds: 120, upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
-  const noDispatch = () => assert.fail('Feature matrix must never dispatch');
+  let dispatchAttempts = 0;
+  const noDispatch = () => { dispatchAttempts++; assert.fail('Feature matrix must never dispatch'); };
   const voice = { binding: parent, manifest, health: async () => ({ available: true }), start: noDispatch,
     ports: { serverAdapter: { ...authority.ports.serverAdapter, binding: parent,
       validateConfig() {}, startSegment: noDispatch, stopSegment: noDispatch, reconciliationEvidence: noDispatch } } };
@@ -242,6 +243,7 @@ for (const euOnly of [true, false]) test(`AIT-331: ordinary feature matrix uses 
   const matrix = await runtime.matrix(session);
   assert.equal(matrix.best.voice.available, true, matrix.best.voice.reason);
   assert.equal(matrix.eu.voice.available, euOnly, matrix.eu.voice.reason);
+  assert.equal(dispatchAttempts, 0);
 });
 
 test('AIT-331: missing regional account evidence still exposes honest processing detail, never eligibility', () => {
@@ -256,4 +258,75 @@ test('AIT-331: missing regional account evidence still exposes honest processing
 test('AIT-331: duplicate binding countries cannot understate the account undertaking', () => {
   const f = fixture(); f.componentBindings.tts.legal.processingCountries = ['FR', 'FR'];
   assert.notEqual(f.create().evaluate(f.request).reason, null);
+});
+
+for (const routing of [true, 0, false, null, [], new Date(at)]) test(`AIT-331: non-object routing ${JSON.stringify(routing)} fails closed`, async () => {
+  const f = fixture();
+  f.componentBindings.stt.routing = routing;
+  f.componentBindings.stt.legal.evidence.routing = routing ?? {};
+  assert.equal(bindingReason({ binding: f.componentBindings.stt, plugin: f.plugins.stt,
+    ...f.request, now: at }), null, 'generic qualification alone accepts this malformed routing');
+  const authority = f.create();
+  assert.notEqual(authority.evaluate(f.request).reason, null);
+  assert.notEqual(await authority.admissionReason(f.request), null);
+});
+
+test('AIT-331: consent-scope construction failure denies admission instead of skipping coverage', async t => {
+  const f = fixture(), authority = f.create(), clone = globalThis.structuredClone;
+  t.mock.method(globalThis, 'structuredClone', value => {
+    if (value?.operation && value?.dataCategories) throw new TypeError('synthetic scope construction failure');
+    return clone(value);
+  });
+  assert.notEqual(await authority.admissionReason(f.request), null);
+  assert.equal(f.covered.length, 0);
+  assert.throws(() => authority.processingScopes(), /synthetic scope construction failure/u);
+});
+
+test('AIT-331: admission requires the actual reasoning selection', async () => {
+  const f = fixture(), authority = f.create(); delete f.request.reasoningBinding;
+  assert.notEqual(await authority.admissionReason(f.request), null);
+});
+
+for (const mismatch of ['provider', 'endpoint', 'account', 'DPA']) test(`AIT-331: session-selected EU-qualified ${mismatch} mismatch denies voice at the matrix and admission`, async t => {
+  const f = fixture(), storage = new SQLiteStorage(); t.after(() => storage.close());
+  const session = storage.create({ ownerToken: 'synthetic-owner', processingPreset: 'eu',
+    settings: { model: 'selected', voice: 'voice', visuals: 'off' } });
+  const clock = Date.now(); f.setClock(clock); f.args.getSession = id => storage.get(id);
+  for (const b of [...Object.values(f.componentBindings), f.hostProcessing[0].binding]) {
+    b.legal.evidence.verifiedAt = clock - 1000; b.legal.evidence.expiresAt = clock + 60000;
+  }
+  const selected = structuredClone(f.componentBindings.reasoning);
+  if (mismatch === 'provider') selected.plugin = 'other';
+  if (mismatch === 'endpoint') selected.endpoint = selected.legal.evidence.endpoint = 'https://reasoning.test';
+  if (mismatch === 'account') selected.accountRef = selected.legal.evidence.accountRef = 'private:synthetic/other-account';
+  if (mismatch === 'DPA') selected.legal.evidence.dpaRef = 'private:synthetic/other-dpa';
+  const selectedPlugin = { manifest: publicReasoningManifest(selected.plugin, 'Selected reasoning', selected.endpoint) };
+  f.request.policy.endpoints.push(selected.endpoint);
+  assert.equal(bindingReason({ binding: selected, plugin: selectedPlugin, preset: 'eu', policy: f.request.policy, now: clock }), null);
+  const authority = f.create(), parent = structuredClone(f.componentBindings.stt);
+  parent.plugin = 'voxtral-voice'; parent.model = 'voxtral-voice'; parent.legal.evidence.model = parent.model;
+  Object.assign(parent, { maxDurationSeconds: 120, upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
+  let voiceDispatches = 0, reasoningDispatches = 0;
+  const noVoice = () => { voiceDispatches++; assert.fail('Denied voice must never dispatch'); };
+  const noReasoning = () => { reasoningDispatches++; assert.fail('Matrix and admission must never dispatch reasoning'); };
+  const voice = { binding: parent, manifest, health: async () => ({ available: true }), start: noVoice,
+    ports: { serverAdapter: { ...authority.ports.serverAdapter, binding: parent,
+      validateConfig() {}, startSegment: noVoice, stopSegment: noVoice, reconciliationEvidence: noVoice } } };
+  const reasoning = { ...selectedPlugin, binding: selected, health: async () => ({ available: true }), stream: noReasoning, structured: noReasoning };
+  const expected = { ...f.plugins.reasoning, binding: f.componentBindings.reasoning,
+    health: async () => ({ available: true }), stream: noReasoning, structured: noReasoning };
+  const registry = new PluginRegistry().register(voice).register(reasoning);
+  if (selected.plugin !== expected.manifest.id) registry.register(expected);
+  const settings = { plugins: ['voxtral-voice', 'mistral', selected.plugin], policy: f.request.policy,
+    choices: { models: [{ id: 'expected', binding: f.componentBindings.reasoning }, { id: 'selected', binding: selected }],
+      voices: [{ id: 'voice', binding: parent }], defaults: { model: 'expected', voice: 'voice' } } };
+  const runtime = createPluginRuntime({ storage, registry, consent: f.consent, presets: { eu: settings } });
+  const matrix = await runtime.matrix(session);
+  assert.equal(matrix.eu.text.available, true, matrix.eu.text.reason);
+  assert.equal(matrix.eu.voice.available, false, 'session-selected qualified reasoning must be tied to the Voxtral authority');
+  const request = { ...f.request, session, reasoningBinding: selected };
+  assert.equal(authority.evaluate(request).euEligible, false);
+  assert.notEqual(await authority.admissionReason(request), null);
+  assert.notEqual(await authority.admissionReason(request, { existingCall: true }), null);
+  assert.equal(voiceDispatches, 0); assert.equal(reasoningDispatches, 0);
 });
