@@ -3410,5 +3410,9 @@ test('AIT-381 r2 / AIT-388: streaming admissions hash the dispatched request aft
     assert.deepEqual(dispatched, quoted[index]);
     assert.equal(rows[index].request_sha256, createHash('sha256').update(JSON.stringify(dispatched)).digest('hex'));
   }
-  assert.ok(h.requests[1].messages.some(message => message.role === 'assistant' && message.content === 'A focused start. '));
+  assert.equal(h.requests[1].messages.at(-1).role, 'user');
+  assert.deepEqual(JSON.parse(h.requests[1].messages.at(-1).content), {
+    kind: 'spoken-continuation', committedSpeech: 'A focused start. ',
+    instruction: 'Continue after the committed speech without repeating it. This host context is not a person turn.',
+  });
 });
