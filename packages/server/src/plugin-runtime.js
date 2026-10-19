@@ -377,7 +377,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const config = presets[preset], choices = choicesFor(preset);
     const offered = config?.choices ? (choices?.visuals ?? []).filter(option => option.kind === selected && option.binding)
       : config?.bindings?.[selected] ? [{ binding: config.bindings[selected] }] : [];
-    const candidates = admitted ? offered.filter(({ binding: raw }) => {
+    const candidates = admitted ? offered.filter(({ id, binding: raw }) => {
+      // The shared local scope carries no provider identity. Preserve its
+      // recorded producer constraint as well as the exact scope match; another
+      // local option cannot vouch for a removed producer. This never skips gates.
+      const producer = artifact?.visuals ?? visuals;
+      if (!admitted.plugin && producer && config?.choices && id !== producer) return false;
       try {
         const binding = selected === 'images' ? createImageBinding(raw) : createBinding(raw), plugin = registry.get(binding.plugin);
         const scope = plugin && !plugin.bind && localImplementation(plugin, selected) && free(binding)
