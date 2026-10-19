@@ -120,6 +120,13 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 // shard counts, ceilings and check names stay unchanged.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 103);
+// AIT-364 round 3: mbp2606 b2f860fa66-74632 passed all 23 preview
+// tests, including automatic recovery and the recovered viewport shot.
+// Top-level work: 15.532410625 + 50.059817916 + 6.721846709
+// + 14.264702958 = 86.578778208s; ceil(*1.25) = 109s.
+// Preserve the measured remote floor outside rolling-main history.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 109);
 // AIT-364 v1.1 final product head 03f5b0bb, CI 39221011068:
 // preview shard 7/7 passed 23/23 in 57.604659634s (ceil(*1.25)=73s);
 // retain the slower 103s remote reservation. Consent-lines shard 5/7
