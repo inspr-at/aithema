@@ -249,11 +249,11 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         const response = reply(elevenLabsCompletion({ replyId: id, created }, guarded.text, { metadata: false }));
         await onDelivered?.({ callId: call.callId }); return response;
       }
-      let safeScope;
+      let safeScope, committedSpeech = '';
       const generate = async function* () {
         await prepareInvocation();
         if (pinned.purposePolicy) yield* committedPurposeSegments(pinned, admission, invocationOptions, {
-          beforeOutput, onRetry, reportAllowed,
+          beforeOutput, onRetry, reportAllowed, committed: () => committedSpeech,
           admit: async transformRequest => {
             const request = transformRequest(input);
             const selected = await voiceOperation(invocationOptions, bounded => admitReasoning({ callId: call.callId, request, transformRequest,
@@ -311,6 +311,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         hasValidatedContent = true; clearTimeout(holdingTimer);
         if (holdingSent && content === HOLDING_LINES[locale === 'de' ? 'de' : 'en']) text = ' ' + text;
         content += text;
+        committedSpeech = content;
         enqueue(controller, `data: ${JSON.stringify(frame({ content: text }))}\n\n`);
       };
       return new Response(new ReadableStream({
@@ -322,6 +323,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
               (invocationOptions?.signal ?? scope.signal).throwIfAborted(); beforeOutput?.();
               if (!roleSent) { roleSent = true; enqueue(controller, `data: ${JSON.stringify(frame({ role: 'assistant' }))}\n\n`); }
               holdingSent = true; content = HOLDING_LINES[locale === 'de' ? 'de' : 'en'];
+              committedSpeech = content;
               enqueue(controller, `data: ${JSON.stringify(frame({ content }))}\n\n`);
             } catch (error) { void streamFailure(error); }
           };
@@ -496,7 +498,7 @@ async function* committedPurposeSegments(pinned, initial, options, ports) {
   };
   for (let attempt = 0; attempt < 2; attempt++) {
     const selected = attempt ? await ports.admit(request => spokenPurposeRequest(request, {
-      retry: true, promptOnly, committed: stripThanksOpener(accepted, pinned.locale).text,
+      retry: true, promptOnly, committed: ports.committed(),
     })) : initial;
     const cancellation = new AbortController();
     const lifetime = operationScope({ deadlineAt: Math.min(options.deadlineAt, selected.options.deadlineAt ?? options.deadlineAt),

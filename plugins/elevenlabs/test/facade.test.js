@@ -807,3 +807,21 @@ test('AIT-381 r2 / AIT-388: both admissions quote and hash the exact dispatched 
     assert.deepEqual(dispatched, admitted);
   }
 });
+
+test('AIT-381 r2: continuation context uses emitted speech including holding copy and opener stripping', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const first = Promise.withResolvers(), reject = Promise.withResolvers();
+  const h = spokenFixture(t, { attempts: [[{ gate: first, text: `{"segments":[${spokenSegment('Thank you. It sounds useful. ')}` },
+    { gate: reject, text: `,${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+    [{ text: `{"segments":[${spokenSegment('Who is affected?')}]}` }]] });
+  const state = h.observe(); await flush();
+  t.mock.timers.tick(5000); await flush(); assert.equal(spokenText(state), 'One moment, please.');
+  first.resolve(); await flush();
+  const committed = spokenText(state);
+  assert.equal(committed, 'One moment, please. It sounds useful. ');
+  reject.resolve(); await state.done;
+  assert.equal(h.started[1].messages.at(-1).role, 'assistant');
+  assert.equal(h.started[1].messages.at(-1).content, committed);
+  assert.equal(spokenText(state), committed + 'Who is affected?');
+  assert.equal(spokenText(state).includes('Thank you.'), false);
+});
