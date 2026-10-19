@@ -269,14 +269,15 @@ for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plug
   const { PluginRegistry, processingScope } = await import('@inspr/aithema-core');
   const { createLocalHTML, localHTMLBinding } = await import('../src/index.js');
   const storage = new SQLiteStorage(), producer = createLocalHTML();
-  const registry = new PluginRegistry().register(producer);
+  const registry = new PluginRegistry().register({ ...producer, generate() { throw new Error('No runtime generation in provenance test'); } });
   const binding = purpose => ({ ...localHTMLBinding, legal: { approved: true, countries: ['FR'], training: false, retention: 'fixture',
     purpose, recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
     evidence: { qualified: true, accountRef: localHTMLBinding.accountRef, secretRef: localHTMLBinding.secretRef,
       model: localHTMLBinding.model, endpoint: localHTMLBinding.endpoint, routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60000 } } });
   const original = binding('drafts'), rebound = binding('other-drafts'), coverageCalls = [];
+  let allowedPurpose = 'other-drafts';
   const consent = { coverage: ({ scope, consentRevision }) => { coverageCalls.push(scope.purpose); return {
-    ...scope, scope, covered: scope.purpose === 'other-drafts', consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60000,
+    ...scope, scope, covered: scope.purpose === allowedPurpose, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60000,
   }; }, describe: () => ({ contract: 'ait369', selected: ['other-drafts'], items: ['drafts', 'other-drafts'].map(id =>
     ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
   const config = { plugins: ['fake-html'], bindings: { html: original }, choices: { models: [], visuals: [{ id: 'a', kind: 'html', binding: original }] } };
@@ -306,6 +307,8 @@ for (const change of ['preset switch', 'rebound id', 'missing id', 'missing plug
   assert.equal(current.concepts.find(c => c.id === 'recorded').consentScope, undefined, 'private scope is absent from snapshots');
   assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), false);
   assert.equal(coverageCalls.at(-1), 'drafts', 'publication checks the admitted purpose even after a switch');
+  allowedPurpose = 'drafts';
+  assert.equal(await runtime.publicationAllowed(current, { artifactId: 'recorded', visualKind: 'html', visuals: 'a' }), true, 'retained admitted consent keeps the recorded artifact publishable');
   if (change.startsWith('missing')) {
     assert.deepEqual(doc.features.html, []);
     assert.ok(doc.unavailableFeatures.includes('html'), 'unresolvable legacy provenance is neutral unavailable');
