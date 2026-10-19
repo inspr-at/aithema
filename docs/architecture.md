@@ -23,6 +23,59 @@ The question-card browser sweep retains all width-specific geometry and native
 keyboard/voice checks, with representative visual-viewport heights around the
 620px compact breakpoint; evidence keeps the exhaustive 8px height sweep.
 
+## HTML preview boundary and qualification (AIT-341 P6/P7)
+
+Executable drafts use the same-host, exact-path capability route
+`/_aithema/html-preview?cap=…`. The owner-authenticated POST
+`/api/sessions/:id/concepts/:artifactId/preview` mints `{ url, expiresInMs }`;
+`htmlPreviewHostPolicy(previewURL)` provides the page's exact `frame-src` and
+`child-src 'none'` directives. Keep a strict page `script-src` (`'self'` plus only
+an exact import-map hash when needed), with external startup modules. There is
+no head-meta requirement and no legacy `frame-src 'none'` meta on the host page.
+The scriptless `data:` probe verifies enforcing frame policy before minting.
+
+The preview response owns its CSP: `sandbox allow-scripts; default-src 'none'`,
+inline script/style only, data images/fonts, and explicit denials for connect,
+frame, child, worker, object, form and base destinations. `frame-ancestors`
+allows the canonical host. The iframe retains only `sandbox="allow-scripts"`
+and `referrerpolicy="no-referrer"`, with powerful features denied; it never gains
+same-origin access, top navigation, forms, popups or downloads. Response headers
+also require `private, no-store`, `no-referrer` and `nosniff`.
+
+The bounded process-local registry stores hashes of 256-bit, single-use tokens,
+scoped to one owner/session/artifact and a maximum 60-second redemption window.
+Ownership, publication, consent revision, erasure/tombstone and bytes are
+rechecked at redemption, including after asynchronous publication checks.
+HEAD returns 405 without consuming a token; saturation returns 503 with
+Retry-After. There is no cookie fallback, redirect, Set-Cookie or signing secret.
+A restart or redemption on another instance invalidates the delegation; deployments
+need mint/redemption affinity, and the parent re-mints on every retry or reload.
+The guarantee is **no network; a self-reload is refused**: a draft self-reload
+makes a second GET and receives 403, without automatically minting again.
+Delivered bytes cannot be recalled; lifecycle events must remove mounted frames.
+
+The [embedding guide](embedding.md) supplies copy-paste page/preview headers and
+the OPS Caddy handler. The exact-path proxy stays inside basic auth, strips
+Cookie/Authorization/X-Aithema-Session-Token upstream and Set-Cookie downstream,
+preserves the preview's own CSP, redacts the `cap` query value in access logs,
+and deletes the custom token header from logs. The generic proxy follows it.
+
+`scripts/qualify-html-preview.mjs` runs one sequential loopback fixture per
+Chromium/WebKit/Firefox engine in the separate `preview-security` CI job. It uses
+the strict header-only fixture and production mint/redemption handlers with
+in-memory storage/publication ports; no provider adapter or paid/live call runs.
+It checks opaque origin, host DOM/cookies/storage isolation, interactivity,
+fetch/image/form/popup/top-navigation denial, immediate/delayed self-navigation,
+readiness failure, revocation and single-use reload. The real mock demo also
+boots with strict `script-src 'self'` in each engine. Socket-level server counters
+and per-mint response statuses are retained in the `preview-security` artifact,
+independently of console output; duplicate initial frame GETs stop qualification
+for LEAD rather than granting multiple uses. Engine setup downloads occur before
+qualification; browser traffic is confined to the two loopback fixture origins.
+The small separate job preserves every existing browser shard/name and the
+400-second target/420-second ceiling. Its six-minute job and two-minute test
+limits bound additional CI cost; measured timings belong in the PR handoff.
+
 ## Privacy-safe voice correlation (AIT-139 Part 1)
 
 The provider-neutral executor (`packages/server/src/voice-turns.js`) and server

@@ -16,9 +16,10 @@ test('demo serves native UI modules, labelled mock host and persistent handlers'
   assert.match(html, /<title>Aithema<\/title>/u);
   assert.match(html, /<html lang="de">/u);
   assert.match(html, /<aside class="demo-strip" data-demo-only hidden/u);
-  const previewURL = running.url + '/_aithema/html-preview', expectedPolicy = htmlPreviewHostPolicy(previewURL);
+  const previewURL = running.url + '/_aithema/html-preview', expectedPolicy = `script-src 'self'; ${htmlPreviewHostPolicy(previewURL)}`;
   assert.equal(page.headers.get('content-security-policy'), expectedPolicy);
-  assert.ok(html.includes(`<meta http-equiv="Content-Security-Policy" content="${expectedPolicy}">`));
+  assert.ok(html.includes('<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">'));
+  assert.doesNotMatch(html, /frame-src 'none'/u);
   for (const method of ['GET', 'HEAD']) {
     const response = await fetch(running.url + '/demo/index.html', { method });
     assert.equal(response.headers.get('content-security-policy'), expectedPolicy);
