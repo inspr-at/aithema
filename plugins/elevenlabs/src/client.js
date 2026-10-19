@@ -310,7 +310,7 @@ export function createElevenLabsClient(ports = {}) {
         const current = ++generation;
         playbackInterrupted = false;
         let lastInterruptionId = -1, latestAssistantId = -1, userTurnOrdinal = 0;
-        let tentativeOpen = true, tentativeSequence = 1, providerMode = 'listening', finishedAudioId = -1;
+        let tentativeOpen = true, tentativeSequence = 1, providerMode = 'listening';
         lastActivity = undefined;
         silenceReply = () => {
           lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
@@ -322,19 +322,19 @@ export function createElevenLabsClient(ports = {}) {
           return Boolean(value) && !['Einen Moment, bitte.', 'One moment, please.'].some(line => line.startsWith(value));
         };
         const reportAudio = (eventId, text) => {
-          if (!active() || paused || transportBlocked || outputVolume() === 0 || !Number.isSafeInteger(eventId) || eventId < 0 || eventId < latestAssistantId || eventId <= finishedAudioId || qualifiedAudio.has(eventId)) return;
+          if (!active() || paused || transportBlocked || outputVolume() === 0 || !Number.isSafeInteger(eventId) || eventId < 0 || eventId < latestAssistantId || qualifiedAudio.has(eventId)) return;
           if (text) audioTexts.set(eventId, ((audioTexts.get(eventId) ?? '') + text).slice(0, 512));
           const knownText = audioTexts.get(eventId) || replyTexts.get(eventId);
           // Unaligned PCM can still be the holding prefix while text generation
           // runs ahead. Only aligned non-filler words can qualify that stream.
           const holdingPrefix = !audioTexts.has(eventId) && ['Einen Moment, bitte.', 'One moment, please.'].some(line => knownText?.trim().startsWith(line));
           const filler = holdingPrefix || !nonFiller(knownText);
+          if (audioTexts.size > 256) audioTexts.delete(audioTexts.keys().next().value);
           // SDK mode owns activity for unqualified/holding PCM. Such chunks
           // can arrive after listening and must never reopen playback.
           if (filler) return;
           emit({ type: 'speaking', audio: true, filler: false });
           qualifiedAudio.add(eventId);
-          if (audioTexts.size > 256) audioTexts.delete(audioTexts.keys().next().value);
         };
         const replyIds = new Map(), confirmedInterruptions = new Set();
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
@@ -446,7 +446,6 @@ export function createElevenLabsClient(ports = {}) {
             // the next speaking -> listening boundary admits a new hypothesis.
             if (mode === 'speaking') tentativeOpen = false;
             else if (providerMode === 'speaking') { tentativeOpen = true; tentativeSequence++; }
-            if (mode === 'listening') finishedAudioId = Math.max(finishedAudioId, latestAssistantId);
             providerMode = mode; emit({ type: mode });
           },
           onAgentChatResponsePart({ event_id: eventId, type, text }) {

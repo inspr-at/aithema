@@ -199,3 +199,13 @@ test('AIT-383 elevenlabs: a newly identified filler chunk after listening cannot
   assert.equal(rail.state, 'listening');
   assert.deepEqual(current.activities.map(e => e.type), ['speaking', 'listening']);
 });
+
+test('AIT-383 elevenlabs: late qualified audio clears S5 even after holding audio returned to listening', async t => {
+  const { rail, current } = setup(t, 'elevenlabs'); await rail.start();
+  current.audio('Einen Moment, bitte.'); await flush();
+  current.event({ type: 'listening' }); await flush();
+  await advance(t, 15_000); assert.equal(rail.errorKey, 'voiceNoReply');
+  current.audio('Eine richtige Antwort.', { mode: false }); await flush();
+  assert.equal(rail.errorKey, null); assert.equal(rail.state, 'speaking');
+  assert.deepEqual(current.activities.map(e => e.type), ['speaking', 'listening', 'speaking']);
+});
