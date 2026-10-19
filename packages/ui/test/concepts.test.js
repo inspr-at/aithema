@@ -783,6 +783,10 @@ for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent rem
   view.open('retained'); assert.equal(view.dialog.open, true, 'other kind stays openable');
   assert.equal(root.querySelector('.concept-count').textContent, '1 of 1');
   assert.equal(snapshot.transcript[0].content, 'An API dashboard');
+  const readsBeforeRegrant = calls.filter(call => /\/(html|image)$/u.test(call.url)).length;
+  view.update({ ...c.session, consentRevision: snapshot.consentRevision + 1 });
+  await view.load('removed');
+  assert.ok(calls.filter(call => /\/(html|image)$/u.test(call.url)).length > readsBeforeRegrant, 'regrant reads fresh bytes: removed cache was dropped');
 });
 
 for (const kind of ['html', 'image']) for (const copy of [de, en]) test(`AIT-364 ${kind}/${copy.display.locale}: notice expires into consent, never idle`, async t => {

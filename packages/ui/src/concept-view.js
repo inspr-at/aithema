@@ -52,7 +52,7 @@ export function paintFailureLine(line, words, suffix = '') {
 export class ConceptView {
   #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
-  #previewRetryAt = 0; #previewDenied = new Set();
+  #previewRetryAt = 0; #previewDenied = new Map();
   #consentDocument; #visible = []; #withdrawnKind;
   #canvasEpoch = 0; #canvasCopy; #stageFeature;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
@@ -370,7 +370,15 @@ export class ConceptView {
     else this.clearThumbnail();
     this.paintBackdrop();
     this.gates();
-    if (!this.dialog.open) return;
+    if (!this.dialog.open) {
+      if (this.#withdrawnKind) {
+        const count = this.items.length;
+        this.root.querySelector('.concept-count').textContent = count ? this.copy.conceptCount.replace('{current}', count).replace('{count}', count) : '';
+        this.root.querySelector('.concept-previous').disabled = count <= 1;
+        this.root.querySelector('.concept-next').disabled = true;
+      }
+      return;
+    }
     let current = this.current();
     if (!current) { this.#selected = latest?.id; current = latest; }
     if (!current) { this.close(); return; }
@@ -413,13 +421,13 @@ export class ConceptView {
     return { mediaType: HTML_MEDIA_TYPE, previewURL: this.previewURL, mint: async signal => {
       const active = () => !signal?.aborted && epoch === this.#epoch && sessionId === this.#session.id && this.items.some(item => item.id === id);
       if (!active() || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) throw new Error('Preview scope expired');
-      if (this.#previewDenied.has(id)) throw new Error('Preview scope denied');
+      if (this.#previewDenied.get(id) === this.#session.consentRevision) throw new Error('Preview scope denied');
       if (Date.now() < this.#previewRetryAt) throw new Error('Preview retry later');
       const response = await postJson(this.sameOrigin(this.path(`/${id}/preview`)), {}, {
         sessionToken: this.sessionToken, cache: 'no-store', redirect: 'error', signal,
       });
       if (!active()) throw new Error('Preview scope expired');
-      if (response.status === 403) this.#previewDenied.add(id);
+      if (response.status === 403) this.#previewDenied.set(id, this.#session.consentRevision);
       if (response.status === 503) {
         const seconds = Number(response.headers.get('retry-after'));
         this.#previewRetryAt = Date.now() + (Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, 60_000) : 60_000);

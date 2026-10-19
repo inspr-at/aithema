@@ -91,9 +91,9 @@ export async function partialConsentFrames(t) {
     await a.setViewport({ width, height: 900 });
     for (const page of [a, b]) { await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); await page.goto(url); await page.waitForFunction(() => window.ready); }
     // The folded canvas and viewer are simultaneously alive in A.
-    await a.evaluate(async () => { c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas(); c.shadowRoot.querySelector('.concept-preview').focus(); view.open('removed'); });
+    await a.evaluate(async kind => { if (kind === 'html') { c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas(); } c.shadowRoot.querySelector('.concept-preview').focus(); view.open('removed'); }, kind);
     if (kind === 'html') await a.waitForFunction(() => [...c.shadowRoot.querySelectorAll('aithema-html-preview')].every(p => p.state === 'ready'));
-    else await a.waitForFunction(() => c.shadowRoot.querySelector('.concept-image').hasAttribute('src'));
+    else await a.waitForFunction(() => c.shadowRoot.querySelector('.concept-image').hasAttribute('src') && c.shadowRoot.querySelector('.concept-backdrop img[src]'));
     const baseline = await a.evaluate(() => boxes());
     const beforeMints = mints;
     await a.evaluate(feature => { window.removedFeature = feature; window.watching = true; window.noticeChanges = []; new MutationObserver(() => noticeChanges.push(c.shadowRoot.querySelector('.concept-withdrawn').textContent)).observe(c.shadowRoot.querySelector('.concept-withdrawn'), { childList: true, subtree: true, characterData: true }); }, feature);
