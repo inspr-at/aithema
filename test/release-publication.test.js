@@ -27,8 +27,20 @@ test('candidate admission is its own read-only-token step immediately after veri
   assert.ok(verify < gate && gate < attest && attest < create, 'verify < gate < attest < create');
   assert.equal(list[gate].env.GH_TOKEN, '${{ secrets.GITHUB_TOKEN }}');
   assert.equal(list[gate].run.trim(), 'node release/gate.mjs candidate "$GITHUB_REF"');
+});
+
+test('all release refs share one non-cancelling concurrency group', () => {
+  const workflow = parse(readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'));
   assert.equal(workflow.concurrency.group, 'release');
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
+});
+
+test('refused candidates cannot retain the built release artifact', () => {
+  const list = steps();
+  const gate = list.find(step => step.run?.includes('release/gate.mjs candidate'));
+  const artifact = list.find(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(gate.id, 'candidate-gate');
+  assert.equal(artifact.if, "always() && steps.candidate-gate.outcome == 'success'");
 });
 
 test('asset-upload failure removes its partial draft, retains the tag, and permits a clean retry', t => {
