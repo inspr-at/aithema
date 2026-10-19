@@ -565,9 +565,10 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
         await page.evaluate(() => { window.ait377Rail.countdown = 12; window.ait377Rail.render(); });
       }
       const capture = !['idle', 'listening'].includes(state) && (theme !== 'dark' || state.startsWith('s4') || state === 's5');
-      const file = `ait377-${width}-${theme}-${locale}-${state}${provider === 'grok-voice' ? '-grok-voice' : ''}.png`;
+      const file = `${provider}/ait377-${width}-${theme}-${locale}-${state}.png`;
       if (capture && evidence) {
         await page.mouse.move(-10, -10);
+        await mkdir(join(evidence, provider), { recursive: true });
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
       }
       checks.push({ ...meta, ...result, assert: 'copy, live text, 44 px targets, geometry, anchors, manual hyphens and reduced motion', movementPx: 0, file: capture && evidence ? file : null, pass: true });

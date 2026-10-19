@@ -1,4 +1,5 @@
-import { test, after } from 'node:test';
+import { test as nodeTest, after } from 'node:test';
+const test = (name, run) => nodeTest(name, { timeout: 5000 }, run);
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -8,6 +9,11 @@ import { voiceEvents } from '../../core/src/live-voice.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 
+const micCopy = {
+  voiceMicBusy: ['Das Mikrofon ist belegt oder vom System gesperrt. Schließen Sie andere Apps, die es nutzen, oder prüfen Sie die Systemeinstellungen. Versuchen Sie es dann erneut.', 'The microphone is busy or blocked by the system. Close other apps using it or check your system settings, then try again.'],
+  voiceMicUnavailable: ['Dieser Browser erlaubt hier kein Mikrofon. Tippen Sie weiter oder öffnen Sie die Seite in einem anderen Browser.', "This browser doesn't allow a microphone here. Keep typing or open the page in another browser."],
+  voiceMicFailed: ['Das Mikrofon konnte nicht starten. Versuchen Sie es erneut oder tippen Sie weiter.', "The microphone couldn't start. Try again or keep typing."],
+};
 const checks = [];
 const flush = async () => { for (let n = 0; n < 8; n++) await new Promise(resolve => setImmediate(resolve)); };
 const full = rail => rail.root.querySelector('.voice-state').getAttribute('aria-label');
@@ -100,7 +106,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
       const { rail } = fixture(t, provider, { error: Object.assign(new Error('offline acquisition'), { name }) });
       await rail.start(); assert.equal(rail.errorKey, key);
       for (const copy of [de, en]) {
-        rail.copy = copy; rail.render(); assert.equal(full(rail), copy[key]);
+        rail.copy = copy; rail.render(); assert.equal(full(rail), micCopy[key][copy === de ? 0 : 1]);
         assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, copy.voiceMessagesNarrow[key]);
       }
       const retry = name !== 'NoMediaAPIError';
@@ -110,6 +116,14 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
       record(provider, `${name} maps to ${key}; full/narrow DE+EN; failure focus`, { focusTarget: retry ? 'voice-retry' : 'voice-start', retry });
     });
   }
+  test(`AIT-377 ${provider}: absent getUserMedia refuses before any client.start`, async t => {
+    const { rail, calls } = fixture(t, provider);
+    Object.defineProperty(rail.root.ownerDocument.defaultView, 'isSecureContext', { configurable: true, value: true });
+    await rail.start();
+    assert.equal(calls.length, 0); assert.equal(rail.errorKey, 'voiceMicUnavailable');
+    assert.equal(rail.button('retry').disabled, true);
+    record(provider, 'no getUserMedia: no call, no Retry, mic guidance');
+  });
   test(`AIT-377 ${provider}: opener and user-turn watchdog, filler ignored, late transcript clears, visitor silence ignored`, async t => {
     const { rail, send, session } = fixture(t, provider); await rail.start();
     t.mock.timers.tick(14_999); await flush(); assert.equal(rail.errorKey, null);
@@ -126,6 +140,15 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     await send({ type: 'final', role: 'user', text: 'Noch eine Frage.', turnId: 'next' });
     await rail.close(); t.mock.timers.tick(15_000); await flush(); assert.notEqual(rail.errorKey, 'voiceNoReply');
     record(provider, '15 s opener and user-turn watchdog; filler ignored; late transcript clears; visitor silence never arms; End clears', { openerMs: 15000, replyMs: 15000, audioOnlyReplySignal: 'blocked: no qualified client event' });
+  });
+  test(`AIT-377 ${provider}: visitor speech holds the opener watch until the turn ends`, async t => {
+    const { rail, send } = fixture(t, provider); await rail.start();
+    t.mock.timers.tick(10_000); await send({ type: 'partial', role: 'user', text: 'Eine längere Frage', turnId: 'speaking-user' });
+    t.mock.timers.tick(20_000); await flush(); assert.equal(rail.errorKey, null);
+    await send({ type: 'final', role: 'user', text: 'Eine längere Frage.', turnId: 'user-turn' });
+    t.mock.timers.tick(14_999); await flush(); assert.equal(rail.errorKey, null);
+    t.mock.timers.tick(1); await flush(); assert.equal(rail.errorKey, 'voiceNoReply');
+    record(provider, 'watchdog waits for end of visitor speech', { replyMs: 15000 });
   });
   for (const terminal of [undefined, { closureConfirmed: true, usage: { costEstimated: true } }, { closureConfirmed: true, usage: { costEstimated: false } }]) test(`AIT-377 ${provider}: agent end charge state ${JSON.stringify(terminal)}`, async t => {
     const { rail, send, session } = fixture(t, provider); await rail.start();

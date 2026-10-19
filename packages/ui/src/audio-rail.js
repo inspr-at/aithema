@@ -558,6 +558,7 @@ export class AudioRail {
         if (!this.paused && !event.replay) {
           if (['partial', 'final'].includes(event.type) && event.role === 'assistant' && event.text?.trim() &&
             !event.filler && !['Einen Moment, bitte.', 'One moment, please.'].includes(event.text.trim())) this.receivedReply();
+          if (event.type === 'partial' && event.role === 'user') this.stopReplyWatch();
           if (event.type === 'final' && event.role === 'user') this.awaitReply(session, generation);
         }
         if (['recovering', 'waiting', 'ended'].includes(event.type)) this.stopReplyWatch();
@@ -663,9 +664,9 @@ export class AudioRail {
     if (!this.session || this.paused || this.state === 'recovering' || !this.capability('sendText')) throw new Error('Voice text unavailable');
     this.notices.clear();
     const session = this.session, generation = this.generation;
-    const result = await session.sendText(text, options);
-    if (this.current(session, generation)) this.awaitReply(session, generation);
-    return result;
+    this.awaitReply(session, generation);
+    try { return await session.sendText(text, options); }
+    catch (error) { if (this.current(session, generation)) this.stopReplyWatch(); throw error; }
   }
   async updateContext() {
     if (!this.session || this.paused || !this.capability('updateContext')) return;
