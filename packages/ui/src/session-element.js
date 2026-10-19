@@ -1,3 +1,4 @@
+import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
@@ -2563,7 +2564,7 @@ export class AithemaSession extends HTMLElement {
     const pending = { sessionId: this.#session.id, retries: 0 };
     this.#consentRefresh = pending;
     // Coverage is bounded from the event, including snapshot and document reads.
-    pending.timer = setTimeout(() => this.#failConsentRefresh(pending), 2000);
+    pending.timer = consentTimeout(() => this.#failConsentRefresh(pending), 2000);
     pending.timer.unref?.();
   }
   #failConsentRefresh(pending) {
@@ -2574,7 +2575,7 @@ export class AithemaSession extends HTMLElement {
     if (pending.retryTimer || !this.isConnected) return;
     if (pending.retries >= 3) { pending.exhausted = true; return; }
     const delay = [2000, 4000, 8000][pending.retries++];
-    pending.retryTimer = setTimeout(() => {
+    pending.retryTimer = consentTimeout(() => {
       pending.retryTimer = null;
       if (pending === this.#consentRefresh && this.isConnected) void this.#refreshFeatures(true);
     }, delay);
@@ -2602,7 +2603,7 @@ export class AithemaSession extends HTMLElement {
       // Retries must also time out: a stalled attempt cannot hold the budget open.
       if (pending.failed) {
         clearTimeout(pending.timer);
-        pending.timer = setTimeout(() => this.#failConsentRefresh(pending), 2000);
+        pending.timer = consentTimeout(() => this.#failConsentRefresh(pending), 2000);
         pending.timer.unref?.();
       }
     }
@@ -2650,7 +2651,7 @@ export class AithemaSession extends HTMLElement {
           // The host ledger can trail the journal. Keep the original 2 s
           // watchdog and wait for its new document without hiding covered bytes.
           clearTimeout(pending.documentTimer);
-          pending.documentTimer = setTimeout(() => {
+          pending.documentTimer = consentTimeout(() => {
             pending.documentTimer = null;
             if (active() && this.isConnected) void this.#refreshFeatures(true);
           }, 100);

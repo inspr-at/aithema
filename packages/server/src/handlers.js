@@ -282,6 +282,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
     return { ...document, features, consentRevision: session.consentRevision };
   }
+  async function consentEnrichment(session, options) {
+    // Enrichment must not hold a grant behind an unavailable host describe.
+    // A timed-out read cannot alter the event after the journal has committed.
+    let timer;
+    try {
+      return await Promise.race([consentDocument(session, options), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Consent enrichment timed out')), 250);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
       ...(['consent-withdrawn', 'consent-revised', 'session-erased'].includes(reason) ? [uploadHandlers.cancelSession(id)] : [])]);
@@ -626,7 +636,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           // Compare authoritative documents, never the caller's claimed changed scopes.
           let previousDocument;
           if (body.granted && consent.describe) {
-            try { previousDocument = await consentDocument(current); }
+            try { previousDocument = await (body.intent === 'settings-save' && body.processing
+              ? consentDocument(current) : consentEnrichment(current)); }
             catch (error) {
               // Legacy grant-only hosts may expose an older describe shape.
               // Preserve their POST contract; Settings still requires a valid editor document.
@@ -650,13 +661,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (granted === false) return json({ error: 'host-consent-required' }, 409);
             checkCurrent();
           }
-          let changed;
+          // Full withdrawal revokes every scope without waiting on host reads.
+          let changed = body.granted ? undefined : FEATURES.map(feature => feature === 'html' ? 'html-drafts' : feature);
           if (previousDocument) {
             // Revision-bound host ledgers have staged the accepted grant at the next
             // revision; this read precedes the atomic journal commit.
             const nextRevision = current.consentRevision + 1;
             try {
-              const nextDocument = await consentDocument({ ...current, consentRevision: nextRevision }, { consentRevision: nextRevision, granted: true });
+              const nextDocument = await consentEnrichment({ ...current, consentRevision: nextRevision }, { consentRevision: nextRevision, granted: true });
               const covered = (doc, feature) => (doc.features[feature] ?? []).every(id => doc.selected.includes(id));
               changed = FEATURES.filter(feature => covered(previousDocument, feature) !== covered(nextDocument, feature))
                 .map(feature => feature === 'html' ? 'html-drafts' : feature);

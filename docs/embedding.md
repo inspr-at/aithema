@@ -1111,8 +1111,10 @@ processing and mock ledgers support this context. Ledgers whose `describe`
 already returns the accepted selection can ignore the second argument.
 
 The field is optional for backward compatibility: hosts without `describe`,
-legacy/unavailable documents, legacy events and full withdrawals retain the previous shape. Full withdrawals
-bypass host document reads so host latency cannot delay revocation. Existing
+legacy/unavailable documents and legacy events retain the previous shape. Optional
+grant enrichment reads each have a 250 ms deadline; a timeout omits `changed`
+and retains the legacy refresh path. Full withdrawals include every known scope
+as a revocation and bypass host document reads so host latency cannot delay it. Existing
 consumers can ignore `changed`. The UI removes a known withdrawn artifact kind
 synchronously in the handler, then verifies through the normal refresh. A
 client document showing missing coverage identifies an addition and preserves

@@ -5,7 +5,7 @@ export function installConsentClock() {
   const epoch = Date.now(), timers = new Map(); let now = 0, serial = 0;
   Date.now = () => epoch + now;
   window.setTimeout = (callback, delay, ...args) => {
-    if (![100, 2000, 4000, 8000].includes(delay)) return schedule(callback, delay, ...args);
+    if (callback?.name !== 'consentTimer') return schedule(callback, delay, ...args);
     const id = --serial; timers.set(id, { at: now + delay, callback: () => callback(...args) }); return id;
   };
   window.clearTimeout = id => { if (timers.has(id)) timers.delete(id); else cancel(id); };

@@ -1,3 +1,4 @@
+import { consentTimeout } from './consent-timer.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { postJson, sameOrigin } from './post-json.js';
@@ -262,7 +263,7 @@ export class ConceptView {
       this.#withdrawnKind = partial ? this.#consentRefreshFailed ? this.#withdrawnKind ?? conceptKind(previous) : conceptKind(partial) : undefined;
       this.#withdrawnUntil = changedOwner || this.#consentRefreshFailed ? 0 : Date.now() + 4000;
       if (this.#withdrawnUntil) {
-        this.#withdrawnTimer = setTimeout(() => {
+        this.#withdrawnTimer = consentTimeout(() => {
           this.#withdrawnUntil = 0;
           const accessFocused = this.root.activeElement === this.root.querySelector('.concept-preview');
           this.render();
