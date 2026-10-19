@@ -4,6 +4,8 @@ import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import * as server from '../src/server.js';
 import * as client from '../src/client.js';
+import { createComposedVoiceCoordinator } from '@inspr/aithema-server/composed-voice';
+import { createVoxtralTTS } from '../src/index.js';
 import { createComposedRelay } from '@inspr/aithema-server/composed-voice/relay';
 import { fixture, origin, urls } from './fixtures.js';
 
@@ -161,4 +163,44 @@ test('AIT-330: injected TTS fetch cannot redirect or change regional endpoint', 
   await assert.rejects(transports.fetchImpl(urls.tts.replace('api.eu.', 'api.'), { method: 'POST', redirect: 'error' }), { code: 'not-admitted' });
   await assert.rejects(transports.fetchImpl(urls.tts, { method: 'POST', redirect: 'follow' }), { code: 'not-admitted' });
   assert.equal(requests, 1);
+});
+
+for (const status of [401, 429, 500]) test(`AIT-330: WebSocket handshake ${status} retains its failure class`, async () => {
+  const opening = ports().connect({ url: urls.stt, headers: {} });
+  const socket = Socket.instances.at(-1);
+  const rejected = assert.rejects(opening, { code: status === 401 ? 'auth' : status === 429 ? 'rate-limit' : 'provider' });
+  socket.emit('unexpected-response', {}, { statusCode: status, destroy() {} });
+  await rejected; assert.equal(socket.closed, true);
+});
+
+test('AIT-330: WebSocket drains buffered finality on peer close and aborts a stalled send', async () => {
+  const controller = new AbortController();
+  const opening = ports().connect({ url: urls.stt, headers: {}, signal: controller.signal });
+  const socket = Socket.instances.at(-1); socket.emit('open'); const port = await opening;
+  socket.emit('message', Buffer.from('{"type":"transcription.done","text":"Hello"}'), false); socket.emit('close');
+  const iterator = port.events[Symbol.asyncIterator]();
+  assert.equal(JSON.parse((await iterator.next()).value).type, 'transcription.done');
+  assert.equal((await iterator.next()).done, true);
+  const other = ports().connect({ url: urls.stt, headers: {}, signal: controller.signal });
+  const stalled = Socket.instances.at(-1); stalled.emit('open'); const active = await other;
+  stalled.send = () => {};
+  const pending = active.send('{}'); const rejected = assert.rejects(pending, { code: 'cancelled' });
+  controller.abort(); await rejected; assert.equal(stalled.closed, true);
+});
+
+test('AIT-330: TTS moderation reason survives the composed relay event', async t => {
+  const events = [], until = Date.now() + 5000;
+  const tts = createVoxtralTTS({ enabled: true, config: { endpoint: origin, secretRef: 'private:synthetic/key', voiceId: 'fixture-voice' },
+    resolveSecret: () => 'synthetic-only', fetchImpl: async () => new Response(JSON.stringify({ error: { code: 'moderation_blocked' } }), { status: 403 }) });
+  const coordinator = createComposedVoiceCoordinator({ sessionId: 'session', callId: 'call', providerSessionId: 'segment',
+    spendDeadlineAt: until, browserLivenessDeadlineAt: until, maxDurationSeconds: 120, voice: 'fixture-voice',
+    stt: {}, tts, outputFormat: 'pcm_f32le', outputAudioFormat: { encoding: 'pcm_f32le', sampleRateHz: 24000, channels: 1 },
+    authorize: async () => true, commitUtterance() {},
+    admitComponent: async () => ({ attempt: { attemptId: 'speech', claimId: 'speech', maxMicro: 1000, consume() {} }, report() {} }),
+    replyExecutor: { async *execute() { yield { type: 'operation', replyId: 'reply' }; yield { type: 'delta', text: 'Hello' }; yield { type: 'completion', replyId: 'reply', text: 'Hello' }; } },
+    relay: { event: value => events.push(value), audio() {}, silence() {} } });
+  t.after(async () => { await coordinator.close(); await coordinator.idle(); });
+  await coordinator.sendText('Typed turn', { deliveryId: 'typed', deadlineAt: until });
+  await coordinator.idle();
+  assert.equal(events.find(event => event.type === 'waiting')?.reason, 'tts-moderation-refused');
 });

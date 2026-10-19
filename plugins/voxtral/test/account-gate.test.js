@@ -336,7 +336,9 @@ test('AIT-330: runtime effort choices admit the same reasoning identity', async 
   const noDispatch = () => assert.fail('Matrix cannot dispatch');
   const voice = { binding: parent, manifest, health: async () => ({ available: true }), start: noDispatch,
     ports: { serverAdapter: { ...authority.ports.serverAdapter, binding: parent, validateConfig() {}, startSegment: noDispatch, stopSegment: noDispatch, reconciliationEvidence: noDispatch } } };
-  const reasoning = { ...f.plugins.reasoning, binding: f.componentBindings.reasoning, health: async () => ({ available: true }), stream: noDispatch, structured: noDispatch };
+  const reasoning = { ...f.plugins.reasoning, binding: f.componentBindings.reasoning,
+    bind(binding) { return { ...this, binding }; },
+    health: async () => ({ available: true }), stream: noDispatch, structured: noDispatch };
   const registry = new PluginRegistry().register(voice).register(reasoning);
   const settings = { plugins: ['voxtral-voice', 'mistral'], policy: f.request.policy,
     choices: { models: [{ id: 'mistral', binding: f.componentBindings.reasoning, efforts: ['none', 'low'], effort: 'none' }],
