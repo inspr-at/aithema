@@ -90,6 +90,7 @@ function textKeys(values) {
 }
 
 export class AithemaSession extends HTMLElement {
+  #consentRefresh;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
@@ -145,6 +146,7 @@ export class AithemaSession extends HTMLElement {
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.element.open;
+    clearTimeout(this.#consentRefresh?.timer); this.#consentRefresh = null;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
@@ -2421,6 +2423,7 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
+      if (consentRevised) this.#watchConsentRefresh();
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
       const invalidation = ['turn.withdrawn', 'session.erased'].includes(event.type) ||
@@ -2550,14 +2553,28 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
+  #watchConsentRefresh() {
+    // Repeated saves cannot extend an already open verification window.
+    if (this.#consentRefresh) return;
+    const pending = { sessionId: this.#session.id };
+    this.#consentRefresh = pending;
+    // Coverage is bounded from the event, including snapshot and document reads.
+    pending.timer = setTimeout(() => this.#failConsentRefresh(pending), 2000);
+    pending.timer.unref?.();
+  }
+  #failConsentRefresh(pending) {
+    if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
+    clearTimeout(pending.timer);
+    this.#concept.failClosedConsent();
+  }
   async #refreshFeatures() {
     if (this.#session.processingPreset === 'device') return;
-    const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision;
+    const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
-      if (!response.ok) return;
+      if (!response.ok) { this.#failConsentRefresh(pending); return; }
       const session = await response.json();
-      if (revision !== this.#session.consentRevision) return;
+      if (revision !== this.#session.consentRevision || session.consentRevision !== revision) return;
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
       this.#session.featureMatrix = session.featureMatrix;
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
@@ -2580,9 +2597,14 @@ export class AithemaSession extends HTMLElement {
         const consent = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
         const doc = consent.ok ? await consent.json() : null;
         if (sessionId === this.#session.id && revision === this.#session.consentRevision && session.seq === this.#cursor &&
-          doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) this.#concept.update(this.#session, doc);
-      } catch { /* The snapshot's consent refusal already removed its surfaces. */ }
-    } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
+          doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features &&
+          (pending === this.#consentRefresh)) {
+          clearTimeout(pending?.timer);
+          if (pending === this.#consentRefresh) this.#consentRefresh = null;
+          this.#concept.update(this.#session, doc, true);
+        } else this.#failConsentRefresh(pending);
+      } catch { this.#failConsentRefresh(pending); }
+    } catch { this.#failConsentRefresh(pending); }
   }
   async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
@@ -2606,7 +2628,10 @@ export class AithemaSession extends HTMLElement {
       this.#repaintLocale();
       this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
-      if (this.isConnected) this.#connect();
+      if (this.isConnected) {
+        this.#connect();
+        if (this.#consentRefresh) void this.#refreshFeatures();
+      }
     } catch {
       if (sessionId !== this.#session.id) return;
       this.#connectionStatus(this.#copy.reconnecting);
