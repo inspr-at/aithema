@@ -802,7 +802,7 @@ test('AIT-395: callbacks ignoring context keep the complete owner-wide receipt s
 });
 
 for (const privacy of [false, true]) test(`AIT-395: session tier offers respect daily cap and privacy (privacy ${privacy})`, async t => {
-  const f = fixture(t, { demo: false, privacyDocumentConfigured: privacy }), s = await f.create();
+  const f = fixture(t, { demo: false, privacyDocumentConfigured: () => privacy }), s = await f.create();
   const wallet = f.host.wallet(owner);
   t.mock.method(f.host, 'wallet', () => Object.create(wallet, { creditScope: { value: 'session' } }));
   let dailyCapReached = true;

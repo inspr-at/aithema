@@ -45,6 +45,7 @@ export async function sessionCreditsCheck(t) {
         const root = c.shadowRoot;
         f.samples.push({ id: c.session.id, value: root.querySelector('.host-credits__value').textContent,
           current: root.querySelector('.host-credits__current').textContent, next: root.querySelector('.host-credits__next').textContent,
+          rects: Object.fromEntries(['.host-credits__button', '.host-credits__measure'].map(s => { const b = root.querySelector(s).getBoundingClientRect(); return [s, [b.x, b.y, b.width, b.height]]; })),
           offer: !root.querySelector('.credits-email').hidden });
       }
       requestAnimationFrame(sample);
@@ -145,6 +146,7 @@ export async function sessionCreditsCheck(t) {
       const samples = await shadow(page, () => { window.ait395.sample = false; return window.ait395.samples.splice(0); });
       assert.ok(samples.length >= 12, 'sample every animation frame through six switches');
       for (const sample of samples) {
+        for (const [selector, rect] of Object.entries(sample.rects)) assert.deepEqual(rect, baseline[selector], 'sibling loading frames move 0px');
         assert.ok(['…', sample.id === 'ait395-a' ? '1.000' : '250'].includes(sample.value), JSON.stringify(sample));
         if (sample.id === 'ait395-b') { assert.doesNotMatch(sample.current + sample.next, /bestätigter|1\.000/u); }
         else assert.equal(sample.offer, false, 'confirmed A never shows B offer');

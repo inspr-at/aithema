@@ -21,13 +21,14 @@ export class HostSurface {
   #limitGeneration = 0;
   #credits = null; #creditsFailed = false; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
   #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
-  #emailAsk = null; #actorRole = null;
+  #emailAsk = null; #actorRole = null; #initialCreditScope;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming, initialCreditScope }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
+    this.#initialCreditScope = initialCreditScope ?? options?.credits?.scope;
     this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
     this.#admissionDenied = admissionDenied; this.#creditContext = creditContext;
     this.#session = session; this.#status = status; this.#adopt = adopt; this.#view = root.host?.ownerDocument?.defaultView ?? globalThis.window;
@@ -77,6 +78,7 @@ export class HostSurface {
     this.update();
   }
   openRoleSettings(opener) { return this.#actorRole?.openSheet(opener) ?? false; }
+  get creditScope() { return this.#credits?.scope ?? this.#initialCreditScope; }
   get tiers() { return this.#credits?.tiers ?? null; }
   get low() { return !this.usedUp && lowCredit(this.#credits); }
   get emailAsk() { return this.#emailAsk; }
@@ -108,7 +110,7 @@ export class HostSurface {
     if (this.#credits.dailyCapReached || tiers?.current === 'emailConfirmed') return null;
     const allowances = tiers?.allowancesMicro;
     // Equal anonymous/email-given allowances go straight to confirmation.
-    if (tiers?.current === 'anonymous' && allowances?.anonymous === allowances?.emailGiven) {
+    if (tiers?.current === 'anonymous' && allowances && allowances.anonymous === allowances.emailGiven) {
       return tiers.canConfirm && allowances.emailConfirmed > allowances.anonymous ? 'emailConfirmed' : null;
     }
     return tiers?.next && allowances?.[tiers.next] > allowances?.[tiers.current] ? tiers.next : null;
@@ -297,8 +299,9 @@ export class HostSurface {
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
     const scoped = this.#credits?.scope === 'session', capped = scoped && this.#credits.dailyCapReached;
-    line.toggleAttribute('data-session-credits', scoped); line.toggleAttribute('data-daily-cap', capped);
-    setText(line.querySelector('.host-credits__measure-cap'), scoped ? c.dailyCapShort : '');
+    const sessionLayout = scoped || !this.#credits && this.#initialCreditScope === 'session';
+    line.toggleAttribute('data-session-credits', sessionLayout); line.toggleAttribute('data-daily-cap', capped);
+    setText(line.querySelector('.host-credits__measure-cap'), sessionLayout ? c.dailyCapShort : '');
     const tierText = text => scoped ? text.replace(/ Credits/gu, '\u00a0Credits') : text;
     const reservedLimit = owner ? Math.max(owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger)) : null;
     const warningLimit = this.#credits?.lowAtMaxMicro ?? this.#credits?.lowAtMicro;

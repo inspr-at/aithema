@@ -101,7 +101,7 @@ export class AithemaSession extends HTMLElement {
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
-  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
+  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #creditLayoutScope; #options; #refocus = null;
   #introOrb = null; #reveal = null; #fold; #phoneViewport; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
@@ -141,6 +141,8 @@ export class AithemaSession extends HTMLElement {
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
+    // Carry only the host's layout contract across sibling switches, never a receipt.
+    this.#creditLayoutScope = this.#base === baseUrl.replace(/\/$/u, '') && this.#sessionToken === sessionToken ? this.#host?.creditScope : null;
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#phoneViewport?.destroy(); this.#popups?.destroy();
     this.#questionCard?.destroy();
     clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false; this.#savedAnnouncedAt = -Infinity; this.#sendFailed = false;
@@ -707,7 +709,7 @@ export class AithemaSession extends HTMLElement {
       if (this.#follow) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
-    if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
+    if (this.#options.host) this.#host = new HostSurface({ root, initialCreditScope: this.#creditLayoutScope, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       openSettings: (opener, options) => options?.processing ? this.openSettings(opener) : this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),

@@ -301,7 +301,9 @@ suppresses `next`, `delta` and `canConfirm`, and the UI shows the dedicated dail
 limit copy without an upgrade action. Hosts remain responsible for the cap's
 policy, atomic enforcement and reset; the module does not infer it from a zero
 balance. Session-aware demo receipts use the shorter no-top-up note in place of
-the owner-wide demo slot.
+the owner-wide demo slot. The UI remembers only this layout scope across sibling
+switches while each new receipt loads. A host can also configure
+`host: { credits: { scope: 'session' } }` to reserve it before the first receipt.
 
 `creditTiers(ownerToken, { sessionId })` returns
 `{ current, next, delta, canConfirm, allowancesMicro }` from those same live
