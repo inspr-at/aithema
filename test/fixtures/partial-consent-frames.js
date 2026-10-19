@@ -69,6 +69,11 @@ export async function partialConsentFrames(t) {
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); for (const stream of streams) stream.end(); await new Promise(resolve => server.close(resolve)); });
   const a = await browser.newPage(), b = await browser.newPage(), checks = [], shots = [];
+  await a.setRequestInterception(true);
+  a.on('request', request => {
+    if (a.holdConsentRead && request.method() === 'GET' && new URL(request.url()).pathname.endsWith('/consent')) { a.heldConsentRead = request; return; }
+    void request.continue();
+  });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   const configs = [
@@ -97,12 +102,14 @@ export async function partialConsentFrames(t) {
     const baseline = await a.evaluate(() => boxes());
     const beforeMints = mints;
     await a.evaluate(feature => { window.removedFeature = feature; window.watching = true; window.noticeChanges = []; new MutationObserver(() => noticeChanges.push(c.shadowRoot.querySelector('.concept-withdrawn').textContent)).observe(c.shadowRoot.querySelector('.concept-withdrawn'), { childList: true, subtree: true, characterData: true }); }, feature);
+    a.holdConsentRead = true; a.heldConsentRead = null;
     // B uses the real Settings dialog and save action. A receives SSE, never reloads.
     await b.evaluate(() => view.consent(c.shadowRoot.querySelector('.concept-preview')));
     await b.waitForFunction(() => c.shadowRoot.querySelector('.consent-items input[value="drafts"]'));
     await b.evaluate(kind => { c.shadowRoot.querySelector('.consent-items input[value="' + (kind === 'html' ? 'drafts' : 'images') + '"]').click(); c.shadowRoot.querySelector('.done').click(); }, kind);
     await a.waitForFunction(() => window.sameTick, { timeout: 5000 });
     const result = await a.evaluate(() => sameTick);
+    a.holdConsentRead = false; if (a.heldConsentRead) await a.heldConsentRead.continue();
     assert.equal(result.open, false, 'W1 viewer closes in the update tick');
     assert.equal(result.frames.includes('removed'), false, 'W2 no revoked frame artifact');
     assert.equal(result.images.includes('removed'), false, 'no revoked thumbnail/backdrop/viewer/canvas bytes');
@@ -120,6 +127,14 @@ export async function partialConsentFrames(t) {
       await a.mouse.move(-10, -10);
       if (evidence && (!mixed || locale === 'en')) { const file = `ait364-${width}-${theme}-${locale}-${state}.png`; await a.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file); }
     };
+    const removedLoad = await a.evaluate(() => view.load('removed'));
+    assert.equal(removedLoad, null, 'removed cached draft cannot be read');
+    assert.equal(await a.evaluate(() => view.previewSource('removed').mint().then(() => false, () => true)), true, 'removed scope cannot mint a preview');
+    await a.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const noFlash = await a.evaluate(() => { view.render(); return inspect(); });
+    assert.equal(noFlash.frames.includes('removed'), false, 'no removed frame is repainted');
+    assert.equal(noFlash.images.includes('removed'), false, 'no revoked image is repainted');
+    let after4s = null, retainedOpenable = false;
     await capture(kind === 'html' ? 'w1-w2-w3' : 'images-w1-w3');
     if (!mixed) {
       assert.equal(await a.evaluate(() => c.shadowRoot.querySelector('.canvas-empty').hidden), false);
@@ -127,16 +142,25 @@ export async function partialConsentFrames(t) {
         await a.waitForFunction(() => !c.shadowRoot.querySelector('.concept-withdrawn').textContent, { timeout: 5500 });
         const after = await a.evaluate(() => ({ state: inspect().state, text: c.shadowRoot.querySelector('.concept-activity-text').textContent, announcements: noticeChanges.filter(Boolean) }));
         assert.equal(after.state, 'consent'); assert.match(after.text, new RegExp(kind === 'html' ? 'Entwürfe brauchen Ihre Einwilligung' : 'Bilder brauchen Ihre Einwilligung'));
-        assert.deepEqual(after.announcements, [copy], 'notice announced once');
+        assert.deepEqual(after.announcements, [copy], 'notice announced once'); after4s = after;
         assert.deepEqual(await a.evaluate(() => boxes()), baseline); await capture(kind + '-w4');
       }
     } else {
       await a.evaluate(() => view.open('retained'));
-      assert.equal(await a.evaluate(() => view.dialog.open), true);
+      assert.equal(await a.evaluate(() => view.dialog.open), true); retainedOpenable = true;
       assert.equal(await a.evaluate(() => c.shadowRoot.querySelector('.concept-count').textContent), locale === 'en' ? '1 of 1' : '1 von 1');
     }
     if (kind === 'html') assert.equal(mints, beforeMints, 'no preview mint retries after the removed scope');
-    checks.push({ ...config, ...result, movementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true });
+    checks.push({ ...config, ...result, movementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, removedCachedLoad: removedLoad, removedScopeMintBlocked: true, slowConsentReadCannotDelayRedaction: true, noFlash, after4s, retainedOpenable, noPreviewRetry: kind !== 'html' || mints === beforeMints });
+  });
+  await t.test('full withdrawal retains its copy and synchronous redaction', async () => {
+    const result = await a.evaluate(() => {
+      c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } });
+      return inspect();
+    });
+    assert.equal(result.open, false); assert.deepEqual(result.frames, []); assert.deepEqual(result.images, []);
+    assert.equal(result.notice, 'Entwurf zurückgezogen');
+    checks.push({ width: 1440, theme: 'light', locale: 'de', kind: 'full', ...result, synchronousRedaction: true, unchangedCopy: true });
   });
   if (evidence) await writeFile(join(evidence, 'ait364-checks.json'), JSON.stringify({ shots, checks }, null, 2));
 }

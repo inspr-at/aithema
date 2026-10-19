@@ -53,8 +53,8 @@ export class ConceptView {
   #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #previewRetryAt = 0; #previewDenied = new Map();
-  #consentDocument; #visible = []; #withdrawnKind;
-  #canvasEpoch = 0; #canvasCopy; #stageFeature;
+  #consentDocument; #visible = []; #withdrawnKind; #scopeEpoch = { html: 0, image: 0 };
+  #canvasEpoch = 0; #canvasCopy; #stageFeature; #canvasWithdrawnKind;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
   setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
@@ -213,10 +213,15 @@ export class ConceptView {
     const previous = this.#visible.at(-1), wasPending = this.#session?.conceptStatus?.phase === 'pending';
     const lostSource = wasPending && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn &&
       !session.transcript.some(next => next.id === turn.id && !next.erased && !next.withdrawn));
-    if (changedOwner) { this.#consentDocument = undefined; this.#previewDenied.clear(); this.#withdrawnKind = undefined; this.#previewRetryAt = 0; this.#stageFeature = undefined; this.#imageLayout = false; }
+    if (changedOwner) { this.#canvasWithdrawnKind = undefined; this.#consentDocument = undefined; this.#previewDenied.clear(); this.#withdrawnKind = undefined; this.#previewRetryAt = 0; this.#stageFeature = undefined; this.#imageLayout = false; }
     this.#session = session;
     if (consentDocument) this.#consentDocument = consentDocument;
+    if (this.#canvasWithdrawnKind && this.covered(this.#canvasWithdrawnKind)) this.#canvasWithdrawnKind = undefined;
     const partial = !changedOwner && !session.consentWithdrawn && !session.tombstone && this.#visible.find(item => !this.covered(conceptKind(item)));
+    if (partial) {
+      for (const kind of ['html', 'image']) if (this.#visible.some(item => conceptKind(item) === kind && !this.covered(kind))) this.#scopeEpoch[kind]++;
+      for (const id of this.#loads.keys()) if (!this.items.some(item => item.id === id)) this.#loads.delete(id);
+    }
     const selectedRemoved = this.dialog.open && this.#selected && !this.items.some(item => item.id === this.#selected);
     const valid = new Set(this.items.map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
@@ -249,6 +254,7 @@ export class ConceptView {
     // the fold state or the modal's selected revision.
     const canvas = this.root.querySelector('.canvas-html'), canvasImage = this.root.querySelector('.canvas-image');
     const canvasId = canvas?.dataset.id ?? canvasImage?.dataset.id;
+    if (partial && canvasId && !valid.has(canvasId)) this.#canvasWithdrawnKind = conceptKind(this.#visible.find(item => item.id === canvasId));
     if (changedOwner || session.consentWithdrawn || session.tombstone ||
       (canvasId || canvas?.artifact || canvasImage?.hasAttribute('src')) && !valid.has(canvasId)) this.suspendCanvas();
     // Redact revoked content immediately.
@@ -275,7 +281,7 @@ export class ConceptView {
   // stays put. Either way the count and Next update at once.
   follow(latest) {
     const before = this.#latest; this.#latest = latest?.id;
-    if (!this.dialog.open || !before || !latest || latest.id === before || conceptKind(latest) !== 'html') return;
+    if (!this.dialog.open || !before || !latest || latest.id === before || latest.id === this.#selected || conceptKind(latest) !== 'html') return;
     if (this.#selected === before && !this.inUse()) { this.#selected = latest.id; this.#seen.add(latest.id); this.rememberViewed(); }
     else this.root.querySelector('.concept-viewer-message').textContent = this.copy.conceptDraftNewer;
   }
@@ -426,9 +432,9 @@ export class ConceptView {
     draft.artifact = this.previewSource(current.id);
   }
   previewSource(id) {
-    const sessionId = this.#session.id, epoch = this.#epoch;
+    const sessionId = this.#session.id, epoch = this.#epoch, scopeEpoch = this.#scopeEpoch.html;
     return { mediaType: HTML_MEDIA_TYPE, previewURL: this.previewURL, mint: async signal => {
-      const active = () => !signal?.aborted && epoch === this.#epoch && sessionId === this.#session.id && this.items.some(item => item.id === id);
+      const active = () => !signal?.aborted && epoch === this.#epoch && scopeEpoch === this.#scopeEpoch.html && sessionId === this.#session.id && this.items.some(item => item.id === id);
       if (!active() || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) throw new Error('Preview scope expired');
       if (this.#previewDenied.get(id) === this.#session.consentRevision) throw new Error('Preview scope denied');
       if (Date.now() < this.#previewRetryAt) throw new Error('Preview retry later');
@@ -458,6 +464,7 @@ export class ConceptView {
   }
   // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
   suspendCanvas() {
+    if (!this.root.querySelector('.workspace')?.hasAttribute('data-folded')) this.#canvasWithdrawnKind = undefined;
     this.#placeAccess?.();
     this.#canvasEpoch++;
     const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
@@ -472,7 +479,7 @@ export class ConceptView {
     if (!this.canShowCanvas()) { this.suspendCanvas(); return; }
     const epoch = this.#canvasEpoch, sessionId = this.#session.id;
     const empty = this.root.querySelector('.canvas-empty'), status = this.root.querySelector('.canvas-status');
-    const item = this.#session?.consentWithdrawn || this.#session?.tombstone ? null : this.items.at(-1);
+    const item = this.#session?.consentWithdrawn || this.#session?.tombstone || this.#canvasWithdrawnKind ? null : this.items.at(-1);
     if (this.#canvasCopy !== this.copy.conceptPreview) { draft.copy = this.copy.conceptPreview; this.#canvasCopy = this.copy.conceptPreview; }
     empty.hidden = Boolean(item); draft.hidden = !item || conceptKind(item) !== 'html'; image.hidden = !item || conceptKind(item) === 'html';
     if (!item) {
@@ -698,13 +705,14 @@ export class ConceptView {
     if (this.#drafts.has(id)) return this.#drafts.get(id);
     if (this.#loads.has(id)) return this.#loads.get(id);
     const sessionId = this.#session.id, epoch = this.#epoch, html = conceptKind(this.#session.concepts?.find(c => c.id === id)) === 'html';
+    const scopeEpoch = this.#scopeEpoch[html ? 'html' : 'image'];
     const promise = (async () => {
       try {
         const response = await fetch(this.sameOrigin(this.path(`/${id}/${html ? 'html' : 'image'}`)), { headers: this.headers(), cache: 'no-store' });
         const type = response.headers.get('content-type');
         if (!response.ok || !(html ? type === 'application/octet-stream' : ['image/png', 'image/jpeg', 'image/webp'].includes(type))) throw new Error();
         const data = html ? new Uint8Array(await response.arrayBuffer()) : await response.blob();
-        if (epoch !== this.#epoch || sessionId !== this.#session.id || !this.items.some(c => c.id === id)) return null;
+        if (epoch !== this.#epoch || scopeEpoch !== this.#scopeEpoch[html ? 'html' : 'image'] || sessionId !== this.#session.id || !this.items.some(c => c.id === id)) return null;
         if (html) { this.#drafts.set(id, data); return data; }
         const url = URL.createObjectURL(data); this.#urls.set(id, url); return url;
       } catch { return null; }

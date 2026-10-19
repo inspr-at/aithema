@@ -763,7 +763,7 @@ for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent rem
   t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
   await tick();
   const cached = await view.load('removed'); assert.ok(cached); t.diagnostic('removed bytes cached');
-  root.querySelector('.workspace').setAttribute('data-folded', ''); await view.paintCanvas(); t.diagnostic('canvas painted');
+  root.querySelector('.fold').click(); await view.paintCanvas(); t.diagnostic('canvas painted');
   const access = root.querySelector('.concept-preview'); access.focus(); access.click(); await tick();
   assert.equal(view.dialog.open, true);
   const feature = kind === 'html' ? 'html' : 'images';
@@ -774,6 +774,7 @@ for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent rem
   assert.deepEqual(view.items.map(item => item.id), ['retained']);
   assert.equal(root.querySelector('.concept-html').artifact, null);
   assert.equal(root.querySelector('.canvas-html').dataset.id === 'removed', false);
+  assert.equal(root.querySelector('.canvas-empty').hidden, false, 'withdrawn canvas returns to its empty slot even when another kind remains');
   assert.equal(root.querySelectorAll('img[data-id="removed"][src]').length, 0);
   assert.equal(root.activeElement, access, 'focus returns to the access control');
   if (kind === 'image') assert.ok(revoked.includes(cached), 'all removed object URLs are revoked in the update tick');
@@ -848,6 +849,20 @@ test('AIT-364: withdrawing images preserves an already open HTML frame and its m
   view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best, images: { available: false, reason: 'current processing consent required' } } } });
   assert.equal(view.dialog.open, true, 'a selected covered kind stays open');
   assert.equal(root.querySelector('.concept-html').artifact, source, 'covered frame is not replaced');
+  assert.equal(root.querySelector('.concept-viewer-message').textContent, '', 'scope removal does not announce a new draft of the covered kind');
   assert.equal(root.querySelector('.concept-count').textContent, '1 of 1');
   assert.ok((await source.mint()).url, 'covered preview remains usable after the other scope is removed');
+});
+
+test('AIT-364: old scope work stays expired through a later regrant', async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [draft('scope')], session: { conceptVisualKind: 'html' } });
+  const oldSource = view.previewSource('scope');
+  view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    html: { available: false, reason: 'current processing consent required' } } } });
+  view.update({ ...c.session, consentRevision: 2 });
+  await assert.rejects(oldSource.mint(), /Preview scope expired/);
+  assert.ok((await view.previewSource('scope').mint()).url, 'new explicit coverage can use a fresh scope');
 });

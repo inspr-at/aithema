@@ -2550,18 +2550,11 @@ export class AithemaSession extends HTMLElement {
   }
   async #refreshFeatures() {
     if (this.#session.processingPreset === 'device') return;
-    const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation;
+    const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision;
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!response.ok) return;
       const session = await response.json();
-      const revision = this.#session.consentRevision;
-      let consentDocument;
-      try {
-        const consent = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
-        const doc = consent.ok ? await consent.json() : null;
-        if (doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) consentDocument = doc;
-      } catch { /* The snapshot's consent refusal still removes its surfaces. */ }
       if (revision !== this.#session.consentRevision) return;
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
       this.#session.featureMatrix = session.featureMatrix;
@@ -2576,9 +2569,17 @@ export class AithemaSession extends HTMLElement {
       if ('conceptCost' in session) this.#session.conceptCost = session.conceptCost;
       void this.#resumeDeferredAnalysis();
       this.#rail?.reconcileAdmission();
-      this.#renderMode(); this.#renderVoice(); this.#concept.update(this.#session, consentDocument); this.#dialog?.sync();
+      this.#renderMode(); this.#renderVoice(); this.#concept.update(this.#session); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));
+      // Feature refusals redact immediately. A slow consent read must never
+      // keep a refused artifact alive while the host document is refreshed.
+      try {
+        const consent = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+        const doc = consent.ok ? await consent.json() : null;
+        if (sessionId === this.#session.id && revision === this.#session.consentRevision && session.seq === this.#cursor &&
+          doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) this.#concept.update(this.#session, doc);
+      } catch { /* The snapshot's consent refusal already removed its surfaces. */ }
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
   }
   async #restore() {
