@@ -885,3 +885,8 @@ test('AIT-364: cross-tab single-item consent withdrawal removes HTML and images'
   const { partialConsentFrames } = await import('../fixtures/partial-consent-frames.js');
   await partialConsentFrames(t);
 });
+
+test('AIT-369: delivered coverage survives visual choices and revokes per kind', { timeout: 45_000 }, async t => {
+  const { deliveredConsentFrames } = await import('../fixtures/delivered-consent-frames.js');
+  await deliveredConsentFrames(t);
+});

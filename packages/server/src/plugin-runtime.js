@@ -704,14 +704,27 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return { model: choices.defaults.model, effort: model?.efforts ? choices.defaults.effort ?? model.effort : null,
         voice: choices.defaults.voice, visuals: choices.defaults.visuals };
     },
-    /** Private processing scopes of the current choice, for the host consent ledger. */
+    /** Private processing scopes, including the producers of delivered visuals. */
     scopes(session, { feature: only } = {}) {
       const preset = session.processingPreset ?? 'best';
       if (preset === 'device') return [];
       const result = [], kind = visualKind(session);
-      for (const [feature, operation] of [['text', 'stream'], ['analysis', 'structured'], ['voice', 'start'], [kind, 'generate'], [kind, 'edit']]) {
+      const delivered = (session.concepts ?? []).filter(artifact => !artifact.erased && !artifact.withdrawn && !artifact.archived);
+      const deliveredKinds = new Set(delivered.map(artifact => artifact.mediaType === 'text/html' ? 'html' : 'images'));
+      const entries = [['text', 'stream'], ['analysis', 'structured'], ['voice', 'start'], [kind, 'generate'], [kind, 'edit']]
+        .filter(([feature]) => !deliveredKinds.has(feature))
+        .map(([feature, operation]) => ({ feature, operation, raw: selectedBinding(session, preset, map[feature][0]).raw }));
+      // AIT-369: artifact.visuals records the producing option, independent of
+      // today's choice. Legacy artifacts use the preset's binding for their kind.
+      for (const artifact of delivered) {
+        const feature = artifact.mediaType === 'text/html' ? 'html' : 'images';
+        const raw = artifact.visuals
+          ? choicesFor(preset)?.visuals.find(option => option.id === artifact.visuals && option.kind === feature)?.binding
+          : presets[preset]?.bindings?.[feature];
+        for (const operation of ['generate', 'edit']) entries.push({ feature, operation, raw });
+      }
+      for (const { feature, operation, raw } of entries) {
         if (only && feature !== only) continue;
-        const { raw } = selectedBinding(session, preset, map[feature][0]);
         if (!raw || !presets[preset]?.plugins?.includes(raw.plugin)) continue;
         let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { continue; }
         const plugin = registry.get(binding.plugin);

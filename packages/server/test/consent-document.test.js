@@ -218,7 +218,7 @@ for (const port of ['describe', 'conversationUnchanged', 'grant']) test(`AIT-321
   assert.equal(storage.get(session.id).consentWithdrawn, true);
 });
 
-for (const visuals of ['off', 'images', 'html', 'both']) test(`AIT-369 API ${visuals}: both delivered kinds keep their producing consent scopes`, async t => {
+for (const provenance of ['recorded', 'legacy']) for (const visuals of ['off', 'images', 'html', 'both']) test(`AIT-369 API ${provenance}/${visuals}: both delivered kinds keep their producing consent scopes`, async t => {
   const { PluginRegistry } = await import('@inspr/aithema-core');
   const { createLocalHTML, localHTMLBinding, createLocalImages, localImageBinding } = await import('../src/index.js');
   const storage = new SQLiteStorage();
@@ -233,13 +233,13 @@ for (const visuals of ['off', 'images', 'html', 'both']) test(`AIT-369 API ${vis
   }
   const consent = { coverage: () => ({ covered: true }), describe: () => ({ contract: 'ait369', selected: ['drafts', 'images'],
     items: ['drafts', 'images'].map(id => ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
-  const pluginRuntime = createPluginRuntime({ storage, registry, consent, presets: { best: { plugins: ['fake-html', 'fake-images'], bindings } } });
+  const pluginRuntime = createPluginRuntime({ storage, registry, consent, presets: { best: { plugins: ['fake-html', 'fake-images'], bindings, ...(provenance === 'recorded' ? { choices: { models: [], visuals: ['html', 'images'].map(kind => ({ id: kind, kind, binding: bindings[kind] })) } } : {}) } } });
   const handlers = createHandlers({ storage, consent, pluginRuntime });
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ ownerToken: testToken });
   storage.append(session.id, 'settings.changed', { processingPreset: 'best', settings: { ...session.settings, visuals } });
   for (const kind of ['html', 'images']) storage.append(session.id, 'concept.state', { artifact: {
-    id: kind, mediaType: kind === 'html' ? 'text/html' : 'image/png', visuals: kind, turnIds: [], referenceIds: [] } });
+    id: kind, mediaType: kind === 'html' ? 'text/html' : 'image/png', ...(provenance === 'recorded' ? { visuals: kind } : {}), turnIds: [], referenceIds: [] } });
   const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`));
   assert.equal(response.status, 200);
   const doc = await response.json();

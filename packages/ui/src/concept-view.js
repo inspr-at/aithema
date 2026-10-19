@@ -172,11 +172,14 @@ export class ConceptView {
   covered(kind) {
     const feature = kind === 'html' ? 'html' : 'images', session = this.#session;
     if (!session || this.#consentRefreshFailed || session.consentWithdrawn || session.tombstone) return false;
+    const doc = this.#consentDocument;
+    if (doc?.consentRevision === session.consentRevision) {
+      const ids = doc.features?.[feature];
+      // Delivered bytes require explicit coverage, even with visuals off.
+      return Array.isArray(ids) && ids.length > 0 && ids.every(id => doc.selected.includes(id));
+    }
     const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
     if (isConsentReason(verdict?.reason) || isConsentReason(verdict?.unpaused?.reason)) return false;
-    const doc = this.#consentDocument;
-    if (doc?.consentRevision === session.consentRevision && Array.isArray(doc.features?.[feature]))
-      return doc.features[feature].every(id => doc.selected.includes(id));
     return true;
   }
   get items() { return this.#session?.consentWithdrawn || this.#session?.tombstone ? [] : (this.#session?.concepts ?? []).filter(c => this.covered(conceptKind(c)) && !c.archived && !c.erased && !c.withdrawn && !c.turnIds?.some(id => this.#session.transcript.some(turn => turn.id === id && (turn.erased || turn.withdrawn)))); }
