@@ -76,7 +76,7 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
     const request = { system: '', messages: [{ role: 'user', content: 'Hello' }] };
     for (const [lane, operation, effort] of [['reaction', 'stream', 'none'], ['understanding', 'structured', 'high']]) {
       const entry = await h.runtime.admit({ session: h.session, lane, operation, request, options: { voiceReply: lane === 'reaction' } });
-      assert.equal(entry.engine.effort, effort); entry.finish();
+      assert.equal(entry.engine.effort, effort); entry.finish({ failed: true });
     }
   });
   test(`AIT-397: ${manifest.id} registration changes, recovery and expiry cannot bypass the backstop`, async t => {
@@ -91,7 +91,7 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
   });
   test(`AIT-397: ${manifest.id} invalid custom host returns only the neutral visitor failure`, async t => {
     const h = fixture(t, manifest, failures.missing);
-    const handlers = createHandlers({ storage: h.storage, pluginRuntime: h.runtime });
+    const handlers = createHandlers({ storage: h.storage, pluginRuntime: h.runtime, voice: {} });
     t.after(() => handlers.close());
     const response = await handlers.handle(new Request(`https://host.example.test/api/sessions/${h.session.id}/voice`, {
       method: 'POST', headers: { 'x-aithema-session-token': h.owner }, body: JSON.stringify({ callId: 'refused' }) }));
