@@ -61,8 +61,9 @@ export class ConceptView {
   setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
   #paintCopy() {
     const { root, copy } = this;
-    const [image, draft] = root.querySelectorAll('.concept-preview-sizer');
-    image.textContent = copy.conceptView; draft.textContent = copy.conceptDraftView ?? '';
+    root.querySelectorAll('.concept-preview-sizer').forEach((node, index) => {
+      node.textContent = index % 2 ? copy.conceptDraftView ?? '' : copy.conceptView;
+    });
     const labels = { '.concept-close': 'conceptClose', '.concept-previous': 'conceptPrevious', '.concept-next': 'conceptNext',
       '.concept-download': 'conceptDownload', '.concept-up': 'conceptUp', '.concept-down': 'conceptDown', '.concept-reject': 'conceptReject', '.concept-preview-label': 'conceptView' };
     for (const [selector, key] of Object.entries(labels)) root.querySelector(selector).textContent = copy[key];
@@ -85,7 +86,11 @@ export class ConceptView {
       <button class="concept-request" type="button"></button>`;
     // The label shares one cell with both possible labels, so the thumbnail keeps its width when an image or a draft arrives.
     root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><span class="concept-preview-thumbs"><img alt="" aria-hidden="true" decoding="async"><img alt="" aria-hidden="true" decoding="async"></span><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-label"></span><span class="concept-preview-sizer" aria-hidden="true"></span><span class="concept-preview-sizer" aria-hidden="true"></span></span></button>`;
-    const [image, draft] = root.querySelectorAll('.concept-preview-sizer'); image.textContent = copy.conceptView; draft.textContent = copy.conceptDraftView ?? '';
+    // An inert text/glyph sizer preserves AIT-364's rail geometry when the
+    // actual button is display:none. It carries no artifact or hit target.
+    const reserve = document.createElement('span'); reserve.className = 'concept-preview-reserve'; reserve.setAttribute('aria-hidden', 'true');
+    reserve.innerHTML = `<span class="concept-preview-glyph">${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-sizer"></span><span class="concept-preview-sizer"></span></span>`;
+    root.querySelector('.concept-preview-slot').append(reserve);
     const dialog = document.createElement('dialog'); dialog.className = 'concept-viewer'; dialog.setAttribute('aria-labelledby', 'concept-title');
     dialog.innerHTML = `<header class="concept-viewer-head"><h2 id="concept-title"></h2><span class="concept-count" aria-live="polite"></span><button class="concept-close" type="button"></button></header>
       <div class="concept-stage"><img class="concept-image" decoding="async"><aithema-html-preview class="concept-html" fill hidden></aithema-html-preview><p class="concept-image-status" role="status"></p></div>
@@ -244,6 +249,8 @@ export class ConceptView {
     this.update(this.#session);
   }
   update(session, consentDocument, consentVerified = false) {
+    const active = this.root.activeElement, preview = this.root.querySelector('.concept-preview'), notice = this.root.querySelector('.concept-withdrawn');
+    const previewFocused = active === preview, viewerFocused = Boolean(active && this.dialog.contains(active));
     if (consentVerified) this.#pendingScopes.clear();
     if (consentVerified && this.#consentRefreshFailed) {
       this.#consentRefreshFailed = false;
@@ -278,9 +285,9 @@ export class ConceptView {
       if (this.#withdrawnUntil) {
         this.#withdrawnTimer = consentTimeout(() => {
           this.#withdrawnUntil = 0;
-          const accessFocused = this.root.activeElement === this.root.querySelector('.concept-preview');
+          const noticeFocused = this.root.activeElement === notice;
           this.render();
-          if (accessFocused && !this.items.length) this.root.querySelector('.concept-activity-text .consent-action')?.focus();
+          if (noticeFocused && !this.items.length) this.root.querySelector('.concept-activity-text .consent-action')?.focus();
         }, 4000);
         this.#withdrawnTimer.unref?.();
       }
@@ -316,7 +323,11 @@ export class ConceptView {
     this.#visible = this.items;
     this.follow(latest);
     this.render();
-    if ((partial || this.#consentRefreshFailed) && selectedRemoved) this.root.querySelector('.concept-preview').focus({ preventScroll: true });
+    // AIT-385 amends AIT-364: only a non-empty access can receive focus.
+    // Capture ownership before close()/render() can hide or disable the target.
+    if ((partial || this.#consentRefreshFailed || previous && !latest) && (previewFocused || selectedRemoved && viewerFocused))
+      (latest ? preview : notice).focus({ preventScroll: true });
+    else if (active === notice && !notice.textContent && latest) preview.focus({ preventScroll: true });
     if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas();
   }
   // Drafts are revised continuously: a viewer showing the latest draft moves on to the new
@@ -430,13 +441,12 @@ export class ConceptView {
     tab.title = latest ? view : this.feature().reason ?? this.copy.conceptIntro;
     // The thumbnail slot keeps its size: an image, or a glyph for a draft (a live frame stays in the viewer).
     const preview = this.root.querySelector('.concept-preview');
-    const gone = this.#consentRefreshFailed || this.#withdrawnKind && this.#withdrawnUntil > Date.now();
-    preview.disabled = !latest && !gone; preview.style.visibility = latest || gone ? '' : 'hidden';
-    preview.toggleAttribute('data-withdrawn', Boolean(gone && !latest));
+    preview.disabled = !latest; preview.style.visibility = latest ? '' : 'hidden';
+    preview.hidden = !latest;
     preview.querySelector('.concept-preview-thumbs').hidden = latestDraft;
     for (const image of preview.querySelectorAll('img')) image.hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
     const previewLabel = this.#phone.matches && this.#imageLayout ? this.copy.conceptPhoneReady : view;
-    preview.querySelector('.concept-preview-label').textContent = previewLabel; preview.setAttribute('aria-label', gone && !latest ? this.root.querySelector('.concept-withdrawn').textContent : previewLabel);
+    preview.querySelector('.concept-preview-label').textContent = previewLabel; preview.setAttribute('aria-label', previewLabel);
     if (latest && !latestDraft && (this.visualKind() !== 'image' || !this.backdropHidden())) void this.loadImageURL(latest.id).then(url => {
       if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() !== 'image' || !this.backdropHidden())) this.paintThumbnail(latest.id, url);
     });

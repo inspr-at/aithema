@@ -937,7 +937,7 @@ for (const failure of ['http', 'network', 'snapshot-stall', 'document-http', 'do
   assert.equal(root.querySelectorAll('img[src]').length, 0);
   assert.ok(revoked.length > 0, 'cached image URLs are revoked too');
   assert.equal(root.querySelector('.canvas-empty').hidden, false);
-  assert.equal(root.activeElement, root.querySelector('.concept-preview'));
+  assert.equal(root.activeElement, root.querySelector('.concept-withdrawn'));
   assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
   assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
   t.mock.timers.tick(5000); view.update(c.session); view.render();
@@ -992,7 +992,7 @@ test('AIT-364 v1.1: fail-closed expiry cancels an earlier kind notice without st
   c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } });
   await tick();
   assert.deepEqual(view.items, [], 'feature refusal redacts before the pending document answers');
-  assert.equal(root.activeElement, root.querySelector('.concept-preview'));
+  assert.equal(root.activeElement, root.querySelector('.concept-withdrawn'));
   assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptDraftWithdrawn);
   timers.find(timer => timer.delay === 2000).callback();
   assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
@@ -1000,7 +1000,7 @@ test('AIT-364 v1.1: fail-closed expiry cancels an earlier kind notice without st
   assert.equal(kindNotice.cancelled, true, 'fail-closed supersedes the earlier four-second kind notice');
   if (!kindNotice.cancelled) kindNotice.callback();
   assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
-  assert.equal(root.activeElement, root.querySelector('.concept-preview'), 'the superseded kind-notice timer cannot move focus to the hidden consent action');
+  assert.equal(root.activeElement, root.querySelector('.concept-withdrawn'), 'the superseded kind-notice timer cannot move focus to the hidden consent action');
   release(); await tick();
 });
 
@@ -1430,4 +1430,34 @@ for (const copy of [de, en]) test(`AIT-386: explicit HTML consent wording surviv
     featureMatrix: { best: { html: { available: false, reason: 'current processing consent required' } } } } });
   assert.equal(root.querySelector('.concept-activity-text .consent-line-copy').textContent, `${copy.featureConsent.html}\u00a0· `);
   assert.equal(root.querySelector('.concept-activity-text').dataset.consentFeature, 'html');
+});
+
+// Tick's binding carry-in from AIT-386: layout follows kept images, never HTML bytes.
+for (const scenario of ['unbound-kept-image', 'off-html-images-host']) test(`AIT-385 carry-in: ${scenario}`, t => {
+  const image = scenario === 'unbound-kept-image';
+  const { root } = setup(t, { concepts: [image ? item('kept') : draft('kept')], session: {
+    conceptVisualKind: 'images', visualsBound: false, settings: { visuals: image ? 'images' : 'off', origin: 'chosen' },
+  } });
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout, image ? 'image' : 'unbound');
+  assert.equal(root.querySelector('.concept-preview').hidden, false, 'kept content remains accessible');
+  root.querySelector('.concept-preview').click();
+  assert.equal(root.querySelector('.concept-viewer').open, true, 'HTML under Off opens through the access');
+});
+
+for (const target of ['preview', 'viewer', 'composer']) for (const moved of [false, true]) test(`AIT-385: ${target}, moved=${moved} preserves focus ownership through expiry`, t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [draft('only')], session: { conceptVisualKind: 'html', visualsBound: true } });
+  t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c);
+  const timers = t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+  const preview = root.querySelector('.concept-preview'), notice = root.querySelector('.concept-withdrawn'), composer = root.querySelector('textarea');
+  preview.focus(); if (target === 'viewer') view.open('only'); if (target === 'composer') composer.focus();
+  view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best, html: { available: false, reason: 'current processing consent required' } } } });
+  assert.equal(preview.hidden, true); assert.equal(preview.disabled, true);
+  assert.equal(root.activeElement, target === 'composer' ? composer : notice);
+  assert.equal(notice.tabIndex, -1);
+  if (moved) composer.focus();
+  timers.mock.calls.find(call => call.arguments[1] === 4000).arguments[0]();
+  assert.equal(root.activeElement, moved || target === 'composer' ? composer : root.querySelector('.concept-activity-text .consent-action'));
 });

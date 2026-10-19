@@ -125,7 +125,7 @@ export async function partialConsentFrames(t, { isCI } = {}) {
     assert.equal(result.frames.includes('removed'), false, 'W2 no revoked frame artifact');
     assert.equal(result.images.includes('removed'), false, 'no revoked thumbnail/backdrop/viewer/canvas bytes');
     assert.equal(result.tooltip, false);
-    assert.equal(result.focus, 'concept-preview', 'focus returns to concept access control');
+    assert.equal(result.focus, mixed ? 'concept-preview' : 'concept-withdrawn', 'AIT-385: access receives focus only while it has content');
     assert.deepEqual(result.ids, mixed ? ['retained'] : []);
     assert.equal(result.count, mixed ? locale === 'en' ? '1 of 1' : '1 von 1' : '', 'W5 count updates in the same tick, before reopening');
     assert.equal(result.previousDisabled, true); assert.equal(result.nextDisabled, true);
@@ -211,7 +211,7 @@ export async function partialConsentFrames(t, { isCI } = {}) {
     await a.waitForFunction(() => window.failClosedTick);
     const result = await a.evaluate(() => failClosedTick);
     assert.deepEqual(result.ids, []); assert.deepEqual(result.frames, []); assert.deepEqual(result.images, []);
-    assert.equal(result.iframeCount, 0); assert.equal(result.open, false); assert.equal(result.focus, 'concept-preview');
+    assert.equal(result.iframeCount, 0); assert.equal(result.open, false); assert.equal(result.focus, 'concept-withdrawn');
     assert.equal(result.state, 'gone'); assert.equal(result.notice, 'Entwurf zurückgezogen'); assert.equal(result.live, 'polite');
     assert.ok(result.revoked.length > 0); assert.deepEqual(result.transcript, ['Keep this transcript.']);
     if (JSON.stringify(await a.evaluate(() => boxes())) !== JSON.stringify(baseline)) t.diagnostic(JSON.stringify({ baselineLayout, failedLayout: await layout() }));
@@ -221,7 +221,7 @@ export async function partialConsentFrames(t, { isCI } = {}) {
     const file = `ait364-${width}-light-de-failclosed.png`;
     if (evidence) { await a.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file); }
     // Blurring is only for the shot. Restore keyboard focus before revalidation.
-    await a.evaluate(() => c.shadowRoot.querySelector('.concept-preview').focus());
+    await a.evaluate(() => c.shadowRoot.querySelector('.concept-withdrawn').focus());
     a.refreshFailure = null; a.holdConsentRead = false;
     await a.evaluate(() => { window.watchFailClosed = false; });
     await a.evaluate(() => clock.tick(2000));
