@@ -304,6 +304,10 @@ test('AIT-330: selected reasoning effort is independent of binding identity', as
 
 test('AIT-330: failed voice scope construction preserves other consent scopes', async t => {
   const f = fixture(), storage = new SQLiteStorage(); t.after(() => storage.close());
+  f.setClock(Date.now()); f.args.getSession = id => storage.get(id);
+  for (const b of [...Object.values(f.componentBindings), f.hostProcessing[0].binding]) {
+    b.legal.evidence.verifiedAt = Date.now() - 1000; b.legal.evidence.expiresAt = Date.now() + 60000;
+  }
   const parent = structuredClone(f.componentBindings.stt);
   Object.assign(parent, { plugin: 'voxtral-voice', model: 'voxtral-voice', maxDurationSeconds: 120, upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
   parent.legal.evidence.model = parent.model;
@@ -316,6 +320,9 @@ test('AIT-330: failed voice scope construction preserves other consent scopes', 
   const runtime = createPluginRuntime({ storage, registry, presets: { eu: settings } });
   const session = storage.create({ ownerToken: 'synthetic-owner', processingPreset: 'eu' });
   const text = runtime.scopes(session, { feature: 'text' }); assert.ok(text.length);
+  const matrix = await runtime.matrix(session);
+  assert.equal(matrix.eu.text.available, true, matrix.eu.text.reason);
+  assert.equal(matrix.eu.voice.available, false, 'broken voice scopes fail closed for voice');
   assert.deepEqual(runtime.scopes(session), text);
   assert.deepEqual(runtime.scopes(session, { feature: 'voice' }), text, 'delegated reasoning still needs consent; broken voice scopes are omitted');
 });

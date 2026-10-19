@@ -194,7 +194,7 @@ test('AIT-330: TTS moderation reason survives the composed relay event', async t
     resolveSecret: () => 'synthetic-only', fetchImpl: async () => new Response(JSON.stringify({ error: { code: 'moderation_blocked' } }), { status: 403 }) });
   const coordinator = createComposedVoiceCoordinator({ sessionId: 'session', callId: 'call', providerSessionId: 'segment',
     spendDeadlineAt: until, browserLivenessDeadlineAt: until, maxDurationSeconds: 120, voice: 'fixture-voice',
-    stt: {}, tts, outputFormat: 'pcm_f32le', outputAudioFormat: { encoding: 'pcm_f32le', sampleRateHz: 24000, channels: 1 },
+    stt: { async *stream() { assert.fail('Typed turn cannot transcribe'); } }, tts, outputFormat: 'pcm_f32le', outputAudioFormat: { encoding: 'pcm_f32le', sampleRateHz: 24000, channels: 1 },
     authorize: async () => true, commitUtterance() {},
     admitComponent: async () => ({ attempt: { attemptId: 'speech', claimId: 'speech', maxMicro: 1000, consume() {} }, report() {} }),
     replyExecutor: { async *execute() { yield { type: 'operation', replyId: 'reply' }; yield { type: 'delta', text: 'Hello' }; yield { type: 'completion', replyId: 'reply', text: 'Hello' }; } },
