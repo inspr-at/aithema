@@ -296,7 +296,7 @@ export class AudioRail {
   }
   async cooldown(until, signal) {
     const deadline = Math.min(until, Date.now() + 60_000);
-    this.startupPhase = 'cooldown';
+    const token = {}; this.cooldownToken = token; this.startupPhase = 'cooldown';
     try {
       while (Date.now() < deadline) {
         this.countdown = Math.ceil((deadline - Date.now()) / 1000); this.render();
@@ -307,7 +307,7 @@ export class AudioRail {
       // Let the zero paint before exchanging the status for Connecting.
       await startupWait(undefined, signal, 1);
       signal.throwIfAborted();
-    } finally { this.startupPhase = null; }
+    } finally { if (this.cooldownToken === token) { this.startupPhase = null; this.cooldownToken = null; } }
   }
   stopReplyWatch() { clearTimeout(this.replyTimer); this.replyTimer = null; }
   awaitReply(session, generation) {
@@ -615,14 +615,18 @@ export class AudioRail {
     const session = this.session, generation = this.generation;
     const revision = ++this.pauseRevision;
     this.pauseCommand = { paused, revision };
-    if (paused) { this.paused = true; this.retryConnecting = false; this.stopReplyWatch(); }
+    if (paused) { this.paused = true; this.retryConnecting = false; this.stopReplyWatch(); this.cooldownController?.abort(); }
     // Repaint the next visitor action while capture retains its acknowledged hold.
     this.onPause?.(Boolean(this.paused));
     const wait = paused ? 0 : Math.max(0, (this.retryAt ?? 0) - Date.now());
     if (wait) { this.retryConnecting = true; this.errorKey = null; }
     this.busy = true; this.render();
     try {
-      if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+      if (wait) {
+        this.cooldownController?.abort();
+        const controller = new AbortController(); this.cooldownController = controller;
+        await this.cooldown(Date.now() + wait, controller.signal);
+      }
       if (!this.current(session, generation) || revision !== this.pauseRevision) return;
       if (!paused) this.retryAt = 0;
       const ack = await session[paused ? 'pause' : 'resume'](paused ? undefined : {
@@ -706,7 +710,7 @@ export class AudioRail {
     this.render();
   }
   close(reason) {
-    this.client?.stopReplay?.(); this.stopReplyWatch();
+    this.client?.stopReplay?.(); this.stopReplyWatch(); this.cooldownController?.abort();
     if (this.closing && !this.session && this.state !== 'connecting') {
       if (reason) void this.closingSession?.close({ reason }).catch(() => {});
       return this.closing;
@@ -747,7 +751,7 @@ export class AudioRail {
     })().finally(() => { if (this.closing === closing) { this.closing = null; this.closingSession = null; } });
     this.closing = closing; return closing;
   }
-  quiet() { delete this.root.dataset.measured; this.waveform.baseline(); if (this.connected) this.onLevel?.(0); }
+  quiet() { if (!['listening', 'speaking', 'thinking'].includes(this.state)) { this.stopReplyWatch(); this.cooldownController?.abort(); } delete this.root.dataset.measured; this.waveform.baseline(); if (this.connected) this.onLevel?.(0); }
   connect() {
     this.connected = true; this.root.ownerDocument.addEventListener('visibilitychange', this.visibility); this.waveform.connect();
     this.root.ownerDocument.defaultView?.addEventListener('pagehide', this.pagehide);

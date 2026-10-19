@@ -65,15 +65,17 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const began = Date.now(), wait = Math.min(retryAfterMs ?? 0, 60_000), retry = rail.start(); await flush();
     if (wait) {
       assert.equal(rail.root.dataset.state, 'connecting'); assert.equal(rail.errorKey, null);
-      assert.equal(rail.root.querySelector('.voice-state').getAttribute('aria-label'), rail.copy.voiceStates.connecting);
+      assert.equal(rail.root.querySelector('.voice-state').getAttribute('aria-label'), rail.copy.voiceCooldown.replace('{s}', Math.min(retryAfterMs, 60_000) / 1000));
       await rail.start(); t.mock.timers.tick(wait - 200); await flush();
       assert.equal(requests.length, 1, 'client.start must not dispatch before 4.8 s / 59.8 s');
       t.mock.timers.tick(199); await flush(); assert.equal(requests.length, 1);
+      t.mock.timers.tick(1); await flush();
+      assert.equal(rail.root.querySelector('.voice-state').getAttribute('aria-label'), rail.copy.voiceCooldown.replace('{s}', 0));
       t.mock.timers.tick(1);
     }
-    await retry; await flush(); assert.equal(requests.length, 2); assert.equal(requests[1][1] - began, wait);
+    await retry; await flush(); assert.equal(requests.length, 2); assert.equal(requests[1][1] - began, wait ? wait + 1 : 0);
     assert.equal(rail.state, 'listening'); noLimit(rail);
-    record(provider, 'start429', ['429 leads to F2, no live call, Retry enabled', 'existing connecting status throughout retry-after', 'no request before 4.8 s / 59.8 s; exactly once at deadline', '120 s capped at 60 s; absent retry-after starts immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
+    record(provider, 'start429', ['429 leads to F2, no live call, Retry enabled', 'visible cooldown countdown throughout retry-after', 'no request before 4.8 s / 59.8 s; exactly once at deadline', '120 s capped at 60 s; absent retry-after starts immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
   for (const retryAfterMs of [5000, 120_000, undefined]) test(`AIT-361 ${provider}: recovery 429 retry-after ${retryAfterMs ?? 'absent'}`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
@@ -83,14 +85,16 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const previous = requests.length, began = Date.now(), wait = Math.min(retryAfterMs ?? 0, 60_000);
     allowRecovery(); const continuing = rail.pause(false); await flush();
     if (wait) {
-      assert.equal(rail.root.dataset.state, 'connecting'); assert.equal(rail.root.querySelector('.voice-state').getAttribute('aria-label'), rail.copy.voiceStates.connecting);
+      assert.equal(rail.root.dataset.state, 'connecting'); assert.equal(rail.root.querySelector('.voice-state').getAttribute('aria-label'), rail.copy.voiceCooldown.replace('{s}', Math.min(retryAfterMs, 60_000) / 1000));
       t.mock.timers.tick(wait - 200); await flush(); assert.equal(requests.length, previous);
-      t.mock.timers.tick(200);
+      t.mock.timers.tick(200); await flush();
+      assert.equal(rail.root.querySelector('.voice-state').getAttribute('aria-label'), rail.copy.voiceCooldown.replace('{s}', 0));
+      t.mock.timers.tick(1);
     }
     await continuing; await flush();
     assert.equal(requests.length, previous + 1, 'one explicit recovery request after the wait');
-    assert.equal(requests.at(-1)[1] - began, wait); assert.equal(rail.state, 'listening'); noLimit(rail);
-    record(provider, 'recovery429', ['recovery 429 leads to F4 waiting', 'Continue shows existing connecting status while waiting', 'Continue waits retry-after, capped at 60 s, then one recovery request', 'absent retry-after continues immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
+    assert.equal(requests.at(-1)[1] - began, wait ? wait + 1 : 0); assert.equal(rail.state, 'listening'); noLimit(rail);
+    record(provider, 'recovery429', ['recovery 429 leads to F4 waiting', 'Continue shows visible cooldown countdown while waiting', 'Continue waits retry-after, capped at 60 s, then one recovery request', 'absent retry-after continues immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
   test(`AIT-361 ${provider}: recovery 429 cannot become an admission refusal without retry-after`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });

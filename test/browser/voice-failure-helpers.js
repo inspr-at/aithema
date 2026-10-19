@@ -71,7 +71,7 @@ export async function checkVoiceFailures(t) {
           callout: rect(status), anchor: rect(anchor), header: rect(root.querySelector('.band')), position: getComputedStyle(status).position,
           narrow: getComputedStyle(status.querySelector('.consent-narrow')).display,
           focus: root.activeElement?.className ?? null, accessibleName: status.getAttribute('aria-label'), text: status.textContent,
-          providerLimit: rail.copy.voiceReasonsNarrow.providerLimit, label: rail.error ?? rail.copy.voiceStates[rail.root.dataset.state],
+          providerLimit: rail.copy.voiceReasonsNarrow.providerLimit, label: rail.error ?? (rail.startupPhase === 'cooldown' ? rail.copy.voiceCooldown.replace('{s}', rail.countdown) : rail.copy.voiceStates[rail.root.dataset.state]),
           calloutFocusable: status.tabIndex >= 0 || Boolean(status.querySelector('button,a,input,[tabindex]')), state: rail.root.dataset.state,
           playbackLabel: rail.button('playback').title, playbackVisible: getComputedStyle(rail.button('playback')).visibility === 'visible',
           retryVisible: getComputedStyle(rail.button('retry')).visibility === 'visible',
@@ -163,7 +163,7 @@ export async function checkVoiceFailures(t) {
       await page.evaluate(() => window.ait361Rail.button('retry').click());
       const after = await page.evaluate(() => ({ ...window.ait361Read(), starts: window.ait361Starts }));
       const meta = { provider, width, theme, locale, state: 'retry-after' };
-      expect(after.state === 'connecting' && after.starts === 0 && after.accessibleName === after.label, { ...meta, assert: 'F6 mid-wait existing connecting copy', actual: after });
+      expect(after.state === 'connecting' && after.starts === 0 && after.accessibleName === after.label, { ...meta, assert: 'F6 mid-wait AIT-377 countdown copy', actual: after });
       expect(after.focus === 'voice-close', { ...meta, assert: 'Retry focus stays on end slot', actual: after.focus });
       expect(JSON.stringify(after.boxes) === JSON.stringify(before.boxes), { ...meta, assert: 'Retry to End moves 0 px', movementPx: 0 });
       await page.evaluate(async () => { const root = document.querySelector('aithema-session').shadowRoot; root.activeElement?.blur(); document.activeElement?.blur(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });

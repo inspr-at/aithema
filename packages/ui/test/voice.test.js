@@ -1353,7 +1353,7 @@ for (const copy of [de, en]) test(`AIT-379: ${copy.display.locale} native end sh
   await rail.start();
   events.push({ type: 'ended', callId: rail.session.callId, reason: 'provider-end' }); events.end(); await tick();
   assert.equal(root.dataset.state, 'idle'); assert.equal(root.dataset.call, 'none');
-  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceEnded);
+  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceClosureUncertain);
   assert.equal(root.hasAttribute('data-message'), false);
   assert.equal(rail.button('start').disabled, false);
   assert.equal(rail.button('retry').disabled, true);
