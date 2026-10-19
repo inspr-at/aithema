@@ -1,4 +1,4 @@
-import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { STT_MODEL, EVIDENCE_DATE } from './configuration.js';
 
 // Public component metadata; private configuration remains in the host binding.
@@ -20,7 +20,7 @@ export const manifest = deepFreeze({ id: 'grok-voice', version: '0.0.0', apiVers
   ] },
   liveVoice: { reasoning: 'delegated', transcript: { finality: 'turns', persistence: 'durable' },
     ownership: { stt: 'server', tts: 'server', turnTaking: 'server' },
-    capabilities: { sendText: 'unavailable', updateContext: 'native', setInput: 'native', setOutput: 'native',
+    capabilities: { sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'native',
       pause: 'emulated', resume: 'emulated', interrupt: 'native', heard: 'unavailable' },
     billing: { visitor: 'Separately admitted components; money is estimated.',
       upstream: 'STT and TTS child claims; admitted reasoning retains answer authority. Reservations survive cancellation and timeout.' } },

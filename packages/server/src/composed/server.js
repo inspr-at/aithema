@@ -10,7 +10,7 @@ import { createComposedRelayRoute } from './network-relay.js';
 /** Explicit opt-in factory. Inject separately admitted components and the existing
  * Rule C reply executor; default hosts continue to construct ElevenLabs. */
 export function createComposedVoice({ enabled = false, config = {}, binding, storage, stt, tts, replyExecutor,
-  admitComponent, authorize, commitUtterance, componentsReady, authenticateRelay, relayOrigin, manifest: publicManifest = manifest, now = Date.now } = {}) {
+  admitComponent, authorize, commitUtterance, interruptionAwareness = false, componentsReady, authenticateRelay, relayOrigin, manifest: publicManifest = manifest, now = Date.now } = {}) {
   const relays = new Map();
   const relayOwners = new Map();
   const ownerAllowed = async (grant, owner) => {
@@ -18,7 +18,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     if (!enabled || !bound || bound.owner !== owner) return false;
     try {
       await storage.authorize(bound.sessionId, owner);
-      const allowed = await authorize({ sessionId: bound.sessionId, callId: grant.callId, providerSessionId: grant.providerSessionId },
+      const allowed = await authorize({ sessionId: bound.sessionId, callId: grant.callId, providerSessionId: grant.providerSessionId, connectingRelay: true },
         { deadlineAt: now() + 5000 });
       await storage.authorize(bound.sessionId, owner); return allowed === true;
     } catch { return false; }
@@ -43,6 +43,10 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     if (componentsReady) await voiceOperation(options, () => componentsReady);
     if (!storage?.saveVoiceCall || typeof authorize !== 'function' || typeof commitUtterance !== 'function' || options.attempt?.maxMicro !== 0) throw new PluginError('not-admitted', 'Parent claim must carry zero component cost');
     const invocation = await beginVoiceInvocation(options, request.callId);
+    if (options.signal?.aborted || options.deadlineAt <= now()) {
+      await invocation.finish({ outcome: 'cancelled' });
+      throw new PluginError(options.signal?.aborted ? 'cancelled' : 'deadline');
+    }
     const providerSessionId = `composed-${randomUUID()}`, epoch = request.epoch ?? 0;
     const end = Math.min(options.spendDeadlineAt, now() + callDurationSeconds(config) * 1000);
     const relay = createComposedRelay({ callId: request.callId, providerSessionId, epoch,
@@ -50,7 +54,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt, now });
     // Browser request fields never configure the coordinator clock or duration limits.
     const coordinator = createComposedVoiceCoordinator({ ...config, sessionId: request.sessionId, callId: request.callId,
-      context: request.context, providerSessionId, epoch,
+      context: request.context, providerSessionId, epoch, interruptionAwareness,
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
       stt, tts, ...(tts?.format ? { outputFormat: tts.format.encoding, outputAudioFormat: tts.format } : {}), replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
     let record = { ...coordinator.snapshot(), attemptId: options.attempt.attemptId, claimId: options.attempt.claimId,
@@ -66,11 +70,11 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
           visitorDurationSource: 'aithema-measured',
           costSource: 'separate-component-claims', costEstimated: false } };
     }
-    function close(reason = 'closed', outcome = 'completed') {
+    function close(reason = 'closed', outcome = reason === 'closed' ? 'completed' : 'cancelled') {
       if (closing) return closing;
       const flight = Promise.withResolvers(); closing = flight.promise;
       coordinator.signal.removeEventListener('abort', cancel);
-      void coordinator.close(reason); relay.close(); relays.delete(providerSessionId); relayOwners.delete(providerSessionId); networkRelay?.revoke(providerSessionId);
+      void coordinator.close(reason); relay.close({ preserveEvents: true }); relays.delete(providerSessionId); relayOwners.delete(providerSessionId); networkRelay?.revoke(providerSessionId);
       options.signal?.removeEventListener('abort', cancel);
       const endedAt = now(), result = terminal(outcome, endedAt); record = { ...record, endedAt, reason, terminal: result };
       void Promise.resolve().then(async () => {
@@ -106,7 +110,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
         record = next; return { acknowledged: true, paused };
       });
     }
-    const segment = { ...coordinator, signal: coordinator.signal, providerSessionId, grant: relay.grant,
+    const segment = { ...coordinator, get state() { return coordinator.state; }, signal: coordinator.signal, providerSessionId, grant: relay.grant,
       spendDeadlineAt: end, browserLivenessDeadlineAt: record.browserLivenessDeadlineAt, close,
       snapshot: () => structuredClone({ ...record, ...coordinator.snapshot() }),
       pause: opts => hold(true, opts), resume: opts => hold(false, opts),

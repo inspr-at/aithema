@@ -1302,6 +1302,34 @@ for (const copy of [de, en]) test(`AIT-310: ${copy.display.locale} credit owners
   }
 });
 
+test('AIT-348: composer retries retain the persisted delivery id; identical new submissions get fresh ids', async t => {
+  const session = createSession({ demo: true }), events = voiceEvents(), deliveries = [], persisted = [];
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+  const c = document.createElement('aithema-session'), originalFetch = globalThis.fetch;
+  let receipt, fail = true;
+  globalThis.fetch = async (url, options) => {
+    assert.ok(String(url).endsWith('/turns'));
+    const body = JSON.parse(options.body); persisted.push(body);
+    if (receipt?.data.id === body.clientEventId) return Response.json(receipt);
+    receipt = { seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, voiceCallId: body.voiceCallId } };
+    return Response.json(receipt);
+  };
+  c.configure({ copy: en, session, voiceClient: { manifest, async start({ callId }) {
+    return { callId, providerSessionId: 'fixture-generation', events, async close() { events.end(); }, async setInput() {}, async setOutput() {}, async updateContext() {},
+      async sendText(text, options) { deliveries.push({ text, deliveryId: options?.deliveryId }); if (fail) throw new Error('response lost'); } };
+  } } });
+  t.after(() => { globalThis.fetch = originalFetch; c.configure({ copy: en, session }); c.remove(); });
+  const root = c.shadowRoot, submit = async () => { root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick(); };
+  root.querySelector('.voice-start').click(); await tick(); root.querySelector('textarea').value = 'Ja';
+  await submit(); fail = false; await submit();
+  root.querySelector('textarea').value = 'Ja'; await submit();
+  assert.equal(deliveries.length, 3);
+  assert.deepEqual(deliveries.map(x => x.deliveryId), persisted.map(x => x.clientEventId));
+  assert.equal(deliveries[0].deliveryId, deliveries[1].deliveryId);
+  assert.notEqual(deliveries[1].deliveryId, deliveries[2].deliveryId);
+  assert.equal(c.session.transcript.length, 2);
+});
+
 for (const copy of [de, en]) for (const ledgerFirst of [false, true]) {
   test(`AIT-347 b2: ${copy.display.locale} composed visitor charge says measured by Aithema (ledger first: ${ledgerFirst})`, async t => {
     const { rail, root } = fixture(t); rail.copy = copy;

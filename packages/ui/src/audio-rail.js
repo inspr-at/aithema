@@ -547,10 +547,10 @@ export class AudioRail {
     if (this.state === 'connecting' || this.session && (!this.paused || this.busy)) void this.pause(true);
     return true;
   }
-  async sendText(text) {
+  async sendText(text, options) {
     if (!this.session || this.paused || this.state === 'recovering' || !this.capability('sendText')) throw new Error('Voice text unavailable');
     this.notices.clear();
-    return this.session.sendText(text);
+    return this.session.sendText(text, options);
   }
   async updateContext() {
     if (!this.session || this.paused || !this.capability('updateContext')) return;

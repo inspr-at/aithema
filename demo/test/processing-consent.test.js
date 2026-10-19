@@ -148,3 +148,22 @@ test('AIT-197: real ElevenLabs plus model scopes map voice, and partial removal 
   assert.equal(hiddenWithdrawal.status, 409, 'the same server predicate requires explicit withdrawal when model consent is removed');
   assert.equal(storage.get(session.id).consentWithdrawn, false, 'the refused save has no side effects');
 });
+
+test('AIT-350: Grok adds its own consent item only when configured and covers parent/STT/TTS separately', async t => {
+  const { binding } = await import('../../plugins/grok-voice/test/admission-fixtures.js');
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const parent = binding(), stt = binding('grok-voice-transcribe-2.0'), tts = binding('grok-voice-tts');
+  const session = storage.create({ ownerToken: 'fixture' });
+  const absent = createProcessingConsent({ storage, bindings: [] });
+  assert.equal(absent.describe(session.id).items.some(item => item.id === 'voice-xai'), false);
+  const consent = createProcessingConsent({ storage, bindings: [parent, stt, tts], grokConfigured: true });
+  const doc = consent.describe(session.id);
+  assert.deepEqual(doc.items.map(item => [item.id, item.version]), [['voice-xai', 1]]);
+  assert.equal(consent.grant({ sessionId: session.id, consentRevision: session.consentRevision + 1,
+    decision: { contract: doc.contract, items: ['voice-xai'] } }), true);
+  storage.db.prepare("UPDATE sessions SET snapshot=json_set(snapshot,'$.consentRevision',?) WHERE id=?").run(session.consentRevision + 1, session.id);
+  for (const [b, operation] of [[parent, 'start'], [stt, 'stream'], [tts, 'speak']]) {
+    assert.equal(consent.coverage({ sessionId: session.id, consentRevision: session.consentRevision + 1, scope: processingScope(b, operation) }).covered, true);
+  }
+  assert.equal(consent.coverage({ sessionId: session.id, consentRevision: session.consentRevision + 1, scope: processingScope(stt, 'speak') }).covered, false);
+});

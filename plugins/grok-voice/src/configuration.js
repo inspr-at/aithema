@@ -1,4 +1,4 @@
-import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { deepFreeze } from '../../../packages/core/src/plugins.js';
 
 export const STT_MODEL = 'grok-voice-transcribe-2.0';
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });

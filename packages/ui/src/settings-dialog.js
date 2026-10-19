@@ -60,6 +60,7 @@ const helpMeasurements = copy => {
 };
 
 const svg = (body, box = '0 0 24 24') => `<svg viewBox="${box}" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const CHEVRON = '<path d="m6 9 6 6 6-6"/>';
 const stars = Array.from({ length: 12 }, (_, i) => `<path d="m0-2 .6 1.3 1.4.2-1 1 .2 1.4L0 1.2l-1.2.7.2-1.4-1-1 1.4-.2Z" transform="translate(${(16 + 10 * Math.sin(i * Math.PI / 6)).toFixed(2)} ${(16 - 10 * Math.cos(i * Math.PI / 6)).toFixed(2)})" fill="currentColor" stroke="none"/>`).join('');
 export const ICONS = Object.freeze({
   best: svg('<circle cx="16" cy="16" r="12"/><ellipse cx="16" cy="16" rx="5.5" ry="12"/><path d="M5 11h22M4 17h24M6 23h20"/>', '0 0 32 32'),
@@ -70,7 +71,7 @@ export const ICONS = Object.freeze({
   model: svg('<path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 3V5a2 2 0 0 1 2-2Z"/>'),
   local: svg('<path d="M6 4v3m0 4v9m6-16v9m0 4v3m6-16v3m0 4v9"/><circle cx="6" cy="9" r="2"/><circle cx="12" cy="15" r="2"/><circle cx="18" cy="9" r="2"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9l2.1 2.1m10 10 2.1 2.1M4.9 19.1 7 17m10-10 2.1-2.1"/>'),
-  check: svg('<path d="m5 12 5 5 9-10"/>'), chevron: svg('<path d="m6 9 6 6 6-6"/>'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
+  check: svg('<path d="m5 12 5 5 9-10"/>'), chevron: svg(CHEVRON), disclosureChevron: svg(CHEVRON, '5 5 14 14'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
   text: svg('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h2m2 0h2m2 0h2m2 0h2M5 12h2m2 0h2m2 0h2m2 0h2M6 15h12"/>'),
   off: svg('<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>'),
 });
@@ -125,10 +126,10 @@ export class SettingsDialog {
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
-  #closeGeneration = 0; #pendingPreset = null;
+  #closeGeneration = 0; #pendingPreset = null; #pendingVoice = null; #pendingConsentItem = null; #voiceConfirm = false; #switchBusy = false;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
-    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => this.close() } });
+    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => void this.#finishVoiceConsent() } });
     if (operator) this.#operator = new OperatorSettings({ parent: this.#q('.general'), copy: this.#copy, operator });
   }
   get open() { return this.#dialog.open; }
@@ -164,7 +165,9 @@ export class SettingsDialog {
                 <output id="settings-effort-value" for="settings-effort"></output></div><p class="note effort-note"></p></div></fieldset>
           </div>
           <div class="settings-column">
-            <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="voice" data-text="voice"></span></legend>${select('voice')}</fieldset>
+            <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="voice" data-text="voice"></span></legend>${select('voice')}
+              <div class="voice-switch-slot"><div class="voice-switch-measure" aria-hidden="true"><p data-text="voiceSwitchWarning"></p><span data-text="voiceSwitchApply"></span><span data-text="voiceSwitchCancel"></span></div>
+                <div class="voice-switch-confirm" hidden><p role="status" aria-live="polite" data-text="voiceSwitchWarning"></p><div class="voice-switch-actions"><button type="button" class="voice-switch-apply" data-text="voiceSwitchApply"></button><button type="button" class="voice-switch-cancel" data-text="voiceSwitchCancel"></button></div></div></div></fieldset>
             <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="visuals" data-text="visuals"></span></legend>${select('visuals')}</fieldset>
             <div class="notice-area"><div class="notice-body" role="status" aria-live="polite"><p class="notice-text" id="settings-notice"></p><button type="button" class="notice-action" hidden></button></div></div>
           </div>
@@ -182,8 +185,8 @@ export class SettingsDialog {
         <section class="settings-panel" role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" data-panel="local" hidden><div class="local-host"></div></section>
       </div>
       <div class="settings-context"><span class="context-icon" aria-hidden="true">i</span><div class="context-text"><p class="context-message" role="status" aria-live="polite"></p></div></div>
-      <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers" data-text="providers"></summary>
-          <div class="disclosure__body"><p class="disclosure-processing"></p><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
+      <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers"><span data-text="providers"></span>${ICONS.disclosureChevron}</summary>
+          <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
           <button type="button" class="link footer-consent" data-help="consent" data-text="manageConsent"></button></div>
         <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" role="status" aria-live="polite"></p>
           <button type="button" class="save-retry" data-text="retry" data-visible="false"></button></div>
@@ -281,8 +284,17 @@ export class SettingsDialog {
       if (value) this.#change({ effort: value }, true);
     });
     effort.addEventListener('change', () => { if (this.#timer) { clearTimeout(this.#timer); this.#timer = 0; void this.#save(); } });
+    this.#q('.voice-switch-cancel').addEventListener('click', () => {
+      if (this.#switchBusy) return;
+      this.#voiceConfirm = false; this.#pendingVoice = null; this.#draft = { ...this.#active };
+      this.#status = this.#copy.settings.voiceSwitchCancelled; this.#render(); this.#focusVoice();
+    });
+    this.#q('.voice-switch-apply').addEventListener('click', () => void this.#applyVoiceSwitch());
     this.#q('.done').addEventListener('click', () => void this.#done());
-    this.#q('.save-retry').addEventListener('click', () => { this.#failed = false; void this.#save(true); });
+    this.#q('.save-retry').addEventListener('click', () => {
+      const voice = this.#draft?.voice !== this.#active?.voice; this.#failed = false;
+      void this.#save(true).then(() => { if (voice && this.#dialog.open) this.#focusVoice(); });
+    });
     // The hidden .notice-measure copy is prepended before .notice-body; scope to the visible notice (AIT-245).
     this.#q('.notice-body .notice-action').addEventListener('click', () => {
       if (this.#notice?.action) void this.#notice.action();
@@ -335,12 +347,20 @@ export class SettingsDialog {
         // Keep the response style when the new model offers it, else use the host's default for that model.
         this.#change({ model: value, effort: !target?.efforts.length ? null : target.efforts.includes(this.#draft.effort) ? this.#draft.effort
           : target.effort ?? preferredEffort(target.efforts) });
-      } else this.#change({ [name]: value });
+      } else if (name === 'voice') void this.#chooseVoice(value);
+      else this.#change({ [name]: value });
     });
   }
   #openMenu(select) {
     for (const other of this.#all('.select')) if (other !== select) this.#closeMenu(other);
-    select.querySelector('.select__menu').hidden = false;
+    const menu = select.querySelector('.select__menu');
+    delete select.dataset.menuAbove;
+    menu.hidden = false;
+    // A fitted gauge panel need not leave scroll overflow below the fields.
+    // Keep the options inside the body without moving the visitor's choice.
+    const body = this.#q('.settings__body').getBoundingClientRect(), bounds = menu.getBoundingClientRect();
+    const spaceAbove = select.getBoundingClientRect().top - body.top;
+    if (bounds.bottom > body.bottom && spaceAbove > bounds.height) select.dataset.menuAbove = 'true';
     select.querySelector('.select__button').setAttribute('aria-expanded', 'true');
   }
   #closeMenu(select, focus = false) {
@@ -412,7 +432,7 @@ export class SettingsDialog {
   close() {
     if (!this.#dialog.open || this.#closing) return;
     this.#closeGeneration++;
-    this.#closing = true; this.#pendingPreset = null;
+    this.#closing = true; this.#pendingPreset = null; this.#pendingVoice = null; this.#voiceConfirm = false;
     clearTimeout(this.#timer); this.#timer = 0;
     for (const select of this.#all('.select')) this.#closeMenu(select);
     this.#q('.disclosure').open = false;
@@ -438,7 +458,7 @@ export class SettingsDialog {
     return true;
   }
   async #done() {
-    if (this.#pendingPreset) return;
+    if (this.#pendingPreset || this.#voiceConfirm || this.#switchBusy) return;
     // Done owns this interaction only. Later navigation, edits or reopening
     // cancel its close while the save still records the explicit confirmation.
     const generation = ++this.#closeGeneration;
@@ -501,6 +521,58 @@ export class SettingsDialog {
     }
     this.#change(next);
   }
+  #focusVoice() { this.#q('#settings-select-voice').focus({ preventScroll: true }); }
+  async #chooseVoice(value) {
+    if (this.#switchBusy || value === this.#draft?.voice) return;
+    const option = this.#presetInfo()?.voices?.find(o => o.id === value);
+    if (option?.status === 'unavailable') return;
+    this.#pendingVoice = null;
+    if (this.#ports.state().voiceActive) {
+      this.#draft = { ...this.#draft, voice: value }; this.#revision++; this.#failed = false;
+      this.#voiceConfirm = true; this.#render(); return;
+    }
+    if (option?.facts?.consentItem && option.status === 'consent') {
+      await this.#requireVoiceConsent(value, option.facts.consentItem); return;
+    }
+    this.#voiceConfirm = false; this.#change({ voice: value });
+    await this.#saving; this.#focusVoice();
+  }
+  async #requireVoiceConsent(value, item) {
+    this.#pendingVoice = value; this.#pendingConsentItem = item;
+    // Existing consent editor; the provider stays acknowledged until the exact grant returns.
+    if (!this.#consentEditor) { this.#pendingVoice = null; this.#ports.consent?.('settings', ['voice']); return; }
+    this.#setTab('general');
+    await this.#consentEditor.open('voice', { item }); this.#render();
+  }
+  async #finishVoiceConsent() {
+    const value = this.#pendingVoice, item = this.#pendingConsentItem;
+    if (!value) { this.close(); return; }
+    const generation = this.#closeGeneration;
+    const doc = await this.#ports.consentDocument().catch(() => null);
+    if (!this.#dialog.open || this.#pendingVoice !== value || generation !== this.#closeGeneration) return;
+    this.#pendingVoice = null; this.#consentEditor.close();
+    this.#setTab('model');
+    if (doc?.items?.some(entry => entry.id === item?.id && entry.version === item.version) && doc.selected?.includes(item?.id)) {
+      await this.reload(); await this.#chooseVoice(value);
+    }
+    this.#render(); this.#focusVoice();
+  }
+  async #applyVoiceSwitch() {
+    if (this.#switchBusy || !this.#voiceConfirm) return;
+    this.#switchBusy = true; this.#render();
+    try {
+      await this.#ports.endCall();
+      if (!this.#dialog.open) return;
+      if (this.#ports.state().voiceActive) throw new Error('Call still active');
+      this.#voiceConfirm = false;
+      const value = this.#draft.voice, option = this.#presetInfo()?.voices?.find(o => o.id === value);
+      if (option?.facts?.consentItem && option.status === 'consent') {
+        this.#draft = { ...this.#draft, voice: this.#active.voice };
+        await this.#requireVoiceConsent(value, option.facts.consentItem);
+      } else await this.#save();
+    } catch { this.#failed = true; this.#status = this.#copy.settings.failed; }
+    finally { this.#switchBusy = false; this.#render(); if (this.#dialog.open && !this.#pendingVoice) this.#focusVoice(); }
+  }
   #change(patch, debounce = false) {
     if (!this.#draft) return;
     this.#closeGeneration++; this.#pendingPreset = null;
@@ -513,7 +585,7 @@ export class SettingsDialog {
   }
   // One writer: edits made while a save runs are drained after its acknowledgement.
   #save(retry = false, confirm = false) {
-    if (this.#pendingPreset) return Promise.resolve();
+    if (this.#pendingPreset || this.#voiceConfirm) return Promise.resolve();
     if (this.#saving) return this.#saving.then(() => { if (this.#pending() && !this.#failed && !this.#timer) return this.#save(); });
     const drain = async () => {
       while ((this.#pending() || confirm) && this.#dialog.open && !this.#closing) {
@@ -566,6 +638,7 @@ export class SettingsDialog {
   }
   #callNotice() {
     const c = this.#copy.settings;
+    if (this.#draft.voice !== this.#active.voice) { this.#voiceConfirm = true; this.#render(); return; }
     this.#notice = { text: c.callActive, label: c.endCallApply, explicit: true, action: async () => {
       this.#notice = { text: c.callActive }; this.#render();
       await this.#ports.endCall();
@@ -610,7 +683,7 @@ export class SettingsDialog {
     return !option ? '' : !option.offered && kind === 'retained' ? c.notOffered : option.status === 'unavailable' ? c.unavailable
       : option.status === 'consent' ? c.consentNeeded : option.status === 'limited' ? c.limited : '';
   }
-  #optionNode({ value, label, vendor, status, kind, reason, help, icon, selected, feature }) {
+  #optionNode({ value, label, vendor, status, kind, reason, help, icon, selected, feature, detail }) {
     const node = document.createElement('button'); node.type = 'button'; node.className = 'select__option'; node.setAttribute('role', 'option');
     node.tabIndex = -1; node.dataset.value = value; node.dataset.help = help;
     if (feature) node.dataset.feature = feature;
@@ -618,10 +691,12 @@ export class SettingsDialog {
     if (reason) { node.dataset.reason = reason; node.dataset.kind = kind; }
     const name = document.createElement('span'); name.className = 'option-label';
     const strong = document.createElement('strong'); strong.textContent = label; name.append(strong);
-    if (vendor && vendor !== label) { const small = document.createElement('small'); small.textContent = vendor; name.append(small); }
+    if (detail) { const second = document.createElement('small'); second.className = 'option-detail'; second.textContent = detail; name.append(second); }
+    if (!detail && vendor && vendor !== label) { const small = document.createElement('small'); small.textContent = vendor; name.append(small); }
     const state = document.createElement('small'); state.className = 'option-status'; state.dataset.kind = kind ?? ''; state.textContent = status;
     const check = document.createElement('span'); check.className = 'option-check'; check.innerHTML = ICONS.check;
     if (icon) { const lead = document.createElement('span'); lead.className = 'preset-icon'; lead.innerHTML = icon; node.append(lead); }
+    if (reason) node.title = reasonText(this.#copy, reason, feature);
     node.append(name, state, check);
     return node;
   }
@@ -645,14 +720,17 @@ export class SettingsDialog {
     value.replaceChildren();
     if (loading) { const spinner = document.createElement('span'); spinner.className = 'select__spinner'; spinner.innerHTML = icon('refresh'); value.append(spinner); }
     if (chosen?.icon) { const icon = document.createElement('span'); icon.className = 'preset-icon'; icon.innerHTML = chosen.icon; value.append(icon); }
-    const label = document.createElement('span'); label.textContent = loading ? this.#copy.settings.loadingOption : chosen?.label ?? selectedValue ?? ''; value.append(label);
+    const label = document.createElement('span'); label.className = 'select__label'; label.textContent = loading ? this.#copy.settings.loadingOption : chosen?.label ?? selectedValue ?? ''; value.append(label);
+    if (name === 'voice') {
+      const detail = document.createElement('small'); detail.className = 'select__detail'; detail.textContent = chosen?.detail ?? ''; value.append(detail);
+    }
     button.disabled = loading;
     button.setAttribute('aria-disabled', String(disabled));
     if (reason) button.dataset.reason = reason; else delete button.dataset.reason;
     button.setAttribute('aria-label', `${menu.getAttribute('aria-label')}: ${label.textContent}`);
     if (disabled) this.#closeMenu(select);
   }
-  #paintGauge(kind, gauge) {
+  #paintGauge(kind, gauge, neutral = false) {
     const g = this.#copy.gauges, node = this.#q(`[data-gauge="${kind}"]`), level = node.querySelector('.gauge__level');
     const value = fill(g.values[gauge.state] ?? gauge.state, gauge.state === 'hostCountries'
       ? { ...gauge, countries: shortCountryNames(gauge.countries, this.#copy.display.locale) } : gauge);
@@ -665,7 +743,7 @@ export class SettingsDialog {
     node.setAttribute('aria-label', `${g.labels[kind]}: ${value}${detail ? `, ${detail}` : ''}`);
     node.dataset.state = gauge.state;
     node.classList.remove('gauge--unrated', 'gauge--measured');
-    node.classList.add(gaugeVialState(kind, gauge));
+    node.classList.add(neutral ? 'gauge--unrated' : gaugeVialState(kind, gauge));
     if (kind === 'privacy' && gauge.state === 'hostCountries') node.tabIndex = 0; else node.removeAttribute('tabindex');
     const key = String(gauge.fill), changed = level.dataset.fill !== undefined && level.dataset.fill !== key;
     level.dataset.fill = key; level.style.setProperty('--empty', `${100 - gauge.fill}%`);
@@ -711,6 +789,8 @@ export class SettingsDialog {
     this.#q('.effort-note').textContent = !catalog ? (this.#loadFailed ? c.loadFailed : c.loading) : device ? c.deviceNote : c.fixedEffort;
     const optional = (name, list, off, offLabel, help) => [{ value: SETTINGS_OFF, label: offLabel, icon: name === 'voice' ? ICONS.text : ICONS.off, help: off },
       ...list.map(o => ({ value: o.id, label: named(o.label), vendor: this.#copy.catalogDescriptions?.[o.label] ?? named(o.facts?.vendor), status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
+        ...(name === 'voice' ? { detail: o.status === 'unavailable' ? ['not configured', 'grok-account-not-configured'].includes(o.reason) ? c.notConfigured : c.unavailable
+          : o.status === 'consent' ? c.consentNeeded : o.facts?.liveQualification === 'unverified' ? c.voiceUnverified : this.#copy.catalogDescriptions?.[o.label] ?? fill(c.voiceConfigured, { provider: named(o.label) }), status: '' } : {}),
         reason: o.status === 'available' ? '' : o.reason, help, feature: name === 'voice' ? 'voice' : o.kind === 'html' ? 'html' : 'images' }))];
     this.#renderSelect('voice', optional('voice', device ? [] : info?.voices ?? [], 'voiceOff', c.voiceOff, 'voice'), draft.voice ?? SETTINGS_OFF,
       { disabled: device || !catalog, reason: device ? 'unavailable on device' : '' });
@@ -719,13 +799,22 @@ export class SettingsDialog {
     const voiceOption = info?.voices?.find(o => o.id === draft.voice) ?? null, visualsOption = info?.visuals?.find(o => o.id === draft.visuals) ?? null;
     const gauges = hostSettingsGauges({ preset: draft.processingPreset, info: info ?? {}, model: option, effort: draft.effort,
       voice: draft.voice === SETTINGS_OFF ? null : voiceOption, visuals: draft.visuals === SETTINGS_OFF ? null : visualsOption });
-    for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind]);
+    for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind], kind === 'voice' && voiceOption?.facts?.liveQualification === 'unverified');
     const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : this.#pendingPreset ? { text: c.loading } : null);
     this.#q('.notice-area').dataset.kind = notice ? 'notice' : '';
     this.#q('.notice-body .notice-text').textContent = notice?.text ?? '';
     this.#q('.notice-body .notice-action').hidden = !notice?.label;
     this.#q('.notice-body .notice-action').textContent = notice?.label ?? '';
     this.#q('.disclosure-processing').textContent = c.processingDetails[draft.processingPreset] ?? '';
+    this.#q('.voice-switch-confirm').hidden = !this.#voiceConfirm;
+    this.#q('.voice-switch-apply').disabled = this.#switchBusy;
+    this.#q('.voice-switch-cancel').disabled = this.#switchBusy;
+    this.#q('#settings-select-voice').disabled ||= this.#switchBusy;
+    const facts = voiceOption?.facts?.providerProcessing;
+    this.#q('.disclosure-recipient').textContent = facts?.vendor ? fill(facts.recipientCountries?.length ? c.providerSeat : c.providerSeatUnknown,
+      { countries: this.#copy.display.locale.startsWith('de') && JSON.stringify(facts.recipientCountries) === '["US"]' ? 'den USA' : countryNames(facts.recipientCountries ?? [], this.#copy.display.locale), vendor: facts.vendor }) : '';
+    this.#q('.disclosure-geography').textContent = facts?.vendor ? facts.processingCountries?.length
+      ? fill(c.processingGuaranteed, { countries: countryNames(facts.processingCountries, this.#copy.display.locale) }) : c.processingInternational : '';
     const consent = state.consent;
     this.#q('.general-consent').textContent = c.consentStates[consent] ?? '';
     this.#q('.general-recommended').disabled = device || !info?.defaults;
