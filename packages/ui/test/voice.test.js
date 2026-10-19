@@ -1351,7 +1351,7 @@ for (const copy of [de, en]) for (const ledgerFirst of [false, true]) {
 for (const copy of [de, en]) test(`AIT-379: ${copy.display.locale} native end shows the existing ended state and permits restart`, async t => {
   const { rail, root, events } = fixture(t); rail.copy = copy;
   await rail.start();
-  events.push({ type: 'ended', reason: 'provider-end' }); events.end(); await tick();
+  events.push({ type: 'ended', callId: rail.session.callId, reason: 'provider-end' }); events.end(); await tick();
   assert.equal(root.dataset.state, 'idle'); assert.equal(root.dataset.call, 'none');
   assert.equal(root.querySelector('.voice-state').textContent, copy.voiceEnded);
   assert.equal(root.hasAttribute('data-message'), false);
