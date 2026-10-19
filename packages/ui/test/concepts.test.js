@@ -1163,7 +1163,7 @@ for (const changed of [['html-drafts']]) test(`AIT-365 E3 ${JSON.stringify(chang
   view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
   const source = root.querySelector('.concept-html').artifact;
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, ...(changed ? { changed } : {}) } });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, ...(changed ? { changed } : {}), removed: [] } });
   await tick();
   assert.equal(view.dialog.open, true, 'an older consent document waits within the verification window');
   assert.equal(root.querySelector('.concept-html').artifact, source);
@@ -1188,7 +1188,7 @@ test('AIT-365 E3: a persistently lagging grant document still fails closed at th
   state.document = () => Response.json({ consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   view.update(c.session, { consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
-  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'] } }); await tick();
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'], removed: [] } }); await tick();
   assert.equal(view.dialog.open, true);
   t.mock.timers.tick(1999); assert.equal(view.dialog.open, true);
   t.mock.timers.tick(1); assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
@@ -1236,6 +1236,20 @@ for (const kind of ['html', 'image']) test(`AIT-365 R2 E1 ${kind}: a stale missi
   view.reviseConsent([feature === 'html' ? 'html-drafts' : feature], false);
   assert.equal(view.dialog.open, false, 'a stale document is not proof of a grant during withdrawal');
   assert.equal(view.items.some(item => item.id === kind), false);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+});
+
+for (const kind of ['html', 'image']) test(`AIT-365 R2 Low2 ${kind}: partial granted:true withdrawal ignores a stale missing selection in the event tick`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open(kind); await tick();
+  view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const scope = kind === 'html' ? 'html-drafts' : 'images';
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: [scope], removed: [scope] } });
+  assert.equal(view.dialog.open, false, 'a stale missing selection cannot turn a server-confirmed removal into a grant');
+  assert.deepEqual(view.items.map(item => item.id), [kind === 'html' ? 'image' : 'html']);
   assert.equal(root.querySelector('.concept-html').artifact, null);
   assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
 });

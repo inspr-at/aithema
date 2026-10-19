@@ -234,13 +234,14 @@ for (const initial of [[], ['models', 'drafts', 'images']]) test(`AIT-365: chang
   const session = storage.create({ demo: true, ownerToken: testToken });
   const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ granted: true, processing: { revision: 0, contract: 'private-contract', items: ['images'], changed: ['images'] }, changed: ['images'] }),
+    body: JSON.stringify({ granted: true, processing: { revision: 0, contract: 'private-contract', items: ['images'], changed: ['images'] }, changed: ['images'], removed: ['images'] }),
   }));
   assert.equal(response.status, 200);
   const { event } = await response.json();
   assert.deepEqual(event.data.changed, ['html-drafts']);
+  assert.deepEqual(event.data.removed, initial.length ? ['html-drafts'] : [], 'direction comes from the authoritative coverage delta');
   assert.deepEqual(storage.read(session.id).find(e => e.seq === event.seq).data, event.data, 'durable replay carries exactly the same scopes');
-  assert.deepEqual(Object.keys(event.data).sort(), ['at', 'changed', 'conversationUnchanged', 'granted']);
+  assert.deepEqual(Object.keys(event.data).sort(), ['at', 'changed', 'conversationUnchanged', 'granted', 'removed']);
   assert.doesNotMatch(JSON.stringify(event), /private-|Private|"drafts"/u, 'scope names only; no document data');
 });
 
@@ -299,6 +300,7 @@ test('AIT-365 R2: granted:false publishes every revoked scope without waiting fo
   assert.equal(response.status, 200); assert.equal(reads, before, 'withdrawal never waits for a host document');
   const { event } = await response.json();
   assert.ok(Array.isArray(event.data.changed), 'withdrawal must never omit changed when coverage is revoked');
+  assert.deepEqual(event.data.removed, event.data.changed, 'every full-withdrawal scope is a removal');
   for (const scope of ['text', 'analysis', 'voice', 'transcription', 'images', 'html-drafts', 'uploads'])
     assert.ok(event.data.changed.includes(scope), `revoked ${scope} is in the event`);
   assert.deepEqual(storage.read(session.id).find(e => e.seq === event.seq).data, event.data);
@@ -325,6 +327,7 @@ test('AIT-365 R2: a grant changed hint cannot grant coverage or suppress authori
   assert.equal(response.status, 200);
   const { event } = await response.json();
   assert.deepEqual(event.data.changed, ['html-drafts'], 'the hint adds the actual removal and cannot claim an image grant');
+  assert.deepEqual(event.data.removed, ['html-drafts']);
   const current = await (await handlers.handle(ownedRequest(path))).json();
   assert.equal(current.features.images.every(id => current.selected.includes(id)), false, 'changed never overrides missing authoritative image coverage');
   assert.equal(current.features.html.every(id => current.selected.includes(id)), false, 'the draft withdrawal remains authoritative');

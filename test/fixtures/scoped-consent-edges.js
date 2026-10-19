@@ -41,8 +41,8 @@ export async function scopedConsentEdges({ t, a, isCI, session, setSession, setS
     if (evidence) await a.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
     shots.push(file);
   };
-  const event = changed => {
-    const e = { seq: session().seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, ...(changed ? { changed } : {}) } };
+  const event = (changed, removed) => {
+    const e = { seq: session().seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, ...(changed ? { changed } : {}), ...(removed ? { removed } : {}) } };
     setSession(applyEvent(session(), e)); return e;
   };
   for (const [width, kind] of [[1440, 'html'], [390, 'html'], [1440, 'image']]) await t.test(`AIT-365 E1 ${width}/${kind}`, async () => {
@@ -86,7 +86,7 @@ export async function scopedConsentEdges({ t, a, isCI, session, setSession, setS
         if (sampleGrant) requestAnimationFrame(sample);
       }; requestAnimationFrame(sample);
     });
-    const e = event(['html-drafts']); a.holdConsentRead = true; a.heldConsentRead = null;
+    const e = event(['html-drafts'], []); a.holdConsentRead = true; a.heldConsentRead = null;
     await a.evaluate(e => c.receive(e), e);
     const first = await heldRead();
     await a.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -108,7 +108,7 @@ export async function scopedConsentEdges({ t, a, isCI, session, setSession, setS
   await t.test('AIT-365 E3: lagging document keeps the original deadline', async () => {
     await init();
     await a.evaluate(() => view.update(c.session, { consentRevision: 0, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } }));
-    const e = event(['html-drafts']); a.holdConsentRead = true; a.heldConsentRead = null;
+    const e = event(['html-drafts'], []); a.holdConsentRead = true; a.heldConsentRead = null;
     await a.evaluate(e => c.receive(e), e);
     const request = await heldRead();
     await request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ consentRevision: 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } }) });
