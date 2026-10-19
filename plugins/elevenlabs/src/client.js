@@ -130,12 +130,12 @@ export function createElevenLabsClient(ports = {}) {
       });
       const stopReplayForInput = () => { if (replay.active) { silenceReply(); replay.stop(); } };
       const stopPersistence = () => persistenceCancellation.abort();
-      const persist = async value => {
+      const persist = async (value, write = persistEvent) => {
         const signal = persistenceCancellation.signal;
         for (let attempt = 0; ; attempt++) {
           signal.throwIfAborted();
           try {
-            await voiceOperation({ signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => persistEvent(value, opts));
+            await voiceOperation({ signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => write(value, opts));
             return;
           } catch (error) {
             // Refused authority must never be retried. Network errors, timeouts and 5xx may recover.
@@ -158,7 +158,9 @@ export function createElevenLabsClient(ports = {}) {
         // Playback acknowledgements must not hold captured finals behind a
         // network round trip: Pause can reach the server while they wait.
         const saved = ['final', 'heard', 'reply'].includes(value.type)
-          ? (persistence = persistence.then(() => persist(value))) : null;
+          ? (persistence = persistence.then(() => persist(value)))
+          : value.type === 'interrupted' && control.reportActivity
+            ? (persistence = persistence.then(() => persist(value, (value, opts) => control.reportActivity(value, opts)))) : null;
         saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;
@@ -284,7 +286,7 @@ export function createElevenLabsClient(ports = {}) {
           lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
           playbackInterrupted = true; conversation?.setVolume({ volume: outputVolume() });
         };
-        const replyIds = new Map();
+        const replyIds = new Map(), confirmedInterruptions = new Set();
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
           !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
           receipt.credential.providerSessionId !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Invalid voice credential receipt');
@@ -416,6 +418,9 @@ export function createElevenLabsClient(ports = {}) {
               ...(ordinal !== undefined ? { userTurnOrdinal: ordinal } : {}),
               ...(speaker === 'assistant' && replyIds.get(eventId) ? { replyId: replyIds.get(eventId) } : {}),
               ...(eventId !== undefined ? { event_id: eventId } : {}) });
+            if (speaker === 'assistant' && confirmedInterruptions.delete(eventId)) {
+              emit({ type: 'interrupted', turnId, heardLength: 'unknown' }, false);
+            }
           },
           onAgentResponseCorrection({ event_id: eventId, original_agent_response: original, corrected_agent_response: prefix }) {
             if (!active() || typeof original !== 'string' || typeof prefix !== 'string' || !original.startsWith(prefix)) return;
@@ -458,6 +463,16 @@ export function createElevenLabsClient(ports = {}) {
               // elements (and WebSocket gain) synchronously, outside persistence
               // and the command queue. Only a newer agent reply lifts this gate.
               conversation?.setVolume({ volume: outputVolume() });
+              const turnId = `${receipt.providerSessionId}:assistant:${eventId}`;
+              // Keep metadata off the public transcript/heard event stream. If
+              // confirmation precedes the final, onMessage persists it afterward.
+              if (!paused) {
+                if (assistants.has(turnId)) emit({ type: 'interrupted', turnId, heardLength: 'unknown' }, false);
+                else {
+                  confirmedInterruptions.add(eventId);
+                  if (confirmedInterruptions.size > 256) confirmedInterruptions.delete(confirmedInterruptions.values().next().value);
+                }
+              }
               for (const waiter of interruptionWaiters) waiter();
             }
             // Only the correction callback supplies heard text; interruption never invents it.
