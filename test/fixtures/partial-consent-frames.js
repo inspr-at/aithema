@@ -19,7 +19,7 @@ export async function partialConsentFrames(t) {
     import '/packages/ui/src/session-element.js';
     import {ConceptView} from '/packages/ui/src/concept-view.js';
     const update=ConceptView.prototype.update;
-    ConceptView.prototype.update=function(s){window.view=this;const result=update.call(this,s);if(window.watching&&s.featureMatrix.best[window.removedFeature]?.reason==='current processing consent required')window.sameTick=window.inspect();return result;};
+    ConceptView.prototype.update=function(s){window.view=this;const result=update.apply(this,arguments);if(window.watching&&s.featureMatrix.best[window.removedFeature]?.reason==='current processing consent required')window.sameTick=window.inspect();return result;};
     window.revoked=[];const revoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{window.revoked.push(url);revoke(url);};
     const params=new URLSearchParams(location.search),locale=params.get('locale')||'de';
     const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');

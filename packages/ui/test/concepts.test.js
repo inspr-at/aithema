@@ -756,7 +756,7 @@ test('AIT-299: detach and re-attach immediately enable controls while an old req
 for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent removes every surface and cache, preserves the other kind`, async t => {
   let view;
   const update = ConceptView.prototype.update;
-  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
   const removed = kind === 'html' ? draft('removed') : item('removed');
   const retained = kind === 'html' ? item('retained') : draft('retained');
   const { c, root, calls, revoked } = setup(t, { concepts: [retained, removed], session: { conceptVisualKind: kind, visualsBound: true } });
@@ -788,7 +788,7 @@ for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent rem
 for (const kind of ['html', 'image']) for (const copy of [de, en]) test(`AIT-364 ${kind}/${copy.display.locale}: notice expires into consent, never idle`, async t => {
   let view;
   const update = ConceptView.prototype.update;
-  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
   const { c, root } = setup(t, { copy, concepts: [kind === 'html' ? draft('only') : item('only')], session: { conceptVisualKind: kind, visualsBound: true } });
   const timers = t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
   const feature = kind === 'html' ? 'html' : 'images';
@@ -813,7 +813,7 @@ for (const kind of ['html', 'image']) for (const copy of [de, en]) test(`AIT-364
 test('AIT-364: revision-matched document coverage wins over available features; stale documents cannot revoke', t => {
   let view;
   const update = ConceptView.prototype.update;
-  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
   const { c } = setup(t, { concepts: [item('image'), draft('html')] });
   const doc = { consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } };
   view.update(c.session, doc); assert.deepEqual(view.items.map(i => i.id), ['image', 'html']);
@@ -824,7 +824,7 @@ test('AIT-364: revision-matched document coverage wins over available features; 
 test('AIT-364: a 403 preview refusal cannot be retried by reopen or Reload', async t => {
   let view;
   const update = ConceptView.prototype.update;
-  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.call(this, session); });
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
   const { calls } = setup(t, { concepts: [draft('denied')], previewResponse: () => new Response(null, { status: 403 }) });
   const source = view.previewSource('denied');
   await assert.rejects(source.mint(), /Preview unavailable/);
