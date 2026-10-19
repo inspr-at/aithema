@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as server from '../src/server.js';
-import { componentManifest } from '../src/manifest.js';
-import { publicReasoningManifest } from '@inspr/aithema-core';
+import { SQLiteStorage } from '../../../packages/server/src/storage.js';
+import { createPluginRuntime } from '../../../packages/server/src/plugin-runtime.js';
+import { componentManifest, manifest } from '../src/manifest.js';
+import { PluginRegistry, publicReasoningManifest } from '@inspr/aithema-core';
 
 const at = Date.parse('2026-10-19T12:00:00Z');
 const origin = 'https://api.eu.mistral.ai';
@@ -20,7 +22,7 @@ function fixture() {
         reasoning: { model: 'mistral-synthetic', endpoint: urls.reasoning },
         tts: { model: 'voxtral-mini-tts-2603', endpoint: urls.tts } } } };
   function binding(plugin, model, endpoint = origin) {
-    return { plugin, model, endpoint, accountRef: config.accountRef, secretRef: config.secretRef, effort: 'none',
+    return { plugin, model, endpoint, maxMicro: 0, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, accountRef: config.accountRef, secretRef: config.secretRef, effort: 'none',
       legal: { approved: true, purpose: 'voice-mistral', consentVersion: 1, recipient: config.accountEvidence.recipient,
         countries: ['FR'], processingCountries: ['FR', 'DE'], processors: [], training: false, retention: 'synthetic ZDR',
         dataCategories: ['speech-input', 'transcripts', 'answer-text', 'connection-data'], evidence: {
@@ -154,4 +156,98 @@ test('AIT-331: exact endpoint allowlist rejects arbitrary origins and malformed 
   for (const endpoint of ['https://evil.test', `${origin}/`, `${origin}/v1`, `${origin}?x=1`, 'http://api.eu.mistral.ai']) {
     assert.throws(() => server.voxtralEndpoints(endpoint), TypeError);
   }
+});
+
+test('AIT-331: account validation freezes its snapshot and rejects extra evidence/inline secrets', () => {
+  assert.equal(typeof server.validateVoxtralAccountConfiguration, 'function');
+  const f = fixture(), saved = server.validateVoxtralAccountConfiguration(f.config, { now: at });
+  assert.ok(Object.isFrozen(saved.accountEvidence.services.stt));
+  assert.ok(Object.isFrozen(saved.accountEvidence.undertaking.processingCountries));
+  f.config.accountEvidence.undertaking.processingCountries.push('US');
+  assert.deepEqual(saved.accountEvidence.undertaking.processingCountries, ['FR', 'DE']);
+  for (const mutate of [
+    config => { config.apiKey = 'synthetic-inline-forbidden'; },
+    config => { config.accountEvidence.apiKey = 'synthetic-inline-forbidden'; },
+    config => { config.accountEvidence.services.stt.fallback = 'https://api.mistral.ai'; },
+    config => { config.accountEvidence.zdrEnabled = false; },
+    config => { config.accountEvidence.dpaAccepted = false; },
+  ]) {
+    const input = fixture().config; mutate(input);
+    assert.throws(() => server.validateVoxtralAccountConfiguration(input, { now: at }), TypeError);
+  }
+});
+
+test('AIT-331: current grant cannot revive a withdrawn call or deliver its late result', async () => {
+  const f = fixture(), authority = f.create();
+  assert.equal(await authority.admissionReason(f.request), null);
+  f.setSession({ ...f.request.session, consentWithdrawn: true, consentRevision: 2 });
+  assert.notEqual(await authority.admissionReason(f.request, { existingCall: true }), null);
+});
+
+test('AIT-331: in-place revision mutation during coverage cannot bypass the captured revision', async () => {
+  const f = fixture(), original = f.consent.coverage;
+  f.consent.coverage = async request => { const grant = await original(request); f.request.session.consentRevision++; return grant; };
+  assert.notEqual(await f.create().admissionReason(f.request), null);
+});
+
+test('AIT-331: earlier grants are rechecked after the final host coverage returns', async () => {
+  const f = fixture(), original = f.consent.coverage;
+  f.consent.coverage = async request => {
+    if (request.scope.operation === 'process') f.setClock(at + 1001);
+    return original(request);
+  };
+  assert.notEqual(await f.create().admissionReason(f.request), null);
+});
+
+test('AIT-331: missing authoritative session reader and cancelled coverage fail closed', async () => {
+  const f = fixture(); delete f.args.getSession;
+  assert.notEqual(await f.create().admissionReason(f.request), null);
+  const other = fixture();
+  assert.notEqual(await other.create().admissionReason(other.request, { signal: AbortSignal.abort() }), null);
+});
+
+test('AIT-331: independently qualified other-provider reasoning is non-EU under best too', () => {
+  const f = fixture(), b = f.componentBindings.reasoning;
+  b.plugin = 'other'; b.endpoint = 'https://reasoning.test'; b.legal.evidence.endpoint = b.endpoint;
+  f.plugins.reasoning = { manifest: publicReasoningManifest('other', 'Other', b.endpoint) };
+  f.request.policy.endpoints.push(b.endpoint);
+  const authority = f.create(), result = authority.evaluate({ ...f.request, preset: 'best' });
+  assert.equal(result.reason, null); assert.equal(result.euEligible, false);
+  assert.equal(result.links.stt.available, true); assert.equal(result.links.tts.available, true);
+  assert.notEqual(authority.evaluate(f.request).links.reasoning.reason, null);
+});
+
+for (const euOnly of [true, false]) test(`AIT-331: ordinary feature matrix uses complete-chain authority (EU undertaking ${euOnly})`, async t => {
+  const f = fixture(), storage = new SQLiteStorage(); t.after(() => storage.close());
+  const session = storage.create({ ownerToken: 'synthetic-owner' }), clock = Date.now();
+  f.setClock(clock); f.args.getSession = id => storage.get(id);
+  if (!euOnly) f.config.accountEvidence.undertaking.region = 'EU/EFTA';
+  for (const b of [...Object.values(f.componentBindings), f.hostProcessing[0].binding]) {
+    b.legal.evidence.verifiedAt = clock - 1000; b.legal.evidence.expiresAt = clock + 60000;
+  }
+  const authority = f.create(), parent = structuredClone(f.componentBindings.stt);
+  parent.plugin = 'voxtral-voice'; parent.model = 'voxtral-voice';
+  Object.assign(parent.legal.evidence, { model: parent.model });
+  Object.assign(parent, { maxDurationSeconds: 120, upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
+  const noDispatch = () => assert.fail('Feature matrix must never dispatch');
+  const voice = { binding: parent, manifest, health: async () => ({ available: true }), start: noDispatch,
+    ports: { serverAdapter: { ...authority.ports.serverAdapter, binding: parent,
+      validateConfig() {}, startSegment: noDispatch, stopSegment: noDispatch, reconciliationEvidence: noDispatch } } };
+  const reasoning = { ...f.plugins.reasoning, binding: f.componentBindings.reasoning,
+    health: async () => ({ available: true }), stream: noDispatch, structured: noDispatch };
+  const registry = new PluginRegistry().register(voice).register(reasoning);
+  const settings = { plugins: ['voxtral-voice', 'mistral'], policy: f.request.policy,
+    bindings: { voice: parent, reaction: f.componentBindings.reasoning } };
+  const runtime = createPluginRuntime({ storage, registry, consent: f.consent, presets: { best: settings, eu: settings } });
+  const matrix = await runtime.matrix(session);
+  assert.equal(matrix.best.voice.available, true, matrix.best.voice.reason);
+  assert.equal(matrix.eu.voice.available, euOnly, matrix.eu.voice.reason);
+});
+
+test('AIT-331: missing regional account evidence still exposes honest processing detail, never eligibility', () => {
+  const f = fixture(); delete f.config.accountEvidence;
+  const authority = f.create();
+  assert.equal(authority.processingDetail().code, 'regional-inference');
+  assert.match(authority.processingDetail().text, /account and control data may be processed elsewhere/u);
+  assert.equal(authority.evaluate(f.request).euEligible, false);
 });
