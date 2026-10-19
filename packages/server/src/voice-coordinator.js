@@ -158,7 +158,11 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     if (!signal.aborted && current()) {
       holdRevision++;
       silence('component-failed'); discardInput(); dispatch({ type: 'recovery-exhausted' });
-      event({ type: 'waiting', reason: error?.code ?? 'provider' });
+      // Preserve only bounded, known provider reasons; raw provider messages
+      // can contain private input and must never reach the browser relay.
+      const reason = ['tts-moderation-refused', 'tts-forbidden-or-moderation'].includes(error?.message)
+        ? error.message : error?.code ?? 'provider';
+      event({ type: 'waiting', reason });
     }
   }
   async function acceptTurn(turn, text, signal, committed, delivery) {

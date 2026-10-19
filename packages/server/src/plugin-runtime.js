@@ -291,6 +291,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const admissionReason = plugin.ports?.serverAdapter?.admissionReason;
     if (feature === 'voice' && admissionReason) {
       try {
+        // A provider that cannot describe its complete voice scopes cannot
+        // admit voice. Consent enumeration isolates this failure to this lane.
+        plugin.ports.serverAdapter.processingScopes?.();
         // Opt-in authorities must qualify the same session selection that the
         // delegated reasoning lane will dispatch, including preset defaults.
         const selection = plugin.ports.serverAdapter.requiresReasoningBinding === true
