@@ -217,3 +217,29 @@ for (const port of ['describe', 'conversationUnchanged', 'grant']) test(`AIT-321
   assert.deepEqual(calls, ['withdrawn'], 'no later host grant after withdrawal inside an earlier port');
   assert.equal(storage.get(session.id).consentWithdrawn, true);
 });
+
+for (const initial of [[], ['models', 'drafts', 'images']]) test(`AIT-365: changed scopes come from authoritative documents (${initial.length ? 'withdraw' : 'grant'})`, async t => {
+  const storage = new SQLiteStorage(); let selected = [...initial];
+  const consent = { coverage: () => ({ covered: false }),
+    describe: () => ({ contract: 'private-contract', selected: [...selected], items: ['models', 'drafts', 'images'].map(id =>
+      ({ id, version: 1, title: 'Private title', recipients: 'Private recipient', text: 'Private terms' })) }),
+    conversationUnchanged: () => true,
+    // Deliberately differs from the submitted decision: never echo browser items.
+    grant: () => { selected = initial.length ? ['models', 'images'] : ['drafts']; return true; },
+  };
+  const pluginRuntime = createPluginRuntime({ storage, consent });
+  pluginRuntime.scopes = (session, { feature } = {}) => [{ purpose: feature === 'html' ? 'drafts' : feature === 'images' ? 'images' : 'models' }];
+  const handlers = createHandlers({ storage, consent, pluginRuntime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ granted: true, processing: { revision: 0, contract: 'private-contract', items: ['images'], changed: ['images'] }, changed: ['images'] }),
+  }));
+  assert.equal(response.status, 200);
+  const { event } = await response.json();
+  assert.deepEqual(event.data.changed, ['html-drafts']);
+  assert.deepEqual(storage.read(session.id).find(e => e.seq === event.seq).data, event.data, 'durable replay carries exactly the same scopes');
+  assert.deepEqual(Object.keys(event.data).sort(), ['at', 'changed', 'conversationUnchanged', 'granted']);
+  assert.doesNotMatch(JSON.stringify(event), /private-|Private|"drafts"/u, 'scope names only; no document data');
+});
