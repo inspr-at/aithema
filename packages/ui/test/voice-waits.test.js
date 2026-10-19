@@ -27,16 +27,16 @@ after(async () => {
   await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
   await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait377-state-checks.json'), JSON.stringify({ checks }, null, 2));
 });
-function fixture(t, provider, { ready, opening, microphone = false, replyStarted = false, error } = {}) {
+function fixture(t, provider, { ready, opening, microphone = false, deferredMicrophone = false, replyStarted = false, opener, error } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
   const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
   const events = voiceEvents(), calls = [], closes = [];
   const session = { callId: 'offline-call', providerSessionId: 'offline-provider', events,
-    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async setInput() {}, async setOutput() {}, async updateContext() {}, async sendText() {},
     async close() { closes.push(Date.now()); return { closureConfirmed: true, usage: { costEstimated: false } }; } };
-  const client = { manifest: { id: provider, liveVoice: { capabilities: { onMicrophoneState: 'native', ...(replyStarted ? { replyStarted: 'native' } : {}) } } }, async start(request, options) {
+  const client = { manifest: { id: provider, liveVoice: { capabilities: { onMicrophoneState: 'native', ...(replyStarted ? { replyStarted: 'native' } : {}), ...(opener !== undefined ? { opener } : {}) } } }, async start(request, options) {
     calls.push({ at: Date.now(), options });
-    options.onMicrophoneState?.(microphone ? 'requesting' : 'granted');
+    if (!deferredMicrophone) options.onMicrophoneState?.(microphone ? 'requesting' : 'granted');
     if (error) throw error;
     return opening ? opening.promise : session;
   } };
@@ -136,7 +136,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     record(provider, 'no getUserMedia: no call, no Retry, mic guidance');
   });
   test(`AIT-377 ${provider}: opener and user-turn watchdog, filler ignored, late transcript clears, visitor silence ignored`, async t => {
-    const { rail, send, session } = fixture(t, provider, { replyStarted: true }); await rail.start();
+    const { rail, send, session } = fixture(t, provider, { replyStarted: true, opener: true }); await rail.start();
     t.mock.timers.tick(14_999); await flush(); assert.equal(rail.errorKey, null);
     t.mock.timers.tick(1); await flush(); assert.equal(rail.errorKey, 'voiceNoReply'); assert.equal(rail.session, session);
     await send({ type: 'final', role: 'assistant', text: 'Eine Antwort.', turnId: 'answer' });
@@ -152,7 +152,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     record(provider, '15 s opener and user-turn watchdog; filler ignored; late transcript clears; visitor silence never arms; End clears', { openerMs: 15000, replyMs: 15000, capability: 'replyStarted' });
   });
   test(`AIT-377 ${provider}: visitor speech holds the opener watch until the turn ends`, async t => {
-    const { rail, send } = fixture(t, provider, { replyStarted: true }); await rail.start();
+    const { rail, send } = fixture(t, provider, { replyStarted: true, opener: true }); await rail.start();
     t.mock.timers.tick(10_000); await send({ type: 'partial', role: 'user', text: 'Eine längere Frage', turnId: 'speaking-user' });
     t.mock.timers.tick(20_000); await flush(); assert.equal(rail.errorKey, null);
     await send({ type: 'final', role: 'user', text: 'Eine längere Frage.', turnId: 'user-turn' });
@@ -161,7 +161,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     record(provider, 'watchdog waits for end of visitor speech', { replyMs: 15000 });
   });
   test(`AIT-377 ${provider}: declared reply-started audio clears and blocks S5 during long speech`, async t => {
-    const { rail, send } = fixture(t, provider, { replyStarted: true }); await rail.start();
+    const { rail, send } = fixture(t, provider, { replyStarted: true, opener: true }); await rail.start();
     t.mock.timers.tick(14_999); await send({ type: 'speaking', audio: true });
     t.mock.timers.tick(30_000); await flush(); assert.equal(rail.errorKey, null);
     assert.equal(rail.state, 'speaking'); assert.equal(rail.replyTimer, null);
@@ -173,6 +173,57 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     assert.equal(rail.state, 'speaking');
     t.mock.timers.tick(30_000); await flush(); assert.equal(rail.errorKey, null);
     record(provider, 'declared non-filler audio clears/blocks S5; filler does not; late audio clears', { capability: 'replyStarted' });
+  });
+  test(`AIT-377 ${provider}: declared silent repair never arms S5`, async t => {
+    const { rail, send } = fixture(t, provider, { replyStarted: true, opener: true }); await rail.start();
+    await send({ type: 'speaking', audio: true });
+    await send({ type: 'recovering' });
+    await send({ type: 'recovered', recovery: 'silent' });
+    assert.equal(rail.state, 'listening');
+    t.mock.timers.tick(15_000); await flush();
+    assert.equal(rail.errorKey, null); assert.equal(rail.replyTimer, null);
+    record(provider, 'declared silent repair plus 15 s visitor silence never arms S5');
+  });
+  for (const opener of [undefined, false, 'native']) test(`AIT-377 ${provider}: opener ${opener} does not arm S5 on connect`, async t => {
+    const { rail } = fixture(t, provider, { replyStarted: true, opener }); await rail.start();
+    t.mock.timers.tick(15_000); await flush();
+    assert.equal(rail.errorKey, null); assert.equal(rail.replyTimer, null);
+    record(provider, 'only explicit opener true arms S5 at connect', { opener: opener ?? 'absent' });
+  });
+  for (const turn of ['final', 'typed']) test(`AIT-377 ${provider}: no opener still watches a ${turn} visitor turn`, async t => {
+    const { rail, send } = fixture(t, provider, { replyStarted: true, opener: false }); await rail.start();
+    if (turn === 'typed') await rail.sendText('Eine Frage.');
+    else await send({ type: 'final', role: 'user', text: 'Eine Frage.', turnId: 'no-opener-question' });
+    t.mock.timers.tick(14_999); await flush(); assert.equal(rail.errorKey, null);
+    t.mock.timers.tick(1); await flush(); assert.equal(rail.errorKey, 'voiceNoReply');
+    record(provider, 'no-opener client arms S5 after visitor turn', { turn, replyMs: 15000 });
+  });
+  test(`AIT-377 ${provider}: S1 starts only at requesting, never during credentials`, async t => {
+    const opening = Promise.withResolvers();
+    const { rail, calls } = fixture(t, provider, { opening, deferredMicrophone: true });
+    const start = rail.start(); await flush();
+    assert.equal(full(rail), de.voiceStates.connecting);
+    t.mock.timers.tick(20_000); await flush();
+    calls[0].options.onMicrophoneState('requesting');
+    assert.equal(full(rail), 'Mikrofon freigeben …');
+    t.mock.timers.tick(60_000); await flush();
+    assert.equal(rail.state, 'connecting'); assert.equal(rail.controller.signal.aborted, false);
+    calls[0].options.onMicrophoneState('granted');
+    t.mock.timers.tick(29_999); await flush(); assert.equal(rail.state, 'connecting');
+    t.mock.timers.tick(1); await start; assert.equal(rail.errorKey, 'voiceDeadline');
+    record(provider, 'credentials show Connecting; requesting suspends deadline for 60 s; grant starts fresh 30 s');
+  });
+  test(`AIT-377 ${provider}: credentials before microphone requesting are bounded at 30 s`, async t => {
+    const opening = Promise.withResolvers();
+    const { rail, calls, session, closes } = fixture(t, provider, { opening, deferredMicrophone: true });
+    const start = rail.start(); await flush();
+    t.mock.timers.tick(29_999); await flush(); assert.equal(rail.state, 'connecting');
+    t.mock.timers.tick(1); await flush();
+    assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(calls[0].options.signal.aborted, true);
+    await start;
+    calls[0].options.onMicrophoneState('requesting'); assert.equal(rail.state, 'failed');
+    opening.resolve(session); await flush(); assert.equal(closes.length, 1);
+    record(provider, 'credential preparation bounded at 30 s; late phase ignored and late session closed', { credentialMs: 30000 });
   });
   test(`AIT-377 ${provider}: current client preserves main permission copy and its own deadline`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
