@@ -278,3 +278,46 @@ the interrupted reply identity through recovery/reload and duplicate events,
 and exercise the public Grok factories with fresh child claims. Package 5's
 `playbackRevision`, trusted turn envelopes and lifecycle events are its inputs;
 this package does not add the interruption marker or change ElevenLabs.
+
+### Truthful interruption and joined conformance (package 6, AIT-349)
+
+Grok reports no heard position. Barge-in stops the physical browser player
+before relay acknowledgement, stops/fences server playback and aborts pending
+speech synthesis. Admitted reasoning can finish; its **complete generated text**
+remains the transcript record. A deduplicated `voice.interrupted` session event
+binds the reply identity to `{ heardLength: 'unknown' }`, including interruption
+before final publication. The event and transcript annotation survive replay,
+reload and recovery. Subsequent reasoning receives that interruption fact and
+explicit unknown-length guidance. It never receives a fabricated `heard` prefix.
+ElevenLabs keeps its existing heard-prefix correction path.
+
+The existing bubble metadata line renders a small cut/pause SVG and
+**Unterbrochen** (DE) / **Interrupted** (EN), in the muted ink colour. Its
+accessible description and tooltip are exactly:
+
+- DE: “Die Wiedergabe wurde unterbrochen. Wie viel davon zu hören war, meldet dieser Anbieter nicht.”
+- EN: “Playback was interrupted. This provider doesn't report how much was heard.”
+
+`test/speech-provider-conformance.test.js` runs the STT/TTS kits against the
+actual Grok factories. `test/joined-conformance.test.js` assembles the supported
+public server/browser session with those factories, durable SQLite storage and
+component accounting. The live kit's additive `parentMaxMicro: 0` fixture option
+keeps the existing 1,000,000 default and all assertions. DE/EN exchanges observe
+media effects, relay closure, persisted transcript and independently settled
+TTS child costs; existing production-chain fixtures also exercise PCM/STT,
+reasoning admission and recovery. The live kit covers rejected admission,
+preflight cancellation/deadline, active cancellation, spend expiry and browser
+lease expiry. Qualification remains **not yet qualified in live use**.
+
+`test/browser/composed-media.test.js` captures eight settled, blurred viewport
+shots named `ait349-<1440|390>-<light|dark>-<de|en>-interrupted.png`, with one
+tooltip open. `ait349-checks.json` records metadata, bubble, text and control
+rectangles before/after interruption: **0 px** movement. Baseline font stack and
+reduced-motion settings are retained. Tick's morning UI QA and the coordinator's
+review gate still precede merge.
+
+Packages 7/8 can build on these durable identities and fixture-only kit results.
+They must retain the unknown-heard contract, separately settled child costs,
+and the unqualified live label. Actual acoustic/provider qualification and any
+rollout require their own authorized evidence; this package makes no live calls
+and does not qualify German speech quality or a private xAI account.

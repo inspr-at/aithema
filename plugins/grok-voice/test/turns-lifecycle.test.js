@@ -358,3 +358,50 @@ test('AIT-348: typed ingress reserves order before delayed authorization and con
   await h.coordinator.receiveAudio(Buffer.alloc(16000)); await h.coordinator.idle();
   assert.deepEqual(h.commits.map(x => x.payload.callbackBody.messages.filter(m => m.role === 'user').at(-1).content), ['Zuerst getippt', 'Gesprochen']);
 });
+
+for (const boundary of ['before-operation', 'before-final', 'after-final']) test(`AIT-349: ${boundary} interruption fences synthesis and retains a durable unknown-length fact`, async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), facts = [], audio = [], silences = [];
+  const text = 'Die vollständige Antwort. Auch dieser Satz bleibt im Protokoll.';
+  const h = fixture(t, {
+    interruptionAwareness: true,
+    tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(48000); } },
+    commitUtterance(envelope, options) { if (options?.role === 'interrupted') facts.push({ envelope, options }); },
+    relay: { audio: frame => audio.push(frame), silence: frame => silences.push(frame), event() {} },
+    replyExecutor: { async *execute() {
+      if (boundary === 'before-operation') { entered.resolve(); await release.promise; }
+      yield { type: 'operation', replyId: 'truthful-reply' };
+      yield { type: 'delta', text };
+      if (boundary === 'before-final') { entered.resolve(); await release.promise; }
+      yield { type: 'completion', replyId: 'truthful-reply', text };
+      if (boundary === 'after-final') { entered.resolve(); await release.promise; }
+    } },
+  });
+  t.after(() => release.resolve());
+  await h.coordinator.sendText('Bitte erklären', receipt('truthful'));
+  await entered.promise;
+  const before = audio.length, stopCount = silences.length;
+  const interrupt = h.coordinator.interrupt();
+  assert.equal(silences.length, stopCount + 1, 'physical stop is synchronous');
+  await interrupt; await h.coordinator.interrupt();
+  release.resolve(); await h.coordinator.idle();
+  assert.equal(audio.length, before, 'late completion cannot restart synthesis');
+  assert.equal(facts.length, 1, 'duplicate interruptions persist one fact');
+  assert.equal(facts[0].options.replyId, 'truthful-reply');
+  assert.equal(facts[0].options.heardLength, 'unknown');
+  assert.equal(Object.hasOwn(facts[0].options, 'heard'), false);
+});
+
+test('AIT-349: captured barge-in silences the physical player before stalled relay ingress', async t => {
+  let input, stops = 0;
+  const delivered = Promise.withResolvers(), playing = Promise.withResolvers();
+  const h = mediaFixture(t, { capture: async options => { input = options.onAudio; return { stop() {} }; },
+    player: { play() { return playing.promise; }, stop() { stops++; playing.resolve(); } }, command: { receiveAudio: () => delivered.promise } });
+  const session = await h.media.connect(h.relay.grant); t.after(() => session.close()); t.after(() => delivered.resolve());
+  h.relay.audio({ playbackRevision: 0, format: 'pcm_s16le', sampleRateHz: 24000, channels: 1, bytes: new Uint8Array(48000) });
+  await tick(); await tick();
+  const before = stops, pcm = Buffer.alloc(3200);
+  for (let i = 0; i < pcm.length; i += 2) pcm.writeInt16LE(8000, i);
+  const ingress = input(pcm);
+  assert.ok(stops > before, 'physical silence must precede network receipt');
+  delivered.resolve(); await ingress;
+});

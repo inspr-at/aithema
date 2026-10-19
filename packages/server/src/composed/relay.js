@@ -33,7 +33,11 @@ export function createComposedRelay({ callId, providerSessionId, epoch = 0, expi
       for (let i = frames.length - 1; i >= 0; i--) if (frames[i].frame.type === 'audio') bytes -= frames.splice(i, 1)[0].size;
       push({ type: 'silence', ...frame });
     },
-    close() { closed = true; frames.length = 0; bytes = 0; wake(); },
+    close({ preserveEvents = false } = {}) {
+      closed = true;
+      for (let i = frames.length - 1; i >= 0; i--) if (!preserveEvents || frames[i].frame.type !== 'event') bytes -= frames.splice(i, 1)[0].size;
+      wake();
+    },
     async connect(candidate) {
       assertVoiceMediaGrant(candidate, now());
       if (closed || connected || !coordinator || candidate.callId !== callId || candidate.providerSessionId !== providerSessionId ||
@@ -44,7 +48,7 @@ export function createComposedRelay({ callId, providerSessionId, epoch = 0, expi
         frames: { [Symbol.asyncIterator]() { return this; }, async next() {
           if (consumer) throw new PluginError('limit');
           while (!closed && !frames.length) await new Promise(resolve => { consumer = resolve; });
-          if (closed) return { done: true };
+          if (closed && !frames.length) return { done: true };
           const item = frames.shift(); bytes -= item.size; return { done: false, value: item.frame };
         }, return() { transport.close(); return Promise.resolve({ done: true }); } },
         sendAudio: (audio, receipt = identity) => { if (closed) throw new PluginError('not-admitted'); return coordinator.receiveAudio(audio, receipt); },

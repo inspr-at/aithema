@@ -39,3 +39,24 @@ export function voiceTranscriptTransition({ pending = null, finalized = new Map(
   }
   return { state: { pending, finalized } };
 }
+
+
+/** Occupy only the existing bubble metadata line; insertion has no layout effect. */
+export function paintVoiceInterruption(row, turn, copy) {
+  let marker = row.querySelector('.voice-interruption');
+  if (turn.role !== 'assistant' || turn.erased || turn.withdrawn || turn.interruption?.heardLength !== 'unknown') {
+    marker?.remove(); return;
+  }
+  if (!marker) {
+    marker = row.ownerDocument.createElement('span'); marker.className = 'voice-interruption';
+    marker.tabIndex = 0; marker.setAttribute('role', 'img');
+    marker.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M5 3v10M10 3v10M2 14 14 2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span class="voice-interruption-label"></span><span class="voice-interruption-tooltip" role="tooltip"></span>';
+    const tooltip = marker.querySelector('[role="tooltip"]');
+    tooltip.id = `interruption-${encodeURIComponent(turn.id)}`;
+    marker.setAttribute('aria-describedby', tooltip.id);
+    row.querySelector('strong').append(marker);
+  }
+  marker.setAttribute('aria-label', copy.voiceInterrupted);
+  marker.querySelector('.voice-interruption-label').textContent = copy.voiceInterrupted;
+  marker.querySelector('[role="tooltip"]').textContent = copy.voiceInterruptedDescription;
+}

@@ -114,6 +114,8 @@ export const en = {
   voiceMicOn: 'Mic on', voiceMicOff: 'Mic off', voiceSpeakerOn: 'Sound on', voiceSpeakerOff: 'Sound off',
   voiceRetry: 'Retry call', voicePlaybackRetry: 'Enable sound', voiceCommandUnavailable: 'Unavailable with this voice plugin',
   voiceBudgetDenied: 'You can type again after the call',
+  voiceInterrupted: 'Interrupted',
+  voiceInterruptedDescription: "Playback was interrupted. This provider doesn't report how much was heard.",
   voiceProvisional: 'Transcribing…',
   voiceStates: { low: 'Credit running low', idle: 'Ready to talk', connecting: 'Connecting voice…', listening: 'Listening', speaking: 'Speaking the reply',
     paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: "Voice paused. Resume when you're ready.", closing: 'Settling call…', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending the call…' },

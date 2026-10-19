@@ -314,6 +314,14 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .turn.user::before { left:auto; right:-.45rem; border:0; border-right:1px solid color-mix(in srgb,var(--aithema-accent) 32%,transparent);
   border-top:1px solid color-mix(in srgb,var(--aithema-accent) 32%,transparent); clip-path:polygon(100% 0,0 0,100% 100%); }
 .turn strong { display:flex; align-items:center; gap:6px; margin-bottom:.15rem; font-size:.72rem; font-weight:600; color:var(--aithema-muted); }
+.turn strong { position:relative; }
+.turn .voice-interruption { position:absolute; inset-inline-end:0; top:0; display:inline-flex; align-items:center; gap:4px;
+  color:var(--ink-3,var(--aithema-muted)); font-weight:400; white-space:nowrap; cursor:help; }
+.voice-interruption svg { flex:none; }
+.turn .voice-interruption-tooltip { display:none; position:absolute; top:calc(100% + 6px); inset-inline-end:0;
+  z-index:10; width:max-content; max-width:min(270px,65vw); padding:7px 9px; border:1px solid var(--aithema-line);
+  border-radius:6px; background:var(--aithema-paper); color:var(--aithema-ink); font-size:.75rem; line-height:1.4; white-space:normal; font-weight:400; }
+.voice-interruption:is(:hover,:focus-visible) .voice-interruption-tooltip { display:block; }
 .speaker-sign { display:inline-grid; place-items:center; width:12px; height:12px; flex:none; border-radius:50%; background:radial-gradient(circle at 35% 35%,#fff,var(--aithema-accent-soft) 45%,color-mix(in srgb,var(--aithema-accent) 50%,var(--aithema-surface))); }
 .user .speaker-sign { background:none; } .speaker-sign svg { width:12px; height:12px; }
 .turn.user { padding-right:2.8rem; }

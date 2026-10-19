@@ -115,6 +115,8 @@ export const de = {
   voiceMicOn: 'Mikrofon an', voiceMicOff: 'Mikrofon aus', voiceSpeakerOn: 'Ton an', voiceSpeakerOff: 'Ton aus',
   voiceRetry: 'Erneut anrufen', voicePlaybackRetry: 'Ton aktivieren', voiceCommandUnavailable: 'Mit diesem Sprachdienst nicht verfügbar',
   voiceBudgetDenied: 'Schreiben geht nach dem Anruf wieder',
+  voiceInterrupted: 'Unterbrochen',
+  voiceInterruptedDescription: 'Die Wiedergabe wurde unterbrochen. Wie viel davon zu hören war, meldet dieser Anbieter nicht.',
   voiceProvisional: 'Wird erkannt …',
   voiceStates: { low: 'Noch wenig Guthaben', idle: 'Bereit zum Sprechen', connecting: 'Verbindung wird aufgebaut …', listening: 'Ich höre zu', speaking: 'Antwort wird gesprochen',
     paused: 'Anruf pausiert', recovering: 'Verbindung wird wiederhergestellt …', waiting: 'Sprache pausiert. Fortsetzen, wenn Sie bereit sind.', closing: 'Anruf wird beendet …', failed: 'Anruf beendet', usedUp: 'Credits aufgebraucht', timeExpired: 'Zeit abgelaufen', creditEnding: 'Anruf wird beendet …' },
