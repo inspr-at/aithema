@@ -285,7 +285,7 @@ export class AudioRail {
       error?.name === 'NotFoundError' ? 'voiceMicMissing' :
       error?.name === 'NotReadableError' ? 'voiceMicBusy' :
       error?.name === 'NoMediaAPIError' ? 'voiceMicUnavailable' :
-      ['OverconstrainedError', 'AbortError', 'UnknownCaptureError'].includes(error?.name) || error?.phase === 'microphone' ? 'voiceMicFailed' :
+      ['OverconstrainedError', 'AbortError'].includes(error?.name) || error?.phase === 'microphone' ? 'voiceMicFailed' :
       error?.code === 'not-admitted' ? 'voiceAdmissionDenied' :
       error?.code === 'voice-conflict' ? 'voiceConflict' :
       error?.code === 'deadline' ? 'voiceDeadline' : 'voiceConnectionFailed';

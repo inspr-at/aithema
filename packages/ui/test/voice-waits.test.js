@@ -101,9 +101,9 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     t.mock.timers.tick(60_001); await flush(); assert.equal(rail.state, 'idle');
     record(provider, `End cancels ${phase} immediately`, { focusTarget: 'voice-start' });
   });
-  for (const [name, key] of [['NotReadableError', 'voiceMicBusy'], ['NoMediaAPIError', 'voiceMicUnavailable'], ['OverconstrainedError', 'voiceMicFailed'], ['AbortError', 'voiceMicFailed'], ['UnknownCaptureError', 'voiceMicFailed']]) {
+  for (const [name, key] of [['NotReadableError', 'voiceMicBusy'], ['NoMediaAPIError', 'voiceMicUnavailable'], ['OverconstrainedError', 'voiceMicFailed'], ['AbortError', 'voiceMicFailed'], ['Error', 'voiceMicFailed']]) {
     test(`AIT-377 ${provider}: ${name} has device guidance and failure focus`, async t => {
-      const { rail } = fixture(t, provider, { error: Object.assign(new Error('offline acquisition'), { name }) });
+      const { rail } = fixture(t, provider, { microphone: name === 'Error', error: Object.assign(new Error('offline acquisition'), { name }) });
       await rail.start(); assert.equal(rail.errorKey, key);
       for (const copy of [de, en]) {
         rail.copy = copy; rail.render(); assert.equal(full(rail), micCopy[key][copy === de ? 0 : 1]);
