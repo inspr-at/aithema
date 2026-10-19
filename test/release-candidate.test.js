@@ -7,12 +7,19 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { normalizedDigest } from '../release/normalize.mjs';
 
+function candidateEnv() {
+  return {
+    PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
+    CHROME_PATH: process.env.CHROME_PATH,
+    npm_config_cache: process.env.npm_config_cache, NPM_CONFIG_CACHE: process.env.NPM_CONFIG_CACHE,
+    AITHEMA_CANONICAL_RELEASE: process.env.AITHEMA_CANONICAL_RELEASE,
+  };
+}
+
 test('candidate builds twice, installs outside the workspace, mounts handlers/components, updates and rolls back', { timeout: 180_000 }, () => {
   const output = process.env.AITHEMA_EVIDENCE_DIR ? join(process.env.AITHEMA_EVIDENCE_DIR, 'candidate') : mkdtempSync(join(tmpdir(), 'aithema-candidate-'));
   mkdirSync(output, { recursive: true });
-  const env = { ...process.env };
-  delete env.GITHUB_ACTIONS;
-  delete env.GITHUB_RUN_ID;
+  const env = candidateEnv();
   execFileSync('npm', ['run', 'release:candidate', '--', output], {
     cwd: fileURLToPath(new URL('../', import.meta.url)), env, stdio: 'pipe', timeout: 180_000,
   });
@@ -44,9 +51,7 @@ test('candidate builds twice, installs outside the workspace, mounts handlers/co
 
 test('candidate evidence outside CI records os.hostname() on another host', { timeout: 180_000 }, () => {
   const output = mkdtempSync(join(tmpdir(), 'aithema-candidate-host-'));
-  const env = { ...process.env };
-  delete env.GITHUB_ACTIONS;
-  delete env.GITHUB_RUN_ID;
+  const env = candidateEnv();
   // mbp2606 is the test host, so exercise a different OS hostname as well.
   // Patch only the OS boundary; run the real evidence builder and its checks.
   const script = `
@@ -70,7 +75,7 @@ test('candidate evidence in CI records GitHub Actions and the run id', { timeout
   const output = mkdtempSync(join(tmpdir(), 'aithema-candidate-ci-'));
   execFileSync('npm', ['run', 'release:candidate', '--', output], {
     cwd: fileURLToPath(new URL('../', import.meta.url)),
-    env: { ...process.env, GITHUB_ACTIONS: 'true', GITHUB_RUN_ID: '370123456' },
+    env: { ...candidateEnv(), GITHUB_ACTIONS: 'true', GITHUB_RUN_ID: '370123456' },
     stdio: 'pipe', timeout: 180_000,
   });
   const evidence = JSON.parse(readFileSync(join(output, 'candidate-evidence.json')));
