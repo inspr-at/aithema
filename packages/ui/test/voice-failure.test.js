@@ -92,6 +92,15 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     assert.equal(requests.at(-1)[1] - began, wait); assert.equal(rail.state, 'listening'); noLimit(rail);
     record(provider, 'recovery429', ['recovery 429 leads to F4 waiting', 'Continue shows existing connecting status while waiting', 'Continue waits retry-after, capped at 60 s, then one recovery request', 'absent retry-after continues immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
+  test(`AIT-361 ${provider}: recovery 429 cannot become an admission refusal without retry-after`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const error = Object.assign(rateLimit(), { code: 'not-admitted', reason: 'host-limit' });
+    const { rail, recover, allowRecovery } = fixture(t, provider, { recoveryError: error });
+    await rail.start(); recover(); await flush();
+    assert.equal(rail.state, 'waiting'); assert.equal(rail.paused, true); noLimit(rail);
+    allowRecovery(); await rail.pause(false); assert.equal(rail.state, 'listening');
+    record(provider, 'recovery429-admission-code', ['any recovery 429 reaches F4, even with a misleading admission code and no retry-after']);
+  });
   test(`AIT-361 ${provider}: retry-after is an absolute advertised deadline`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
     const { rail, requests } = fixture(t, provider, { startError: rateLimit(5000) });
