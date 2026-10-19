@@ -101,14 +101,14 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 // CI/remote 56s forecast; rolling-main timing history stays unchanged.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 60);
-// AIT-364: PR #318 CI 39212138707, head 2944f2b0, shard 4/7:
-// complete changed preview file work (including the six-case cross-tab matrix):
-// 15.861850168 + 20.406086531 + 9.941064016 + 11.996927424
-// = 58.205928139s; ceil(observed * 1.25) = 73s. This diagnostic run
-// found geometry failures; keep its conservative cost floor and remeasure the
-// successful workload in PR CI. Trusted rolling-main history stays unchanged.
+// AIT-364: green PR #318 CI 39213995186, head 984e56be, shard 7/7:
+// all 21 preview tests passed, including the six-case cross-tab matrix and
+// full withdrawal: 15.887813567 + 20.502053037 + 9.993410194
+// + 12.660817253 = 59.044094051s; ceil(observed * 1.25) = 74s.
+// Supersedes the failed diagnostic run's 73s floor. PR observations remain
+// outside trusted rolling-main timing history; no bin limits change.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 73);
+  browserTestWeights['test/browser/html-preview.test.js'], 74);
 // The same CI run, shard 5/7, passed all ten demo top-level tests in
 // 56.218506283s; ceil(*1.25) = 71s for the changed served-frame workload.
 // Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.

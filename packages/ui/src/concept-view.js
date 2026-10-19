@@ -317,7 +317,8 @@ export class ConceptView {
     this.root.querySelector('.workspace').dataset.conceptLayout = this.#imageLayout ? 'image' : this.visualKind() === 'html' ? 'html' : 'unbound';
     this.root.querySelector('.workspace').toggleAttribute('data-concept-unbound', unbound);
     this.#placeAccess?.();
-    const status = this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
+    const consentOnly = this.#withdrawnKind && !this.covered(this.#withdrawnKind) && !this.items.length;
+    const status = consentOnly ? { phase: 'idle' } : this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
     const initial = this.#stageFeature === undefined;
     const current = this.accessFeature();
@@ -529,7 +530,8 @@ export class ConceptView {
   }
   paintBackdropState(unbound) {
     const access = this.root.querySelector('.concept-access'), phase = this.#session?.conceptStatus?.phase;
-    const state = unbound ? 'none' : this.#withdrawnUntil > Date.now() ? 'gone' : phase === 'pending' && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn) ? 'gen' :
+    const consentOnly = this.#withdrawnKind && !this.covered(this.#withdrawnKind) && !this.items.length;
+    const state = unbound ? 'none' : this.#withdrawnUntil > Date.now() ? 'gone' : consentOnly ? 'consent' : phase === 'pending' && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn) ? 'gen' :
       phase === 'failed' && this.#session.conceptStatus.error === 'source-removed' ? 'empty' : phase === 'failed' || this.#requestError ? 'err' : this.items.length ? 'ready' : this.#withdrawnKind && !this.covered(this.#withdrawnKind) ? 'consent' : 'idle';
     access.dataset.state = state;
     if (this.visualKind() === 'image' && state === 'err' && !this.#requestError && !this.#session.conceptStatus?.reason)
@@ -655,7 +657,7 @@ export class ConceptView {
   }
   gates() {
     const active = this.root.activeElement; // captured before any control below is disabled
-    const feature = this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
+    const feature = this.#withdrawnKind && !this.covered(this.visualKind()) ? this.accessFeature() : this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
     const line = draftsLine({ copy: this.copy, cost: this.#session?.conceptCost,
       feature: this.#session?.paused && !this.#session.consentWithdrawn && !this.#session.tombstone ? this.#stageFeature ?? feature : feature });

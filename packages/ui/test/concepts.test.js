@@ -866,3 +866,23 @@ test('AIT-364: old scope work stays expired through a later regrant', async t =>
   await assert.rejects(oldSource.mint(), /Preview scope expired/);
   assert.ok((await view.previewSource('scope').mint()).url, 'new explicit coverage can use a fresh scope');
 });
+
+for (const kind of ['html', 'image']) for (const phase of ['pending', 'failed']) test(`AIT-364 ${kind}/${phase}: expired notice keeps consent ahead of a stale generation status`, t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [kind === 'html' ? draft('only') : item('only')], session: {
+    conceptVisualKind: kind, visualsBound: true, conceptStatus: { phase, error: phase === 'failed' ? 'source-removed' : undefined, startedAt: Date.now() } } });
+  const timers = t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+  const feature = kind === 'html' ? 'html' : 'images';
+  view.update({ ...c.session, consentRevision: 1, featureMatrix: { best: { ...c.session.featureMatrix.best,
+    [feature]: { available: false, reason: 'current processing consent required' } } } });
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  timers.mock.calls.find(call => call.arguments[1] === 4000).arguments[0]();
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'consent');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  assert.equal(root.querySelector('.concept-activity').hidden, false);
+  assert.match(root.querySelector('.concept-activity-text').textContent, new RegExp(en.featureConsent[feature]));
+  assert.equal(root.querySelector('.concept-countdown').textContent, '');
+  assert.equal(root.querySelector('.concept-rail').dataset.phase, 'idle');
+});
