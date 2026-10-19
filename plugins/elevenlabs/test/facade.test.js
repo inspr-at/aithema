@@ -13,6 +13,7 @@ import { binding, openRouterPrices } from '../../../test/plugin-fixtures.js';
 import { testToken } from '../../../test/helpers.js';
 import { createVoiceTurnOperations } from '../../../packages/server/src/voice-turns.js';
 import { listen } from '../../../packages/server/src/http.js';
+import { providerRuleViolation } from '../../../test/fixtures/fake-provider-kit.js';
 
 function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
@@ -532,7 +533,7 @@ test('AIT-130: admission cancellation while nonstream completion awaits cannot r
 
 // AIT-381: all clocks and provider/admission waits below are controlled; no live ports.
 const spokenSegment = (content, scope = 'in') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperations, timeoutMs = 6500, defaultTimeout = false, finalizationGate, settlementGate } = {}) {
+function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperations, timeoutMs = 6500, defaultTimeout = false, finalizationGate, settlementGate, omitTerminalReport = [] } = {}) {
   const snapshot = { system: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
     hiddenGuidance: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
     locale, purposePolicy: { offTopicLimit: 3, outputCheck: true, canary: 'PRIVATE_PINNED_CANARY',
@@ -554,9 +555,12 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
         await settlementGate?.promise; },
         plugin: { async *stream(input, invocation) {
           started.push(input); live++; maxLive = Math.max(maxLive, live);
-          const accounting = await beginInvocation(invocation); let completed = false;
+          const accounting = await beginInvocation({ ...invocation,
+            ...(omitTerminalReport.includes(index) ? { report() {} } : {}) }); let completed = false;
           try {
             accounting.dispatch();
+            const violation = providerRuleViolation({ model: 'anthropic/fixture', reasoning: { enabled: true }, messages: input.messages });
+            if (violation) throw new PluginError('provider', violation);
             for (const step of (typeof attempts[index] === 'function' ? attempts[index](input) : attempts[index]) ?? []) {
               if (step.gate) await new Promise((resolve, reject) => {
                 const abort = () => reject(new PluginError('cancelled'));
@@ -617,6 +621,48 @@ test('AIT-381: a fast committed segment streams before the rest and suppresses h
   assert.equal(spokenText(state), 'A focused start. What should improve?');
   assert.equal(h.completions.length, 1); assert.equal(h.completions[0].scope, 'in');
 });
+
+test('AIT-381 r3: thinking Claude accepts the safety retry and continues after committed speech', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const rest = Promise.withResolvers(), opening = 'A focused start. ';
+  const h = spokenFixture(t, { attempts: [[{ text: `{"segments":[${spokenSegment(opening)}` },
+    { gate: rest, text: `,${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+    input => {
+      const context = JSON.parse(input.messages.at(-1).content);
+      assert.equal(context.kind, 'spoken-continuation');
+      assert.equal(context.committedSpeech, opening);
+      return [{ text: `{"segments":[${spokenSegment('What should improve?')}]}` }];
+    }] });
+  const state = h.observe(); await flush(); assert.equal(spokenText(state), opening);
+  rest.resolve(); await state.done;
+  assert.equal(spokenText(state), opening + 'What should improve?');
+  assert.equal(state.text.includes('"error"'), false);
+  assert.equal(state.text.includes('PRIVATE_PINNED_CANARY'), false);
+  assert.equal(h.started[1].messages.at(-1).role, 'user');
+  assert.equal(h.admissions.length, 2); assert.equal(h.maxLive, 1);
+  assert.ok(h.reports.every(items => items.length === 1));
+});
+
+for (const failure of ['malformed tail', 'missing terminal report']) {
+  test(`AIT-381 r3: ${failure} after a redirect does not admit or dispatch a retry`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+    const rest = Promise.withResolvers();
+    const h = spokenFixture(t, { omitTerminalReport: failure === 'missing terminal report' ? [0] : [],
+      attempts: [[{ text: `{"segments":[${spokenSegment('Unrelated advice.', 'off')}` },
+        { gate: rest, text: failure === 'malformed tail' ? ',BROKEN]}' : ']}' }],
+      [{ text: `{"segments":[${spokenSegment('This retry would be discarded.')}]}` }]] });
+    const state = h.observe(); await flush();
+    assert.equal(spokenText(state), 'Which project should we clarify?');
+    rest.resolve(); await state.done;
+    assert.equal(h.admissions.length, 1);
+    assert.equal(h.started.length, 1);
+    assert.equal(h.maxLive, 1);
+    assert.equal(h.reports[0].length, 1, 'host settlement accounts for the original generation');
+    assert.equal(spokenText(state), 'Which project should we clarify?');
+    assert.equal(h.completions[0].content, spokenText(state));
+    assert.equal(state.text.includes('"error"'), false);
+  });
+}
 
 test('AIT-381: validation pins the turn-start policy through delayed admission and rejects a segment before output', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
