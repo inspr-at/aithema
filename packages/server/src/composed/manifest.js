@@ -11,4 +11,4 @@ export const manifest = deepFreeze({ id: 'composed-voice', version: '0.0.0', api
     ownership: { stt: 'server', tts: 'server', turnTaking: 'server' }, optionalCapabilities: { forceInterrupt: 'native', metering: 'emulated' },
     capabilities: { sendText: 'unavailable', updateContext: 'native', setInput: 'native', setOutput: 'native',
       pause: 'emulated', resume: 'emulated', interrupt: 'native', heard: 'unavailable' },
-    billing: { visitor: 'Components are admitted separately.', upstream: 'STT, reasoning and TTS settle once each; no aggregate charge.' } } });
+    billing: { visitor: 'Active call duration measured by Aithema, excluding server-acknowledged pauses.', upstream: 'STT, reasoning and TTS settle once each; no aggregate charge.' } } });

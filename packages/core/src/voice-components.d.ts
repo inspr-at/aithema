@@ -13,6 +13,8 @@ export type ComponentTerminal = { attemptId: string; servedModel?: string; charg
 export interface ComponentOperationOptions extends Omit<OperationOptions, 'attempt' | 'report'> {
   /** Fresh authority for this one invocation. Retries and TTS fragments need new claims. */
   attempt: OperationOptions['attempt'] & { maxMicro: number };
+  /** Synchronous durable observation before terminal reporting or ceiling failure. */
+  observe?(usage: ComponentUsage): void;
   report(terminal: ComponentTerminal): Promise<void> | void;
 }
 export interface STTComponentCapabilities {

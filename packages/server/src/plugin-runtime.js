@@ -12,6 +12,7 @@ import { localHTMLImplementation } from './local-html.js';
 import { createUIRenderLimiter } from './ui-render-limits.js';
 import { SQLiteBudgetLedger } from './budget.js';
 import { createConversationLimits } from './conversation-limits.js';
+import { createComposedComponentAccounting } from './composed/accounting.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],
   voice: ['voice', 'live-voice', 'start'], transcription: ['transcription', 'stt', 'transcribe'], images: ['images', 'ui-generation', 'generate'], html: ['html', 'ui-generation', 'generate'] };
@@ -122,6 +123,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     }
     return verdict.admission;
   };
+  const componentAccounting = createComposedComponentAccounting({ storage, budget, reserve: admitBudget,
+    assertCurrent({ sessionId }) { conversationLimits.assertOpen(sessionId); } });
   // Invalid host choices fail at startup instead of at a visitor's first request.
   for (const preset of PROCESSING_PRESETS) if (preset !== 'device') normalizeChoices(presets[preset]);
   const choicesFor = preset => { try { return normalizeChoices(presets[preset]); } catch { return null; } };
@@ -410,6 +413,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const runtime = {
     setLaneDiagnostic(callback) { laneDiagnostic = callback; },
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor, conversationLimits,
+    admitVoiceComponent: request => componentAccounting.admit(request),
     voiceServerAdapters: () => registry.list().flatMap(plugin => {
       const adapter = (localVoiceImplementation(plugin) ?? plugin).ports?.serverAdapter;
       return adapter ? [adapter] : [];

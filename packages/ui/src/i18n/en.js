@@ -136,6 +136,8 @@ export const en = {
   voiceReplyUnavailable: 'The complete reply is not available yet.',
   voiceReplayTextOnly: 'The full text of the last reply, word for word.',
   voiceClosureUncertain: 'Call ended. Costs are still being reconciled.', voiceEnded: 'Call ended.',
+  voiceEndedAithemaMeasured: 'Call ended. Voice charge measured by Aithema.',
+  voiceEndedAithemaMeasuredNarrow: 'Measured by Aithema',
   voicePauseFailed: 'The pause change was not acknowledged. Try again.',
   voicePlaybackBlocked: 'Sound is blocked by your browser. Select Enable sound.', voiceTextSent: 'Sent to the voice assistant',
   consentForSelection: 'Your selection needs consent. Allow processing to continue.', voiceHostConsentTitle: 'Host-managed voice consent', voiceHostConsent: 'Live voice requires a current grant in the host consent ledger. The local demo consent button cannot grant it.',

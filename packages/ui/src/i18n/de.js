@@ -138,6 +138,8 @@ export const de = {
   voiceReplyUnavailable: 'Die vollständige Antwort ist noch nicht verfügbar.',
   voiceReplayTextOnly: 'Der vollständige Text der letzten Antwort, Wort für Wort.',
   voiceClosureUncertain: 'Anruf beendet. Kosten werden noch abgeglichen.', voiceEnded: 'Anruf beendet.',
+  voiceEndedAithemaMeasured: 'Anruf beendet. Sprachgebühr von Aithema gemessen.',
+  voiceEndedAithemaMeasuredNarrow: 'Von Aithema gemessen',
   voicePauseFailed: 'Die Pause wurde nicht bestätigt. Versuchen Sie es erneut.',
   voicePlaybackBlocked: 'Der Browser hat den Ton blockiert. Wählen Sie „Ton aktivieren“.', voiceTextSent: 'An den Sprachassistenten gesendet',
   consentForSelection: 'Ihre Auswahl braucht eine Einwilligung. Erlauben Sie die Verarbeitung, um fortzufahren.', voiceHostConsentTitle: 'Einwilligung für Sprache beim Host', voiceHostConsent: 'Live-Sprache braucht eine aktuelle Einwilligung im Einwilligungsregister des Hosts. Die lokale Demo-Einwilligung kann sie nicht erteilen.',

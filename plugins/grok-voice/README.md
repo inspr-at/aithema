@@ -1,11 +1,11 @@
-# Grok Voice (xAI) — component package (AIT-344 / AIT-345)
+# Grok Voice (xAI) — component pipeline (AIT-344–AIT-347)
 
 **not yet qualified in live use**
 
 Architecture: xAI STT → Aithema's separately admitted reasoning → xAI TTS.
 Aithema owns answers. This workspace package provides STT, streaming TTS,
 private configuration validation and supported component/preflight exports.
-Relay, browser start and full-chain admission arrive in package 3. Publication
+Relay, browser start and full-chain admission use the supported composed host. Publication
 is deferred to package 8 (`private: true`); no release module is added here.
 
 ## Public evidence
@@ -154,6 +154,7 @@ The component never exposes a playback cursor: `heardPrefix: unavailable`.
 | `/client` | Browser-safe manifest only; no media start or credential path |
 | `/manifest` | Public STT/TTS metadata; empty, closed public config schema because private account configuration belongs in the host binding |
 | `@inspr/aithema-server/composed-voice` | Reusable coordinator and `callDurationSeconds`, with a core-only helper closure and bounded mono PCM playback |
+| `@inspr/aithema-server/composed-voice/accounting` | `createComposedComponentAccounting`: durable host admission, observation and terminal ports for individual speech children |
 
 The coordinator implementation lives in `voice-coordinator.js`; the old source
 path forwards to it. Existing prototype release guards remain intact. Grok
@@ -184,5 +185,31 @@ Every wire fixture is synthetic and cites the public contract in
 
 `test/speech-provider-conformance.test.js` adds `ttsConformance` for the real
 Grok factory and synthetic ports. Existing provider assertions remain unchanged.
-Package 3 must consume the supported coordinator and preflight, add the relay and
-browser-start path, and bind fresh full-chain admission before parent/child claims.
+### Durable host accounting (package 4)
+
+The ordinary Grok mount uses the runtime's owner-wallet and SQLite budget ports
+for every speech admission. Hosts supplying their own `admitComponent` use
+`createComposedComponentAccounting({ storage, budget, reserve, assertCurrent })`;
+`reserve(session, admission)` must use the host's normal owner-wallet gate.
+Its `admit` takes the call/provider/epoch identity, role, exact request, private
+component binding and `maxMicro`. Mounted calls locate their persisted parent;
+synthetic hosts may supply `parentAttemptId` explicitly. The reservation and
+component scope share one budget row. Only request/binding digests and bounded
+scope/cost metadata persist, without speech or text.
+
+Every STT utterance, TTS fragment and retry receives a fresh child claim. Its
+consume commits before provider dispatch. Synchronous `observe` persists the
+largest observed cost before a terminal report can fail. Exact terminal retries
+are idempotent; conflicting reports fail. Cancel, timeout, abandonment and crash
+recovery retain at least the larger of the consumed reservation and observed
+cost. Undispatched claims recover at zero. Completed speech estimates remain
+estimated in the ledger and visitor cost display until receipt evidence exists.
+
+The parent binding requires `maxMicro: 0` and `upstreamMicroPerMinute: 0`.
+Its independent `visitorMicroPerMinute` still reserves and charges the ordinary
+visitor tariff: elapsed active duration, with acknowledged pause intervals
+excluded, rounded up once per segment. Parent closure or reconciliation never
+settles or releases speech children. Reasoning keeps its existing admission and
+accounting. Package 5 should carry call/provider/epoch identity through typed
+turns and lifecycle transitions, request fresh claims for retries, and leave
+unresolved children available to recovery after logical-call closure.
