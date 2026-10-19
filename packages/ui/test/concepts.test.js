@@ -1113,3 +1113,28 @@ for (const operation of ['load', 'download']) test(`AIT-364 gate1b: late image $
   assert.equal(downloads.length, 0, 'revoked download never clicks an anchor');
   assert.deepEqual(view.items.map(i => i.id), ['retained']);
 });
+
+// AIT-369: a delivered kind needs an explicit, nonempty coverage list.
+for (const visuals of ['off', 'images', 'html', 'both']) for (const kind of ['html', 'image'])
+  for (const list of ['empty', 'missing']) test(`AIT-369 ${visuals}/${kind}/${list}: delivered coverage fails closed`, t => {
+    let view;
+    const update = ConceptView.prototype.update;
+    t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+    const { c } = setup(t, { concepts: [draft('html'), item('image')], session: { settings: { visuals } } });
+    const feature = kind === 'html' ? 'html' : 'images';
+    const features = { html: ['drafts'], images: ['images'] };
+    if (list === 'empty') features[feature] = []; else delete features[feature];
+    view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'], features });
+    assert.equal(view.covered(kind), false);
+    assert.deepEqual(view.items.map(i => i.id), [kind === 'html' ? 'image' : 'html']);
+  });
+
+for (const visuals of ['off', 'images', 'html', 'both']) test(`AIT-369 ${visuals}: kept consent preserves both delivered kinds`, t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root } = setup(t, { concepts: [draft('html'), item('image')], session: { settings: { visuals } } });
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  assert.deepEqual(view.items.map(i => i.id), ['html', 'image']);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+});

@@ -217,3 +217,32 @@ for (const port of ['describe', 'conversationUnchanged', 'grant']) test(`AIT-321
   assert.deepEqual(calls, ['withdrawn'], 'no later host grant after withdrawal inside an earlier port');
   assert.equal(storage.get(session.id).consentWithdrawn, true);
 });
+
+for (const visuals of ['off', 'images', 'html', 'both']) test(`AIT-369 API ${visuals}: both delivered kinds keep their producing consent scopes`, async t => {
+  const { PluginRegistry } = await import('@inspr/aithema-core');
+  const { createLocalHTML, localHTMLBinding, createLocalImages, localImageBinding } = await import('../src/index.js');
+  const storage = new SQLiteStorage();
+  const registry = new PluginRegistry();
+  const bindings = {};
+  for (const [kind, create, base, purpose] of [['html', createLocalHTML, localHTMLBinding, 'drafts'], ['images', createLocalImages, localImageBinding, 'images']]) {
+    const local = create();
+    // Inspect legal scopes only; no generation or provider calls occur.
+    registry.register({ ...local, generate() { throw new Error('No generation in consent API test'); } });
+    bindings[kind] = { ...base, legal: { approved: true, countries: ['FR'], training: false, retention: 'fixture',
+      purpose, recipient: 'fixture', processors: ['fixture'], evidence: ['https://example.test'], expiresAt: '2099-01-01' } };
+  }
+  const consent = { coverage: () => ({ covered: true }), describe: () => ({ contract: 'ait369', selected: ['drafts', 'images'],
+    items: ['drafts', 'images'].map(id => ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
+  const pluginRuntime = createPluginRuntime({ storage, registry, consent, presets: { best: { plugins: ['fake-html', 'fake-images'], bindings } } });
+  const handlers = createHandlers({ storage, consent, pluginRuntime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken });
+  storage.append(session.id, 'settings.changed', { processingPreset: 'best', settings: { ...session.settings, visuals } });
+  for (const kind of ['html', 'images']) storage.append(session.id, 'concept.state', { artifact: {
+    id: kind, mediaType: kind === 'html' ? 'text/html' : 'image/png', visuals: kind, turnIds: [], referenceIds: [] } });
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`));
+  assert.equal(response.status, 200);
+  const doc = await response.json();
+  assert.deepEqual(doc.features.html, ['drafts']);
+  assert.deepEqual(doc.features.images, ['images']);
+});
