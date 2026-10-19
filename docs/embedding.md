@@ -1286,7 +1286,7 @@ not conversation processing policy. Never infer legal qualification from a
 technical plugin manifest. Plugin contract `apiVersion` ranges describe a
 protocol, not the CalVer3 package compatibility promise.
 
-### Required fast reaction route for demo voice (AIT-380)
+### Required fast reaction route for voice (AIT-380, AIT-397)
 
 The OpenRouter demo requires an explicit `OPENROUTER_SPEECH_MODEL` for every
 configured voice option: ElevenLabs, Grok voice and composed voice. Select and qualify a fast reaction model that supports no
@@ -1307,8 +1307,25 @@ When a model option supplies separate `reaction` and `understanding` bindings,
 a generic effort selection cannot raise reaction above its explicitly configured
 effort. A host binding without an explicit effort keeps the offered selection.
 The analysis lane retains the selected effort. The same ceiling applies to shared bindings when voice is selected. Shared
-single-binding text-only options retain their existing effort-selection behavior. The demo's `none` setting is
-explicit; the runtime does not impose it on every host binding.
+single-binding text-only options retain their existing effort-selection behavior.
+
+Every host must configure a qualified `reaction` binding with effort `none`,
+using a model distinct from its `understanding` (analysis) model, for every
+configured voice option. This applies to ElevenLabs, Grok and composed voice,
+with either `choices.models[].bindings` or legacy `bindings`. Allowlist the
+reaction plugin and endpoint, and supply current matching account evidence;
+the registered reasoning plugin must support streaming with effort `none`.
+A generic effort selection cannot raise the reaction effort.
+
+At runtime startup/voice registration, invalid combinations produce a server-only
+`Voice configuration error` naming the preset, voice option and missing qualified
+`reaction` binding, ending in `voice start refused`. The runtime refuses voice
+admission and spoken reaction dispatch until the binding is corrected. Admission
+rechecks the selected route, including saved settings, recovery and evidence expiry.
+Visitors receive the existing neutral line, “Sprache ist derzeit nicht verfügbar” /
+“Voice is currently unavailable”, and the call ends cleanly. The runtime never
+answers on the analysis model by fallback. The canonical offline demo and local
+voice simulator retain their existing behavior; text-only bindings are unchanged.
 
 ### Claude HTML bindings
 
