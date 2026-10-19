@@ -724,11 +724,17 @@ test('AIT-378: confirmed interruption and provider cooldown viewport evidence', 
     c.configure({ copy, session, voiceClient: client, voicePresentation: manifest.presentation });
     const rail = window.ait378Rail; await rail.start();
     const retryAt = rail.retryAt, sampledAt = Date.now(), delay = retryAt - sampledAt;
-    window.ait378Retry = rail.start(); await Promise.resolve();
-    return { retryAt, sampledAt, delay, state: rail.state, text: rail.root.querySelector('.voice-state').getAttribute('aria-label') };
+    window.ait378Retry = rail.start();
+    return { retryAt, sampledAt, delay };
   });
   assert.ok(cooldown.delay >= 11_800 && cooldown.delay <= 12_000);
-  assert.equal(cooldown.state, 'connecting'); assert.equal(cooldown.text, 'Verbindung wird aufgebaut …');
+  // AIT-377 S2a runs before S2b; sample the actual cooldown, not cleanup.
+  await page.waitForFunction(() => window.ait378Rail.startupPhase === 'cooldown');
+  Object.assign(cooldown, await page.evaluate(() => {
+    const rail = window.ait378Rail;
+    return { state: rail.state, text: rail.root.querySelector('.voice-state').getAttribute('aria-label') };
+  }));
+  assert.equal(cooldown.state, 'connecting'); assert.equal(cooldown.text, 'Neuer Versuch in 12 s');
   await settled();
   if (evidence) await page.screenshot({ path: join(evidence, 'ait378-1440-light-de-R1.png'), fullPage: false, captureBeyondViewport: false });
   await page.evaluate(() => window.ait378Rail.close());
