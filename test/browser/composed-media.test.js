@@ -450,7 +450,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
         // leave the visitor's menu open and the pointer outside the viewport.
         const observed = await page.evaluate(({ selector, before }) => {
           const f = window.ait350, button = f.q(selector), select = button.closest('.select');
-          const menu = select.querySelector('.select__menu');
+          const menu = f.q('#' + button.getAttribute('aria-controls'));
           const box = node => {
             const b = node.getBoundingClientRect();
             return { x: b.x, y: b.y, width: b.width, height: b.height, top: b.top, bottom: b.bottom, left: b.left, right: b.right };
@@ -475,7 +475,7 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
         await button.asElement().click();
         await button.dispose();
         await settle();
-        assert.equal(await page.evaluate(selector => window.ait350.q(selector).closest('.select').querySelector('.select__menu').hidden, selector), true,
+        assert.equal(await page.evaluate(selector => window.ait350.q('#' + window.ait350.q(selector).getAttribute('aria-controls')).hidden, selector), true,
           `${filename}: menu closed after capture`);
       }
     }

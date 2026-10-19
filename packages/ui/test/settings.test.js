@@ -72,7 +72,7 @@ function fixture(t, { origin = 'default', model = 'mock', turns = 0, voiceClient
   t.after(async () => { c.remove(); await tick(); globalThis.fetch = original; });
   const root = c.shadowRoot, dialog = root.querySelector('dialog.settings');
   const q = selector => dialog.querySelector(selector);
-  const option = (name, label) => [...q(`[data-select="${name}"] .select__menu`).querySelectorAll('[role=option]')].find(node => node.querySelector('strong').textContent === label);
+  const option = (name, label) => [...q(`#settings-options-${name}`).querySelectorAll('[role=option]')].find(node => node.querySelector('strong').textContent === label);
   return { c, root, dialog, q, posts, option, ack, server };
 }
 async function opened(h) { h.c.openSettings(); await tick(); return h; }
