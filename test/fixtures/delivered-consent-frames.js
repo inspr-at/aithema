@@ -31,7 +31,7 @@ export async function deliveredConsentFrames(t) {
     const nativeFetch=window.fetch.bind(window);window.fetch=(url,options)=>{if(window.eventAt&&new URL(url,location.href).pathname==='/api/sessions/ait369')window.refreshRounds++;return nativeFetch(url,options);};
     c.setAttribute('theme',params.get('theme')||'light');c.setAttribute('motion','off');document.documentElement.lang=locale;document.body.append(c);
     window.boxes=()=>Object.fromEntries(['.transcript-shell','.composer','.concept-rail','.band','.concept-access','.drafts-canvas'].map(s=>{const b=c.shadowRoot.querySelector(s).getBoundingClientRect();return[s,[b.x,b.y,b.width,b.height]];}));
-    window.inspect=()=>{const r=c.shadowRoot;return {open:window.view.dialog.open,ids:window.view.items.map(i=>i.id),frames:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.artifact).map(n=>n.dataset.id),images:[...r.querySelectorAll('img[src]')].map(n=>n.dataset.id),focus:r.activeElement?.className,count:r.querySelector('.concept-count').textContent,previousDisabled:r.querySelector('.concept-previous').disabled,nextDisabled:r.querySelector('.concept-next').disabled,iframeCount:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.shadowRoot.querySelector('iframe')).length,notice:r.querySelector('.concept-withdrawn').textContent,live:r.querySelector('.concept-withdrawn').getAttribute('aria-live'),state:r.querySelector('.concept-access').dataset.state,tooltip:r.querySelector('.concept-backdrop-hint').hasAttribute('data-show'),revoked:window.revoked,transcript:c.session.transcript.map(t=>t.content)};};
+    window.inspect=()=>{const r=c.shadowRoot;return {visibleFrames:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.shadowRoot.querySelector('iframe')?.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})).length,visibleImages:[...r.querySelectorAll('.concept-image[src],.canvas-image[src]')].filter(n=>n.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})).length,open:window.view.dialog.open,ids:window.view.items.map(i=>i.id),frames:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.artifact).map(n=>n.dataset.id),images:[...r.querySelectorAll('img[src]')].map(n=>n.dataset.id),focus:r.activeElement?.className,count:r.querySelector('.concept-count').textContent,previousDisabled:r.querySelector('.concept-previous').disabled,nextDisabled:r.querySelector('.concept-next').disabled,iframeCount:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.shadowRoot.querySelector('iframe')).length,notice:r.querySelector('.concept-withdrawn').textContent,live:r.querySelector('.concept-withdrawn').getAttribute('aria-live'),state:r.querySelector('.concept-access').dataset.state,tooltip:r.querySelector('.concept-backdrop-hint').hasAttribute('data-show'),revoked:window.revoked,transcript:c.session.transcript.map(t=>t.content)};};
     window.ready=true;
   </script></body></html>`;
   const server = createServer(async (req, res) => {
@@ -124,8 +124,8 @@ export async function deliveredConsentFrames(t) {
       assert.ok(result.samples.length > 0, 'sample every animation frame through refresh');
       for (const sample of result.samples) {
         assert.deepEqual(sample.ids, ['removed']); assert.equal(sample.open, true); assert.equal(sample.notice, '');
-        if (kind === 'html') { assert.equal(sample.iframeCount, 2); assert.ok(sample.frames.includes('removed')); }
-        else assert.ok(sample.images.includes('removed'));
+        if (kind === 'html') { assert.equal(sample.iframeCount, 2); assert.equal(sample.visibleFrames, 2); assert.ok(sample.frames.includes('removed')); }
+        else { assert.ok(sample.images.includes('removed')); assert.equal(sample.visibleImages, 2); }
       }
       assert.equal(result.notice, ''); assert.deepEqual(result.ids, ['removed']);
       await a.evaluate(() => view.download());
@@ -150,7 +150,7 @@ export async function deliveredConsentFrames(t) {
     await a.evaluate(async () => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
     await a.mouse.move(-10, -10);
     if (evidence) { const file = `ait369-${width}-light-de-${config.state}.png`; await a.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file); }
-    checks.push({ ...config, ...result, movementPx: 0, keptSampledEveryFrame: Boolean(kept), downloadChecked: true, viewportOnly: true });
+    checks.push({ ...config, ...result, state: config.state, accessState: result.state, movementPx: 0, keptSampledEveryFrame: Boolean(kept), downloadChecked: true, viewportOnly: true });
   });
   if (evidence) await writeFile(join(evidence, 'ait369-checks.json'), JSON.stringify({ shots, checks,
     unit: 'AIT-369: empty/missing coverage for both kinds across off/images/html/both; kept coverage across all choices',

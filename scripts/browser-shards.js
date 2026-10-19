@@ -127,6 +127,13 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 // Preserve the measured remote floor outside rolling-main history.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 109);
+// AIT-369: mbp2606 full-file 51234eeb8e-75668 passed existing top-level
+// workloads in 15.654300667 + 51.071809500 + 6.774166208 + 14.132236208s.
+// c70aaac7fc-48960 then passed the complete new ten-state matrix in
+// 2.660573167s. Combined observed work 90.293085750s; ceil(*1.25)=113s.
+// Reserve that measured diagnostic floor outside rolling-main history.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 113);
 // AIT-364 v1.1 final product head 03f5b0bb, CI 39221011068:
 // preview shard 7/7 passed 23/23 in 57.604659634s (ceil(*1.25)=73s);
 // retain the slower 103s remote reservation. Consent-lines shard 5/7
