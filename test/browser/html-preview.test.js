@@ -915,7 +915,7 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
       c.setAttribute('theme','light');c.setAttribute('motion','off');
       // Render without SSE: the wire fixture's only runtime traffic is through
       // authenticated concept routes and the scoped HTML preview document.
-      document.body.append(c); c.disconnectedCallback(); view.update(session,{consentRevision:session.consentRevision,
+      c.connectedCallback=()=>{}; document.body.append(c); view.update(session,{consentRevision:session.consentRevision,
         selected:['drafts','images'],features:{html:['drafts'],images:['images']}});};
     window.ready=true;
     </script></body></html>`;
