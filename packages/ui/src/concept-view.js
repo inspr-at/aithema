@@ -208,18 +208,20 @@ export class ConceptView {
     } catch { /* Server idle spending is disabled even if teardown loses this signal. */ }
   }
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
-  reviseConsent(changed, granted = true) {
+  reviseConsent(changed, granted = true, removed) {
     // Unknown names still take the session's bounded refresh path. Known names
     // can remove their surfaces immediately even in a mixed future event.
     if (!Array.isArray(changed)) return;
+    const directed = Array.isArray(removed) && removed.every(name => changed.includes(name) &&
+      ['text', 'analysis', 'voice', 'transcription', 'images', 'html-drafts', 'uploads'].includes(name));
     for (const scope of changed) {
       if (!['html-drafts', 'images'].includes(scope)) continue;
       const kind = scope === 'html-drafts' ? 'html' : 'image', feature = kind === 'html' ? 'html' : 'images';
-      // A stale document cannot classify a withdrawal as a grant. Explicit
-      // grants retain E3's server-ahead allowance until the bounded read settles.
-      const doc = granted ? this.#consentDocument
-        : this.#consentDocument?.consentRevision === this.#session.consentRevision ? this.#consentDocument : undefined;
-      if (Array.isArray(doc?.features?.[feature]) && !doc.features[feature].every(id => doc.selected.includes(id))) continue;
+      // The authoritative removal delta distinguishes additions even when the
+      // client document trails a grant. A stale document alone proves neither.
+      if (granted === true && directed && !removed.includes(scope)) continue;
+      const doc = this.#consentDocument?.consentRevision === this.#session.consentRevision ? this.#consentDocument : undefined;
+      if (!directed && Array.isArray(doc?.features?.[feature]) && !doc.features[feature].every(id => doc.selected.includes(id))) continue;
       if (this.covered(kind)) this.#pendingScopes.add(kind);
     }
     this.update(this.#session);

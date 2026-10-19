@@ -2428,7 +2428,7 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
-      if (consentRevised) { this.#watchConsentRefresh(event.data.granted, event.data.changed); this.#concept.reviseConsent(event.data.changed, event.data.granted); }
+      if (consentRevised) { this.#watchConsentRefresh(event.data.granted, event.data.changed, event.data.removed); this.#concept.reviseConsent(event.data.changed, event.data.granted, event.data.removed); }
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
       const invalidation = ['turn.withdrawn', 'session.erased'].includes(event.type) ||
@@ -2558,11 +2558,13 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
-  #watchConsentRefresh(granted, changed) {
+  #watchConsentRefresh(granted, changed, removed) {
     // Missing or unknown scopes retain AIT-364 exactly. Only an explicitly
     // scoped grant may wait for a lagging host ledger under E3.
-    const scopedGrant = granted === true && Array.isArray(changed) && changed.every(scope =>
+    const scoped = Array.isArray(changed) && changed.every(scope =>
       FEATURES.some(feature => (feature === 'html' ? 'html-drafts' : feature) === scope));
+    const removalOnly = scoped && Array.isArray(removed) && removed.length > 0 && changed.every(scope => removed.includes(scope));
+    const scopedGrant = granted === true && scoped && !removalOnly;
     // Repeated saves cannot extend the window or inherit an older grant's wait.
     if (this.#consentRefresh) { this.#consentRefresh.scopedGrant = scopedGrant; return; }
     const pending = { sessionId: this.#session.id, retries: 0, scopedGrant };

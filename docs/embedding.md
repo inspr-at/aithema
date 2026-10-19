@@ -1093,6 +1093,7 @@ The durable SSE event and POST acknowledgement share this additive shape:
   granted: true, at: '2026-10-19T10:14:00.000Z',
   conversationUnchanged: true, // when the existing conversation is preserved
   changed: ['html-drafts'],
+  removed: ['html-drafts'], // authoritative coverage losses, a subset of changed
 } }
 ```
 
@@ -1101,7 +1102,9 @@ and accepted authoritative consent documents. Names are `text`, `analysis`,
 `voice`, `transcription`, `images`, `html-drafts` (the `html` feature), and
 `uploads`; unchanged coverage produces `[]`. It includes both additions and
 removals, never selected item IDs, terms, recipients, contract strings or ledger
-values. Caller-supplied `changed` fields are ignored. The server reads both
+values. `removed` lists only the scopes that lost coverage; an empty list
+confirms no coverage losses even if the client's document is stale. Both fields contain
+only scope names, and caller-supplied values for either field are ignored. The server reads both
 documents through the host port, rather than trusting the submitted selection.
 For a revision-bound ledger, `describe(sessionId, { consentRevision, granted })`
 accepts an optional context for reading the staged grant at the next revision,
@@ -1110,15 +1113,17 @@ ordinary GET reads keep using the current committed revision. The reference
 processing and mock ledgers support this context. Ledgers whose `describe`
 already returns the accepted selection can ignore the second argument.
 
-The field is optional for backward compatibility: hosts without `describe`,
+Both fields are optional for backward compatibility: hosts without `describe`,
 legacy/unavailable documents and legacy events retain the previous shape. Optional
-grant enrichment reads each have a 250 ms deadline; a timeout omits `changed`
+grant enrichment reads each have a 250 ms deadline; a timeout omits both fields
 and retains the legacy refresh path. Full withdrawals include every known scope
-as a revocation and bypass host document reads so host latency cannot delay it. Existing
-consumers can ignore `changed`. The UI removes a known withdrawn artifact kind
+in both fields as a revocation and bypass host document reads so host latency cannot delay it. Existing
+consumers can ignore these optional fields. The UI removes a known withdrawn artifact kind
 synchronously in the handler, then verifies through the normal refresh. A
-client document showing missing coverage identifies an addition and preserves
-covered surfaces while waiting for the newer document. Missing or unknown
+revision-matched client document showing missing coverage identifies an addition.
+With a stale client document, the server's `removed` list distinguishes grants
+from withdrawals, preserving covered surfaces through grants while waiting for
+the newer document. A stale document alone cannot delay scoped removal. Missing or unknown
 scope names use the existing refresh path. The original two-second fail-closed
 deadline and 2/4/8-second retry budget still apply; detach retains the unverified
 state and reattach remains closed until a successful read.

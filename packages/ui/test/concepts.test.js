@@ -1209,7 +1209,7 @@ for (const changed of [undefined, ['future-scope']]) for (const granted of [fals
   assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
 });
 
-for (const kind of ['html', 'image']) test(`AIT-365 R2: a grant changed list cannot restore an already uncovered ${kind} kind`, async t => {
+for (const kind of ['html', 'image']) for (const directed of [false, true]) test(`AIT-365 R2: a grant changed list cannot restore an already uncovered ${kind} kind/directed=${directed}`, async t => {
   const { c, root, view, state } = consentRecoveryFixture(t);
   await tick();
   const feature = kind === 'html' ? 'html' : 'images';
@@ -1218,7 +1218,7 @@ for (const kind of ['html', 'image']) test(`AIT-365 R2: a grant changed list can
   view.update(snapshot); state.snapshot = () => new Promise(() => {});
   assert.equal(view.covered(kind), false, 'the setup starts with this kind uncovered');
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  view.reviseConsent([kind === 'html' ? 'html-drafts' : 'images'], true);
+  view.reviseConsent([kind === 'html' ? 'html-drafts' : 'images'], true, directed ? [] : undefined);
   assert.equal(view.items.some(item => item.id === kind), false, 'changed can add removals but never grant coverage');
   view.open(kind); assert.equal(view.dialog.open, false);
   assert.equal(root.querySelector('.concept-html').artifact, null);

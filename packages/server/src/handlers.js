@@ -663,6 +663,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           }
           // Full withdrawal revokes every scope without waiting on host reads.
           let changed = body.granted ? undefined : FEATURES.map(feature => feature === 'html' ? 'html-drafts' : feature);
+          let removed = body.granted ? undefined : [...changed];
           if (previousDocument) {
             // Revision-bound host ledgers have staged the accepted grant at the next
             // revision; this read precedes the atomic journal commit.
@@ -672,10 +673,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
               const covered = (doc, feature) => (doc.features[feature] ?? []).every(id => doc.selected.includes(id));
               changed = FEATURES.filter(feature => covered(previousDocument, feature) !== covered(nextDocument, feature))
                 .map(feature => feature === 'html' ? 'html-drafts' : feature);
+              removed = FEATURES.filter(feature => covered(previousDocument, feature) && !covered(nextDocument, feature))
+                .map(feature => feature === 'html' ? 'html-drafts' : feature);
             } catch { /* An unavailable enrichment read retains the legacy event/refresh path. */ }
             checkCurrent();
           }
-          const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged, changed });
+          const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged, changed, removed });
           if (event.data.conversationUnchanged) {
             broadcast(id, event); await conceptHandlers.lane.invalidate(id);
           } else await invalidate(id, event, 'consent-revised');
