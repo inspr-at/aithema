@@ -174,15 +174,6 @@ test('AIT-348: Grok DE light lifecycle viewports and typed composer keep control
   await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
   await page.select('#theme', 'light');
   await page.evaluate(async () => {
-    const map = document.createElement('script'); map.type = 'importmap'; map.textContent = JSON.stringify({ imports: {
-      '@inspr/aithema-core/invocation': '/packages/core/src/invocation.js',
-      '@inspr/aithema-core/live-voice': '/packages/core/src/live-voice.js',
-      '@inspr/aithema-core/plugins': '/packages/core/src/plugins.js',
-      '@inspr/aithema-core/voice-lifecycle-controller': '/packages/core/src/voice-lifecycle-controller.js',
-      '@inspr/aithema-server/composed-voice/client': '/packages/server/src/composed/client.js',
-      '@inspr/aithema-server/composed-voice/network-client': '/packages/server/src/composed/network-client.js',
-      '@inspr/aithema-server/composed-voice/browser-audio': '/packages/server/src/composed/browser-audio.js',
-    } }); document.head.append(map);
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
     const render = AudioRail.prototype.render;
     AudioRail.prototype.render = function () { window.ait348Rail = this; return render.call(this); };
