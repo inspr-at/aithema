@@ -137,6 +137,16 @@ test('AIT-346: withdrawal fences queued output and stops browser media', async t
   await session.close().catch(() => {});
 });
 
+for (const denied of ['voice-xai', undefined]) test(`AIT-350: Settings switches binding only with current Grok consent (${denied ?? 'granted'}) without starting media`, async t => {
+  const h = fixture(t, { denied }), session = { ...h.storage.get(h.session.id), settings: { ...h.storage.get(h.session.id).settings, voice: 'off' } };
+  const catalog = await h.runtime.catalog(session), voice = catalog.presets.best.voices[0];
+  const result = await h.runtime.validate(session, { voice: voice.id });
+  if (denied) assert.deepEqual(result, { status: 409, error: 'setting-not-allowed', field: 'voice', reason: 'current processing consent required' });
+  else assert.equal(result.settings.voice, voice.id);
+  assert.deepEqual(voice.facts.providerProcessing, { vendor: 'xAI', recipientCountries: ['US'], processingCountries: null, verification: 'current' });
+  assert.equal(voice.facts.hostCountries, undefined, 'recipient nationality cannot qualify the processing vial');
+  assert.deepEqual(h.consumed, [], 'catalogue and Settings never start paid components');
+});
 
 test('AIT-349: real Grok chain interrupts synthesis locally, persists full reply once, and recovers with model awareness', async t => {
   const h = fixture(t, { ttsAudioBytes: 48000 });
@@ -179,15 +189,4 @@ test('AIT-349: an authenticated browser cannot invent a Grok heard prefix or tru
   assert.equal(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).content, 'Which company?');
   assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
   await session.close();
-});
-
-for (const denied of ['voice-xai', undefined]) test(`AIT-350: Settings switches binding only with current Grok consent (${denied ?? 'granted'}) without starting media`, async t => {
-  const h = fixture(t, { denied }), session = { ...h.storage.get(h.session.id), settings: { ...h.storage.get(h.session.id).settings, voice: 'off' } };
-  const catalog = await h.runtime.catalog(session), voice = catalog.presets.best.voices[0];
-  const result = await h.runtime.validate(session, { voice: voice.id });
-  if (denied) assert.deepEqual(result, { status: 409, error: 'setting-not-allowed', field: 'voice', reason: 'current processing consent required' });
-  else assert.equal(result.settings.voice, voice.id);
-  assert.deepEqual(voice.facts.providerProcessing, { vendor: 'xAI', recipientCountries: ['US'], processingCountries: null, verification: 'current' });
-  assert.equal(voice.facts.hostCountries, undefined, 'recipient nationality cannot qualify the processing vial');
-  assert.deepEqual(h.consumed, [], 'catalogue and Settings never start paid components');
 });

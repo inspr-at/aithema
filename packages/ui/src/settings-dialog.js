@@ -60,6 +60,7 @@ const helpMeasurements = copy => {
 };
 
 const svg = (body, box = '0 0 24 24') => `<svg viewBox="${box}" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const CHEVRON = '<path d="m6 9 6 6 6-6"/>';
 const stars = Array.from({ length: 12 }, (_, i) => `<path d="m0-2 .6 1.3 1.4.2-1 1 .2 1.4L0 1.2l-1.2.7.2-1.4-1-1 1.4-.2Z" transform="translate(${(16 + 10 * Math.sin(i * Math.PI / 6)).toFixed(2)} ${(16 - 10 * Math.cos(i * Math.PI / 6)).toFixed(2)})" fill="currentColor" stroke="none"/>`).join('');
 export const ICONS = Object.freeze({
   best: svg('<circle cx="16" cy="16" r="12"/><ellipse cx="16" cy="16" rx="5.5" ry="12"/><path d="M5 11h22M4 17h24M6 23h20"/>', '0 0 32 32'),
@@ -70,7 +71,7 @@ export const ICONS = Object.freeze({
   model: svg('<path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 3V5a2 2 0 0 1 2-2Z"/>'),
   local: svg('<path d="M6 4v3m0 4v9m6-16v9m0 4v3m6-16v3m0 4v9"/><circle cx="6" cy="9" r="2"/><circle cx="12" cy="15" r="2"/><circle cx="18" cy="9" r="2"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9l2.1 2.1m10 10 2.1 2.1M4.9 19.1 7 17m10-10 2.1-2.1"/>'),
-  check: svg('<path d="m5 12 5 5 9-10"/>'), chevron: svg('<path d="m6 9 6 6 6-6"/>'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
+  check: svg('<path d="m5 12 5 5 9-10"/>'), chevron: svg(CHEVRON), disclosureChevron: svg(CHEVRON, '5 5 14 14'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
   text: svg('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h2m2 0h2m2 0h2m2 0h2M5 12h2m2 0h2m2 0h2m2 0h2M6 15h12"/>'),
   off: svg('<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>'),
 });
@@ -184,7 +185,7 @@ export class SettingsDialog {
         <section class="settings-panel" role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" data-panel="local" hidden><div class="local-host"></div></section>
       </div>
       <div class="settings-context"><span class="context-icon" aria-hidden="true">i</span><div class="context-text"><p class="context-message" role="status" aria-live="polite"></p></div></div>
-      <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers" data-text="providers"></summary>
+      <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers"><span data-text="providers"></span>${ICONS.disclosureChevron}</summary>
           <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
           <button type="button" class="link footer-consent" data-help="consent" data-text="manageConsent"></button></div>
         <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" role="status" aria-live="polite"></p>
@@ -352,7 +353,14 @@ export class SettingsDialog {
   }
   #openMenu(select) {
     for (const other of this.#all('.select')) if (other !== select) this.#closeMenu(other);
-    select.querySelector('.select__menu').hidden = false;
+    const menu = select.querySelector('.select__menu');
+    delete select.dataset.menuAbove;
+    menu.hidden = false;
+    // A fitted gauge panel need not leave scroll overflow below the fields.
+    // Keep the options inside the body without moving the visitor's choice.
+    const body = this.#q('.settings__body').getBoundingClientRect(), bounds = menu.getBoundingClientRect();
+    const spaceAbove = select.getBoundingClientRect().top - body.top;
+    if (bounds.bottom > body.bottom && spaceAbove > bounds.height) select.dataset.menuAbove = 'true';
     select.querySelector('.select__button').setAttribute('aria-expanded', 'true');
   }
   #closeMenu(select, focus = false) {

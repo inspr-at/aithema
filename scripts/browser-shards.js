@@ -107,15 +107,34 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 browserTestWeights['test/browser/demo.test.js'] = Math.max(
   browserTestWeights['test/browser/demo.test.js'], 71);
 
-// AIT-350: PR #315 CI 39172190539, e81e2241, shard 2/7: complete
-// physical media/lifecycle/Settings file 3/3 PASS. Top-level work:
-// 1.176675600s + 3.073272393s + 7.819170062s = 12.069118055s;
-// ceil(*1.25) = 16s, superseding the 12s mbp2606 floor (8.9365s).
-// Source: browser-timings-2-of-7/batch-0.jsonl. The run was superseded
-// after this file completed. Keep the diagnostic floor outside trusted
-// rolling-main history; no shard count, ceiling or check-name changes.
+// AIT-350 round 5: PR #315 CI 39198540390, 1caf98ee, shard 2/7:
+// physical media/lifecycle/Settings file 3/3 PASS, including dark DE
+// and 1024 evidence. Top-level work: 1.249225096s + 3.238451189s
+// + 13.683266318s = 18.170942603s; ceil(*1.25) = 23s. This slower
+// confirmation supersedes the initial 20s round-5 floor (15.796394502s).
+// Source: browser-timings-2-of-7/batch-0.jsonl.
+// Keep this diagnostic floor outside trusted rolling-main history;
+// no shard count, ceiling, workflow or check-name changes.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 16);
+  browserTestWeights['test/browser/composed-media.test.js'], 23);
+
+// AIT-350 -fix1: passing CI 39204030409, 81364ab1, shard 2/7.
+// 1440x900, 1280x800, content-sized popover and single-column confirmation:
+// 1.134289473s + 2.968562343s + 14.438096212s = 18.540948028s.
+// ceil(observed * 1.25) = 24s, superseding the round-5 23s floor.
+// Source: browser-timings-2-of-7/batch-0.jsonl. No capacity policy changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 24);
+
+// AIT-350 round 7: PR #315 CI 39206999982, 895129ae, shard 5/7 PASS.
+// Three settled open-menu captures and box checks: 1.151249632s +
+// 3.085387965s + 15.562711664s = 19.799349261s; ceil(*1.25) = 25s.
+// Confirmation CI 39207582259, c43fade9, shard 5/7 PASS was slower:
+// 2.408554753s + 3.692719086s + 15.640518542s = 21.741792381s.
+// ceil(*1.25) = 28s supersedes the initial 25s and round-6 24s floors.
+// Source for both samples: browser-timings-5-of-7/batch-0.jsonl.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 28);
 
 // AIT-349: mbp2606 run 01b1dfa8e0-87584 passed 3/3 in 5.277133585s.
 // Successful PR #314 CI shard 2/7 measured 7.092059901s at 41ca2db7
@@ -127,13 +146,24 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
   browserTestWeights['test/browser/composed-media.test.js'], 13);
 
-// AIT-351: stacking #314/#315 retains all four tests. PR #316 CI
-// 39175441154 at b7fa21db passed 4/4: 1.214326536 + 3.040660964 +
-// 2.783250456 + 7.988266255 = 15.026504211s; ceil(*1.25) = 19s.
-// Source: browser-timings-2-of-7/batch-0.jsonl; the browser file is
-// byte-identical at 60bd1706. No shard count, ceiling or name changes.
+// AIT-350 round 8: combined AIT-349/AIT-350 file, committed-head
+// mbp2606 run 1de9553a45-66313: all 4 top-level tests PASS with evidence.
+// 2.072055459s + 1.871234s + 10.523680s + 1.545596917s
+// = 16.012566376s; ceil(observed * 1.25) = 21s. Retain the slower
+// prior CI floor of 28s until the combined file is re-measured in CI.
+// Both complete tests remain in this file; no capacity policy changes.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 19);
+  browserTestWeights['test/browser/composed-media.test.js'], 21);
+
+// AIT-350 round 8: successful PR #315 CI 39210100075, 87b6ae8e,
+// shard 5/7 re-measured the complete four-test AIT-349/AIT-350 file:
+// 1.165677031s + 3.866580148s + 15.690250939s + 2.674151171s
+// = 23.396659289s; ceil(observed * 1.25) = 30s, superseding the
+// previous 28s CI floor and the 21s combined remote measurement.
+// Source: browser-timings-5-of-7/batch-0.jsonl. Keep PR diagnostics
+// outside trusted rolling-main history; no shard or workflow changes.
+browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
+  browserTestWeights['test/browser/composed-media.test.js'], 30);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
