@@ -19,13 +19,15 @@ export async function partialConsentFrames(t) {
     import '/packages/ui/src/session-element.js';
     import {ConceptView} from '/packages/ui/src/concept-view.js';
     const update=ConceptView.prototype.update;
-    ConceptView.prototype.update=function(s){window.view=this;const result=update.apply(this,arguments);if(window.watching&&s.featureMatrix.best[window.removedFeature]?.reason==='current processing consent required')window.sameTick=window.inspect();return result;};
+    ConceptView.prototype.update=function(s){window.view=this;const result=update.apply(this,arguments);if(window.watching&&s.featureMatrix.best[window.removedFeature]?.reason==='current processing consent required'&&!window.sameTick)window.sameTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};if(window.watchFailClosed&&this.items.length===0&&c.shadowRoot.querySelector('.concept-withdrawn').textContent===copy.conceptWithdrawn)window.failClosedTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};return result;};
     window.revoked=[];const revoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{window.revoked.push(url);revoke(url);};
     const params=new URLSearchParams(location.search),locale=params.get('locale')||'de';
     const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
     const c=document.createElement('aithema-session');window.c=c;
     const session=await (await fetch('/api/sessions/ait364')).json();
     c.configure({session,copy,sessionToken:'fixture-owner',concepts:{previewURL:location.origin+'/_aithema/html-preview'}});
+    const receive=c.receive.bind(c);c.receive=event=>{if(event.type==='consent.revised'&&event.seq>c.session.seq){window.eventAt=performance.now();window.refreshRounds=0;}return receive(event);};
+    const nativeFetch=window.fetch.bind(window);window.fetch=(url,options)=>{if(window.eventAt&&new URL(url,location.href).pathname==='/api/sessions/ait364')window.refreshRounds++;return nativeFetch(url,options);};
     c.setAttribute('theme',params.get('theme')||'light');c.setAttribute('motion','off');document.documentElement.lang=locale;document.body.append(c);
     window.boxes=()=>Object.fromEntries(['.transcript-shell','.composer','.concept-rail','.band','.concept-access','.drafts-canvas'].map(s=>{const b=c.shadowRoot.querySelector(s).getBoundingClientRect();return[s,[b.x,b.y,b.width,b.height]];}));
     window.inspect=()=>{const r=c.shadowRoot;return {open:window.view.dialog.open,ids:window.view.items.map(i=>i.id),frames:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.artifact).map(n=>n.dataset.id),images:[...r.querySelectorAll('img[src]')].map(n=>n.dataset.id),focus:r.activeElement?.className,count:r.querySelector('.concept-count').textContent,previousDisabled:r.querySelector('.concept-previous').disabled,nextDisabled:r.querySelector('.concept-next').disabled,iframeCount:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.shadowRoot.querySelector('iframe')).length,notice:r.querySelector('.concept-withdrawn').textContent,live:r.querySelector('.concept-withdrawn').getAttribute('aria-live'),state:r.querySelector('.concept-access').dataset.state,tooltip:r.querySelector('.concept-backdrop-hint').hasAttribute('data-show'),revoked:window.revoked,transcript:c.session.transcript.map(t=>t.content)};};
@@ -71,6 +73,7 @@ export async function partialConsentFrames(t) {
   const a = await browser.newPage(), b = await browser.newPage(), checks = [], shots = [];
   await a.setRequestInterception(true);
   a.on('request', request => {
+    if (a.refreshFailure === 'http' && new URL(request.url()).pathname === '/api/sessions/ait364') { void request.respond({ status: 503, contentType: 'application/json', body: '{}' }); return; }
     if (a.holdConsentRead && request.method() === 'GET' && new URL(request.url()).pathname.endsWith('/consent')) { a.heldConsentRead = request; return; }
     void request.continue();
   });
@@ -110,6 +113,8 @@ export async function partialConsentFrames(t) {
     await a.waitForFunction(() => window.sameTick, { timeout: 5000 });
     const result = await a.evaluate(() => sameTick);
     a.holdConsentRead = false; if (a.heldConsentRead) await a.heldConsentRead.continue();
+    assert.ok(result.eventToRemovalMs >= 0 && result.eventToRemovalMs < 1000, `one-round removal took ${result.eventToRemovalMs} ms`);
+    assert.equal(result.refreshRounds, 1, 'removal happens within the first snapshot refresh round');
     assert.equal(result.open, false, 'W1 viewer closes in the update tick');
     assert.equal(result.frames.includes('removed'), false, 'W2 no revoked frame artifact');
     assert.equal(result.images.includes('removed'), false, 'no revoked thumbnail/backdrop/viewer/canvas bytes');
@@ -164,6 +169,62 @@ export async function partialConsentFrames(t) {
     assert.equal(result.open, false); assert.deepEqual(result.frames, []); assert.deepEqual(result.images, []);
     assert.equal(result.notice, 'Entwurf zurückgezogen');
     checks.push({ width: 1440, theme: 'light', locale: 'de', kind: 'full', ...result, synchronousRedaction: true, unchangedCopy: true });
+  });
+  for (const [width, failure] of [[1440, 'http'], [390, 'document-stall']]) await t.test(`v1.1 fail-closed ${failure}/${width} and recovery`, async () => {
+    session = createSession({ demo: true }); session.id = 'ait364'; session.locale = 'de'; session.consentRevision = 1;
+    session.settings.origin = 'chosen'; session.settings.visuals = 'auto'; session.visualsBound = true; session.conceptVisualKind = 'html'; session.conceptCost = { maxMicro: 0 };
+    session.transcript = [{ id: 'source', role: 'user', content: 'Keep this transcript.' }]; session.inputRevision = 1;
+    session.concepts = ['image', 'html'].map(kind => ({ id: kind, mediaType: kind === 'html' ? 'text/html' : 'image/png', turnIds: ['source'], referenceIds: [], feedback: { vote: 'clear', chips: [] } }));
+    session.conceptStatus = { phase: 'ready' };
+    session.featureMatrix = { best: Object.fromEntries(Object.keys(features).map(f => [f, { available: true }])) }; selected = ['models', 'drafts', 'images'];
+    await a.setViewport({ width, height: 900 });
+    const url = `http://127.0.0.1:${server.address().port}/?locale=de&theme=light`;
+    for (const page of [a, b]) { await page.goto(url); await page.waitForFunction(() => window.ready); }
+    // Different kinds are alive at once: HTML canvas, image viewer and image cache.
+    await a.evaluate(async () => { c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas(); c.shadowRoot.querySelector('.concept-preview').focus(); view.open('image'); });
+    await a.waitForFunction(() => c.shadowRoot.querySelector('.canvas-html').state === 'ready' && c.shadowRoot.querySelector('.concept-image').hasAttribute('src'));
+    const baseline = await a.evaluate(() => boxes());
+    await a.evaluate(() => {
+      window.watchFailClosed = true;
+      const schedule = window.setTimeout.bind(window);
+      // Unit tests advance the real 1999/2000 ms boundary. This wire fixture
+      // invokes that exact callback without adding real waits to the shard.
+      window.setTimeout = (callback, delay, ...args) => delay === 2000 ? (window.expireConsent = callback, 0) : schedule(callback, delay, ...args);
+    });
+    a.refreshFailure = failure === 'http' ? 'http' : null;
+    a.holdConsentRead = failure === 'document-stall'; a.heldConsentRead = null;
+    await b.evaluate(() => view.consent(c.shadowRoot.querySelector('.concept-preview')));
+    await b.waitForFunction(() => c.shadowRoot.querySelector('.consent-items input[value="drafts"]'));
+    await b.evaluate(() => { c.shadowRoot.querySelector('.consent-items input[value="drafts"]').click(); c.shadowRoot.querySelector('.done').click(); });
+    if (failure === 'document-stall') {
+      await a.waitForFunction(() => window.expireConsent && !view.items.some(i => i.id === 'html'));
+      assert.equal(await a.evaluate(() => view.dialog.open), true, 'covered image stays visible during the accepted refresh window');
+      await a.evaluate(() => { window.deadlineAdvancedMs = 2000; expireConsent(); });
+    }
+    await a.waitForFunction(() => window.failClosedTick);
+    const result = await a.evaluate(() => failClosedTick);
+    assert.deepEqual(result.ids, []); assert.deepEqual(result.frames, []); assert.deepEqual(result.images, []);
+    assert.equal(result.iframeCount, 0); assert.equal(result.open, false); assert.equal(result.focus, 'concept-preview');
+    assert.equal(result.state, 'gone'); assert.equal(result.notice, 'Entwurf zurückgezogen'); assert.equal(result.live, 'polite');
+    assert.ok(result.revoked.length > 0); assert.deepEqual(result.transcript, ['Keep this transcript.']);
+    assert.deepEqual(await a.evaluate(() => boxes()), baseline, 'fail-closed removal shifts 0 px');
+    await a.evaluate(async () => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
+    await a.mouse.move(-10, -10);
+    const file = `ait364-${width}-light-de-failclosed.png`;
+    if (evidence) { await a.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file); }
+    // Blurring is only for the shot. Restore keyboard focus before revalidation.
+    await a.evaluate(() => c.shadowRoot.querySelector('.concept-preview').focus());
+    a.refreshFailure = null; a.holdConsentRead = false;
+    await a.evaluate(() => { window.watchFailClosed = false; view.retry(); });
+    await a.waitForFunction(() => view.items.length === 1 && view.items[0].id === 'image');
+    const recovered = await a.evaluate(() => inspect());
+    assert.equal(recovered.state, 'ready'); assert.equal(recovered.notice, ''); assert.equal(recovered.focus, 'concept-preview');
+    assert.deepEqual(await a.evaluate(() => boxes()), baseline, 'successful revalidation shifts 0 px');
+    if (a.heldConsentRead) { await a.heldConsentRead.continue(); a.heldConsentRead = null; }
+    await a.evaluate(() => view.open('image'));
+    await a.waitForFunction(() => view.dialog.open && c.shadowRoot.querySelector('.concept-image').hasAttribute('src'));
+    assert.deepEqual(await a.evaluate(() => view.items.map(i => i.id)), ['image'], 'covered images reopen without reload; withdrawn HTML stays gone');
+    checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, recovered, retainedOpenable: true });
   });
   if (evidence) await writeFile(join(evidence, 'ait364-checks.json'), JSON.stringify({ shots, checks }, null, 2));
 }
