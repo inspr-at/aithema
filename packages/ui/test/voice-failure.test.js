@@ -113,6 +113,17 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     assert.equal(requests.length, before); assert.equal(rail.root.dataset.state, 'waiting');
     record(provider, 'retry-after-ownership-loss', ['ownership loss during wait keeps Waiting and fences the delayed continuation']);
   });
+  test(`AIT-361 ${provider}: a deadline ending the call clears the retry wait`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const { rail, recover, allowRecovery, requests } = fixture(t, provider, { recoveryError: rateLimit(5000) });
+    await rail.start(); recover(); await flush(); allowRecovery();
+    const before = requests.length, session = rail.session, continuing = rail.pause(false); await flush();
+    await session.close({ reason: 'browser-liveness-deadline' }); await flush();
+    assert.equal(rail.session, null); assert.equal(rail.root.dataset.state, 'failed');
+    assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(rail.button('retry').disabled, false);
+    t.mock.timers.tick(5000); await continuing; await flush(); assert.equal(requests.length, before);
+    record(provider, 'retry-after-deadline', ['a terminal deadline during wait restores F2 Retry and fences the delayed continuation']);
+  });
   test(`AIT-361 ${provider}: retry-after is an absolute advertised deadline`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
     const { rail, requests } = fixture(t, provider, { startError: rateLimit(5000) });
