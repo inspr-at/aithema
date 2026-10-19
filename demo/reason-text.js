@@ -1,4 +1,4 @@
-import { neutralBindingReason } from '../packages/ui/src/reason-text.js';
+import { neutralBindingReason } from '../packages/ui/src/display.js';
 const DELEGATED = 'delegated reasoning: ';
 /** Server verdicts are stable machine reasons; this shows them in the page language. */
 export function reasonText(copy, reason, feature) {
