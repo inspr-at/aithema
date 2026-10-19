@@ -234,8 +234,9 @@ for (const provenance of ['recorded', 'legacy']) for (const visuals of ['off', '
         routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60000 } } };
   }
   const consent = { coverage: () => ({ covered: true }), describe: () => ({ contract: 'ait369', selected: ['drafts', 'images'],
-    items: ['drafts', 'images'].map(id => ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
-  const pluginRuntime = createPluginRuntime({ storage, registry, consent, presets: { best: { plugins: ['fake-html', 'fake-images'], bindings, ...(provenance === 'recorded' ? { choices: { models: [], visuals: ['html', 'images'].map(kind => ({ id: kind, kind, binding: bindings[kind] })) } } : {}) } } });
+    items: ['drafts', 'images', 'other-drafts'].map(id => ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
+  const pluginRuntime = createPluginRuntime({ storage, registry, consent, presets: { best: { plugins: ['fake-html', 'fake-images'], bindings, ...(provenance === 'recorded' ? { choices: { models: [], visuals: [...['html', 'images'].map(kind => ({ id: kind, kind, binding: bindings[kind] })),
+      { id: 'both', kind: 'html', binding: { ...bindings.html, legal: { ...bindings.html.legal, purpose: 'other-drafts' } } }] } } : {}) } } });
   const handlers = createHandlers({ storage, consent, pluginRuntime });
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ ownerToken: testToken });

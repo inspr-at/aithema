@@ -1138,3 +1138,17 @@ for (const visuals of ['off', 'images', 'html', 'both']) test(`AIT-369 ${visuals
   assert.deepEqual(view.items.map(i => i.id), ['html', 'image']);
   assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
 });
+
+
+test('AIT-369: a different current provider cannot revoke a covered delivered producer', t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [draft('html'), item('image')] });
+  const session = { ...c.session, featureMatrix: { best: {
+    html: { available: false, reason: 'current processing consent required' },
+    images: { available: false, reason: 'current processing consent required' },
+  } } };
+  view.update(session, { consentRevision: session.consentRevision, selected: ['drafts', 'images'], features: { html: ['drafts'], images: ['images'] } });
+  assert.deepEqual(view.items.map(i => i.id), ['html', 'image']);
+});

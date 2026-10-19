@@ -71,7 +71,7 @@ export async function deliveredConsentFrames(t) {
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const browser = await browserForFile();
-  t.after(async () => { await browser.close(); for (const stream of streams) stream.end(); await new Promise(resolve => server.close(resolve)); });
+  t.after(async () => { await browser.close(); for (const stream of streams) stream.end(); await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }); });
   const a = await browser.newPage(), b = await browser.newPage(), checks = [], shots = [];
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
@@ -88,6 +88,7 @@ export async function deliveredConsentFrames(t) {
     { state: 'missing-list', width: 1440, kind: 'image', visuals: 'html', list: 'missing' },
   ];
   for (const config of configs) await t.test(`${config.state}/${config.width}`, async () => {
+    try {
     const { width, kind, visuals, mixed, kept } = config;
     visualChoice = visuals; coverageList = config.list;
     session = createSession({ demo: true }); session.id = 'ait369'; session.locale = 'de'; session.consentRevision = 1;
@@ -151,6 +152,7 @@ export async function deliveredConsentFrames(t) {
     await a.mouse.move(-10, -10);
     if (evidence) { const file = `ait369-${width}-light-de-${config.state}.png`; await a.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file); }
     checks.push({ ...config, ...result, movementPx: 0, keptSampledEveryFrame: Boolean(kept), downloadChecked: true, viewportOnly: true });
+    } catch (error) { console.error(config.state, error); throw error; }
   });
   if (evidence) await writeFile(join(evidence, 'ait369-checks.json'), JSON.stringify({ shots, checks,
     unit: 'AIT-369: empty/missing coverage for both kinds across off/images/html/both; kept coverage across all choices',
