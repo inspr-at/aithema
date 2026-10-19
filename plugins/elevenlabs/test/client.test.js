@@ -446,3 +446,36 @@ test('AIT-383: real server lease stays open through a 60 s permission prompt and
   await session.heartbeat(); assert.equal(serverSession.signal.aborted, false);
   await session.close(); assert.equal(serverSession.snapshot().reason, 'closed');
 });
+
+test('AIT-383 round 3: one heartbeat hiccup during the prompt retries without cancelling startup', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const permission = Promise.withResolvers(), local = fixture(), start = local.control.start,
+    heartbeat = local.control.heartbeat, phases = [];
+  let renewals = 0, recoveries = 0, closures = 0, session;
+  local.sdk.beforeAcquire = () => permission.promise;
+  local.control.start = (request, opts) => start(request, invocationOptions({ ...opts,
+    deadlineAt: Date.now() + 30_000, spendDeadlineAt: Date.now() + 180_000, browserLivenessDeadlineAt: Date.now() + 30_000 }));
+  local.control.heartbeat = (...args) => {
+    if (++renewals === 1) throw new TypeError('temporary offline fixture');
+    return heartbeat(...args);
+  };
+  local.control.recover = async () => { recoveries++; throw new Error('startup must not recover'); };
+  const close = local.control.close;
+  local.control.close = (...args) => { closures++; return close(...args); };
+  const starting = local.client.start({ callId: 'prompt-renewal-hiccup' }, { onMicrophoneState: phase => phases.push(phase) });
+  const outcome = starting.catch(error => error);
+  t.after(async () => { permission.resolve(); await session?.close(); await outcome; });
+  const settle = async () => { for (let i = 0; i < 12; i++) await flush(); };
+  await settle(); assert.deepEqual(phases, ['requesting']);
+  for (let second = 0; second < 11; second++) { t.mock.timers.tick(1000); await settle(); }
+  assert.equal(recoveries, 0, 'there is no provider connection to recover during the prompt');
+  assert.equal(closures, 0, 'one renewal failure must not close the pending startup');
+  assert.ok(renewals >= 2, 'renewal retries within the existing lease');
+  for (let second = 11; second < 60; second++) { t.mock.timers.tick(1000); await settle(); }
+  assert.deepEqual(phases, ['requesting']);
+  assert.equal([...local.sessions.values()][0].signal.aborted, false);
+  permission.resolve(); session = await starting;
+  assert.deepEqual(phases, ['requesting', 'granted']);
+  assert.equal(session.lifecycle.state.state, 'active');
+  assert.equal(local.sdk.starts.length, 1); assert.equal(recoveries, 0);
+});

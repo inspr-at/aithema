@@ -4,6 +4,8 @@ import { createComposedVoiceCoordinator, callDurationSeconds } from '@inspr/aith
 import { elevenLabsCompletion, runElevenLabsReply } from '../../elevenlabs/src/reply.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
+import { createComposedRelay } from '../src/relay.js';
+import { createComposedBrowserMedia } from '../src/client.js';
 
 const pcm = (ms, amplitude = 8000) => {
   const bytes = Buffer.alloc(ms * 32);
@@ -88,6 +90,52 @@ test('AIT-160: interruption stops playback synchronously and retains admitted re
   assert.equal(h.silences.length, before + 1);
   release.resolve(); await interrupt; await h.coordinator.idle();
   assert.equal(finished, true); assert.equal(h.audio.length, 0);
+});
+
+test('AIT-383 round 3: a browser typed turn stops server TTS and records the previous reply interrupted', async t => {
+  const at = Date.now(), heard = Promise.withResolvers(), release = Promise.withResolvers(), saved = [];
+  const relay = createComposedRelay({ callId: 'call-offline', providerSessionId: 'composed-generation-1', epoch: 0,
+    expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
+  let synthesisSignal, lateChunks = 0;
+  const audio = [];
+  const h = fixture(t, { interruptionAwareness: true,
+    commitUtterance: async (envelope, opts) => { saved.push({ envelope, ...opts }); },
+    relay: { event: value => relay.event(value), silence: value => relay.silence(value),
+      audio: frame => { audio.push(frame); relay.audio(frame); } },
+    replyExecutor: { async *execute(envelope) {
+      const first = envelope.payload.callbackBody.messages.at(-1).content === 'First';
+      const replyId = first ? 'reply-A' : 'reply-B', text = first ? 'First answer. ' : 'Second answer.';
+      yield { type: 'operation', replyId };
+      yield { type: 'delta', text };
+      yield { type: 'completion', replyId, text };
+    } },
+    tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak({ text }, opts) {
+      await opts.attempt.consume();
+      if (text === 'First answer. ') {
+        synthesisSignal = opts.signal;
+        yield new Uint8Array(4);
+        await release.promise; lateChunks++;
+        yield new Uint8Array(4);
+      } else yield new Uint8Array(4);
+    } } });
+  relay.attach(h.coordinator);
+  const media = createComposedBrowserMedia({ openRelay: grant => relay.connect(grant),
+    capture: async () => ({ stop() {} }), player: { stop() {}, play() { heard.resolve(); } } });
+  const session = await media.connect(relay.grant);
+  t.after(async () => { release.resolve(); await session.close(); });
+  await session.sendText('First', { deliveryId: 'first' }); await heard.promise;
+  const before = audio.filter(frame => frame.replyId === 'reply-A').length;
+  assert.equal(before, 1);
+  await session.sendText('Second', { deliveryId: 'second' });
+  assert.equal(synthesisSignal.aborted, true, 'the typed turn must stop synthesis on the server');
+  assert.deepEqual(saved.filter(value => value.role === 'interrupted').map(value => [value.replyId, value.heardLength]),
+    [['reply-A', 'unknown']], 'Grok has no confirmed played offset; never claim the full reply was heard');
+  release.resolve(); await h.coordinator.idle();
+  assert.equal(audio.filter(frame => frame.replyId === 'reply-A').length, before, 'no reply-A TTS frames after the typed turn');
+  assert.equal(audio.filter(frame => frame.replyId === 'reply-B').length, 1);
+  assert.equal(lateChunks, 1, 'even an uncooperative late provider chunk is fenced');
+  await session.sendText('Second', { deliveryId: 'second' });
+  assert.equal(saved.filter(value => value.role === 'interrupted').length, 1, 'a delivery retry is not a new interruption');
 });
 
 test('AIT-160: pause holds capture until an authorized acknowledgement; explicit duration preserves the ceiling', async t => {
