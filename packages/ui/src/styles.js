@@ -236,7 +236,7 @@ svg { display:block; flex:none; }
 .concept-preview[data-withdrawn] > * { visibility:hidden; }
 .workspace .concept-access[data-scope-withdrawn] .concept-preview-slot { display:grid; }
 @media(min-width:601px) {
-  .workspace .concept-bar:has(.concept-access[data-scope-withdrawn]) { grid-template-columns:minmax(0,1fr) auto; }
+  .workspace:not([data-concept-layout="image"]) .concept-bar:has(.concept-access[data-scope-withdrawn]) { grid-template-columns:minmax(0,1fr) auto; }
 }
 .concept-thread { display:contents; }
 .workspace[data-concept-layout="image"] .concept-thread { position:relative; min-height:0; display:grid; grid-template:minmax(0,1fr)/minmax(0,1fr); container-type:size; }
