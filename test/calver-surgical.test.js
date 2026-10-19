@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { assertVersionMirrors } from './fixtures/version-mirrors.js';
 import { reserveVersion } from '../release/lib/version.mjs';
 import { version, json } from './fixtures/release-set.js';
 
@@ -69,6 +71,8 @@ test('surgical merge M repairs all mirrors and new internal pins while C prime s
   assert.equal(git(['rev-parse', `${Cprime}^{tree}`]), candidateTree);
   assert.equal(git(['merge-base', Cprime, main]), C);
   assert.throws(() => git(['cat-file', '-e', `${Cprime}:plugins/added/package.json`]), 'main-only package must not enter C prime');
+  const mirrorRoot = pathToFileURL(root + '/');
+  assertVersionMirrors(mirrorRoot, next);
   assert.equal(read('release/version.json').version, next.version);
   assert.equal(read('package-lock.json').version, next.version);
   for (const path of paths) {
@@ -79,5 +83,16 @@ test('surgical merge M repairs all mirrors and new internal pins while C prime s
         assert.equal(pin, names.has(name) ? next.version : '^1.2.3', `${path} ${field} ${name}`);
       }
     }
+  }
+  for (const [path, mutate] of [
+    ['plugins/added/package.json', pkg => { pkg.version = initial.version; }],
+    ['packages/existing/package.json', pkg => { pkg.peerDependencies['@fixture/added'] = initial.version; }],
+    ['package-lock.json', lock => { lock.packages['plugins/added'].version = initial.version; }],
+  ]) {
+    const original = readFileSync(join(root, path));
+    const broken = read(path); mutate(broken); write(path, broken);
+    assert.throws(() => assertVersionMirrors(mirrorRoot, next), /AssertionError/u, `M must refuse an unrepaired mirror or pin: ${path}`);
+    writeFileSync(join(root, path), original);
+    assertVersionMirrors(mirrorRoot, next);
   }
 });

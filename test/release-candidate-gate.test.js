@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as gateModule from '../release/gate.mjs';
 import { normalizedDigest } from '../release/normalize.mjs';
 import { releaseSet, version, digest, json } from './fixtures/release-set.js';
 
@@ -20,6 +21,9 @@ function fixture(t) {
   git(['add', 'release']); git(['commit', '-qm', 'candidate', '--signoff']);
   const commit = git(['rev-parse', 'HEAD']), ref = `refs/tags/v${version.version}`;
   git(['tag', `v${version.version}`, commit]);
+  git(['init', '--bare', '-q', '.remote.git']);
+  git(['remote', 'add', 'origin', join(root, '.remote.git')]);
+  git(['push', '-q', 'origin', 'HEAD:refs/heads/main', `refs/tags/v${version.version}`]);
   const candidate = releaseSet(t, { commit });
   const release = releaseSet(t, { commit, mode: 'release', run: 'publication' });
   const marker = { version: version.version, release_sequence: version.release_sequence, source_commit: commit,
@@ -113,4 +117,69 @@ test('unreadable or unbound published release metadata fails closed', t => {
     f.pages(pages);
     assert.notEqual(f.run().status, 0);
   }
+});
+
+test('exported marker parser validates the exact annotated object before a helper pushes it', t => {
+  const f = fixture(t); f.tag();
+  const name = `candidate/v${version.version}`;
+  assert.equal(typeof gateModule.parseCandidateMarker, 'function');
+  const object = f.git(['cat-file', '-p', `refs/tags/${name}`]);
+  assert.deepEqual(gateModule.parseCandidateMarker(name, object), f.marker);
+  assert.throws(() => gateModule.parseCandidateMarker(name, object.replace(f.marker.manifest_sha256, 'invalid')), /marker/iu);
+  assert.throws(() => gateModule.parseCandidateMarker(name, object.replace(f.commit, 'b'.repeat(40))), /marker/iu);
+});
+
+test('a malformed marker of another sequence warns without blocking the candidate', t => {
+  const f = fixture(t); f.tag();
+  const other = '261019120001.0.0';
+  f.tag({ ...f.marker, version: other, release_sequence: version.release_sequence - 1, manifest_sha256: 'invalid' }, f.commit, other);
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /warning.*candidate\/v261019120001.*sequence/iu);
+});
+
+test('a malformed marker claiming the candidate sequence still refuses', t => {
+  const f = fixture(t); f.tag();
+  const other = '261019115959.0.0';
+  f.tag({ ...f.marker, version: other, manifest_sha256: 'invalid' }, f.commit, other);
+  refused(f.run(), /marker/iu);
+});
+
+test('the candidate own malformed marker refuses even if it claims another sequence', t => {
+  const f = fixture(t);
+  f.tag({ ...f.marker, release_sequence: version.release_sequence - 1, normalized_digest: 'invalid' });
+  refused(f.run(), /marker/iu);
+});
+
+for (const kind of ['candidate', 'release-failed', 'v']) test(`gate refreshes remote-only ${kind} tags before admission`, t => {
+  const f = fixture(t); f.tag();
+  let name;
+  if (kind === 'candidate') {
+    const later = '261019120001.0.0';
+    name = `candidate/v${later}`;
+    f.tag({ ...f.marker, version: later }, f.commit, later);
+  } else if (kind === 'release-failed') {
+    name = `release-failed/v${version.version}`;
+    f.git(['tag', '-a', name, '-m', 'failed-terminal after checkout']);
+  } else {
+    name = 'v261019120001.0.0';
+    const next = { ...version, version: name.slice(1), release_sequence: version.release_sequence + 1 };
+    writeFileSync(join(f.root, 'release/version.json'), json(next));
+    f.git(['add', 'release/version.json']); f.git(['commit', '-qm', 'published after checkout', '--signoff']);
+    f.git(['tag', name]);
+    f.published([{ tag_name: name, draft: false }]);
+    f.git(['checkout', '--detach', f.commit]);
+  }
+  f.git(['push', '-q', 'origin', `refs/tags/${name}`]);
+  f.git(['tag', '-d', name]);
+  const result = f.run();
+  refused(result, kind === 'candidate' ? /superseded/iu : kind === 'release-failed' ? /failed-terminal/iu : /published release sequence/iu);
+  assert.equal(f.git(['rev-parse', '--verify', `refs/tags/${name}`]).length, 40, 'remote tag must be refreshed into the checkout');
+});
+
+test('tag refresh failure closes admission before reading releases', t => {
+  const f = fixture(t); f.tag();
+  f.git(['remote', 'set-url', 'origin', join(f.root, 'missing-remote')]);
+  refused(f.run(), /fetch|remote|repository/iu);
+  assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')));
 });

@@ -16,6 +16,21 @@ test('candidate admission follows build and verify and precedes creation; cleanu
   assert.ok(trap >= 0 && trap < create, 'asset-upload failures during create must run cleanup');
 });
 
+test('candidate admission is its own read-only-token step immediately after verify, before attestation', () => {
+  const workflow = parse(readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'));
+  const list = workflow.jobs.pack.steps;
+  const verify = list.findIndex(step => step.run?.includes('release/pack.mjs verify'));
+  const gate = list.findIndex(step => step.run?.includes('release/gate.mjs candidate'));
+  const attest = list.findIndex(step => step.uses?.startsWith('actions/attest-build-provenance@'));
+  const create = list.findIndex(step => step.run?.includes('gh release create'));
+  assert.equal(gate, verify + 1);
+  assert.ok(verify < gate && gate < attest && attest < create, 'verify < gate < attest < create');
+  assert.equal(list[gate].env.GH_TOKEN, '${{ secrets.GITHUB_TOKEN }}');
+  assert.equal(list[gate].run.trim(), 'node release/gate.mjs candidate "$GITHUB_REF"');
+  assert.equal(workflow.concurrency.group, 'release');
+  assert.equal(workflow.concurrency['cancel-in-progress'], false);
+});
+
 test('asset-upload failure removes its partial draft, retains the tag, and permits a clean retry', t => {
   const cwd = mkdtempSync(join(tmpdir(), 'aithema-upload-failure-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
