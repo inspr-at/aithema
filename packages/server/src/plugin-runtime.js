@@ -149,7 +149,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (!raw) return { reason: 'not configured' };
       if (!selection.model.efforts) return { raw };
       if (!selection.model.efforts.includes(selection.effort)) return { reason: 'effort not offered' };
-      return { raw: { ...raw, effort: selection.effort } };
+      // Explicit lane bindings reserve reaction's latency budget independently.
+      // Shared text-only options retain their effort-selector contract; selecting
+      // voice applies the reaction ceiling to those options as well.
+      const effort = lane === 'reaction' && EFFORT_ORDER.includes(raw.effort) && (raw !== selection.model.bindings.understanding || selection.voice?.binding) &&
+        EFFORT_ORDER.indexOf(selection.effort) > EFFORT_ORDER.indexOf(raw.effort) ? raw.effort : selection.effort;
+      return { raw: { ...raw, effort } };
     }
     if (lane === 'voice' || lane === 'images' || lane === 'html') {
       const [id, option, list, off] = lane === 'voice' ? [selection.voiceId, selection.voice, choices.voices, 'voice off']

@@ -1,3 +1,4 @@
+import { neutralBindingReason } from './reason-text.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { featureConsentText, paintConsentLine, paintNarrowText } from './consent-line.js';
 import { narrowVoiceStatus } from './voice-status.js';
@@ -179,6 +180,8 @@ export class AudioRail {
   get error() {
     if (!this.errorKey) return null;
     if (this.errorKey === 'voiceAdmissionDenied' && isConsentReason(this.errorReason)) return featureConsentText(this.copy, 'voice');
+    const neutral = this.errorKey === 'voiceAdmissionDenied' ? neutralBindingReason(this.copy, this.errorReason, 'voice') : undefined;
+    if (neutral !== undefined) return neutral;
     if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
     if (this.errorKey === 'voiceEnded' && this.endedCall?.visitorDurationSource === 'aithema-measured') return this.copy.voiceEndedAithemaMeasured;
     return this.copy[this.errorKey];

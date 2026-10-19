@@ -17,7 +17,7 @@ import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
-import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../fixtures/german-server-texts.js';
+import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../fixtures/german-server-texts.js';
 import { pdf } from '../extractor-fixtures.js';
 import { formatBytes } from '../../packages/ui/src/uploads.js';
 import { AI_NOTICE } from '../../packages/core/src/ai-notice.js';
@@ -482,7 +482,9 @@ test('AIT-117: a German processing-consent page contains START German copy and n
           .map(feature => [feature, { available: false, reason }]));
         c.configure({ copy: de, session });
         rows.push({ labels: [...c.shadowRoot.querySelectorAll('.features li')].map(node => node.firstChild.nodeValue),
-          reasons: [...c.shadowRoot.querySelectorAll('.features span')].map(node => node.textContent) });
+          reasons: [...c.shadowRoot.querySelectorAll('.features span')].map(node => node.textContent),
+          dom: [...c.shadowRoot.querySelectorAll('.features, .features [title], .features [aria-label]')]
+            .map(node => [node.textContent, node.getAttribute('title'), node.getAttribute('aria-label')].join(' ')).join(' ') });
       }
       return rows;
     }, codes);
@@ -492,11 +494,36 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         : inner !== code ? de.reasons.delegated.replace('{reason}', de.reasons[inner]) : de.reasons[code];
       assert.deepEqual(rendered[index].labels, FEATURES.map(feature => de.features[feature]), code);
       assert.equal(rendered[index].reasons.length, FEATURES.length, code);
+      const neutral = feature => feature === 'voice' ? 'Sprache ist derzeit nicht verfügbar'
+        : ['images', 'html'].includes(feature) ? 'Visuelle Entwürfe sind gerade nicht verfügbar.' : 'Derzeit nicht verfügbar';
       assert.deepEqual(rendered[index].reasons, FEATURES.map(feature => inner === 'current processing consent required'
-        ? de.featureConsent[feature === 'transcription' ? 'voice' : feature] : expected), code);
+        ? de.featureConsent[feature === 'transcription' ? 'voice' : feature]
+        : BINDING_REASON_CODES.includes(inner) ? neutral(feature) : expected), code);
+      if (BINDING_REASON_CODES.includes(inner)) assert.doesNotMatch(rendered[index].dom, /provider|contract|evidence|anbieter|vertrag|nachweis/iu, code);
       const english = status ? en.reasons['agent-api'].replace('{status}', status[1])
         : inner !== code ? en.reasons.delegated.replace('{reason}', en.reasons[inner]) : en.reasons[code];
       assert.ok(rendered[index].reasons.every(text => text !== english), `English reason leaked: ${code}`);
+    }
+    // Reuse the page for the English evidence inventory; scan rendered text and
+    // accessible visitor labels, excluding raw data fields retained for diagnostics.
+    const englishBinding = await page.evaluate(async codes => {
+      const { en } = await import('/packages/ui/src/i18n/en.js');
+      const { FEATURES } = await import('/packages/core/src/presets.js');
+      const c = document.querySelector('aithema-session'), session = c.session, rows = [];
+      session.locale = 'en';
+      for (const code of codes) for (const reason of [code, `delegated reasoning: ${code}`]) {
+        session.featureMatrix.best = Object.fromEntries(FEATURES.map(feature => [feature, { available: false, reason }]));
+        c.configure({ copy: en, session });
+        rows.push({ reason, reasons: [...c.shadowRoot.querySelectorAll('.features span')].map(node => node.textContent),
+          dom: [...c.shadowRoot.querySelectorAll('.features, .features [title], .features [aria-label]')]
+            .map(node => [node.textContent, node.getAttribute('title'), node.getAttribute('aria-label')].join(' ')).join(' ') });
+      }
+      return rows;
+    }, BINDING_REASON_CODES);
+    for (const row of englishBinding) {
+      assert.deepEqual(row.reasons, FEATURES.map(feature => feature === 'voice' ? 'Voice is currently unavailable'
+        : ['images', 'html'].includes(feature) ? 'Visual drafts are not available right now.' : 'Currently unavailable'), row.reason);
+      assert.doesNotMatch(row.dom, /provider|contract|evidence|anbieter|vertrag|nachweis/iu, row.reason);
     }
     assert.deepEqual(problems, []); assert.deepEqual(external, []);
     t.diagnostic(`START German consent plus optional drafts: 3 items and intro/withdrawal; ${codes.length} reason cases rendered in German, no provider requests.`);

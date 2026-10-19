@@ -1,3 +1,4 @@
+import { neutralBindingReason } from './reason-text.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
 import { ConsentSettings } from './consent-settings.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
@@ -92,6 +93,8 @@ const DELEGATED = 'delegated reasoning: ';
 export function reasonText(copy, reason, feature) {
   if (feature && isConsentReason(reason)) return featureConsentText(copy, feature);
   const reasons = copy.reasons ?? {};
+  const neutral = neutralBindingReason(copy, reason, feature);
+  if (neutral !== undefined) return neutral;
   if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
     return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length), feature));
   }

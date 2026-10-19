@@ -721,3 +721,19 @@ test('AIT-266: visual capability follows host bindings across presets, including
   delete h.presets.custom.bindings.html;
   assert.equal(h.runtime.visualsBound(), false);
 });
+
+
+test('AIT-380 round 2: separate reaction binding without effort accepts the offered selection', async t => {
+  const h = setup(t), reaction = { ...h.b }, understanding = { ...h.b, effort: 'high' };
+  delete reaction.effort;
+  h.presets.best.choices = { models: [{ id: 'host-route', bindings: { reaction, understanding },
+    efforts: ['none', 'low', 'high'], effort: 'high' }] };
+  const runtime = createPluginRuntime({ storage: h.storage, registry: h.registry, presets: h.presets, consent: h.consent });
+  const admission = await runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream',
+    request: { system: 'Fixture', messages: [{ role: 'user', content: 'Hello' }] } });
+  try { assert.equal(admission.engine.effort, 'high'); }
+  finally {
+    admission.options.report({ attemptId: admission.options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+    admission.finish();
+  }
+});

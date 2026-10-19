@@ -516,7 +516,7 @@ export const en = {
     'preset choices invalid': 'Not set up correctly by this host',
     'unknown preset': 'Unknown processing choice', 'browser only': 'Runs in the browser only',
     'model not supported': 'Model not supported', 'effort not supported': 'Setting not supported by the model',
-    'manifest evidence expired': 'Provider evidence expired', 'binding evidence unverified': 'Provider contract not verified',
+    'manifest evidence expired': 'Provider evidence expired', 'binding evidence unverified': 'Voice is currently unavailable',
     'binding evidence mismatch': 'Provider contract does not match', 'binding evidence not yet valid': 'Provider contract not yet valid',
     'binding evidence expired': 'Provider contract expired', 'binding invalid': 'Provider setup invalid',
     'processing scope invalid': 'Processing scope invalid', 'processing residency unverified': 'Processing location not verified',
