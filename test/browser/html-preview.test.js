@@ -908,8 +908,9 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
     import '/packages/ui/src/session-element.js';
     import {ConceptView} from '/packages/ui/src/concept-view.js';
     import {de} from '/packages/ui/src/i18n/de.js';
-    const update=ConceptView.prototype.update;
+    const update=ConceptView.prototype.update, fixedVisualKind=ConceptView.prototype.visualKind;
     ConceptView.prototype.update=function(){window.view=this;return update.apply(this,arguments);};
+    window.baseline=enabled=>{ConceptView.prototype.visualKind=enabled?function(){return this.root.host.session.conceptVisualKind==='html'?'html':'image';}:fixedVisualKind;};
     customElements.define('ait386-session',class extends customElements.get('aithema-session'){connectedCallback(){}});
     window.mount=session=>{window.c?.remove();const c=document.createElement('ait386-session');window.c=c;
       c.configure({session,copy:de,sessionToken:'fixture-owner',concepts:{previewURL:location.origin+'/_aithema/html-preview'}});
@@ -977,15 +978,17 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
     // head: the old backdrop path assigned its /html Uint8Array to img.src.
     // This is intentionally isolated from the production request assertions.
     for (const width of [1440, 390]) {
-      phase = `before-replay/${width}`; await page.setViewport({ width, height: 900 });
+      phase = `before-replay/${width}`; await page.evaluate(() => baseline(true)); await page.setViewport({ width, height: 900 });
       await page.evaluate(session => mount(session), sessionFor('off', 'html'));
       await page.evaluate(async () => {
         const response = await fetch('/api/sessions/ait386/concepts/html/html', { headers: { 'x-aithema-session-token': 'fixture-owner' }, cache: 'no-store' });
-        c.shadowRoot.querySelector('.concept-backdrop img').src = new Uint8Array(await response.arrayBuffer());
+        const image=c.shadowRoot.querySelector('.concept-backdrop img');
+        image.src = new Uint8Array(await response.arrayBuffer()); image.dataset.id='html'; image.setAttribute('data-on','');
       });
       await page.waitForNetworkIdle({ idleTime: 100 }); await shoot(`before-replay-${width}`);
       assert.ok(socketRequests.some(r => r.phase === phase && r.path === bytesPath), 'positive control observes the original bytes-as-path leak at the host');
     }
+    await page.evaluate(() => baseline(false));
     for (const visuals of ['off', 'images', 'html']) for (const kind of ['html', 'image', 'mixed']) {
       phase = `after/${visuals}/${kind}`;
       await page.setViewport({ width: 1440, height: 900 });
@@ -999,14 +1002,22 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
         for (const item of view.items) {
           view.open(item.id);
           if (item.mediaType !== 'text/html') await (view.loadImageURL?.(item.id) ?? view.load(item.id));
-          else await new Promise(resolve => setTimeout(resolve, 75));
+          else {
+            const preview=c.shadowRoot.querySelector('.concept-html'), started=performance.now();
+            while(preview.state!=='ready') {
+              if(performance.now()-started>3000) throw new Error('delivered HTML preview did not become ready');
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+            }
+          }
           view.close();
         }
         c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas();
       });
       await page.waitForNetworkIdle({ idleTime: 100 }); await settle();
       const images = await page.evaluate(() => [...c.shadowRoot.querySelectorAll('img[src]')].map(image => ({ src: image.getAttribute('src'), id: image.dataset.id })));
-      checks.push({ visuals, kind, images, ids: await page.evaluate(() => view.items.map(i => i.id)) });
+      const ids = await page.evaluate(() => view.items.map(i => i.id));
+      assert.deepEqual(ids, kind === 'mixed' ? ['image', 'html'] : [kind], 'kept consent preserves each delivery');
+      checks.push({ visuals, kind, images, ids });
     }
   } finally {
     if (evidence) await writeFile(join(evidence, 'ait386-requests.json'), JSON.stringify({ shots, checks, requests, socketRequests,

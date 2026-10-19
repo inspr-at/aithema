@@ -1376,3 +1376,29 @@ for (const visuals of ['off', 'images', 'html']) for (const kind of ['html', 'im
     }
     if (visuals === 'off') assert.notEqual(view.visualKind(), 'image', 'Off is not an image rendering mode');
   });
+
+test('AIT-386: image APIs reject HTML items, bytes and URLs not minted for that image', async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { root, calls } = setup(t, { concepts: [draft('html'), item('image')], session: { visualsBound: true, conceptVisualKind: 'image' } });
+  await tick(); await tick();
+  const before = calls.length;
+  assert.equal(await view.loadImageURL('html'), null);
+  assert.equal(await view.loadDraftBytes('image'), null);
+  assert.equal(calls.length, before, 'wrong-kind loaders refuse before fetching');
+  const bytes = await view.loadDraftBytes('html'); assert.ok(bytes instanceof Uint8Array);
+  const url = await view.loadImageURL('image'); assert.ok(url.startsWith('blob:'));
+  const assigned = [], descriptor = Object.getOwnPropertyDescriptor(window.HTMLImageElement.prototype, 'src');
+  t.mock.method(window.HTMLImageElement.prototype, 'src', function (value) {
+    assigned.push(value); descriptor.set.call(this, value);
+  }, { setter: true });
+  for (const invalid of [bytes, String(bytes), 'https://example.invalid/draft', '/60,33,100', 'data:text/html,draft', 'blob:unowned']) {
+    view.clearThumbnail(); view.paintThumbnail('html', url); view.paintThumbnail('image', invalid);
+    const loader = t.mock.method(view, 'loadImageURL', async () => invalid);
+    view.clearBackdrop(); view.paintBackdrop(); view.open('image'); await tick();
+    root.querySelector('.fold').click(); await view.paintCanvas(); await tick();
+    view.close(); if (root.querySelector('.workspace').hasAttribute('data-folded')) root.querySelector('.fold').click();
+    loader.mock.restore();
+  }
+  assert.deepEqual(assigned, [], 'backdrop, thumbnail, viewer and canvas refuse every invalid image source at assignment');
+});
