@@ -1054,3 +1054,8 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
   assert.equal(checks.length, 9);
   t.diagnostic(`AIT-386 request sweep: ${runtime.length} browser requests; no request outside concept routes; 9 states.`);
 });
+
+test('AIT-385: withdrawal removes the empty focus tile and clears the chevron', { timeout: 45_000 }, async t => {
+  const { withdrawalFocusFrames } = await import('../fixtures/withdrawal-focus-frames.js');
+  await withdrawalFocusFrames(t);
+});
