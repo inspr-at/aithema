@@ -305,3 +305,29 @@ test('AIT-365 R2: granted:false publishes every revoked scope without waiting fo
   assert.equal(storage.get(session.id).consentWithdrawn, true);
   assert.deepEqual(selected, []);
 });
+
+test('AIT-365 R2: a grant changed hint cannot grant coverage or suppress authoritative removals', async t => {
+  const storage = new SQLiteStorage(); let selected = ['models', 'drafts'];
+  const consent = { coverage: () => ({ covered: false }),
+    describe: () => ({ contract: 'host-v1', selected: [...selected], items: ['models', 'drafts', 'images'].map(id =>
+      ({ id, version: 1, title: id, recipients: 'Local', text: 'Local terms' })) }),
+    conversationUnchanged: () => true,
+    grant: () => { selected = ['models']; return true; } };
+  const pluginRuntime = createPluginRuntime({ storage, consent });
+  pluginRuntime.scopes = (session, { feature } = {}) => [{ purpose: feature === 'html' ? 'drafts' : feature === 'images' ? 'images' : 'models' }];
+  const handlers = createHandlers({ storage, consent, pluginRuntime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const path = `http://localhost/api/sessions/${session.id}/consent`;
+  const response = await handlers.handle(ownedRequest(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ granted: true, changed: ['images'], processing: { revision: 0, items: ['images'] } }),
+  }));
+  assert.equal(response.status, 200);
+  const { event } = await response.json();
+  assert.deepEqual(event.data.changed, ['html-drafts'], 'the hint adds the actual removal and cannot claim an image grant');
+  const current = await (await handlers.handle(ownedRequest(path))).json();
+  assert.equal(current.features.images.every(id => current.selected.includes(id)), false, 'changed never overrides missing authoritative image coverage');
+  assert.equal(current.features.html.every(id => current.selected.includes(id)), false, 'the draft withdrawal remains authoritative');
+  assert.deepEqual(current.selected, ['models']);
+  assert.deepEqual(storage.read(session.id).find(e => e.seq === event.seq).data, event.data);
+});
