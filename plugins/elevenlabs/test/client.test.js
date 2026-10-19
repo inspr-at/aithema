@@ -444,5 +444,5 @@ test('AIT-383: real server lease stays open through a 60 s permission prompt and
   assert.equal(session.lifecycle.state.state, 'active');
   assert.equal(session.lifecycle.state.browserLivenessDeadlineAt, serverSession.snapshot().browserLivenessDeadlineAt);
   await session.heartbeat(); assert.equal(serverSession.signal.aborted, false);
-  await session.close(); assert.equal(serverSession.snapshot().terminal.reason, 'closed');
+  await session.close(); assert.equal(serverSession.snapshot().reason, 'closed');
 });
