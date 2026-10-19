@@ -784,6 +784,16 @@ for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance
 test('AIT-395: callbacks ignoring context keep the complete owner-wide receipt snapshot', async t => {
   const f = fixture(t), s = await f.create();
   const before = await (await f.call(`/api/sessions/${s.id}/credits`)).json();
+  const empty = { limitMicro: 10_000_000, committedMicro: 0, availableMicro: 10_000_000, overrunMicro: 0,
+    reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0 };
+  const balance = { sessionId: s.id, owner: empty, session: empty, voiceVisitor: empty };
+  assert.deepEqual(before, {
+    balance, limitSlot: { sessionId: s.id, status: 'ready', balance, remainingMs: null, endReason: null, canStartPaidWork: false, topUpOwnedByHost: true },
+    tiers: { current: 'anonymous', next: null, delta: 0, canConfirm: false,
+      allowancesMicro: { anonymous: 10_000_000, emailGiven: 10_000_000, emailConfirmed: 10_000_000 } },
+    exhausted: false, fullHold: false, reconciling: false, lowAtMicro: 1_000_000, lowAtMaxMicro: 1_000_000,
+    emailAsk: {}, emailAskAfter: 0, lowEmailAsk: { after: 0, armed: true }, nowMs: 1_000,
+  }, 'owner-wide golden receipt from the unchanged demo policy');
   const wallet = f.host.wallet, tiers = f.host.creditTiers;
   t.mock.method(f.host, 'wallet', token => wallet(token));
   t.mock.method(f.host, 'creditTiers', token => tiers(token));
