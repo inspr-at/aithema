@@ -1193,3 +1193,31 @@ test('AIT-365 E3: a persistently lagging grant document still fails closed at th
   t.mock.timers.tick(1); assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
   assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
 });
+
+for (const changed of [undefined, ['future-scope']]) test(`AIT-365 R2 E2 ${JSON.stringify(changed)}: older withdrawal document fails closed without advancing time`, async t => {
+  const { c, root, view, state } = consentRecoveryFixture(t);
+  await tick(); view.open('html');
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: [], features: { html: ['drafts'], images: ['images'] } });
+  const fail = t.mock.method(view, 'failClosedConsent');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false, ...(changed ? { changed } : {}) } });
+  await tick();
+  assert.equal(state.documents, 1);
+  assert.equal(fail.mock.callCount(), 1, 'AIT-364 rejects the older withdrawal document in the response tick');
+  assert.equal(root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  assert.deepEqual(view.items, []); assert.equal(view.dialog.open, false);
+});
+
+for (const kind of ['html', 'image']) test(`AIT-365 R2: a grant changed list cannot restore an already uncovered ${kind} kind`, async t => {
+  const { c, root, view, state } = consentRecoveryFixture(t);
+  await tick();
+  const feature = kind === 'html' ? 'html' : 'images';
+  c.session.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
+  view.update(c.session); state.snapshot = () => new Promise(() => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: [kind === 'html' ? 'html-drafts' : 'images'] } });
+  assert.equal(view.items.some(item => item.id === kind), false, 'changed can add removals but never grant coverage');
+  view.open(kind); assert.equal(view.dialog.open, false);
+  assert.equal(root.querySelector('.concept-html').artifact, null);
+  assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+});
