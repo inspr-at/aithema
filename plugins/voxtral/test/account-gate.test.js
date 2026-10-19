@@ -6,46 +6,7 @@ import { createPluginRuntime } from '../../../packages/server/src/plugin-runtime
 import { componentManifest, manifest } from '../src/manifest.js';
 import { PluginRegistry, publicReasoningManifest, bindingReason } from '@inspr/aithema-core';
 
-const at = Date.parse('2026-10-19T12:00:00Z');
-const origin = 'https://api.eu.mistral.ai';
-const urls = { stt: 'wss://api.eu.mistral.ai/v1/audio/transcriptions/realtime?model=voxtral-mini-transcribe-realtime-2602',
-  reasoning: `${origin}/v1/chat/completions`, tts: `${origin}/v1/audio/speech` };
-function fixture() {
-  const config = { endpoint: origin, secretRef: 'private:synthetic/key', voiceId: 'fixture-voice', accountRef: 'private:synthetic/account',
-    accountEvidence: { accountRef: 'private:synthetic/account', secretRef: 'private:synthetic/key', endpoint: origin,
-      dpaAccepted: true, dpaRef: 'private:synthetic/dpa', recipient: 'Synthetic Mistral EU entity', recipientCountries: ['FR'],
-      undertaking: { region: 'EU', processingCountries: ['FR', 'DE'], controlPlaneIncluded: true },
-      zdrEnabled: true, zdrRef: 'private:synthetic/zdr', zdrEndpoints: Object.values(urls),
-      trainingOptOut: true, trainingRef: 'private:synthetic/no-training', availabilityRef: 'private:synthetic/availability',
-      reviewedAt: '2026-10-19', expiresAt: '2026-10-20', services: {
-        stt: { model: 'voxtral-mini-transcribe-realtime-2602', endpoint: urls.stt },
-        reasoning: { model: 'mistral-synthetic', endpoint: urls.reasoning },
-        tts: { model: 'voxtral-mini-tts-2603', endpoint: urls.tts } } } };
-  function binding(plugin, model, endpoint = origin) {
-    return { plugin, model, endpoint, maxMicro: 0, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, accountRef: config.accountRef, secretRef: config.secretRef, effort: 'none',
-      legal: { approved: true, purpose: 'voice-mistral', consentVersion: 1, recipient: config.accountEvidence.recipient,
-        countries: ['FR'], processingCountries: ['FR', 'DE'], processors: [], training: false, retention: 'synthetic ZDR',
-        dataCategories: ['speech-input', 'transcripts', 'answer-text', 'connection-data'], evidence: {
-          qualified: true, accountRef: config.accountRef, secretRef: config.secretRef, model, endpoint,
-          routing: {}, verifiedAt: at - 1000, expiresAt: at + 60000, dpaRef: config.accountEvidence.dpaRef } } };
-  }
-  const componentBindings = { stt: binding('voxtral', config.accountEvidence.services.stt.model),
-    reasoning: binding('mistral', 'mistral-synthetic'), tts: binding('voxtral', config.accountEvidence.services.tts.model) };
-  const plugins = { stt: { manifest: componentManifest }, tts: { manifest: componentManifest },
-    reasoning: { manifest: publicReasoningManifest('mistral', 'Mistral', origin) } };
-  const hostBinding = binding('synthetic-host', 'host-process', 'https://host.test');
-  const hostProcessing = [{ binding: hostBinding, plugin: { manifest: { id: 'synthetic-host', placement: 'server',
-    models: [{ id: 'host-process', efforts: ['none'], operations: ['process'] }] } }, operation: 'process' }];
-  let clock = at, session = { id: 'session', consentRevision: 1, processingPreset: 'eu' };
-  const covered = [];
-  const consent = { async coverage({ scope, consentRevision }) { covered.push(scope); return {
-    ...scope, scope, covered: true, consentRevision, checkedAt: clock, expiresAt: clock + 10000 }; } };
-  const args = { config, componentBindings, plugins, hostProcessing, consent, now: () => clock, getSession: () => session };
-  const request = { session, reasoningBinding: componentBindings.reasoning, preset: 'eu', policy: { endpoints: [origin, 'https://host.test'] } };
-  const create = () => { assert.equal(typeof server.createVoxtralProviderAuthority, 'function'); return server.createVoxtralProviderAuthority(args); };
-  return { config, componentBindings, plugins, hostProcessing, consent, covered, args, request, create,
-    setClock: value => { clock = value; }, setSession: value => { session = value; } };
-}
+import { fixture, at, origin, urls } from './fixtures.js';
 
 test('AIT-331: synthetic complete EU chain admits without claims, secrets or dispatch', async () => {
   const f = fixture(), authority = f.create();
@@ -284,7 +245,7 @@ test('AIT-331: consent-scope construction failure denies admission instead of sk
 
 test('AIT-331: admission requires the actual reasoning selection', async () => {
   const f = fixture(), authority = f.create(); delete f.request.reasoningBinding;
-  assert.notEqual(await authority.admissionReason(f.request), null);
+  assert.equal(await authority.admissionReason(f.request), 'selected reasoning binding must match the Voxtral authority');
 });
 
 for (const mismatch of ['provider', 'endpoint', 'account', 'DPA']) test(`AIT-331: session-selected EU-qualified ${mismatch} mismatch denies voice at the matrix and admission`, async t => {
@@ -324,9 +285,37 @@ for (const mismatch of ['provider', 'endpoint', 'account', 'DPA']) test(`AIT-331
   const matrix = await runtime.matrix(session);
   assert.equal(matrix.eu.text.available, true, matrix.eu.text.reason);
   assert.equal(matrix.eu.voice.available, false, 'session-selected qualified reasoning must be tied to the Voxtral authority');
+  assert.equal(matrix.eu.voice.reason, 'selected reasoning binding must match the Voxtral authority');
   const request = { ...f.request, session, reasoningBinding: selected };
   assert.equal(authority.evaluate(request).euEligible, false);
-  assert.notEqual(await authority.admissionReason(request), null);
+  assert.equal(await authority.admissionReason(request), 'selected reasoning binding must match the Voxtral authority');
   assert.notEqual(await authority.admissionReason(request, { existingCall: true }), null);
   assert.equal(voiceDispatches, 0); assert.equal(reasoningDispatches, 0);
+});
+
+test('AIT-330: selected reasoning effort is independent of binding identity', async () => {
+  const f = fixture();
+  delete f.componentBindings.reasoning.effort;
+  f.request.reasoningBinding = { ...f.componentBindings.reasoning, effort: 'none' };
+  const authority = f.create();
+  assert.equal(authority.evaluate(f.request).reason, null);
+  assert.equal(await authority.admissionReason(f.request), null);
+});
+
+test('AIT-330: failed voice scope construction preserves other consent scopes', async t => {
+  const f = fixture(), storage = new SQLiteStorage(); t.after(() => storage.close());
+  const parent = structuredClone(f.componentBindings.stt);
+  Object.assign(parent, { plugin: 'voxtral-voice', model: 'voxtral-voice', maxDurationSeconds: 120, upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
+  parent.legal.evidence.model = parent.model;
+  const voice = { binding: parent, manifest, health: async () => ({ available: true }), start() {},
+    ports: { serverAdapter: { ...f.create().ports.serverAdapter, binding: parent, validateConfig() {}, startSegment() {}, stopSegment() {}, reconciliationEvidence() {},
+      processingScopes() { throw new TypeError('synthetic bad voice scopes'); } } } };
+  const reasoning = { ...f.plugins.reasoning, binding: f.componentBindings.reasoning, health: async () => ({ available: true }), stream() {}, structured() {} };
+  const registry = new PluginRegistry().register(voice).register(reasoning);
+  const settings = { plugins: ['voxtral-voice', 'mistral'], policy: f.request.policy, bindings: { voice: parent, reaction: f.componentBindings.reasoning } };
+  const runtime = createPluginRuntime({ storage, registry, presets: { eu: settings } });
+  const session = storage.create({ ownerToken: 'synthetic-owner', processingPreset: 'eu' });
+  const text = runtime.scopes(session, { feature: 'text' }); assert.ok(text.length);
+  assert.deepEqual(runtime.scopes(session), text);
+  assert.deepEqual(runtime.scopes(session, { feature: 'voice' }), text, 'delegated reasoning still needs consent; broken voice scopes are omitted');
 });

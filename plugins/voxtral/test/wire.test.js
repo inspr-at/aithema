@@ -127,3 +127,23 @@ test('AIT-258: Voxtral keeps empty, alignment, 1 MiB message and 16 MB total bou
   }, { code: 'limit' });
   assert.equal(delivered, 16_000_000); assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
 });
+
+for (const type of ['speech.audio.error', 'error']) test(`AIT-330: ${type} preserves a sanitized moderation refusal`, async () => {
+  const reports = [], tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+    fetchImpl: async () => new Response(`data: ${JSON.stringify({ type, error: { code: 'moderation_blocked', message: 'synthetic private text' } })}\n\n`, { headers: { 'content-type': 'text/event-stream' } }) });
+  await assert.rejects(collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, options(reports))), error => {
+    assert.equal(error.code, 'provider'); assert.equal(error.message, 'tts-moderation-refused');
+    assert.doesNotMatch(JSON.stringify(error), /synthetic private text/u); return true;
+  });
+  assert.equal(reports.length, 1);
+});
+
+test('AIT-330: late STT open after cancellation is closed without sending', async () => {
+  const pending = Promise.withResolvers(), opened = Promise.withResolvers(), controller = new AbortController();
+  let closed = 0, sends = 0;
+  const stt = createVoxtralSTT({ enabled: true, config, resolveSecret: () => 'synthetic-auth', connect() { opened.resolve(); return pending.promise; } });
+  const work = collect(stt.stream({ format: 'pcm_s16le', audio: (async function* () { yield new Uint8Array(2); })() }, { ...options([]), signal: controller.signal }));
+  await opened.promise; controller.abort(); await assert.rejects(work, { code: 'cancelled' });
+  pending.resolve({ close() { closed++; }, send() { sends++; }, events: (async function* () {})() });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(closed, 1); assert.equal(sends, 0);
+});
