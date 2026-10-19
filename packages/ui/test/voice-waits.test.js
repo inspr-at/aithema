@@ -125,6 +125,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
   test(`AIT-377 ${provider}: absent getUserMedia refuses before any client.start`, async t => {
     const { rail, calls } = fixture(t, provider);
     Object.defineProperty(rail.root.ownerDocument.defaultView, 'isSecureContext', { configurable: true, value: true });
+    Object.defineProperty(rail.root.ownerDocument.defaultView.navigator, 'mediaDevices', { configurable: true, value: {} });
     await rail.start();
     assert.equal(calls.length, 0); assert.equal(rail.errorKey, 'voiceMicUnavailable');
     assert.equal(rail.button('retry').disabled, true);
