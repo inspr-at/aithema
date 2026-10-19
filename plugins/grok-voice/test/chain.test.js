@@ -133,6 +133,9 @@ test('AIT-383 round 3: typed interruption persists through the real Grok host an
   assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
   await session.sendText('Please continue', { deliveryId: 'typed-interruption' });
   assert.equal(h.persisted.filter(event => event.type === 'voice.interrupted' && event.data.id === reply.id).length, 1);
+  // Retire the browser reader before fixture teardown revokes its relay.
+  // Otherwise the still-live reader can attempt recovery against a closed host.
+  await session.close();
 });
 
 test('AIT-346: authenticated grant rejects wrong origin, owner, stale epoch and replay', async t => {
