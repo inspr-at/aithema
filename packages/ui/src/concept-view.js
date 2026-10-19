@@ -365,7 +365,7 @@ export class ConceptView {
   render() {
     const owner = this.#session?.id, epoch = this.#epoch;
     this.progress();
-    const latest = this.items.at(-1), tab = this.root.querySelector('.concept-tab'), latestDraft = conceptKind(latest) === 'html';
+    const latest = this.items.at(-1), tab = this.root.querySelector('.concept-tab'), latestDraft = latest ? conceptKind(latest) === 'html' : this.#withdrawnKind === 'html';
     if (latest) this.#readViewed();
     const view = latestDraft ? this.copy.conceptDraftView : this.copy.conceptView;
     tab.dataset.unread = String(Boolean(latest && !this.#seen.has(latest.id))); tab.disabled = !latest;
