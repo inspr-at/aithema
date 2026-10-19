@@ -1,6 +1,6 @@
 // AIT-395: one browser/page, in-place receipts; no provider, mail or paid calls.
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
@@ -15,6 +15,8 @@ export async function sessionCreditsCheck(t) {
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], errors = [];
+  const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+  const head = event?.pull_request?.head?.sha ?? evidenceCommit;
   if (evidence) await mkdir(evidence, { recursive: true });
   page.on('pageerror', e => errors.push(e.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -56,9 +58,9 @@ export async function sessionCreditsCheck(t) {
   });
   const scene = async (state, locale, theme, { switchTo, equal = true, canCollect = true, upgrade = true } = {}) => {
     await shadow(page, async (c, { state, locale, theme, switchTo, equal, canCollect, upgrade }) => {
-      const f = window.ait395, current = state === 'k2' ? 'emailConfirmed' : state === 'k4' ? 'emailGiven' : 'anonymous';
+      const f = window.ait395, current = state === 'k2' ? 'emailConfirmed' : ['k4', 'k5'].includes(state) ? 'emailGiven' : 'anonymous';
       const limitMicro = current === 'emailConfirmed' ? 10_000_000 : 2_500_000;
-      f.receipt = { scope: 'session', exhausted: state === 'k5', dailyCapReached: state === 'k6',
+      f.receipt = { scope: 'session', exhausted: ['k5', 'k6'].includes(state), dailyCapReached: state === 'k6',
         balance: { owner: { limitMicro, availableMicro: state === 'k5' ? 0 : limitMicro, committedMicro: state === 'k5' ? limitMicro : 0, reservedMicro: 0 } },
         tiers: { current, next: !upgrade || current === 'emailConfirmed' ? null : current === 'anonymous' ? 'emailGiven' : 'emailConfirmed',
           canConfirm: upgrade, delta: 7_500_000, allowancesMicro: { anonymous: 2_500_000, emailGiven: equal ? 2_500_000 : 5_000_000, emailConfirmed: upgrade ? 10_000_000 : 2_500_000 } } };
@@ -72,9 +74,9 @@ export async function sessionCreditsCheck(t) {
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      document.documentElement.lang = locale;
+      document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       c.configure({ copy, session, host: { credits: true, verification: canCollect } });
-      f.expected = state === 'k5' ? '0' : new Intl.NumberFormat(locale).format(limitMicro / 10_000);
+      f.expected = ['k5', 'k6'].includes(state) ? '0' : new Intl.NumberFormat(locale).format(limitMicro / 10_000);
     }, { state, locale, theme, switchTo, equal, canCollect, upgrade });
     await until(page, () => {
       const root = document.querySelector('aithema-session').shadowRoot;
@@ -115,7 +117,7 @@ export async function sessionCreditsCheck(t) {
       if (state === 'k1') { assert.equal(value.value, '250'); assert.equal(value.offer, true); assert.equal(value.next, ''); }
       if (state === 'k2') { assert.equal(value.value, locale === 'de' ? '1.000' : '1,000'); assert.equal(value.offer, false); assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse: 1\.000\u00a0Credits/u : /With confirmed email address: 1,000\u00a0Credits/u); }
       if (state === 'k4') { assert.equal(value.offer, true); assert.equal(value.action, locale === 'de' ? 'E-Mail-Adresse bestätigen' : 'Confirm your email address'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0Credits'); }
-      if (state === 'k5') { assert.equal(value.value, '0'); assert.equal(value.offer, true); assert.equal(value.demo, locale === 'de' ? 'Nur Demo: Hier gibt es kein Aufladen.' : 'Demo only: no top-ups here.'); }
+      if (state === 'k5') { assert.equal(value.value, '0'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0Credits'); assert.equal(value.offer, true); assert.equal(value.demo, locale === 'de' ? 'Nur Demo: Hier gibt es kein Aufladen.' : 'Demo only: no top-ups here.'); }
       if (state === 'k6') { assert.equal(value.offer, false); assert.equal(value.next, ''); assert.equal(value.dailyCap, locale === 'de' ? 'Für heute ist das Tageslimit dieser E-Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow."); }
       baseline ??= value.rects;
       assert.deepEqual(value.rects, baseline, `${label}: 0 px across K1–K6`);
@@ -160,6 +162,6 @@ export async function sessionCreditsCheck(t) {
   assert.deepEqual(errors, []);
   if (evidence) {
     assert.equal(shots.length, 20, 'complete Tick evidence matrix');
-    await writeFile(join(evidence, 'ait395-checks.json'), JSON.stringify({ head: evidenceCommit, checks, shots, errors }, null, 2));
+    await writeFile(join(evidence, 'ait395-checks.json'), JSON.stringify({ head, workflowSHA: evidenceCommit, runId: process.env.GITHUB_RUN_ID ?? null, checks, shots, errors }, null, 2));
   }
 }

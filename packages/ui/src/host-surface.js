@@ -87,6 +87,9 @@ export class HostSurface {
   get limitCopy() {
     const { credits, usedUp } = this.#copy.hostSurface;
     const next = this.nextTier;
+    if (this.#credits?.scope === 'session' && this.#credits.dailyCapReached) return {
+      title: credits.dailyCapShort, body: credits.dailyCap, footer: false, announce: credits.dailyCap,
+    };
     const state = this.endReason === 'host-limit' && next
       ? { title: usedUp.title, body: fill(usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: this.deltaCredits }), footer: false }
       : credits.ended[this.endReason] ?? usedUp;

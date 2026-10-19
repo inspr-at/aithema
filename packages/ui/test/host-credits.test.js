@@ -498,3 +498,16 @@ for (const copy of [de, en]) test(`AIT-395: owner-wide exhausted copy snapshot (
   } }); await tick(8);
   assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500 Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500 Credits are used up, for all your conversations.');
 });
+
+for (const copy of [de, en]) test(`AIT-395: exhaustion offers exactly the conversation's +750 confirmation delta (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { credits: true, verification: true }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', exhausted: true,
+      balance: { owner: { limitMicro: 2_500_000, availableMicro: 0 } },
+      tiers: { current: 'emailGiven', next: 'emailConfirmed', delta: 7_500_000, canConfirm: true,
+        allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: 10_000_000 } } }),
+  } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out').dataset.next, 'confirm');
+  assert.match(root.querySelector('.composer-out__confirm').textContent, /750/u);
+  assert.equal(root.querySelector('.host-credits__next').textContent,
+    copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
+});
