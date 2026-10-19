@@ -29,7 +29,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
     return { ...scope, scope, covered: ![scope.purpose, scope.operation].includes(denied), consentRevision,
       checkedAt: Date.now(), expiresAt: Date.now() + 60000 };
   } };
-  const reasoningPlugin = { binding: reasoning, manifest: publicReasoningManifest(reasoning.plugin, 'Fixture reasoning', reasoning.endpoint),
+  const reasoningPlugin = { bind(binding) { return { ...this, binding }; }, binding: reasoning, manifest: publicReasoningManifest(reasoning.plugin, 'Fixture reasoning', reasoning.endpoint),
     health: async () => ({ available: true }), structured() { assert.fail('Voice reasoning must use streaming'); }, async *stream(request, options) {
       await options.attempt.consume(); consumed.push('reasoning'); reasoningRequests.push(request);
       assert.ok(request.messages.some(message => message.role === 'user' && message.content === 'Hello world.'));
