@@ -405,3 +405,10 @@ test('AIT-349: captured barge-in silences the physical player before stalled rel
   assert.ok(stops > before, 'physical silence must precede network receipt');
   delivered.resolve(); await ingress;
 });
+
+test('AIT-383: coordinator reply-start provenance accompanies its first provider PCM frame', async t => {
+  const h = fixture(t);
+  await h.coordinator.sendText('Eine Frage.', receipt('provider-audio')); await h.coordinator.idle();
+  const speaking = h.events.filter(e => e.type === 'speaking');
+  assert.equal(speaking.length, 1); assert.equal(speaking[0].audio, true); assert.equal(speaking[0].filler, false);
+});

@@ -316,10 +316,13 @@ export function createElevenLabsClient(ports = {}) {
           return Boolean(value) && !['Einen Moment, bitte.', 'One moment, please.'].some(line => line.startsWith(value));
         };
         const reportAudio = (eventId, text) => {
-          if (!active() || paused || transportBlocked || outputVolume() === 0 || !Number.isSafeInteger(eventId) || eventId < 0 || qualifiedAudio.has(eventId)) return;
-          if (text) audioTexts.set(eventId, (audioTexts.get(eventId) ?? '') + text);
+          if (!active() || paused || transportBlocked || outputVolume() === 0 || !Number.isSafeInteger(eventId) || eventId < 0 || eventId < latestAssistantId || qualifiedAudio.has(eventId)) return;
+          if (text) audioTexts.set(eventId, ((audioTexts.get(eventId) ?? '') + text).slice(0, 512));
           const knownText = audioTexts.get(eventId) || replyTexts.get(eventId);
-          const filler = !nonFiller(knownText);
+          // Unaligned PCM can still be the holding prefix while text generation
+          // runs ahead. Only aligned non-filler words can qualify that stream.
+          const holdingPrefix = !audioTexts.has(eventId) && ['Einen Moment, bitte.', 'One moment, please.'].some(line => knownText?.trim().startsWith(line));
+          const filler = holdingPrefix || !nonFiller(knownText);
           emit({ type: 'speaking', audio: true, filler });
           if (!filler) qualifiedAudio.add(eventId);
           if (audioTexts.size > 256) audioTexts.delete(audioTexts.keys().next().value);
@@ -433,6 +436,10 @@ export function createElevenLabsClient(ports = {}) {
             providerMode = mode; emit({ type: mode });
           },
           onAgentChatResponsePart({ event_id: eventId, type, text }) {
+            if (active() && Number.isSafeInteger(eventId) && ['start', 'delta'].includes(type) && typeof text === 'string') {
+              replyTexts.set(eventId, ((type === 'start' ? '' : replyTexts.get(eventId) ?? '') + text).slice(0, 512));
+              if (replyTexts.size > 256) replyTexts.delete(replyTexts.keys().next().value);
+            }
             // Provider stream starts/deltas precede the final response and
             // identify the reply, unlike speaking mode or analyser counters.
             if (connectionType === 'webrtc' && typeof text === 'string' &&

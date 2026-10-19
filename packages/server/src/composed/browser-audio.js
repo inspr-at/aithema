@@ -109,10 +109,11 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
       });
       completion.promise.finally(() => clearTimeout(resumeTimer)).catch(() => {});
       let started = false;
+      const audible = samples.some(value => Math.abs(value) > 0.00001);
       const observeStart = () => {
         if (!sources.has(row)) return;
         const timestamp = context.getOutputTimestamp?.();
-        if (!started && context.state === 'running' && context.currentTime >= start) { started = true; onStarted?.(); }
+        if (audible && !started && context.state === 'running' && context.currentTime >= start) { started = true; onStarted?.(); }
         if (timestamp?.contextTime >= start && timestamp.performanceTime > 0) {
           onTiming({ kind: 'playback-start', replyId, firstAudioAt: timestamp.performanceTime - (timestamp.contextTime - start) * 1000,
             outputTimestamp: timestamp });
