@@ -6,7 +6,7 @@ import { validateVoxtralAccountConfiguration } from './configuration.js';
 const ROLES = ['stt', 'reasoning', 'tts'];
 const OPERATIONS = { stt: 'stream', reasoning: 'stream', tts: 'speak' };
 const CONSENT = 'current processing consent required';
-const sameSet = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every(value => b.includes(value));
+const sameSet = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && new Set(a).size === a.length && a.every(value => b.includes(value));
 const euCountries = countries => Array.isArray(countries) && countries.length > 0 && countries.every(country => EU_COUNTRIES.includes(country));
 const snapshot = value => value === undefined ? undefined : deepFreeze(structuredClone(value));
 

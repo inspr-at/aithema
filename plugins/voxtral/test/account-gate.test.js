@@ -251,3 +251,9 @@ test('AIT-331: missing regional account evidence still exposes honest processing
   assert.match(authority.processingDetail().text, /account and control data may be processed elsewhere/u);
   assert.equal(authority.evaluate(f.request).euEligible, false);
 });
+
+// Duplicates cannot hide one of the guaranteed countries while retaining length.
+test('AIT-331: duplicate binding countries cannot understate the account undertaking', () => {
+  const f = fixture(); f.componentBindings.tts.legal.processingCountries = ['FR', 'FR'];
+  assert.notEqual(f.create().evaluate(f.request).reason, null);
+});
