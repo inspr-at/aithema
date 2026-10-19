@@ -317,7 +317,7 @@ test('AIT-330: failed voice scope construction preserves other consent scopes', 
   const reasoning = { ...f.plugins.reasoning, binding: f.componentBindings.reasoning, health: async () => ({ available: true }), stream() {}, structured() {} };
   const registry = new PluginRegistry().register(voice).register(reasoning);
   const settings = { plugins: ['voxtral-voice', 'mistral'], policy: f.request.policy, bindings: { voice: parent, reaction: f.componentBindings.reasoning } };
-  const runtime = createPluginRuntime({ storage, registry, presets: { eu: settings } });
+  const runtime = createPluginRuntime({ storage, registry, consent: f.consent, presets: { eu: settings } });
   const session = storage.create({ ownerToken: 'synthetic-owner', processingPreset: 'eu' });
   const text = runtime.scopes(session, { feature: 'text' }); assert.ok(text.length);
   const matrix = await runtime.matrix(session);
