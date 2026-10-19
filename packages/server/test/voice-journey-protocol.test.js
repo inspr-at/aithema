@@ -45,10 +45,12 @@ for (const retryAfter of ['12', null]) test(`AIT-378 R1 real token 429, Retry-Af
     t.mock.timers.tick(11_800); await new Promise(resolve => setImmediate(resolve));
     assert.equal(requests.length, before, 'Retry never starts before 11.8 seconds');
     t.mock.timers.tick(199); await new Promise(resolve => setImmediate(resolve)); assert.equal(requests.length, before);
+    t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.length, before, 'Zero is painted before provider dispatch');
     t.mock.timers.tick(1);
   }
   await pending; assert.equal(requests.length, before + 1);
-  assert.equal(requests.at(-1) - requests[0], retryAfter ? 12_000 : 0);
+  assert.equal(requests.at(-1) - requests[0], retryAfter ? 12_001 : 0);
 });
 
 for (const prefix of [null, 'Heard.']) test(`AIT-378 ${prefix === null ? 'I2' : 'I1'} SDK confirmation persists through route and reload`, { timeout: 10_000 }, async t => {
