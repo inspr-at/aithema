@@ -56,7 +56,7 @@ export async function checkProviderSignals(page, evidence, configs, checks) {
     for (const state of ['s1', 's3', 's5']) {
       const result = await page.evaluate(async ({ state, provider }) => {
         const { clock, current } = window.ait383, rail = window.ait377Rail;
-        if (state === 's1') await clock.tick(20_000);
+        if (state === 's1') await clock.tick(60_000);
         if (state === 's3') { window.ait383.grant(); await clock.tick(0); await clock.tick(29_000); }
         if (state === 's5') {
           window.ait383.connect(); await clock.tick(0); await window.ait383.start;
@@ -73,13 +73,16 @@ export async function checkProviderSignals(page, evidence, configs, checks) {
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         const rect = node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
         return { actualState: rail.state, startupPhase: rail.startupPhase, errorKey: rail.errorKey, noPreGrantDeadline: current.options[0].deadlineAt === undefined,
-          elapsedSinceGrantMs: state === 's3' ? 29_000 : null, text: status.getAttribute('aria-label'),
+          elapsedSinceGrantMs: state === 's3' ? 29_000 : null, promptHeldMs: 60_000,
+          leaseExpired: current.leaseExpired, leaseRenewals: current.leases.length, browserLeaseMs: 30_000, text: status.getAttribute('aria-label'),
           expected: state === 's1' ? rail.copy.voiceStates.microphone : state === 's3' ? rail.copy.voiceStates.connecting : rail.copy.voiceNoReply,
           boxes: ['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => rect(root.querySelector(s))) };
       }, { state, provider });
       assert.equal(result.actualState, state === 's5' ? 'listening' : 'connecting');
       assert.equal(result.startupPhase, state === 's1' ? 'microphone' : null);
       assert.equal(result.errorKey, state === 's5' ? 'voiceNoReply' : null);
+      assert.equal(result.leaseExpired, false, '30 s server lease survives the 60 s prompt');
+      assert.ok(result.leaseRenewals >= 6, 'both providers heartbeat while requesting');
       assert.equal(result.noPreGrantDeadline, true); assert.equal(result.text, result.expected);
       baseline ??= result.boxes; assert.deepEqual(result.boxes, baseline, 'enabled provider states: movementPx 0');
       const capture = theme !== 'dark' || state === 's5';
@@ -89,7 +92,7 @@ export async function checkProviderSignals(page, evidence, configs, checks) {
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
       }
       checks.push({ provider, width, theme, locale, state, behaviour: 'AIT-383 enabled real client with offline provider/device ports', capabilitiesDeclared: true,
-        ...result, assert: 'S1 no deadline; S3 29 s after grant; S5 opener (ElevenLabs) or visitor turn (Grok); movementPx 0', movementPx: 0, file: capture && evidence ? file : null, pass: true });
+        ...result, assert: 'S1 held 60 s with renewable 30 s server lease; S3 29 s after grant; S5 opener (ElevenLabs) or visitor turn (Grok); movementPx 0', movementPx: 0, file: capture && evidence ? file : null, pass: true });
     }
     await page.evaluate(async () => {
       const { current, clock } = window.ait383;

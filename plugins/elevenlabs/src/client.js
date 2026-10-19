@@ -446,8 +446,7 @@ export function createElevenLabsClient(ports = {}) {
             if (mode === 'speaking') tentativeOpen = false;
             else if (providerMode === 'speaking') { tentativeOpen = true; tentativeSequence++; }
             if (mode === 'listening') finishedAudioId = Math.max(finishedAudioId, latestAssistantId);
-            const changed = providerMode !== mode;
-            providerMode = mode; if (changed) emit({ type: mode });
+            providerMode = mode; emit({ type: mode });
           },
           onAgentChatResponsePart({ event_id: eventId, type, text }) {
             if (active() && Number.isSafeInteger(eventId) && ['start', 'delta'].includes(type) && typeof text === 'string') {
