@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { aiNoticeText } from '@inspr/aithema-core/ai-notice';
 import { voiceOverrides } from './options.js';
 import { VOICE_SETTING_KEYS } from './voice-settings.js';
+import { CLIENT_EVENTS, CLIENT_EVENTS_REMEDIATION } from './agent-health.js';
 
 /** Base URL path of the voice callback; the platform appends /chat/completions (static route: /api/voice/llm/chat/completions). */
 export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
@@ -20,9 +21,6 @@ const TURN_POLICY = Object.freeze({ turn_eagerness: 'patient', turn_timeout: 12,
 // absent-reply gap and the existing 3600-second total-duration/orphan handling.
 const SILENCE_END_CALL_TIMEOUT = 120;
 const ASR_KEYWORDS = Object.freeze(['Aithema', 'Hosting', 'Domain', 'Webshop', 'Schnittstelle', 'Datenschutz']);
-const CLIENT_EVENTS = Object.freeze(['conversation_initiation_metadata', 'asr_initiation_metadata', 'audio', 'interruption',
-  'user_transcript', 'tentative_user_transcript', 'agent_response',
-  'agent_response_correction', 'agent_chat_response_part', 'agent_response_metadata', 'ping']);
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 // Every leaf of a provider overrides tree as [dotted path, value]; only non-empty plain objects are
 // descended, so null, arrays, strings and empty objects surface as leaves that no boolean check accepts.
@@ -260,7 +258,10 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   const fields = Object.keys(checks).filter(field => !checks[field]);
   if (fields.length) {
     log({ name: agentName, id: agentId, fields });
-    throw new AgentEnsureError('agent-readback-mismatch');
+    const error = new AgentEnsureError('agent-readback-mismatch');
+    error.fields = fields;
+    if (fields.includes('conversation_config.conversation.client_events')) error.remediation = CLIENT_EVENTS_REMEDIATION;
+    throw error;
   }
   // Only the strict checks above can disable voice. Historically unverified paths
   // (prompt.prompt, prompt.tools, prompt.knowledge_base and other managed leaves)
