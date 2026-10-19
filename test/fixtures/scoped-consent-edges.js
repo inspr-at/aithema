@@ -78,10 +78,11 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
     await a.evaluate(() => {
       view.update(c.session, { consentRevision: c.session.consentRevision - 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } });
       window.grantSource = c.shadowRoot.querySelector('.concept-html').artifact;
+      window.grantSurfaces = [...c.shadowRoot.querySelectorAll('aithema-html-preview')].filter(p => p.artifact).map(node => ({ node, source: node.artifact }));
       window.grantSamples = []; window.sampleGrant = true;
       const sample = () => {
         const preview = c.shadowRoot.querySelector('.concept-html'), box = preview.getBoundingClientRect();
-        grantSamples.push({ present: preview.artifact === grantSource && !!preview.shadowRoot.querySelector('iframe'), visible: view.dialog.open && box.width > 0 && box.height > 0 && getComputedStyle(preview).visibility === 'visible' });
+        grantSamples.push({ surfaces: grantSurfaces.map(({ node, source }) => { const b = node.getBoundingClientRect(); return { present: node.artifact === source && !!node.shadowRoot.querySelector('iframe'), visible: b.width > 0 && b.height > 0 && getComputedStyle(node).visibility === 'visible' }; }), present: preview.artifact === grantSource && !!preview.shadowRoot.querySelector('iframe'), visible: view.dialog.open && box.width > 0 && box.height > 0 && getComputedStyle(preview).visibility === 'visible' });
         if (sampleGrant) requestAnimationFrame(sample);
       }; requestAnimationFrame(sample);
     });
@@ -99,9 +100,24 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
     await a.waitForFunction(() => window.verifiedRevision === c.session.consentRevision);
     const samples = await a.evaluate(async () => { window.sampleGrant = false; await new Promise(requestAnimationFrame); return grantSamples; });
     assert.ok(samples.length >= 2); assert.ok(samples.every(s => s.present && s.visible), 'every animation frame keeps covered content visible');
+    assert.ok(samples.every(s => s.surfaces.length >= 2 && s.surfaces.every(surface => surface.present && surface.visible)), 'viewer and folded canvas both retain their covered frames throughout the grant');
     await a.evaluate(() => clock.tick(2000)); assert.equal(await a.evaluate(() => view.dialog.open), true, 'successful grant clears the original watchdog');
     if (ahead) await capture(1440, 'grant');
     checks.push({ width: 1440, theme: 'light', locale: 'de', state: 'E3', serverAhead: ahead, samples, neverHidden: true, watchdogCleared: true });
+  });
+  await t.test('AIT-365 E3: lagging document keeps the original deadline', async () => {
+    await init(); const e = event(); a.holdConsentRead = true; a.heldConsentRead = null;
+    await a.evaluate(e => c.receive(e), e);
+    const request = await heldRead();
+    await request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ consentRevision: 1, selected: ['models', 'images'], features: { html: ['drafts'], images: ['images'] } }) });
+    await a.waitForFunction(() => clock.pending() >= 2);
+    const at1999 = await a.evaluate(() => { clock.tick(1999); return inspect(); });
+    assert.equal(at1999.open, true); assert.deepEqual(at1999.ids, ['image', 'html']);
+    const at2000 = await a.evaluate(() => { clock.tick(1); return inspect(); });
+    assert.equal(at2000.open, false); assert.deepEqual(at2000.ids, []); assert.deepEqual(at2000.frames, []); assert.deepEqual(at2000.images, []);
+    assert.equal(at2000.notice, 'Entwurf zurückgezogen');
+    a.holdConsentRead = false; if (a.heldConsentRead) { await a.heldConsentRead.continue(); a.heldConsentRead = null; }
+    checks.push({ width: 1440, theme: 'light', locale: 'de', state: 'E3', persistentLag: true, at1999, at2000, deadlineAdvancedMs: 2000, fullWithdrawalCopy: true });
   });
   for (const fail of [false, true]) await t.test(`AIT-365 E4 detach/${fail ? 'failure' : 'success'}`, async () => {
     await init(); const e = event(); a.holdSnapshot = true; a.heldSnapshots = [];
