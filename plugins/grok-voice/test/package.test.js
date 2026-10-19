@@ -40,9 +40,9 @@ test('Grok STT + TTS preflight passes offline and blocks mismatches before claim
   assert.equal(secrets, 0); assert.equal(transports, 0);
 });
 
-test('package publication remains deferred to package 8 and imports use supported subpaths', async () => {
+test('AIT-351 package 8 includes the release module and imports use supported subpaths', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
-  assert.equal(pkg.private, true);
+  assert.equal(pkg.private, false);
   assert.deepEqual(Object.keys(pkg.dependencies), ['@inspr/aithema-core', '@inspr/aithema-server']);
   for (const file of ['server', 'components', 'configuration', 'manifest', 'stt', 'tts', 'client']) {
     const source = await readFile(new URL(`../src/${file}.js`, import.meta.url), 'utf8');
