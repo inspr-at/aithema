@@ -20,6 +20,8 @@ import puppeteer from './launch.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { AI_NOTICE } from '../../packages/core/src/ai-notice.js';
+import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
+import { manifest as consentVoiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
 
 const waitTimeout = 45_000;
 import { browserPath } from '../../scripts/install-test-browser.js';
@@ -860,12 +862,11 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     const { width, theme, locale } = variant, label = `${width}/${theme}/${locale}`;
     await page.setViewport({ width, height: width === 390 ? 1000 : 900 });
     await page.goto(`${demo.url}/consent/?session=deadline&return=%2F%3Fsaved%3D1`, { waitUntil: 'networkidle0' });
-    await page.evaluate(async ({ theme, locale }) => {
+    await page.evaluate(async ({ theme, locale, contract, voicePresentation }) => {
       localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-demo-theme', theme);
-      const [{ mountConsentPage }, { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL }, { withDemoConsentCopy }, language] = await Promise.all([
-        import('/demo/consent-page.js'), import('/demo/processing-consent.js'), import('/demo/consent-copy.js'), import(`/packages/ui/src/i18n/${locale}.js`),
+      const [{ mountConsentPage }, { withDemoConsentCopy }, language] = await Promise.all([
+        import('/demo/consent-page.js'), import('/demo/consent-copy.js'), import(`/packages/ui/src/i18n/${locale}.js`),
       ]);
-      const contract = { contract: 'deadline-v1', items: CONSENT_ITEMS, intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
       let now = 0, sequence = 0;
       const timers = new Map(), flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
       const f = window.consentDeadline = { stallGet: true, posts: [], gets: [], returns: [], lateGets: [], selected: ['voice-elevenlabs'],
@@ -878,7 +879,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       const clock = { setTimeout(fn, delay) { const key = ++sequence; timers.set(key, { fn, at: now + delay }); return key; }, clearTimeout(key) { timers.delete(key); } };
       f.mounting = mountConsentPage({ clock, navigate: path => f.returns.push(path), fetchImpl: async (path, options) => {
         f.gets.push({ path, signal: options.signal });
-        if (path === '/demo/config') return Response.json({ processingConsent: contract, voiceMode: 'off' });
+        if (path === '/demo/config') return Response.json({ processingConsent: contract, voiceMode: 'off', voicePresentation });
         if (path === '/api/sessions/deadline') return Response.json({ id: 'deadline', locale, engine: {}, consentRevision: 1, consentWithdrawn: false });
         if (f.stallGet) { const answer = Promise.withResolvers(); f.lateGets.push(answer); return answer.promise; }
         return Response.json({ ...contract, selected: f.selected });
@@ -886,7 +887,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
         const answer = Promise.withResolvers(); f.posts.push({ body, signal: options.signal, ...answer }); return answer.promise;
       } });
       await flush();
-    }, variant);
+    }, { ...variant, contract: { contract: 'deadline-v1', items: CONSENT_ITEMS, intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL }, voicePresentation: consentVoiceManifest.presentation });
     const snapshot = () => page.evaluate(() => {
       const f = window.consentDeadline, status = document.querySelector('#consent-status'), text = document.querySelector('#status-text'), action = document.querySelector('#retry');
       const selectors = ['#consent-status', '#status-text', '#retry', ...['top', 'bottom'].flatMap(position => ['[data-back]', '[data-revoke]', '[data-select-all]', '[data-grant]'].map(selector => `.consent-actions--${position} ${selector}`))];

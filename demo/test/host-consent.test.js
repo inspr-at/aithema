@@ -299,6 +299,8 @@ async function deadlinePage(t, { stallGet = false, selected = ['voice-elevenlabs
   const fixture = { stallGet, selected, posts, gets, returns, clock, flush, window, document: window.document, timers };
   const fetchImpl = async (path, options = {}) => {
     gets.push({ path, signal: options.signal });
+    const override = fixture.readOverride?.(path, options);
+    if (override) return override;
     if (path === '/demo/config') return Response.json(bindingOverride ?? { processingConsent: contract, voiceMode: 'off' });
     if (path === '/api/sessions/s') return Response.json({ id: 's', locale, engine: {}, consentRevision: 1, consentWithdrawn: false });
     if (path.endsWith('/consent')) {
@@ -386,3 +388,56 @@ for (const locale of ['de', 'en']) {
     assert.deepEqual(p.returns, ['/?saved=1']); assert.equal(p.timers.size, 0);
   });
 }
+
+
+test('AIT-376: config, session and verdict share one load deadline, including response bodies', async t => {
+  const p = await deadlinePage(t);
+  const config = Promise.withResolvers(), session = Promise.withResolvers();
+  p.readOverride = path => path === '/demo/config' ? config.promise : path === '/api/sessions/s' ? session.promise : null;
+  const loading = p.api.load(); await p.flush();
+  await p.clock.advance(7000); assert.equal(p.state(), 'loading');
+  config.resolve(Response.json({ processingConsent: { contract: 'v1', items: CONSENT_ITEMS } })); await p.flush();
+  await p.clock.advance(999); assert.equal(p.state(), 'loading');
+  await p.clock.advance(1); await loading;
+  assert.equal(p.state(), 'load-timeout');
+  assert.equal(p.gets.at(-1).signal.aborted, true);
+  session.resolve(Response.json({ id: 's', locale: 'en' })); await p.flush();
+  assert.equal(p.state(), 'load-timeout'); assert.equal(p.document.documentElement.lang, 'de');
+  const body = Promise.withResolvers();
+  p.readOverride = path => path === '/demo/config' ? { ok: true, json: () => body.promise } : null;
+  const retrying = p.api.load(); await p.flush(); await p.clock.advance(8000); await retrying;
+  assert.equal(p.state(), 'load-timeout');
+  body.resolve({ voiceMode: 'fake' }); await p.flush(); assert.equal(p.state(), 'load-timeout');
+});
+
+for (const phase of ['body', 'confirmation']) test(`AIT-376: save deadline includes ${phase} and fences its late result`, async t => {
+  const p = await deadlinePage(t), body = Promise.withResolvers();
+  p.choose(); const saving = p.api.save(); await p.flush();
+  if (phase === 'body') p.posts[0].resolve({ ok: true, json: () => body.promise });
+  else { p.stallGet = true; p.posts[0].resolve(Response.json({ granted: true })); }
+  await p.flush(); await p.clock.advance(10000); await saving;
+  assert.equal(p.state(), 'save-unconfirmed');
+  if (phase === 'body') body.resolve({ granted: true });
+  else p.lateGet.resolve(Response.json({ selected: CONSENT_ITEMS.map(item => item.id), contract: 'rendered-v1' }));
+  await p.flush(); assert.equal(p.state(), 'save-unconfirmed'); assert.deepEqual(p.returns, []);
+});
+
+test('AIT-376: withdrawal can cancel a first grant with no previously recorded selection', async t => {
+  const p = await deadlinePage(t, { selected: [] });
+  assert.equal(p.document.querySelector('[data-revoke]').hidden, true);
+  p.choose(); void p.api.save(); await p.flush();
+  const revoke = p.document.querySelector('[data-revoke]');
+  assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false); revoke.click(); await p.flush();
+  assert.equal(p.posts.length, 2); assert.equal(p.posts[0].signal.aborted, true); assert.equal(p.posts[1].body.granted, false);
+  await p.clock.advance(10000); assert.equal(p.state(), 'withdraw-unconfirmed');
+});
+
+test('AIT-376: postJson passes the AbortSignal to the POST transport', async t => {
+  const { postJson } = await import('../post-json.js');
+  const original = globalThis.fetch, controller = new AbortController(); let sent;
+  t.after(() => { globalThis.fetch = original; });
+  globalThis.fetch = (url, options) => { sent = { url, ...options }; return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })); };
+  const request = postJson('/api/sessions/s/consent', { granted: false }, { signal: controller.signal });
+  assert.equal(sent.method, 'POST'); assert.equal(sent.body, '{"granted":false}'); assert.equal(sent.signal, controller.signal);
+  controller.abort(); await assert.rejects(request, { name: 'AbortError' });
+});
