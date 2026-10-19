@@ -58,6 +58,10 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
         bindingReason({ binding: reaction, plugin: { manifest: openRouterManifest }, preset: 'best', policy }));
     if (voiceError) {
       console.error('Voice configuration error: OPENROUTER_SPEECH_MODEL is required for voice and must name an explicitly qualified fast reaction route with effort none; voice start refused.');
+      // Recovery republishes voice choices under a freshly extended policy.
+      // Carry the refusal on the private binding as well as the endpoint gate.
+      voices = voices.map(option => option.id === 'elevenlabs' && option.binding
+        ? { ...option, binding: { ...option.binding, legal: { ...option.binding.legal, approved: false } } } : option);
       policy = { ...policy, endpoints: (policy?.endpoints ?? []).filter(endpoint => endpoint !== voiceBinding.endpoint) };
     }
     const offered = new Set([...voices, ...visuals].map(o => o.binding?.plugin ?? o.id));

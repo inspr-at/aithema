@@ -114,7 +114,7 @@ test('AIT-380: a saved voice selection cannot start through a missing speech rou
   const runtime = createPluginRuntime({ storage, presets, registry: new PluginRegistry().register(reasoning).register(plugin) });
   const session = storage.create({ ownerToken: 'fixture-owner', settings: { model: presets.best.choices.defaults.model, voice: 'elevenlabs' } });
   await assert.rejects(runtime.admitVoice({ session, request: { callId: 'refused-call' } }),
-    error => error.code === 'not-admitted' && error.message === 'endpoint not allowed');
+    error => error.code === 'not-admitted' && error.message === 'binding evidence unverified');
   // Recovery re-publishes its own endpoint policy. Refusal must travel with the
   // voice choice too, so a saved selection cannot bypass it after self-healing.
   const initialPolicy = { endpoints: [configured.reaction.endpoint] };

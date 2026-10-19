@@ -1298,7 +1298,8 @@ Missing or blank speech configuration, mismatched/expired account evidence, or a
 reaction effort other than `none` refuses voice start. The operator receives:
 `Voice configuration error: OPENROUTER_SPEECH_MODEL is required for voice and must name an explicitly qualified fast reaction route with effort none; voice start refused.`
 This error is written only to the server log. Visitors receive the existing
-voice-unavailable state; saved voice settings cannot bypass the refusal. Text-only
+voice-unavailable state; saved voice settings cannot bypass the refusal, including
+after automatic voice-host recovery. Text-only
 hosts can still use `OPENROUTER_MODEL`, but that text route never qualifies voice
 implicitly. No model is silently substituted for the required voice route.
 
