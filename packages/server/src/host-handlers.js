@@ -190,7 +190,11 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   function startCredits(id, ownerToken) {
     const state = conversationLimits.start(id);
     if (!host?.wallet) return;
-    const { balance } = creditResult(id, ownerToken);
+    const context = { sessionId: id };
+    const wallet = host.wallet(ownerToken, context);
+    host.creditTiers?.(ownerToken, context);
+    // Initial admission keeps the conservative balance, including for old hosts.
+    const balance = budgetCreditView(budget, id, wallet);
     conversationLimits.transition(id, { type: 'balance', balance }, ownerToken);
     const paused = storage.get(id).paused;
     const current = state.paused === paused ? storage.creditState(id)
