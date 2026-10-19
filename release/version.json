@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261019131804.0.0",
+  "version": "261019195810.0.0",
   "release_channel": "stable",
-  "release_sequence": 20,
+  "release_sequence": 21,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-373 ninth October candidate (START-550 #2), first release on the active AIT-363 B fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19; sequence 20 under coordinator-held release-lock/seq-20; prepare only, final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder tag, tag push, GitHub release or publication"
+  "reservation_purpose": "AIT-389 tenth October candidate, second release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19; sequence 21 under coordinator-held release-lock/seq-21; prepare only, final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder tag, tag push, GitHub release or publication"
 }

@@ -1,52 +1,72 @@
 # Aithema 2026.10
 
-Version **261019131804.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261019195810.0.0**. Licensed under **AGPL-3.0-only**.
 
-Ninth October release: drafts stay private whatever the visuals setting, and clearer voice failures.
+Tenth October release: a smoother ElevenLabs voice and a privacy fix for HTML drafts.
 
 ## What START and visitors notice
 
-- **Draft privacy follows consent, whatever the visuals setting (AIT-369 / START-550 #2):**
-  withdrawing only “HTML drafts” removes delivered HTML drafts even when visuals
-  are Off or set to Images. Consent follows each delivered kind, never the
-  visuals choice. Unknown or unresolved content provenance fails closed: the
-  component hides content it cannot safely identify.
-- **Scoped withdrawal takes effect immediately (AIT-365):** a known withdrawn
-  kind disappears in the same moment the consent event arrives, in every tab
-  that receives it. Privacy first when the change is unknown: affected content
-  stays hidden until the change is confirmed. Other covered kinds remain usable.
-- **Clearer voice failures (AIT-361):** ElevenLabs and Grok Voice show persistent
-  failure messages for provider limits, lost connections and retry delays, with
-  recovery controls that reflect what is available. Retry waits for the stated
-  delay; visitors can continue typing. Grok Voice remains **not yet qualified
-  in live use**.
-- **Settings are easier to use (AIT-362):** a bottom fade shows when more content
-  is below, menu labels use the full width, and the edge rule is gone. Menus
-  preserve their keyboard and screen-reader behaviour.
+- **HTML drafts stay private with visuals Off (AIT-386 / START-550):** an HTML
+  draft's content is never sent to the server as an image request. Kept images
+  retain their thumbnails and layout, and HTML draft consent keeps its own kind.
+- **Faster, more reliable ElevenLabs calls (AIT-379, AIT-380, AIT-381, AIT-388):**
+  the reply starts with validated spoken audio within five seconds, or one short
+  holding line covers the wait. An off-topic reply redirects once; a retry
+  continues after what was already said. The provider receives exactly the
+  request that was approved for that attempt. When the agent ends the call,
+  the call and microphone really close. Refusals use neutral wording.
+- **Honest waits and recovery (AIT-377, AIT-378, AIT-383):** call-start waits are
+  clear, microphone guidance points to the device, and the charge after an
+  agent-ended call reflects the available accounting evidence. Voice shows
+  failure messages next to the control they concern; Retry waits for the stated delay.
+  A provider-confirmed interruption is marked. The silence watchdog stays off
+  until the provider declares the signals it needs.
+- **Consent never hangs on loading or saving (AIT-376):** stalled requests end
+  with a way to recover, and a withdrawal always lands, even from a stale page.
+- **Withdrawal leaves a clean layout (AIT-385):** removing a shown draft leaves
+  no empty focused tile. On a 390-pixel phone view, the withdrawal notice sits
+  clear of the transcript chevron.
 
 ## For hosts
 
-The backward-compatible `consent.revised` event can include `changed`, the scope
-names whose coverage changed, and `removed`, the scopes that lost coverage.
-These contain scope names only, never selected item IDs or ledger values;
-absent fields mean refresh through the existing path. Keep forwarding consent
-events to every tab. Known withdrawals remove the affected kind immediately;
-unknown changes keep content hidden until current consent is confirmed. See the
-[consent event contract](https://github.com/inspr-at/aithema/blob/v261019131804.0.0/docs/embedding.md#consent-documents-in-settings)
-for the revision-bound host ledger contract and fallback behaviour.
+Voice now requires a configured, qualified fast reaction (speech) route with
+reaction effort `none`. In the OpenRouter demo, set `OPENROUTER_SPEECH_MODEL`
+explicitly for every enabled voice option. Keep account evidence current and
+matched to that route. The analysis model remains separate and is never a
+silent fallback for speech. Missing or invalid speech configuration refuses
+voice start with an operator configuration error in the server log; visitors
+see neutral voice-unavailable wording. See the
+[fast reaction route contract](https://github.com/inspr-at/aithema/blob/v261019195810.0.0/docs/embedding.md#required-fast-reaction-route-for-demo-voice-ait-380).
 
-Releases are now admitted against an immutable candidate marker that binds the
-exact source commit and content digest; later changes on main do not change
-that candidate (AIT-363 B). Candidate evidence records the actual build host
-(AIT-370); published checksums and attestations still identify the shipped bytes.
+The spoken-turn callback default is **6.5 seconds** (`turnTimeoutMs` and the
+ElevenLabs callback timeout). It bounds the whole response, including cleanup;
+validated speech or the short holding line covers the five-second first-audio
+wait. Retries preserve already spoken text, redirect at most once and require
+fresh admission for the exact provider request.
+
+The managed ElevenLabs agent's `conversation_config.conversation.client_events`
+now includes `agent_tool_response`, needed for a native agent-initiated end.
+Run the authorized host ensure to repair an agent missing it; ensure writes and
+checks the complete event contract. The server-only `checkAgentHealth` export
+at `@inspr/aithema-plugin-elevenlabs/agent-health` checks the configured agent
+with a single GET and makes no changes. See the
+[agent event and health contract](https://github.com/inspr-at/aithema/blob/v261019195810.0.0/plugins/elevenlabs/README.md#native-end-call-event-contract-and-get-only-agent-health-ait-379).
+
+A provider's retry delay now reaches the browser as HTTP **429** with
+`Retry-After`; preserve that status and header through host adapters so Retry
+waits for the stated delay. Continue forwarding consent changes to every tab.
 
 ## Breaking for hosts
 
-**None relative to RC8 (`v261019093518.0.0`).** Consent scopes are optional event
-fields; existing consumers can ignore them and absent fields retain the refresh
-path. The draft privacy, voice failure and Settings changes require no new host
-API, and candidate admission changes the release process. Hosts upgrading from
-before RC7 must still apply RC7's preview embedding requirements.
+**Yes for voice relative to RC9 (`v261019131804.0.0`).** A host without a
+configured fast reaction (speech) route now has voice refused with an operator
+configuration error instead of silently using its analysis model. Set
+`OPENROUTER_SPEECH_MODEL` in the OpenRouter demo, or an explicitly qualified
+reaction binding with effort `none` in a custom host, with matching current
+account evidence. Repair the managed agent event contract through host ensure
+before enabling an older agent. Everything else in this release is backward
+compatible. Hosts upgrading from before RC7 must still apply RC7's preview
+embedding requirements.
 
 ## What is included
 
@@ -69,10 +89,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261019131804.0.0` into a clean directory:
+Download the assets for `v261019195810.0.0` into a clean directory:
 
 ```sh
-gh release download v261019131804.0.0 --repo inspr-at/aithema
+gh release download v261019195810.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -95,7 +115,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261019131804.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261019195810.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -125,6 +145,6 @@ the product version.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261019131804.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261019195810.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.
