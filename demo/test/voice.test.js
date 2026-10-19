@@ -17,7 +17,9 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
   const notifications = eventProbe(), render = AudioRail.prototype.render, consume = AudioRail.prototype.consume;
   t.mock.method(AudioRail.prototype, 'render', function () {
     render.call(this);
-    notifications.record({ source: 'render', state: this.root.dataset.state, busy: Boolean(this.busy),
+    const projection = this.root.getRootNode().host?.session;
+    notifications.record({ source: 'render', paused: projection?.paused,
+      transcript: (projection?.transcript ?? []).map(({ role, content }) => ({ role, content })), state: this.root.dataset.state, busy: Boolean(this.busy),
       input: this.input, startDisabled: this.button('start').disabled, retryDisabled: this.button('retry').disabled });
     releaseDelayedTurn();
   });
@@ -65,40 +67,49 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
       });
     };
     let step = 0;
-    const act = (action, ...predicates) => {
+    const act = async (action, ...predicates) => {
       const currentStep = ++step;
       t.diagnostic(`AIT-390 action ${currentStep} started`);
       const after = notifications.events.length;
       const ready = Promise.all(predicates.map(predicate => notifications.waitFor(predicate, after)));
-      action();
-      const aborted = new Promise((_, reject) => t.signal.addEventListener('abort', () => reject(t.signal.reason), { once: true }));
-      return Promise.race([ready, aborted]).then(value => {
-        t.diagnostic(`AIT-390 action ${currentStep} completed`); return value;
+      let abort;
+      const aborted = new Promise((_, reject) => {
+        abort = () => reject(t.signal.reason);
+        t.signal.addEventListener('abort', abort, { once: true });
       });
+      try {
+        await Promise.race([Promise.all([action(), ready]), aborted]);
+        t.diagnostic(`AIT-390 action ${currentStep} completed`);
+      } finally { t.signal.removeEventListener('abort', abort); }
     };
     const voice = (type, predicate = () => true) => notice => notice.source === 'voice' && notice.event.type === type && predicate(notice.event);
-    const session = (type, predicate = () => true) => notice => notice.source === 'session' && notice.event.type === type && predicate(notice.event);
     const rendered = predicate => notice => notice.source === 'render' && predicate(notice);
     assert.match(document.querySelector('#fake-label').textContent, /Demo only: simulated voice.*no AI provider/);
-    await act(() => void reviseMockConsent(c), session('consent.revised'), rendered(n => !n.startDisabled));
+    // A snapshot can satisfy durable state without replaying journal notices.
+    // Observe the rendered projection as well as the consumed media events.
+    await act(() => reviseMockConsent(c), rendered(n => !n.startDisabled));
     await act(() => root.querySelector('.voice-start').click(), voice('final', e => e.role === 'assistant'));
     assert.equal(root.querySelector('.audio-rail').dataset.state, 'speaking');
     await act(() => document.querySelector('#fake-say').click(), voice('final', e => e.role === 'user' && e.text.includes('public API')),
-      session('turn.final', e => e.data.role === 'user' && e.data.content.includes('public API')),
+      rendered(n => n.transcript.some(t => t.role === 'user' && t.content.includes('public API'))),
       voice('final', e => e.role === 'assistant' && e.text === 'I understand. Which part should we clarify first?'));
     assert.ok(c.session.transcript.some(t => t.role === 'user' && t.content.includes('public API')));
-    await act(() => document.querySelector('#fake-interrupt').click(), session('turn.corrected', e => e.data.content === 'I understand.'),
+    assert.equal(reordered, true, 'the server snapshot overtook the delayed user turn');
+    assert.equal(notifications.events.some(n => n.source === 'session' && n.event.type === 'turn.final' &&
+      n.event.data.role === 'user' && n.event.data.content.includes('public API')), false,
+    'snapshot adoption does not replay the skipped turn notification');
+    await act(() => document.querySelector('#fake-interrupt').click(), rendered(n => n.transcript.some(t => t.content === 'I understand.')),
       voice('heard', e => e.prefix === 'I understand.'), voice('listening'));
     assert.ok(c.session.transcript.some(t => t.content === 'I understand.'));
     assert.ok(c.session.transcript.every(t => t.content !== 'I understand. Which part should we clarify first?'));
     root.querySelector('textarea').value = 'Typed during voice';
     await act(() => root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })),
-      session('turn.final', e => e.data.content === 'Typed during voice'), voice('final', e => e.role === 'assistant'));
+      rendered(n => n.transcript.some(t => t.content === 'Typed during voice')), voice('final', e => e.role === 'assistant'));
     assert.ok(c.session.transcript.some(t => t.content === 'Typed during voice'));
     await act(() => root.querySelector('.voice-input').click(), rendered(n => !n.input && !n.busy));
-    await act(() => root.querySelector('.voice-pause').click(), session('session.paused', e => e.data.paused), rendered(n => n.state === 'paused' && !n.busy));
+    await act(() => root.querySelector('.voice-pause').click(), rendered(n => n.paused === true && n.state === 'paused' && !n.busy));
     assert.equal(c.session.paused, true);
-    await act(() => root.querySelector('.voice-pause').click(), session('session.paused', e => !e.data.paused), rendered(n => n.state === 'listening' && !n.busy));
+    await act(() => root.querySelector('.voice-pause').click(), rendered(n => n.paused === false && n.state === 'listening' && !n.busy));
     assert.equal(c.session.paused, false);
     assert.equal(root.querySelector('.voice-input').getAttribute('aria-pressed'), 'false', 'pause preserves input selection');
     await act(() => document.querySelector('#fake-disconnect').click(), voice('recovering'), voice('recovered'));
