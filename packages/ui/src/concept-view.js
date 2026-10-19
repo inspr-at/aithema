@@ -333,7 +333,15 @@ export class ConceptView {
     const draft = this.root.querySelector('.concept-html'), active = this.root.activeElement;
     return this.#pointer || this.#pointerStage || draft.draftFocused || active === draft || Boolean(active && this.root.querySelector('.concept-viewer-controls').contains(active));
   }
-  visualKind() { return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image'; }
+  visualKind() {
+    if (this.#session?.settings?.visuals === 'off') return null;
+    return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image';
+  }
+  latestImage() { return this.items.findLast(item => conceptKind(item) === 'image'); }
+  #imageURLFor(id, url) {
+    return typeof url === 'string' && url.startsWith('blob:') && this.#urls.get(id) === url &&
+      this.items.some(item => item.id === id && conceptKind(item) === 'image');
+  }
   #visualsBound() {
     if (!this.#session || this.#session.visualsBound === false) return false;
     if (this.#session.visualsBound === true) return true;
@@ -426,7 +434,7 @@ export class ConceptView {
     for (const image of preview.querySelectorAll('img')) image.hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
     const previewLabel = this.#phone.matches && this.#imageLayout ? this.copy.conceptPhoneReady : view;
     preview.querySelector('.concept-preview-label').textContent = previewLabel; preview.setAttribute('aria-label', gone && !latest ? this.root.querySelector('.concept-withdrawn').textContent : previewLabel);
-    if (latest && !latestDraft && (this.visualKind() === 'html' || !this.backdropHidden())) void this.load(latest.id).then(url => {
+    if (latest && !latestDraft && (this.visualKind() === 'html' || !this.backdropHidden())) void this.loadImageURL(latest.id).then(url => {
       if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() === 'html' || !this.backdropHidden())) this.paintThumbnail(latest.id, url);
     });
     else this.clearThumbnail();
@@ -465,8 +473,9 @@ export class ConceptView {
     delete draft.dataset.id;
     if (image.dataset.id !== current.id) { image.removeAttribute('src'); image.dataset.id = current.id; }
     imageStatus.textContent = this.copy.conceptLoading;
-    void this.load(current.id).then(url => { if (owner === this.#session?.id && epoch === this.#epoch && this.current()?.id === current.id && this.dialog.open) {
-      if (url) image.src = url; imageStatus.textContent = url ? '' : this.copy.conceptImageFailed;
+    void this.loadImageURL(current.id).then(url => { if (owner === this.#session?.id && epoch === this.#epoch && this.current()?.id === current.id && this.dialog.open) {
+      const valid = this.#imageURLFor(current.id, url);
+      if (valid) image.src = url; imageStatus.textContent = valid ? '' : this.copy.conceptImageFailed;
     } });
   }
   // The preview keeps one frame per shown revision: live renders that don't change the
@@ -546,10 +555,11 @@ export class ConceptView {
       status.textContent = ''; return;
     }
     if (draft.artifact) draft.artifact = null;
-    const bytes = await this.load(item.id);
+    const url = await this.loadImageURL(item.id);
     if (epoch !== this.#canvasEpoch || sessionId !== this.#session.id || !this.root.querySelector('.workspace')?.hasAttribute('data-folded') ||
       !this.canShowCanvas() || this.items.at(-1)?.id !== item.id) return;
-    if (bytes) { image.src = bytes; image.dataset.id = item.id; } status.textContent = bytes ? '' : this.copy.conceptImageFailed;
+    const valid = this.#imageURLFor(item.id, url);
+    if (valid) { image.src = url; image.dataset.id = item.id; } status.textContent = valid ? '' : this.copy.conceptImageFailed;
   }
   #readViewed() {
     if (this.#seenLoaded || !this.#visualsBound()) return;
@@ -572,7 +582,7 @@ export class ConceptView {
   }
   backdropHidden() {
     return this.visualKind() !== 'image' || this.#unbound || (this.#withdrawnUntil > Date.now() && (!this.#withdrawnKind || !this.items.length)) ||
-      ['pending', 'failed'].includes(this.#session?.conceptStatus?.phase) || Boolean(this.#requestError) || !this.items.at(-1);
+      ['pending', 'failed'].includes(this.#session?.conceptStatus?.phase) || Boolean(this.#requestError) || !this.latestImage();
   }
   paintBackdropState(unbound) {
     const access = this.root.querySelector('.concept-access'), phase = this.#session?.conceptStatus?.phase;
@@ -616,6 +626,7 @@ export class ConceptView {
     }
   }
   paintThumbnail(id, url) {
+    if (!this.#imageURLFor(id, url)) return;
     const thumbs = this.root.querySelector('.concept-preview-thumbs'), images = [...thumbs.querySelectorAll('img')];
     const previous = images.find(image => image.hasAttribute('data-on'));
     if (previous?.dataset.id === id) return;
@@ -634,10 +645,10 @@ export class ConceptView {
   }
   paintBackdrop() {
     if (this.backdropHidden()) return;
-    const item = this.items.at(-1), epoch = this.#backdropEpoch, sessionId = this.#session.id;
+    const item = this.latestImage(), epoch = this.#backdropEpoch, sessionId = this.#session.id;
     if (this.#backdropId === item.id) return;
-    void this.load(item.id).then(url => {
-      if (!url || epoch !== this.#backdropEpoch || sessionId !== this.#session.id || this.backdropHidden() || this.items.at(-1)?.id !== item.id) return;
+    void this.loadImageURL(item.id).then(url => {
+      if (!this.#imageURLFor(item.id, url) || epoch !== this.#backdropEpoch || sessionId !== this.#session.id || this.backdropHidden() || this.latestImage()?.id !== item.id) return;
       const images = [...this.root.querySelectorAll('.concept-backdrop img')];
       if (this.#backdropId === item.id) return;
       const previous = images.find(image => image.hasAttribute('data-on'));
@@ -748,13 +759,27 @@ export class ConceptView {
     const index = this.items.findIndex(c => c.id === this.#selected), next = this.items[index + delta];
     if (next) { this.#selected = next.id; this.#seen.add(next.id); this.rememberViewed(); this.root.querySelector('.concept-viewer-message').textContent = ''; this.render(); }
   }
-  /** Image object URLs and static-download bytes only. Executable previews use previewSource. */
+  /** Image rendering accepts only object URLs minted here for covered image items. */
+  async loadImageURL(id) {
+    const url = await this.#loadArtifact(id, 'image');
+    return this.#imageURLFor(id, url) ? url : null;
+  }
+  /** Static HTML download bytes never enter an image rendering path. */
+  async loadDraftBytes(id) {
+    const bytes = await this.#loadArtifact(id, 'html');
+    return bytes instanceof Uint8Array && this.items.some(item => item.id === id && conceptKind(item) === 'html') ? bytes : null;
+  }
+  // Compatibility for host integrations inspecting artifact access. Rendering
+  // and downloads use the kind-specific APIs above.
   async load(id) {
-    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id) || !this.items.some(item => item.id === id)) return null;
-    if (this.#urls.has(id)) return this.#urls.get(id);
-    if (this.#drafts.has(id)) return this.#drafts.get(id);
+    return conceptKind(this.items.find(item => item.id === id)) === 'html' ? this.loadDraftBytes(id) : this.loadImageURL(id);
+  }
+  async #loadArtifact(id, kind) {
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id) || !this.items.some(item => item.id === id && conceptKind(item) === kind)) return null;
+    const cache = kind === 'html' ? this.#drafts : this.#urls;
+    if (cache.has(id)) return cache.get(id);
     if (this.#loads.has(id)) return this.#loads.get(id);
-    const sessionId = this.#session.id, epoch = this.#epoch, html = conceptKind(this.#session.concepts?.find(c => c.id === id)) === 'html';
+    const sessionId = this.#session.id, epoch = this.#epoch, html = kind === 'html';
     const scopeEpoch = this.#scopeEpoch[html ? 'html' : 'image'];
     const promise = (async () => {
       try {
@@ -762,7 +787,7 @@ export class ConceptView {
         const type = response.headers.get('content-type');
         if (!response.ok || !(html ? type === 'application/octet-stream' : ['image/png', 'image/jpeg', 'image/webp'].includes(type))) throw new Error();
         const data = html ? new Uint8Array(await response.arrayBuffer()) : await response.blob();
-        if (epoch !== this.#epoch || scopeEpoch !== this.#scopeEpoch[html ? 'html' : 'image'] || sessionId !== this.#session.id || !this.items.some(c => c.id === id)) return null;
+        if (epoch !== this.#epoch || scopeEpoch !== this.#scopeEpoch[html ? 'html' : 'image'] || sessionId !== this.#session.id || !this.items.some(c => c.id === id && conceptKind(c) === kind)) return null;
         if (html) { this.#drafts.set(id, data); return data; }
         const url = URL.createObjectURL(data); this.#urls.set(id, url); return url;
       } catch { return null; }
@@ -805,7 +830,7 @@ export class ConceptView {
     if (conceptKind(current) === 'html') {
       // The same static file as the export: the draft with scripts turned off, never the raw bytes.
       try {
-        const bytes = await this.load(current.id);
+        const bytes = await this.loadDraftBytes(current.id);
         if (!bytes || !inspectHTML(bytes).ok) throw new Error();
         if (epoch !== this.#epoch || sessionId !== this.#session.id || !this.items.some(c => c.id === current.id)) return;
         url = URL.createObjectURL(new Blob([frameDocument(new TextDecoder().decode(bytes), { standalone: true })], { type: HTML_MEDIA_TYPE }));
