@@ -61,8 +61,12 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
     return url.href;
   };
   const privacyUrls = Object.fromEntries(Object.keys(copies).map(locale => [locale, resolvePrivacyUrl(locale)]));
-  let transport, connecting;
+  let transport, connecting, closed = false;
+  function assertOpen() {
+    if (closed) throw new Error('Confirmation delivery failed');
+  }
   async function connection() {
+    assertOpen();
     if (connecting) return connecting;
     connecting = connect().catch(error => { connecting = undefined; throw error; });
     return connecting;
@@ -71,6 +75,7 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
     let host = config.host.replace(/^\[|\]$/gu, '');
     if (config.allowPlaintextLocalRelay) {
       const addresses = await lookup(host, { all: true, verbatim: true });
+      assertOpen();
       if (!addresses.length || !addresses.every(row => privateIP(row.address))) throw new Error('Untrusted plaintext relay');
       // Nodemailer receives a literal IP, so reconnects/pooling cannot repeat
       // DNS resolution and move a checked hostname to a public destination.
@@ -78,16 +83,21 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
     }
     const pass = config.secretRef ? resolveSecret(config.secretRef) : undefined;
     if (config.user && (typeof pass !== 'string' || !pass)) throw new Error('Confirmation delivery failed');
-    transport = createTransport({ host, port: config.port, secure: config.secure,
+    assertOpen();
+    const created = createTransport({ host, port: config.port, secure: config.secure,
       requireTLS: !config.allowPlaintextLocalRelay && !config.secure, ignoreTLS: config.allowPlaintextLocalRelay,
       tls: { rejectUnauthorized: true, ...(!isIP(host) ? { servername: host } : {}) },
       ...(config.user ? { auth: { user: config.user, pass } } : {}), pool: true, maxConnections: 3, maxRequeues: 0,
       connectionTimeout: 8_000, greetingTimeout: 8_000, socketTimeout: 15_000,
       logger: false, debug: false, disableFileAccess: true, disableUrlAccess: true, ...(getSocket ? { getSocket } : {}) });
+    // A host-supplied factory can close the plugin before returning its pool.
+    if (closed) { created.close(); assertOpen(); }
+    transport = created;
     return transport;
   }
   return { id: 'smtp', deliversVerification: true,
     async requestVerification({ address: to, token, locale = 'en', expiresAt, confirmedAllowanceMicro, privacyDocumentConfigured = false }, { signal } = {}) {
+      assertOpen();
       if (!address(to) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
       signal?.throwIfAborted();
       const link = new URL('/confirm-email', origin); link.searchParams.set('token', token); link.searchParams.set('lang', locale === 'de' ? 'de' : 'en');
@@ -99,7 +109,10 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
           ? (typeof privacyUrl === 'function' ? resolvePrivacyUrl(locale) : privacyUrls[locale]) : undefined,
         tierAfter, copy: copies[locale], htmlTemplate });
       try {
-        await (await connection()).sendMail({ from: config.fromName ? { name: config.fromName, address: config.from } : config.from,
+        const current = await connection();
+        assertOpen();
+        signal?.throwIfAborted();
+        await current.sendMail({ from: config.fromName ? { name: config.fromName, address: config.from } : config.from,
           ...(config.replyTo ? { replyTo: config.replyTo } : {}), to, ...message });
         return { status: 'sent' };
       } catch (error) {
@@ -111,6 +124,11 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
         throw Object.assign(new Error('Confirmation delivery failed'), temporary ? { temporary: true } : {});
       }
     },
-    close() { transport?.close(); transport = undefined; connecting = undefined; },
+    close() {
+      closed = true;
+      const current = transport;
+      transport = undefined; connecting = undefined;
+      current?.close();
+    },
   };
 }
