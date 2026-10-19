@@ -79,6 +79,8 @@ test('AIT-380: generic efforts preserve the split reaction ceiling and analysis 
       { ownerToken: 'fixture-owner', baseRevision: current.settings.revision });
     const selected = storage.get(session.id);
     const admitted = await runtime.admit({ session: selected, lane: 'reaction', operation: 'stream', request });
-    assert.equal(admitted.binding.effort, 'none'); admitted.finish({ failed: true });
+    assert.equal(admitted.engine.effort, 'none');
+    try { for await (const _chunk of admitted.plugin.stream(request, admitted.options)) {} }
+    finally { admitted.finish(); }
   }
 });
