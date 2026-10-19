@@ -24,12 +24,16 @@ test('candidate builds twice, installs outside the workspace, mounts handlers/co
   const consumerLock = JSON.parse(readFileSync(join(output, 'first/consumer-package-lock.json')));
   assert.equal(consumerLock.packages['node_modules/axe-core'], undefined, 'evidence-only axe is absent from the isolated consumer closure');
   for (const smoke of [evidence.consumer.installed, evidence.consumer.locked_reinstall, evidence.consumer.rollback.smoke]) {
-    assert.equal(smoke.verified_packages, 15);
+    assert.equal(smoke.verified_packages, 16);
+    assert.equal(smoke.grok.call, 'joined PCM/STT/admitted reasoning/TTS/relay');
+    assert.equal(smoke.grok.child_claims, 2);
+    assert.equal(smoke.grok.provider_calls, 0);
+    assert.equal(smoke.grok.qualification, 'not yet qualified in live use');
     assert.ok(smoke.verified_files > 100);
     assert.equal(smoke.conversation.turns, 1);
     assert.equal(smoke.conversation.consent, 'granted');
     assert.equal(smoke.conversation.overview, 'current, settled and content verified');
   }
   assert.ok(evidence.consumer.installed.symbols >= 30);
-  assert.equal(evidence.consumer.rollback.verified_packages, 15);
+  assert.equal(evidence.consumer.rollback.verified_packages, 16);
 });

@@ -19,9 +19,11 @@ npm run release:consumer -- /retained/ait356/first
 
 `release:candidate` packs twice through `release:pack`, verifies both through
 `release:verify`, compares every archive and the manifest, then installs all
-fifteen tarballs in a scratch directory outside the repo. It checks all guide
+sixteen tarballs in a scratch directory outside the repo. It checks all guide
 symbols and runtime exports, HTTP create/read/export and owner isolation, mounts
-both web components in happy-dom, performs a lockfile reinstall, replaces a
+both web components in happy-dom, runs a joined offline Grok PCM/STT/admitted
+reasoning/TTS fixture with durable child claims and its installed capture worklet,
+performs a lockfile reinstall, replaces a
 legacy dependency declaration, and restores a damaged deployment from separately
 retained candidate tarballs. No live provider or external host is contacted.
 Runtime dependencies must be in npm's cache (the remote `npm ci` primes it).
@@ -668,11 +670,15 @@ The Ubuntu/Node 24/GNU tar job keeps every existing check:
 5. Arm cleanup, create the draft with its exact tested assets, publish it, then
    require immutability. Retain the full portable consumer deployment for 90 days.
 
+`consumer-evidence.json` binds the manifest SHA-256, source commit and all sixteen
+package digests; `consumer-package-lock.json` records sha512 integrity for those
+same tested tarball bytes. No earlier BSD or PR digest is the shipped digest.
+
 Download all release assets into a clean directory on the build runner. Verify
 `gh attestation verify SHA256SUMS --repo inspr-at/aithema` and the manifest,
 evidence and every tarball with the same command, then run
 `sha256sum --check SHA256SUMS`. Retain this exact set and its manifest digest in
-durable owner storage. Consumers install the fifteen module tarballs by release
+durable owner storage. Consumers install the sixteen module tarballs by release
 URL in one invocation (one URL per module), for example:
 
 ```sh
@@ -681,7 +687,7 @@ npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<
 
 Here `<tag>` is `v` followed by the reserved version, and `<pkg>` is a module
 archive filename without the `.tgz` suffix from `release-set.json`. Pass all
-fifteen URLs together so their mutual dependencies resolve without a registry
+sixteen URLs together so their mutual dependencies resolve without a registry
 publication. Commit the host's lockfile: its URL resolutions and sha512 integrity
 pin the downloaded bytes. Use `npm ci` for subsequent installations; retain the
 verified archives and deployment pin for an exact-artifact rollback. The

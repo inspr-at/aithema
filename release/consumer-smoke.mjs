@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, realpathSync } from 'node:fs';
 import { Window } from 'happy-dom';
+import { testGrokConsumer } from './consumer-grok.mjs';
 const window = new Window({ url: 'http://localhost/', settings: { disableIframePageLoading: true } });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 const guide = readFileSync('embedding.md', 'utf8');
@@ -102,7 +103,8 @@ try {
   const exported = await fetch(`${url}/api/sessions/${session.id}/export`, { headers: { 'x-aithema-session-token': token } });
   assert.equal(exported.status, 200);
   assert.ok(Buffer.from(await exported.arrayBuffer()).includes(Buffer.from(pin.source_commit)), 'Export binds candidate source');
-  console.log(JSON.stringify({ imports, symbols, runtime_exports: 'all', runtime_subpaths: runtimeSubpaths, type_subpaths: typeSubpaths, locale_key_parity: 'recursive', handlers: 'HTTP health/session/consent/turn/overview/export and owner isolation', conversation: { model: 'mock', turns: 1, consent: 'granted', overview: 'current, settled and content verified' },
+  const grok = await testGrokConsumer();
+  console.log(JSON.stringify({ imports, symbols, grok, runtime_exports: 'all', runtime_subpaths: runtimeSubpaths, type_subpaths: typeSubpaths, locale_key_parity: 'recursive', handlers: 'HTTP health/session/consent/turn/overview/export and owner isolation', conversation: { model: 'mock', turns: 1, consent: 'granted', overview: 'current, settled and content verified' },
     components: ['aithema-session', 'aithema-html-preview'], dom: 'happy-dom mount; browser policy/layout is covered by the browser suite', version: pin.version }));
 } finally {
   element?.remove(); preview?.remove(); await window.happyDOM.close();
