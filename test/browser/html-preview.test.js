@@ -262,7 +262,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     await page.waitForFunction(() => ['failure', 'navigated'].includes(document.querySelector('aithema-html-preview').state), { timeout: 5000 });
     assert.equal(await state(), 'failure');
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state-message').textContent),
-      'The draft could not be loaded. Close the preview and reopen it later.');
+      'The draft could not be loaded.');
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
     await page.evaluate(() => { const preview = document.querySelector('aithema-html-preview'); preview.width = 'phone'; preview.copy = {}; });
     // Let the original delayed response finish; it cannot revive the discarded frame.
@@ -504,8 +504,8 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     if (path === '/strict-host-startup.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }); return res.end(startup);
     }
-    if (!/^\/packages\/(?:ui|core)\/src\/(?:i18n\/)?[\w-]+\.js$/u.test(path)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
+    if (!/^\/packages\/(?:ui|core)\/src\/[\w/-]+\.(?:js|json)$/u.test(path)) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'content-type': path.endsWith('.json') ? 'application/json' : 'text/javascript; charset=utf-8' });
     res.end(await readFile(join(root, path)));
   });
   const directory = await mkdtemp(join(tmpdir(), 'aithema-strict-preview-'));
@@ -591,6 +591,121 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
     });
   }
+  await t.test('AIT-358: dialog Reload is reachable in both tab directions and activates with Enter and Space', async () => {
+    await page.goto(`http://127.0.0.1:${server.address().port}/strict-header-only`);
+    await page.waitForFunction(() => window.ready === true);
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluate(async () => {
+      await import('/packages/ui/src/session-element.js');
+      const { createSession } = await import('/packages/core/src/session.js');
+      const { en } = await import('/packages/ui/src/i18n/en.js');
+      const c = document.createElement('aithema-session'), session = createSession({ demo: true });
+      session.transcript = [{ id: 'source', role: 'user', content: 'A keyboard-accessible draft' }];
+      session.inputRevision = 1;
+      session.concepts = [{ id: 'keyboard-draft', mediaType: 'text/html', turnIds: ['source'], referenceIds: [], archived: false,
+        feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } }];
+      session.conceptCost = { maxMicro: 0 };
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: { available: true } } };
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (url, options = {}) => {
+        const path = new URL(url, location.href).pathname;
+        if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        if (path.endsWith('/preview')) {
+          window.keyboardMints++;
+          if (window.keyboardMints === 1) throw new Error('fixture network failure');
+          return new Promise(resolve => { window.finishKeyboardMint = resolve; });
+        }
+        if (path.startsWith('/api/')) return Response.json(c.session);
+        return nativeFetch(url, options);
+      };
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.configure({ session, copy: en, sessionToken: 'fixture-owner', concepts: { previewURL: location.origin + '/_aithema/html-preview' } });
+      document.body.append(c);
+      window.keyboardSession = c;
+    });
+    const backTab = async () => {
+      await page.keyboard.down('Shift');
+      try { await page.keyboard.press('Tab'); } finally { await page.keyboard.up('Shift'); }
+    };
+    const focusAt = () => page.evaluate(() => {
+      const root = window.keyboardSession.shadowRoot, preview = root.querySelector('.concept-html');
+      return root.activeElement === preview ? preview.shadowRoot.activeElement?.className || preview.shadowRoot.activeElement?.dataset.width || preview.shadowRoot.activeElement?.tagName : root.activeElement?.className;
+    });
+    const geometry = () => page.evaluate(() => {
+      const root = window.keyboardSession.shadowRoot, preview = root.querySelector('.concept-html').shadowRoot;
+      return [...['.concept-viewer', '.concept-stage', '.concept-viewer-controls'].map(s => root.querySelector(s)),
+        ...['.bar', '.stage', '.seg', '.state-content', '.reload'].map(s => preview.querySelector(s))].map(n => {
+        const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+      });
+    });
+    let previousSource;
+    for (const key of ['Enter', 'Space']) {
+      await page.evaluate(() => {
+        window.keyboardMints = 0;
+        window.keyboardSession.shadowRoot.querySelector('.concept-tab').focus();
+      });
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => window.keyboardSession.shadowRoot.querySelector('.concept-html').state === 'failure');
+      assert.equal(await focusAt(), 'concept-close', 'opening by keyboard focuses Close');
+      const baseline = await geometry();
+      await page.keyboard.press('Tab');
+      assert.equal(await focusAt(), 'wide', 'Tab enters the selected width control');
+      await page.keyboard.press('Tab');
+      assert.equal(await focusAt(), 'reload', 'Tab reaches Reload inside the failure-state preview');
+      const ring = await page.evaluate(() => {
+        const button = window.keyboardSession.shadowRoot.querySelector('.concept-html').shadowRoot.querySelector('.reload');
+        const style = getComputedStyle(button);
+        return { visible: button.matches(':focus-visible'), outline: style.outlineStyle, width: style.outlineWidth };
+      });
+      assert.equal(ring.visible, true); assert.equal(ring.outline, 'solid'); assert.equal(ring.width, '2px');
+      await backTab(); assert.equal(await focusAt(), 'wide', 'Shift+Tab returns to width');
+      await backTab(); assert.equal(await focusAt(), 'concept-close', 'Shift+Tab leaves the preview for Close');
+      await page.keyboard.press('Tab'); await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
+      assert.equal(await focusAt(), 'concept-download', 'Tab leaves Reload for the next enabled dialog action');
+      await backTab(); assert.equal(await focusAt(), 'reload', 'backwards entry reaches Reload before width');
+      await page.keyboard.press(key);
+      await page.waitForFunction(() => window.keyboardSession.shadowRoot.querySelector('.concept-html').state === 'loading');
+      assert.equal(await focusAt(), 'state', `${key}: focus stays on the pending status`);
+      assert.deepEqual(await geometry(), baseline, `${key}: failure to loading moves 0 px`);
+      assert.deepEqual(await page.evaluate(() => {
+        const root = window.keyboardSession.shadowRoot.querySelector('.concept-html').shadowRoot;
+        return { calls: window.keyboardMints, disabled: root.querySelector('.reload').disabled, live: root.querySelector('.state').getAttribute('aria-live') };
+      }), { calls: 2, disabled: true, live: 'polite' });
+      await page.keyboard.press('Enter'); await page.keyboard.press('Space');
+      assert.equal(await page.evaluate(() => window.keyboardMints), 2, 'keys on pending status cannot mint again');
+      await page.evaluate(async html => window.finishKeyboardMint(await fetch('/fixture/mint', { method: 'POST', body: html })), dummy);
+      await page.waitForFunction(() => window.keyboardSession.shadowRoot.querySelector('.concept-html').state === 'ready');
+      const handle = await page.$('aithema-session >>> .concept-html >>> iframe'), frame = await handle.contentFrame();
+      await frame.waitForSelector('#new');
+      assert.equal(await focusAt(), 'IFRAME', `${key}: fresh frame retains focus`);
+      const source = await handle.evaluate(n => n.src);
+      assert.notEqual(source, previousSource, `${key}: remount uses a fresh single-use capability`); previousSource = source;
+      assert.equal(await page.evaluate(() => window.keyboardMints), 2, `${key}: exactly one reload mint`);
+      assert.deepEqual(await geometry(), baseline, `${key}: loading to ready moves 0 px`);
+      await handle.dispose();
+      // Policy refusal still has just the width stop and cannot offer Reload.
+      await page.evaluate(() => {
+        const root = window.keyboardSession.shadowRoot, preview = root.querySelector('.concept-html');
+        preview.artifact = { ...preview.artifact, previewURL: undefined };
+        root.querySelector('.concept-close').focus();
+      });
+      assert.deepEqual(await page.evaluate(() => {
+        const preview = window.keyboardSession.shadowRoot.querySelector('.concept-html'), button = preview.shadowRoot.querySelector('.reload');
+        return { state: preview.state, hidden: button.getAttribute('aria-hidden'), disabled: button.disabled };
+      }), { state: 'policy', hidden: 'true', disabled: true });
+      await page.keyboard.press('Tab'); assert.equal(await focusAt(), 'wide');
+      await page.keyboard.press('Tab'); assert.equal(await focusAt(), 'concept-download', 'policy Tab skips the unavailable Reload');
+      await backTab(); assert.equal(await focusAt(), 'wide', 'policy backwards entry returns to width');
+      await backTab(); assert.equal(await focusAt(), 'concept-close');
+      assert.equal(await page.evaluate(() => window.keyboardMints), 2, 'policy navigation never mints');
+      await page.keyboard.press('Escape');
+    }
+    await page.evaluate(() => window.keyboardSession.remove());
+  });
   // Reuse one page for Tick checks. Viewport-only shots, reduced
   // motion and the baseline system font keep evidence deterministic and cheap.
   await page.goto(`http://127.0.0.1:${server.address().port}/strict-header-only`);
@@ -600,13 +715,12 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
   if (evidence) await mkdir(evidence, { recursive: true });
   const geometry = () => page.evaluate(() => {
     const root = document.querySelector('aithema-html-preview').shadowRoot;
-    return ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-operator'].map(selector => {
+    return ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-support', '.state-operator', '.reload'].map(selector => {
       const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
     });
   });
-  // Local evidence is exactly Tick's two requested configurations. CI retains
-  // the existing geometry coverage, while uploading only the four new crops.
-  const scenarios = evidence && !isCI ? [{ width: 1440, theme: 'light', locale: 'de' }, { width: 390, theme: 'dark', locale: 'en' }]
+  // Reuse the page for Tick's three configurations; CI keeps the full geometry matrix.
+  const scenarios = evidence && !isCI ? [{ width: 1440, theme: 'light', locale: 'de' }, { width: 390, theme: 'dark', locale: 'en' }, { width: 390, theme: 'light', locale: 'de' }]
     : [1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ width, theme, locale }))));
   for (const { width, theme, locale } of scenarios) {
     await page.setViewport({ width, height: 1000 });
@@ -614,12 +728,13 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       document.documentElement.dataset.theme = theme; document.documentElement.lang = locale;
       const { [locale]: copy } = await import('/packages/ui/src/i18n/' + locale + '.js');
       const preview = document.querySelector('aithema-html-preview'); preview.copy = copy.conceptPreview;
+      window.previewMintCalls = 0;
       preview.artifact = { mediaType: 'text/html', previewURL: location.origin + '/_aithema/html-preview',
-        mint: () => new Promise((resolve, reject) => { window.finishMint = resolve; window.failMint = reject; }) };
+        mint: () => { window.previewMintCalls++; return new Promise((resolve, reject) => { window.finishMint = resolve; window.failMint = reject; }); } };
     }, { theme, locale });
     await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'loading');
     const baseline = await geometry();
-    const capture = async state => {
+    const capture = async (state, reloading = false) => {
       await page.evaluate(async () => {
         const preview = document.querySelector('aithema-html-preview');
         preview.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
@@ -630,14 +745,22 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       const boxes = await geometry(); assert.deepEqual(boxes, baseline, `${width}/${theme}/${locale}/${state}: 0 px`);
       const presentation = await page.evaluate(() => {
         const preview = document.querySelector('aithema-html-preview'), root = preview.shadowRoot;
-        const icon = root.querySelector('.state-icon'), operator = root.querySelector('.state-operator');
+        const icon = root.querySelector('.state-icon'), operator = root.querySelector('.state-operator'), reload = root.querySelector('.reload');
         return { iconSize: [icon.getBoundingClientRect().width, icon.getBoundingClientRect().height],
           iconVisibility: getComputedStyle(icon).visibility, iconColor: getComputedStyle(icon).color,
           ink2: getComputedStyle(root.querySelector('.state')).color,
           operatorVisibility: getComputedStyle(operator).visibility,
           operatorText: root.querySelector('.operator-message').textContent,
           message: root.querySelector('.state-message').textContent, expected: preview.copy[preview.state],
-          expectedOperator: preview.copy.policyOperator };
+          expectedOperator: preview.copy.policyOperator,
+          reload: { visibility: getComputedStyle(reload).visibility, disabled: reload.disabled, text: reload.textContent,
+            expected: preview.copy.reload, background: getComputedStyle(reload).backgroundColor, border: getComputedStyle(reload).borderWidth,
+            ariaHidden: reload.getAttribute('aria-hidden'), display: getComputedStyle(reload).display,
+            height: reload.getBoundingClientRect().height, minHeight: parseFloat(getComputedStyle(reload).minHeight),
+            messageGap: reload.getBoundingClientRect().top - root.querySelector('.state-message').getBoundingClientRect().bottom,
+            sharedSlot: reload.parentElement === operator.parentElement,
+            operatorTop: operator.getBoundingClientRect().top, top: reload.getBoundingClientRect().top,
+            color: getComputedStyle(reload).color, accent: getComputedStyle(root.querySelector('[aria-checked="true"]')).color } };
       });
       assert.deepEqual(presentation.iconSize, [20, 20]);
       assert.equal(presentation.iconVisibility, state === 'failure' ? 'visible' : 'hidden');
@@ -645,10 +768,29 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       assert.equal(presentation.operatorVisibility, state === 'policy' ? 'visible' : 'hidden');
       assert.equal(presentation.operatorText, state === 'policy' ? presentation.expectedOperator : '');
       assert.equal(presentation.message, state === 'ready' ? '' : presentation.expected);
-      checks.push({ width, theme, locale, state, boxes, presentation, movementPx: 0, iconSlotMovementPx: 0 });
+      assert.equal(presentation.reload.visibility, state === 'failure' ? 'visible' : 'hidden');
+      assert.equal(presentation.reload.ariaHidden, String(state !== 'failure'));
+      assert.notEqual(presentation.reload.display, 'none', 'hidden Reload keeps its layout box');
+      assert.ok(presentation.reload.height >= 44, 'Reload target is at least 44 px');
+      assert.ok(presentation.reload.minHeight >= 44, 'Reload minimum height is at least 44 px');
+      assert.equal(presentation.reload.sharedSlot, true);
+      assert.equal(presentation.reload.top, presentation.reload.operatorTop, 'operator and Reload share the same row');
+      if (state === 'failure') {
+        assert.ok(presentation.reload.messageGap >= 12 && presentation.reload.messageGap <= 16,
+          `${width}/${theme}/${locale}: message-to-button gap ${presentation.reload.messageGap} px`);
+        assert.equal(presentation.reload.color, presentation.reload.accent, 'active Reload uses teal');
+      }
+      assert.equal(presentation.reload.disabled, state !== 'failure');
+      assert.equal(presentation.reload.text, presentation.reload.expected);
+      assert.equal(presentation.reload.background, 'rgba(0, 0, 0, 0)'); assert.equal(presentation.reload.border, '0px');
+      checks.push({ width, theme, locale, state, reloading, boxes, presentation, movementPx: 0, iconSlotMovementPx: 0 });
       const requestedCrop = width === 1440 && theme === 'light' && locale === 'de' || width === 390 && theme === 'dark' && locale === 'en';
       if (evidence && requestedCrop && ['failure', 'policy'].includes(state)) {
         const file = `ait353-${width}-${theme}-${locale}-${state}.png`;
+        await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
+      }
+      if (evidence && (requestedCrop && (state === 'failure' || state === 'loading') || width === 390 && theme === 'light' && locale === 'de' && state === 'failure')) {
+        const file = `ait358-${width}-${theme}-${locale}-${state}.png`;
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
       }
     };
@@ -658,6 +800,9 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     const handle = await page.$('aithema-html-preview >>> iframe'), frame = await handle.contentFrame();
     await frame.waitForSelector('#new'); await frame.click('#new');
     assert.equal(await frame.evaluate(() => document.querySelector('#dialog').open), true);
+    await frame.evaluate(() => parent.postMessage({ type: 'reload' }, '*'));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.evaluate(() => window.previewMintCalls), 1, 'the opaque draft cannot request a parent reload');
     const beforeWidth = await handle.evaluate(n => n.src);
     await page.evaluate(() => { document.querySelector('aithema-html-preview').width = 'phone'; });
     assert.equal(await handle.evaluate(n => n.src), beforeWidth, 'width changes never reload');
@@ -666,11 +811,58 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     await handle.focus();
     await page.evaluate(() => {
       const preview = document.querySelector('aithema-html-preview');
-      preview.artifact = { ...preview.artifact, mint: async () => { throw new Error('fixture 503'); } };
+      window.reloadMintCalls = 0;
+      preview.artifact = { ...preview.artifact, mint: () => {
+        if (++window.reloadMintCalls === 1) return Promise.reject(new Error('fixture 503'));
+        return new Promise(resolve => { window.finishReload = resolve; });
+      } };
     });
     await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'failure');
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.activeElement?.dataset.width), 'phone');
     focus.push({ width, theme, locale, restoredTo: 'phone', pass: true }); await capture('failure');
+    // Exercise Reload in Tick's two crops, reusing the page and the real route.
+    if (width === 1440 && theme === 'light' && locale === 'de' || width === 390 && theme === 'dark' && locale === 'en') {
+      await page.click('aithema-html-preview >>> .reload');
+      await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'loading');
+      const pending = await page.evaluate(() => {
+        const root = document.querySelector('aithema-html-preview').shadowRoot, button = root.querySelector('.reload');
+        button.click();
+        return { disabled: button.disabled, statusFocused: root.activeElement === root.querySelector('.state'), calls: window.reloadMintCalls };
+      });
+      assert.deepEqual(pending, { disabled: true, statusFocused: true, calls: 2 });
+      focus.push({ width, theme, locale, afterReload: 'status', pass: true }); await capture('loading', true);
+      await page.evaluate(async html => window.finishReload(await (await fetch('/fixture/mint', { method: 'POST', body: html })).json()), dummy);
+      await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'ready');
+      assert.equal(await page.evaluate(() => {
+        const root = document.querySelector('aithema-html-preview').shadowRoot;
+        return root.activeElement === root.querySelector('iframe');
+      }), true);
+      const freshHandle = await page.$('aithema-html-preview >>> iframe'), freshFrame = await freshHandle.contentFrame();
+      await freshFrame.waitForSelector('#new');
+      assert.notEqual(await freshHandle.evaluate(n => n.src), beforeWidth, 'Reload mounts a fresh single-use capability');
+      assert.equal(await page.evaluate(() => window.reloadMintCalls), 2, 'one mint per click');
+      focus.push({ width, theme, locale, afterReload: 'frame', pass: true }); await capture('ready'); await freshHandle.dispose();
+      // A second failure returns the keyboard to the action that can retry it.
+      await page.evaluate(() => {
+        const preview = document.querySelector('aithema-html-preview');
+        preview.artifact = { ...preview.artifact, mint: async () => { throw new Error('fixture repeated failure'); } };
+      });
+      await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'failure');
+      assert.deepEqual(await page.evaluate(() => {
+        const root = document.querySelector('aithema-html-preview').shadowRoot;
+        root.querySelector('.reload').click();
+        return { statusFocused: root.activeElement === root.querySelector('.state'),
+          hidden: getComputedStyle(root.querySelector('.reload')).visibility };
+      }), { statusFocused: true, hidden: 'hidden' });
+      await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'failure');
+      assert.equal(await page.evaluate(() => {
+        const root = document.querySelector('aithema-html-preview').shadowRoot;
+        return root.activeElement === root.querySelector('.reload');
+      }), true, 'repeated failure focuses Reload');
+      focus.push({ width, theme, locale, afterReload: 'repeated-failure-action', pass: true });
+      await capture('failure');
+
+    }
     await page.evaluate(() => {
       const preview = document.querySelector('aithema-html-preview'); preview.artifact = { ...preview.artifact, previewURL: undefined };
     });
@@ -678,9 +870,12 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     await handle.dispose();
   }
   if (evidence) await writeFile(join(evidence, 'ait353-checks.json'), JSON.stringify({ shots, checks, focus, movementPx: 0, iconSlotMovementPx: 0,
-    geometrySelectors: ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-operator'],
+    geometrySelectors: ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-support', '.state-operator', '.reload'],
     strictHost: ['header-only: handshake and click/dialog PASS', 'header-and-meta: handshake and click/dialog PASS'],
     refusedPolicies: ['none', 'overbroad', 'report-only'], offline: true }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait358-checks.json'), JSON.stringify({ shots: shots.filter(file => file.startsWith('ait358-')),
+    checks, focus: focus.filter(check => check.afterReload), movementPx: 0, reloadSlotMovementPx: 0,
+    explicitReload: 'one fresh mint and remount per click; disabled in flight', draftMessagesCannotReload: true, offline: true }, null, 2));
   console.log(`PASS AIT-353: ${checks.length} geometry states, 0 px; ${focus.length} focus checks; strict host todos removed`);
 
 });

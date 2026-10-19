@@ -105,7 +105,7 @@ export const de = {
   conceptDraftGenerated: 'KI-generierter klickbarer Entwurf', conceptDraftManipulated: 'KI-überarbeiteter klickbarer Entwurf',
   conceptDraftFake: 'Testentwurf: lokal erzeugter Klick-Entwurf, ohne KI und ohne Anbieter',
   conceptPreview: { label: 'Entwurf, generiert', title: 'Generierter klickbarer Entwurf', width: 'Vorschaubreite', wide: 'Breit', phone: 'Telefon',
-    loading: 'Entwurf wird geladen…', failure: 'Der Entwurf konnte nicht geladen werden. Schließen Sie die Vorschau und öffnen Sie sie später erneut.', empty: 'Noch kein Entwurf.', invalid: 'Dieser Entwurf kann nicht sicher angezeigt werden.',
+    loading: 'Entwurf wird geladen…', failure: 'Der Entwurf konnte nicht geladen werden.', reload: 'Neu laden', empty: 'Noch kein Entwurf.', invalid: 'Dieser Entwurf kann nicht sicher angezeigt werden.',
     navigated: 'Der Entwurf wollte eine andere Seite öffnen und wurde angehalten.',
     policy: 'Die Vorschau ist auf dieser Website nicht freigeschaltet.',
     policyOperator: 'Für Betreiber: Die genaue Vorschau-Adresse muss als Rahmen erlaubt sein.' },
