@@ -163,6 +163,8 @@ export const bandStyles = `
   .concept-bar, .concept-bar:has(.concept-preview:disabled) { padding-left:0; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(44px,auto) 44px; row-gap:0; }
   .concept-rail { grid-area:1/1; }
   .concept-bar .concept-preview-slot { grid-area:2/1; display:grid; justify-items:start; }
+  /* AIT-385: use the reserved second row, below the chevron’s 44px target. */
+  .workspace:not([data-concept-layout="image"]) .concept-bar .concept-withdrawn { grid-area:2/1; }
   .concept-activity[hidden] { display:grid !important; visibility:hidden; }
   .concept-activity-text { align-self:center; }
   .concept-preview { padding-inline:0; gap:.5rem; white-space:nowrap; }
