@@ -28,7 +28,7 @@ export async function partialConsentFrames(t) {
     c.configure({session,copy,sessionToken:'fixture-owner',concepts:{previewURL:location.origin+'/_aithema/html-preview'}});
     c.setAttribute('theme',params.get('theme')||'light');c.setAttribute('motion','off');document.documentElement.lang=locale;document.body.append(c);
     window.boxes=()=>Object.fromEntries(['.transcript-shell','.composer','.concept-rail','.band','.concept-access','.drafts-canvas'].map(s=>{const b=c.shadowRoot.querySelector(s).getBoundingClientRect();return[s,[b.x,b.y,b.width,b.height]];}));
-    window.inspect=()=>{const r=c.shadowRoot;return {open:window.view.dialog.open,ids:window.view.items.map(i=>i.id),frames:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.artifact).map(n=>n.dataset.id),images:[...r.querySelectorAll('img[src]')].map(n=>n.dataset.id),focus:r.activeElement?.className,notice:r.querySelector('.concept-withdrawn').textContent,live:r.querySelector('.concept-withdrawn').getAttribute('aria-live'),state:r.querySelector('.concept-access').dataset.state,tooltip:r.querySelector('.concept-backdrop-hint').hasAttribute('data-show'),revoked:window.revoked,transcript:c.session.transcript.map(t=>t.content)};};
+    window.inspect=()=>{const r=c.shadowRoot;return {open:window.view.dialog.open,ids:window.view.items.map(i=>i.id),frames:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.artifact).map(n=>n.dataset.id),images:[...r.querySelectorAll('img[src]')].map(n=>n.dataset.id),focus:r.activeElement?.className,count:r.querySelector('.concept-count').textContent,previousDisabled:r.querySelector('.concept-previous').disabled,nextDisabled:r.querySelector('.concept-next').disabled,iframeCount:[...r.querySelectorAll('aithema-html-preview')].filter(n=>n.shadowRoot.querySelector('iframe')).length,notice:r.querySelector('.concept-withdrawn').textContent,live:r.querySelector('.concept-withdrawn').getAttribute('aria-live'),state:r.querySelector('.concept-access').dataset.state,tooltip:r.querySelector('.concept-backdrop-hint').hasAttribute('data-show'),revoked:window.revoked,transcript:c.session.transcript.map(t=>t.content)};};
     window.ready=true;
   </script></body></html>`;
   const server = createServer(async (req, res) => {
@@ -116,6 +116,9 @@ export async function partialConsentFrames(t) {
     assert.equal(result.tooltip, false);
     assert.equal(result.focus, 'concept-preview', 'focus returns to concept access control');
     assert.deepEqual(result.ids, mixed ? ['retained'] : []);
+    assert.equal(result.count, mixed ? locale === 'en' ? '1 of 1' : '1 von 1' : '', 'W5 count updates in the same tick, before reopening');
+    assert.equal(result.previousDisabled, true); assert.equal(result.nextDisabled, true);
+    assert.equal(result.iframeCount, 0, 'revoked preview frames are removed from the DOM');
     if (kind === 'image') assert.ok(result.revoked.length > 0, 'object URLs revoked in the same tick');
     const copy = locale === 'de' ? kind === 'html' ? 'Entwurf entfernt. Die Einwilligung für Entwürfe wurde widerrufen.' : 'Bild entfernt. Die Einwilligung für Bilder wurde widerrufen.'
       : 'Draft removed. Consent for drafts was withdrawn.';
