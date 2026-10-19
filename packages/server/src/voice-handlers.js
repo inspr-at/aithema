@@ -379,7 +379,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const entry = calls.get(callId);
       return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
-    async admitReasoning({ callId, messages, options, beforeAdmission, onRetry, safeguardRetry }) {
+    async admitReasoning({ callId, messages, options, beforeAdmission, onRetry, safeguardRetry, transformRequest }) {
       const entry = calls.get(callId);
       let session = sessionFor(entry);
       for (let retry = 0; ; retry++) {
@@ -388,8 +388,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           // Build and admit from one snapshot, including input saved while the
           // voice check awaited. The facade must dispatch this admitted request.
           session = sessionFor(entry);
-          const request = buildVoiceRequest(session, messages, entry.call);
-          if (safeguardRetry) request.system += '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.';
+          const freshRequest = buildVoiceRequest(session, messages, entry.call);
+          // Codec delivery schema and continuation context belong to the exact
+          // admitted request, including when a benign session update retries admission.
+          const request = transformRequest ? transformRequest(freshRequest) : freshRequest;
+          if (safeguardRetry && !transformRequest) request.system += '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.';
           beforeAdmission?.();
           const beforeDispatch = () => {
             try {
