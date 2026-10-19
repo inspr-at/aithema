@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { normalizedDigest } from '../release/normalize.mjs';
 
 test('candidate builds twice, installs outside the workspace, mounts handlers/components, updates and rolls back', { timeout: 180_000 }, () => {
   const output = process.env.AITHEMA_EVIDENCE_DIR ? join(process.env.AITHEMA_EVIDENCE_DIR, 'candidate') : mkdtempSync(join(tmpdir(), 'aithema-candidate-'));
@@ -15,6 +16,7 @@ test('candidate builds twice, installs outside the workspace, mounts handlers/co
   const evidence = JSON.parse(readFileSync(join(output, 'candidate-evidence.json')));
   const version = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
   assert.equal(evidence.version, version.version);
+  assert.equal(evidence.normalized_digest, normalizedDigest(join(output, 'first')));
   assert.equal(evidence.consumer.release_sequence, version.release_sequence);
   assert.equal(evidence.reproducible, true);
   assert.equal(evidence.consumer.installed.runtime_exports, 'all');
