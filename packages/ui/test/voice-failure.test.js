@@ -101,6 +101,18 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     allowRecovery(); await rail.pause(false); assert.equal(rail.state, 'listening');
     record(provider, 'recovery429-admission-code', ['any recovery 429 reaches F4, even with a misleading admission code and no retry-after']);
   });
+  test(`AIT-361 ${provider}: ownership loss fences Continue during retry-after`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const { rail, recover, allowRecovery, requests } = fixture(t, provider, { recoveryError: rateLimit(5000) });
+    await rail.start(); recover(); await flush(); allowRecovery();
+    const before = requests.length, continuing = rail.pause(false); await flush();
+    rail.receiveState({ callId: rail.session.callId, providerSessionId: rail.session.providerSessionId,
+      epoch: 2, controllingTabId: 'other-tab', state: 'active' });
+    assert.equal(rail.root.dataset.state, 'waiting');
+    t.mock.timers.tick(5000); await continuing; await flush();
+    assert.equal(requests.length, before); assert.equal(rail.root.dataset.state, 'waiting');
+    record(provider, 'retry-after-ownership-loss', ['ownership loss during wait keeps Waiting and fences the delayed continuation']);
+  });
   test(`AIT-361 ${provider}: retry-after is an absolute advertised deadline`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
     const { rail, requests } = fixture(t, provider, { startError: rateLimit(5000) });
