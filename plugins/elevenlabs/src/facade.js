@@ -552,6 +552,9 @@ async function* committedPurposeSegments(pinned, initial, options, ports) {
         // A provider that ignores abort must never overlap a paid retry. If its
         // iterator cannot close inside the remaining budget, fail this reply.
         if (stream?.return) await voiceOperation({ deadlineAt: Math.min(options.deadlineAt, Date.now() + 1000) }, () => stream.return());
+        // A completed redirect needs no more generation. If closing the provider
+        // still leaves no receipt, retain its cost exposure without inventing usage.
+        if (redirected && count === 0) await invocation.report({ attemptId: selected.options.attempt.attemptId, outcome: 'uncertain' });
       } finally {
         lifetime.dispose();
         if (attempt) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => selected.finish({ failed }));
