@@ -753,7 +753,7 @@ test('AIT-299: detach and re-attach immediately enable controls while an old req
 });
 
 // AIT-364: scope loss must use the synchronous full-withdrawal redaction path.
-for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent removes every surface and cache, preserves the other kind`, async t => {
+for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent removes every surface and cache, preserves the other kind`, { timeout: 10_000 }, async t => {
   let view;
   const update = ConceptView.prototype.update;
   t.mock.method(ConceptView.prototype, 'update', function (session) { view = this; return update.apply(this, arguments); });
@@ -761,8 +761,8 @@ for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent rem
   const retained = kind === 'html' ? item('retained') : draft('retained');
   const { c, root, calls, revoked } = setup(t, { concepts: [retained, removed], session: { conceptVisualKind: kind, visualsBound: true } });
   await tick();
-  const cached = await view.load('removed'); assert.ok(cached);
-  root.querySelector('.workspace').setAttribute('data-folded', ''); await view.paintCanvas();
+  const cached = await view.load('removed'); assert.ok(cached); t.diagnostic('removed bytes cached');
+  root.querySelector('.workspace').setAttribute('data-folded', ''); await view.paintCanvas(); t.diagnostic('canvas painted');
   const access = root.querySelector('.concept-preview'); access.focus(); access.click(); await tick();
   assert.equal(view.dialog.open, true);
   const feature = kind === 'html' ? 'html' : 'images';
@@ -785,7 +785,7 @@ for (const kind of ['html', 'image']) test(`AIT-364 ${kind}: partial consent rem
   assert.equal(snapshot.transcript[0].content, 'An API dashboard');
   const readsBeforeRegrant = calls.filter(call => /\/(html|image)$/u.test(call.url)).length;
   view.update({ ...c.session, consentRevision: snapshot.consentRevision + 1 });
-  await view.load('removed');
+  await view.load('removed'); t.diagnostic('regrant fetched fresh bytes');
   assert.ok(calls.filter(call => /\/(html|image)$/u.test(call.url)).length > readsBeforeRegrant, 'regrant reads fresh bytes: removed cache was dropped');
 });
 
