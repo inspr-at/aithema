@@ -103,10 +103,14 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   function identityTransition(id, ownerToken, event) {
     let erased = false;
     const result = emit(id, storage.transitionHost(id, (state, session) => {
-      const identity = host.identity.project?.({ session }, state.identity) ?? state.identity;
+      const identity = host.identity?.project?.({ session }, state.identity) ?? state.identity;
       const result = reduceIdentity(identity, { ...event, now: clock(identity) });
-      if (result.state.address) assertAddressCollectionAllowed();
-      erased = host.identity.persist?.({ session }, result.state)?.erased === true;
+      // Removing an old lock must also work after identity/privacy configuration
+      // is removed. A projection that collects a different address still needs permission.
+      const liftingLock = event.type === 'policy' && state.identity.verificationRequired === true &&
+        result.state.verificationRequired === false && result.state.address === state.identity.address;
+      if (result.state.address && !liftingLock) assertAddressCollectionAllowed();
+      erased = host.identity?.persist?.({ session }, result.state)?.erased === true;
       // Visitor-wide confirmation may retire historical line actions in this
       // same transaction. Keep that updated record in the identity projection.
       const emailAsk = storage.hostState(id)?.emailAsk;
