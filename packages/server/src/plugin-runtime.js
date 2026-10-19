@@ -364,6 +364,42 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return await Promise.race([evaluate(session, preset, feature, { ...options, signal: scope.signal, deadlineAt: now() + healthMs }), expired]);
     } finally { scope.signal.removeEventListener('abort', abort); scope.dispose(); }
   }
+  // Resolve by the admitted scope, never an option id that the host can rebind.
+  // Local mock scopes use the same path and existing-call evaluation as providers.
+  async function publicationStatus(session, { signal, deadlineAt = now() + healthMs, operation = 'generate',
+    visualKind: selected = visualKind(session), visuals, artifactId, consentScope } = {}) {
+    const current = storage.get(session.id), preset = current.processingPreset ?? 'best';
+    if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash ||
+      current.consentRevision !== session.consentRevision) return 'consent';
+    const artifact = artifactId ? current.concepts?.find(item => item.id === artifactId) : null;
+    if (artifactId && (!artifact || artifact.consentPurpose && !storage.conceptConsentScope?.(session.id, artifactId))) return 'unavailable';
+    const admitted = consentScope ?? (artifactId ? storage.conceptConsentScope?.(session.id, artifactId) : null);
+    const config = presets[preset], choices = choicesFor(preset);
+    const offered = config?.choices ? (choices?.visuals ?? []).filter(option => option.kind === selected && option.binding)
+      : config?.bindings?.[selected] ? [{ binding: config.bindings[selected] }] : [];
+    const candidates = admitted ? offered.filter(({ binding: raw }) => {
+      try {
+        const binding = selected === 'images' ? createImageBinding(raw) : createBinding(raw), plugin = registry.get(binding.plugin);
+        const scope = plugin && !plugin.bind && localImplementation(plugin, selected) && free(binding)
+          ? MOCK_PROCESSING_SCOPE : processingScope(binding, operation);
+        return hash(scope) === hash(admitted);
+      } catch { return false; }
+    }) : artifactId ? [{ binding: artifact.visuals
+      ? choices?.visuals.find(option => option.id === artifact.visuals && option.kind === selected)?.binding
+      : config?.bindings?.[selected] }].filter(option => option.binding)
+      : offered.filter(option => visuals === undefined || option.id === visuals);
+    let refusal = 'unavailable';
+    for (const { binding: raw } of candidates) {
+      const result = await boundedEvaluate({ ...current, paused: false }, preset, selected,
+        { signal, deadlineAt, operation, existingCall: true, raw });
+      const latest = storage.get(session.id);
+      if (signal?.aborted || latest.tombstone || latest.consentWithdrawn || latest.ownerHash !== session.ownerHash ||
+        latest.consentRevision !== session.consentRevision) return 'consent';
+      if (!result.reason && (!admitted || result.scope && hash(result.scope) === hash(admitted))) return 'allowed';
+      if (isConsentReason(result.reason)) refusal = 'consent';
+    }
+    return refusal;
+  }
   // Public facts only: ids, labels, manifest technical facts and host summaries.
   // Endpoints, accounts, secrets, rates and legal terms stay here.
   function facts(raw, preset, option = {}) {
@@ -768,40 +804,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason === 'budget denied' ? 'host-limit' : result.reason ?? 'Session changed');
       return result;
     },
-    /**
-     * Publication follows the visuals option that produced an artifact: switching
-     * visuals off stops new renders without hiding earlier ones, and a later
-     * provider's coverage never vouches for another provider's result.
-     */
-    async publicationAllowed(session, { signal, deadlineAt = now() + healthMs, operation = 'generate', visualKind: selected = visualKind(session), visuals, artifactId, consentScope } = {}) {
-      const current = storage.get(session.id), preset = current.processingPreset ?? 'best';
-      if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash || current.consentRevision !== session.consentRevision) return false;
-      const admitted = consentScope ?? (artifactId ? storage.conceptConsentScope?.(session.id, artifactId) : null);
-      if (admitted && (admitted.plugin || consentScope)) return runtime.processingAllowed(session, admitted, { signal, deadlineAt });
-      // The shared local mock scope has no producer identity. Keep its existing
-      // configuration gate; external scopes already pin the exact producer.
-      // Legacy provenance also resolves exactly its kind binding.
-      if (artifactId) {
-        const artifact = current.concepts?.find(item => item.id === artifactId);
-        if (!artifact || artifact.consentPurpose && !admitted) return false;
-        const raw = artifact.visuals
-          ? choicesFor(preset)?.visuals.find(option => option.id === artifact.visuals && option.kind === selected)?.binding
-          : presets[preset]?.bindings?.[selected];
-        if (!raw) return false;
-        const result = await boundedEvaluate({ ...current, paused: false }, preset, selected, { signal, deadlineAt, operation, existingCall: true, raw });
-        const latest = storage.get(session.id);
-        return !result.reason && !signal?.aborted && !latest.tombstone && !latest.consentWithdrawn && latest.ownerHash === session.ownerHash &&
-          latest.consentRevision === session.consentRevision;
-      }
-      const offered = (choicesFor(preset)?.visuals ?? []).filter(option => option.binding && option.kind === selected && (visuals === undefined || option.id === visuals));
-      for (const option of offered) {
-        const result = await boundedEvaluate({ ...current, paused: false }, preset, selected, { signal, deadlineAt, operation, existingCall: true, raw: option.binding });
-        const latest = storage.get(session.id);
-        if (!result.reason && !signal?.aborted && !latest.tombstone && !latest.consentWithdrawn && latest.ownerHash === session.ownerHash &&
-          latest.consentRevision === session.consentRevision) return true;
-      }
-      return false;
+    /** Publication resolves provenance against today's full binding gate. */
+    async publicationAllowed(session, options) {
+      return await publicationStatus(session, options) === 'allowed';
     },
+    publicationStatus,
     // The visitor's own visuals choice prices the concept, never a preset-wide binding.
     imageQuote(session) {
       try { const kind = visualKind(session), raw = selectedBinding(session, session.processingPreset ?? 'best', kind).raw;

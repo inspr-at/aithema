@@ -280,8 +280,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
       pluginRuntime.scopes(session, { feature, delivered: true }).map(scope => ids.has(scope.purpose) ? scope.purpose
         : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
-    const unavailableFeatures = ['html', 'images'].filter(feature => !features[feature].length &&
-      session.concepts?.some(item => !item.archived && !item.erased && !item.withdrawn && (item.mediaType === 'text/html' ? 'html' : 'images') === feature));
+    const unavailableFeatures = [];
+    for (const feature of ['html', 'images']) {
+      const artifacts = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn &&
+        (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
+      for (const artifact of artifacts) {
+        const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature,
+          operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
+        if (!features[feature].length || status === 'unavailable') { unavailableFeatures.push(feature); break; }
+      }
+    }
     return { ...document, features, unavailableFeatures, consentRevision: session.consentRevision };
   }
   async function consentEnrichment(session, options) {

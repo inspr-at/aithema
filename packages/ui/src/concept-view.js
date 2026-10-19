@@ -168,11 +168,11 @@ export class ConceptView {
     stage.addEventListener('touchend', e => { const delta = e.changedTouches[0]?.clientX - this.#touchX; if (Math.abs(delta) > 60) this.navigate(delta > 0 ? -1 : 1); }, { passive: true });
     this.connect();
   }
-  // Availability also includes temporary admission gates. Only consent loss
-  // removes delivered artifacts; pause, preset exclusion and budget do not.
+  // Delivered artifacts follow producer consent and publication availability.
+  // Temporary admission gates (pause, budget, visuals off) do not hide them.
   covered(kind) {
     const feature = kind === 'html' ? 'html' : 'images', session = this.#session;
-    if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || session.consentWithdrawn || session.tombstone) return false;
+    if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || this.unavailable(kind) || session.consentWithdrawn || session.tombstone) return false;
     const doc = this.#consentDocument;
     const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
     const matchingDocument = doc?.consentRevision === session.consentRevision;
