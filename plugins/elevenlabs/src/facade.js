@@ -390,6 +390,7 @@ function pinSpecification(value) {
  */
 class PurposeSegments {
   wire = ''; cursor = null; count = 0; separator = false;
+  scan = null; depth = 0; quoted = false; escaped = false;
   push(delta) {
     if (typeof delta !== 'string' || this.wire.length + delta.length > 300_000) throw new TypeError('Invalid reasoning stream');
     this.wire += delta;
@@ -408,7 +409,8 @@ class PurposeSegments {
       }
       if (this.cursor >= this.wire.length || this.wire[this.cursor] === ']') break;
       if (this.wire[this.cursor] !== '{') throw new TypeError('Invalid segment');
-      let depth = 0, quoted = false, escaped = false, end = this.cursor;
+      let { depth, quoted, escaped } = this;
+      let end = this.scan ?? this.cursor;
       for (; end < this.wire.length; end++) {
         const char = this.wire[end];
         if (quoted) {
@@ -418,7 +420,10 @@ class PurposeSegments {
         else if (char === '{' || char === '[') depth++;
         else if (char === '}' || char === ']') { if (--depth === 0) { end++; break; } }
       }
-      if (depth || quoted) break;
+      if (depth || quoted) {
+        this.scan = end; this.depth = depth; this.quoted = quoted; this.escaped = escaped; break;
+      }
+      this.scan = null; this.depth = 0; this.quoted = false; this.escaped = false;
       if (++this.count > 8) throw new TypeError('Too many segments');
       const raw = this.wire.slice(this.cursor, end); JSON.parse(raw);
       segments.push(raw); this.cursor = end; this.separator = true;
@@ -506,10 +511,15 @@ async function* committedPurposeSegments(pinned, initial, options, ports) {
       else if (error !== rejected && !(error instanceof TypeError) && !(error instanceof SyntaxError) && error.code !== 'invalid-output') throw error;
       ports.onRetry?.('purpose-segment-rejected');
     } finally {
-      cancellation.abort(); await disposeIterator(stream); lifetime.dispose();
-      // Initial settlement belongs to outer cleanup; retry settlement is bounded
-      // by the same operation, including ports that ignore cancellation.
-      if (attempt) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => selected.finish({ failed }));
+      cancellation.abort();
+      try {
+        // A provider that ignores abort must never overlap a paid retry. If its
+        // iterator cannot close inside the remaining budget, fail this reply.
+        if (stream?.return) await voiceOperation({ deadlineAt: Math.min(options.deadlineAt, Date.now() + 1000) }, () => stream.return());
+      } finally {
+        lifetime.dispose();
+        if (attempt) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => selected.finish({ failed }));
+      }
     }
   }
   // Two admitted generations exhausted: retain the existing fixed safe fallback.

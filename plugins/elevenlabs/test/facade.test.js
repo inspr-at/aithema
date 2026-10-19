@@ -532,7 +532,7 @@ test('AIT-130: admission cancellation while nonstream completion awaits cannot r
 
 // AIT-381: all clocks and provider/admission waits below are controlled; no live ports.
 const spokenSegment = (content, scope = 'in') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperations, timeoutMs = 6500, defaultTimeout = false } = {}) {
+function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperations, timeoutMs = 6500, defaultTimeout = false, finalizationGate } = {}) {
   const snapshot = { system: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
     hiddenGuidance: 'Pinned private specification has twelve consecutive words that must never be spoken aloud here.',
     locale, purposePolicy: { offTopicLimit: 3, outputCheck: true, canary: 'PRIVATE_PINNED_CANARY',
@@ -564,7 +564,7 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
               if (step.text) yield step.text;
             }
             accounting.usage({ inputTokens: 1, outputTokens: 1 }); completed = true;
-          } finally { live--; await accounting.finish(completed); }
+          } finally { await finalizationGate?.promise; live--; await accounting.finish(completed); }
         } } };
     },
     onCompletion: event => completions.push(event),
@@ -579,7 +579,7 @@ function spokenFixture(t, { attempts, locale = 'en', admissionGate, turnOperatio
     });
     return state;
   };
-  t.after(async () => { for (const attempt of attempts) for (const step of attempt) step.gate?.resolve();
+  t.after(async () => { finalizationGate?.resolve(); for (const attempt of attempts) for (const step of attempt) step.gate?.resolve();
     admissionGate?.resolve(); await Promise.all(states.map(state => state.done)); });
   return { ...local, observe, snapshot, admissions, completions, reports, finishes, started, get maxLive() { return maxLive; } };
 }
@@ -710,4 +710,19 @@ test('AIT-381: fragmented JSON and escaped braces commit only the complete scope
   const state = h.observe(); await flush(); assert.equal(spokenText(state), '');
   commit.resolve(); await flush(); assert.equal(spokenText(state), 'A "quoted" project {with braces}.');
   finish.resolve(); await state.done; assert.equal(state.text.includes('[DONE]'), true);
+});
+
+test('AIT-381: provider cleanup that ignores abort cannot overlap another admitted generation', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const finalizationGate = Promise.withResolvers();
+  const h = spokenFixture(t, { finalizationGate,
+    attempts: [[{ text: `{"segments":[${spokenSegment('PRIVATE_PINNED_CANARY')}]}` }],
+      [{ text: `{"segments":[${spokenSegment('What should improve?')}]}` }]] });
+  const state = h.observe(); await flush();
+  t.mock.timers.tick(999); await flush(); assert.equal(h.admissions.length, 1);
+  t.mock.timers.tick(1); await flush();
+  finalizationGate.resolve(); await state.done;
+  assert.equal(h.admissions.length, 1); assert.equal(h.maxLive, 1);
+  assert.equal(state.response.status, 504); assert.equal(state.text.includes('"error":"deadline"'), true);
+  assert.equal(spokenText(state), '');
 });
