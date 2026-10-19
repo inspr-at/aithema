@@ -166,6 +166,8 @@ export class AudioRail {
     if (this.resumeRequests.size > 128) this.resumeRequests.delete(this.resumeRequests.keys().next().value);
   }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
+  // New lifecycle signals are opt-in; absent declarations retain client-owned behavior.
+  declaredSignal(name) { return ['native', 'emulated'].includes(this.client?.manifest?.liveVoice?.capabilities?.[name]); }
   canContinue() {
     if (this.usedUp?.() || this.ending?.() || this.allowanceDenied) return false;
     const feature = this.feature();
@@ -312,6 +314,7 @@ export class AudioRail {
   stopReplyWatch() { clearTimeout(this.replyTimer); this.replyTimer = null; }
   awaitReply(session, generation) {
     this.stopReplyWatch();
+    if (!this.declaredSignal('replyStarted')) return;
     this.replyTimer = setTimeout(() => {
       if (!this.current(session, generation) || this.paused || !['listening', 'speaking', 'thinking'].includes(this.state)) return;
       if (!this.errorKey) { this.errorKey = 'voiceNoReply'; this.render(); }
@@ -419,13 +422,19 @@ export class AudioRail {
         (!view.isSecureContext || typeof view.navigator.mediaDevices?.getUserMedia !== 'function')) {
         throw Object.assign(new Error('Microphone API unavailable'), { name: 'NoMediaAPIError' });
       }
-      connectDeadline();
+      const microphonePhases = this.declaredSignal('onMicrophoneState');
+      if (microphonePhases) {
+        if (this.input) this.startupPhase = 'microphone';
+        else connectDeadline();
+        this.render();
+      }
       const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
-        signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000,
-        // Provider owners must forward acquisition/grant; current clients do not yet expose it.
-        // Their internal deadline scopes must also exclude the permission wait.
+        signal: controller.signal, holdSignal: holdController.signal,
+        // Today's clients retain main's option and their own deadline scopes.
+        ...(!microphonePhases || !this.input ? { deadlineAt: Date.now() + 30_000 } : {}),
+        // AIT-383 owns provider acquisition/grant signals; never infer a phase.
         onMicrophoneState: phase => {
-          if (generation !== this.generation || controller.signal.aborted || this.state !== 'connecting') return;
+          if (!microphonePhases || !this.input || generation !== this.generation || controller.signal.aborted || this.state !== 'connecting') return;
           if (phase === 'requesting') { clearTimeout(connectTimer); this.startupPhase = 'microphone'; }
           else if (phase === 'granted') { this.startupPhase = null; connectDeadline(); }
           this.render();
@@ -555,6 +564,9 @@ export class AudioRail {
         if (!this.current(session, generation) || event.callId !== session.callId) return;
         if (['listening', 'speaking'].includes(event.type)) this.state = event.type;
         if (!this.paused && !event.replay) {
+          // replyStarted promises audible, non-filler provenance. Mode-only
+          // speaking from today's clients cannot qualify (AIT-383).
+          if (this.declaredSignal('replyStarted') && event.type === 'speaking' && event.audio === true && !event.filler) this.receivedReply();
           if (['partial', 'final'].includes(event.type) && event.role === 'assistant' && event.text?.trim() &&
             !event.filler && !['Einen Moment, bitte.', 'One moment, please.'].includes(event.text.trim())) this.receivedReply();
           if (event.type === 'partial' && event.role === 'user') this.stopReplyWatch();
