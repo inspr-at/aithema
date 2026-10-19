@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { createCompletionsHandler } from './facade.js';
+import { createCompletionsHandler, VOICE_CALLBACK_TIMEOUT_MS } from './facade.js';
 import { CUSTOM_LLM_BASE_PATH } from './ensure-agent.js';
 import { elevenLabsConfig } from './config.js';
 import { reportBearerRejection } from './secret-repair.js';
@@ -18,7 +18,7 @@ export function createFacadeSecrets() {
 }
 
 /** Bind the authenticated codec to server-owned call and reasoning operations. */
-function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs, log, ...operations }) {
+function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs = VOICE_CALLBACK_TIMEOUT_MS, log, ...operations }) {
   // ensure-agent also imports server helpers; read its constant after module initialization.
   const staticPath = `${CUSTOM_LLM_BASE_PATH}/chat/completions`;
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
