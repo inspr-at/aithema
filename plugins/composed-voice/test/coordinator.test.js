@@ -4,8 +4,8 @@ import { createComposedVoiceCoordinator, callDurationSeconds } from '@inspr/aith
 import { elevenLabsCompletion, runElevenLabsReply } from '../../elevenlabs/src/reply.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
-import { createComposedRelay } from '../src/relay.js';
-import { createComposedBrowserMedia } from '../src/client.js';
+import { createComposedRelay } from '@inspr/aithema-server/composed-voice/relay';
+import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
 
 const pcm = (ms, amplitude = 8000) => {
   const bytes = Buffer.alloc(ms * 32);
