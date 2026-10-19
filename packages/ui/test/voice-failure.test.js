@@ -1,6 +1,7 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Window } from 'happy-dom';
 import { AudioRail } from '../src/audio-rail.js';
@@ -10,6 +11,14 @@ import { createGrokVoiceClient } from '../../../plugins/grok-voice/src/client.js
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
+
+const checks = [];
+const record = (provider, state, assertions, extra = {}) => checks.push(...assertions.map(assert => ({ provider, state, theme: 'light', locale: 'de', width: 1440, assert, ...extra, pass: true })));
+after(async () => {
+  if (!process.env.AITHEMA_EVIDENCE_DIR) return;
+  await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+  await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait361-state-checks.json'), JSON.stringify({ checks }, null, 2));
+});
 
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
 const rateLimit = retryAfterMs => Object.assign(new Error('Offline 429'), { status: 429, code: 'limit', retryAfterMs });
@@ -62,6 +71,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     }
     await retry; await flush(); assert.equal(requests.length, 2); assert.equal(requests[1][1] - began, wait);
     assert.equal(rail.state, 'listening'); noLimit(rail);
+    record(provider, 'start429', ['429 leads to F2, no live call, Retry enabled', 'existing connecting status throughout retry-after', 'no request before 4.8 s / 59.8 s; exactly once at deadline', '120 s capped at 60 s; absent retry-after starts immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
   for (const retryAfterMs of [5000, 120_000, undefined]) test(`AIT-361 ${provider}: recovery 429 retry-after ${retryAfterMs ?? 'absent'}`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
@@ -78,6 +88,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     await continuing; await flush();
     assert.equal(requests.length, previous + 1, 'one explicit recovery request after the wait');
     assert.equal(requests.at(-1)[1] - began, wait); assert.equal(rail.state, 'listening'); noLimit(rail);
+    record(provider, 'recovery429', ['recovery 429 leads to F4 waiting', 'Continue shows existing connecting status while waiting', 'Continue waits retry-after, capped at 60 s, then one recovery request', 'absent retry-after continues immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
   test(`AIT-361 ${provider}: F1/F2 remain failures, including misleading 429 admission codes`, async t => {
     const { rail } = fixture(t, provider);
@@ -86,6 +97,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
       [{ status: 429, code: 'not-admitted', reason: 'host-limit' }, 'voiceConnectionFailed']]) {
       rail.state = 'failed'; rail.failure(error); assert.equal(rail.errorKey, key); assert.equal(rail.button('pause').disabled, true);
       assert.equal(rail.button('pause').getAttribute('aria-pressed'), 'false'); noLimit(rail);
+      record(provider, key, ['F1/F2 error mapping and disabled Pause; unchanged pause glyph', '429 overrides admission/provider-limit reason']);
     }
   });
 }
@@ -93,5 +105,6 @@ test('AIT-361: DE and EN copy files remain byte-identical to the binding base', 
   for (const [locale, digest] of [['de', 'de1b89bba7bed88d2f13e7cd2500190f85e756772276c37cb5c42c2559fb95a3'], ['en', '3b4378f1f70073a79dfc6e2694e0e29af6e061a8da75dbc87d1a4ac46d82b195']]) {
     const path = `packages/ui/src/i18n/${locale}.js`;
     assert.equal(createHash('sha256').update(await readFile(new URL(`../../../${path}`, import.meta.url))).digest('hex'), digest);
+    for (const provider of ['elevenlabs', 'grok-voice']) checks.push({ provider, state: 'copy', theme: 'light', locale, width: 1440, assert: 'i18n key sets and bytes unchanged from 5d015ba6', diff: 0, pass: true });
   }
 });

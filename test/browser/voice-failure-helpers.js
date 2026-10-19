@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
@@ -7,6 +9,9 @@ import { startChild } from '../helpers.js';
 import { browserPath, evidenceCommit } from './start2-display-helpers.js';
 
 export async function checkVoiceFailures(t) {
+  // State-only timing checks use mock clocks and the actual offline provider clients.
+  // Run them in this artifact-producing job as well so one receipt carries every assert.
+  await promisify(execFile)(process.execPath, ['--test', '--test-concurrency=2', 'packages/ui/test/voice-failure.test.js'], { timeout: 30_000 });
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ait361-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -15,7 +20,10 @@ export async function checkVoiceFailures(t) {
   t.after(async () => { await browser?.close(); await demo.kill(); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  const page = await browser.newPage(), checks = [], problems = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const checks = evidence ? JSON.parse(await readFile(join(evidence, 'ait361-state-checks.json'), 'utf8')).checks : [], problems = [];
+  const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+  const head = event?.pull_request?.head?.sha ?? evidenceCommit;
   const expect = (pass, entry) => { checks.push({ ...entry, pass }); };
   page.on('pageerror', error => problems.push(error.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -50,11 +58,13 @@ export async function checkVoiceFailures(t) {
       window.ait361Read = () => {
         const root = c.shadowRoot, rail = window.ait361Rail, pause = root.querySelector('.pause'), status = root.querySelector('.voice-state');
         const rect = node => { const r = node.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+        const probe = document.createElement('span'); probe.style.background = 'var(--aithema-ink)'; root.append(probe);
+        const inkFill = getComputedStyle(probe).backgroundColor; probe.remove();
         const css = getComputedStyle(pause), anchor = rail.errorKey === 'voicePlaybackBlocked' ? rail.button('playback')
           : ['voiceMicDenied', 'voiceMicMissing'].includes(rail.errorKey) ? rail.button('start')
           : ['voiceConnectionFailed', 'voiceDeadline', 'voiceConflict'].includes(rail.errorKey) && rail.state === 'failed' ? rail.button('retry') : root.querySelector('.voice-signal');
         return { boxes: ['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => rect(root.querySelector(s))),
-          pause: { disabled: pause.disabled, background: css.backgroundColor, border: css.borderColor, color: getComputedStyle(pause.querySelector('svg')).color,
+          inkFill, pause: { disabled: pause.disabled, background: css.backgroundColor, border: css.borderColor, color: getComputedStyle(pause.querySelector('svg')).color,
             cursor: css.cursor, glyph: pause.getAttribute('aria-pressed') },
           callout: rect(status), anchor: rect(anchor), header: rect(root.querySelector('.band')), position: getComputedStyle(status).position,
           narrow: getComputedStyle(status.querySelector('.consent-narrow')).display,
@@ -73,7 +83,7 @@ export async function checkVoiceFailures(t) {
         const rail = window.ait361Rail;
         rail.session = ['recovering', 'voicePlaybackBlocked', 'waiting'].includes(state) ? { callId: 'fixture', providerSessionId: 'fixture-provider' } : null;
         rail.state = state === 'recovering' ? 'recovering' : state === 'waiting' ? 'waiting' : ['idle', 'consent'].includes(state) ? 'idle' : state === 'voicePlaybackBlocked' ? 'listening' : 'failed';
-        rail.paused = state === 'waiting'; rail.errorKey = state.startsWith('voice') ? state : null;
+        rail.paused = state === 'waiting'; rail.errorKey = state === 'waiting' ? 'voiceRecoveryFailed' : state.startsWith('voice') ? state : null;
         rail.playbackBlocked = state === 'voicePlaybackBlocked'; rail.errorReason = state === 'voiceAdmissionDenied' ? 'processing-consent-required' : null;
         rail.feature = () => state === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: rail.copy.featureConsent.voice } : { available: true };
         if (state === 'start429') rail.failure({ status: 429, code: 'limit', retryAfterMs: 5000 });
@@ -84,10 +94,10 @@ export async function checkVoiceFailures(t) {
       expect(JSON.stringify(result.boxes) === JSON.stringify(baseline), { ...meta, assert: '0 px cells and status slot across show, anchor change and hide', movementPx: Math.max(...result.boxes.flatMap((r, i) => Object.keys(r).map(k => Math.abs(r[k] - baseline[i][k])))) });
       if (state === 'recovering') reference = result.pause;
       if (['recovering', 'voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state)) {
-        expect(result.pause.disabled && result.pause.cursor === 'not-allowed', { ...meta, assert: 'disabled Pause attribute and cursor', actual: result.pause });
+        expect(result.pause.disabled && result.pause.cursor === 'not-allowed' && result.pause.background !== result.inkFill, { ...meta, assert: 'disabled Pause attribute and cursor', actual: result.pause });
         expect(['background', 'border', 'color', 'glyph'].every(k => result.pause[k] === reference[k]), { ...meta, assert: 'Pause equals F5 fill, border, icon colour and glyph', actual: result.pause, reference });
       }
-      if (state.startsWith('voice') || state === 'start429') {
+      if (state.startsWith('voice') || ['start429', 'waiting'].includes(state)) {
         expect(result.accessibleName === result.label && !result.calloutFocusable, { ...meta, assert: 'full accessible name and callout takes no focus', actual: result });
         if (width >= 600) {
           const desired = (result.anchor.left + result.anchor.right - result.callout.width) / 2;
@@ -133,7 +143,7 @@ export async function checkVoiceFailures(t) {
       await page.evaluate(() => window.ait361Rail.close());
     }
   }
-  if (evidence) await writeFile(join(evidence, 'ait361-checks.json'), JSON.stringify({ ticket: 'AIT-361', head: evidenceCommit, capture: 'viewport', reducedMotion: true, blurred: true, checks, problems }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait361-checks.json'), JSON.stringify({ ticket: 'AIT-361', head, testedCommit: evidenceCommit, capture: 'viewport', reducedMotion: true, blurred: true, checks, problems }, null, 2));
   assert.deepEqual(problems, []);
   assert.deepEqual(checks.filter(check => !check.pass), [], 'Tick AIT-361 binding UI assertions');
 }
