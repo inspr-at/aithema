@@ -23,13 +23,13 @@ export function releaseSet(t, { mode = 'candidate', commit = 'a'.repeat(40), mut
   const directory = join(root, 'out'); mkdirSync(directory);
   const source = { commit, tree_digest: digest('source'), lock_digest: digest('source lock') };
   const runtime = json({ ...version, mode, source, date: '2026-10-19T12:00:00.000Z' });
-  const pkg = { name: '@inspr/fixture', version: version.version, license: 'AGPL-3.0-only', exports: { '.': './src/index.js' } };
-  const packages = [{ name: pkg.name, version: pkg.version, path: 'packages/fixture/package.json', license: pkg.license, exports: pkg.exports, publish: true }];
+  const pkg = { name: '@inspr/aithema-server', version: version.version, license: 'AGPL-3.0-only', exports: { '.': './src/index.js' } };
+  const packages = [{ name: pkg.name, version: pkg.version, path: 'packages/server/package.json', license: pkg.license, exports: pkg.exports, publish: true }];
   const files = new Map(Object.entries({
     'package.json': json({ name: 'fixture', private: true, version: version.version }),
     'package-lock.json': json({ lockfileVersion: 3, version: version.version, packages: {} }),
     'LICENSE': Buffer.from('AGPL fixture\n'), 'README.md': Buffer.from('Source\n'), 'docs/embedding.md': Buffer.from('Guide\n'),
-    'packages/fixture/package.json': json(pkg), 'packages/fixture/src/index.js': Buffer.from('export const fixture = true;\n'),
+    'packages/server/package.json': json(pkg), 'packages/server/src/index.js': Buffer.from('export const fixture = true;\n'),
     'release/runtime.json': runtime, 'packages/server/src/release-runtime.json': runtime,
     'release/ordinary.json': json({ mode: 'candidate', packing: { run: 'fixed' }, runtime_tree_digest: 'fixed' }),
   }));

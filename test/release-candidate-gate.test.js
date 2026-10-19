@@ -26,19 +26,20 @@ function fixture(t) {
     manifest_sha256: digest(readFileSync(join(candidate.directory, 'release-set.json'))), normalized_digest: normalizedDigest(candidate.directory) };
   const tag = (body = marker, target = commit, coordinate = version.version, annotated = true) =>
     git(annotated ? ['tag', '-a', `candidate/v${coordinate}`, target, '-m', JSON.stringify(body)] : ['tag', `candidate/v${coordinate}`, target]);
-  writeFileSync(join(root, 'published.json'), '[]');
+  writeFileSync(join(root, 'published.json'), '[[]]');
   writeFileSync(join(root, 'bin/gh'), `#!${process.execPath}
 const fs = require('node:fs');
 fs.appendFileSync('gh-calls.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
 if (process.argv[2] !== 'api' || !process.argv.includes('--paginate') || !process.argv.includes('--slurp')) process.exit(91);
-process.stdout.write('[' + fs.readFileSync('published.json', 'utf8') + ']');
+process.stdout.write(fs.readFileSync('published.json', 'utf8'));
 `, { mode: 0o755 });
   // Explicit minimal child environment: no ambient credentials or network.
   const env = { PATH: `${join(root, 'bin')}:/usr/bin:/bin`, GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
   const gate = fileURLToPath(new URL('../release/gate.mjs', import.meta.url));
   const run = () => spawnSync(process.execPath, [gate, 'candidate', ref, release.directory], { cwd: root, env, encoding: 'utf8' });
-  const published = entries => writeFileSync(join(root, 'published.json'), JSON.stringify(entries));
-  return { root, git, commit, marker, tag, run, published };
+  const pages = entries => writeFileSync(join(root, 'published.json'), JSON.stringify(entries));
+  const published = entries => pages([entries]);
+  return { root, git, commit, marker, tag, run, published, pages };
 }
 function refused(result, reason) {
   assert.notEqual(result.status, 0, result.stdout);
@@ -73,7 +74,7 @@ for (const [name, setup, reason] of [
   ['marker sequence mismatch', f => f.tag({ ...f.marker, release_sequence: 18 }), /marker|sequence/iu],
 ]) test(`candidate gate refuses ${name}`, t => {
   const f = fixture(t); setup(f); refused(f.run(), reason);
-  if (name === 'failed-terminal rerun') refused(f.run(), reason);
+  if (['failed-terminal rerun', 'superseded marker'].includes(name)) refused(f.run(), reason);
 });
 
 test('an older published sequence permits retry while an older candidate of N stays superseded', t => {
@@ -86,4 +87,30 @@ test('an older published sequence permits retry while an older candidate of N st
   f.git(['tag', `v${old}`]); f.published([{ tag_name: `v${old}`, draft: false }]);
   f.git(['checkout', '--detach', f.commit]);
   const result = f.run(); assert.equal(result.status, 0, result.stderr);
+});
+
+test('published releases on later API pages also close admission', t => {
+  const f = fixture(t); f.tag();
+  f.pages([[], [{ tag_name: `v${version.version}`, draft: false }]]);
+  refused(f.run(), /published.*sequence/iu);
+});
+test('explicit legacy ledger binds published sequences to their original tag commit', t => {
+  const f = fixture(t); f.tag();
+  f.git(['tag', 'v0.10.1', f.commit]);
+  const legacy = { version_scheme: 'legacy', version: '0.10.1', release_sequence: 11,
+    release_channel: 'stable', tag: 'v0.10.1', source_commit: f.commit };
+  writeFileSync(join(f.root, 'release/history.json'), json({ releases: [legacy] }));
+  f.published([{ tag_name: 'v0.10.1', draft: false }]);
+  const allowed = f.run(); assert.equal(allowed.status, 0, allowed.stderr);
+  writeFileSync(join(f.root, 'release/history.json'), json({ releases: [{ ...legacy, source_commit: 'b'.repeat(40) }] }));
+  refused(f.run(), /published.*binding/iu);
+});
+
+test('unreadable or unbound published release metadata fails closed', t => {
+  const f = fixture(t); f.tag();
+  for (const pages of [{ unexpected: true }, [[{ tag_name: 'vunknown', draft: false }]],
+    [[{ tag_name: 'v261019120002.0.0', draft: false }]]]) {
+    f.pages(pages);
+    assert.notEqual(f.run().status, 0);
+  }
 });

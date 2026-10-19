@@ -17,9 +17,11 @@ function removeRequired(object, key, valid) {
 const hash = bytes => 'sha256:' + sha256(bytes);
 const digest = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value);
 const mode = value => ['candidate', 'release'].includes(value);
-const runtimePath = (kind, path) => kind === 'workspace'
+const runtimePath = (artifact, path) => artifact.kind === 'workspace'
   ? ['release/runtime.json', 'packages/server/src/release-runtime.json'].includes(path)
-  : path === 'release-runtime.json';
+  : path === 'release-runtime.json' ||
+    // moduleFiles projects the explicitly named workspace server runtime here.
+    artifact.name === '@inspr/aithema-server' && path === 'src/release-runtime.json';
 const provenancePath = (kind, path) => kind === 'workspace' && path === 'release/source-provenance.json';
 
 /** Bind member bytes, not tar headers or compression. Only the design's exact
@@ -31,7 +33,7 @@ export function normalizedDigest(directory) {
   const archives = [];
   const manifest = structuredClone(verifyRelease(directory, { onArtifact(artifact, members) {
     const normalizedMembers = [...members].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => {
-      if (runtimePath(artifact.kind, path)) {
+      if (runtimePath(artifact, path)) {
         const runtime = JSON.parse(bytes);
         removeRequired(runtime, 'mode', mode);
         return [path, hash(canonicalJSON(runtime))];
@@ -47,16 +49,16 @@ export function normalizedDigest(directory) {
   } }));
   removeRequired(manifest, 'mode', mode);
   removeRequired(manifest.packing, 'run', value => typeof value === 'string' && value.length > 0);
-  const normalizeInventory = (files, kind) => {
-    for (const file of files) if (runtimePath(kind, file.path) || provenancePath(kind, file.path)) {
+  const normalizeInventory = (files, artifact) => {
+    for (const file of files) if (runtimePath(artifact, file.path) || provenancePath(artifact.kind, file.path)) {
       removeRequired(file, 'sha256', digest);
       removeRequired(file, 'size', value => Number.isSafeInteger(value) && value >= 0);
     }
   };
-  normalizeInventory(manifest.files, 'workspace');
+  normalizeInventory(manifest.files, { kind: 'workspace' });
   for (const artifact of manifest.artifacts) {
     removeRequired(artifact, 'sha256', digest);
-    if (artifact.kind === 'module') normalizeInventory(artifact.files, 'module');
+    if (artifact.kind === 'module') normalizeInventory(artifact.files, artifact);
   }
   archives.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   return hash(canonicalJSON({ manifest, archives }));

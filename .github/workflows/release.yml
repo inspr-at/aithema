@@ -90,11 +90,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
-            --title "$GITHUB_REF_NAME" --notes-file release/notes.md \
-            dist/release/*.tgz dist/release/SHA256SUMS dist/release/release-set.json \
-            dist/release/consumer-evidence.json dist/release/consumer-package-lock.json \
-            dist/release/deployment-pin.json
+          # Admission shares this step's workflow token; failure stops before
+          # arming cleanup or creating any release. All reads are read-only.
+          node release/gate.mjs candidate "$GITHUB_REF"
           cleanup_failed_release() {
             trap - ERR
             echo "release publication or immutability verification failed; attempting release deletion (tag retained)" >&2
@@ -106,6 +104,11 @@ jobs:
             exit 1
           }
           trap cleanup_failed_release ERR
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "$GITHUB_REF_NAME" --notes-file release/notes.md \
+            dist/release/*.tgz dist/release/SHA256SUMS dist/release/release-set.json \
+            dist/release/consumer-evidence.json dist/release/consumer-package-lock.json \
+            dist/release/deployment-pin.json
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
           if ! immutable=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isImmutable --jq '.isImmutable') || [ "$immutable" != true ]; then
             gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes

@@ -46,7 +46,7 @@ test('surgical merge M repairs all mirrors and new internal pins while C prime s
   write('package-lock.json', mainLock); const main = commit('main adds package and internal edges');
   git(['checkout', '-qb', 'integration', Cprime]);
   // A real merge may conflict in mirrors. Resolve them on M, never on C prime.
-  const merge = (() => { try { git(['merge', '--no-ff', '--no-commit', main]); return true; } catch { return false; } })();
+  const merge = (() => { try { git(['merge', '--signoff', '--no-ff', '--no-commit', main]); return true; } catch { return false; } })();
   assert.equal(typeof merge, 'boolean');
   const paths = ['package.json', ...['packages', 'plugins'].flatMap(folder => readdirSync(join(root, folder)).map(name => `${folder}/${name}/package.json`))];
   // Take main's manifests (including the new edges) then repair all mirrors.

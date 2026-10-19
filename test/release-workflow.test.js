@@ -137,6 +137,9 @@ import('node:fs').then(fs => {
     } else console.log(process.env.TEST_IMMUTABLE);
   }
 });\n`, { mode: 0o755 });
+  // Admission is covered against real Git/API fixtures in release-candidate-gate.
+  // Keep this fixture focused on the existing publication/cleanup assertions.
+  writeFileSync(join(cwd, 'bin/node'), '#!/bin/sh\n[ "$1" = release/gate.mjs ] && [ "$2" = candidate ]\n', { mode: 0o755 });
   const step = releaseWorkflow().jobs.pack.steps.find(s => s.run?.includes('gh release create'));
   const env = { ...process.env, PATH: join(cwd, 'bin') + ':' + process.env.PATH,
     GH_TOKEN: 'test-placeholder', GITHUB_REF_NAME: 'v261015164601.0.0', GITHUB_REPOSITORY: 'inspr-at/aithema' };

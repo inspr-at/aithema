@@ -206,8 +206,9 @@ test worker; the complete suite belongs to PR CI.
 To add a module, declare its layer and explicit exports, then add a negative
 fixture for any new allowed edge. Both policy tables above are rendered from the
 checker and tested for drift. Release packing retains #173's source admission
-rule: no blanket top-level `dev/` inclusion. New exports or packed files invalidate
-the candidate freeze; only the coordinator may arrange a replacement freeze.
+rule: no blanket top-level `dev/` inclusion. The candidate is the fixed commit C;
+later main commits do not change it. Changed candidate bytes require a re-cut
+with a new reservation, evidence and marker.
 
 ## Deliberate ambient CI reads in tests
 

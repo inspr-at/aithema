@@ -47,8 +47,9 @@ without another evidence-only commit. Hand OPS that exact head and final manifes
 digest together. The committed and final BSD candidates are preparation evidence,
 not shipped bytes.
 BSD and GNU tar encode different bytes. PR CI's Linux candidate is qualification
-and retention evidence for that CI source commit, not a promise that a later tag
-build has the same digests.
+and retention evidence for that CI source commit. A tag build from the same C
+must have the same normalized member digest; exact archive hashes remain specific
+to the candidate or published set.
 
 ## Seventh October candidate (AIT-360 / START-550)
 
@@ -430,90 +431,208 @@ the candidate test on the final committed head with
 and evidence must both bind the handed-over head. Retain the complete directory
 in owner storage; the PR's Linux artifacts remain separate qualification bytes.
 
-## OPS publish route after Markus's Desk go
+## Fixed-candidate RC route (AIT-363)
 
-OPS owns the exact-SHA rehearsal, clean-clone `v*` tag push, release run,
-attestation verification and publication after Markus's separate Desk go.
-The builder only prepares the candidate, notes and reservation through the PR.
-The route is **public GitHub release tarballs**, SHA256SUMS and GitHub artifact
+Activation boundary: this route starts only after RC8 is published on the old
+process, OPS's cut rewrite and tag rulesets are ready, and the coordinator's
+release gates pass. Until then the RC PR waits unmerged and main is frozen.
+The candidate under this route is the fixed RC head commit C; later main
+commits do not change it. The older candidate sections above are historical
+preparation records, including their then-required Desk questions.
+
+**Standing release go: Markus, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b
+(2026-10-19).** Publish after the cross-family release gate, green CI,
+signatures/checksums and, for UI changes, Tick's look. Report the published
+version, C, digests and verification to Markus afterwards. start2/start3 deploys
+keep their own go. Builders prepare and open PRs; OPS owns cuts and re-runs.
+
+The order is **lock tag → prep → gates → true merge → marker → cut → verify**:
+
+1. Before any preparation, the coordinator takes the shared exclusive lock
+   `~/.aeon/lead/aeon/AITHEMA-RELEASE.lock` on mbp2607 and pushes an annotated
+   `release-lock/seq-N` at origin/main, where N is the last published sequence
+   plus one. Creation is atomic and an existing lock refuses a second prep.
+   Every re-cut for N reuses this lock; N+1 waits until N is published.
+2. The RC builder reserves X once, repairs the source, every package/lock mirror
+   and internal dependency pin, writes notes and retains candidate evidence for
+   the final committed C. Do not put an evidence-only commit after that final
+   build. `candidate-evidence.json` binds `source_commit`, `manifest_sha256` and
+   `normalized_digest` to the retained `first/` directory.
+3. The coordinator obtains the cross-family release gate, green CI and Tick's
+   look when there is UI. The standing go applies after these gates. Re-cut
+   changes require new evidence and gates; re-ask any already-answered candidate
+   question when the approved candidate changes.
+4. Merge the RC through the queue as a **true merge**, preserving C. The
+   coordinator checks the queue's merge method is `merge` before each RC and
+   hard-aborts unless `git merge-base --is-ancestor C origin/main` succeeds.
+5. Under the same exclusive lock as OPS, with RELEASE-WINDOW closed and every
+   existing `v*` of N terminal, the coordinator pushes the immutable annotated
+   `candidate/vX` tag directly at C. Its complete message is JSON:
+
+   ```json
+   {
+     "version": "261019120000.0.0",
+     "release_sequence": 19,
+     "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "manifest_sha256": "sha256:<64 lowercase hex digits from candidate evidence>",
+     "normalized_digest": "sha256:<64 lowercase hex digits from candidate evidence>"
+   }
+   ```
+
+   Values here are illustrative. The real marker copies the retained evidence's
+   values exactly. Keep the marker name, C and both digests in the release ticket
+   and the report/handoff. Of all `candidate/v*` markers for N, the latest valid
+   CalVer3 version is active. Older markers remain immutable, superseded history.
+6. OPS owns the entire cut or re-run under that shared exclusive lock, through
+   verification. It opens `RELEASE-WINDOW` with `open X C` **before** checking
+   ancestry, the active marker, absence of `vX`, absence of a published sequence
+   ≥ N, and agreement with the report's C and both digests. It checks out C,
+   rehearses on mbp2606 or an authorized CI runner, recomputes the normalized
+   digest and checks the marker before pushing `vX` at C. Only OPS's cut creates
+   `v*`. The tag starts the existing release workflow; no separate manual release
+   creation or registry publication is involved.
+7. OPS waits for the release run, verifies the immutable published set with
+   `verify-release.sh <tag> <commit>`, signatures/attestations and SHA256SUMS,
+   retains the exact published assets and consumer deployment in durable owner
+   storage, then closes RELEASE-WINDOW and reports to Markus.
+
+**Nothing built from main is installable as X.** After C merges, main can move
+on while it still carries reserved X. PR/main packs from later commits are never
+handed out under X. Before publication, START may pin only C's retained evidence
+on its own branch: recompute its manifest SHA-256 and normalized digest and check
+both, plus C and X, against the marker and handoff before installation. The
+coordinator's chain refuses every other pack. After publication, production pins
+the exact verified published artifact set; start2/start3 still require their own
+deploy go. A changed artifact set always receives a new coordinate.
+
+### Exact normalized-byte contract (§ 6)
+
+`node release/normalize.mjs <release-directory>` verifies the full archive set,
+including module/source bindings and provenance recomputation, then hashes a
+canonical JSON containing the release-set and each archive's sorted
+`[member path, sha256]` list. Object keys are sorted recursively. Each ordinary
+member is hashed as its exact bytes. Only these leaves are removed:
+
+- `mode` in exactly the workspace's `release/runtime.json` and
+  `packages/server/src/release-runtime.json`, and each module's
+  `release-runtime.json`. The server module also projects the named workspace
+  server copy as `src/release-runtime.json`; only that exact server artifact/path
+  is treated as a runtime copy. Modes must be candidate or release.
+- `runtime_tree_digest` in exactly workspace
+  `release/source-provenance.json`. The original leaf is required and must match
+  the tree digest recomputed from all other unnormalized workspace files.
+- In the release-set: `mode`, `packing.run`, `artifacts[].sha256`, and only
+  `sha256`/`size` in `files[]` and module `artifacts[].files[]` for those exact
+  runtime/provenance paths.
+
+Every removed leaf is required and validated before removal. All other keys,
+including added or missing keys and other nested mode/digest fields, remain
+bound. Every other tarball member must be byte-identical. Candidate and tag
+packs of C have equal normalized digests even though mode, run, provenance and
+archive container hashes differ. BSD/GNU tar header differences are outside the
+member-level digest; the published artifact's exact hash remains authoritative
+for installation, signatures and rollback.
+
+### Publication admission, authority and serialization (§ 7 / § 7a)
+
+After building and verifying `dist/release`, and before `gh release create`,
+`node release/gate.mjs candidate "$GITHUB_REF"` requires an annotated marker
+pointing directly to the tagged C, valid version/N/C/manifest/normalized-digest
+fields, the active marker for N, no published sequence ≥ N, no
+`release-failed/vX`, and the built set's matching normalized digest. Releases are
+read through paginated GETs with the workflow's own token. Tags are read from
+checkout's complete Git history (`fetch-depth: 0`); published legacy coordinates
+use the explicit commit-bound history ledger, later coordinates the version
+source at their tag. Unknown or unreadable metadata refuses admission.
+
+OPS makes `v*`, `candidate/*`, `release-lock/*` and `release-failed/*` immutable
+with tag rulesets. GitHub can limit creating `v*` to the **admin role**, but
+cannot separate the coordinator and OPS: both sessions use the same admin
+account, `markus-barta`. No distinct identity, new key or scope is claimed.
+Tooling supplies the narrower role rule: only OPS's cut creates `v*`; the
+coordinator's helper refuses `refs/tags/v*` and pushes only markers and lock tags.
+Both take the same exclusive lock for their entire operations. The coordinator
+never pushes a marker while RELEASE-WINDOW is open.
+
+An admin-capable session could still push an old `v*` manually on a historical
+reserved commit whose workflow lacks the candidate gate. This remains an
+accepted procedural admin risk. OPS repeats the legacy-run audit immediately
+before activation: all historical release tags must have published releases,
+with no drafts or outstanding failed/re-runnable/tag-less coordinates. Otherwise
+activation waits. Historical re-runs then fail at creation because their immutable
+release already exists. Role controls, the helper refusal, immutable releases
+and verification of every publication make this visible and bounded.
+
+### Terminal states and failed-cut recovery (§ 7b)
+
+Every pushed `vX` is **in publication** until one of these terminal states:
+
+- **Published:** its immutable release exists and verification passed.
+- **Failed:** OPS pushed an annotated immutable `release-failed/vX` tag with the
+  recorded reason. Its tag and coordinate are never reused for changed bytes.
+
+While any `v*` of N is nonterminal, the coordinator cannot activate a new marker
+for N, a new cut for N refuses, and `slots.sh` holds RELEASE-WINDOW. A re-run
+belongs only to the release operator under the cut's shared exclusive lock; it
+continues that same publication. This also closes the race between an old
+re-run passing admission and a replacement marker becoming active.
+
+If OPS aborts before pushing `vX`, close the window as `failed X: reason` and
+record the failure on the release ticket. Another cut for N can then run.
+If the tag is pushed and the workflow fails, retain the tag. The cleanup trap is
+armed before creation, so even partial asset-upload failures delete the
+non-immutable release. OPS reconciles any leftover **draft** before retrying,
+never deletes a published release, and closes the window only after verification
+or a recorded failure.
+
+A retry of unchanged X can succeed only while X is active, N is unpublished and
+X has no failed-terminal marker. Otherwise the gate refuses. If a fix is needed,
+OPS first makes X failed-terminal; the coordinator can then activate a new X′
+under N. Any later re-run of X refuses because of the failed tag, supersession or
+the published sequence. Re-cuts always reserve a new second and never move or
+reuse `vX`.
+
+### Re-cuts and surgical integration (§ 9)
+
+Default: land the fix on main, prep a later X′ under the same sequence lock N,
+retain new evidence, repeat gates and true merge, then mark and cut the new C.
+The published sequence ledger still ends at N−1, so the new reservation keeps N.
+
+Surgical (only on coordinator + LEAD decision when main has work that must not
+ship): branch from C, apply the fix and reserve X′ to form **C′**. Never merge
+main into C′ or modify it afterwards. Construct a separate integration PR whose
+head is a signed true merge commit **M**, with parents C′ and current main. On M,
+repair **every** version mirror and internal dependency pin to X′: the root
+manifest, package/plugin manifests, root and workspace lock entries, and internal
+`dependencies`, `devDependencies`, `peerDependencies` and `optionalDependencies`.
+This includes packages added on main **and existing packages gaining new internal
+edges since C**. Keep external ranges unchanged.
+
+Validate C′ separately with CalVer and candidate evidence; validate M separately
+with CalVer and full CI. After M merges, check C′ is an ancestor of origin/main;
+the marker and cut point to C′, never M. `test/calver-surgical.test.js` exercises
+this two-parent fixture, the main-only package and new edges, all mirrors/pins,
+and the untouched C′ tree. The coordinator owns producing and signing M; this
+builder does not sign or create a release commit.
+
+### Tag workflow and retained shipped bytes
+
+The public route remains GitHub tarballs, SHA256SUMS and GitHub artifact
 attestations, using only the workflow's `GITHUB_TOKEN`. No npm registry account,
-npm publication, GitHub Packages registry or consumer token is required.
+publication or consumer token is required. The tag build is the source of shipped
+bytes; its tag must exactly match the reservation and C must belong to main.
+The Ubuntu/Node 24/GNU tar job keeps every existing check:
 
-After Tick's consolidated QA and Markus's Desk go, OPS runs the following on
-mbp2606 or an authorized build runner. Set `FINAL_CANDIDATE` to the retained
-AIT-360 final directory above, and enable repository immutable releases before
-the tag push. These commands are a handoff, not builder authorization to run them.
-
-```sh
-set -eu
-export FINAL_CANDIDATE=/absolute/owner-storage/ait360-final/candidate
-RELEASE_HEAD=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").source.commit')
-RELEASE_VERSION=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").version')
-RELEASE_TAG="v$RELEASE_VERSION"
-OPS_WORK=$(mktemp -d)
-git clone https://github.com/inspr-at/aithema.git "$OPS_WORK/source"
-cd "$OPS_WORK/source"
-git checkout --detach "$RELEASE_HEAD"
-git merge-base --is-ancestor "$RELEASE_HEAD" origin/main
-node release/gate.mjs tag "refs/tags/$RELEASE_TAG"
-npm ci --ignore-scripts --no-audit --no-fund
-npm run release:candidate -- "$OPS_WORK/ait360-rehearsal"
-git tag "$RELEASE_TAG" "$RELEASE_HEAD"
-git push origin "refs/tags/$RELEASE_TAG"
-# Once the tag-triggered release run appears:
-gh run list --repo inspr-at/aithema --workflow release.yml --commit "$RELEASE_HEAD"
-RELEASE_RUN_ID=$(gh run list --repo inspr-at/aithema --workflow release.yml --commit "$RELEASE_HEAD" --json databaseId --jq '.[0].databaseId')
-gh run watch "$RELEASE_RUN_ID" --repo inspr-at/aithema --exit-status
-gh release view "$RELEASE_TAG" --repo inspr-at/aithema --json isImmutable,url
-mkdir "$OPS_WORK/published"
-cd "$OPS_WORK/published"
-gh release download "$RELEASE_TAG" --repo inspr-at/aithema
-for asset in SHA256SUMS release-set.json consumer-evidence.json \
-  consumer-package-lock.json deployment-pin.json *.tgz; do
-  gh attestation verify "$asset" --repo inspr-at/aithema
-done
-# GNU/Linux; on macOS use: shasum -a 256 --check SHA256SUMS
-sha256sum --check SHA256SUMS
-```
-
-The tag push starts the existing release workflow, which creates and publishes
-the release. OPS does not run a second manual `gh release create` command.
-Retain the verified published set, its manifest digest and the portable consumer
-deployment from the release run in durable owner storage for START's re-pin.
-
-Before pushing the authorized tag, OPS must enable **immutable releases** in the
-repository settings. It was disabled at the round-2 read-only check. This is an
-owner setting, not a permission added to the release job. GitHub CLI stages the
-assets in a draft and publishes the completed set; the workflow then requires
-`isImmutable` to be true. A failed run must be investigated, never fixed by
-replacing published assets or reusing the coordinate for changed bytes.
-
-The **tag build is the single source of shipped bytes**. Only a pushed `v*` tag
-can enter `.github/workflows/release.yml`; there is no manual publication path.
-The tag must exactly match the reservation and its commit must belong to main.
-On Ubuntu with Node 24 and GNU tar, the job:
-
-1. Caches the source lock's dependencies with `npm ci`, packs once into
-   `dist/release`, and verifies every archive against `release-set.json`.
-2. Runs `release/consumer.mjs dist/release` against those exact archives before
-   attestation or release creation. The scratch install, locked reinstall,
-   dependency replacement and exact rollback must all pass.
-3. Generates SHA256SUMS from the manifest's artifact digest table, rechecks the
-   actual archive hashes and exact archive set, and rejects consumer evidence
-   whose source, manifest digest or package digest table differs. It also hashes
-   the manifest, consumer evidence, portable lock and deployment pin.
-4. Attests every tarball, SHA256SUMS, manifest and the three evidence files with
-   the SHA-pinned `actions/attest-build-provenance`. Only this job has
-   `contents: write`, `id-token: write` and `attestations: write`.
-5. Uses `gh release create --verify-tag --notes-file release/notes.md` to attach
-   those same files without repacking, then verifies the release is immutable.
-   The complete portable consumer deployment is also retained for 90 days.
-
-The signed SHA256SUMS and manifest therefore name the files tested in that same
-Linux tag run and attached to the release. `consumer-evidence.json` binds the
-manifest SHA-256, source commit and all fifteen package digests;
-`consumer-package-lock.json` records sha512 integrity for those tarball bytes.
-No earlier BSD or PR candidate digest is presented as the shipped digest.
+1. Require ancestry and the exact reserved tag, install the locked closure,
+   pack once into `dist/release` and verify every archive.
+2. Test consumers against those exact archives: scratch install, locked
+   reinstall, dependency replacement and exact rollback.
+3. Bind consumer evidence to the source, manifest and all module hashes; generate
+   SHA256SUMS and reject an unexpected or missing archive.
+4. Attest every tarball, checksum, manifest and evidence file with the pinned
+   provenance action. Check the candidate before creation.
+5. Arm cleanup, create the draft with its exact tested assets, publish it, then
+   require immutability. Retain the full portable consumer deployment for 90 days.
 
 Download all release assets into a clean directory on the build runner. Verify
 `gh attestation verify SHA256SUMS --repo inspr-at/aithema` and the manifest,
