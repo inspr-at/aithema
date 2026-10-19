@@ -139,7 +139,7 @@ test('consent select all, selection label, grant and withdrawal use the rendered
   p.document.querySelector('[data-select-all]').click();
   assert.equal(grant.textContent, de.host.consentPage.all);
   grant.click(); await tick(() => p.returns.length === 1);
-  assert.deepEqual(p.posts, [{ granted: true, processing: { contract: 'rendered-v1', items: CONSENT_ITEMS.map(i => i.id) } }]);
+  assert.deepEqual(p.posts, [{ granted: true, processing: { revision: 0, contract: 'rendered-v1', items: CONSENT_ITEMS.map(i => i.id) } }]);
   assert.deepEqual(p.returns, ['/?from=consent#ready']);
   const revoked = await page(t, { selected: ['voice-elevenlabs'] });
   revoked.document.querySelector('[data-revoke]').click(); await tick(() => revoked.returns.length);
@@ -215,7 +215,7 @@ test('mock and uncontracted ElevenLabs use the same page without a voice or micr
   const mock = await page(t, { binding: { voiceMode: 'fake' } });
   assert.ok(mock.document.querySelector('#processing-items').textContent.includes(de.host.consentUse.off));
   mock.document.querySelector('[data-select-all]').click(); mock.document.querySelector('[data-grant]').click();
-  await tick(() => mock.returns.length); assert.deepEqual(mock.posts, [{ granted: true }]);
+  await tick(() => mock.returns.length); assert.deepEqual(mock.posts, [{ granted: true, processing: { revision: 0 } }]);
   const voice = await page(t, { binding: { voiceMode: 'elevenlabs' } });
   assert.equal(voice.document.querySelector('[data-grant]').disabled, true);
   assert.equal(voice.document.querySelector('#consent-text').textContent, de.voiceHostConsent);
@@ -470,16 +470,17 @@ test('AIT-376: withdrawal starts its own fresh deadline even 9s into saving', as
 for (const locale of ['de', 'en']) {
   test(`AIT-376 round 2: revision conflict re-reads current choices without repeating a save (${locale})`, async t => {
     const p = await deadlinePage(t, { locale });
-    p.readOverride = path => path.endsWith('/consent') ? Response.json({ contract: 'rendered-v1', items: CONSENT_ITEMS, selected: ['voice-elevenlabs'], consentRevision: 7 }) : null;
+    let revision = 7;
+    p.readOverride = path => path.endsWith('/consent') ? Response.json({ contract: 'rendered-v1', items: CONSENT_ITEMS, selected: ['voice-elevenlabs'], consentRevision: revision }) : null;
     await p.api.load(); p.choose(); void p.api.save(); await p.flush();
     assert.equal(p.posts[0].body.processing.revision, 7, 'save uses the consent document revision, not the earlier session snapshot');
-    p.posts[0].resolve(Response.json({ error: 'consent-stale', consentRevision: 8 }, { status: 409 })); await p.flush();
+    revision = 8; p.posts[0].resolve(Response.json({ error: 'consent-stale', consentRevision: 8 }, { status: 409 })); await p.flush();
     assert.equal(p.state(), 'ready'); assert.equal(p.message(), { de, en }[locale].host.consentPage.notSavedYet);
     assert.equal(p.document.querySelector('fieldset').disabled, false);
     assert.deepEqual([...p.document.querySelectorAll('input:checked')].map(box => box.value), ['voice-elevenlabs']);
     assert.equal(p.posts.length, 1); assert.deepEqual(p.returns, []);
     p.choose(); void p.api.save(); await p.flush();
-    assert.equal(p.posts[1].body.processing.revision, 7);
+    assert.equal(p.posts[1].body.processing.revision, 8);
   });
   test(`AIT-376 round 2: existing failed and stale messages retain assertive alert semantics (${locale})`, async t => {
     for (const options of [{ fail: true }, { stale: true }]) {
@@ -526,4 +527,15 @@ test('AIT-376 round 2: a sent grant arriving after withdrawal is refused by the 
   assert.equal(storage.get(session.id).consentWithdrawn, true);
   assert.deepEqual((await (await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`))).json()).selected, []);
   assert.deepEqual(returns, ['/'], 'late refusal cannot repaint or navigate again');
+});
+
+
+for (const matches of [false, true]) test(`AIT-376 round 2: a 409 always re-reads into not-saved-yet, even when choices match=${matches}`, async t => {
+  const p = await deadlinePage(t);
+  p.choose(); void p.api.save(); await p.flush();
+  p.selected = matches ? CONSENT_ITEMS.map(item => item.id) : [];
+  p.posts[0].resolve(Response.json({ error: 'consent-stale', consentRevision: 2 }, { status: 409 })); await p.flush();
+  assert.equal(p.state(), 'ready'); assert.equal(p.message(), de.host.consentPage.notSavedYet);
+  assert.equal(p.document.querySelector('fieldset').disabled, false);
+  assert.equal(p.posts.length, 1); assert.deepEqual(p.returns, []);
 });
