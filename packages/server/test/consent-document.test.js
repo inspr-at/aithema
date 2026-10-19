@@ -223,13 +223,15 @@ for (const provenance of ['recorded', 'legacy']) for (const visuals of ['off', '
   const { createLocalHTML, localHTMLBinding, createLocalImages, localImageBinding } = await import('../src/index.js');
   const storage = new SQLiteStorage();
   const registry = new PluginRegistry();
-  const bindings = {};
+  const bindings = {}, producers = {};
   for (const [kind, create, base, purpose] of [['html', createLocalHTML, localHTMLBinding, 'drafts'], ['images', createLocalImages, localImageBinding, 'images']]) {
-    const local = create();
+    const local = create(); producers[kind] = local;
     // Inspect legal scopes only; no generation or provider calls occur.
     registry.register({ ...local, generate() { throw new Error('No generation in consent API test'); } });
     bindings[kind] = { ...base, legal: { approved: true, countries: ['FR'], training: false, retention: 'fixture',
-      purpose, recipient: 'fixture', processors: ['fixture'], evidence: ['https://example.test'], expiresAt: '2099-01-01' } };
+      purpose, recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
+      evidence: { qualified: true, accountRef: base.accountRef, secretRef: base.secretRef, model: base.model, endpoint: base.endpoint,
+        routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60000 } } };
   }
   const consent = { coverage: () => ({ covered: true }), describe: () => ({ contract: 'ait369', selected: ['drafts', 'images'],
     items: ['drafts', 'images'].map(id => ({ id, version: 1, title: id, recipients: 'Offline fixture', text: 'For this conversation' })) }) };
@@ -238,8 +240,15 @@ for (const provenance of ['recorded', 'legacy']) for (const visuals of ['off', '
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ ownerToken: testToken });
   storage.append(session.id, 'settings.changed', { processingPreset: 'best', settings: { ...session.settings, visuals } });
-  for (const kind of ['html', 'images']) storage.append(session.id, 'concept.state', { artifact: {
-    id: kind, mediaType: kind === 'html' ? 'text/html' : 'image/png', ...(provenance === 'recorded' ? { visuals: kind } : {}), turnIds: [], referenceIds: [] } });
+  for (const kind of ['html', 'images']) {
+    const artifact = await producers[kind].generate({ prompt: 'Offline dashboard', language: 'de' }, '', {
+      attempt: { attemptId: 'fixture', claimId: 'fixture', consume() {} }, report() {},
+    });
+    storage.append(session.id, 'concept.state', { intent: { pending: { id: kind } }, status: { phase: 'pending' } });
+    storage.completeConcept(session.id, artifact, { id: kind, requestId: kind,
+      ...(provenance === 'recorded' ? { visuals: kind } : {}), turnIds: [], referenceIds: [] }, { status: { phase: 'ready' } });
+  }
+  assert.equal(storage.get(session.id).concepts.length, 2, 'real delivered artifacts survive SQLite hydration');
   const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`));
   assert.equal(response.status, 200);
   const doc = await response.json();

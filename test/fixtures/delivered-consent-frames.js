@@ -20,7 +20,7 @@ export async function deliveredConsentFrames(t) {
     import '/packages/ui/src/session-element.js';
     import {ConceptView} from '/packages/ui/src/concept-view.js';
     const update=ConceptView.prototype.update;
-    ConceptView.prototype.update=function(s){window.view=this;const result=update.apply(this,arguments);if(window.watching&&!this.items.some(i=>i.id==='removed')&&!window.sameTick)window.sameTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};return result;};
+    ConceptView.prototype.update=function(s){window.view=this;const result=update.apply(this,arguments);if(arguments[1]?.consentRevision===s.consentRevision)window.documentApplied=s.consentRevision;if(window.watching&&!this.items.some(i=>i.id==='removed')&&!window.sameTick)window.sameTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};return result;};
     window.revoked=[];const revoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{window.revoked.push(url);revoke(url);};
     const params=new URLSearchParams(location.search),locale=params.get('locale')||'de';
     const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
@@ -116,12 +116,9 @@ export async function deliveredConsentFrames(t) {
     await a.waitForFunction(() => c.session.consentRevision === 2);
     // Consent document application may follow the snapshot on the next await.
     if (!kept) await a.waitForFunction(() => window.sameTick, { timeout: 2500 });
-    else await a.waitForFunction(() => view.covered('html') || view.covered('image'));
+    else await a.waitForFunction(() => window.documentApplied === 2);
     await a.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const result = await a.evaluate(() => { sampling = false; return { ...inspect(), samples, sameTick, refreshRounds }; }).catch(async error => {
-      if (!kept) throw error;
-      return a.evaluate(() => { sampling = false; return { ...inspect(), samples, refreshRounds }; });
-    });
+    const result = await a.evaluate(() => { sampling = false; return { ...inspect(), samples, sameTick: window.sameTick, refreshRounds }; });
     assert.deepEqual(await a.evaluate(() => boxes()), baseline, '0 px for thread, composer, rail, header, access and canvas');
     if (kept) {
       assert.ok(result.samples.length > 0, 'sample every animation frame through refresh');
