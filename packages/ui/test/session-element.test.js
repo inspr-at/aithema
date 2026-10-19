@@ -124,6 +124,50 @@ test('AIT-288: empty summary/signals render no section or placeholder before or 
     assert.equal(signals.children.length, 0, 'removed content leaves no stale row');
   }
 });
+test('AIT-390: in-order journal events dispatch aithema-event with the full event as detail', () => {
+  const c = setup(), notifications = [];
+  c.addEventListener('aithema-event', event => notifications.push(event));
+  const first = { sessionId: c.session.id, seq: 1, type: 'turn.final',
+    data: { id: 'user', role: 'user', content: 'Host-visible input' } };
+  const second = { sessionId: c.session.id, seq: 2, type: 'turn.final',
+    data: { id: 'assistant', role: 'assistant', content: 'Host-visible reply', inputRevision: inputRevision(applyEvent(c.session, first)) } };
+  c.receive(first); c.receive(second);
+  assert.deepEqual(notifications.map(event => event.detail), [first, second],
+    'hosts receive each complete journal event in order, without a detail wrapper');
+  assert.ok(notifications.every(event => event instanceof CustomEvent && event.bubbles && event.composed),
+    'host notifications are custom events that bubble across shadow roots');
+  c.receive(first); c.receive(second);
+  assert.equal(notifications.length, 2, 'duplicate journal delivery does not notify hosts again');
+});
+test('AIT-390: snapshot gap recovery does not replay aithema-event for skipped events', async t => {
+  const c = setup(), notifications = [];
+  c.addEventListener('aithema-event', ({ detail }) => notifications.push(detail));
+  const first = { sessionId: c.session.id, seq: 1, type: 'turn.final',
+    data: { id: 'first', role: 'user', content: 'Delivered in order' } };
+  const skipped = { sessionId: c.session.id, seq: 2, type: 'turn.final',
+    data: { id: 'skipped', role: 'user', content: 'Recovered from snapshot' } };
+  const gap = { sessionId: c.session.id, seq: 3, type: 'turn.final',
+    data: { id: 'gap', role: 'assistant', content: 'Recovered reply' } };
+  const snapshot = [first, skipped, gap].reduce(applyEvent, c.session);
+  const fetch = t.mock.method(globalThis, 'fetch', async url => {
+    assert.equal(url, `/api/sessions/${c.session.id}`, 'recovery only reads the local session snapshot');
+    return Response.json(snapshot);
+  });
+  c.receive(first); c.receive(gap);
+  // The mocked snapshot read is already resolved; drain its async restore work.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fetch.mock.callCount(), 1, 'the sequence gap triggered snapshot recovery');
+  assert.equal(c.session.seq, 3, 'the snapshot was adopted');
+  assert.deepEqual(c.session.transcript.map(turn => turn.id), ['first', 'skipped', 'gap']);
+  assert.match(c.shadowRoot.querySelector('ol').textContent, /Recovered from snapshot/u);
+  assert.deepEqual(notifications, [first], 'snapshot adoption does not replay the skipped journal notifications');
+  c.receive(skipped); c.receive(gap);
+  assert.deepEqual(notifications, [first], 'late delivery of snapshot-covered events does not replay notifications');
+  const next = { sessionId: c.session.id, seq: 4, type: 'turn.final',
+    data: { id: 'next', role: 'user', content: 'Delivered after recovery' } };
+  c.receive(next);
+  assert.deepEqual(notifications, [first, next], 'in-order host notifications resume after the snapshot cursor');
+});
 test('partial assistant turns are replaced by final; stale fragments and duplicate events are ignored', () => {
   const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session);
   c.receive({ type: 'turn.partial', data: { id: 'a', delta: 'first', inputRevision: revision } });
