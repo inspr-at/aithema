@@ -30,7 +30,7 @@ export class PrivacyDocumentRequiredError extends Error {
 /** Host ports are trusted server configuration, never request payloads.
  * identity: configuration({sessionId,ownerToken}), requestVerification(effect),
  * verify({sessionId,ownerToken,address,revision,token?}) -> authoritative evidence.
- * library(ownerToken,hooks), handover(ownerToken), wallet(ownerToken) are owner-bound.
+ * library(ownerToken,hooks), handover(ownerToken), wallet(ownerToken, {sessionId}) are owner-authorized.
  * All asynchronous replies recheck ownership before publication. */
 export function createHostHandlers({ storage, host, ownership, readBody, publish, snapshot, createConversation,
   eraseConversation, unlocked, budget, conversationLimits, now = () => Date.now(), signal, deadlineMs = 30_000 }) {
@@ -157,7 +157,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       privacyDocumentConfigured: privacyDocumentConfigured(host), ...extra };
   }
   function creditResult(id, ownerToken) {
-    const wallet = host.wallet(ownerToken);
+    const wallet = host.wallet(ownerToken, { sessionId: id });
     // The optional host display projection is read-only; wallet.balance() and
     // every admission path retain their conservative reservation maxima.
     const display = wallet.displayBalance?.();
@@ -170,9 +170,11 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const exhausted = admission.limitMicro === 0 || blocked && admission.committedMicro - pendingHoldMicro >= admission.limitMicro;
     const fullHold = blocked && !exhausted;
     const reconciling = display?.reconciling === true;
-    const projection = host.creditTiers?.(ownerToken) ?? null;
+    const projection = host.creditTiers?.(ownerToken, { sessionId: id }) ?? null;
+    const sessionAware = wallet.creditScope === 'session';
+    const dailyCapReached = sessionAware && projection?.dailyCapReached === true;
     const collectionAllowed = host.demo === true || privacyDocumentConfigured(host);
-    const tiers = projection && (collectionAllowed ? projection : { ...projection, next: null, delta: 0, canConfirm: false });
+    const tiers = projection && (collectionAllowed && !dailyCapReached ? projection : { ...projection, next: null, delta: 0, canConfirm: false });
     const voiceRate = host.visitorMicroPerMinute?.(storage.get(id)) ?? 0;
     const largestTier = Math.max(balance.owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger));
     const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
@@ -182,12 +184,13 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
-    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, fullHold, reconciling, ...warning };
+    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, fullHold, reconciling, ...warning,
+      ...(sessionAware ? { scope: 'session', dailyCapReached } : {}) };
   }
   function startCredits(id, ownerToken) {
     const state = conversationLimits.start(id);
     if (!host?.wallet) return;
-    const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
+    const { balance } = creditResult(id, ownerToken);
     conversationLimits.transition(id, { type: 'balance', balance }, ownerToken);
     const paused = storage.get(id).paused;
     const current = state.paused === paused ? storage.creditState(id)

@@ -98,8 +98,20 @@ export class HostSurface {
     const owner = this.#credits?.balance?.owner;
     return !this.usedUp && (this.#credits?.fullHold === true || owner?.availableMicro === 0 && owner.reservedMicro > 0);
   }
-  get nextTier() { return this.endReason && this.endReason !== 'host-limit' ? null : this.#verification?.enabled && this.#verification.canCollect ? this.tiers?.next ?? null : null; }
-  get deltaCredits() { return this.tiers ? defaultCreditFormat(this.tiers.delta, this.#session().locale ?? 'en') : ''; }
+  get nextTier() {
+    if (this.endReason && this.endReason !== 'host-limit' || !this.#verification?.enabled || !this.#verification.canCollect) return null;
+    const tiers = this.tiers;
+    if (this.#credits?.scope !== 'session') return tiers?.next ?? null;
+    if (this.#credits.dailyCapReached || tiers?.current === 'emailConfirmed') return null;
+    const allowances = tiers?.allowancesMicro;
+    // Equal anonymous/email-given allowances go straight to confirmation.
+    if (tiers?.current === 'anonymous' && allowances?.anonymous === allowances?.emailGiven) {
+      return tiers.canConfirm && allowances.emailConfirmed > allowances.anonymous ? 'emailConfirmed' : null;
+    }
+    return tiers?.next && allowances?.[tiers.next] > allowances?.[tiers.current] ? tiers.next : null;
+  }
+  get deltaCredits() { return this.tiers ? defaultCreditFormat(this.#credits?.scope === 'session' && this.nextTier
+    ? this.tiers.allowancesMicro[this.nextTier] - this.tiers.allowancesMicro[this.tiers.current] : this.tiers.delta, this.#session().locale ?? 'en') : ''; }
   get locked() { return this.#verification?.locked ?? false; }
   /** The understanding pane holds host controls: the verification form while locked, or the handover band. */
   get holdsControls() { return this.locked || Boolean(this.#options.handover); }
@@ -233,7 +245,7 @@ export class HostSurface {
     else this.#handover = { ...this.#handover ?? {}, status: 'failed' };
     this.#paintHandover();
   }
-  // Credits are an owner-wide monetary allowance. Reads never start a time slot.
+  // Credits project the allowance selected by the host for this conversation. Reads never start a time slot.
   #refreshCredits() {
     if (!this.#options.credits || !this.#connected) return;
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
@@ -281,6 +293,9 @@ export class HostSurface {
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
+    const scoped = this.#credits?.scope === 'session', capped = scoped && this.#credits.dailyCapReached;
+    line.toggleAttribute('data-session-credits', scoped); line.toggleAttribute('data-daily-cap', capped);
+    const tierText = text => scoped ? text.replace(/ Credits/gu, '\u00a0Credits') : text;
     const reservedLimit = owner ? Math.max(owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger)) : null;
     const warningLimit = this.#credits?.lowAtMaxMicro ?? this.#credits?.lowAtMicro;
     const warningAvailable = owner && Number.isSafeInteger(warningLimit) ? Math.min(owner.availableMicro, warningLimit) : 0;
@@ -315,19 +330,19 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__measure-low-full'), owner && Number.isSafeInteger(warningLimit) ? fill(c.low, { available: format(warningLimit, locale) }) : '');
     setText(line.querySelector('.host-credits__measure-low-short'), owner && Number.isSafeInteger(warningLimit) ? fill(c.lowShort, { available: format(warningLimit, locale) }) : '');
     const timedOut = this.endReason === 'one-hour';
-    setText(line.querySelector('.host-credits__used-up-full'), timedOut ? c.timeExpired : c.usedUp);
-    setText(line.querySelector('.host-credits__used-up-short'), timedOut ? c.timeExpired : c.usedUpShort);
+    setText(line.querySelector('.host-credits__used-up-full'), capped ? c.dailyCapShort : timedOut ? c.timeExpired : c.usedUp);
+    setText(line.querySelector('.host-credits__used-up-short'), capped ? c.dailyCapShort : timedOut ? c.timeExpired : c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount.querySelector('.host-credits__value'), owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
     setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, layout.creditsUnit);
-    const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : c.loading;
-    setText(scope, balance); button.setAttribute('aria-label', balance);
+    const balance = owner ? fill(scoped ? exhausted ? c.sessionBalanceOut : c.sessionBalance : exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : c.loading;
+    setText(scope, balance); button.setAttribute('aria-label', capped ? c.dailyCap : balance);
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
     current.hidden = !tiers || tiers.current === 'anonymous';
-    if (tiers) setText(current.querySelector('span:last-child'), fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) }));
+    if (tiers) setText(current.querySelector('span:last-child'), tierText(fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) })));
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
-    setText(nextLine, next ? fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) }) : out && this.limitCopy.footer !== false ? c.noMore : '');
-    nextLine.hidden = !next && (!out || this.limitCopy.footer === false); link.hidden = !next;
+    setText(nextLine, next ? scoped && tiers.current === 'anonymous' && next === 'emailConfirmed' ? '' : tierText(fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) })) : !capped && out && (scoped || this.limitCopy.footer !== false) ? c.noMore : '');
+    nextLine.hidden = capped || !next && (!out || !scoped && this.limitCopy.footer === false); link.hidden = !next;
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
     // Reserve the track without overriding narrow/legal-host display rules.
     track.hidden = false; track.style.visibility = owner ? '' : 'hidden';
@@ -336,7 +351,11 @@ export class HostSurface {
       track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;
       track.setAttribute('aria-valuenow', String(value)); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-label', c.title);
     }
+    const daily = line.querySelector('.host-credits__daily-cap');
+    daily.hidden = !capped; setText(daily, capped ? c.dailyCap : '');
     const limit = line.querySelector('.host-credits__limit'); limit.hidden = !out;
+    limit.querySelector('slot').hidden = scoped && this.#session().demo === true;
+    setText(limit.querySelector('.host-credits__demo'), scoped && this.#session().demo === true ? c.sessionCreditsLimit : '');
     // Retained slot for the demo's host-owned end notice; never a minute countdown.
     const deadline = line.querySelector('.host-credits__deadline'); deadline.hidden = true; setText(deadline, '');
   }

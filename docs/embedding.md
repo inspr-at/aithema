@@ -285,7 +285,25 @@ still bounds per-conversation voice in the ledger. Hosts with different visitor
 pricing must implement that billing policy in their wallet, settlements and
 extension checks; they must not silently reuse this upstream-cost policy.
 
-`creditTiers(ownerToken)` returns
+The credits route and initial balance projection call
+`wallet(ownerToken, { sessionId })` and `creditTiers(ownerToken, { sessionId })`
+only after owner authorization. Existing one-argument callbacks may ignore the
+context and retain their complete owner-wide receipt and copy. To project a
+conversation allowance, return a wallet with `creditScope: 'session'`; the
+receipt then includes `scope: 'session'`. The wallet's balance/displayBalance and
+tiers must describe that requested conversation, while its admission methods
+still enforce all applicable owner/address/day limits. This display contract
+does not change `walletForSession`, runtime admission, or owner authorization.
+
+A session-aware tier projection may return `dailyCapReached: true` when the
+address's daily allowance prevents an upgrade. The receipt exposes that boolean,
+suppresses `next`, `delta` and `canConfirm`, and the UI shows the dedicated daily
+limit copy without an upgrade action. Hosts remain responsible for the cap's
+policy, atomic enforcement and reset; the module does not infer it from a zero
+balance. Session-aware demo receipts use the shorter no-top-up note in place of
+the owner-wide demo slot.
+
+`creditTiers(ownerToken, { sessionId })` returns
 `{ current, next, delta, canConfirm, allowancesMicro }` from those same live
 settings. `next` is `emailGiven` for anonymous visitors only when it raises the
 allowance, or `emailConfirmed` for email-given visitors only when qualified
