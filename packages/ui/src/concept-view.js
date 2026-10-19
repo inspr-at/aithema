@@ -334,8 +334,10 @@ export class ConceptView {
     return this.#pointer || this.#pointerStage || draft.draftFocused || active === draft || Boolean(active && this.root.querySelector('.concept-viewer-controls').contains(active));
   }
   visualKind() {
-    if (this.#session?.settings?.visuals === 'off') return null;
-    return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image';
+    // Preserve an explicit draft kind for consent wording, even when creation
+    // is off. Off must never fall through to the image rendering mode.
+    if (this.#session?.conceptVisualKind === 'html') return 'html';
+    return this.#session?.settings?.visuals === 'off' ? null : 'image';
   }
   latestImage() { return this.items.findLast(item => conceptKind(item) === 'image'); }
   #imageURLFor(id, url) {

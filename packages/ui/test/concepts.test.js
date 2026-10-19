@@ -1402,3 +1402,10 @@ test('AIT-386: image APIs reject HTML items, bytes and URLs not minted for that 
   }
   assert.deepEqual(assigned, [], 'backdrop, thumbnail, viewer and canvas refuse every invalid image source at assignment');
 });
+
+for (const copy of [de, en]) test(`AIT-386: explicit HTML consent wording survives Off (${copy.display.locale})`, t => {
+  const { root } = setup(t, { copy, concepts: [], session: { settings: { visuals: 'off' }, conceptVisualKind: 'html', visualsBound: true,
+    featureMatrix: { best: { html: { available: false, reason: 'current processing consent required' } } } } });
+  assert.equal(root.querySelector('.concept-activity-text .consent-line-copy').textContent, `${copy.featureConsent.html}\u00a0· `);
+  assert.equal(root.querySelector('.concept-activity-text').dataset.consentFeature, 'html');
+});
