@@ -35,6 +35,13 @@ test('AIT-350: Grok browser source URLs reject internal paths and accept declare
   writeFileSync(resolve(root, 'packages/core/src/internal/x.js'), 'export const value = 1;');
   const browserFile = resolve(root, 'plugins/grok-voice/src/client.js');
   writeFileSync(browserFile, "import { value } from '../../../packages/core/src/internal/x.js';");
-  // Red-before proof: the zero-finding assertion must reject this private URL.
+  assert.deepEqual(checkBoundaries(root), [
+    'plugins/grok-voice/src/client.js:1: Unexported target in packages/core: ../../../packages/core/src/internal/x.js',
+  ]);
+  // The same assertion used for the real browser graph must reject the private URL.
+  assert.throws(() => {
+    assert.deepEqual(checkBoundaries(root), [], 'Grok browser source URLs must resolve declared public exports');
+  }, { code: 'ERR_ASSERTION' });
+  writeFileSync(browserFile, "import { value } from '../../../packages/core/src/index.js';");
   assert.deepEqual(checkBoundaries(root), [], 'Grok browser source URLs must resolve declared public exports');
 });
