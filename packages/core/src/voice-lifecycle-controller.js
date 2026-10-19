@@ -6,7 +6,8 @@ export const voiceRetryAt = (error, now = Date.now()) =>
   (error?.status === 429 || error?.code === 'voice-conflict') && error.retryAfterMs > 0
     ? now + Math.min(error.retryAfterMs, 60_000) : 0;
 
-export const voiceAuthorityLost = error => error?.status === 403 || error?.code === 'not-admitted' || error?.code === 'auth';
+export const voiceAuthorityLost = error => error?.status !== 429 &&
+  (error?.status === 403 || error?.code === 'not-admitted' || error?.code === 'auth');
 const continuityLoss = error => error?.code === 'voice-ownership-lost' ? 'ownership-lost'
   : error?.code === 'voice-restart-required' ? 'server-restart' : null;
 

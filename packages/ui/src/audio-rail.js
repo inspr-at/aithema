@@ -429,7 +429,7 @@ export class AudioRail {
       if (state.callId === session.callId && (state.epoch > session.epoch || foreign)) {
         this.pauseRevision++; this.pauseCommand = null; this.busy = false;
         this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, ...(state.epoch !== undefined ? { epoch: state.epoch } : {}) };
-        this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = true;
+        this.retryConnecting = false; this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = true;
         this.errorKey = this.allowanceDenied ? 'voiceAdmissionDenied' : 'voiceMoved'; this.notices.clear(); this.quiet();
         this.root.querySelector('.voice-caption').textContent = ''; this.onPause?.(true); this.render();
       }
@@ -442,7 +442,7 @@ export class AudioRail {
       this.generation++; this.pauseRevision++; this.holdController?.abort('ownership-lost');
       this.controller?.abort('ownership-lost');
       this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, ...(state.epoch !== undefined ? { epoch: state.epoch } : {}) };
-      this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = true;
+      this.retryConnecting = false; this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = true;
       this.errorKey = this.allowanceDenied ? 'voiceAdmissionDenied' : 'voiceMoved'; this.busy = false; this.pauseCommand = null;
       this.notices.clear(); this.quiet(); this.onPause?.(true); this.render();
       return;
@@ -464,7 +464,7 @@ export class AudioRail {
         this.moved = false; this.retiredOwnership = null;
         if (this.errorKey === 'voiceMoved') this.errorKey = null;
       }
-      this.state = 'waiting'; this.paused = true; this.render();
+      this.retryConnecting = false; this.state = 'waiting'; this.paused = true; this.render();
     }
   }
   async consume(session, generation) {
