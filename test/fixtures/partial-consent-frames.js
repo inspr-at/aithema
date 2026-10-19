@@ -8,18 +8,22 @@ import { join } from 'node:path';
 import { createSession, applyEvent, htmlPreviewHostPolicy } from '../../packages/core/src/index.js';
 import { previewFixture } from './html-preview-route.js';
 import { browserForFile } from '../browser/shared-browser.js';
+import { installConsentClock } from './consent-clock.js';
+import { scopedConsentEdges } from './scoped-consent-edges.js';
 
-export async function partialConsentFrames(t) {
+export async function partialConsentFrames(t, { isCI } = {}) {
+  const startedAt = performance.now();
   const root = new URL('../../', import.meta.url).pathname, streams = new Set(), preview = previewFixture();
-  let session, selected, mints = 0;
+  let session, selected, eventChanged, mints = 0;
   const features = { text: ['models'], analysis: ['models'], html: ['drafts'], images: ['images'] };
   const document = () => ({ contract: 'ait364', consentRevision: session.consentRevision, selected, features,
     items: ['models', 'drafts', 'images'].map(id => ({ id, version: 1, title: { models: 'Models', drafts: 'HTML drafts', images: 'Images' }[id], recipients: 'Offline fixture', text: 'For this conversation.' })) });
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}</style></head><body><script type="module">
     import '/packages/ui/src/session-element.js';
     import {ConceptView} from '/packages/ui/src/concept-view.js';
+    (${installConsentClock.toString()})();
     const update=ConceptView.prototype.update;
-    ConceptView.prototype.update=function(s){window.view=this;const result=update.apply(this,arguments);if(window.watching&&s.featureMatrix.best[window.removedFeature]?.reason==='current processing consent required'&&!window.sameTick)window.sameTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};if(window.watchFailClosed&&this.items.length===0&&c.shadowRoot.querySelector('.concept-withdrawn').textContent===copy.conceptWithdrawn)window.failClosedTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};return result;};
+    ConceptView.prototype.update=function(s){window.view=this;const result=update.apply(this,arguments);if(arguments[2])window.verifiedRevision=arguments[1].consentRevision;if(window.watching&&s.featureMatrix.best[window.removedFeature]?.reason==='current processing consent required'&&!window.sameTick)window.sameTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};if(window.watchFailClosed&&this.items.length===0&&c.shadowRoot.querySelector('.concept-withdrawn').textContent===copy.conceptWithdrawn)window.failClosedTick={...window.inspect(),eventToRemovalMs:performance.now()-window.eventAt,refreshRounds:window.refreshRounds};return result;};
     window.revoked=[];const revoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{window.revoked.push(url);revoke(url);};
     const params=new URLSearchParams(location.search),locale=params.get('locale')||'de';
     const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
@@ -46,7 +50,7 @@ export async function partialConsentFrames(t) {
         let body = ''; for await (const chunk of req) body += chunk;
         const decision = JSON.parse(body); assert.equal(decision.processing.revision, session.consentRevision);
         selected = decision.processing.items;
-        const event = { seq: session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true } };
+        const event = { seq: session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, ...(eventChanged ? { changed: eventChanged } : {}) } };
         session = applyEvent(session, event);
         session.featureMatrix = { best: Object.fromEntries(Object.entries(features).map(([kind, ids]) => [kind, ids.every(id => selected.includes(id)) ? { available: true } : { available: false, reason: 'current processing consent required' }])) };
         for (const stream of streams) stream.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -73,6 +77,7 @@ export async function partialConsentFrames(t) {
   const a = await browser.newPage(), b = await browser.newPage(), checks = [], shots = [];
   await a.setRequestInterception(true);
   a.on('request', request => {
+    if (a.holdSnapshot && new URL(request.url()).pathname === '/api/sessions/ait364') { (a.heldSnapshots ??= []).push(request); return; }
     if (a.refreshFailure === 'http' && new URL(request.url()).pathname === '/api/sessions/ait364') { void request.respond({ status: 503, contentType: 'application/json', body: '{}' }); return; }
     if (a.holdConsentRead && request.method() === 'GET' && new URL(request.url()).pathname.endsWith('/consent')) { a.heldConsentRead = request; return; }
     void request.continue();
@@ -113,6 +118,7 @@ export async function partialConsentFrames(t) {
     await a.waitForFunction(() => window.sameTick, { timeout: 5000 });
     const result = await a.evaluate(() => sameTick);
     a.holdConsentRead = false; if (a.heldConsentRead) await a.heldConsentRead.continue();
+    await a.waitForFunction(() => window.verifiedRevision === c.session.consentRevision);
     assert.ok(result.eventToRemovalMs >= 0 && result.eventToRemovalMs < 1000, `one-round removal took ${result.eventToRemovalMs} ms`);
     assert.equal(result.refreshRounds, 1, 'removal happens within the first snapshot refresh round');
     assert.equal(result.open, false, 'W1 viewer closes in the update tick');
@@ -147,6 +153,7 @@ export async function partialConsentFrames(t) {
     if (!mixed) {
       assert.equal(await a.evaluate(() => c.shadowRoot.querySelector('.canvas-empty').hidden), false);
       if (width === 1440 && theme === 'light' && locale === 'de') {
+        await a.evaluate(() => clock.tick(4000));
         await a.waitForFunction(() => !c.shadowRoot.querySelector('.concept-withdrawn').textContent, { timeout: 5500 });
         const after = await a.evaluate(() => ({ state: inspect().state, text: c.shadowRoot.querySelector('.concept-activity-text').textContent, announcements: noticeChanges.filter(Boolean) }));
         assert.equal(after.state, 'consent'); assert.match(after.text, new RegExp(kind === 'html' ? 'Entwürfe brauchen Ihre Einwilligung' : 'Bilder brauchen Ihre Einwilligung'));
@@ -170,7 +177,8 @@ export async function partialConsentFrames(t) {
     assert.equal(result.notice, 'Entwurf zurückgezogen');
     checks.push({ width: 1440, theme: 'light', locale: 'de', kind: 'full', ...result, synchronousRedaction: true, unchangedCopy: true });
   });
-  for (const [width, failure] of [[1440, 'http'], [390, 'document-stall']]) await t.test(`v1.1 fail-closed ${failure}/${width} and recovery`, async () => {
+  for (const [width, failure, changed] of [[1440, 'http'], [390, 'document-stall'], [1440, 'http', ['future-scope']], [390, 'document-stall', ['future-scope']]]) await t.test(`v1.1 fail-closed ${failure}/${width} and recovery`, async () => {
+    eventChanged = changed;
     session = createSession({ demo: true }); session.id = 'ait364'; session.locale = 'de'; session.consentRevision = 1;
     session.settings.origin = 'chosen'; session.settings.visuals = 'auto'; session.visualsBound = true; session.conceptVisualKind = 'html'; session.conceptCost = { maxMicro: 0 };
     session.transcript = [{ id: 'source', role: 'user', content: 'Keep this transcript.' }]; session.inputRevision = 1;
@@ -188,10 +196,7 @@ export async function partialConsentFrames(t) {
     const baselineLayout = await layout();
     await a.evaluate(() => {
       window.watchFailClosed = true;
-      const schedule = window.setTimeout.bind(window);
-      // Unit tests advance the real 1999/2000 ms boundary. This wire fixture
-      // invokes that exact callback without adding real waits to the shard.
-      window.setTimeout = (callback, delay, ...args) => delay === 2000 && !window.expireConsent ? (window.expireConsent = callback, 0) : schedule(callback, delay, ...args);
+      window.expireConsent = () => clock.tick(2000);
     });
     a.refreshFailure = failure === 'http' ? 'http' : null;
     a.holdConsentRead = failure === 'document-stall'; a.heldConsentRead = null;
@@ -219,6 +224,7 @@ export async function partialConsentFrames(t) {
     await a.evaluate(() => c.shadowRoot.querySelector('.concept-preview').focus());
     a.refreshFailure = null; a.holdConsentRead = false;
     await a.evaluate(() => { window.watchFailClosed = false; });
+    await a.evaluate(() => clock.tick(2000));
     await a.waitForFunction(() => view.items.length === 1 && view.items[0].id === 'image');
     const recovered = await a.evaluate(() => inspect());
     assert.equal(recovered.state, 'ready'); assert.equal(recovered.notice, ''); assert.equal(recovered.focus, 'concept-preview');
@@ -234,10 +240,17 @@ export async function partialConsentFrames(t) {
     await a.evaluate(() => view.open('image'));
     await a.waitForFunction(() => view.dialog.open && c.shadowRoot.querySelector('.concept-image').hasAttribute('src'));
     assert.deepEqual(await a.evaluate(() => view.items.map(i => i.id)), ['image'], 'covered images reopen without reload; withdrawn HTML stays gone');
-    checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, automaticRecovery: true, recovered, retainedOpenable: true });
+    checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, changed, edge: 'E2', ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, automaticRecovery: true, recovered, retainedOpenable: true });
   });
+  const scoped = await scopedConsentEdges({ t, a, isCI, session: () => session, setSession: value => { session = value; }, setSelected: value => { selected = value; }, features, url: `http://127.0.0.1:${server.address().port}/`, evidence });
+  const allChecks = [...checks.filter(c => c.edge === 'E2'), ...scoped.checks].map(check => ({ ...check, edge: check.edge ?? check.state }));
+  assert.deepEqual([...new Set(allChecks.map(check => check.edge))].sort(), ['E1', 'E2', 'E3', 'E4'], 'the evidence report carries every required edge');
+  assert.equal(allChecks.filter(check => check.edge === 'E2').length, 4, 'absent and unknown scope HTTP/stall results are retained');
+  assert.equal(allChecks.filter(check => check.edge === 'E1').length, 3, 'both widths and both artifact kinds are retained');
+  assert.ok(allChecks.every(check => check.width && check.theme && check.locale), 'every evidence entry records its display context');
   if (evidence) {
-    const report = JSON.stringify({ spec: 'AIT-364 Tick v1.1', shots, checks }, null, 2);
+    await writeFile(join(evidence, 'ait365-checks.json'), JSON.stringify({ spec: 'AIT-365 Tick v1', shots: scoped.shots, checks: allChecks, controlledClock: true, totalWallTimeMs: performance.now() - startedAt }, null, 2));
+    const report = JSON.stringify({ spec: 'AIT-364 Tick v1.1', shots, checks, controlledClock: true, totalWallTimeMs: performance.now() - startedAt }, null, 2);
     await writeFile(join(evidence, 'ait364-checks.json'), report);
     await writeFile(join(evidence, 'checks.json'), report);
   }

@@ -73,10 +73,10 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
     CREATE TABLE IF NOT EXISTS processing_consent_events (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
     revision INTEGER NOT NULL, at INTEGER NOT NULL, items TEXT NOT NULL, copy_version TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS processing_consent_session ON processing_consent_events(session_id);`);
-  const describe = sessionId => {
+  const describe = (sessionId, { consentRevision, granted: acceptingGrant = false } = {}) => {
     const row = sessionId ? db.prepare('SELECT * FROM processing_consents WHERE session_id=?').get(sessionId) : null;
     const session = sessionId ? storage.get(sessionId) : null, at = now();
-    const grants = row && !session.tombstone && !session.consentWithdrawn && row.revision === session.consentRevision ? JSON.parse(row.grants) : {};
+    const grants = row && !session.tombstone && (!session.consentWithdrawn || acceptingGrant) && row.revision === (consentRevision ?? session.consentRevision) ? JSON.parse(row.grants) : {};
     const selected = items.filter(item => { const grant = grants[item.id]; return grant?.contract === contract && grant.version === item.version &&
       grant.at <= at && at - grant.at < CONSENT_VALIDITY_MS; }).map(item => item.id);
     return { contract, items, optional: items.filter(item => ['drafts-anthropic', 'voice-xai'].includes(item.id)).map(item => item.id),

@@ -167,3 +167,18 @@ test('AIT-350: Grok adds its own consent item only when configured and covers pa
   }
   assert.equal(consent.coverage({ sessionId: session.id, consentRevision: session.consentRevision + 1, scope: processingScope(stt, 'speak') }).covered, false);
 });
+
+test('AIT-365: staged consent describe reads next revision without publishing it to ordinary readers', () => {
+  const storage = new SQLiteStorage();
+  try {
+    const binding = qualifyStartBinding({ plugin: 'openrouter', model: 'anthropic/claude-sonnet-4.6', accountRef: 'fixture', secretRef: 'fixture', endpoint: 'https://openrouter.ai/api/v1' });
+    const session = storage.create(), consent = createProcessingConsent({ storage, bindings: [binding] });
+    consent.grant({ sessionId: session.id, consentRevision: 1,
+      decision: { contract: consent.describe().contract, items: ['models-international'] } });
+    assert.deepEqual(consent.describe(session.id).selected, []);
+    assert.deepEqual(consent.describe(session.id, { consentRevision: 1, granted: true }).selected, ['models-international']);
+    assert.equal(storage.get(session.id).consentRevision, 0, 'document read cannot advance the journal');
+    storage.reviseConsent(session.id, true);
+    assert.deepEqual(consent.describe(session.id).selected, ['models-international']);
+  } finally { storage.close(); }
+});

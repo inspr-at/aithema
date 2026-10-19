@@ -15,7 +15,7 @@ test('workflow parses, only a matching pushed tag admits release packing, and PR
   assert.equal(release.on.workflow_dispatch, undefined);
   assert.equal(release.jobs.pack.if, "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')");
   const text = JSON.stringify(release); assert.doesNotMatch(text, /npm (?:publish|login|adduser)|git tag|git push|registry-url|NODE_AUTH_TOKEN|NPM_TOKEN/u);
-  assert.deepEqual([...text.matchAll(/secrets\.([A-Z_]+)/gu)].map(match => match[1]), ['GITHUB_TOKEN']);
+  assert.deepEqual([...text.matchAll(/secrets\.([A-Z_]+)/gu)].map(match => match[1]), ['GITHUB_TOKEN', 'GITHUB_TOKEN']);
   assert.doesNotMatch(text, /secrets\[|secrets\s*\}\}|github\.token/u);
   const ci = yaml.parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
   assert.equal(ci.on.pull_request, null); assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7]);
@@ -137,6 +137,8 @@ import('node:fs').then(fs => {
     } else console.log(process.env.TEST_IMMUTABLE);
   }
 });\n`, { mode: 0o755 });
+  // Admission is a preceding workflow step, covered in release-publication and
+  // release-candidate-gate. This fixture runs the publication/cleanup shell.
   const step = releaseWorkflow().jobs.pack.steps.find(s => s.run?.includes('gh release create'));
   const env = { ...process.env, PATH: join(cwd, 'bin') + ':' + process.env.PATH,
     GH_TOKEN: 'test-placeholder', GITHUB_REF_NAME: 'v261015164601.0.0', GITHUB_REPOSITORY: 'inspr-at/aithema' };
