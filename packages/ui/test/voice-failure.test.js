@@ -75,7 +75,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     }
     await retry; await flush(); assert.equal(requests.length, 2); assert.equal(requests[1][1] - began, wait ? wait + 1 : 0);
     assert.equal(rail.state, 'listening'); noLimit(rail);
-    record(provider, 'start429', ['429 leads to F2, no live call, Retry enabled', 'visible cooldown countdown throughout retry-after', 'no request before 4.8 s / 59.8 s; exactly once at deadline', '120 s capped at 60 s; absent retry-after starts immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
+    record(provider, 'start429', ['429 leads to F2, no live call, Retry enabled', 'visible cooldown countdown throughout retry-after', 'no request before 4.8 s / 59.8 s; exactly once 1 ms after deadline (zero painted first)', '120 s capped at 60 s; absent retry-after starts immediately', 'no providerLimit in full, accessible or narrow copy (DE/EN)'], { retryAfterMs: retryAfterMs ?? null, waitedMs: wait });
   });
   for (const retryAfterMs of [5000, 120_000, undefined]) test(`AIT-361 ${provider}: recovery 429 retry-after ${retryAfterMs ?? 'absent'}`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });

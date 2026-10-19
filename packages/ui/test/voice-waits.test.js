@@ -8,6 +8,7 @@ import { AudioRail } from '../src/audio-rail.js';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
+import { currentVoiceClient } from './fixtures/current-voice-clients.js';
 
 const micCopy = {
   voiceMicBusy: ['Das Mikrofon ist belegt oder vom System gesperrt. Schließen Sie andere Apps, die es nutzen, oder prüfen Sie die Systemeinstellungen. Versuchen Sie es dann erneut.', 'The microphone is busy or blocked by the system. Close other apps using it or check your system settings, then try again.'],
@@ -23,16 +24,16 @@ after(async () => {
   await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
   await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait377-state-checks.json'), JSON.stringify({ checks }, null, 2));
 });
-function fixture(t, provider, { ready, opening, microphone = false, error } = {}) {
+function fixture(t, provider, { ready, opening, microphone = false, replyStarted = false, error } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
   const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
   const events = voiceEvents(), calls = [], closes = [];
   const session = { callId: 'offline-call', providerSessionId: 'offline-provider', events,
     async setInput() {}, async setOutput() {}, async updateContext() {},
     async close() { closes.push(Date.now()); return { closureConfirmed: true, usage: { costEstimated: false } }; } };
-  const client = { manifest: { id: provider }, async start(request, options) {
+  const client = { manifest: { id: provider, liveVoice: { capabilities: { onMicrophoneState: 'native', ...(replyStarted ? { replyStarted: 'native' } : {}) } } }, async start(request, options) {
     calls.push({ at: Date.now(), options });
-    if (microphone) options.onMicrophoneState?.('requesting');
+    options.onMicrophoneState?.(microphone ? 'requesting' : 'granted');
     if (error) throw error;
     return opening ? opening.promise : session;
   } };
@@ -132,9 +133,8 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     record(provider, 'no getUserMedia: no call, no Retry, mic guidance');
   });
   test(`AIT-377 ${provider}: opener and user-turn watchdog, filler ignored, late transcript clears, visitor silence ignored`, async t => {
-    const { rail, send, session } = fixture(t, provider); await rail.start();
+    const { rail, send, session } = fixture(t, provider, { replyStarted: true }); await rail.start();
     t.mock.timers.tick(14_999); await flush(); assert.equal(rail.errorKey, null);
-    await send({ type: 'speaking' });
     t.mock.timers.tick(1); await flush(); assert.equal(rail.errorKey, 'voiceNoReply'); assert.equal(rail.session, session);
     await send({ type: 'final', role: 'assistant', text: 'Eine Antwort.', turnId: 'answer' });
     assert.equal(rail.errorKey, null); assert.equal(rail.state, 'speaking');
@@ -146,16 +146,68 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     await send({ type: 'final', role: 'assistant', text: 'Die Antwort.', turnId: 'reply' }); assert.equal(rail.errorKey, null);
     await send({ type: 'final', role: 'user', text: 'Noch eine Frage.', turnId: 'next' });
     await rail.close(); t.mock.timers.tick(15_000); await flush(); assert.notEqual(rail.errorKey, 'voiceNoReply');
-    record(provider, '15 s opener and user-turn watchdog; filler ignored; late transcript clears; visitor silence never arms; End clears', { openerMs: 15000, replyMs: 15000, audioOnlyReplySignal: 'blocked: no qualified client event' });
+    record(provider, '15 s opener and user-turn watchdog; filler ignored; late transcript clears; visitor silence never arms; End clears', { openerMs: 15000, replyMs: 15000, capability: 'replyStarted'  });
   });
   test(`AIT-377 ${provider}: visitor speech holds the opener watch until the turn ends`, async t => {
-    const { rail, send } = fixture(t, provider); await rail.start();
+    const { rail, send } = fixture(t, provider, { replyStarted: true }); await rail.start();
     t.mock.timers.tick(10_000); await send({ type: 'partial', role: 'user', text: 'Eine längere Frage', turnId: 'speaking-user' });
     t.mock.timers.tick(20_000); await flush(); assert.equal(rail.errorKey, null);
     await send({ type: 'final', role: 'user', text: 'Eine längere Frage.', turnId: 'user-turn' });
     t.mock.timers.tick(14_999); await flush(); assert.equal(rail.errorKey, null);
     t.mock.timers.tick(1); await flush(); assert.equal(rail.errorKey, 'voiceNoReply');
     record(provider, 'watchdog waits for end of visitor speech', { replyMs: 15000 });
+  });
+  test(`AIT-377 ${provider}: declared reply-started audio clears and blocks S5 during long speech`, async t => {
+    const { rail, send } = fixture(t, provider, { replyStarted: true }); await rail.start();
+    t.mock.timers.tick(14_999); await send({ type: 'speaking', audio: true });
+    t.mock.timers.tick(30_000); await flush(); assert.equal(rail.errorKey, null);
+    assert.equal(rail.state, 'speaking'); assert.equal(rail.replyTimer, null);
+    await send({ type: 'listening' });
+    await send({ type: 'final', role: 'user', text: 'Frage', turnId: 'question' });
+    t.mock.timers.tick(5000); await send({ type: 'speaking', audio: true, filler: true });
+    t.mock.timers.tick(10_000); await flush(); assert.equal(rail.errorKey, 'voiceNoReply');
+    await send({ type: 'speaking', audio: true }); assert.equal(rail.errorKey, null);
+    assert.equal(rail.state, 'speaking');
+    t.mock.timers.tick(30_000); await flush(); assert.equal(rail.errorKey, null);
+    record(provider, 'declared non-filler audio clears/blocks S5; filler does not; late audio clears', { capability: 'replyStarted' });
+  });
+  test(`AIT-377 ${provider}: current client preserves main permission copy and its own deadline`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const permission = Promise.withResolvers(), current = currentVoiceClient(provider, { permission: permission.promise });
+    const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+    const rail = new AudioRail({ root, client: current.client, copy: de, context: () => ({}), feature: () => ({ available: true }) });
+    t.after(async () => { permission.resolve(); await flush(); await rail.close(); rail.destroy(); current.end(); await window.happyDOM.abort(); });
+    assert.equal(current.client.manifest.liveVoice.capabilities.onMicrophoneState, undefined);
+    assert.equal(current.client.manifest.liveVoice.capabilities.replyStarted, undefined);
+    const start = rail.start(); await flush(); assert.ok(current.acquired > 0);
+    for (const copy of [de, en]) { rail.copy = copy; rail.render(); assert.equal(full(rail), copy.voiceStates.connecting); }
+    assert.equal(current.options[0].deadlineAt, 130_000, 'same client option as main');
+    t.mock.timers.tick(30_000); await flush();
+    if (provider === 'grok-voice') {
+      assert.equal(rail.state, 'connecting'); assert.equal(rail.errorKey, null);
+      assert.equal(rail.controller.signal.aborted, false);
+      t.mock.timers.tick(30_000); await flush(); assert.equal(rail.state, 'connecting');
+      permission.resolve(); await start; assert.equal(rail.state, 'listening');
+    } else {
+      await start; assert.equal(rail.state, 'failed'); assert.equal(rail.errorKey, 'voiceDeadline');
+    }
+    record(provider, 'capability-gated (today\'s behaviour): main connecting copy and client-owned permission deadline', { heldMs: provider === 'grok-voice' ? 60000 : 30000 });
+  });
+  test(`AIT-377 ${provider}: current client has no S5 on silence, audio or silent repair`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const current = currentVoiceClient(provider), window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+    const rail = new AudioRail({ root, client: current.client, copy: de, context: () => ({}), feature: () => ({ available: true }) });
+    t.after(async () => { await rail.close(); rail.destroy(); current.end(); await window.happyDOM.abort(); });
+    await rail.start(); assert.equal(rail.state, 'listening'); assert.equal(rail.replyTimer, null);
+    t.mock.timers.tick(15_000); await flush(); assert.equal(rail.errorKey, null);
+    current.speaking(rail.session.callId); await flush(); assert.equal(rail.state, 'speaking');
+    t.mock.timers.tick(16_000); await flush(); assert.equal(rail.errorKey, null);
+    current.recover(); await flush(); assert.equal(rail.state, 'listening');
+    assert.equal(current.requests.filter(r => r === 'recover').length, 1); assert.equal(rail.replyTimer, null);
+    t.mock.timers.tick(15_000); await flush(); assert.equal(rail.errorKey, null);
+    await rail.sendText('Eine Frage.'); assert.equal(rail.replyTimer, null);
+    t.mock.timers.tick(15_000); await flush(); assert.equal(rail.errorKey, null);
+    record(provider, 'capability-gated (today\'s behaviour): no S5 on visitor silence, long audio, recovered or typed turn');
   });
   for (const terminal of [undefined, { closureConfirmed: true, usage: { costEstimated: true } }, { closureConfirmed: true, usage: { costEstimated: false } }]) test(`AIT-377 ${provider}: agent end charge state ${JSON.stringify(terminal)}`, async t => {
     const { rail, send, session } = fixture(t, provider); await rail.start();
