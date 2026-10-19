@@ -82,12 +82,13 @@ export async function checkVoiceFailures(t) {
     }, { provider, locale });
     await page.evaluate(() => document.fonts.ready);
     let baseline, reference;
-    const states = ['idle', 'recovering', 'voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'start429', 'voicePlaybackBlocked', 'voiceAdmissionDenied', 'consent', 'waiting', 'voiceRecoveryFailed', 'idle'];
+    const states = ['idle', 'recovering', 'voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'start429', 'voicePlaybackBlocked', 'voiceAdmissionDenied', 'consent', 'waiting', 'voiceRecoveryFailed', 'used-up', 'idle'];
     for (const state of states) {
       await page.evaluate(state => {
         const rail = window.ait361Rail;
         rail.session = ['recovering', 'voicePlaybackBlocked', 'waiting'].includes(state) ? { callId: 'fixture', providerSessionId: 'fixture-provider' } : null;
         rail.state = state === 'recovering' ? 'recovering' : state === 'waiting' ? 'waiting' : ['idle', 'consent'].includes(state) ? 'idle' : state === 'voicePlaybackBlocked' ? 'listening' : 'failed';
+        rail.usedUp = () => state === 'used-up';
         rail.paused = state === 'waiting'; rail.errorKey = state.startsWith('voice') ? state : null;
         rail.playbackBlocked = state === 'voicePlaybackBlocked'; rail.errorReason = state === 'voiceAdmissionDenied' ? 'current processing consent required' : null;
         rail.feature = () => state === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: rail.copy.featureConsent.voice } : { available: true };
