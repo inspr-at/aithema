@@ -189,12 +189,12 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         // The consume check outlives this bounded admission call. Retain the
         // operation lifetime signal so closing/revoking the call still cancels it.
         const transformRequest = body.stream === true && pinned.purposePolicy ? spokenPurposeRequest : undefined;
-        const request = transformRequest ? transformRequest(input) : input;
-        admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request, transformRequest, messages,
+        const invocationRequest = transformRequest ? transformRequest(input) : input;
+        admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: invocationRequest, transformRequest, messages,
           options: { ...bounded, signal: opts.signal }, beforeAdmission, onRetry }));
         if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
           typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
-        admission = { ...admission, request: admission.request ?? request };
+        admission = { ...admission, request: admission.request ?? invocationRequest };
         beforeOutput?.();
         onAdmission?.(admission.options.attempt.attemptId);
         textOrigin = aiTextOrigin(admission.producer ?? admission.plugin.binding ??
