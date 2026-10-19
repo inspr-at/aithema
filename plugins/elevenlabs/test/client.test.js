@@ -479,3 +479,27 @@ test('AIT-383 round 3: one heartbeat hiccup during the prompt retries without ca
   assert.equal(session.lifecycle.state.state, 'active');
   assert.equal(local.sdk.starts.length, 1); assert.equal(recoveries, 0);
 });
+
+test('AIT-383 round 3: prompt renewal retries are bounded and the next heartbeat can succeed', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const permission = Promise.withResolvers(), local = fixture(), start = local.control.start, heartbeat = local.control.heartbeat;
+  let renewals = 0, recoveries = 0, failing = true, session;
+  local.sdk.beforeAcquire = () => permission.promise;
+  local.control.start = (request, opts) => start(request, invocationOptions({ ...opts,
+    deadlineAt: Date.now() + 30_000, spendDeadlineAt: Date.now() + 180_000, browserLivenessDeadlineAt: Date.now() + 30_000 }));
+  local.control.heartbeat = (...args) => { renewals++; if (failing) throw new TypeError('offline fixture'); return heartbeat(...args); };
+  local.control.recover = async () => { recoveries++; throw new Error('no connected provider'); };
+  const starting = local.client.start({ callId: 'prompt-bounded-renewal' }, { onMicrophoneState() {} });
+  const outcome = starting.catch(error => error);
+  t.after(async () => { permission.resolve(); await session?.close(); await outcome; });
+  const settle = async () => { for (let i = 0; i < 12; i++) await flush(); };
+  await settle(); t.mock.timers.tick(10_000); await settle();
+  assert.equal(renewals, 3, 'a startup heartbeat permits only three renewal attempts');
+  assert.equal(recoveries, 0);
+  assert.equal([...local.sessions.values()][0].signal.aborted, false);
+  failing = false; t.mock.timers.tick(10_000); await settle();
+  assert.equal(renewals, 4);
+  assert.equal([...local.sessions.values()][0].snapshot().browserLivenessDeadlineAt, 150_000);
+  permission.resolve(); session = await starting;
+  assert.equal(session.lifecycle.state.state, 'active'); assert.equal(recoveries, 0);
+});
