@@ -159,6 +159,10 @@
     ],
     "reason": "Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload"
   },
+  "test/browser/voice-failure-helpers.js": {
+    "reads": ["CI", "GITHUB_EVENT_PATH", "GITHUB_EVENT_PATH"],
+    "reason": "Linux headless Chrome sandbox selection and AIT-361 PR-head evidence provenance"
+  },
   "test/browser/voice-presentation.test.js": {
     "reads": [
       "CI",

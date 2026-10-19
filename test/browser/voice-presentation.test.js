@@ -465,3 +465,8 @@ async function checkPhoneVoiceHeader(t, widths) {
 
 test('AIT-302: phone header voice statuses and fixed controls', { timeout: 360_000 }, t => checkPhoneVoiceHeader(t, [320, 360, 390]));
 test('AIT-302: unchanged desktop consent', { timeout: 90_000 }, t => checkPhoneVoiceHeader(t, [600, 1024, 1440]));
+
+test('AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix', { timeout: 90_000 }, async t => {
+  const { checkVoiceFailures } = await import('./voice-failure-helpers.js');
+  await checkVoiceFailures(t);
+});
