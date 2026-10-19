@@ -5,6 +5,7 @@ import { SQLiteStorage, createPluginRuntime, createVoiceProvider } from '@inspr/
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { openRouterConfig } from '../openrouter-config.js';
 import { qualifyStartBinding } from '../processing-consent.js';
+import { prepareVoiceRuntime } from '../voice-availability.js';
 import { demoPresets } from '../choices.js';
 
 const analysis = 'openai/analysis-fixture', speech = 'anthropic/reaction-fixture';
@@ -114,5 +115,17 @@ test('AIT-380: a saved voice selection cannot start through a missing speech rou
   const session = storage.create({ ownerToken: 'fixture-owner', settings: { model: presets.best.choices.defaults.model, voice: 'elevenlabs' } });
   await assert.rejects(runtime.admitVoice({ session, request: { callId: 'refused-call' } }),
     error => error.code === 'not-admitted' && error.message === 'endpoint not allowed');
+  // Recovery re-publishes its own endpoint policy. Refusal must travel with the
+  // voice choice too, so a saved selection cannot bypass it after self-healing.
+  const initialPolicy = { endpoints: [configured.reaction.endpoint] };
+  const recovered = prepareVoiceRuntime({ current: { registry: new PluginRegistry().register(reasoning), policy: initialPolicy,
+    presets: demoPresets({ provider: 'openrouter', reaction: configured.reaction, understanding: configured.understanding, policy: initialPolicy }) },
+    binding: voiceBinding, createPlugin: () => plugin,
+    extendPolicy: (before, binding) => ({ ...before, endpoints: [...before.endpoints, binding.endpoint] }),
+    createPresets: ({ binding, plugin, policy }) => demoPresets({ provider: 'openrouter', reaction: configured.reaction,
+      understanding: configured.understanding, voiceBinding: binding, voicePlugin: plugin, policy }) });
+  const recoveredRuntime = createPluginRuntime({ storage, presets: recovered.runtime.presets, registry: recovered.runtime.registry });
+  await assert.rejects(recoveredRuntime.admitVoice({ session, request: { callId: 'refused-after-recovery' } }),
+    error => error.code === 'not-admitted' && error.message === 'binding evidence unverified');
   assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
 });
