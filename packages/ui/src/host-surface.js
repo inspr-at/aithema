@@ -78,7 +78,7 @@ export class HostSurface {
     this.update();
   }
   openRoleSettings(opener) { return this.#actorRole?.openSheet(opener) ?? false; }
-  get creditScope() { return this.#credits?.scope ?? this.#initialCreditScope; }
+  get creditScope() { return this.#credits ? this.#credits.scope ?? null : this.#initialCreditScope; }
   get tiers() { return this.#credits?.tiers ?? null; }
   get low() { return !this.usedUp && lowCredit(this.#credits); }
   get emailAsk() { return this.#emailAsk; }
@@ -333,7 +333,7 @@ export class HostSurface {
     // narrow the cell, including EN where the used-up label is shorter.
     setText(line.querySelector('.host-credits__measure-amount'), owner ? format(reservedLimit, locale) : measuredMaximum);
     setText(line.querySelector('.host-credits__measure-total'), fill(layout.creditsTotal, { limit: measuredMaximum }));
-    setText(line.querySelector('.host-credits__measure-unit'), layout.creditsUnit);
+    setText(line.querySelector('.host-credits__measure-unit'), tierText(layout.creditsUnit));
     setText(line.querySelector('.host-credits__measure-low-full'), owner && Number.isSafeInteger(warningLimit) ? fill(c.low, { available: format(warningLimit, locale) }) : '');
     setText(line.querySelector('.host-credits__measure-low-short'), owner && Number.isSafeInteger(warningLimit) ? fill(c.lowShort, { available: format(warningLimit, locale) }) : '');
     const timedOut = this.endReason === 'one-hour';
@@ -341,7 +341,7 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__used-up-short'), capped ? c.dailyCapShort : timedOut ? c.timeExpired : c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount.querySelector('.host-credits__value'), owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
-    setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, layout.creditsUnit);
+    setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, tierText(layout.creditsUnit));
     const balance = owner ? fill(scoped ? exhausted ? c.sessionBalanceOut : c.sessionBalance : exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : c.loading;
     setText(scope, balance); button.setAttribute('aria-label', capped ? c.dailyCap : balance);
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);

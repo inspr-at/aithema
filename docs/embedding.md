@@ -313,8 +313,10 @@ confirmation is enabled and raises the allowance; otherwise it is `null` and
 `delta` is 0. Equal allowances do not advertise an upgrade. The owned
 `GET /api/sessions/:id/credits` exposes this as `tiers`. AIT-291's UI `nextTier`
 derives from **`tiers.next`**, subject to the existing collection/end-reason
-gates; it is not another server field. Set `privacyDocumentConfigured` only
-after validating the host's document, otherwise the server suppresses collection
+gates; it is not another server field. Session-aware hosts with equal anonymous
+and email-given allowances go directly to qualified confirmation when it raises
+the allowance, without displaying an email-given upgrade line.
+Set `privacyDocumentConfigured` only after validating the host's document, otherwise the server suppresses collection
 and next-tier offers. Host identity/verification ports must also enable the
 corresponding visitor actions before the UI can offer them.
 

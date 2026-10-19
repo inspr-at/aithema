@@ -480,11 +480,12 @@ for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'em
     } }); await tick(10);
     const next = root.querySelector('.host-credits__next'), action = root.querySelector('.credits-email');
     assert.doesNotMatch(root.querySelector('.host-credits__scope').textContent, /all your conversations|alle Ihre Gespräche/u);
+    assert.equal(root.querySelector('.host-credits__unit').textContent, '\u00a0Credits');
     assert.equal(action.hidden, ['emailConfirmed', 'dailyCap'].includes(state));
     if (!action.hidden) assert.equal(action.textContent, copy.hostSurface.credits.confirm);
     if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, '', 'equal allowances skip the email-given promise before an address is given');
     if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
-    if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250 Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250 credits are used up.");
+    if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250\u00a0Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250\u00a0credits are used up.");
     if (state === 'dailyCap') {
       assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E-Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow.");
       assert.equal(next.textContent, '');
