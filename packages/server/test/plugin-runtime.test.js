@@ -38,6 +38,7 @@ test('matrix reflects each preset and exact binding, with explicit unavailable r
 for (const reason of [null, 'budget denied', 'current processing consent required']) test(`AIT-404: paused matrix retains unpaused text verdict (${reason ?? 'available'})`, async t => {
   const h = setup(t), budget = new SQLiteBudgetLedger(h.storage);
   t.mock.method(budget, 'canAdmit', () => reason !== 'budget denied');
+  t.mock.method(budget, 'canAdmitWithoutReconcilingHold', () => reason !== 'budget denied');
   const runtime = createPluginRuntime({ storage: h.storage, registry: h.registry, presets: h.presets, consent: h.consent, budget });
   if (reason === 'current processing consent required') h.consent.coverage = async () => ({ covered: false });
   const before = (await runtime.matrix(h.session)).best.text;
