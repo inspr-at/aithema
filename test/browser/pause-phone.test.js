@@ -721,7 +721,11 @@ async function recoveryRowMetrics(page) {
   return shadow(page, c => {
     const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
     const rect = n => { const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, height: b.height }; };
-    const actions = r.querySelector('.voice-reply-actions'), row = rect(actions), parent = actions.parentElement;
+    const last = [...r.querySelectorAll('ol .turn:not(.user):not(.partial)')].at(-1);
+    // Ordinary replies each own a row (AIT-410); recovery has its own exact
+    // controls, including when they return to the notice after playback.
+    const actions = globalThis.tickRail.notices.recoveryContext ? globalThis.tickRail.notices.actions : last.querySelector(':scope > .reply-actions');
+    const row = rect(actions), parent = actions.parentElement;
     const text = parent.querySelector('.turn-text'), first = [...r.querySelectorAll('ol .turn')].find(n => n.getBoundingClientRect().bottom > shell.getBoundingClientRect().top);
     return { row, parent: parent.className, turnId: parent.dataset.id ?? null,
       audioAvailable: globalThis.tickRail.notices.audioAvailable(),
@@ -782,7 +786,18 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       await record(t, 'ait190', page, `${label}-clear`, { ...sentence, shiftPx: following ? sentence.dock.top - before.dock.top : sentence.first.top - before.first.top });
       await setPosition(); await frame(page);
       const beforeClear = await recoveryRowMetrics(page);
-      await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page);
+      await page.evaluate(() => {
+        globalThis.tickRail.notices.clear();
+        // Production event handling clears then renders the owning rail.
+        // That render restores pageReply after a repaint during recovery.
+        globalThis.tickRail.render();
+      });
+      await until(page, () => {
+        const notices = globalThis.tickRail.notices;
+        return !notices.recovery && notices.pageReply?.turnId === 'row-47' &&
+          notices.currentReply()?.text === document.querySelector('aithema-session').session.transcript.at(-1).content;
+      });
+      await frame(page);
       const row = await recoveryRowMetrics(page);
       assert.equal(row.audioAvailable, false, `${label}-action-row remains text-only`);
       assert.equal(row.clientReplayAvailable, false, `${label}-action-row has no replay client`);
@@ -808,7 +823,7 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       if (following) {
         const b = row.controls[1];
         const target = await shadow(page, (c, point) => {
-          const r = c.shadowRoot, button = r.querySelector('.voice-read-text'), hit = r.elementFromPoint(point.x, point.y);
+          const r = c.shadowRoot, button = globalThis.tickRail.notices.readText, hit = r.elementFromPoint(point.x, point.y);
           globalThis.rowTouchEvents = [];
           for (const type of ['pointerdown', 'touchstart', 'click']) button.addEventListener(type, () => globalThis.rowTouchEvents.push(type));
           return { hit: hit?.className, disabled: button.disabled, sameRail: globalThis.tickRail.root === r.querySelector('.audio-rail') };
