@@ -31,11 +31,17 @@ shows them when the host passes `configure({host})` (AIT-104 B2).
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
-Aithema uses INSPR-CalVer3 (`inspr-calver-3`). Core, server, UI and twelve
+Aithema uses INSPR-CalVer3 (`inspr-calver-3`). Core, server, UI and
 shipped plugin packages have exact versions and reproducible, independently
 installable tarballs; the root workspace
 stays private. Packages are distributed through GitHub release assets rather
 than a package registry.
+Hosts install only the modules they use plus their complete transitive dependency
+closure, all from the same release, passing that closure's tarballs or release
+URLs to npm together. An unused leaf such as `@inspr/aithema-plugin-grok-voice`
+may be omitted when no installed module depends on it. Verify SHA256SUMS,
+the release manifest and artifact attestations, and require a clean `npm ls`;
+see the [installation contract](docs/embedding.md#consume-aithema-as-a-module-start-or-another-thin-host).
 Embedding hosts register their own HTML/image plugins and private bindings; the
 server does not select providers. Use `createClaudeHTML` from
 `@inspr/aithema-plugin-claude-html` and `createOpenAIImages` from
@@ -2666,7 +2672,11 @@ and that link; an existing address can still be deleted. The demo's explicit
 privacy exemption retains its local fake-mail flow. Delivery saves the address
 with the versioned notice before requesting its confirmation link, so pending
 addresses receive the given tier. Equal allowances and disabled confirmation
-never promise extra credit. No sample address or allowance is rendered by the UI.
+never promise extra credit. When anonymous and `emailGiven` allowances are equal,
+anonymous visitors receive `next: null` and `delta: 0`. After an address is given,
+qualified confirmation can be offered if `emailConfirmed` raises the allowance;
+the projection does not skip the email-given evidence step. No sample address
+or allowance is rendered by the UI.
 An exhausted visible app rechecks its read-only wallet every 15 seconds, so a CLI
 allowance increase can restore it without a reload. Recovery and identity events
 refresh authoritative feature verdicts; a stale budget denial cannot keep the
@@ -2915,8 +2925,23 @@ Startup and hourly bounded retention remove tokens and delivery metadata after
 24 hours. The separate `visitor_mail_abuse` table keeps only an address HMAC and
 send timestamp for 24 hours for abuse prevention. This pseudonymous record has
 no visitor reference, token, request selector or recipient address, survives
-visitor erasure and expires through the same bounded cleanup. Independently
-saved email survives pending cleanup and retains its email-given tier; saved
+visitor erasure and expires through the same bounded cleanup.
+
+That mail-abuse table is separate from both accounting and an optional
+host-private daily spend guard (for example USD 30 per confirmed address per
+calendar day across owners). Tier evidence and module accounting stay keyed by
+owner hash, never by address or address HMAC. A spend guard uses a secret-keyed,
+purpose-separated HMAC, not plain SHA-256 or a public salt, with minimal private
+counters and explicit expiry/erasure duties. Reservations and positive extensions
+must check the guard atomically across owners, count spend and unresolved holds
+once, and preserve attribution through address changes, timezone/day rollover
+and late settlement. Unresolved holds cannot be released merely at midnight.
+The mail-abuse table's 24-hour retention does not authorize spend-guard retention
+after erasure. See the [daily spend guard design guidance](docs/embedding.md#address-derived-daily-spend-guards-ait-396)
+for the host's retention and attribution decisions; this is not a built-in cap
+or a GDPR legal assessment.
+
+Independently saved email survives pending cleanup and retains its email-given tier; saved
 addresses still expire after 90 days of inactivity.
 Visitor erasure removes the address, tokens, delivery metadata and visitor-linked
 mail audit events. Delivery and redemption audit events contain no addresses or
