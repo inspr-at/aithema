@@ -464,9 +464,8 @@ export const en = {
       limit: 'This conversation cannot be sent again. Start a new conversation to send more.',
     },
     credits: {
-      reconcilingVisible: 'Updating credits …',
       dailyCapReset: 'Available again from {time}',
-      reconciling: 'Costs are still being reconciled',
+      reconciling: 'Updating credits …',
       low: '{available} Credits left', lowShort: '{available} left',
       title: 'Your credits', scope: 'for all your conversations', loading: 'Loading credits',
       balance: 'Your credits: {available} of {limit} left, for all your conversations.',

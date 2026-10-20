@@ -89,14 +89,14 @@ export async function creditHostOptionsCheck(t) {
         actionRowHidden: r.querySelector('.composer-out__actions').getAttribute('aria-hidden'), next: r.querySelector('.host-credits__next').textContent,
         current: r.querySelector('.host-credits__current').textContent, deadline: r.querySelector('.host-credits__deadline').textContent,
         reconciling: visible('.host-credits__reconciling'), live: r.querySelector('.host-credits__reconcile-live')?.textContent,
-        lowLines: r.querySelectorAll('.email-low-line').length, deleteDisabled: r.querySelector('.m-delete-mail')?.disabled,
+        transcript: rect('.transcript-shell'), reply: rect('.transcript-shell ol > li'), lowLines: r.querySelectorAll('.email-low-line').length, deleteDisabled: r.querySelector('.m-delete-mail')?.disabled,
         deleteReason: r.querySelector('.m-mail-notice .m-notice-content')?.textContent.trim(), deleteTab: r.querySelector('.m-delete-mail')?.tabIndex,
         deleteCopy: r.querySelector('.m-delete-normal').textContent, deletes: window.ait411.deletes };
     });
   };
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: 1000 });
-    let baseline, deleteBaseline;
+    let baseline, deleteBaseline, lowBaseline;
     for (const state of states) {
       const value = await scene(state, locale, theme), label = `${locale}/${theme}/${width}/${state}`;
       if (!baseline) baseline = value.boxes;
@@ -110,7 +110,8 @@ export async function creditHostOptionsCheck(t) {
       if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse:/u : /With confirmed email address:/u);
       if (state === 'reconciling') { assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
       if (state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }
-      if (state === 'low-off') assert.equal(value.lowLines, 0);
+      if (state === 'low-off') { assert.equal(value.lowLines, 0); lowBaseline = { transcript: value.transcript, reply: value.reply }; }
+      if (state === 'low-on') { assert.equal(value.lowLines, 1); assert.deepEqual({ transcript: value.transcript, reply: value.reply }, lowBaseline, `${label}: low ask switch moves transcript 0 px`); }
       if (state === 'delete-false') {
         deleteBaseline = value.emailBox; assert.equal(value.deleteDisabled, true); assert.equal(value.deleteTab, -1); assert.equal(value.deleteCopy, '');
         assert.equal(value.deleteReason, locale === 'de' ? 'Hier nicht möglich. Wie die Adresse gelöscht wird, steht in der Datenschutzerklärung.' : 'Not available here. The privacy notice explains how to have the address deleted.');
@@ -129,6 +130,24 @@ export async function creditHostOptionsCheck(t) {
         await page.screenshot({ path: join(evidence, file), fullPage: false }); shots.push(file);
       }
     }
+  }
+  await scene('U2', 'de', 'light');
+  const eventProof = await shadow(page, c => {
+    let detail;
+    c.addEventListener('aithema-new-conversation', event => { event.preventDefault(); event.stopImmediatePropagation(); detail = event.detail; }, { once: true });
+    c.shadowRoot.querySelector('.composer-out__new').click();
+    return detail;
+  });
+  assert.equal(eventProof.previousSessionId, 'ait411'); assert.equal(eventProof.confirm, true);
+  checks.push({ assert: 'O1 existing new-session event', pass: true, ...eventProof });
+  for (const state of ['low-off', 'S1']) {
+    await scene(state, 'de', 'light');
+    const opened = await shadow(page, c => {
+      c.shadowRoot.querySelector(window.ait411.receipt.exhausted ? '.composer-out__upgrade' : '.credits-email').click();
+      return c.shadowRoot.querySelector('dialog.settings').open;
+    });
+    assert.equal(opened, true, `${state}: confirmation entry still opens email settings`);
+    checks.push({ assert: 'O6 confirmation path', state, pass: true });
   }
   assert.deepEqual(errors, []);
   if (evidence) {

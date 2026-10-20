@@ -165,7 +165,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const display = wallet.displayBalance?.();
     const balance = budgetCreditView(budget, id, display ? Object.create(wallet, { balance: { value: () => display } }) : wallet);
     const admission = wallet.balance();
-    const blocked = wallet.canAdmit({ sessionId: id, maxMicro: 1, maxVisitorMicro: 0 }) !== true;
+    const preview = wallet.canAdmit({ sessionId: id, maxMicro: 1, maxVisitorMicro: 0 });
+    const blocked = preview !== true;
     // A minimal next admission distinguishes exhaustion from a temporary hold.
     // Admitted work may finish while its maximum or closing exposure fills the wallet.
     const pendingHoldMicro = display?.pendingHoldMicro ?? admission.reservedMicro ?? 0;
@@ -186,7 +187,13 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
-    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, fullHold, reconciling, ...warning,
+    const slot = creditsView(projected, clock(projected));
+    // Wallet session refusals are a read-only projection: an acknowledged tier
+    // increase can reopen them without restarting the conversation deadline.
+    if (preview?.reason === 'session' && !['ending', 'ended'].includes(slot.status)) {
+      slot.status = 'ended'; slot.endReason = 'session'; slot.canStartPaidWork = false;
+    }
+    return { balance, limitSlot: slot, tiers, exhausted, fullHold, reconciling, ...warning,
       ...(host.emailAsk?.lowCredits === false ? { emailAskLowCredits: false } : {}),
       ...(sessionAware ? { scope: 'session', dailyCapReached,
         ...(dailyCapReached && Number.isSafeInteger(projection?.dailyCapResetAt) && projection.dailyCapResetAt >= 0
@@ -352,7 +359,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           const emailAsk = { ...state.emailAsk }, credits = creditResult(id, ownerToken), turns = activeTurns(storage.get(id));
           const count = turns.filter(turn => turn.role === 'user').length;
           const low = !credits.exhausted && credits.balance.owner.availableMicro > 0 && credits.balance.owner.availableMicro <= credits.lowAtMicro;
-          const eligible = !credits.exhausted && credits.tiers?.next === 'emailGiven' && credits.tiers.delta > 0 &&
+          const eligible = !(host.emailAsk?.lowCredits === false && low) && !credits.exhausted && credits.tiers?.next === 'emailGiven' && credits.tiers.delta > 0 &&
             (host.demo === true || privacyDocumentConfigured(host)) && !host.visitor?.(ownerToken)?.address;
           const settled = turns.at(-1)?.role === 'assistant';
           let accepted = false;

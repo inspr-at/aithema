@@ -557,3 +557,17 @@ for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, sess
   assert.equal(root.querySelector('.composer-out__new').hidden, false);
   assert.equal(root.querySelector('.composer-out__export').inert, false);
 });
+
+for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and custom offer uses the separate key (${copy.display.locale})`, async t => {
+  for (const hasKey of [false, true]) {
+    const custom = structuredClone(copy);
+    if (hasKey) custom.hostSurface.credits.afterConfirm = copy === de ? 'Nach der Bestätigung: {n}\u00a0Credits' : 'After confirmation: {n} credits';
+    else delete custom.hostSurface.credits.afterConfirm;
+    const { root } = setup(t, { copy: custom, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
+      'GET /credits': () => Response.json({ scope: 'session', balance, tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+        allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+    } });
+    await tick(10);
+    assert.match(root.querySelector('.host-credits__next').textContent, hasKey ? copy === de ? /^Nach der Bestätigung:/u : /^After confirmation:/u : copy === de ? /^Mit bestätigter E-Mail-Adresse:/u : /^With confirmed email address:/u);
+  }
+});

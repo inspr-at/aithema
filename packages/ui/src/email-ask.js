@@ -62,6 +62,13 @@ export class EmailAsk {
       this.desktop && this.root.querySelector('.analysis-content').contains(focus) || Boolean(this.root.querySelector('dialog[open]'));
   }
   get eligible() { return this.credits?.exhausted !== true && !this.root.querySelector('.audio-rail')?.hasAttribute('data-used-up') && this.email.canCollect && !this.email.address && this.credits?.tiers?.next === 'emailGiven' && this.credits.tiers.delta > 0; }
+  get reservedLowLine() {
+    if (this.lowCredits && this.credits?.emailAskLowCredits !== false || !lowCredit(this.credits)) return null;
+    const turns = activeTurns(this.session()), last = turns.at(-1);
+    if (last?.role !== 'assistant') return null;
+    return { ...(this.state.lowLine ?? { at: last.id, kind: this.credits?.tiers?.next === 'emailConfirmed' ? 'confirm' : this.eligible ? 'give' : 'none',
+      deltaMicro: this.credits?.tiers?.delta ?? 0, availableMicro: this.credits?.balance?.owner?.availableMicro }), reserved: true };
+  }
   get lowLine() { return this.lowCredits && this.credits?.emailAskLowCredits !== false ? this.state.lowLine : null; }
   setCredits(credits) {
     this.credits = credits;
@@ -94,7 +101,7 @@ export class EmailAsk {
     if (this.lowClaim?.armed === false && this.credits.balance.owner.availableMicro > this.credits.lowAtMicro) { void this.act('rearm'); return; }
     if (safe && low && !this.state.lowLine) { void this.act('line'); return; }
     const intent = emailAskIntent({ count, replied, streaming: this.streaming(), callActive: this.callActive, typing: this.typing,
-      eligible: this.eligible, low, lowReady: this.lowClaim?.armed === true && this.now() >= this.lowAfter,
+      eligible: this.eligible && (!lowCredit(this.credits) || low), low, lowReady: this.lowClaim?.armed === true && this.now() >= this.lowAfter,
       state: { ...this.state, open: this.open, saved: ['saving', 'done'].includes(this.step) }, desktop: this.desktop, dayReady: this.now() >= (this.after ?? Infinity) });
     if (intent === 'fold' && !this.gate.contains(this.root.activeElement) && !this.gate.matches(':hover')) void this.act('fold');
     else if (intent === 'low' || intent === 'turn5') void this.act('show', intent);

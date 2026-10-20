@@ -1466,8 +1466,9 @@ export class AithemaSession extends HTMLElement {
       for (const { key, turn: t, upload, lowLine } of entries) {
         let row = rows.get(key); rows.delete(key);
         if (lowLine) {
-          if (!row) { row = node('li', 'email-low-line'); row.dataset.id = key; }
+          if (!row) { row = node('li', lowLine.reserved ? 'email-low-reserve' : 'email-low-line'); row.dataset.id = key; }
           this.#host.emailAsk.paintLine(row, lowLine);
+          if (lowLine.reserved) { row.inert = true; row.setAttribute('aria-hidden', 'true'); }
           if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
           continue;
         }
@@ -2164,7 +2165,7 @@ export class AithemaSession extends HTMLElement {
     for (const turn of turns) {
       if (turn.at) while (next < uploads.length && uploads[next].at < turn.at) entries.push(uploads[next++]);
       entries.push({ key: turn.id, turn });
-      const lowLine = this.#host?.emailAsk?.lowLine;
+      const lowLine = this.#host?.emailAsk?.lowLine ?? this.#host?.emailAsk?.reservedLowLine;
       if (lowLine?.at === turn.id) entries.push({ key: `email-low:${turn.id}`, lowLine });
     }
     entries.push(...uploads.slice(next));

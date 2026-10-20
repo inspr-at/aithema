@@ -941,3 +941,17 @@ test('AIT-411 O6: disabled low ask cannot create a line or consume the low latch
   assert.equal(response.accepted, false); assert.equal(response.emailAsk.lowLine, undefined);
   assert.equal((await (await f.call(`/api/sessions/${s.id}/credits`)).json()).emailAskLowCredits, false);
 });
+
+test('AIT-411 O7: wallet session reason reaches the credit receipt and a funded tier reopens it', async t => {
+  const f = fixture(t), s = await f.create(), wallet = f.host.wallet(owner);
+  let refusal = { ok: false, reason: 'session' };
+  t.mock.method(f.host, 'wallet', () => ({ ...wallet, canAdmit: () => refusal }));
+  const receipt = async () => (await f.call(`/api/sessions/${s.id}/credits`)).json();
+  assert.equal((await receipt()).limitSlot.endReason, 'session');
+  assert.equal((await receipt()).limitSlot.status, 'ended');
+  for (const reason of [undefined, 'unknown', 'host-limit']) {
+    refusal = { ok: false, reason };
+    assert.equal((await receipt()).limitSlot.endReason, null, 'unknown wallet reasons retain the prior receipt projection');
+  }
+  refusal = true; assert.equal((await receipt()).limitSlot.endReason, null);
+});

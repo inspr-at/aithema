@@ -115,14 +115,17 @@ export class HostSurface {
   get nextTier() {
     if (this.endReason && !['host-limit', 'session'].includes(this.endReason) || !this.#verification?.enabled || !this.#verification.canCollect) return null;
     const tiers = this.tiers;
-    if (this.#credits?.scope !== 'session') return this.endReason === 'session' ? tiers?.next === 'emailConfirmed' && tiers.canConfirm ? 'emailConfirmed' : null : tiers?.next ?? null;
-    if (this.#credits.dailyCapReached || tiers?.current === 'emailConfirmed') return null;
+    if (this.dailyCapped) return null;
     const allowances = tiers?.allowancesMicro;
+    if (this.endReason === 'session') return tiers?.current !== 'emailConfirmed' && tiers?.canConfirm &&
+      allowances?.emailConfirmed > allowances?.[tiers.current] ? 'emailConfirmed' : null;
+    if (this.#credits?.scope !== 'session') return tiers?.next ?? null;
+    if (tiers?.current === 'emailConfirmed') return null;
     // Equal anonymous/email-given allowances go straight to confirmation.
     if (tiers?.current === 'anonymous' && allowances && allowances.anonymous === allowances.emailGiven) {
       return tiers.canConfirm && allowances.emailConfirmed > allowances.anonymous ? 'emailConfirmed' : null;
     }
-    return tiers?.next && (this.endReason !== 'session' || tiers.next === 'emailConfirmed' && tiers.canConfirm) && allowances?.[tiers.next] > allowances?.[tiers.current] ? tiers.next : null;
+    return tiers?.next && allowances?.[tiers.next] > allowances?.[tiers.current] ? tiers.next : null;
   }
   get deltaCredits() { return this.tiers ? defaultCreditFormat(this.#credits?.scope === 'session' && this.nextTier
     ? this.tiers.allowancesMicro[this.nextTier] - this.tiers.allowancesMicro[this.tiers.current] : this.tiers.delta, this.#session().locale ?? 'en') : ''; }
@@ -289,10 +292,11 @@ export class HostSurface {
           ['ending', 'ended'].includes(previous.limitSlot.status) && slot?.status === 'active');
       // An earlier receipt cannot recover a limit announced after its request.
       const currentLimit = limitGeneration === this.#limitGeneration;
-      if (currentLimit && this.#ended === 'host-limit' && recovered) this.#ended = null;
+      if (currentLimit && recovered && (this.#ended === 'host-limit' || this.#ended === 'session' && allowanceRaised && slot?.status === 'active')) this.#ended = null;
       if (currentLimit && ['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = this.#ended === 'session' && slot.endReason === 'host-limit' ? 'session' : slot.endReason ?? this.#ended ?? 'session';
-      this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
+      this.#verification?.setCredits(this.#credits); this.#paintCredits();
       this.#emailAsk?.setCredits(this.#credits);
+      await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
     } catch {
       // Keep acknowledged tiers; only an unresolved lead needs a failure status.
       if (this.#alive && load === this.#creditsLoad) {
@@ -308,14 +312,14 @@ export class HostSurface {
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
     if (this.#options.credits?.reconcilingVisible && !line.querySelector('.host-credits__reconciling')) {
       const stack = line.querySelector('.host-credits__stack');
-      const label = node('span', 'host-credits__reconciling', c.reconcilingVisible ?? c.reconciling); label.setAttribute('aria-hidden', 'true'); stack.append(label);
+      const label = node('span', 'host-credits__reconciling', c.reconciling); label.setAttribute('aria-hidden', 'true'); stack.append(label);
       const live = node('span', 'host-credits__reconcile-live sr-only'); live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite'); line.append(live);
     }
     const reconciling = this.#options.credits?.reconcilingVisible && this.#credits?.reconciling === true;
     if (this.#options.credits?.reconcilingVisible) {
       line.toggleAttribute('data-reconciling', reconciling);
-      setText(line.querySelector('.host-credits__reconciling'), c.reconcilingVisible ?? c.reconciling);
-      setText(line.querySelector('.host-credits__reconcile-live'), reconciling ? c.reconcilingVisible ?? c.reconciling : '');
+      setText(line.querySelector('.host-credits__reconciling'), c.reconciling);
+      setText(line.querySelector('.host-credits__reconcile-live'), reconciling ? c.reconciling : '');
     }
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
     const scoped = this.#credits?.scope === 'session', capped = scoped && this.#credits.dailyCapReached;
