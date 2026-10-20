@@ -183,7 +183,7 @@ export async function composerCreditReservationMatrix(t) {
         checks.push(row); t.diagnostic(`${label}: ${JSON.stringify(row)}`);
         if (evidence) {
           await mkdir(join(evidence, 'ait434'), { recursive: true });
-          await writeFile(join(evidence, 'ait434', 'v1.1-checks.json'), JSON.stringify({ ticket: 'AIT-434', head, spec: 'Tick spec v1.1, 2026-10-20', checks }, null, 2));
+          await writeFile(join(evidence, 'ait434', 'v1.1-checks.json'), JSON.stringify({ ticket: 'AIT-434', head, spec: 'Tick spec v1.3, 2026-10-21', checks }, null, 2));
           if (theme === 'light' && (width === 390 || width === 1440 && locale === 'de')) {
             const scrollBefore = await page.evaluate(() => scrollY);
             await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
@@ -197,7 +197,7 @@ export async function composerCreditReservationMatrix(t) {
         assert.ok(row.lineCount > 0, `${label}: offer has rendered line boxes`);
         if (locale === 'de' && width === 390) assert.ok(row.lineCount <= 2, `${label}: 1.000 delta must fit in at most two lines; got ${row.lineCount}: ${JSON.stringify(row.lines)}`);
         if (locale === 'de' && width === 390) assert.ok(row.lines.every(line => !/(?:^|\s)Ihr$/u.test(line)), `${label}: 1.000 delta must not leave Ihr at a line end: ${JSON.stringify(row.lines)}`);
-        assert.equal(measured.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 1.000 weitere\u00a0Credits. Ihr Gespräch bleibt gespeichert.'
+        assert.equal(measured.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 1.000 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.'
           : 'With your email address you get 1,000 more\u00a0credits. Your conversation stays saved.', `${label}: exact Tick copy and formatted delta`);
         assert.equal(measured.font, 'ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif');
         assert.equal(measured.reducedMotion, true); assert.equal(measured.focused, false);
@@ -448,7 +448,7 @@ export async function topUpReservationMatrix(t) {
         : locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now';
       assert.equal(presentation.full, expected); assert.equal(presentation.short, expected); assert.equal(presentation.label, expected);
       assert.equal(presentation.footer, '0');
-      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 600 weitere\u00a0Credits. Ihr Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.');
+      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.');
       assert.equal(presentation.ink3, presentation.muted);
       assert.equal(presentation.muted, theme === 'light' ? '#496477' : '#9db4c4');
       assert.equal(presentation.reducedMotion, true); assert.equal(presentation.focused, false);
