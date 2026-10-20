@@ -15,6 +15,19 @@ const run = (role, adapter, opts) => collect(role === 'stt' ? adapter.stream(req
 const setup = (role, extra = {}) => factory(role)({ enabled: true, config, consent: fixtureConsent(fixtureBinding(role)), resolveSecret: () => 'synthetic-auth',
   connect: () => fixtureSocket({ role }), ...extra });
 
+test('AIT-403 component receipt matching evidence uses the invocation clock', async t => {
+  const wall = Date.parse('2030-06-15T00:00:30Z');
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  const now = () => wall - 60_000, reports = [], consent = fixtureConsent(fixtureBinding('tts'));
+  consent.port.coverage = ({ scope, consentRevision }) => ({ ...scope, scope, covered: true, consentRevision,
+    checkedAt: now(), expiresAt: now() + 60_000 });
+  const adapter = setup('tts', { consent });
+  await run('tts', adapter, { ...options(reports), now, deadlineAt: now() + 5000 });
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].matchingKey.startedAt, new Date(now()).toISOString());
+  assert.equal(reports[0].matchingKey.endedAt, new Date(now()).toISOString());
+});
+
 test('AIT-160: ElevenLabs STT sends documented PCM16/manual-commit frames after endpointing', async () => {
   const sent = [], reports = []; let closes = 0;
   const stt = setup('stt', { connect: req => {
@@ -153,8 +166,10 @@ test('AIT-160: TTS rejects >240 fragments, wrong format, and under-reservation b
 });
 
 test('AIT-160: ElevenLabs fixture candidate runs offline qualification against existing baseline', async () => {
-  const result = await runOfflineQualification({ candidateComponents: item => ({
-    stt: setup('stt', { connect: () => fixtureSocket({ role: 'stt', text: item.reference }) }), tts: setup('tts'),
+  const result = await runOfflineQualification({ candidateComponents: (item, { now }) => ({
+    stt: setup('stt', { consent: fixtureConsent(fixtureBinding('stt'), true, now),
+      connect: () => fixtureSocket({ role: 'stt', text: item.reference }) }),
+    tts: setup('tts', { consent: fixtureConsent(fixtureBinding('tts'), true, now) }),
   }) });
   assert.equal(result.candidate.wer, 0); assert.equal(result.candidate.entityAccuracy, 1);
   assert.equal(result.candidate.firstAudioMs.p95, 900); assert.equal(result.candidate.bargeInStopMs, 0);

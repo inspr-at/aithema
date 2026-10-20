@@ -58,8 +58,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
     const json = (error, status, reason) => reply({ error, ...(reason ? { reason } : {}) }, status, error);
     if (request.method !== 'POST') return json('method-not-allowed', 405);
     const localCancellation = new AbortController();
-    const callbackDeadlineAt = Date.now() + timeoutMs;
-    const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: callbackDeadlineAt });
+    const callbackDeadlineAt = now() + timeoutMs;
+    const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: callbackDeadlineAt, now });
     let admission, iterator, invocationOptions, invocationScope, reports = 0, finishPromise, callTimer, callSignal, callAbort, streamFailure;
     const cleanup = async failed => {
       finishPromise ??= Promise.resolve().then(async () => {
@@ -70,7 +70,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             const settlement = Promise.resolve().then(() => admission.finish({ failed }));
             settlement.catch(() => {});
             await voiceOperation({ deadlineAt: Math.min(callbackDeadlineAt,
-              invocationOptions?.deadlineAt ?? Infinity, Date.now() + 1000) }, () => settlement);
+              invocationOptions?.deadlineAt ?? Infinity, now() + 1000), now }, () => settlement);
           }
         }
         finally { clearTimeout(callTimer); callSignal?.removeEventListener('abort', callAbort);
@@ -82,18 +82,18 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
     const expire = () => {
       const signal = invocationOptions?.signal.aborted ? invocationOptions.signal : scope.signal;
       if (streamFailure) void streamFailure(new PluginError(signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled'));
-      else if (iterator) void disposeIterator(iterator).then(() => cleanup(true)).catch(() => {});
+      else if (iterator) void disposeIterator(iterator, now).then(() => cleanup(true)).catch(() => {});
     };
     scope.signal.addEventListener('abort', expire, { once: true });
-    const next = () => voiceOperation(invocationOptions ?? { signal: scope.signal }, () => iterator.next());
-    const readBody = () => voiceOperation({ signal: scope.signal }, opts => readJson(request, maxRequestBytes,
+    const next = () => voiceOperation(invocationOptions ?? { signal: scope.signal, deadlineAt: callbackDeadlineAt, now }, () => iterator.next());
+    const readBody = () => voiceOperation({ signal: scope.signal, deadlineAt: callbackDeadlineAt, now }, opts => readJson(request, maxRequestBytes,
       { signal: opts.signal, onBytes: bytes => { requestBytes = bytes; } }));
     try {
       let call, body;
-      if (!staticSecretRef) call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts));
+      if (!staticSecretRef) call = await voiceOperation({ signal: scope.signal, deadlineAt: callbackDeadlineAt, now }, opts => getCall(request, opts));
       if (typeof call?.callId === 'string') callIdHash = digest(call.callId).toString('hex').slice(0, 16);
       const secretRef = staticSecretRef ?? call?.facadeSecretRef;
-      const secret = secretRef && await voiceOperation({ signal: scope.signal }, () => resolveSecret(secretRef));
+      const secret = secretRef && await voiceOperation({ signal: scope.signal, deadlineAt: callbackDeadlineAt, now }, () => resolveSecret(secretRef));
       if (!bearerMatches(request.headers.get('authorization'), secret)) {
         // The signal carries no header/value and cannot change auth or read the body.
         try { onBearerRejected?.(); } catch { /* Repair is best-effort; authentication stays closed. */ }
@@ -104,7 +104,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         body = await readBody();
         const identity = body?.elevenlabs_extra_body?.aithema_call;
         if (typeof identity !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(identity)) throw new PluginError('not-admitted', 'Call identity required');
-        call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts, identity));
+        call = await voiceOperation({ signal: scope.signal, deadlineAt: callbackDeadlineAt, now }, opts => getCall(request, opts, identity));
         if (typeof call?.callId === 'string') callIdHash = digest(call.callId).toString('hex').slice(0, 16);
       }
       if (!active(call)) throw new PluginError('not-admitted', 'Call inactive');
@@ -121,9 +121,9 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         body.messages.some(message => !message || typeof message !== 'object' || Array.isArray(message) || typeof message.role !== 'string' ||
           ['system', 'user', 'assistant'].includes(message.role) && message.content != null && typeof message.content !== 'string') ||
         (body.stream !== undefined && typeof body.stream !== 'boolean')) throw new PluginError('invalid-output', 'Invalid completion request');
-      const deadlineAt = Math.min(Date.now() + timeoutMs, call.spendDeadlineAt, call.browserLivenessDeadlineAt);
+      const deadlineAt = Math.min(callbackDeadlineAt, call.spendDeadlineAt, call.browserLivenessDeadlineAt);
       callTimer = setTimeout(() => localCancellation.abort(new DOMException('Voice call deadline', 'TimeoutError')), Math.max(0, deadlineAt - now()));
-      const opts = { signal: scope.signal, deadlineAt };
+      const opts = { signal: scope.signal, deadlineAt, now };
       const providerMessages = body.messages.filter(message => ['user', 'assistant'].includes(message.role) && typeof message.content === 'string');
       const messages = providerMessages
         .map(({ role, content }) => ({ role, content }));
@@ -202,9 +202,9 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         const report = admission.options.report;
         const invocationDeadline = Math.min(deadlineAt, admission.options.deadlineAt ?? deadlineAt);
         // One lifetime signal owns the earliest deadline, including a response nobody reads.
-        invocationScope = operationScope({ deadlineAt: invocationDeadline,
+        invocationScope = operationScope({ deadlineAt: invocationDeadline, now,
           signal: admission.options.signal ? AbortSignal.any([scope.signal, admission.options.signal]) : scope.signal });
-        invocationOptions = { ...admission.options,
+        invocationOptions = { ...admission.options, now,
           signal: invocationScope.signal, deadlineAt: invocationDeadline,
           report(terminal) {
             if (reportAllowed && !reportAllowed()) return;
@@ -233,7 +233,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
                 if (item.done) break;
                 beforeOutput?.(); yield item.value;
               }
-            } finally { await disposeIterator(stream); }
+            } finally { await disposeIterator(stream, now); }
           } catch (error) { failed = true; throw error; }
           finally { if (attempt) await selected.finish({ failed }); }
         }, { guardDirection: initialAdmission.guardDirection });
@@ -257,7 +257,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           admit: async transformRequest => {
             const request = transformRequest(input);
             const selected = await voiceOperation(invocationOptions, bounded => admitReasoning({ callId: call.callId, request, transformRequest,
-              messages, options: { deadlineAt: bounded.deadlineAt, signal: invocationOptions.signal }, safeguardRetry: true }));
+              messages, options: { deadlineAt: bounded.deadlineAt, signal: invocationOptions.signal, now }, safeguardRetry: true }));
             return { ...selected, request: selected.request ?? request };
           },
           scope: value => { safeScope = value; },
@@ -330,7 +330,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           streamFailure = async error => {
             if (streamEnded) return; streamEnded = true; clearTimeout(holdingTimer);
             const code = codeFor(error);
-            cancelReasoning(); void disposeIterator(iterator);
+            cancelReasoning(); void disposeIterator(iterator, now);
             try { await cleanup(true); } catch { /* Preserve the original failure; settlement must not hide its JSON error. */ }
             try {
               if (!cancelled) { enqueue(controller, `data: ${JSON.stringify({ error: code })}\n\n`); controller.close(); }
@@ -377,22 +377,22 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           cancelled = true;
           if (streamEnded) return; streamEnded = true; clearTimeout(holdingTimer);
           // Abort the reasoning operation before iterator.return (it may be waiting on provider I/O).
-          cancelReasoning(); await disposeIterator(iterator);
+          cancelReasoning(); await disposeIterator(iterator, now);
           try { await cleanup(true); } catch { /* A disconnected client still gets one failure log. */ }
           logResult('cancelled');
         },
       }), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
     } catch (error) {
       const code = codeFor(error);
-      cancelReasoning(); await disposeIterator(iterator);
+      cancelReasoning(); await disposeIterator(iterator, now);
       try { await cleanup(true); } catch { /* A failed settlement cannot replace the original JSON error with an empty 5xx. */ }
       return json(code, statusFor({ code }), spendReason(error) ?? turnReason(error));
     }
     function cancelReasoning() { localCancellation.abort(); }
   };
 }
-async function disposeIterator(iterator) {
-  try { if (iterator?.return) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => iterator.return()); } catch { /* Host finish settles missing usage conservatively. */ }
+async function disposeIterator(iterator, now) {
+  try { if (iterator?.return) await voiceOperation({ deadlineAt: now() + 1000, now }, () => iterator.return()); } catch { /* Host finish settles missing usage conservatively. */ }
 }
 
 // Copy only plain request data; policy callbacks remain host-owned functions.
@@ -482,6 +482,7 @@ function spokenPurposeRequest(request, { retry = false, promptOnly = false, comm
  * validation policy and original operation lifetime. No analysis lane is joined.
  */
 async function* committedPurposeSegments(pinned, initial, options, ports) {
+  const now = options.now ?? (() => Date.now());
   let accepted = '', scope = 'in', unsafe = false, redirected = false, promptOnly = false, lastRaw = '';
   const rejected = new Error('Segment rejected');
   const updateScope = value => { if (value === 'off' || scope === 'in') scope = value; ports.scope(scope); };
@@ -506,10 +507,10 @@ async function* committedPurposeSegments(pinned, initial, options, ports) {
       retry: true, promptOnly, committed: ports.committed(),
     })) : initial;
     const cancellation = new AbortController();
-    const lifetime = operationScope({ deadlineAt: Math.min(options.deadlineAt, selected.options.deadlineAt ?? options.deadlineAt),
+    const lifetime = operationScope({ now, deadlineAt: Math.min(options.deadlineAt, selected.options.deadlineAt ?? options.deadlineAt),
       signal: AbortSignal.any([options.signal, cancellation.signal, ...(selected.options.signal ? [selected.options.signal] : [])]) });
     let count = 0, failed = true, stream;
-    const invocation = { ...selected.options, signal: lifetime.signal,
+    const invocation = { ...selected.options, now, signal: lifetime.signal,
       deadlineAt: Math.min(options.deadlineAt, selected.options.deadlineAt ?? options.deadlineAt),
       report(terminal) {
         if (ports.reportAllowed && !ports.reportAllowed()) return;
@@ -551,13 +552,13 @@ async function* committedPurposeSegments(pinned, initial, options, ports) {
       try {
         // A provider that ignores abort must never overlap a paid retry. If its
         // iterator cannot close inside the remaining budget, fail this reply.
-        if (stream?.return) await voiceOperation({ deadlineAt: Math.min(options.deadlineAt, Date.now() + 1000) }, () => stream.return());
+        if (stream?.return) await voiceOperation({ deadlineAt: Math.min(options.deadlineAt, now() + 1000), now }, () => stream.return());
         // A completed redirect needs no more generation. If closing the provider
         // still leaves no receipt, retain its cost exposure without inventing usage.
         if (redirected && count === 0) await invocation.report({ attemptId: selected.options.attempt.attemptId, outcome: 'uncertain' });
       } finally {
         lifetime.dispose();
-        if (attempt) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => selected.finish({ failed }));
+        if (attempt) await voiceOperation({ deadlineAt: now() + 1000, now }, () => selected.finish({ failed }));
       }
     }
   }

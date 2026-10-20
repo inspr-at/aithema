@@ -62,7 +62,7 @@ export function createComposedVoiceAuthority(operations) {
         await onCompletion?.({ callId, providerSessionId, replyId, content: text, textOrigin, engine,
           userTurnOrdinal: worker.ordinal, scope: safe.scope, safeguardRevision: request.safeguardRevision });
         await commitCoordinator(envelope, { ...options, role: 'assistant', text, replyId, textOrigin, engine, ordinal: worker.ordinal });
-        return { replyId, created: Math.floor(Date.now() / 1000), events: (async function* () {
+        return { replyId, created: Math.floor((options.now ?? Date.now)() / 1000), events: (async function* () {
           yield { type: 'delta', text }; yield { type: 'completion', text }; await onDelivered?.({ callId });
         })() };
       }, options);

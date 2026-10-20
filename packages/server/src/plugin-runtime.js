@@ -94,10 +94,23 @@ export function mockPresets() {
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
-  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, now = () => Date.now(), budget = new SQLiteBudgetLedger(storage, { now }), voiceCap, healthMs = 1000, uiRenderLimits = {},
-  renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }),
-  conversationLimits = createConversationLimits({ storage, now }) } = {}) {
+  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, now: configuredNow, budget, voiceCap, healthMs = 1000, uiRenderLimits = {},
+  renderLimiter, conversationLimits } = {}) {
+  let clockSource = configuredNow ?? (() => Date.now());
+  // Components retain this function, never the replaceable clock source.
+  const now = () => clockSource();
+  budget ??= new SQLiteBudgetLedger(storage, { now });
+  renderLimiter ??= createUIRenderLimiter({ storage, ...uiRenderLimits, now });
+  conversationLimits ??= createConversationLimits({ storage, now });
+  const requireClockPorts = () => {
+    if (voiceCap && typeof voiceCap.setClock !== 'function') throw new TypeError('Host clock requires voiceCap.setClock(clock)');
+    if (typeof renderLimiter.setClock !== 'function') throw new TypeError('Host clock requires renderLimiter.setClock(clock)');
+  };
+  if (configuredNow) requireClockPorts();
+  voiceCap?.setClock?.(now);
+  renderLimiter.setClock?.(now);
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
+  if (configuredNow) storage.setHostClock?.(now, { accountingNow: () => budget.now() });
   // A synchronous session lease precedes every authorization, quote and wallet await.
   // It survives the synthesis receipt until playback ends (or its bounded lease expires).
   const replyReplays = new Map();
@@ -415,12 +428,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     return { plugins };
   }
   async function boundedEvaluate(session, preset, feature, options = {}) {
-    const scope = operationScope({ ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) });
+    const clock = options.now ?? now;
+    const bounded = { ...options, now: clock, deadlineAt: Math.min(options.deadlineAt ?? Infinity, clock() + healthMs) };
+    const scope = operationScope(bounded);
     let abort;
     try {
       const expired = new Promise(resolve => { abort = () => resolve({ reason: 'admission deadline' });
         scope.signal.addEventListener('abort', abort, { once: true }); if (scope.signal.aborted) abort(); });
-      return await Promise.race([evaluate(session, preset, feature, { ...options, signal: scope.signal, deadlineAt: now() + healthMs }), expired]);
+      return await Promise.race([evaluate(session, preset, feature, { ...bounded, signal: scope.signal }), expired]);
     } finally { scope.signal.removeEventListener('abort', abort); scope.dispose(); }
   }
   // Resolve by the admitted scope, never an option id that the host can rebind.
@@ -512,6 +527,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       ...(reason ? { reason } : {}), ...(['4xx', '5xx'].includes(providerErrorClass) ? { providerErrorClass } : {}) })).catch(() => {}); } catch { /* Diagnostics cannot interrupt paid work. */ }
   };
   const runtime = {
+    now: () => now(),
     setLaneDiagnostic(callback) { laneDiagnostic = callback; },
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor, conversationLimits,
     admitVoiceComponent: request => componentAccounting.admit(request),
@@ -520,16 +536,27 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return adapter ? [adapter] : [];
     }),
     setOwnerWallet(provider) { ownerWallet = provider; },
-    setHostClock(clock) { budget.now = clock; },
+    setHostClock(clock) {
+      if (typeof clock !== 'function') throw new TypeError('Host clock must be a function');
+      requireClockPorts();
+      voiceCap?.setClock(now); renderLimiter.setClock(now);
+      conversationLimits.configure({ now });
+      clockSource = configuredNow ?? clock;
+      // Accounting timestamps retain host attribution even with an explicit
+      // policy clock. Their age and retry eligibility use this same epoch.
+      budget.now = clock; storage.setHostClock?.(now, { accountingNow: () => budget.now() });
+    },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       // OPS and the background worker share one writer. A dry-run performs only
       // receipt reads; it never records evidence, changes a balance or releases a cap.
       if (costJob) { await costJob; return this.reconcileCosts(options); }
       const run = async () => {
-        const rows = [...budget.pendingCosts(), ...budget.deferredCosts(now())], limit = options.limit ?? 10;
+        const rows = [...budget.pendingCosts(), ...budget.deferredCosts(budget.now())], limit = options.limit ?? 10;
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid reconciliation batch');
         const count = Math.min(limit, rows.length), summary = { candidates: 0, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
+        // Receipt lookups have an elapsed transport budget, independent of the
+        // policy clock used for retry eligibility and evidence age above/below.
         for (let i = 0; i < count && !options.signal?.aborted && Date.now() < (options.deadlineAt ?? Infinity); i++) {
           const row = rows[(costRetryOffset + i) % rows.length];
           let record = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;
@@ -576,10 +603,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           else if (row.outcome !== 'uncertain') evidence = { chargedMicro: row.settled_micro, ...(record.generationId ? { generationId: record.generationId } : {}) };
           else {
             if ((record.retryAttempts ?? 0) < COST_ESTIMATE_ATTEMPTS) {
-              try { evidence = await plugin.reconcileCost(record, { ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, Date.now() + 5000) }); }
+              try { evidence = await plugin.reconcileCost(record, { ...options, now: Date.now, deadlineAt: Math.min(options.deadlineAt ?? Infinity, Date.now() + 5000) }); }
               catch { /* Timeouts and unavailable generations reach the same bounded fallback. */ }
             }
-            if (!evidence && now() - (record.settledAt ?? 0) >= costReconciliationWindowMs) {
+            if (!evidence && budget.now() - (record.settledAt ?? 0) >= costReconciliationWindowMs) {
               const estimate = record.estimateMicro ?? plugin.uncertainEstimateMicro;
               if (Number.isSafeInteger(estimate) && estimate >= 0) evidence = {
                 chargedMicro: Math.max(estimate, record.observedCostMicro ?? 0, previous?.estimated ? previous.chargedMicro : 0),
@@ -605,7 +632,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
               // it cannot start another cycle of generation lookups.
               const retryAttempts = record.generationId ? Math.min(COST_ESTIMATE_ATTEMPTS, (record.retryAttempts ?? 0) + 1) : 0;
               budget.acknowledgeCost(row.attempt_id,
-                record.generationId && retryAttempts < COST_ESTIMATE_ATTEMPTS ? now() + costReconciliationWindowMs : null, retryAttempts);
+                record.generationId && retryAttempts < COST_ESTIMATE_ATTEMPTS ? budget.now() + costReconciliationWindowMs : null, retryAttempts);
               summary.pending++;
             }
           } catch { summary.pending++; /* The durable evidence is retried after a crash or cap settlement failure. */ }
@@ -618,7 +645,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     },
     /** Revalidate a dispatched operation's admitted scope against the current grant. */
     async processingAllowed(session, consentScope, options = {}) {
-      const scope = operationScope({ ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) });
+      const clock = options.now ?? now;
+      options = { ...options, now: clock, deadlineAt: Math.min(options.deadlineAt ?? Infinity, clock() + healthMs) };
+      const scope = operationScope(options);
       try {
         const current = storage.get(session.id);
         if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash) return false;
@@ -971,6 +1000,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       finally { if (!playing) releaseReplyReplay(session.id, lease); }
     },
     async admitVoice({ session, request, options = {} }) {
+      options = { ...options, now: options.now ?? now };
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
       const result = await this.checkVoice(session, options);
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
@@ -1053,6 +1083,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return (await boundedEvaluate(session, session.processingPreset ?? 'best', 'text', options)).reason ?? null;
     },
     async admit({ session, lane, operation, request, options = {} }) {
+      options = { ...options, now: options.now ?? now };
       conversationLimits.assertOpen(session.id);
       const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
         Boolean(storage.purposeAssessmentInput(session));
