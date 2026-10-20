@@ -38,7 +38,7 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
 }
 
 const saveNotices = {
-  de: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
+  de: 'Ihre E-Mail-Adresse wird nur für Ihr Guthaben verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.',
   en: 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.',
 };
 for (const [locale, copy] of [['de', de], ['en', en]]) {

@@ -9,6 +9,7 @@ import { browserForFile } from './shared-browser.js';
 import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { contrast } from '../contrast.js';
+import { settleEvidenceFrame } from './start2-display-helpers.js';
 
 const workflowEvent = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
 const head = workflowEvent?.pull_request?.head?.sha ?? process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
@@ -79,6 +80,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy });
       }
       if (path.endsWith('/identity')) return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: privacy });
+      if (handover && path.endsWith('/handover') && method === 'GET') return Response.json({ offer: { available: true }, handover: null });
       if (/\/identity\/(request|change|resend)$/u.test(path)) { state.address = JSON.parse(init.body).address ?? state.address; state.confirmed = false; return Response.json({ identity: identity() }); }
       return window.a2OriginalFetch(url, init);
     };
@@ -619,8 +621,27 @@ export async function visitorCreditMatrix(t, locales) {
       await shot('privacy-gate'); await click(page, 'dialog.settings .done'); await shot('privacy-gate-used-up');
       await fixture(page, locale, { handover: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page); await shot('handover-notice');
       await click(page, 'dialog.settings .done');
+      if (locale === 'de' && theme === 'light' && width === 390) {
+        await shadow(page, c => c.shadowRoot.querySelector('.handover').scrollIntoView({ block: 'center', behavior: 'instant' }));
+        await settleEvidenceFrame(page);
+        const targets = ['.handover', '.handover-request', '.handover__state'];
+        const before = await boxes(page, targets);
+        await shadow(page, async c => {
+          const { inputRevision } = await import('/packages/core/src/session.js');
+          c.receive({ seq: c.session.seq + 1, type: 'handover.state', data: { status: 'sent', revision: inputRevision(c.session) } });
+        });
+        await settleEvidenceFrame(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.handover__state').textContent), 'Ihre Anfrage wurde gesendet. Sie erhalten eine persönliche Rückmeldung.');
+        const shiftPx = unchanged(before, await boxes(page, targets), 'AIT-426 handover sent');
+        uiChecks.push({ locale, theme, width, state: 'ait-426-handover-sent', pass: true, shiftPx });
+        if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-handover-sent.png'), fullPage: false });
+      }
       await fixture(page, locale, { delivery: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page); await shot('mail-no-email');
       await click(page, '.verify-entry'); await settle(page); await shot('mail-confirm-dialog');
+      if (evidence && locale === 'de' && theme === 'light' && width === 390) {
+        await settleEvidenceFrame(page);
+        await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-email-dialog-notice.png'), fullPage: false });
+      }
       const order = await shadow(page, c => {
         const form = c.shadowRoot.querySelector('dialog.verify-dialog form');
         return ['.verify__field', '.verify__note', '.m-notice', '.verify__actions'].map(selector => form.querySelector(selector).getBoundingClientRect().top);
@@ -649,7 +670,7 @@ export async function visitorCreditMatrix(t, locales) {
       });
       assert.equal(sent.helper, ''); assert.equal(sent.separator, '\u00a0· '); assert.equal(sent.inlineChange, true, `${label}: Change stays inline`);
       assert.equal(sent.gapPx, 12); assert.ok(sent.widthPx < sent.primaryWidthPx, `${label}: resend hugs its label`);
-      assert.match(sent.confirmation, locale === 'de' ? /^Wir haben Ihnen einen Bestätigungslink geschickt/u : /^We sent you a confirmation link/u);
+      assert.match(sent.confirmation, locale === 'de' ? /^Der Bestätigungslink wurde gesendet\./u : /^We sent you a confirmation link/u);
       uiChecks.push({ locale, theme, width, state: 'mail-link-sent', pass: true, ...sent });
       await page.keyboard.press('Escape');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
