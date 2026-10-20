@@ -63,7 +63,7 @@ export async function creditHostOptionsCheck(t) {
         question_short: question, options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', likely: true }, { text: locale === 'de' ? 'Ressourcen' : 'Resources' }] });
       session.identity = { status: confirmed ? 'verified' : 'guest', address: confirmed ? 'reader@example.test' : null,
         verificationRequired: false, assessmentUnlocked: true, conceptsUnlocked: true, roles: ['visitor'] };
-      session.credits = { status: ended ? 'ended' : 'active', endReason: ended ? state.startsWith('S') ? 'session' : 'host-limit' : null };
+      session.credits = { status: state.startsWith('S') ? 'ended' : 'active', endReason: state.startsWith('S') ? 'session' : null };
       session.settings.origin = 'chosen'; session.processingPreset = 'best';
       session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: false } };
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');

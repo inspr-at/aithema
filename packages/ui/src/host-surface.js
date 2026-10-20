@@ -102,7 +102,10 @@ export class HostSurface {
       const body = next ? fill(credits.ended.sessionUpgrade, { next: defaultCreditFormat(this.tiers.allowancesMicro[next], this.#session().locale ?? 'en') }) : credits.ended.newConversationHint;
       return { title: credits.ended.session.title, body, footer: credits.ended.session.footer, announce: `${credits.ended.session.title} ${body}` };
     }
-    if (this.newConversationAction) return { ...(credits.ended[this.endReason] ?? usedUp), body: credits.ended.newConversationHint, footer: false };
+    if (this.newConversationAction) {
+      const title = (credits.ended[this.endReason] ?? usedUp).title, body = credits.ended.newConversationHint;
+      return { title, body, footer: false, announce: `${title} ${body}` };
+    }
     const state = this.endReason === 'host-limit' && next
       ? { title: usedUp.title, body: fill(usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: this.deltaCredits }), footer: false }
       : credits.ended[this.endReason] ?? usedUp;

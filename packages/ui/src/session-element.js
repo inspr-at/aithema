@@ -1402,8 +1402,10 @@ export class AithemaSession extends HTMLElement {
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
       const limit = this.#host?.limitCopy ?? u;
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
-      out.toggleAttribute('data-host-limit', ['host-limit', 'session'].includes(this.#host?.endReason));
       const newAction = this.#host?.newConversationAction, noAction = this.#host?.noDailyAction;
+      const newConversationEnabled = this.#options.host?.usedUp?.newConversation?.enabled === true;
+      out.toggleAttribute('data-host-limit', ['host-limit', 'session'].includes(this.#host?.endReason) || usedUp && newConversationEnabled ||
+        this.#host?.dailyCapped && (noAction || this.#options.host?.credits?.dailyCapReset === true));
       if (this.#options.host?.credits?.dailyCapReset) {
         let deadline = out.querySelector('.composer-out__deadline');
         if (!deadline) { deadline = node('span', 'composer-out__deadline'); out.append(deadline); out.setAttribute('data-reset-slot', ''); }
@@ -1436,7 +1438,7 @@ export class AithemaSession extends HTMLElement {
       setText(out.querySelector('.composer-out__export span'), u.export);
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
-      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (kind === 'none' || ['host-limit', 'session'].includes(this.#host?.endReason));
+      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none' || noAction; upgrade.setAttribute('aria-hidden', String(kind === 'none' || noAction));
       if (noAction) out.querySelector('.composer-out__actions').setAttribute('aria-hidden', 'true');

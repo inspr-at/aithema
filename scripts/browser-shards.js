@@ -249,6 +249,15 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 151);
 
+// AIT-411: PR #365 CI 39467097581, head 7dbf4cb7, shard 6/7:
+// complete host-surface file 7/7 PASS, including the unchanged 180-case
+// exact-zero matrix and 20 viewport shots. Top-level work 161.722440730s;
+// ceil(*1.25) = 203s. Matrix work fell from 52.789977227s to 46.461047410s
+// by combining duplicate settle waits with batched geometry reads.
+// PR diagnostic floor only; keep trusted main history and all capacity settings.
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 203);
+
 // AIT-404: green PR #357 CI 39430635672, head e1756456, shard 3/7:
 // complete continuity file 3/3 PASS, including all eight touch/fine-pointer
 // takeback cases with exact-zero whole-click geometry and failed GET recovery.
