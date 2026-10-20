@@ -173,6 +173,9 @@ test('AIT-429: agent-api-unavailable keeps its diagnostic code and renders Tickâ
       assert.equal(render(copy, code, feature), expected);
       assert.equal(render(copy, `delegated reasoning: ${code}`, feature), copy.reasons.delegated.replace('{reason}', expected));
     }
-    assert.doesNotMatch(narrowVoiceStatus(copy, expected, { reason: code }), /provider|anbieter/iu);
+    const compact = narrowVoiceStatus(copy, expected, { reason: code });
+    assert.doesNotMatch(compact, /provider|anbieter/iu);
+    assert.equal(compact, copy.voiceReasonsNarrow.unavailable);
+    assert.ok([...compact].length <= 22);
   }
 });

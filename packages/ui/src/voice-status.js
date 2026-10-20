@@ -22,6 +22,7 @@ const reasonMessages = { 'recovery-failed': 'voiceRecoveryFailed', 'start-failed
 
 /** All header copy sources get a bounded visual label, including host-defined refusals. */
 export function narrowVoiceStatus(copy, sentence, { reason: rawReason, nextTier } = {}) {
+  if (rawReason === 'agent-api-unavailable') return copy.voiceReasonsNarrow.unavailable;
   if (rawReason === 'host-limit' && nextTier == null && sentence === copy.voiceStates.usedUp) return copy.voiceReasonsNarrow.hostBudget;
   if (sentence === copy.voiceEndedAithemaMeasured) return copy.voiceEndedAithemaMeasuredNarrow;
   if (sentence === copy.notConfigured) return copy.voiceReasonsNarrow.setup;
