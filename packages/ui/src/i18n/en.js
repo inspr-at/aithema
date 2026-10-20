@@ -593,7 +593,7 @@ export const en = {
     'public-origin-invalid': 'Voice host address invalid',
     'api-base-invalid': 'Voice provider address invalid',
     'voice-secret-unavailable': 'Voice provider access unavailable',
-    'agent-api-unavailable': 'Voice provider not responding',
+    'agent-api-unavailable': 'Voice unavailable right now',
     'agent-api': 'Voice provider request failed (HTTP {status})',
     'agent-list-incomplete': 'Voice provider list incomplete',
     'agent-list-invalid': 'Voice provider list invalid',
