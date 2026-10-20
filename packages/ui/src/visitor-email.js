@@ -170,6 +170,7 @@ export class VisitorEmail {
     this.q('.m-change-mail').hidden = !verified || !this.canCollect;
     for (const selector of ['.m-delete', '.m-delete-mail']) {
       const button = this.q(selector); button.disabled = this.canDelete !== true;
+      if (this.canDelete !== true) setText(button, e.deleteConfirm);
       if (this.canDelete !== true) { button.setAttribute('aria-disabled', 'true'); button.tabIndex = -1; }
       else { button.removeAttribute('aria-disabled'); button.removeAttribute('tabindex'); }
     }
@@ -180,7 +181,7 @@ export class VisitorEmail {
       const text = notice.querySelector('.m-notice-content .m-notice-text') ?? notice.querySelector('.m-notice-text');
       const link = notice.querySelector('.m-notice-content .m-pp') ?? notice.querySelector('.m-pp');
       const [before, after] = e.deleteUnavailable.split('{privacy}');
-      setText(text, before); setText(link, e.deletePrivacy); link.hidden = false;
+      setText(text, before.trimEnd()); setText(link, e.deletePrivacy); link.hidden = false;
       if (this.privacyLink) link.href = this.privacyLink; else link.removeAttribute('href');
       let tail = notice.querySelector('.m-delete-tail');
       if (!tail) { tail = notice.ownerDocument.createElement('span'); tail.className = 'm-delete-tail'; link.after(tail); }

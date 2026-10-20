@@ -533,7 +533,7 @@ for (const copy of [de, en]) test(`AIT-411: opt-in defaults preserve the credits
   for (const options of [{}, { usedUp: { newConversation: { enabled: false }, dailyCapActions: 'export' }, credits: { reconcilingVisible: false, dailyCapReset: false }, emailAsk: { lowCredits: true } }]) {
     const fixture = setup(t, { copy, host: { credits: true, verification: true, ...options } });
     await tick(10);
-    snapshots.push(['.host-credits', '.composer-out', '.transcript-shell'].map(selector => fixture.root.querySelector(selector).outerHTML));
+    snapshots.push(['.host-credits', '.composer-out', '.transcript-shell'].map(selector => fixture.root.querySelector(selector).outerHTML.replaceAll(fixture.c.session.id, '<session>')));
     fixture.c.remove(); await tick(10);
   }
   assert.deepEqual(snapshots[1], snapshots[0], 'all explicit defaults equal untouched RC13 DOM');
