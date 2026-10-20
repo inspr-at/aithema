@@ -185,6 +185,78 @@ export async function composerCreditReservationMatrix(t) {
   }
 }
 
+// Tick spec v2: exercise the same admitted-call recovery in both directions.
+// Reuse the page and fixture; only the owner-route admission verdict changes.
+export async function topUpReservationMatrix(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait406-v2-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
+  browser = await browserForFile();
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const rows = [], selectors = ['.question-card', '.composer-dock', '.composer-shell'];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.select('#locale', locale); await page.select('#theme', theme);
+    await fixture(page, locale, { spent: 11_990_000, voiceAdmissionFailure: true });
+    await click(page, '.voice-start');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+    await shadow(page, c => {
+      window.a2.denyVoice = false;
+      c.shadowRoot.querySelector('#email-input').value = 'reader@example.test';
+      c.shadowRoot.querySelector('.host-verify .m-form').requestSubmit();
+    });
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('.host-verify').dataset.emailState === 'saved' && !r.querySelector('.audio-rail').hasAttribute('data-used-up');
+    });
+    await settle(page);
+    const before = await boxes(page, selectors);
+    for (const state of ['ready', 'running', 'denied', 'ready-again']) {
+      if (state === 'running') {
+        await click(page, '.voice-retry');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+      } else if (state === 'denied') {
+        await click(page, '.voice-close');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+        await shadow(page, () => { window.a2.denyVoice = true; });
+        await click(page, '.voice-start');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+      } else if (state === 'ready-again') {
+        const reads = await page.evaluate(() => window.a2.creditsReads);
+        await shadow(page, c => {
+          window.a2.denyVoice = false;
+          c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+        });
+        await page.waitForFunction(reads => window.a2.creditsReads > reads && !document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'), { timeout: 20_000 }, reads);
+      }
+      await settle(page);
+      const after = await boxes(page, selectors);
+      const detail = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return Object.fromEntries(['.qtext', '.qopts', '.qhint', '.transcript-shell .turn:last-child', '.composer-reason', '.voice-state'].map(selector => {
+          const n = r.querySelector(selector), b = n?.getBoundingClientRect();
+          return [selector, { text: n?.textContent, box: b && [b.x, b.y, b.width, b.height], style: n && { font: getComputedStyle(n).font, grid: getComputedStyle(n).gridTemplateRows } }];
+        }));
+      });
+      const row = { locale, theme, width, state, before, after, detail,
+        movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) };
+      rows.push(row); t.diagnostic(`AIT-406 v2 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
+      if (evidence && locale === 'de' && theme === 'light' && width === 390 && state !== 'ready-again') {
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        await page.screenshot({ path: join(evidence, `ait406-390-light-de-top-up-retry-${state}.png`), fullPage: false });
+      }
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait406-top-up-checks.json'), JSON.stringify({ head, spec: 'Tick spec v2, AIT-406, 2026-10-20', rows }, null, 2));
+  assert.equal(rows.length, 48);
+  for (const row of rows) unchanged(row.before, row.after, `${row.locale}-${row.theme}-${row.width}/top-up-retry-${row.state}`);
+}
+
 export async function visitorCreditMatrix(t, locales) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-a2-browser-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
