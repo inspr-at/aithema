@@ -4,6 +4,7 @@ import { operationScope } from '../packages/core/src/reasoning.js';
 import { createHandlers, createPluginRuntime, SQLiteStorage } from '../packages/server/src/index.js';
 import { createCompletionsHandler } from '../plugins/elevenlabs/src/facade.js';
 import { temporaryDb, ownedRequest, testToken } from './helpers.js';
+import { bindSQLiteClock } from './fixtures/sqlite-clock.js';
 
 // Both clocks are pinned: no fixture instant is compared with the real calendar.
 const wall = Date.parse('2030-06-15T12:00:00Z');
@@ -33,7 +34,8 @@ for (const epoch of epochs) test(`AIT-403 operation scope uses injected clock ${
 test('AIT-403 retention create, event, touch, release and retry use host.now across midnight', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: wall });
   let clock = epochs[0];
-  const now = () => clock, storage = new SQLiteStorage();
+  // Pin SQLite's former wall clock too, deliberately apart from host.now.
+  const now = () => clock, storage = bindSQLiteClock(new SQLiteStorage(), () => wall);
   const handlers = createHandlers({ storage, consent: consent(now), host: { now } });
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create();
@@ -72,12 +74,12 @@ test('AIT-403 retention create, event, touch, release and retry use host.now acr
 test('AIT-403 restart replaces the legacy SQLite retention trigger', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: wall });
   const path = await temporaryDb(), now = () => epochs[0];
-  let storage = new SQLiteStorage(path, { now });
+  let storage = bindSQLiteClock(new SQLiteStorage(path, { now }), () => wall);
   storage.db.exec(`DROP TRIGGER retention_create;
     CREATE TRIGGER retention_create AFTER INSERT ON sessions BEGIN
       INSERT INTO session_retention(session_id,last_activity) VALUES (NEW.id,0); END;`);
   storage.close();
-  storage = new SQLiteStorage(path, { now });
+  storage = bindSQLiteClock(new SQLiteStorage(path, { now }), () => wall);
   t.after(() => storage.close());
   const session = storage.create();
   assert.equal(storage.db.prepare('SELECT last_activity FROM session_retention WHERE session_id=?').get(session.id).last_activity, now());
