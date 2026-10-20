@@ -40,6 +40,7 @@ for (const copy of [en, de]) test(`AIT-374 ${copy === en ? 'en' : 'de'}: unavail
   // A missing consent choice for one producer also cannot hide another producer.
   view.update(c.session, { ...coverage, selected: ['drafts'] });
   assert.deepEqual(view.items.map(i => i.id), ['first', 'last']);
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'last'], 'AIT-428: deselecting an unavailable producer removes its slot too');
   view.update(c.session, { ...coverage, selected: ['drafts'], artifacts: { ...coverage.artifacts, bad: { purposes: ['old-drafts'], unavailable: false } } });
   assert.deepEqual(view.items.map(i => i.id), ['first', 'last'], 'a resolvable sibling with withdrawn consent is independent too');
   assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'last'], 'actual consent withdrawal removes its slot');
@@ -60,6 +61,10 @@ test('AIT-374: image availability is per artifact and its unavailable slot canno
   assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
   const before = calls.length; assert.equal(await view.load('bad'), null); await view.download();
   assert.equal(calls.length, before); assert.equal(downloads.length, 0);
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: [], features: { images: ['images'] },
+    artifacts: Object.fromEntries(['first', 'bad', 'last'].map(id => [id, { purposes: ['images'], unavailable: id === 'bad' }])) });
+  assert.deepEqual(view.displayItems, [], 'AIT-428: unavailable images are removed when their purpose is deselected');
+  assert.equal(view.dialog.open, false);
 });
 
 test('AIT-374: newly delivered artifacts retain coverage before the next consent document read', t => {
