@@ -801,3 +801,104 @@ export async function visitorCreditMatrix(t, locales) {
   }
   t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${new Set(states.map(row => `${row.locale}/${row.theme}/${row.width}`)).size} viewport/theme/language combinations`);
 }
+
+// Tick v4: reuse one page, keeping exact reply identities through every transition.
+export async function replyRowsMatrix(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait410-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
+  browser = await browserForFile();
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [];
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session);
+  // Observe the actual rail without changing its behavior.
+  await page.evaluate(async () => {
+    const { AudioRail } = await import('/packages/ui/src/audio-rail.js'), render = AudioRail.prototype.render;
+    AudioRail.prototype.render = function () { window.ait410Rail = this; return render.call(this); };
+  });
+  const shot = async name => {
+    if (!evidence) return;
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+    await page.mouse.move(-1, -1); await settle(page);
+    await page.screenshot({ path: join(evidence, `ait410-${name}.png`), fullPage: false });
+  };
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000, isMobile: width === 390, hasTouch: width === 390 });
+    await page.select('#locale', locale); await page.select('#theme', theme);
+    await fixture(page, locale, { voiceAdmissionFailure: true });
+    await shadow(page, c => {
+      window.a2.denyVoice = false; window.a2.replays = [];
+      window.ait410Rail.client.replayReply = async reply => { window.a2.replays.push(reply); return { kind: 'text', text: reply.text }; };
+      window.ait410First = c.shadowRoot.querySelector('.turn:not(.user)');
+      window.ait410Actions = window.ait410First.querySelector('.reply-actions');
+    });
+    const original = await boxes(page, ['.turn:not(.user)']);
+    for (let i = 2; i <= 3; i++) await shadow(page, (c, i) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `ait410-reply-${i}`, role: 'assistant', content: `Reply ${i}` } }), i);
+    await settle(page);
+    // Compare size only: following the growing transcript legitimately scrolls it.
+    const afterReplies = await boxes(page, ['.turn:not(.user)']);
+    assert.deepEqual(afterReplies[0].slice(2), original[0].slice(2), 'new replies preserve the original reply size exactly');
+    assert.equal(await shadow(page, () => window.ait410First.querySelector('.reply-actions') === window.ait410Actions && Boolean(window.ait410Actions)), true, 'each reply keeps the same control row');
+    const selectors = ['.turn:not(.user)', '.turn:last-child', '.qopts', '.question-card', '.composer-shell'];
+    const before = await boxes(page, selectors);
+    const record = async state => {
+      await settle(page);
+      const after = await boxes(page, selectors);
+      const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.reply-actions')].map(row => ({
+        id: row.parentElement.dataset.id, height: row.getBoundingClientRect().height,
+        controls: [...row.querySelectorAll('button')].map(n => ({ disabled: n.disabled, ariaDisabled: n.getAttribute('aria-disabled'),
+          description: n.getAttribute('aria-description'), title: n.title, visible: getComputedStyle(n).visibility,
+          icons: n.querySelectorAll('svg').length, label: n.getAttribute('aria-label'), text: n.textContent.trim() }))
+      })));
+      const movementPx = unchanged(before, after, `${locale}/${theme}/${width}/${state}`);
+      assert.equal(controls.length, 3, 'all three replies own a row');
+      for (const row of controls) {
+        assert.equal(row.height, 44); assert.equal(row.controls.length, 2);
+        for (const control of row.controls) {
+          assert.equal(control.icons, 1); assert.equal(control.text, '', 'icon buttons have no visible labels'); assert.ok(control.label);
+          const inCall = state === 'running';
+          assert.equal(control.disabled, inCall); assert.equal(control.ariaDisabled, String(inCall));
+          if (inCall) assert.equal(control.description, locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call');
+          else assert.equal(control.description, null);
+          assert.equal(control.visible, 'visible');
+        }
+      }
+      rows.push({ locale, theme, width, state, movementPx, before, after, controls });
+    };
+    await record('ready');
+    await click(page, '.voice-start');
+    await until(page, () => window.ait410Rail.state === 'listening');
+    await record('running');
+    if (locale === 'de' && theme === 'light' && width === 390) await shot('390-light-de-three-replies-mid-call');
+    await click(page, '.voice-close');
+    await until(page, () => window.ait410Rail.root.dataset.call === 'none');
+    await record('hangup');
+    await shadow(page, () => window.ait410Rail.notices.recovered({ userUnconfirmed: true }));
+    await record('recovery');
+    await shadow(page, () => window.ait410Rail.notices.clear());
+    await record('cleared');
+    // Read and replay every reply, including earlier replies with different bytes.
+    for (let index = 0; index < 3; index++) {
+      const expected = await shadow(page, (c, index) => c.shadowRoot.querySelectorAll('.reply-actions')[index].parentElement.querySelector('.turn-text').textContent, index);
+      for (const action of ['read', 'replay']) {
+        await shadow(page, (c, { index, action }) => c.shadowRoot.querySelectorAll('.reply-actions')[index].querySelector(`[data-reply-action=${action}]`).click(), { index, action });
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), expected);
+        await click(page, '.voice-reply-close');
+      }
+    }
+    assert.equal(await page.evaluate(() => window.a2.replays.length), 3, 'each replay targets its own reply');
+    if (locale === 'de' && theme === 'light' && width === 390) {
+      await shadow(page, c => {
+        window.a2.spent = 12_000_000;
+        c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+        c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { reason: 'visitor' } });
+      });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+      await shot('390-light-de-paused-budget-denied');
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4', rows }, null, 2));
+  assert.equal(rows.length, 60);
+}
