@@ -484,7 +484,7 @@ for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'em
     assert.equal(root.querySelector('.host-credits__unit').textContent, '\u00a0Credits');
     assert.equal(action.hidden, ['emailConfirmed', 'dailyCap'].includes(state));
     if (!action.hidden) assert.equal(action.textContent, copy.hostSurface.credits.confirm);
-    if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'), 'Tick fix1: equal allowances name the confirmed tier without an email-given promise');
+    if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, copy.hostSurface.credits.withConfirmed.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'), 'Tick fix1: equal allowances name the confirmed tier without an email-given promise');
     if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
     if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250\u00a0Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250\u00a0credits are used up.");
     if (state === 'dailyCap') {
@@ -525,7 +525,7 @@ for (const copy of [de, en]) for (const [variant, canCollect, confirmedMicro] of
   } }); await tick(10);
   const next = root.querySelector('.host-credits__next'), eligible = canCollect && confirmedMicro > 2_500_000;
   assert.equal(root.querySelector('.credits-email').hidden, !eligible);
-  assert.equal(next.textContent, eligible ? copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits') : '');
+  assert.equal(next.textContent, eligible ? copy.hostSurface.credits.withConfirmed.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits') : '');
   assert.equal(next.children.length, 0, 'the next line has no check mark');
 });
 
@@ -648,7 +648,7 @@ for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and 
         allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
     } });
     await tick(10);
-    assert.match(root.querySelector('.host-credits__next').textContent, hasKey ? copy === de ? /^Nach der Bestätigung:/u : /^After confirmation:/u : copy === de ? /^Mit bestätigter E-Mail-Adresse:/u : /^With confirmed email address:/u);
+    assert.match(root.querySelector('.host-credits__next').textContent, hasKey ? copy === de ? /^Nach der Bestätigung:/u : /^After confirmation:/u : copy === de ? /^Mit bestätigter E-Mail-Adresse:/u : /^With a confirmed email address:/u);
   }
 });
 
