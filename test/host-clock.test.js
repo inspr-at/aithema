@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { operationScope } from '../packages/core/src/reasoning.js';
 import { createHandlers, createPluginRuntime, SQLiteStorage } from '../packages/server/src/index.js';
 import { createCompletionsHandler } from '../plugins/elevenlabs/src/facade.js';
-import { temporaryDb } from './helpers.js';
+import { temporaryDb, ownedRequest, testToken } from './helpers.js';
 
 // Both clocks are pinned: no fixture instant is compared with the real calendar.
 const wall = Date.parse('2030-06-15T12:00:00Z');
@@ -110,6 +110,21 @@ test('AIT-403 handlers install the host clock on an existing runtime', async t =
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ demo: true });
   assert.equal(await runtime.processingAllowed(session, null, { deadlineAt: now() }), false);
+});
+
+for (const epoch of epochs) test(`AIT-403 HTTP text turn keeps the host deadline epoch ${epoch}`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  const now = () => epoch, storage = new SQLiteStorage();
+  const handlers = createHandlers({ storage, consent: consent(now), host: { now }, log() {} });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const response = await handlers.handle(ownedRequest(`http://fixture.invalid/api/sessions/${session.id}/turns`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ clientEventId: 'clock-http-turn', content: 'systems: API' }),
+  }));
+  assert.equal(response.status, 200);
+  await handlers.idle();
+  assert.equal(storage.get(session.id).transcript.some(turn => turn.role === 'assistant'), true);
 });
 
 for (const epoch of epochs) for (const stream of [false, true]) test(`AIT-403 facade ${stream ? 'stream' : 'JSON'} uses host clock ${epoch}`, async t => {
