@@ -1440,3 +1440,36 @@ for (const reason of BINDING_REASON_CODES.flatMap(code => [code, `delegated reas
     }
   });
 }
+
+for (const copy of [de, en]) {
+  test(`AIT-429: ${copy.display.locale} admission-denied sentence keeps the phone label within 22 characters`, async t => {
+    const reason = 'agent-api-unavailable';
+    const { rail, root } = fixture(t, { start: async () => { throw { code: 'not-admitted', reason }; } });
+    rail.copy = copy;
+    await rail.start();
+    assert.equal(rail.errorKey, 'voiceAdmissionDenied');
+    assert.equal(rail.errorReason, reason, 'retain the admission reason for diagnostics');
+    // The admission can fail before the next feature read supplies its reason.
+    assert.equal(rail.feature().rawReason, undefined);
+    const status = root.querySelector('.voice-state');
+    assert.equal(status.querySelector('.consent-wide').textContent, copy.reasons[reason]);
+    assert.equal(status.getAttribute('aria-label'), copy.reasons[reason]);
+    const compact = status.querySelector('.consent-narrow').dataset.copy;
+    assert.ok([...compact].length <= 22, `phone label exceeds 22 characters: ${compact}`);
+    assert.equal(compact, copy.voiceReasonsNarrow.unavailable);
+    assert.doesNotMatch(compact, /provider|anbieter/iu);
+  });
+
+  test(`AIT-429: ${copy.display.locale} unavailable feature reason preserves other sentences' compact labels`, t => {
+    const { rail, root } = fixture(t);
+    rail.copy = copy;
+    rail.feature = () => ({ available: false, rawReason: 'agent-api-unavailable', reason: copy.reasons['agent-api-unavailable'] });
+    for (const key of ['voiceConflict', 'voiceDeadline', 'voiceConnectionFailed', 'voiceEnded']) {
+      rail.errorKey = key; rail.render();
+      const status = root.querySelector('.voice-state');
+      assert.equal(status.querySelector('.consent-wide').textContent, copy[key]);
+      assert.equal(status.getAttribute('aria-label'), copy[key]);
+      assert.equal(status.querySelector('.consent-narrow').dataset.copy, copy.voiceMessagesNarrow[key], key);
+    }
+  });
+}
