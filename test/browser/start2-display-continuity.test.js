@@ -387,7 +387,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
   const head = process.env.GITHUB_EVENT_PATH
     ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha ?? evidenceCommit : evidenceCommit;
   if (evidence) await mkdir(evidence, { recursive: true });
-  for (const touch of [true, false]) for (const width of [390, 1440]) for (const locale of width === 390 ? ['de', 'en'] : ['de']) {
+  for (const touch of [true, false]) for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) {
     // Match pause-phone's native desktop fixture: setViewport resets hover on Linux.
     const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
       '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
@@ -545,7 +545,15 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         if (outcome === 'success') {
           assert.ok(result.samples.every(s => !s.pausedVisible && s.shortcut), 'no paused label or shortcut transient through 1 s after the snapshot');
           assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'composer, label slot and transcript rows have movementPx 0 on every frame');
-          if (width === 390 && touch || width === 1440 && !touch) await capture('settled');
+          if (touch || width === 1440) await capture('settled');
+          const clearance = await shadow(page, c => {
+            const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
+            return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
+              headerBottom: r.querySelector('.band').getBoundingClientRect().bottom, scrollTop: shell.scrollTop, pageScroll: scrollY };
+          });
+          check.transcriptClearance = clearance;
+          assert.ok(clearance.shellTop >= clearance.headerBottom, `AIT-412: scroll area starts below the sticky header: ${JSON.stringify(clearance)}`);
+          assert.ok(clearance.bubbleTop >= clearance.headerBottom, `AIT-412: first bubble is wholly below the sticky header: ${JSON.stringify(clearance)}`);
         } else {
           assert.ok(result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut), 'failed confirming GET restores the existing paused state');
         }

@@ -9,7 +9,7 @@ import { previewFixture } from './html-preview-route.js';
 import { installConsentClock } from './consent-clock.js';
 import { browserForFile } from '../browser/shared-browser.js';
 
-export async function withdrawalFocusFrames(t) {
+export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
   const root = new URL('../../', import.meta.url).pathname, preview = previewFixture();
   const html = `<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
     body{margin:0} ait385-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
@@ -60,11 +60,11 @@ export async function withdrawalFocusFrames(t) {
     [390,'light','de','t1'],[1440,'light','de','t1'],[390,'light','de','t2'],[1440,'light','de','t2'],
     [390,'light','en','t1'],[390,'dark','de','t1'],[1440,'dark','de','t1'],
   ];
-  const mount=async(width,theme,locale,state,mixed=false)=>{
+  const mount=async(width,theme,locale,state,mixed=false,turns)=>{
     const session=createSession({demo:true});session.id='ait385';session.locale=locale;session.consentRevision=1;
     session.visualsBound=true;session.settings.visuals=state==='t2'?'off':'html';session.settings.origin='chosen';
     session.conceptVisualKind='html';session.conceptCost={maxMicro:0};
-    session.transcript=[{id:'source',role:'user',content:locale==='de'?'Ein Dashboard für unser Team.':'A dashboard for our team.'}];session.inputRevision=1;
+    session.transcript=[{id:'source',role:'user',content:locale==='de'?'Ein Dashboard für unser Team.':'A dashboard for our team.'}];if(turns)session.transcript=turns;session.inputRevision=1;
     session.concepts=[...(mixed?[{id:'image',mediaType:'image/png',turnIds:['source']}]:[]),{id:'draft',mediaType:'text/html',turnIds:['source']}];session.conceptStatus={phase:'ready'};
     session.featureMatrix={best:{text:{available:true},analysis:{available:true},html:{available:state!=='t2',reason:state==='t2'?'visuals off':undefined},images:{available:false,reason:'visual kind not selected'}}};
     await page.setViewport({width,height:width===390?844:900});await page.evaluate(mount=>window.mount(mount),{session,theme,locale});
@@ -77,6 +77,46 @@ export async function withdrawalFocusFrames(t) {
     await page.mouse.move(-10,-10);const name=`ait385-${width}-${theme}-${locale}-${state}.png`;shots.push(name);
     if(evidence)await page.screenshot({path:join(evidence,name),fullPage:false,captureBeyondViewport:false});
   };
+  if (transcriptTop) {
+    const head = process.env.GITHUB_EVENT_PATH
+      ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha : process.env.AITHEMA_COMMIT;
+    for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) await t.test(`${width}/light/${locale}`, async () => {
+      const content = locale === 'de'
+        ? ['Wir sind eine Bäckerei und wollen Vorbestellungen per App annehmen.', 'Abgeholt wird am nächsten Morgen in der Filiale.', 'Großkunden bestellen jede Woche dasselbe.', 'Danke. Wer holt die Bestellungen am Morgen ab?']
+        : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
+      const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
+      await mount(width, 'light', locale, 't1', false, turns);
+      await page.mouse.move(-10, -10);
+      const inspect = () => page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
+        return { shell: box(shell), composer: box(r.querySelector('.composer')), slot: box(r.querySelector('.concept-bar')),
+          top: shell.querySelector('.turn').getBoundingClientRect().top, scrollTop: shell.scrollTop,
+          headerBottom: r.querySelector('.band').getBoundingClientRect().bottom,
+          slotBottom: r.querySelector('.concept-bar').getBoundingClientRect().bottom,
+          notice: r.querySelector('.concept-withdrawn').textContent };
+      });
+      const before = await inspect();
+      await page.evaluate(() => withdraw());
+      await capture(width, 'light', locale, 'transcript-withdrawal');
+      const withdrawn = await inspect();
+      await page.evaluate(() => clock.tick(4000));
+      await capture(width, 'light', locale, 'transcript-expired');
+      const expired = await inspect();
+      checks.push({ width, locale, before, withdrawn, expired });
+      if (evidence) await writeFile(join(evidence, 'ait400-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+      assert.deepEqual(withdrawn.slot, before.slot, 'AIT-400: status occupies the reserved slot at 0 px');
+      assert.deepEqual(expired.slot, before.slot, 'AIT-400: status expiry preserves the reserved slot at 0 px');
+      assert.deepEqual(withdrawn.shell, before.shell, 'AIT-400: withdrawal moves the scroll area 0 px');
+      assert.deepEqual(expired.shell, before.shell, 'AIT-400: expiry moves the scroll area 0 px');
+      assert.deepEqual(withdrawn.composer, before.composer, 'AIT-400: withdrawal moves the composer 0 px');
+      assert.deepEqual(expired.composer, before.composer, 'AIT-400: expiry moves the composer 0 px');
+      for (const state of [withdrawn, expired]) {
+        assert.ok(state.shell[1] >= Math.max(state.headerBottom, state.slotBottom), `AIT-400: scroll area follows the last top row: ${JSON.stringify(state)}`);
+        assert.ok(state.top >= Math.max(state.shell[1] + 8, state.headerBottom, state.slotBottom), `AIT-400: first bubble is wholly below the last top row and fade: ${JSON.stringify(state)}`);
+      }
+    });
+    return;
+  }
   for(const [width,theme,locale,state] of configs)await t.test(`${state}/${width}/${theme}/${locale}`,async()=>{
     await mount(width,theme,locale,state);
     const before=await page.evaluate(()=>{const p=c.shadowRoot.querySelector('.concept-preview'),b=p.getBoundingClientRect();p.focus({preventScroll:true});return {old:{x:b.x+b.width/2,y:b.y+b.height/2},boxes:boxes()};});

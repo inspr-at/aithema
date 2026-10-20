@@ -1062,3 +1062,9 @@ test('AIT-385: withdrawal removes the empty focus tile and clears the chevron', 
   const { withdrawalFocusFrames } = await import('../fixtures/withdrawal-focus-frames.js');
   await withdrawalFocusFrames(t);
 });
+
+
+test('AIT-400: withdrawal preserves the top transcript row and reserved status slot', { timeout: 45_000 }, async t => {
+  const { withdrawalFocusFrames } = await import('../fixtures/withdrawal-focus-frames.js');
+  await withdrawalFocusFrames(t, { transcriptTop: true });
+});
