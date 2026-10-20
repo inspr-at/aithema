@@ -322,8 +322,7 @@ export class Verification {
       if (globalThis.document?.visibilityState !== 'hidden') {
         try {
           const response = await this.#request('identity/unlock', {});
-          if (this.#alive && response.ok && response.body?.identity) {
-        this.#visitorEmail = response.body.visitorEmail ?? null; this.set(response.body.identity); return; }
+          if (this.#alive && response.ok && response.body?.identity) { this.set(response.body.identity); return; }
         } catch { /* Polling resumes on the next round. */ }
       }
       if (this.#alive) this.#schedule();

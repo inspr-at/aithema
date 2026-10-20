@@ -473,7 +473,7 @@ test('AIT-414: credit tiers with identity only confirm and change without visito
     await page.evaluate(({ command, address }) => {
       const root = document.body.firstElementChild.shadowRoot;
       if (command === 'change') root.querySelector('.verify-change').click();
-      root.querySelector('.verify-lock input, #verify-lock-email').value = address;
+      root.querySelector('#verify-lock-email').value = address;
       root.querySelector('#verify-lock-email').form.requestSubmit();
     }, { command, address });
     await page.waitForFunction(() => window.confirmation.identity.status === 'verification-pending');
