@@ -2608,7 +2608,7 @@ export class AithemaSession extends HTMLElement {
     }
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
-    this.#host?.update();
+    this.#host?.updateStreaming();
   }
   #watchConsentRefresh(granted, changed, removed) {
     // Missing or unknown scopes retain AIT-364 exactly. Only an explicitly

@@ -14,6 +14,7 @@ export const POLL_MS = 4000;
 
 export class Verification {
   #visitorEmail = null;
+  #streamingBlocked = false;
   #email; #creditsChanged; #dialogDelivery = true; #identityGeneration = 0;
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
@@ -215,7 +216,7 @@ export class Verification {
     const mode = this.#mode();
     (mode === 'capture' ? entry.input : mode === 'pending' ? entry.resend : entry.root.closest('dialog')?.querySelector('.verify-dialog-close'))?.focus();
   }
-  update() { this.#paint(); this.#email.paint(); }
+  update() { if (this.changeBlocked !== this.#streamingBlocked) this.#paint(); }
   get changeBlocked() { return Boolean(this.#identity?.address && this.streaming()); }
   async #send(entry) {
     const v = this.#v, address = entry.input.value.trim();
@@ -275,6 +276,7 @@ export class Verification {
     return identity.delivery === 'requested' ? v.sending : this.locked ? v.saved : v.sent;
   }
   #paint() {
+    this.#streamingBlocked = this.changeBlocked;
     const v = this.#v, identity = this.#identity, mode = this.#mode(), cooldown = this.#cooldown();
     // Settings owns the optional entry; the policy lock below remains in the understanding pane.
     this.#entry.hidden = !this.enabled;

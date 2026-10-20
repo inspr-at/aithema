@@ -183,7 +183,8 @@ export class HostSurface {
     this.#refreshCredits(); this.update();
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
-  update() { this.#verification?.update(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
+  updateStreaming() { this.#verification?.update(); }
+  update() { this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
   async #call(path, body, verb = 'POST') {
