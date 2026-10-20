@@ -211,7 +211,7 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
 
 /** Private host ports persist call state and acknowledge an atomic engine-wide pause transition. */
 export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecret = ref => process.env[ref],
-  saveCall, prepareCall, requestProviderClose, reconcileLater, now = Date.now, closureTimeoutMs = 30_000,
+  saveCall, prepareCall, requestProviderClose, reconcileLater, now: configuredNow = Date.now, closureTimeoutMs = 30_000,
   closurePollIntervalMs = 250, log } = {}) {
   binding = createVoiceBinding(binding);
   if (typeof saveCall !== 'function' || typeof prepareCall !== 'function' ||
@@ -227,6 +227,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       });
     },
     async start(request, options) {
+      const now = options.now ?? configuredNow;
       if (!identifier(request?.callId) || typeof request.facadeSecretRef !== 'string' || !request.facadeSecretRef) throw new TypeError('Private call identity and facade secret reference required');
       const invocation = await beginVoiceInvocation(options, request.callId);
       let call = { callId: request.callId, startedAt: now(), pauses: [], paused: false,
@@ -337,7 +338,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         options.signal?.addEventListener('abort', cancelled, { once: true });
         if (options.signal?.aborted) cancelled();
         const leaseMs = options.browserLivenessDeadlineAt - now();
-        const boundedCommand = commandOptions => ({ ...commandOptions,
+        const boundedCommand = commandOptions => ({ now, ...commandOptions,
           signal: commandOptions?.signal ? AbortSignal.any([commandOptions.signal, callCancellation.signal]) : callCancellation.signal,
           deadlineAt: Math.min(commandOptions?.deadlineAt ?? Infinity, call.spendDeadlineAt, call.browserLivenessDeadlineAt) });
         const changePause = (paused, commandOptions) => serial(() => voiceOperation(boundedCommand(commandOptions), async opts => {

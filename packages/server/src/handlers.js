@@ -395,7 +395,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // last confirmed choice while the host still offers it, else the host defaults.
   async function initialSettings(ownerToken, options) {
     if (options.confirm !== undefined && typeof options.confirm !== 'boolean') return { status: 400, error: 'invalid-session' };
-    const provenance = origin => options.confirm === true ? { origin: 'chosen', at: new Date().toISOString() } : { origin };
+    const provenance = origin => options.confirm === true ? { origin: 'chosen', at: new Date(now()).toISOString() } : { origin };
     const requested = options.processingPreset ?? sessionOptions.processingPreset;
     const probe = createSession({ ...sessionOptions, processingPreset: requested ?? 'best' });
     if (pluginRuntime.offered?.(probe.processingPreset) === false && probe.processingPreset === 'device') {
@@ -746,7 +746,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             reason: current.consentWithdrawn ? 'consent-withdrawn' : 'publication-not-allowed' });
           else artifacts.push(storage.conceptArtifact(id, artifactId));
         }
-        return new Response(exportSession(current, artifacts, withheld), {
+        return new Response(exportSession(current, artifacts, withheld, { exportedAt: new Date(now()).toISOString() }), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
       }
@@ -788,7 +788,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     try { return await handle(request, context); }
     finally { for (const finish of erasureReleases) finish(); release?.(); }
   }
-  return { handle: retainedHandle,
+  return { handle: retainedHandle, now,
     buildVoiceReplyRequest: (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, hostPrompt, purposePolicy,
       offTopicTurns: storage.safeguards(session.id).offTopicTurns }),
     lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
@@ -840,7 +840,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
-          const attempts = storage.sealRetirement(id, host?.now?.() ?? Date.now());
+          const attempts = storage.sealRetirement(id);
           await consent?.withdraw?.({ sessionId: id });
           if (host?.retired) {
             let timer;

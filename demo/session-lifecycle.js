@@ -18,7 +18,7 @@ export function startExpiry(handlers) {
     // One bounded batch per existing minute tick; no overlapping sweeps.
     // Erased sessions (including legacy tombstones) retire on this same tick,
     // independently of the live-session cutoff, once their billing is settled.
-    try { await handlers.retire({ before: Date.now() - 365 * 24 * 60 * 60 * 1000, limit: 100 }); }
+    try { await handlers.retire({ before: handlers.now() - 365 * 24 * 60 * 60 * 1000, limit: 100 }); }
     catch { console.error({ event: 'session-expiry-failed' }); }
     finally { running = false; }
   }, 60_000);

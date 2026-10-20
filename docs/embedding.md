@@ -519,6 +519,55 @@ the smaller contract, avoid fallible host code during settlement, and let a
 host rebuild totals after a crash. A settlement write failure rolls back its
 time and receipt together; it leaves the reservation in place for retry.
 
+`runtime.now` is a stable forwarding function. `createHandlers` installs
+`host.now` through `runtime.setHostClock`; a constructor-supplied runtime `now`
+retains precedence for policy decisions. Runtime-created render limits,
+conversation limits and voice caps keep the forwarding function, so later clock
+installation reaches both admission checks and atomic claim consumption. An
+installed clock never clears durable usage or outstanding holds. A custom
+`voiceCap` or `renderLimiter` must implement `setClock(clock)` before an explicit
+runtime clock or host clock is installed; otherwise construction/installation
+throws a named `TypeError` before changing the active clocks. Previously a
+clockless custom cap was silently accepted; there is no documented exemption
+for it. Wall-clock-only compositions without clock installation remain supported.
+
+Independently created providers, consent ledgers, operator identity/session
+ports, relays and coordinators are host-owned. When sharing absolute deadlines,
+evidence or UTC-day limits, pass the same forwarding function into **every**
+factory's `now` option (or the consent ledger's clock argument), including private
+host modules. Do not capture `runtime.now()` as a fixed timestamp. For example,
+after constructing the runtime and before registering/starting the provider:
+
+```js
+const provider = createVoiceProvider({ storage, binding, ...voicePorts, now: runtime.now });
+registry.register(provider);
+const coordinator = createComposedVoiceCoordinator({ ...coordinatorPorts, now: runtime.now });
+```
+
+The same rule applies to `createElevenLabsServer`, `createComposedVoice`,
+`createGrokVoiceProvider`, `createVoxtralComponents`, `createCompletionsHandler`,
+`createOperatorSessions` and `createZitadelOIDC`. The demo keeps a forwarding
+getter during startup, passes it to independently composed server factories,
+then links it to `pluginRuntime.now`. Admitted invocation `options.now` also
+travels with its deadline into voice adapters, component budgets and visual
+providers, including artifact provenance. Standalone callers must supply both
+the deadline and its clock. Offline tests pin distinct wall/host clocks through
+real handler wiring and the standalone ElevenLabs/coordinator/provider paths.
+
+Accounting remains on `host.now` when an explicit runtime policy clock differs:
+settlement time, reconciliation age, deferred receipt eligibility and retry dates
+all use `budget.now`, the epoch that wrote `settledAt`. Storage event/content
+evidence, retirement fences and provider-cap audits use the installed storage
+clock. Existing timestamps are never rewritten.
+
+Elapsed transport budgets are separate: upload queue/parser CPU limits, receipt
+polling, cleanup/drain timeouts, persistence throttles and audio pacing use a
+local wall/monotonic duration clock, never a host calendar/day comparison.
+Preview bearer TTLs use `performance.now` and expose durations only. Browser
+transport/presentation clocks live in a separate realm; the server always
+rechecks authoritative admission, consent, spend and browser-lease deadlines.
+This server clock installation does not change UI labels or browser clocks.
+
 For per-address **UTC-day** caps, keep the original hold on its admission day,
 file each extension extra on `new Date(event.at).toISOString().slice(0, 10)`,
 and file settlement above the reservation on the UTC day of `settled_at_ms`.

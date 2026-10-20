@@ -79,7 +79,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   } });
   const spendTimer = setTimeout(() => close('spend-deadline'), Math.max(0, spendDeadlineAt - now()));
   spendTimer.unref?.();
-  const options = signal => ({ signal: signal ?? AbortSignal.any([revocation.signal, pauseController.signal]), deadlineAt: spendDeadlineAt });
+  const options = signal => ({ now, signal: signal ?? AbortSignal.any([revocation.signal, pauseController.signal]), deadlineAt: spendDeadlineAt });
   const current = () => state.state === 'active' && !cancellation.signal.aborted;
   const permitted = async opts => {
     if (!current() || now() >= Math.min(spendDeadlineAt, state.browserLivenessDeadlineAt)) throw new PluginError('not-admitted');

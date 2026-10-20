@@ -258,7 +258,7 @@ export class SQLiteStorage {
   }
   /** Bound receipt deferral to one hour; never extend it on a retry/restart.
    * Erasure already removed content; only billing metadata waits for receipts. */
-  assertRetirementSettled(id, now = Date.now()) {
+  assertRetirementSettled(id, now = this.now()) {
     const pending = this.db.prepare('SELECT billing_sealed,billing_deadline_ms FROM retirement_pending WHERE session_id=?').get(id);
     if (pending?.billing_sealed) return;
     if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('Invalid retirement clock');
@@ -285,7 +285,7 @@ export class SQLiteStorage {
   }
   /** The durable fence and host projection commit together, before any async hook.
    * Retries return the same amounts; the budget's SQLite triggers refuse writes. */
-  sealRetirement(id, now = Date.now()) {
+  sealRetirement(id, now = this.now()) {
     // Persist the deadline even when the transactional readiness check rejects.
     this.assertRetirementSettled(id, now);
     return this.transaction(() => {
@@ -609,11 +609,11 @@ export class SQLiteStorage {
       if (type === 'identity.state' && data.role && data.roleWithdrawalRevision !== undefined) {
         const { role, roleWithdrawalRevision, roleConsentRevision, ...identity } = data;
         const roleRef = `${id}:role:${seq}`, bytes = JSON.stringify({ role, roleWithdrawalRevision, roleConsentRevision });
-        this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(roleRef, id, 'actor', bytes, hash(bytes), new Date().toISOString());
+        this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(roleRef, id, 'actor', bytes, hash(bytes), new Date(this.now()).toISOString());
         data = { ...identity, role: null, roleRef };
       }
       const bytes = JSON.stringify(data), contentRef = `${id}:host:${seq}`;
-      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'host', bytes, hash(bytes), new Date().toISOString());
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'host', bytes, hash(bytes), new Date(this.now()).toISOString());
       return { contentRef, hash: hash(bytes), ...retained };
     }
     if (type === 'upload.state') {
@@ -627,7 +627,7 @@ export class SQLiteStorage {
     if (type === 'concept.feedback') {
       if (data.contentRef) return { artifactId: data.artifactId, archived: data.archived, contentRef: data.contentRef, hash: data.hash };
       const bytes = JSON.stringify({ vote: data.vote, chips: data.chips }), contentRef = `${id}:concept-feedback:${seq}`;
-      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'concept-feedback', bytes, hash(bytes), new Date().toISOString());
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'concept-feedback', bytes, hash(bytes), new Date(this.now()).toISOString());
       return { artifactId: data.artifactId, archived: data.archived, contentRef, hash: hash(bytes) };
     }
     if (type === 'question.focused') {
@@ -636,7 +636,7 @@ export class SQLiteStorage {
       if (typeof data.question !== 'string' || data.question.length > 8000) throw new TypeError('Invalid focused question');
       const bytes = JSON.stringify({ question: data.question, ...(data.chosenBy === 'user' ? {
         questionId: data.questionId, requestId: data.requestId, chosenBy: 'user', inputRevision: data.inputRevision,
-      } : {}) }), contentRef = `${id}:${seq}`, at = new Date().toISOString();
+      } : {}) }), contentRef = `${id}:${seq}`, at = new Date(this.now()).toISOString();
       this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'understanding', bytes, hash(bytes), at);
       return { contentRef, hash: hash(bytes) };
     }
@@ -644,14 +644,14 @@ export class SQLiteStorage {
       // A visitor's choice is erasable content: the journal keeps only its reference.
       if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash };
       const bytes = JSON.stringify({ processingPreset: data.processingPreset, settings: data.settings }), contentRef = `${id}:settings:${seq}`;
-      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'settings', bytes, hash(bytes), new Date().toISOString());
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'settings', bytes, hash(bytes), new Date(this.now()).toISOString());
       return { contentRef, hash: hash(bytes) };
     }
     if (!['turn.final', 'turn.corrected', 'understanding.updated'].includes(type)) return data;
     if (data.contentRef) return Object.fromEntries(Object.entries(data).filter(([key]) =>
       ['turn.final', 'turn.corrected'].includes(type) ? turnMetadata.includes(key)
         : ['contentRef', 'hash', 'erased'].includes(key)));
-    const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
+    const contentRef = `${id}:${seq}`, at = data.at ?? new Date(this.now()).toISOString();
     // Reply choices and the engine label are content: erase them with the reply, never retain them in metadata.
     const origin = aiTextOrigin({ model: data.model, plugin: data.provider });
     const { scope, ...visibleData } = data;
@@ -693,7 +693,7 @@ export class SQLiteStorage {
       else {
         const bytes = JSON.stringify(session.actor), contentRef = `${session.id}:actor:${session.seq}`;
         this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, session.id, 'actor', bytes,
-          hash(bytes), new Date().toISOString()); metadata.actor = { contentRef };
+          hash(bytes), new Date(this.now()).toISOString()); metadata.actor = { contentRef };
       }
     } else metadata.actor = null;
     this.db.prepare('UPDATE sessions SET snapshot=? WHERE id=?').run(JSON.stringify(metadata), session.id);
@@ -705,7 +705,7 @@ export class SQLiteStorage {
       throw new RangeError('Transcript limit');
     }
     const event = { sessionId: session.id, seq: session.seq + 1, generation: 0, type,
-      at: new Date().toISOString(), data: this.#metadata(session.id, type, data, session.seq + 1) };
+      at: new Date(this.now()).toISOString(), data: this.#metadata(session.id, type, data, session.seq + 1) };
     this.db.prepare('INSERT INTO events VALUES (?,?,?)').run(session.id, event.seq, JSON.stringify(event));
     const hydrated = this.#hydrateEvent(event), next = applyEvent(session, hydrated);
     this.#save(next, type === 'understanding.updated' ? event.data : undefined, type === 'question.focused' ? event.data : undefined);
@@ -748,7 +748,7 @@ export class SQLiteStorage {
       beforeSave();
       const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content,
         ...(guard.voiceCallId ? { voiceCallId: guard.voiceCallId, voiceProviderId: guard.voiceProviderId } : {}),
-        at: new Date().toISOString() });
+        at: new Date(this.now()).toISOString() });
       const metadata = { ...event, data: this.#metadata(id, 'turn.final', event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, hash(bytes), JSON.stringify(metadata));
       return { event, replayed: false };
@@ -779,7 +779,7 @@ export class SQLiteStorage {
         files.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload limit');
       const events = files.map(file => {
         const uploadId = randomUUID(), event = this.#append(this.get(id), 'upload.state', { id: uploadId, state: 'pending',
-          filename: file.filename, mediaType: file.mediaType, bytes: file.bytes.length, deadlineAt: file.deadlineAt, at: new Date().toISOString() });
+          filename: file.filename, mediaType: file.mediaType, bytes: file.bytes.length, deadlineAt: file.deadlineAt, at: new Date(this.now()).toISOString() });
         this.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run(uploadId, id, file.bytes, file.bytes.length, event.data.contentRef);
         return event;
       });
@@ -816,7 +816,7 @@ export class SQLiteStorage {
         const previous = this.read(id).findLast(e => e.type === 'upload.state' && e.data.id === uploadId && e.data.state === 'withdrawn');
         if (previous) return previous;
       }
-      const at = new Date().toISOString();
+      const at = new Date(this.now()).toISOString();
       this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=? AND id=?').run(at, id, uploadId);
       this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND kind='upload' AND id LIKE ?")
         .run(at, id, `${id}:upload:${uploadId}:%`);
@@ -920,7 +920,7 @@ export class SQLiteStorage {
             callId, providerSessionId: providerId,
             ...(Number.isSafeInteger(userTurnOrdinal) && userTurnOrdinal > 0 ? { userTurnOrdinal } : {}),
             ...(value.role === 'assistant' && guard.replyId ? { replyId: guard.replyId } : {}),
-            at: new Date().toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
+            at: new Date(this.now()).toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
               ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
         if (typed) {
@@ -932,7 +932,7 @@ export class SQLiteStorage {
         if (!turn || turn.role !== 'assistant' || turn.erased || turn.withdrawn || !turn.content.startsWith(value.prefix)) throw new ConflictError('Invalid heard prefix');
         // Remove superseded assistant content and dependent projections from replay/export too.
         this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND (id=? OR kind IN ('understanding','actor'))")
-          .run(new Date().toISOString(), id, turn.contentRef);
+          .run(new Date(this.now()).toISOString(), id, turn.contentRef);
         event = this.#append(session, 'turn.corrected', { id: turnId, role: turn.role, content: value.prefix,
           at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance,
           callId: turn.callId, providerSessionId: turn.providerSessionId,
@@ -952,7 +952,7 @@ export class SQLiteStorage {
     });
   }
   #invalidate(id, turnId, all = false, concepts = true) {
-    const at = new Date().toISOString(), target = this.get(id).transcript.find(t => t.id === turnId && t.role === 'user');
+    const at = new Date(this.now()).toISOString(), target = this.get(id).transcript.find(t => t.id === turnId && t.role === 'user');
     const hostState = this.hostState(id);
     if (hostState?.identity?.roleWithdrawalRevision !== undefined) {
       hostState.identity.role = null;
@@ -987,7 +987,7 @@ export class SQLiteStorage {
   }
   /** Bounded removal of identity projections, including deleted conversations.
    * The host retains its cleanup queue until all batches have completed. */
-  eraseIdentityProjections(ownerHash, { limit = 100, at = new Date().toISOString() } = {}) {
+  eraseIdentityProjections(ownerHash, { limit = 100, at = new Date(this.now()).toISOString() } = {}) {
     if (typeof ownerHash !== 'string' || !/^[a-f0-9]{64}$/u.test(ownerHash) || !Number.isSafeInteger(limit) || limit < 1) throw new TypeError('Invalid identity erasure');
     const owned = "SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=?";
     const contentFilter = `session_id IN (${owned}) AND tombstone IS NULL AND id IN
@@ -1021,7 +1021,7 @@ export class SQLiteStorage {
         if (previous) return previous;
       }
       this.#invalidate(id, turnId);
-      return this.#append(session, 'turn.withdrawn', { turnId, reason, at: new Date().toISOString() });
+      return this.#append(session, 'turn.withdrawn', { turnId, reason, at: new Date(this.now()).toISOString() });
     });
   }
   expire(id, turnId) { return this.systemWork(() => this.withdraw(id, turnId, 'expiry')); }
@@ -1040,8 +1040,8 @@ export class SQLiteStorage {
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_direction WHERE session_id=?').run(id);
-      this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=?').run(new Date().toISOString(), id);
-      return this.#append(session, 'session.erased', { at: new Date().toISOString() });
+      this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=?').run(new Date(this.now()).toISOString(), id);
+      return this.#append(session, 'session.erased', { at: new Date(this.now()).toISOString() });
     });
   }
   reviseConsent(id, granted, guard = {}, { conversationUnchanged = false, changed, removed } = {}) {
@@ -1058,7 +1058,7 @@ export class SQLiteStorage {
       // Forget cross-conversation pause on withdrawal. Keep this live conversation's
       // deadline so granting consent again cannot restart its hour.
       if (!granted) this.#deleteOwnerCreditGuard(id);
-      const event = this.#append(session, 'consent.revised', { granted, at: new Date().toISOString(),
+      const event = this.#append(session, 'consent.revised', { granted, at: new Date(this.now()).toISOString(),
         ...(Array.isArray(changed) ? { changed: [...changed] } : {}),
         ...(Array.isArray(removed) ? { removed: [...removed] } : {}),
         ...(conversationUnchanged ? { conversationUnchanged: true } : {}) });
@@ -1156,14 +1156,14 @@ export class SQLiteStorage {
   // transaction erases dependent bytes/feedback and invalidates pending work.
   removeConceptReference(id, referenceId, guard = {}) {
     return this.#invalidationTransaction(() => {
-      const session = this.get(id); this.#check(session, guard); const at = new Date().toISOString();
+      const session = this.get(id); this.#check(session, guard); const at = new Date(this.now()).toISOString();
       for (const row of this.db.prepare('SELECT * FROM concept_artifacts WHERE session_id=? AND tombstone IS NULL').all(id)) {
         if (JSON.parse(row.dependencies).referenceIds.includes(referenceId)) {
           this.db.prepare('UPDATE concept_artifacts SET bytes=NULL,tombstone=? WHERE id=?').run(at, row.id);
           this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND kind='concept-feedback' AND id IN (SELECT json_extract(event,'$.data.contentRef') FROM events WHERE session_id=? AND json_extract(event,'$.data.artifactId')=?)").run(at, id, id, row.id);
         }
       }
-      const intent = reduceConceptIntent(session.conceptIntent ?? createConceptIntent(), { type: 'source-removed', source: 'reference', id: referenceId, now: Date.now() });
+      const intent = reduceConceptIntent(session.conceptIntent ?? createConceptIntent(), { type: 'source-removed', source: 'reference', id: referenceId, now: this.now() });
       const affected = intent.pending?.referenceIds.includes(referenceId);
       return this.#append(this.get(id), 'concept.state', { intent: affected ? { ...intent, pending: null } : intent,
         status: affected ? { phase: 'failed', error: 'source-removed', retryable: false } : session.conceptStatus });
@@ -1176,7 +1176,7 @@ export class SQLiteStorage {
    * conversations stay in their tab, so a started conversation (even with every turn
    * withdrawn) cannot switch into or out of device processing.
    */
-  changeSettings(id, { processingPreset, settings }, { ownerToken, baseRevision, confirm = false, at = new Date().toISOString() } = {}) {
+  changeSettings(id, { processingPreset, settings }, { ownerToken, baseRevision, confirm = false, at = new Date(this.now()).toISOString() } = {}) {
     if (typeof confirm !== 'boolean') throw new TypeError('Invalid settings confirmation');
     if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) throw new TypeError('Settings base revision required');
     return this.transaction(() => {
@@ -1219,7 +1219,7 @@ export class SQLiteStorage {
         let understandingRef;
         for (const row of this.db.prepare('SELECT seq,event FROM events WHERE session_id=? ORDER BY seq').all(id)) {
           const event = JSON.parse(row.event);
-          event.generation = 0; event.at ??= event.data.at ?? new Date().toISOString();
+          event.generation = 0; event.at ??= event.data.at ?? new Date(this.now()).toISOString();
           event.data = this.#metadata(id, event.type, event.data, event.seq);
           this.db.prepare('UPDATE events SET event=? WHERE session_id=? AND seq=?').run(JSON.stringify(event), id, row.seq);
           session = applyEvent(session, this.#hydrateEvent(event));

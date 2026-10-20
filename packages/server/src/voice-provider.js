@@ -34,12 +34,13 @@ function terminal(call, at, outcome = 'completed') {
 }
 
 /** Admission, durable holds and leases without credentials, HTTP or callbacks. */
-export function createLocalVoiceProvider({ storage, now = Date.now, allowProductionSimulator = false } = {}) {
+export function createLocalVoiceProvider({ storage, now: configuredNow = () => storage.now(), allowProductionSimulator = false } = {}) {
   if (process.env.NODE_ENV === 'production' && allowProductionSimulator !== true) {
     throw new TypeError('Local voice is a development/test simulator; production requires allowProductionSimulator: true');
   }
   if (typeof storage?.saveVoiceCall !== 'function') throw new TypeError('Durable voice storage required');
   const start = async (request, options) => {
+    const now = options.now ?? configuredNow;
     if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(request?.callId ?? '')) throw new TypeError('Call identity required');
     const invocation = await beginVoiceInvocation(options, request.callId), cancellation = new AbortController();
     let call = { callId: request.callId, providerSessionId: 'fake-' + crypto.randomUUID(), startedAt: now(),
@@ -65,7 +66,7 @@ export function createLocalVoiceProvider({ storage, now = Date.now, allowProduct
       cancellation.abort(); return closing;
     };
     const cancel = () => { void close('cancelled', 'cancelled').catch(() => {}); };
-    const bounded = opts => ({ ...opts, signal: opts?.signal ? AbortSignal.any([opts.signal, cancellation.signal]) : cancellation.signal,
+    const bounded = opts => ({ now, ...opts, signal: opts?.signal ? AbortSignal.any([opts.signal, cancellation.signal]) : cancellation.signal,
       deadlineAt: Math.min(opts?.deadlineAt ?? Infinity, call.spendDeadlineAt, call.browserLivenessDeadlineAt) });
     const pause = (paused, opts) => serial(() => voiceOperation(bounded(opts), async command => {
       if (closing) throw new PluginError('unavailable');
