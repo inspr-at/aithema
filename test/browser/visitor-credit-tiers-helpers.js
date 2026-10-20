@@ -117,6 +117,8 @@ export async function composerCreditReservationMatrix(t) {
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-shell'];
   if (evidence) await mkdir(evidence, { recursive: true });
+  // Settled geometry and evidence use the supported reduced-motion surface.
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
   const accessibility = await page.createCDPSession();
@@ -200,6 +202,8 @@ export async function topUpReservationMatrix(t) {
   const accessibility = await page.createCDPSession();
   const v3Rows = [], v3Selectors = ['.transcript-shell .turn.user', '.transcript-shell .turn:last-child', '.voice-reply-actions', '.qopts', ...selectors];
   if (evidence) await mkdir(evidence, { recursive: true });
+  // Settled geometry and evidence use the supported reduced-motion surface.
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
@@ -811,6 +815,8 @@ export async function replyRowsMatrix(t) {
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   browser = await browserForFile();
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [];
+  // Settled geometry and evidence use the supported reduced-motion surface.
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
   const shot = async name => {
