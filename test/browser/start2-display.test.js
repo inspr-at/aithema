@@ -434,10 +434,19 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       root.querySelector('.transcript-shell').scrollTop = 0;
       const range = document.createRange(); range.selectNodeContents(root.querySelector('.turn-text'));
       const line = range.getClientRects()[0];
+      // AIT-400/412 keeps the real transcript below the band. Preserve the
+      // opacity test's actual glyph probe outside that protected scroll area.
+      const source = root.querySelector('.turn'), bounds = source.getBoundingClientRect(), workspace = root.querySelector('.workspace');
+      const origin = workspace.getBoundingClientRect(), backing = source.cloneNode(true);
+      backing.dataset.bandProbe = ''; backing.setAttribute('aria-hidden', 'true');
+      backing.style.cssText = `position:absolute;left:${bounds.left - origin.left}px;top:${bounds.top - origin.top}px;width:${bounds.width}px;max-width:none;pointer-events:none;`;
+      workspace.insertBefore(backing, root.querySelector('.conversation'));
       scrollTo({ top: scrollY + line.top - (band.getBoundingClientRect().height - 24), behavior: 'instant' });
     });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.band').hasAttribute('data-scrolled'));
     const scrolled = await boxes(page, selectors);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect().top >= c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom), true,
+      `${label}: AIT-400/412 keeps the real transcript clear of the band`);
     const metrics = await shadow(page, c => {
       const root = c.shadowRoot, band = root.querySelector('.band'), style = getComputedStyle(band), fade = getComputedStyle(band, '::before');
       const probe = document.createElement('span'); probe.style.color = 'color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper))'; root.append(probe);
@@ -487,6 +496,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     }
     assert.ok(textPixels >= 20, `${label}: sampled actual bubble glyphs under the band (${textPixels})`);
     passLines.push({ head: evidenceCommit, locale, theme, width, state: 'scrolled', displacementPx: 0, pass: true, textPixels, expected, ...metrics, ...await shot(label, 'scrolled') });
+    await shadow(page, c => c.shadowRoot.querySelector('[data-band-probe]').remove());
     await page.evaluate(() => scrollTo(0, 0));
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.band').hasAttribute('data-scrolled'));
     assert.deepEqual(await boxes(page, selectors), baseline, `${label}: scrolling back restores every box`);

@@ -24,7 +24,7 @@ export async function artifactConsentFrames(t) {
     window.c=document.createElement('aithema-session');const session=await(await fetch('/api/sessions/ait374')).json();
     c.configure({session,copy,sessionToken:'fixture-owner',concepts:{previewURL:location.origin+'/_aithema/html-preview'}});
     c.setAttribute('theme','light');c.setAttribute('motion','off');document.documentElement.lang=locale;document.body.append(c);window.ready=true;
-    window.boxes=(kind='html')=>Object.fromEntries(['.concept-stage','.concept-'+kind,'.concept-viewer-head','.concept-viewer-controls','.drafts-canvas','.composer','.concept-access'].map(s=>{const b=c.shadowRoot.querySelector(s).getBoundingClientRect();return[s,[b.x,b.y,b.width,b.height]];}));
+    window.boxes=(kind='html')=>Object.fromEntries(['.concept-stage','.concept-'+kind,'.concept-viewer-head','.concept-viewer-controls','.concept-feedback','.concept-reject','.drafts-canvas','.composer','.concept-access'].map(s=>{const b=c.shadowRoot.querySelector(s).getBoundingClientRect();return[s,[b.x,b.y,b.width,b.height]];}));
   </script></body></html>`;
   const server = createServer(async (req, res) => {
     try {
@@ -36,6 +36,13 @@ export async function artifactConsentFrames(t) {
       if (path.endsWith('/image')) {
         requests.push(path); res.writeHead(200, { 'content-type': 'image/png' });
         return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+      }
+      if (path.endsWith('/concepts/bad/reject')) {
+        const chunks = []; for await (const chunk of req) chunks.push(chunk);
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        requests.push({ path, method: req.method, vote: body.vote, chips: body.chips });
+        return json({ event: { seq: session.seq + 1, type: 'concept.feedback',
+          data: { artifactId: 'bad', vote: 'down', chips: body.chips, archived: true } } });
       }
       if (path.endsWith('/preview')) {
         requests.push(path);
@@ -72,13 +79,17 @@ export async function artifactConsentFrames(t) {
         retry: !s.querySelector('.reload').disabled, icon: getComputedStyle(s.querySelector('.state-icon')).visibility,
         color: getComputedStyle(message).color, iconColor: getComputedStyle(s.querySelector('.state-icon')).color,
         muted: getComputedStyle(r.querySelector('.concept-activity-text')).getPropertyValue('--aithema-muted').trim(),
-        frame: !!s.querySelector('iframe'), notice: r.querySelector('.concept-withdrawn').textContent, boxes: boxes() };
+        frame: !!s.querySelector('iframe'), notice: r.querySelector('.concept-withdrawn').textContent, boxes: boxes(),
+        dismiss: { disabled: r.querySelector('.concept-reject').disabled, label: r.querySelector('.concept-reject').textContent },
+        otherActionsDisabled: [...r.querySelectorAll('.concept-download, .concept-regenerate, .concept-up, .concept-down, .concept-guidance-options button')].every(button => button.disabled) };
     });
     assert.deepEqual(state.ids, ['first', 'last']); assert.deepEqual(state.order, ['first', 'bad', 'last']); assert.equal(state.open, true);
     assert.equal(state.state, 'unavailable'); assert.equal(state.text, locale === 'de' ? 'Diese Vorschau ist nicht verfügbar.' : "This preview isn't available.");
     assert.equal(state.name, state.text); assert.equal(state.tabIndex, 0); assert.equal(state.retry, false); assert.equal(state.icon, 'visible');
     assert.equal(state.iconColor, state.color); assert.equal(state.frame, false); assert.equal(state.notice, '');
     assert.deepEqual(state.boxes, baseline, '0 px across the unavailable revision');
+    assert.deepEqual(state.dismiss, { disabled: false, label: locale === 'de' ? 'Ablehnen und ausblenden' : 'Reject and archive' });
+    assert.equal(state.otherActionsDisabled, true, 'AIT-424: other artifact actions stay disabled');
     // The modal Tab trap must reach the unavailable message, with its exact accessible name.
     await page.evaluate(() => c.shadowRoot.querySelector('.concept-close').focus()); await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(() => c.shadowRoot.querySelector('.concept-html').shadowRoot.activeElement === c.shadowRoot.querySelector('.concept-html').shadowRoot.querySelector('.state')), true);
@@ -86,13 +97,16 @@ export async function artifactConsentFrames(t) {
     await page.evaluate(async () => { c.shadowRoot.activeElement?.shadowRoot?.activeElement?.blur(); c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
     await page.mouse.move(-10, -10);
     const file = `ait374-${width}-light-${locale}.png`; if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
+    if (evidence && width === 390) {
+      const dismissFile = `ait424-${width}-light-${locale}.png`;
+      await page.screenshot({ path: join(evidence, dismissFile), fullPage: false, captureBeyondViewport: false }); shots.push(dismissFile);
+    }
     for (const [delta, id] of [[-1, 'first'], [1, 'bad'], [1, 'last']]) {
       await page.evaluate(delta => view.navigate(delta), delta);
       await page.waitForFunction(id => view.current()?.id === id && c.shadowRoot.querySelector('.concept-html').state === (id === 'bad' ? 'unavailable' : 'ready'), {}, id);
       assert.deepEqual(await page.evaluate(() => boxes()), baseline, `${id} keeps its size and position (0 px)`);
     }
-    checks.push({ width, height: 900, locale, theme: 'light', ...state, movementPx: 0, siblingOrder: ['first', 'bad', 'last'], siblingsReady: true,
-      keyboardReachedMessage: true, accessibleNameVerified: true, viewportOnly: true, settled: true, blurred: true, pinnedFonts: true });
+    // Prove the image slot before dismissal archives the shared 'bad' artifact.
     if (locale === 'de') {
       await page.evaluate(coverage => {
         window.imageSession = { ...c.session, conceptVisualKind: 'image', settings: { ...c.session.settings, visuals: 'images' },
@@ -118,7 +132,15 @@ export async function artifactConsentFrames(t) {
       if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); imageShots.push(file);
       imageChecks.push({ width, height: 900, locale, theme: 'light', ...imageState, baseline: imageBaseline, movementPx: 0,
         viewportOnly: true, settled: true, blurred: true, pinnedFonts: true });
+      // Restore the selected-purpose HTML fixture for AIT-424's dismissal proof.
+      await page.evaluate(coverage => view.update(c.session, coverage), coverage);
     }
+    await page.evaluate(() => { view.open('bad'); c.shadowRoot.querySelector('.concept-reject').click(); });
+    await page.waitForFunction(() => !view.dialog.open && c.session.concepts.find(item => item.id === 'bad').archived);
+    assert.deepEqual(await page.evaluate(() => view.displayItems.map(item => item.id)), ['first', 'last']);
+    assert.deepEqual(requests.filter(request => request.path).at(-1), { path: '/api/sessions/ait374/concepts/bad/reject', method: 'POST', vote: 'down', chips: [] });
+    checks.push({ width, height: 900, locale, theme: 'light', ...state, movementPx: 0, siblingOrder: ['first', 'bad', 'last'], siblingsReady: true,
+      keyboardReachedMessage: true, accessibleNameVerified: true, viewportOnly: true, settled: true, blurred: true, pinnedFonts: true });
   });
   if (evidence) await writeFile(join(evidence, 'ait374-checks.json'), JSON.stringify({ shots, checks, offline: true }, null, 2));
   if (evidence) await writeFile(join(evidence, 'ait428-checks.json'), JSON.stringify({ shots: imageShots, checks: imageChecks, offline: true }, null, 2));

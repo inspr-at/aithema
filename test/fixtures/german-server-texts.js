@@ -1,3 +1,5 @@
+import { BINDING_REASON_CODES } from '../../packages/core/src/presets.js';
+
 // Frozen legal fixture: START src/lib/i18n.ts, consentCopy.de.
 // CI uses this fixture, never a sibling START checkout.
 export const START_GERMAN_CONSENT = {
@@ -33,8 +35,7 @@ export const FEATURE_REASON_CODES = [
   'session paused', 'current processing consent required', 'consent port unavailable', 'not configured',
   'unavailable on device', 'plugin not registered', 'plugin not in preset', 'preset not configured', 'preset choices invalid',
   'unknown preset', 'browser only', 'device browser only', 'model not supported', 'effort not supported',
-  'manifest evidence expired', 'binding evidence unverified', 'binding evidence mismatch', 'binding evidence not yet valid',
-  'binding evidence expired', 'binding invalid', 'processing scope invalid', 'processing residency unverified',
+  ...BINDING_REASON_CODES, 'binding invalid', 'processing scope invalid', 'processing residency unverified',
   'processing countries missing', 'recipient seat outside eu',
   'processing residency denied', 'training policy denied', 'endpoint not allowed', 'plugin binding mismatch',
   'plugin kind unsupported', 'operation unsupported', 'invalid mock budget', 'plugin unhealthy', 'admission deadline',
@@ -67,7 +68,4 @@ export const VOICE_REASON_CODES = [
 ];
 
 // AIT-380 Tick v2: technical evidence refusals use feature-neutral visitor copy.
-export const BINDING_REASON_CODES = [
-  'manifest evidence expired', 'binding evidence unverified', 'binding evidence mismatch',
-  'binding evidence not yet valid', 'binding evidence expired',
-];
+export { BINDING_REASON_CODES };

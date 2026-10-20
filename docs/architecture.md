@@ -151,6 +151,7 @@ The browser-facing core root does not import these Node artifact constructors.
 | `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
 | `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION/GROK_VOICE host-module expressions | #173 / AIT-160 / AIT-350: injected host entrypoints |
 | `demo/host.js` | Relative public source URLs | AIT-205: native browser loading |
+| `demo/reason-text.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/consent-page.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-copy.js` | Relative public source URLs | AIT-205: native browser loading |
@@ -248,7 +249,7 @@ they are not test coverage switches.
 | `test/browser/demo.test.js` | `CI` ×9 | Linux headless Chrome sandbox selection |
 | `test/browser/external-plugin.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/host-surface.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
+| `test/browser/host-surface.test.js` | `CI` ×2, `GITHUB_EVENT_PATH` ×1 | Linux headless Chrome sandbox selection; AIT-387 evidence pins the PR head |
 | `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection (--no-sandbox); AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix |
 | `test/browser/matrix-coverage.js` | `CI` ×1, `GITHUB_ACTIONS` ×1 | AIT-406 full matrix explicitly selected by AITHEMA_FULL_MATRIX while retaining CI timing; AIT-192 local evidence also selects full coverage outside CI; AIT-293 manual axe excludes GITHUB_ACTIONS |
 | `test/browser/operator-login.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
@@ -268,6 +269,7 @@ they are not test coverage switches.
 | `test/fixtures/lane-race-proof.js` | `process.env` ×1 | AIT-201 lane-race red proof forwards the child environment after removing NODE_TEST_CONTEXT |
 | `test/fixtures/lane-race-validation.js` | `process.env` ×1 | AIT-201 lane-race validation forwards the child environment after removing NODE_TEST_CONTEXT |
 | `test/fixtures/launch-browser.mjs` | `destructure { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error }` ×1 | Pinned fake-CDP fixture controls; exact destructured keys and aliases required |
+| `test/fixtures/withdrawal-focus-frames.js` | `GITHUB_EVENT_PATH` ×2 | AIT-400 withdrawal evidence binds the PR branch head from the GitHub event payload |
 | `test/live/soak.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/measurements/browser-comparison.js` | `process.env` ×1 | Intentional browser measurement child-process environment forwarding; exact occurrence pinned |
 | `test/measurements/consent-reload-repeat.test.js` | `process.env` ×1 | AIT-398 remote browser qualification forwards the child environment after removing NODE_TEST_CONTEXT |

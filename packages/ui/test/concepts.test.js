@@ -15,6 +15,41 @@ test.after(() => window.happyDOM.close());
 const warningFixture = document.createElement('span'); warningFixture.innerHTML = WARNING_ICON;
 const tick = () => new Promise(r => setImmediate(r));
 
+for (const copy of [de, en]) test(`AIT-424 ${copy.display.locale}: unavailable draft can only be dismissed`, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const reply = Promise.withResolvers();
+  t.after(() => reply.resolve(Response.json({})));
+  const { c, root, calls } = setup(t, { copy, concepts: [draft('first'), draft('bad'), draft('last')],
+    session: { conceptVisualKind: 'html' }, postResponse: () => reply.promise });
+  const coverage = { consentRevision: c.session.consentRevision, selected: ['drafts'], features: { html: ['drafts'] },
+    artifacts: Object.fromEntries(['first', 'bad', 'last'].map(id => [id, { purposes: ['drafts'], unavailable: id === 'bad' }])) };
+  view.open('bad'); view.update(c.session, coverage); await tick();
+  const reject = root.querySelector('.concept-reject');
+  assert.equal(reject.disabled, false, 'dismiss remains enabled for the unavailable draft');
+  assert.equal(reject.textContent, copy.conceptReject);
+  for (const button of root.querySelectorAll('.concept-download, .concept-regenerate, .concept-up, .concept-down, .concept-guidance-options button'))
+    assert.equal(button.disabled, true, `${button.className || button.textContent} stays disabled`);
+  const before = calls.length;
+  await view.feedback('up', []); await view.feedback('clear', [copy.conceptGuidance[0]]);
+  assert.equal(calls.length, before, 'unavailable draft cannot submit other feedback');
+  reject.click();
+  const requests = calls.slice(before);
+  assert.equal(requests.length, 1); assert.ok(requests[0].url.endsWith('/concepts/bad/reject'));
+  assert.equal(new Headers(requests[0].options.headers).get('x-aithema-session-token'), 'owner-fixture');
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.vote, 'down'); assert.deepEqual(body.chips, []);
+  assert.equal(reject.disabled, true, 'pending dismiss keeps the existing busy gate');
+  reject.click(); assert.equal(calls.length, before + 1, 'pending dismiss cannot be repeated');
+  reply.resolve(Response.json({ event: { seq: c.session.seq + 1, type: 'concept.feedback',
+    data: { artifactId: 'bad', vote: body.vote, chips: body.chips, archived: true } } }));
+  await tick();
+  assert.equal(c.session.concepts.find(item => item.id === 'bad').archived, true);
+  assert.deepEqual(view.displayItems.map(item => item.id), ['first', 'last']);
+  assert.equal(view.dialog.open, false, 'existing dismiss closes the viewer');
+});
+
 for (const copy of [en, de]) test(`AIT-374 ${copy === en ? 'en' : 'de'}: unavailable draft keeps its slot and siblings`, async t => {
   let view; const update = ConceptView.prototype.update;
   t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
