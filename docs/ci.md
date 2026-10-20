@@ -149,6 +149,15 @@ CI screenshots use `browser-evidence-N-of-7`; the full nightly matrix uses
 `full-browser-evidence-N-of-7`. All seven workers run concurrently, so this adds
 runner minutes while keeping wall-clock time comparable.
 
+Nightly selects the full Cartesian matrix with `AITHEMA_FULL_MATRIX=1`.
+It retains GitHub Actions' `CI=true`, including the CI timing budgets in
+fixtures such as `scoped-consent-edges.js`. An evidence directory alone keeps
+PR width rotation when `CI` is set; local manual evidence retains its existing
+full-matrix path. GitHub Actions never enables the manual axe audit. Nightly
+retains seven shards and a 25-minute job timeout; successful complete jobs must
+finish within 17:30 (70%) before claiming measured headroom. Small timing
+artifacts are `full-browser-timings-N-of-7`, separate from viewport screenshots.
+
 The script downloads only the small timing artifacts through the selected `gh`
 account, pinned to `inspr-at/aithema`. Both automatic selection and explicit
 `--run` imports require a successful `push` event on `main` in that repository,
