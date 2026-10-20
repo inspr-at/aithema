@@ -20,9 +20,9 @@ export class ReplyControls {
     if (duringCall) this.playing = false;
     // The legacy latest-reply hooks address only the current reply; every row
     // has permanent reply-action hooks for its own lifetime.
-    this.row.classList.toggle('voice-reply-actions', latest && !owner.recovery);
-    this.button.classList.toggle('voice-repeat', latest && !owner.recovery);
-    this.readText.classList.toggle('voice-read-text', latest && !owner.recovery);
+    this.row.classList.toggle('voice-reply-actions', latest && !owner.recovery && !owner.recoveryContext);
+    this.button.classList.toggle('voice-repeat', latest && !owner.recovery && !owner.recoveryContext);
+    this.readText.classList.toggle('voice-read-text', latest && !owner.recovery && !owner.recoveryContext);
     const label = this.playing ? c.voiceReplayStop : this.fallback || !owner.audioAvailable() ? c.voiceReadFullReply : c.voiceRepeatReply;
     for (const [control, name] of [[this.button, label], [this.readText, c.voiceReadText]]) {
       control.disabled = duringCall || !owner.available() || !this.current();

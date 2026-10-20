@@ -24,7 +24,7 @@ export class RecoveryNotices {
     this.render();
   }
   recovered(recovery = {}) {
-    this.clear(); this.completedReply = null; this.recovery = { ...recovery }; this.render();
+    this.clear(); this.completedReply = null; this.recoveryContext = true; this.recovery = { ...recovery }; this.render();
     this.root.querySelector('.voice-notice-live').textContent = [this.copy.voiceRecovered,
       recovery.userUnconfirmed && this.copy.voiceUserUnconfirmed,
       recovery.deliveryUncertain && recovery.playbackPositionUnknown && this.copy.voiceReplyIncomplete].filter(Boolean).join('. ');
@@ -64,6 +64,7 @@ export class RecoveryNotices {
     for (const [id, controls] of this.replyRows) if (!retained.has(id)) { controls.dispose(); this.replyRows.delete(id); }
   }
   render() {
+    if (this.replies && !this.recovery && !this.inCall()) this.recoveryContext = false;
     if (this.replies) this.renderReplyRows();
     const c = this.copy, recovery = this.recovery, available = this.available();
     if (!available && this.wasAvailable) { this.revision++; this.pending = null; }
@@ -75,7 +76,11 @@ export class RecoveryNotices {
     // The legacy notice row is detached while ordinary replies own their rows.
     // This also keeps hidden placeholders out of transcript layout and AX.
     if (this.replies && !recovery) {
-      this.actions.remove(); this.replyNotice.hidden = true;
+      if (this.recoveryContext) {
+        this.button.hidden = true; this.readText.hidden = true; this.actions.hidden = true;
+        this.replyNotice.append(this.actions);
+      } else this.actions.remove();
+      this.replyNotice.hidden = true;
       text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
       if (!available && this.dialog.open) this.dialog.close();
       return;

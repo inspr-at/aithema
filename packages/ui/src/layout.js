@@ -302,7 +302,7 @@ export class PhoneComposerViewport {
       const reservation = () => phoneNotices() ? notices.style.minHeight : list.style.paddingBottom;
       const reserve = value => { if (phoneNotices()) notices.style.minHeight = value; else list.style.paddingBottom = value; };
       const inlineHeight = () => {
-        const actions = this.root.querySelector('.turn > .voice-reply-actions');
+        const actions = this.root.querySelector('.turn:last-child > .reply-actions, .turn > .voice-reply-actions');
         return actions?.getBoundingClientRect().height ?? 0;
       };
       const endHeight = this.endHeight = () => inlineHeight() + (phoneNotices()

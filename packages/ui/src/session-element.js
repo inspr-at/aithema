@@ -925,7 +925,14 @@ export class AithemaSession extends HTMLElement {
     if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
-      if (latest.getBoundingClientRect().height > room) {
+      // Permanent controls can make an otherwise readable reply taller than
+      // the pane. Keep that reply bottom-aligned; reserve the separate full-text
+      // fallback and start alignment for text that itself exceeds the pane.
+      const text = latest.querySelector('.turn-text');
+      const textRoom = text.getBoundingClientRect().height + (latest.querySelector('strong')?.getBoundingClientRect().height ?? 0)
+        + parseFloat(this.ownerDocument.defaultView.getComputedStyle(latest).paddingTop)
+        + parseFloat(this.ownerDocument.defaultView.getComputedStyle(latest).paddingBottom);
+      if (textRoom > room) {
         latest.toggleAttribute('data-start-only', room < 88);
         const openFullReply = row => {
           this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
