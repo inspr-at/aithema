@@ -48,6 +48,7 @@ export class AudioRail {
       !['recovering', 'waiting', 'closing'].includes(this.state)),
       replyVisible: (text, turnId) => this.replyVisible?.(text, turnId) ?? Boolean(text && this.lastReply?.()?.text === text),
       replyTarget,
+      inCall: () => this.root.dataset.call === 'active',
       audioAvailable: () => !this.usedUp?.() && !this.allowanceDenied && this.feature()?.available !== false &&
         Boolean(this.session ? this.session.replayLastReply : this.client?.replayReply),
       stopReplay: () => this.session?.stopReplay?.() ?? this.client?.stopReplay?.(), replay: async () => {
@@ -275,7 +276,8 @@ export class AudioRail {
         cell.removeAttribute('tabindex'); cell.removeAttribute('aria-label'); cell.removeAttribute('aria-describedby'); this.button(name).removeAttribute('aria-describedby');
       }
     }
-    const pageReply = !this.session && !transitional && !this.endedCall ? this.lastReply?.() : null;
+    // Tick v3: the latest reply keeps its action row through the call lifecycle.
+    const pageReply = this.lastReply?.();
     if (this.notices.pageReply?.turnId !== pageReply?.turnId || this.notices.pageReply?.text !== pageReply?.text) {
       this.client?.stopReplay?.(); this.notices.playing = false;
     }

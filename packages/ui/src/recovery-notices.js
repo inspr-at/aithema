@@ -1,8 +1,8 @@
 // Only a new recovery changes the live region. Once its sentence clears,
 // the existing controls belong to the exact assistant reply, without a notice row.
 export class RecoveryNotices {
-  constructor({ root, copy, available, replay, stopReplay, replyVisible = text => Boolean(text), audioAvailable = () => true, replyTarget = () => null }) {
-    Object.assign(this, { root, copy, available, replay, stopReplay, replyVisible, audioAvailable, replyTarget });
+  constructor({ root, copy, available, replay, stopReplay, replyVisible = text => Boolean(text), audioAvailable = () => true, replyTarget = () => null, inCall = () => false }) {
+    Object.assign(this, { root, copy, available, replay, stopReplay, replyVisible, audioAvailable, replyTarget, inCall });
     this.revision = 0;
     root.innerHTML = `<div class="voice-notice voice-notice--recovered"></div>
       <div class="voice-notice voice-notice--user"></div>
@@ -66,10 +66,17 @@ export class RecoveryNotices {
     if (this.actions.parentNode !== parent) parent.append(this.actions);
     this.actions.hidden = this.button.hidden;
     this.replyNotice.hidden = !this.replyNotice.querySelector('span').textContent && (Boolean(target) || this.button.hidden);
-    this.readText.disabled = !available || !reply;
-    this.button.disabled = !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? this.pageReply?.text);
-    this.button.title = reply ? label : c.voiceReplyUnavailable;
-    this.button.setAttribute('aria-label', this.button.title);
+    const duringCall = !recovery && this.inCall();
+    this.readText.disabled = duringCall || !available || !reply;
+    this.button.disabled = duringCall || !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? this.pageReply?.text);
+    this.button.title = duringCall ? c.voiceReplyDuringCall : reply ? label : c.voiceReplyUnavailable;
+    this.button.setAttribute('aria-label', reply ? label : c.voiceReplyUnavailable);
+    this.readText.title = duringCall ? c.voiceReplyDuringCall : '';
+    for (const control of [this.button, this.readText]) {
+      control.setAttribute('aria-disabled', String(control.disabled));
+      if (duringCall) control.setAttribute('aria-description', c.voiceReplyDuringCall);
+      else control.removeAttribute('aria-description');
+    }
     text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
     if (!available && this.dialog.open) this.dialog.close();
   }
