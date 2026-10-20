@@ -182,6 +182,13 @@ svg { display:block; flex:none; }
   .turn:is(:hover,:focus-within) > .reply-actions > button svg { visibility:visible; }
   .turn:is(:hover,:focus-within) > .reply-actions > button:not(:disabled) { color:var(--aithema-ink); }
 }
+/* The permanent 44px row takes room from the capped phone option list,
+   preserving the complete resting reply above the card and its fade. */
+@media (max-width:600px) {
+  .workspace:has(.reply-actions) .qcard:not([data-compact]) {
+    max-height:min(440px,max(0px,calc(var(--question-card-limit,440px) - 44px)),calc(100dvh - 280px));
+  }
+}
 /* A cleared recovery offer shares the existing reply slot and may retire
    independently. The permanent row owns keyboard/AX access at all times. */
 .turn > .voice-reply-actions--recovery { position:absolute; inset-inline-start:.8rem; bottom:.65rem; height:44px; gap:0; }
