@@ -24,7 +24,7 @@ for (const [name, now, pattern, files] of cases) test(`AIT-402 calendar: ${name}
   const run = spawnSync(process.execPath, ['--test', '--test-concurrency=2',
     '--import', `./test/fixtures/calendar-clock.js?now=${now}`,
     `--test-name-pattern=${pattern}`, ...files], {
-    cwd: root, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TZ: 'UTC' },
+    cwd: root, encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH, TZ: 'UTC' },
   });
   assert.equal(run.status, 0, `${run.error ?? ''}\n${run.stdout}\n${run.stderr}`);
 });
