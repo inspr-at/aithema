@@ -1,15 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
+import { PluginRegistry, createMockReasoning, consentCoverage, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+import { createComposedVoiceAuthority } from '../packages/server/src/composed/authority.js';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createLocalHTML,
-  localHTMLBinding, createSpendCap, createLocalImages } from '@inspr/aithema-server';
+  localHTMLBinding, createSpendCap, createLocalImages, createFacadeSecrets } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
 import { createConceptHandlers } from '../packages/server/src/concept-handlers.js';
 import { createMockConsent } from '../demo/mock-consent.js';
 import { createProcessingConsent } from '../demo/processing-consent.js';
 import { createDemoHost } from '../demo/host-ports.js';
 import { startExpiry } from '../demo/session-lifecycle.js';
+import { createVoiceHost } from '../demo/start2-voice-host.js';
+import { stubAgentApi } from './fixtures/voice-self-heal-host.js';
 import { createComposedVoiceCoordinator } from '../packages/server/src/voice-coordinator.js';
 import { ownedRequest, testToken } from './helpers.js';
 
@@ -119,12 +122,45 @@ test('AIT-403 sweep storage event and content evidence timestamps follow install
     new Date(h.now()).toISOString());
 });
 
+test('AIT-403 owner export evidence uses the installed runtime clock', async t => {
+  const h = fixture(t);
+  const response = await h.handlers.handle(ownedRequest(`https://fixture.invalid/api/sessions/${h.session.id}/export`));
+  assert.equal(response.status, 200);
+  const zip = Buffer.from(await response.arrayBuffer());
+  assert.equal(zip.includes(Buffer.from(`"exportedAt": "${new Date(h.now()).toISOString()}"`)), true);
+});
+
+test('AIT-403 explicit runtime policy clock also owns storage retention and evidence', async t => {
+  const h = fixture(t, { explicit: true });
+  assert.equal(h.storage.now(), h.runtime.now());
+  h.runtime.setHostClock(() => wall + 60_000);
+  assert.equal(h.storage.now(), h.runtime.now(), 'later host accounting installation cannot change storage policy epoch');
+  assert.equal(h.runtime.budget.now(), wall + 60_000, 'ledger attribution keeps its documented host epoch');
+  const event = h.storage.append(h.session.id, 'session.paused', { paused: true });
+  assert.equal(event.at, new Date(h.runtime.now()).toISOString());
+});
+
 test('AIT-403 sweep retirement receipt deferral defaults to installed storage clock', async t => {
   const h = fixture(t);
   h.storage.erase(h.session.id);
   h.storage.assertRetirementSettled(h.session.id);
   assert.equal(h.storage.db.prepare('SELECT billing_deadline_ms FROM retirement_pending WHERE session_id=?').get(h.session.id).billing_deadline_ms,
     h.now() + 3_600_000);
+});
+
+test('AIT-430 retirement cannot age host-stamped billing evidence on a future policy clock', async t => {
+  const h = fixture(t, { explicit: true });
+  h.advance(2 * 3_600_000);
+  h.runtime.budget.admit({ attemptId: 'retirement-clock', sessionId: h.session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), providerCost: { plugin: 'offline-cost' } });
+  const claim = h.runtime.budget.claim('retirement-clock'); claim.consume();
+  h.runtime.budget.settle(claim.claimId, { attemptId: claim.attemptId, outcome: 'uncertain' });
+  h.storage.erase(h.session.id);
+  assert.throws(() => h.storage.assertRetirementSettled(h.session.id), { message: 'Retirement billing unsettled' });
+  assert.equal(h.storage.db.prepare('SELECT billing_sealed FROM retirement_pending WHERE session_id=?').get(h.session.id).billing_sealed, 0);
+  assert.equal(h.runtime.budget.used(h.session.id), 100);
+  h.runtime.budget.now = () => NaN;
+  assert.throws(() => h.storage.assertRetirementSettled(h.session.id), { message: 'Invalid retirement accounting clock' });
 });
 
 test('AIT-403 sweep provider-cap audit evidence uses installed host clock', async t => {
@@ -176,9 +212,19 @@ test('AIT-403 sweep demo-wired local voice provider follows runtime clock withou
     browserLivenessDeadlineAt: h.now() + 30_000,
     attempt: { attemptId: 'local-clock', claimId: 'fixture', maxMicro: 0, consume() {} }, report() {} };
   const voice = await plugin.start({ sessionId: h.session.id, callId: 'local-clock', ownerToken: testToken }, options);
-  t.after(() => voice.close());
-  assert.equal(voice.snapshot().startedAt, h.now());
-  assert.equal(voice.snapshot().spendDeadlineAt, options.spendDeadlineAt);
+  try {
+    assert.equal(voice.snapshot().startedAt, h.now());
+    assert.equal(voice.snapshot().spendDeadlineAt, options.spendDeadlineAt);
+  } finally { await voice.close(); }
+});
+
+test('AIT-403 local reconciliation does not use its elapsed lookup clock for call duration', async t => {
+  const h = fixture(t), plugin = createLocalVoiceProvider({ storage: h.storage });
+  const result = await plugin.ports.serverAdapter.reconciliationEvidence({
+    call: { providerSessionId: 'clock-orphan', startedAt: h.now() - 1000, pauses: [] }, outcome: 'completed',
+  }, { now: Date.now, deadlineAt: wall + 1000 });
+  assert.equal(result.terminal.usage.providerSeconds, 1);
+  assert.equal(result.terminal.usage.visitorSeconds, 1);
 });
 
 test('AIT-430 documented standalone coordinator forwards clock into component operation budgets', async t => {
@@ -204,13 +250,55 @@ test('AIT-430 reconciliation evidence age uses the accounting clock that stamped
   // A separate runtime policy epoch is supported; host accounting remains wall.
   const runtime = createPluginRuntime({ storage: h.storage, now: h.now,
     registry: new PluginRegistry().register(plugin), costReconciliationWindowMs: 1000 });
-  runtime.setHostClock(() => wall);
+  let accountingAt = wall - 1000;
+  runtime.setHostClock(() => accountingAt);
   runtime.budget.admit({ attemptId: 'cost-clock', sessionId: h.session.id, lane: 'reaction', maxMicro: 100,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
     providerCost: { plugin: plugin.manifest.id, settledAt: wall - 1000, estimateMicro: 25 } });
   const claim = runtime.budget.claim('cost-clock'); claim.consume();
   runtime.budget.settle(claim.claimId, { attemptId: 'cost-clock', outcome: 'uncertain' }, binding.rates);
+  accountingAt = wall;
   await runtime.reconcileCosts();
   assert.equal(runtime.budget.get('cost-clock').settled_micro, 25);
   assert.equal(JSON.parse(runtime.budget.get('cost-clock').cost_reconciliation_json).estimated, true);
+});
+
+test('AIT-403 sweep component consent refuses host-expired evidence even when wall clock still accepts it', async t => {
+  const h = fixture(t);
+  h.runtime.setHostClock(() => h.now() + 120_000);
+  const scope = MOCK_PROCESSING_SCOPE;
+  const port = { coverage: () => ({ ...scope, covered: true, consentRevision: h.session.consentRevision,
+    expiresAt: h.runtime.now() - 1 }) };
+  assert.equal(await consentCoverage(port, h.session, scope, { now: h.runtime.now }), false);
+});
+
+test('AIT-403 sweep demo voice host qualifies binding evidence on its forwarding clock', async t => {
+  const h = fixture(t), api = stubAgentApi();
+  const host = await createVoiceHost({ storage: h.storage, now: h.runtime.now, facadeSecrets: createFacadeSecrets(),
+    templateAgentId: 'template-agent', publicOrigin: 'https://fixture.test', apiBaseUrl: api.endpoint, values: {},
+    resolveSecret: () => 'synthetic-offline-fixture', fetchImpl: api.fetchImpl, log() {} });
+  try {
+    assert.ok(host.binding);
+    assert.equal(host.binding.legal.evidence.verifiedAt, h.now());
+    assert.equal(host.binding.legal.evidence.expiresAt, h.now() + 90 * 86_400_000);
+  } finally { await host.close(); }
+});
+
+test('AIT-403 sweep composed reply creation evidence uses the admitted runtime clock', async t => {
+  const h = fixture(t), done = new Error('reply observed'); let created;
+  const authority = createComposedVoiceAuthority({ authorizeComposition() {}, commitCoordinator() {},
+    turnOperations: { async run(context, execute) {
+      const reply = await execute({ beforeAdmission() {}, admitted() {}, assertCurrent() {}, ordinal: 1,
+        signal: new AbortController().signal });
+      created = reply.created; throw done;
+    } },
+    admitReasoning: async () => ({ request: { system: '', messages: [] }, producer: localVoiceBinding,
+      options: { now: h.runtime.now, deadlineAt: h.now() + 1000, attempt: { attemptId: 'reply-clock' }, report() {} },
+      plugin: { async *stream(request, options) { yield 'Hello'; options.report({}); } }, finish() {} }) });
+  await assert.rejects(async () => {
+    for await (const _event of authority.replyExecutor.execute({ source: 'server-coordinator', payload: {
+      callId: 'reply-clock', providerSessionId: 'fixture', callbackBody: { messages: [] } } },
+    { now: h.runtime.now, deadlineAt: h.now() + 1000 })) {}
+  }, done);
+  assert.equal(created, Math.floor(h.now() / 1000));
 });
