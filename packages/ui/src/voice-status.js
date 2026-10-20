@@ -20,10 +20,21 @@ const reasonGroups = {
 const reasonMessages = { 'recovery-failed': 'voiceRecoveryFailed', 'start-failed': 'voiceConnectionFailed',
   'closure-uncertain': 'voiceClosureUncertain' };
 
+// Tick v1, AIT-422: receipt ownership outranks a lower-level host refusal.
+export function creditVoiceStatus(copy, { reason, creditReason, exhausted = false } = {}) {
+  if (!exhausted && !['host-limit', 'session', 'budget denied'].includes(reason)) return null;
+  return copy.voiceCreditStatus[creditReason === 'dailyCap' ? 'dailyCap'
+    : creditReason === 'session' || reason === 'session' || reason === 'budget denied' ? 'session' : 'hostLimit'];
+}
+
 /** All header copy sources get a bounded visual label, including host-defined refusals. */
-export function narrowVoiceStatus(copy, sentence, { reason: rawReason, nextTier } = {}) {
+export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditReason } = {}) {
   if (rawReason === 'agent-api-unavailable') return copy.voiceReasonsNarrow.unavailable;
-  if (rawReason === 'host-limit' && nextTier == null && sentence === copy.voiceStates.usedUp) return copy.voiceReasonsNarrow.hostBudget;
+  if (sentence === copy.voiceStates.usedUp || rawReason && sentence === copy.reasons?.[rawReason]) {
+    const credit = creditVoiceStatus(copy, { reason: rawReason, creditReason, exhausted: sentence === copy.voiceStates.usedUp });
+    if (credit) return credit;
+  }
+  if (Object.values(copy.voiceCreditStatus).includes(sentence)) return sentence;
   if (sentence === copy.voiceEndedAithemaMeasured) return copy.voiceEndedAithemaMeasuredNarrow;
   if (sentence === copy.notConfigured) return copy.voiceReasonsNarrow.setup;
   if (sentence === copy.featureConsent.voice) return copy.featureConsent.textNarrow;
