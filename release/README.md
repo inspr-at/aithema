@@ -132,7 +132,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    `normalized_digest` bind `first/`. Make **no evidence-only commit after this
    final build**. A subsequent source change requires a new final-head build.
 4. Push only the assigned branch, open a PR to main and wait for green CI:
-   seven browser shards, four browser aliases, test, preview-security and DCO.
+   eight browser shards, four browser aliases, test, preview-security and DCO.
    Hand the coordinator the PR, C, X, sequence 24 (previous: 23), retained absolute
    directory, manifest SHA-256 and normalized digest exactly as in the evidence.
    After gates and true merge, the coordinator records the candidate marker and
@@ -236,7 +236,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    evidence source equals C and its manifest SHA-256 and normalized digest bind
    `first/`. Any subsequent source change requires a new final-head build.
 5. Push only the assigned branch, open a PR to main and wait for green CI:
-   seven browser shards, four browser aliases, test, preview-security and DCO.
+   eight browser shards, four browser aliases, test, preview-security and DCO.
    Hand the coordinator the PR, C, X, sequence 23 (previous release: sequence 22),
    retained absolute directory, manifest SHA-256 and normalized digest exactly as
    in the evidence. The coordinator copies those values into the immutable
@@ -342,7 +342,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    evidence source equals C and its manifest SHA-256 and normalized digest bind
    `first/`. Any subsequent source change requires a new final-head build.
 5. Push only the assigned branch, open a PR to main and wait for green CI:
-   seven browser shards, four browser aliases, test, preview-security and DCO.
+   eight browser shards, four browser aliases, test, preview-security and DCO.
    Hand the coordinator the PR, C, X, sequence 22 (previous release: sequence 21),
    retained absolute directory, manifest SHA-256 and normalized digest exactly as
    in the evidence. The coordinator copies those values into the immutable
@@ -446,7 +446,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    evidence source equals C and its manifest SHA-256 and normalized digest bind
    `first/`. Any subsequent source change requires a new final-head build.
 5. Push only the assigned branch, open a PR to main and wait for green CI:
-   seven browser shards, four browser aliases, test, preview-security and DCO.
+   eight browser shards, four browser aliases, test, preview-security and DCO.
    Hand the coordinator the PR, C, X, sequence 21 (previous release: sequence 20),
    retained absolute directory,
    manifest SHA-256 and normalized digest exactly as in the evidence. The
@@ -535,7 +535,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    evidence source equals C and its manifest SHA-256 and normalized digest bind
    `first/`. Any subsequent source change requires a new final-head build.
 5. Push only the assigned branch, open a PR to main and wait for green CI:
-   seven browser shards, four browser aliases, test, preview-security and DCO.
+   eight browser shards, four browser aliases, test, preview-security and DCO.
    Hand the coordinator the PR, C, X, sequence 20, retained absolute directory,
    manifest SHA-256 and normalized digest exactly as in the evidence. The
    coordinator copies those values into the immutable candidate marker after
@@ -627,7 +627,7 @@ Run order (the round-6 evidence rule above applies):
    head. Hand OPS that exact head and final manifest SHA-256 together; copy the
    full directory to durable owner storage before publication.
 5. Push only `release/ait-366-eighth-release`, open a PR to main, leave it unmerged
-   and wait for green CI: seven browser shards, four required browser aliases,
+   and wait for green CI: eight browser shards, four required browser aliases,
    units, preview-security and DCO. CI retains `reset-candidate` for 90 days.
    The coordinator runs the release gate after handoff; OPS owns publication
    under the standing go and reports to Markus afterwards.
@@ -704,7 +704,7 @@ Run order (the round-6 evidence rule above applies):
    `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-360-seventh-release`, open the PR to main and wait for
-   green PR CI: seven browser shards, all four required browser aliases, units,
+   green PR CI: eight browser shards, all four required browser aliases, units,
    preview-security and DCO. CI retains `reset-candidate` for 90 days. The
    coordinator runs review gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.
@@ -780,7 +780,7 @@ Run order (the round-6 evidence rule above applies):
    `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-356-sixth-release`, open the PR to main and wait for
-   green PR CI: seven browser shards, all four required browser aliases, units
+   green PR CI: eight browser shards, all four required browser aliases, units
    and DCO. CI retains `reset-candidate` for 90 days. The coordinator runs review
    gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.
@@ -858,7 +858,7 @@ Run order (the round-6 evidence rule above applies):
    `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-325-fifth-release`, open the PR to main and wait for
-   green PR CI: seven browser shards, all four required browser aliases, units
+   green PR CI: eight browser shards, all four required browser aliases, units
    and DCO. CI retains `reset-candidate` for 90 days. The coordinator runs review
    gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.
@@ -925,7 +925,7 @@ Run order (the round-6 evidence rule above applies):
    `candidate-evidence.json` and `first/release-set.json` must bind the handed-over
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-315-fourth-release`, open the PR to main and wait for
-   green PR CI: seven browser shards, all four required browser aliases, units
+   green PR CI: eight browser shards, all four required browser aliases, units
    and DCO. CI retains `reset-candidate` for 90 days. The coordinator runs review
    gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.

@@ -63,7 +63,7 @@ npm run demo
 ```
 
 Open http://127.0.0.1:3000 and stop the server with Ctrl+C. PR CI runs
-`npm ci`, reproducible release packing and `npm test` once, plus seven browser
+`npm ci`, reproducible release packing and `npm test` once, plus eight browser
 shards, with ten-minute job limits. Nightly units keep ten-minute limits.
 DCO checks run separately.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.

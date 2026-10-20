@@ -441,8 +441,8 @@ latest-20-per-workload policy and full per-test observations/run provenance.
 A workload change resets its series; it does not combine older hashes to reach
 five samples. The 1.25 warmup multiplier still applies only below five matching
 samples. At five or more, the generated weight is the sum of per-test rolling
-p95 values without that multiplier. Neither the 7 shards, 420s ceiling, 400s
-target, packing algorithm nor workflow/check names changes.
+p95 values without that multiplier. AIT-314 retained the then-current 7 shards,
+420s ceiling, 400s target, packing algorithm and workflow/check names.
 
 Completed-file work below sums only completed top-level tests, never nested
 tests or shard/setup wall time. Values are seconds, rounded here to six decimals;
@@ -548,8 +548,9 @@ been published before merging.
 
 The existing `test/browser/consent-lines.test.js` owns the two-page stale-image
 regression and the eight DE/EN × 320/352/390/1440 reload/evidence states. No browser
-file or shard is added. Keep **7 shards**, the **400 s projected headroom guard**,
-the 420 s hard ceiling, and all existing shard/check names.
+file or shard was added by AIT-321. That change retained the then-current
+**7 shards**, **400 s projected headroom guard**, 420 s hard ceiling, and all
+existing shard/check names.
 
 The temporary **158 s** floor in `scripts/browser-shards.js` comes from the
 complete changed file in successful PR CI
