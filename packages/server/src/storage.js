@@ -850,7 +850,7 @@ export class SQLiteStorage {
         return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
       }
       const turn = session.transcript.find(t => t.id === turnId);
-      let event;
+      let event, interruptionEvent;
       if (type === 'interrupted') {
         if (turn && (turn.role !== 'assistant' || turn.erased || turn.withdrawn)) throw new ConflictError('Reply transcript unavailable');
         event = this.#append(session, 'voice.interrupted', { id: turnId, callId, providerSessionId: providerId,
@@ -899,10 +899,16 @@ export class SQLiteStorage {
           ...(turn.userTurnOrdinal ? { userTurnOrdinal: turn.userTurnOrdinal } : {}),
           ...(turn.replyId ? { replyId: turn.replyId } : {}),
           ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
+        if (guard.nativeInterruption === true) {
+          // Commit the correction, length-only marker and receipt together:
+          // a marker failure must leave the correction retryable.
+          interruptionEvent = this.#append(this.get(id), 'voice.interrupted', { id: turnId, callId,
+            providerSessionId: providerId, interruption: { heardLength: value.prefix.length } });
+        }
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
-      return { event, replayed: false };
+      return { event, replayed: false, ...(interruptionEvent ? { interruptionEvent } : {}) };
     });
   }
   #invalidate(id, turnId, all = false, concepts = true) {

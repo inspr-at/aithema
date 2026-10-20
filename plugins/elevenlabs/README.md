@@ -172,6 +172,19 @@ Fakes drive that real callback rather than inventing an SDK force-interrupt
 method. The declaration follows the concept's native audio barge-in column;
 Part B must present it as audio barge-in, not a force-interrupt button.
 
+The manifest declares `capabilities.interruption: 'native'` with provider-owned
+turn-taking. A genuine heard-prefix correction, its length-only interruption
+marker and its persistence receipt commit in one storage transaction. Failed
+marker writes roll back the correction so a retry can save both. A refused
+interruption marker still ends the client call as `transcript-persistence-failed`;
+changing that visitor-visible outcome requires a separate Tick decision.
+
+Provider 429 responses retain `Retry-After` only for integer delta-seconds or a
+strict HTTP-date (IMF-fixdate, RFC 850 or asctime, interpreted in UTC). Invalid
+dates, times, weekdays, zones and trailing junk are omitted. Valid dates become
+nonnegative whole seconds, rounded up; the existing lifecycle delay cap stays
+60 seconds.
+
 AIT-146 repairs playback at that native callback, synchronously and independently
 of transcript persistence. SDK 1.17.0's WebRTC output `interrupt()` is a no-op;
 its WebSocket output fades for two seconds and the concat worklet continues

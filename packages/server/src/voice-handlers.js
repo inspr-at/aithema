@@ -715,7 +715,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (action === 'events') {
           // Native SDK confirmations have the same browser provenance as heard
           // corrections. Composed providers retain server-coordinator authority.
-          const nativeInterruption = entry.admission.plugin.manifest.id === 'elevenlabs' &&
+          const nativeInterruption = entry.admission.plugin.manifest.liveVoice?.capabilities.interruption === 'native' &&
             entry.admission.plugin.manifest.liveVoice?.ownership?.turnTaking === 'provider';
           if (body.event?.type === 'interrupted' && !nativeInterruption) {
             throw new PluginError('not-admitted', 'Coordinator interruption authority required');
@@ -742,7 +742,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               (prior ? Boolean(prior.content) && reply.content.startsWith(prior.content) : reply.content === body.event.text));
           const provenance = produced ? 'facade-produced' : 'browser-asserted';
           const result = storage.postVoiceEvent(sessionId, callId, entry.call.providerSessionId, body.event,
-            { ownerToken, revision: inputRevision(fresh), provenance,
+            { ownerToken, revision: inputRevision(fresh), provenance, nativeInterruption,
               ...(produced ? { ...produced.textOrigin, engine: produced.engine, replyId: produced.replyId,
                 userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
@@ -754,13 +754,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               storage.bindSafeguard(sessionId, `voice:${callId}:${entry.call.providerSessionId}:${result.event.data.userTurnOrdinal}`, inputRevision(storage.get(sessionId)));
             }
             publish(sessionId, result.event);
-            if (nativeInterruption && body.event.type === 'heard') {
-              // A genuine provider correction confirms barge-in and an exact
-              // heard prefix. Store only its length, never the removed text.
-              const marked = storage.append(sessionId, 'voice.interrupted', { id: body.event.turnId, callId,
-                providerSessionId: entry.call.providerSessionId, interruption: { heardLength: body.event.prefix.length } });
-              publish(sessionId, marked);
-            }
+            if (result.interruptionEvent) publish(sessionId, result.interruptionEvent);
             if (body.event.type !== 'interrupted') onTurn(sessionId, result.event);
             if (body.event.type === 'final' && body.event.role === 'user') storage.transitionVoiceLifecycle(sessionId, callId,
               { type: 'accepted', turnId: body.event.turnId });
