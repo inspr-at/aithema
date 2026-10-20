@@ -42,3 +42,14 @@ test('AIT-102: grants expire and component usage records actual units', () => {
     assert.throws(() => assertComponentUsage({ ...usage, ...override }), { code: 'invalid-output' });
   }
 });
+
+test('AIT-384: native interruption evidence is an optional, validated capability', () => {
+  const declared = structuredClone(manifest);
+  declared.liveVoice.capabilities.interruption = 'native';
+  assert.deepEqual(validateManifest(declared), { ok: true, errors: [] });
+  declared.liveVoice.capabilities.interruption = true;
+  assert.equal(validateManifest(declared).ok, false);
+  delete declared.liveVoice.capabilities.interruption;
+  assert.equal(validateManifest(declared).ok, true, 'legacy manifests remain valid without browser interruption authority');
+  assert.equal(manifest.liveVoice.capabilities.interruption, 'native');
+});

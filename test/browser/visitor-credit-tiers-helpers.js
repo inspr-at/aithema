@@ -41,17 +41,17 @@ const unchanged = (before, after, label) => {
   return displacement;
 };
 
-export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
+export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false, creditScope = null, dailyCap = false,
+  allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 } } = {}) {
   // Touch viewport changes reload the demo; wait for its owner session seed.
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, async (c, options) => {
-    const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall } = options;
+    const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, allowancesMicro } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     window.a2OriginalFetch ??= window.fetch.bind(window);
     const state = window.a2 = { address, spent, reserved, delivery, privacy, confirmed, saving: false,
-      denyVoice: voiceAdmissionFailure, voiceRequests: [], voiceCloses: 0, creditsReads: 0 };
-    const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
+      creditScope, dailyCap, denyVoice: voiceAdmissionFailure, voiceRequests: [], voiceCloses: 0, creditsReads: 0 };
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && delivery ? 'verification-pending' : 'guest',
       assessmentUnlocked: true, conceptsUnlocked: true, verificationRequired: false, resendAfterMs: 0, pollVerification: false, delivery: 'sent' });
     const current = () => state.confirmed ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
@@ -71,6 +71,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
         const limitMicro = allowancesMicro[tier];
         return Response.json({ balance: { owner: { limitMicro, committedMicro: state.spent + state.reserved,
           confirmedSpendMicro: state.spent, reservedMicro: state.reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - state.spent - state.reserved) } }, exhausted: state.spent >= limitMicro, limitSlot: null,
+          ...(state.creditScope ? { scope: state.creditScope } : {}),
           ...(state.dailyCap ? { scope: 'session', dailyCapReached: true } : {}),
           tiers: { current: tier, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm: delivery && privacy, allowancesMicro } });
       }
@@ -113,7 +114,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     }
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
+  }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, allowancesMicro });
   await until(page, () => window.a2.creditsReads > 0);
   await settle(page);
 }
@@ -146,6 +147,71 @@ export async function composerCreditReservationMatrix(t) {
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-shell'];
   if (evidence) await mkdir(evidence, { recursive: true });
+  // Keep the v1.1 copy, line-count and DE/EN evidence checks intact.
+  await t.test('AIT-434 v1.1: four-digit DE offer fits two lines; DE/EN composer heights match', async () => {
+    const checks = [];
+    for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+      for (const locale of ['de', 'en']) {
+        await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+        await page.select('#locale', locale); await page.select('#theme', theme);
+        await fixture(page, locale, {
+          allowancesMicro: { anonymous: 12_000_000, emailGiven: 22_000_000, emailConfirmed: 28_000_000 } });
+        const before = await boxes(page, selectors);
+        await shadow(page, c => {
+          window.a2.spent = 12_000_000;
+          c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+        });
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up'));
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        const measured = await shadow(page, c => {
+          const root = c.shadowRoot, offer = root.querySelector('.composer-out__body > [data-active="true"]');
+          const style = getComputedStyle(offer), lines = new Map(), walker = document.createTreeWalker(offer, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const text = walker.currentNode;
+            for (let i = 0; i < text.length; i++) {
+              const range = document.createRange(); range.setStart(text, i); range.setEnd(text, i + 1);
+              const rect = [...range.getClientRects()].find(rect => rect.width && rect.height);
+              if (rect) lines.set(rect.top, (lines.get(rect.top) ?? '') + text.data[i]);
+            }
+          }
+          return { offer: offer.textContent, lines: [...lines.values()].map(line => line.trim()),
+            composerHeight: root.querySelector('.composer-shell').getBoundingClientRect().height,
+            font: style.fontFamily, fontSize: style.fontSize, lineHeight: style.lineHeight,
+            visibility: style.visibility, ariaHidden: offer.getAttribute('aria-hidden'),
+            reducedMotion: matchMedia('(prefers-reduced-motion:reduce)').matches, focused: Boolean(root.activeElement) };
+        });
+        const after = await boxes(page, selectors), label = `AIT-434 v1.1 ${locale}/${theme}/${width}`;
+        const row = { locale, theme, width, ...measured, lineCount: measured.lines.length, before, after, viewport: true, settled: true, blurred: true };
+        checks.push(row); t.diagnostic(`${label}: ${JSON.stringify(row)}`);
+        if (evidence) {
+          await mkdir(join(evidence, 'ait434'), { recursive: true });
+          await writeFile(join(evidence, 'ait434', 'v1.1-checks.json'), JSON.stringify({ ticket: 'AIT-434', head, spec: 'Tick spec v1.3, 2026-10-21', checks }, null, 2));
+          if (theme === 'light' && (width === 390 || width === 1440 && locale === 'de')) {
+            const scrollBefore = await page.evaluate(() => scrollY);
+            await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+            await settle(page);
+            await page.screenshot({ path: join(evidence, 'ait434', `${width}-light-${locale}-host-give-1000.png`), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+            await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
+          }
+        }
+        assert.equal(measured.visibility, 'visible', `${label}: offer is painted`);
+        assert.equal(measured.ariaHidden, 'false', `${label}: offer is accessible`);
+        assert.ok(row.lineCount > 0, `${label}: offer has rendered line boxes`);
+        if (locale === 'de' && width === 390) assert.ok(row.lineCount <= 2, `${label}: 1.000 delta must fit in at most two lines; got ${row.lineCount}: ${JSON.stringify(row.lines)}`);
+        if (locale === 'de' && width === 390) assert.ok(row.lines.every(line => !/(?:^|\s)Ihr$/u.test(line)), `${label}: 1.000 delta must not leave Ihr at a line end: ${JSON.stringify(row.lines)}`);
+        assert.equal(measured.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 1.000 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.'
+          : 'With your email address you get 1,000 more\u00a0credits. Your conversation stays saved.', `${label}: exact Tick copy and formatted delta`);
+        assert.equal(measured.font, 'ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif');
+        assert.equal(measured.reducedMotion, true); assert.equal(measured.focused, false);
+        unchanged(before, after, `${label}: default to host-give`);
+      }
+      const [de, en] = checks.slice(-2);
+      assert.equal(de.before[1][3], en.before[1][3], `AIT-434 v1.1 ${theme}/${width}: DE == EN default composer height`);
+      assert.equal(de.composerHeight, en.composerHeight, `AIT-434 v1.1 ${theme}/${width}: DE == EN host-give composer height`);
+    }
+    assert.equal(checks.length, 12);
+  });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1024, 390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.select('#locale', locale); await page.select('#theme', theme);
@@ -219,6 +285,11 @@ export async function composerCreditReservationMatrix(t) {
     unchanged(row.before, row.after, label);
     assert.equal(row.composerHeight, row.before[1][3], `${label}: identical composer height`);
   }
+  // Tick spec v1.2 (2026-10-20): DE == EN replaces the retired long-copy baseline.
+  for (const de of rows.filter(row => row.locale === 'de')) {
+    const en = rows.find(row => row.locale === 'en' && row.theme === de.theme && row.width === de.width && row.state === de.state);
+    assert.equal(de.composerHeight, en.composerHeight, `AIT-434 v1.2 ${de.theme}/${de.width}/${de.state}: DE == EN composer height`);
+  }
   for (const row of rows) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
     assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
@@ -236,6 +307,7 @@ export async function topUpReservationMatrix(t) {
   const { page, accessibility } = await reservationPage();
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-dock', '.composer-shell'];
+  const copyChecks = [];
   const v3Rows = [], v3Selectors = ['.transcript-shell .turn.user', '.transcript-shell .turn:last-child', '.voice-reply-actions', '.qopts', ...selectors];
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
@@ -319,6 +391,11 @@ export async function topUpReservationMatrix(t) {
         });
         await page.waitForFunction(reads => window.a2.creditsReads > reads && !document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'), { timeout: 20_000 }, reads);
       }
+      if (state === 'denied') {
+        const denied = await shadow(page, c => ({ status: c.shadowRoot.querySelector('.voice-state').getAttribute('aria-label'), footer: c.shadowRoot.querySelector('.host-credits__value').textContent }));
+        assert.equal(denied.status, locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now');
+        assert.equal(denied.footer, '601', 'AIT-422: host refusal preserves the positive visitor balance');
+      }
       if (state !== 'ready') await settle(page);
       const after = await boxes(page, selectors);
       const detail = await shadow(page, c => {
@@ -332,13 +409,72 @@ export async function topUpReservationMatrix(t) {
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) };
       await recordV3(state, true);
       rows.push(row); t.diagnostic(`AIT-406 v2 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
+      if (state === 'denied') {
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        const shot = `${width}-${theme}-${locale}-retry-denied.png`;
+        const presentation = await shadow(page, c => ({ status: c.shadowRoot.querySelector('.voice-state').getAttribute('aria-label'), footer: c.shadowRoot.querySelector('.host-credits__value').textContent }));
+        copyChecks.push({ ...row, creditReason: 'host-limit-retry-denied', presentation, shot, viewport: true, settled: true, blurred: true });
+        if (evidence) {
+          await mkdir(join(evidence, 'ait422'), { recursive: true });
+          await page.screenshot({ path: join(evidence, 'ait422', shot), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+        }
+      }
       if (evidence && locale === 'de' && theme === 'light' && (width === 390 || width === 1440 && state === 'running') && state !== 'ready-again') {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
         await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-top-up-retry-${state}.png`), fullPage: false, optimizeForSpeed: true });
       }
     }
+    // AIT-422 reuses this page and the reserved cells; no additional browser worker.
+    await fixture(page, locale, { voiceAdmissionFailure: true });
+    const copySelectors = ['.band', '.audio-rail', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', ...selectors];
+    const copyBefore = await boxes(page, copySelectors);
+    for (const creditReason of ['host-limit', 'session', 'dailyCap']) {
+      await fixture(page, locale, { spent: creditReason === 'host-limit' ? 5_990_000 : 12_000_000, voiceAdmissionFailure: true,
+        creditScope: creditReason === 'host-limit' ? null : 'session', dailyCap: creditReason === 'dailyCap' });
+      if (creditReason === 'host-limit') await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }));
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await settle(page);
+      const presentation = await shadow(page, c => {
+        const r = c.shadowRoot, status = r.querySelector('.voice-state'), style = getComputedStyle(c);
+        return { full: status.querySelector('.consent-wide').textContent, short: status.querySelector('.consent-narrow').dataset.copy,
+          label: status.getAttribute('aria-label'), footer: r.querySelector('.host-credits__value').textContent,
+          offer: r.querySelector('.composer-out__body > [data-active="true"]').textContent,
+          ink3: style.getPropertyValue('--ink-3').trim(), muted: style.getPropertyValue('--aithema-muted').trim(),
+          font: getComputedStyle(status).fontFamily, reducedMotion: matchMedia('(prefers-reduced-motion:reduce)').matches,
+          focused: Boolean(c.shadowRoot.activeElement) };
+      });
+      const expected = creditReason === 'dailyCap' ? (locale === 'de' ? 'Tageslimit erreicht' : 'Daily limit reached')
+        : creditReason === 'session' ? (locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up')
+        : locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now';
+      assert.equal(presentation.full, expected); assert.equal(presentation.short, expected); assert.equal(presentation.label, expected);
+      assert.equal(presentation.footer, '0');
+      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.');
+      assert.equal(presentation.ink3, presentation.muted);
+      assert.equal(presentation.muted, theme === 'light' ? '#496477' : '#9db4c4');
+      assert.equal(presentation.reducedMotion, true); assert.equal(presentation.focused, false);
+      assert.equal(presentation.font, 'ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif');
+      const after = await boxes(page, copySelectors), movementPx = unchanged(copyBefore, after, `AIT-422 ${locale}/${theme}/${width}/${creditReason}`);
+      const shot = `${width}-${theme}-${locale}-${creditReason}.png`;
+      copyChecks.push({ locale, theme, width, creditReason, presentation, movementPx, before: copyBefore, after, shot, viewport: true, settled: true, blurred: true });
+      if (evidence) {
+        await mkdir(join(evidence, 'ait422'), { recursive: true });
+        await page.screenshot({ path: join(evidence, 'ait422', shot), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+        if (creditReason === 'host-limit' && theme === 'light' && (width === 390 || width === 1440 && locale === 'de')) {
+          const scrollBefore = await page.evaluate(() => scrollY);
+          await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+          await settle(page);
+          await mkdir(join(evidence, 'ait434'), { recursive: true });
+          await page.screenshot({ path: join(evidence, 'ait434', `${width}-light-${locale}-host-give.png`), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+          await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
+        }
+      }
+    }
   }
+  assert.equal(copyChecks.length, 48);
+  if (evidence) await writeFile(join(evidence, 'ait422', 'checks.json'), JSON.stringify({ ticket: 'AIT-422', head, spec: 'Tick spec v1, 2026-10-20', checks: copyChecks }, null, 2));
   if (evidence) await writeFile(join(evidence, 'ait406-top-up-checks.json'), JSON.stringify({ head, spec: 'Tick spec v2, AIT-406, 2026-10-20', rows }, null, 2));
   if (evidence) await writeFile(join(evidence, 'ait406-replay-checks.json'), JSON.stringify({ head, spec: 'Tick spec v3, AIT-406, 2026-10-20', selectors: v3Selectors, rows: v3Rows }, null, 2));
   assert.equal(rows.length, 48);
@@ -811,7 +947,7 @@ export async function visitorCreditMatrix(t, locales) {
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-out__title').textContent),
         locale === 'de' ? 'Ihre Credits sind aufgebraucht.' : 'Your credits are used up.', 'AIT-291 host-limit title keeps the reserved composer geometry');
       const capturedRailText = await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent);
-      assert.equal(capturedRailText, locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up', `${label}: F7 after-hangup-used-up capture matches its label`);
+      assert.equal(capturedRailText, locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now', `${label}: F7 after-hangup-used-up capture matches its label`);
       passLines.push({ locale, theme, width, state: 'after-hangup-used-up', displacementPx: endingDisplacement, railText: capturedRailText, pass: true }); await shot('after-hangup-used-up');
       const calm = await shadow(page, c => {
         const r = c.shadowRoot, ink = getComputedStyle(r.querySelector('.composer-out__title')).color;
@@ -966,6 +1102,7 @@ export async function replyRowsMatrix(t) {
       return { fine, ink, muted, controls };
     });
     assert.equal(presentation.fine, width !== 390, 'presentation uses the asserted pointer media');
+    assert.equal(presentation.muted, theme === 'light' ? 'rgb(73, 100, 119)' : 'rgb(157, 180, 196)', 'AIT-422: the r4 rest ink is the existing muted token');
     for (const control of presentation.controls) {
       assert.equal(control.rest, 'visible', 'Tick v4.1: pointer and touch icons are visible at rest');
       assert.equal(control.focus.visible, 'visible', 'native focus reveals the icon');

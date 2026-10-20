@@ -2,7 +2,7 @@
 
 Aithema uses **INSPR-CalVer3**; `release/version.json` is the
 single version authority. The root workspace is private. The release packer
-emits independently installable core, server, UI and thirteen provider/integration
+emits independently installable core, server, UI and provider/integration
 plugin tarballs, with exact dependency pins, plus a retained workspace archive.
 Aithema is published as immutable [GitHub releases](https://github.com/inspr-at/aithema/releases)
 with signed, attested tarballs. Hosts pin a release with `deployment-pin.json`
@@ -19,8 +19,12 @@ lifecycle into a consuming application.
 For candidate validation on the build runner, retain the candidate directory
 and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
-From a separate host directory, install **all sixteen** module tarballs so npm
-can resolve their exact mutual dependencies without a registry publication:
+From a separate host directory, install the modules the host uses and their
+complete transitive dependency closure in one invocation, so npm can resolve
+their exact mutual dependencies without a registry publication. Unused leaf
+plugins, such as `@inspr/aithema-plugin-grok-voice` for a host with no Grok voice,
+may be omitted if no installed module depends on them. Every installed Aithema
+module must come from the same release. Installing the full set is also valid:
 
 ```sh
 npm install --save-exact /path/to/candidate/first/inspr-aithema-*.tgz
@@ -32,16 +36,20 @@ bundler resolves the UI and its core dependency; an unbundled browser needs an
 import map for each exported package subpath. Workspace source browser URLs
 are converted to declared package subpaths by `release:pack`.
 
-For a published release, install the same sixteen modules by release URL in
-one invocation, rather than from a package registry. The URL pattern is:
+For a published release, install the selected modules and their dependency
+closure by release URL in one invocation, rather than from a package registry.
+The URL pattern is:
 
 ```sh
 npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<tag>/<pkg>.tgz
 ```
 
 Use the exact `v<version>` tag and module filenames from `release-set.json`, and
-pass all sixteen module URLs together. First download and verify the attested
-SHA256SUMS, manifest and tarballs as described in the [release route](../release/README.md).
+pass the selected closure's module URLs together. First download and verify
+SHA256SUMS, the manifest, selected tarballs and their attestations as described
+in the [release route](../release/README.md). Check that `npm ls` is clean after
+installation; omitting an unused plugin does not permit missing dependencies,
+mixed releases or unverified artifacts.
 Commit the host lockfile with the URL resolutions and **sha512 integrity**; use
 `npm ci` for repeat deployments and retain the verified artifacts for rollback.
 Public release downloads need no consumer token. The Linux tag build tests the
@@ -272,8 +280,19 @@ the reference file; the remaining configured ports come from the earlier mount
 example. Supply the **same ledger** to runtime and wallet. `createHandlers` binds
 `walletForSession` into runtime owner admission; `wallet(ownerToken)` serves
 owned credit reads. During turn credit preflight, `wallet(ownerToken, context)`
-and its `balance()` run inside the turn's database transaction. Both must be
-synchronous and side-effect free, and must not re-enter storage.
+and its `balance()` run inside the turn's database transaction. On the host
+credit read path, `wallet()`, `balance()`, `canAdmit()` and `creditTiers()` must be
+synchronous and side-effect free. `canAdmit()` and `creditTiers()` are not called
+for initial turn admission.
+
+- Allowed: synchronous read-only Aithema getters such as `storage.get(id)` and
+  `storage.hostState(id)`, and SELECT-only statements on the host's own tables
+  through the same SQLite handle.
+- Forbidden: any write (INSERT/UPDATE/DELETE or DDL), any Aithema storage mutator,
+  async or network work, and any `storage.transaction()`.
+  `storage.transaction()` issues a plain `BEGIN IMMEDIATE` without savepoints;
+  a nested transaction fails the turn with HTTP 500 and nothing saved.
+
 In the reference, `balance()` and every `canAdmit`/atomic
 `admit` read current SQLite settings, even on a previously obtained wallet.
 There is no startup allowance cache. USD 10 changed to USD 5 changes the limit,
@@ -313,12 +332,20 @@ switches while each new receipt loads. A host can also configure
 settings. `next` is `emailGiven` for anonymous visitors only when it raises the
 allowance, or `emailConfirmed` for email-given visitors only when qualified
 confirmation is enabled and raises the allowance; otherwise it is `null` and
-`delta` is 0. Equal allowances do not advertise an upgrade. The owned
-`GET /api/sessions/:id/credits` exposes this as `tiers`. AIT-291's UI `nextTier`
-derives from **`tiers.next`**, subject to the existing collection/end-reason
-gates; it is not another server field. Session-aware hosts with equal anonymous
-and email-given allowances go directly to qualified confirmation when it raises
-the allowance, without displaying an email-given upgrade line.
+`delta` is 0. The owned `GET /api/sessions/:id/credits` exposes this as `tiers`.
+With equal anonymous and `emailGiven` allowances, the payload for an anonymous
+visitor keeps `next: null` and `delta: 0`; `creditTiers` does not skip directly to
+`emailConfirmed` (`demo/visitor-credits.js:270-272`). The UI's `nextTier` is a
+derived value, not another server field. Owner-wide receipts use `tiers.next`,
+but session-scoped receipts can offer `emailConfirmed` while `current` is still
+`anonymous` when the anonymous and `emailGiven` allowances are equal,
+`canConfirm` is true and the confirmed allowance is higher, subject to the
+verification, collection, end-reason and daily-cap gates
+(`packages/ui/src/host-surface.js:106-116`). In that case, the UI shows the
+confirmation action and confirmed-tier line, with no email-given upgrade line
+(`packages/ui/test/host-credits.test.js:485-486`). After the visitor gives an
+address, the payload's `current: 'emailGiven'` can offer
+`next: 'emailConfirmed'` if qualified confirmation raises the allowance.
 Set `privacyDocumentConfigured` only after validating the host's document, otherwise the server suppresses collection
 and next-tier offers. Host identity/verification ports must also enable the
 corresponding visitor actions before the UI can offer them.
@@ -332,6 +359,57 @@ the same ID. Definitive pre-dispatch refusal releases only that hold; uncertain
 outcomes retain it for recovery. The fixture qualifies this contract with the
 public conformance kit. The host must recover orphaned owner-only holds using
 authoritative dispatch evidence; the reference conservatively retains them.
+
+#### Address-derived daily spend guards (AIT-396)
+
+The accounting-key prohibition above still applies: tier evidence and module
+accounting remain bound to the owner hash. A host may separately enforce a
+host-private address-derived spend guard, for example USD 30 per confirmed
+address per day across owners. This is a host policy, not a built-in module cap
+or a replacement owner identity. The reference tier fixture does not implement
+it. This is design guidance, not a GDPR legal assessment.
+
+Derive the guard key with a keyed HMAC over the host's consistently canonicalized,
+server-confirmed address, using a secret host key and a distinct purpose domain
+such as `daily-spend`. Plain SHA-256 or hashing with a public salt is insufficient:
+addresses are guessable. Keep the key private, persist it securely, and ensure
+rotation or restore cannot reset live buckets or strand their holds. Define
+canonicalization explicitly; do not assume aliases are the same recipient or
+treat an unconfirmed address as confirmed evidence.
+
+Keep the guard counters separate from the owner ledger: retain only the HMAC,
+day bucket, required amounts and expiry metadata there, without raw addresses,
+tokens or visitor references. Any private attempt-to-bucket/hold mapping needed
+for settlement is separate visitor-linked data with its own retention and
+erasure duties. Never use the address or its HMAC as `session.ownerHash` or as
+the module's accounting key.
+
+Check and reserve the remaining address/day allowance atomically across **all
+owners** sharing that guard, before dispatch, alongside the owner admission
+contract. A read-only balance check followed by a later reservation can overspend
+under concurrent tabs or owners. Use durable, idempotent attempt reservations;
+enforce positive voice extensions too. Count confirmed spend, uncertain spend
+and unresolved reservations once, without double-counting a host hold and its
+ledger row. Release only with definitive evidence; recover orphaned holds from
+authoritative dispatch/settlement evidence.
+
+Define the calendar timezone (for example UTC), day boundaries and rollover
+policy explicitly; a calendar day is not a rolling 24-hour window. Persist the
+guard and day attribution at reservation, and define how dated extensions,
+settlements and corrections affect buckets using the evidence described below.
+Retries, restart, settlement after midnight and address changes must not silently
+move or reset already attributed spend. New work uses the current confirmed
+address; old work keeps its original attribution, and a changed address requires
+fresh confirmation. Specify whether unresolved prior-day exposure also limits
+new-day admission; rollover never releases a live hold.
+
+Retain buckets and linkage only as long as needed for the declared daily guard
+and unresolved settlement duties, then expire them with bounded cleanup that
+also runs without new traffic. Define session, address and visitor erasure
+handling explicitly, including the minimum evidence needed for unresolved holds.
+Any guard retained after visitor erasure needs its own documented purpose and
+expiry decision; the demo's separate 24-hour mail-abuse retention is not a spend
+guard retention rule. HMACs are pseudonymous, not anonymous data.
 
 #### Dated budget attribution (AIT-401, AIT-409)
 
@@ -440,6 +518,61 @@ milliseconds. There is no new settlement hook: durable receipt timestamps are
 the smaller contract, avoid fallible host code during settlement, and let a
 host rebuild totals after a crash. A settlement write failure rolls back its
 time and receipt together; it leaves the reservation in place for retry.
+
+`runtime.now` is a stable forwarding function. `createHandlers` installs
+`host.now` through `runtime.setHostClock`; a constructor-supplied runtime `now`
+retains precedence for policy decisions. Runtime-created render limits,
+conversation limits and voice caps keep the forwarding function, so later clock
+installation reaches both admission checks and atomic claim consumption. An
+installed clock never clears durable usage or outstanding holds. A custom
+`voiceCap` or `renderLimiter` must implement `setClock(clock)` before an explicit
+runtime clock or host clock is installed; otherwise construction/installation
+throws a named `TypeError` before changing the active clocks. Previously a
+clockless custom cap was silently accepted; there is no documented exemption
+for it. Wall-clock-only compositions without clock installation remain supported.
+
+Independently created providers, consent ledgers, operator identity/session
+ports, relays and coordinators are host-owned. When sharing absolute deadlines,
+evidence or UTC-day limits, pass the same forwarding function into **every**
+factory's `now` option (or the consent ledger's clock argument), including private
+host modules. Do not capture `runtime.now()` as a fixed timestamp. For example,
+after constructing the runtime and before registering/starting the provider:
+
+```js
+const provider = createVoiceProvider({ storage, binding, ...voicePorts, now: runtime.now });
+registry.register(provider);
+const coordinator = createComposedVoiceCoordinator({ ...coordinatorPorts, now: runtime.now });
+```
+
+The same rule applies to `createElevenLabsServer`, `createComposedVoice`,
+`createGrokVoiceProvider`, `createVoxtralProviderAuthority`, `createCompletionsHandler`,
+`createOperatorSessions` and `createZitadelOIDC`. The demo keeps a forwarding
+getter during startup, passes it to independently composed server factories,
+then links it to `pluginRuntime.now`. Admitted invocation `options.now` also
+travels with its deadline into voice adapters, component budgets and visual
+providers, including artifact provenance. Standalone callers must supply both
+the deadline and its clock. Offline tests pin distinct wall/host clocks through
+real handler wiring and the standalone ElevenLabs/coordinator/provider paths.
+
+Accounting remains on `host.now` when an explicit runtime policy clock differs:
+settlement time, reconciliation age, deferred receipt eligibility and retry dates
+all use `budget.now`, the epoch that wrote `settledAt`. Storage event/content
+evidence, retirement fences and provider-cap audits use the runtime forwarding
+clock installed on storage, including when an explicit policy clock differs from
+host accounting time. Local call reconciliation also measures duration on the
+provider's clock; an elapsed receipt-lookup clock cannot change call age.
+Storage's receipt-age check likewise uses the forwarding accounting clock
+installed alongside its policy clock; a future policy epoch cannot prematurely
+seal a fresh unsettled receipt. Its bounded retirement fence uses policy time.
+Existing timestamps are never rewritten.
+
+Elapsed transport budgets are separate: upload queue/parser CPU limits, receipt
+polling, cleanup/drain timeouts, persistence throttles and audio pacing use a
+local wall/monotonic duration clock, never a host calendar/day comparison.
+Preview bearer TTLs use `performance.now` and expose durations only. Browser
+transport/presentation clocks live in a separate realm; the server always
+rechecks authoritative admission, consent, spend and browser-lease deadlines.
+This server clock installation does not change UI labels or browser clocks.
 
 For per-address **UTC-day** caps, keep the original hold on its admission day,
 file each extension extra on `new Date(event.at).toISOString().slice(0, 10)`,
@@ -623,8 +756,8 @@ pending with a durable attempt count and exponential backoff (1 second up to
 1 hour); the batch continues. Deferred retries do not set `more`: call again
 on the maintenance schedule even when `more` is false. Monitor `failed`;
 host failures and pending reconciliation for erased sessions can delay deletion
-beyond the intended retention window. Live-session retirement keeps its existing
-accounting behavior and does not wait for billing reconciliation.
+beyond the intended retention window. AIT-421 applies the same bounded billing
+wait and final accounting handoff to idle and visitor-erased sessions.
 
 Last activity is the latest **server timestamp** of person- or host-initiated
 activity: session creation, turns and other committed session changes, authorized
@@ -647,7 +780,8 @@ initializes activity (unknown timestamps conservatively start at migration).
 
 Retirement uses the erase route's `session.erased` invalidation: it broadcasts
 and closes live streams and cancels lanes, concepts, uploads and voice. It then
-withdraws consent, awaits `host.retired({ sessionId, ownerHash })`, and physically
+seals billing, withdraws consent, awaits
+`host.retired({ sessionId, ownerHash, attempts })`, and physically
 deletes core rows in child-before-parent FK order, then the session. The owner
 hash is captured inside the tombstone transaction. No owner token is invented;
 the user erase route continues to use `host.erased({ sessionId, ownerToken })`.
@@ -672,21 +806,39 @@ for sessions already purged even if another session's hook fails.
 | Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
 
 SQLite uses `secure_delete` and truncates its WAL before acknowledging the
-full erase. Visitor-erased sessions defer retirement while a budget attempt is open,
-while an associated spend reservation remains reserved or dispatched without an
-actual amount, or while a provider cost receipt has a non-null `retryAt`. Session
-and accounting metadata remain available during that pending work; content stays
-erased. Retirement checks before host cleanup and again in the core purge
-transaction, using durable backoff until those conditions clear. Terminal estimates
-with no scheduled retry, uncertain receipts with no future settlement, and voice
-`costEstimated` receipts alone do not block retirement. Their spend reservations
-are aggregated into `retired_spend` using the existing spent/reserved/uncertain
-categories, preserving conservative estimated amounts. Live-session retirement
-uses the same aggregation without the billing deferral. If a plugin is removed
-while a cost retry is scheduled, the next due cost reconciliation clears that
-retry for an erased session, preserving the existing conservative charge and
-receipt; no provider settlement is inferred. Live-session receipts remain
-retryable if the plugin returns. Retained totals
+full erase. Both idle and visitor-erased sessions defer while budget work or an
+associated spend reservation is active, or while an uncertain/estimated receipt
+can still reconcile. Deferral ends no later than one hour after the first
+retirement check; settled receipts also stop waiting one hour after their first
+settlement. Deadlines persist across retries and restart. Acknowledged estimates
+without a scheduled retry may seal immediately; unknown legacy settlement dates
+add no extra receipt window. Content remains erased while session/accounting
+metadata await receipts. After the bound, retain the recorded uncertain liability,
+seal it and proceed; never fabricate a final provider receipt or free capacity.
+The existing spend/reserved/uncertain aggregation into `retired_spend` is unchanged.
+A removed plugin clears its scheduled retry for erased sessions on its next due
+reconciliation; live receipts remain retryable until retirement seals them.
+
+The seal and `attempts` snapshot commit atomically before any async retirement
+hook. SQLite rejects all subsequent budget-attempt inserts and updates with
+`Retirement billing sealed`; rejected reconciliation also rolls back its correction.
+A validated, seal-refused charge is recorded on the existing host spend reservation and counts in `retired_spend` when purged; attempts stay frozen.
+The seal survives hook failure, timeout and restart. Budget recovery and reasoning
+cost scans skip sealed attempts. Hosts must provide equivalent fencing for custom budget stores.
+Each snapshot entry contains `attemptId`, `lane`, `state`, `outcome`, `settledAtMs`,
+`settledMicro`, `settledVisitorMicro`, `maxMicro`, `maxVisitorMicro`, `final`,
+`corrections`, and `voiceExposures`. The two histories use AIT-409's dated amount
+shape and posting order; evidence, provider IDs and private usage are excluded.
+`final: false` marks an unresolved liability, including an open attempt with null
+settled amounts: keep the corresponding host cap closed under host policy until
+that liability is resolved. Neither a lower estimate nor its reservation bounds a
+possible late charge. Persist needed cap history idempotently before returning
+from `retired`; the following purge removes attempts, histories and the seal.
+`host.erased` remains the immediate resource-cleanup hook. A receipt committed
+during it is included in the later `retired` snapshot, which is the final accounting
+handoff for every erase path. No extra per-attempt records survive purge.
+
+Retained totals
 are deployment spend/reserved/uncertain amounts and breach flags per account,
 render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
 On low-volume days, a daily total may reveal one session's usage. Daily buckets
@@ -1276,8 +1428,10 @@ already returns the accepted selection can ignore the second argument.
 Both fields are optional for backward compatibility: hosts without `describe`,
 legacy/unavailable documents and legacy events retain the previous shape. Optional
 grant enrichment reads each have a 250 ms deadline; a timeout omits both fields
-and retains the legacy refresh path. Full withdrawals include every known scope
-in both fields as a revocation and bypass host document reads so host latency cannot delay it. Existing
+and retains the legacy refresh path. Full withdrawals through `POST /consent` include
+every known scope in both fields as a revocation. The server-side `withdrawConsent(id)`
+helper omits both fields, so the client takes the legacy (E2) refresh path. Both full
+withdrawal paths bypass host document reads so host latency cannot delay them. Existing
 consumers can ignore these optional fields. The UI removes a known withdrawn artifact kind
 synchronously in the handler, then verifies through the normal refresh. A
 revision-matched client document showing missing coverage identifies an addition.

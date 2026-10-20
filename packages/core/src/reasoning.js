@@ -35,16 +35,16 @@ export function matchesSchema(value, schema) {
       ? matchesSchema(v, schema.properties[k]) : schema.additionalProperties !== false);
   return false;
 }
-// Both operations accept {signal, deadlineAt}; disposal prevents retained timers/listeners.
-export function operationScope({ signal, deadlineAt = Date.now() + 30_000 } = {}) {
+// Deadlines and expiry use one clock; timers still bound elapsed operation time.
+export function operationScope({ signal, now = () => Date.now(), deadlineAt = now() + 30_000 } = {}) {
   if (!Number.isFinite(deadlineAt)) throw new TypeError('Invalid deadline');
   const controller = new AbortController();
   const abort = () => controller.abort(signal.reason);
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => controller.abort(new DOMException('Deadline exceeded', 'TimeoutError')),
-    Math.max(0, deadlineAt - Date.now()));
-  if (deadlineAt <= Date.now()) controller.abort(new DOMException('Deadline exceeded', 'TimeoutError'));
+    Math.max(0, deadlineAt - now()));
+  if (deadlineAt <= now()) controller.abort(new DOMException('Deadline exceeded', 'TimeoutError'));
   return { signal: controller.signal, dispose() { clearTimeout(timer); signal?.removeEventListener('abort', abort); } };
 }
 // Each demo model answers with its own deterministic wording, so a changed

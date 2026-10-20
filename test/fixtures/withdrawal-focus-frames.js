@@ -9,7 +9,7 @@ import { previewFixture } from './html-preview-route.js';
 import { installConsentClock } from './consent-clock.js';
 import { browserForFile } from '../browser/shared-browser.js';
 
-export async function withdrawalFocusFrames(t) {
+export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
   const root = new URL('../../', import.meta.url).pathname, preview = previewFixture();
   const html = `<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
     body{margin:0} ait385-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
@@ -52,7 +52,7 @@ export async function withdrawalFocusFrames(t) {
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const browser=await browserForFile();
   t.after(async()=>{await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
-  const page=await browser.newPage(),checks=[],shots=[],evidence=process.env.AITHEMA_EVIDENCE_DIR;
+  const page=await browser.newPage(),checks=[],shots=[],evidence=process.env.AITHEMA_EVIDENCE_DIR && (transcriptTop ? join(process.env.AITHEMA_EVIDENCE_DIR, 'ait400') : process.env.AITHEMA_EVIDENCE_DIR);
   if(evidence)await mkdir(evidence,{recursive:true});
   await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.ready);
@@ -60,11 +60,11 @@ export async function withdrawalFocusFrames(t) {
     [390,'light','de','t1'],[1440,'light','de','t1'],[390,'light','de','t2'],[1440,'light','de','t2'],
     [390,'light','en','t1'],[390,'dark','de','t1'],[1440,'dark','de','t1'],
   ];
-  const mount=async(width,theme,locale,state,mixed=false)=>{
+  const mount=async(width,theme,locale,state,mixed=false,turns)=>{
     const session=createSession({demo:true});session.id='ait385';session.locale=locale;session.consentRevision=1;
     session.visualsBound=true;session.settings.visuals=state==='t2'?'off':'html';session.settings.origin='chosen';
     session.conceptVisualKind='html';session.conceptCost={maxMicro:0};
-    session.transcript=[{id:'source',role:'user',content:locale==='de'?'Ein Dashboard für unser Team.':'A dashboard for our team.'}];session.inputRevision=1;
+    session.transcript=[{id:'source',role:'user',content:locale==='de'?'Ein Dashboard für unser Team.':'A dashboard for our team.'}];if(turns)session.transcript=turns;session.inputRevision=1;
     session.concepts=[...(mixed?[{id:'image',mediaType:'image/png',turnIds:['source']}]:[]),{id:'draft',mediaType:'text/html',turnIds:['source']}];session.conceptStatus={phase:'ready'};
     session.featureMatrix={best:{text:{available:true},analysis:{available:true},html:{available:state!=='t2',reason:state==='t2'?'visuals off':undefined},images:{available:false,reason:'visual kind not selected'}}};
     await page.setViewport({width,height:width===390?844:900});await page.evaluate(mount=>window.mount(mount),{session,theme,locale});
@@ -74,9 +74,153 @@ export async function withdrawalFocusFrames(t) {
     await page.evaluate(async()=>{c.shadowRoot.activeElement?.blur();document.activeElement?.blur();await document.fonts.ready;
       await Promise.all(c.shadowRoot.getAnimations({subtree:true}).filter(a=>Number.isFinite(a.effect.getComputedTiming().endTime)).map(a=>a.finished.catch(()=>{})));
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});
-    await page.mouse.move(-10,-10);const name=`ait385-${width}-${theme}-${locale}-${state}.png`;shots.push(name);
+    await page.mouse.move(-10,-10);const name=`${transcriptTop ? 'ait400' : 'ait385'}-${width}-${theme}-${locale}-${state}.png`;shots.push(name);
     if(evidence)await page.screenshot({path:join(evidence,name),fullPage:false,captureBeyondViewport:false});
   };
+  if (transcriptTop) {
+    const head = process.env.GITHUB_EVENT_PATH
+      ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha : process.env.AITHEMA_COMMIT;
+    for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) await t.test(`${width}/light/${locale}`, async () => {
+      const content = locale === 'de'
+        ? ['Wir sind eine Bäckerei und wollen Vorbestellungen per App annehmen.', 'Abgeholt wird am nächsten Morgen in der Filiale.', 'Großkunden bestellen jede Woche dasselbe.', 'Danke. Wer holt die Bestellungen am Morgen ab?']
+        : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
+      const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
+      await mount(width, 'light', locale, 't1', false, turns);
+      // This case reads the first row; the phone may initially follow the
+      // last reply once the four fixture turns overflow the bounded pane.
+      await page.evaluate(async () => {
+        c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      await page.mouse.move(-10, -10);
+      const inspect = () => page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
+        return { shell: box(shell), composer: box(r.querySelector('.composer')), slot: box(r.querySelector('.concept-bar')),
+          top: shell.querySelector('.turn').getBoundingClientRect().top, scrollTop: shell.scrollTop,
+          headerBottom: r.querySelector('.band').getBoundingClientRect().bottom,
+          slotBottom: r.querySelector('.concept-bar').getBoundingClientRect().bottom,
+          notice: r.querySelector('.concept-withdrawn').textContent,
+          firstVisible: [...shell.querySelectorAll('.turn')].filter(n => n.getBoundingClientRect().bottom > shell.getBoundingClientRect().top + 8)
+            .map(n => ({ id:n.dataset.id, top:n.getBoundingClientRect().top, bottom:n.getBoundingClientRect().bottom }))[0] };
+      });
+      const before = await inspect();
+      assert.equal(before.scrollTop, 0, 'first-row clearance starts at the top of the transcript');
+      await page.evaluate(() => withdraw());
+      await capture(width, 'light', locale, 'transcript-withdrawal');
+      const withdrawn = await inspect();
+      await page.evaluate(() => clock.tick(4000));
+      await capture(width, 'light', locale, 'transcript-expired');
+      const expired = await inspect();
+      checks.push({ width, locale, before, withdrawn, expired });
+      if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+      assert.deepEqual(withdrawn.slot, before.slot, 'AIT-400: status occupies the reserved slot at 0 px');
+      assert.deepEqual(expired.slot, before.slot, 'AIT-400: status expiry preserves the reserved slot at 0 px');
+      assert.deepEqual(withdrawn.shell, before.shell, 'AIT-400: withdrawal moves the scroll area 0 px');
+      assert.deepEqual(expired.shell, before.shell, 'AIT-400: expiry moves the scroll area 0 px');
+      assert.deepEqual(withdrawn.composer, before.composer, 'AIT-400: withdrawal moves the composer 0 px');
+      assert.deepEqual(expired.composer, before.composer, 'AIT-400: expiry moves the composer 0 px');
+      for (const state of [withdrawn, expired]) {
+        assert.ok(state.shell[1] >= Math.max(state.headerBottom, state.slotBottom), `AIT-400: scroll area follows the last top row: ${JSON.stringify(state)}`);
+        assert.ok(state.top >= Math.max(state.shell[1] + 8, state.headerBottom, state.slotBottom), `AIT-400: first bubble is wholly below the last top row and fade: ${JSON.stringify(state)}`);
+      }
+      // Read an interior turn, away from both ends; status changes must retain it.
+      const long = Array.from({ length: 24 }, (_, i) => ({ ...turns[i % turns.length], id: i ? `reading-${i}` : 'source' }));
+      await mount(width, 'light', locale, 't1', false, long);
+      await page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), row = r.querySelector('[data-id="reading-10"]');
+        // Scroll offsets are integer CSS pixels; round toward a fully visible row.
+        shell.scrollTop = Math.floor(shell.scrollTop + row.getBoundingClientRect().top - shell.getBoundingClientRect().top - 8);
+      });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const reading = await inspect();
+      assert.ok(reading.scrollTop > 0, 'reading anchor is away from the top');
+      assert.equal(reading.firstVisible.id, 'reading-10', 'fixture starts on an interior row');
+      assert.ok(reading.firstVisible.top >= reading.shell[1] + 8, 'fixture starts with the reading row fully visible');
+      await page.evaluate(() => withdraw());
+      await capture(width, 'light', locale, 'transcript-reading-withdrawal');
+      const readingWithdrawn = await inspect();
+      await page.evaluate(() => clock.tick(4000));
+      await capture(width, 'light', locale, 'transcript-reading-expired');
+      const readingExpired = await inspect();
+      checks.at(-1).reading = { before:reading, withdrawn:readingWithdrawn, expired:readingExpired };
+      if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+      for (const state of [readingWithdrawn, readingExpired]) {
+        assert.equal(state.scrollTop, reading.scrollTop, 'AIT-400: never jump to either end');
+        assert.deepEqual(state.firstVisible, reading.firstVisible, 'AIT-400: keep the first visible reading row at 0 px');
+        assert.ok(state.firstVisible.top >= Math.max(state.shell[1] + 8, state.headerBottom, state.slotBottom), 'AIT-400: the retained reading row is wholly below the last top row');
+      }
+    });
+    // Reuse this page for the round-2 geometry checks; no extra browser/call.
+    for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) {
+      await t.test(`Latest reserved bottom/${width}/${locale}`, async () => {
+        const turns = Array.from({ length: 24 }, (_, i) => ({ id: i ? `bottom-${i}` : 'source', role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine längere Unterhaltung für den unveränderten unteren Platz.' : 'A longer conversation to verify the unchanged bottom slot.' }));
+        await mount(width, 'light', locale, 't1', false, turns);
+        const bottom = await page.evaluate(() => {
+          const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), latest = r.querySelector('.transcript-latest');
+          const measure = () => ({ lastBottom: shell.querySelector('.turn:last-child').getBoundingClientRect().bottom,
+            latestTop: latest.getBoundingClientRect().top, latestBottom: latest.getBoundingClientRect().bottom,
+            shellBottom: shell.getBoundingClientRect().bottom, scrollHeight: shell.scrollHeight, scrollTop: shell.scrollTop });
+          // Visibility alone also stays identical when a negative margin cancels
+          // Latest's slot. Measure the scroll room without that slot as well.
+          latest.style.display = 'none'; const withoutLatest = measure(); latest.style.display = '';
+          shell.scrollTop = shell.scrollHeight; latest.style.visibility = 'hidden'; const hidden = measure();
+          latest.style.visibility = 'visible'; const shown = measure();
+          latest.style.visibility = 'hidden'; return { withoutLatest, hidden, shown, hiddenAgain: measure() };
+        });
+        checks.push({ width, locale, bottom });
+        if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+        assert.ok(bottom.hidden.scrollHeight > bottom.withoutLatest.scrollHeight, 'AIT-400 v1.1: hidden Latest reserves real scroll room below the last row');
+        assert.deepEqual(bottom.shown, bottom.hidden, 'AIT-400 v1.1: Latest shown/hidden moves the last-row bottom and scroll geometry 0 px');
+        assert.deepEqual(bottom.hiddenAgain, bottom.hidden, 'AIT-400 v1.1: hiding Latest again moves the last-row bottom 0 px');
+        assert.ok(bottom.shown.lastBottom <= bottom.shown.latestTop, `AIT-400 v1.1: Latest occupies its reserved slot below the last message: ${JSON.stringify(bottom)}`);
+        assert.ok(bottom.shown.latestBottom <= bottom.shown.shellBottom, 'Latest is wholly inside the scroll area');
+      });
+      for (const mode of ['fold', 'hide']) await t.test(`inset reset/${mode}/${width}/${locale}`, async () => {
+        await mount(width, 'light', locale, 't1', false, mode === 'hide' ? [] : undefined);
+        await page.evaluate(async mode => {
+          // Attach the production page watchers to this otherwise offline mount.
+          const { [c.session.locale]: copy } = await import('/packages/ui/src/i18n/' + c.session.locale + '.js');
+          c.configure({ session:c.session, copy, sessionToken:'fixture-owner', concepts:{ previewURL:location.origin+'/_aithema/html-preview' } });
+          // A partial can enter live before any durable input exists. A failed
+          // lane clears it and returns to ready through the production renderer.
+          const { inputRevision } = await import('/packages/core/src/session.js');
+          window.stagePartial = () => c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:inputRevision(c.session) } });
+          document.body.style.paddingBottom = '1600px'; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
+        }, mode);
+        const result = await page.evaluate(mode => {
+          // Keep both transitions and the measurements in one task, before
+          // the offline fixture's failed event stream can clear the partial.
+          if (mode === 'hide') stagePartial();
+          const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), workspace = r.querySelector('.workspace');
+          const measure = () => ({ inset:parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0,
+            shellTop:shell.getBoundingClientRect().top, bubbleTop:shell.querySelector('.turn').getBoundingClientRect().top,
+            lastTopRowBottom:Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom) });
+          const before = measure(); scrollTo(0, 400); dispatchEvent(new Event('scroll')); const scrolled = measure();
+          if (mode === 'fold') r.querySelector('.fold').click();
+          else c.receive({ type:'lane.failed', data:{ lane:'reaction' } });
+          const hiddenStage = workspace.dataset.stage;
+          const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
+          // Do not repair the hidden inset with a synthetic scroll or resize.
+          scrollTo(0, 0);
+          if (mode === 'fold') r.querySelector('.fold-strip').click();
+          else stagePartial();
+          // Inspect synchronously on return, before another scroll can repair it.
+          const returned = measure();
+          document.body.style.paddingBottom = ''; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
+          return { before, scrolled, hiddenStage, returnedStage:workspace.dataset.stage, hiddenInset, returned };
+        }, mode);
+        checks.push({ width, locale, mode, insetReset:result });
+        if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+        assert.ok(result.scrolled.inset > 0, 'fixture first creates a real sticky-header inset');
+        assert.equal(result.hiddenStage, mode === 'hide' ? 'ready' : 'live', 'fixture exercises the requested production stage');
+        assert.equal(result.returnedStage, 'live', 'fixture returns to the live stage');
+        assert.equal(result.hiddenInset, 0, 'AIT-400: fold/hide clears the stale top inset');
+        assert.deepEqual(result.returned, result.before, 'AIT-400: fold/hide → live has 0 px empty top gap before the next scroll');
+        assert.ok(result.returned.bubbleTop >= result.returned.lastTopRowBottom, 'returned first bubble is fully below the last top row');
+      });
+    }
+    return;
+  }
   for(const [width,theme,locale,state] of configs)await t.test(`${state}/${width}/${theme}/${locale}`,async()=>{
     await mount(width,theme,locale,state);
     const before=await page.evaluate(()=>{const p=c.shadowRoot.querySelector('.concept-preview'),b=p.getBoundingClientRect();p.focus({preventScroll:true});return {old:{x:b.x+b.width/2,y:b.y+b.height/2},boxes:boxes()};});

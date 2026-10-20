@@ -341,23 +341,30 @@ async function checkPhoneVoiceHeader(t, widths) {
       const capturedShorts = new Map();
       // Full coverage below 600; desktop compares the legacy paint directly.
       const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
+      if (width < 600) samples.push(
+        { id: 'ait429-admission-denied', kind: 'admission', reason: 'agent-api-unavailable', full: copy.reasons['agent-api-unavailable'] },
+        { id: 'ait429-conflict-with-unavailable-feature', kind: 'error', errorKey: 'voiceConflict', featureReason: 'agent-api-unavailable', full: copy.voiceConflict },
+      );
       for (const sample of samples) {
         const short = narrowVoiceStatus(copy, sample.full, { reason: sample.endReason ?? sample.reason, nextTier: sample.nextTier });
         // Tick's copy-table evidence: each named status, then only new short forms
         // among availability/admission sources. Every source still runs every check.
         const capture = width >= 600 || Boolean(evidence &&
-          (!sample.id.startsWith('reason-') || !capturedShorts.has(short)));
+          (sample.reason === 'agent-api-unavailable' || !sample.id.startsWith('reason-') || !capturedShorts.has(short)));
         const geometry = await page.evaluate(async ({ sample, capture }) => {
           const rail = globalThis.ait302Rail, copy = rail.copy;
           rail.session = sample.kind === 'state' && !['idle', 'failed'].includes(sample.id) ? {} : null;
           rail.state = sample.kind === 'state' && !['low', 'usedUp', 'timeExpired', 'creditEnding'].includes(sample.id) ? sample.id : 'idle';
-          rail.errorKey = sample.kind === 'error' ? sample.id : null; rail.paused = sample.id === 'paused'; rail.waitingCall = null;
+          rail.errorKey = sample.kind === 'error' ? sample.errorKey ?? sample.id : null; rail.errorReason = null;
+          rail.paused = sample.id === 'paused'; rail.waitingCall = null;
+          if (sample.kind === 'admission') { rail.errorKey = 'voiceAdmissionDenied'; rail.errorReason = sample.reason; }
           rail.usedUp = () => ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id);
           rail.endReason = () => sample.id === 'timeExpired' ? 'one-hour' : null;
           rail.ending = () => sample.id === 'creditEnding'; rail.lowCredit = () => sample.id === 'low';
           if (sample.id === 'low') { rail.state = 'listening'; rail.session = {}; }
           rail.feature = () => sample.kind === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: copy.featureConsent.voice }
             : ['reason', 'unavailable'].includes(sample.kind) ? { available: false, reason: sample.full, rawReason: sample.reason } : { available: true };
+          if (sample.featureReason) rail.feature = () => ({ available: false, rawReason: sample.featureReason, reason: copy.reasons[sample.featureReason] });
           if (sample.creditCase) {
             rail.usedUp = () => Boolean(sample.exhausted);
             rail.endReason = () => sample.endReason ?? null;
@@ -408,12 +415,19 @@ async function checkPhoneVoiceHeader(t, widths) {
         assert.equal(geometry.accessibleName, sample.full, `${label}: accessible name keeps full sentence`);
         assert.equal(geometry.live, (sample.creditCase ? sample.exhausted : ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id)) ? 'off' : 'polite', `${label}: existing live-region policy`);
         assert.equal(geometry.text, sample.full + (sample.kind === 'consent' ? `\u00a0· ${copy.featureConsent.action}` : ''), `${label}: live announcement keeps full sentence`);
+        if (sample.reason === 'agent-api-unavailable') {
+          assert.equal(geometry.accessibleName, locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now');
+          assert.doesNotMatch(geometry.short, /provider|anbieter/iu);
+        }
+        if (sample.kind === 'admission') assert.equal(geometry.short, copy.voiceReasonsNarrow.unavailable, `${label}: compact admission sentence`);
+        if (sample.featureReason) assert.equal(geometry.short, copy.voiceMessagesNarrow[sample.errorKey], `${label}: retain the other sentence's compact label`);
         if (width < 600) {
           assert.equal(geometry.font, geometry.captionFont, `${label}: existing phone type scale`);
           if (geometry.canShareLine) assert.equal(geometry.lines.length, 1, `${label}: both consent units fit on one line`);
           const approved = approvedNarrowForm(copy, sample);
           if (approved) assert.equal(geometry.short, approved, `${label}: Tick’s approved short form`);
-          assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
+          if (sample.creditCase) assert.equal(geometry.short, sample.short, `${label}: exact AIT-422 status`);
+          else assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
           assert.ok(geometry.lines.length > 0 && geometry.lines.length <= 2, `${label}: at most 2 lines ${JSON.stringify(geometry.lines)}`);
           assert.ok(geometry.lines.every(line => !/^·|·$/u.test(line.trim())), `${label}: no dangling separator`);
           baseline ??= geometry.boxes; assert.deepEqual(geometry.boxes, baseline, `${label}: controls shift 0 px`);

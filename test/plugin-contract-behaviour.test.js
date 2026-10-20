@@ -260,9 +260,10 @@ rule('contract-cost-reconciliation', async t => {
     const { attempt, report } = admitted.options;
     await attempt.consume(); attempt.dispatchCost(); attempt.observeCost({ observedCostMicro: 80 });
     report({ attemptId: attempt.attemptId, outcome: 'uncertain' }); admitted.finish();
-    // Deterministically advance only the runtime's reconciliation clock.
+    // Advance the policy and accounting clocks together (AIT-430).
     const runtime = createPluginRuntime({ storage: host.storage, reasoning: host.plugin, registry: host.registry,
       budget: host.pluginRuntime.budget, now: () => Date.now() + 600000 });
+    runtime.setHostClock(runtime.now);
     await runtime.reconcileCosts();
     const row = runtime.budget.get(attempt.attemptId);
     assert.equal(row.settled_micro, configured === undefined ? host.binding.maxMicro : 80);
@@ -322,6 +323,7 @@ rule('contract-cost-reconciliation', async t => {
   report({ attemptId: attempt.attemptId, outcome: 'uncertain', usage }); admitted.finish();
   const runtime = createPluginRuntime({ storage: host.storage, reasoning: host.plugin, registry: host.registry,
     budget: host.pluginRuntime.budget, now: () => Date.now() + 600000 });
+  runtime.setHostClock(runtime.now);
   await runtime.reconcileCosts();
   const row = runtime.budget.get(attempt.attemptId);
   assert.equal(row.settled_micro, tokenFloor(usage));
@@ -338,6 +340,7 @@ rule('contract-cost-reconciliation', async t => {
   let clock = Date.now() + 600000;
   const runtime = createPluginRuntime({ storage: host.storage, reasoning: host.plugin, registry: host.registry,
     budget: host.pluginRuntime.budget, now: () => clock });
+  runtime.setHostClock(runtime.now);
   host.plugin.uncertainEstimateMicro = 70;
   await runtime.reconcileCosts();
   assert.equal(runtime.budget.get(attempt.attemptId).settled_micro, 70);

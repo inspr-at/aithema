@@ -14,6 +14,102 @@ await import('../src/session-element.js');
 test.after(() => window.happyDOM.close());
 const warningFixture = document.createElement('span'); warningFixture.innerHTML = WARNING_ICON;
 const tick = () => new Promise(r => setImmediate(r));
+
+for (const copy of [de, en]) test(`AIT-424 ${copy.display.locale}: unavailable draft can only be dismissed`, async t => {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const reply = Promise.withResolvers();
+  t.after(() => reply.resolve(Response.json({})));
+  const { c, root, calls } = setup(t, { copy, concepts: [draft('first'), draft('bad'), draft('last')],
+    session: { conceptVisualKind: 'html' }, postResponse: () => reply.promise });
+  const coverage = { consentRevision: c.session.consentRevision, selected: ['drafts'], features: { html: ['drafts'] },
+    artifacts: Object.fromEntries(['first', 'bad', 'last'].map(id => [id, { purposes: ['drafts'], unavailable: id === 'bad' }])) };
+  view.open('bad'); view.update(c.session, coverage); await tick();
+  const reject = root.querySelector('.concept-reject');
+  assert.equal(reject.disabled, false, 'dismiss remains enabled for the unavailable draft');
+  assert.equal(reject.textContent, copy.conceptReject);
+  for (const button of root.querySelectorAll('.concept-download, .concept-regenerate, .concept-up, .concept-down, .concept-guidance-options button'))
+    assert.equal(button.disabled, true, `${button.className || button.textContent} stays disabled`);
+  const before = calls.length;
+  await view.feedback('up', []); await view.feedback('clear', [copy.conceptGuidance[0]]);
+  assert.equal(calls.length, before, 'unavailable draft cannot submit other feedback');
+  reject.click();
+  const requests = calls.slice(before);
+  assert.equal(requests.length, 1); assert.ok(requests[0].url.endsWith('/concepts/bad/reject'));
+  assert.equal(new Headers(requests[0].options.headers).get('x-aithema-session-token'), 'owner-fixture');
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.vote, 'down'); assert.deepEqual(body.chips, []);
+  assert.equal(reject.disabled, true, 'pending dismiss keeps the existing busy gate');
+  reject.click(); assert.equal(calls.length, before + 1, 'pending dismiss cannot be repeated');
+  reply.resolve(Response.json({ event: { seq: c.session.seq + 1, type: 'concept.feedback',
+    data: { artifactId: 'bad', vote: body.vote, chips: body.chips, archived: true } } }));
+  await tick();
+  assert.equal(c.session.concepts.find(item => item.id === 'bad').archived, true);
+  assert.deepEqual(view.displayItems.map(item => item.id), ['first', 'last']);
+  assert.equal(view.dialog.open, false, 'existing dismiss closes the viewer');
+});
+
+for (const copy of [en, de]) test(`AIT-374 ${copy === en ? 'en' : 'de'}: unavailable draft keeps its slot and siblings`, async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, calls, downloads } = setup(t, { copy, concepts: [draft('first'), draft('bad'), draft('last')] });
+  const coverage = { consentRevision: c.session.consentRevision, selected: ['drafts', 'old-drafts'], features: { html: ['drafts', 'old-drafts'] },
+    artifacts: { first: { purposes: ['drafts'], unavailable: false }, bad: { purposes: ['old-drafts'], unavailable: true }, last: { purposes: ['drafts'], unavailable: false } } };
+  view.open('bad'); view.update(c.session, coverage); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last'], 'only readable siblings can load bytes');
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'bad', 'last'], 'unavailable placeholder keeps its original order');
+  assert.equal(view.dialog.open, true, 'the bad revision stays in the fixed viewer');
+  const preview = root.querySelector('.concept-html');
+  assert.equal(preview.state, 'unavailable'); assert.equal(preview.artifact, null);
+  assert.equal(preview.shadowRoot.querySelector('.state-message').textContent, copy === en ? "This preview isn't available." : 'Diese Vorschau ist nicht verfügbar.');
+  assert.equal(preview.shadowRoot.querySelector('.state').tabIndex, 0);
+  assert.equal(preview.shadowRoot.querySelector('.state').getAttribute('aria-label'), copy.conceptPreview.unavailable);
+  assert.equal(preview.shadowRoot.querySelector('.reload').disabled, true);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  const before = calls.length; assert.equal(await view.load('bad'), null); await view.download();
+  assert.equal(calls.length, before); assert.equal(downloads.length, 0, 'unavailable artifact cannot load or download');
+  view.navigate(-1); assert.equal(view.current().id, 'first');
+  view.navigate(1); assert.equal(view.current().id, 'bad');
+  view.navigate(1); assert.equal(view.current().id, 'last');
+  // A missing consent choice for one producer also cannot hide another producer.
+  view.update(c.session, { ...coverage, selected: ['drafts'] });
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last']);
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'last'], 'AIT-428: deselecting an unavailable producer removes its slot too');
+  view.update(c.session, { ...coverage, selected: ['drafts'], artifacts: { ...coverage.artifacts, bad: { purposes: ['old-drafts'], unavailable: false } } });
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last'], 'a resolvable sibling with withdrawn consent is independent too');
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'last'], 'actual consent withdrawal removes its slot');
+});
+
+test('AIT-374: image availability is per artifact and its unavailable slot cannot fetch bytes', async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, calls, downloads } = setup(t, { concepts: [item('first'), item('bad'), item('last')] });
+  view.open('bad'); await tick();
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['images'], features: { images: ['images'] },
+    artifacts: Object.fromEntries(['first', 'bad', 'last'].map(id => [id, { purposes: ['images'], unavailable: id === 'bad' }])) });
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last']);
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'bad', 'last']);
+  assert.equal(root.querySelector('.concept-image').hasAttribute('src'), false);
+  const status = root.querySelector('.concept-image-status');
+  assert.equal(status.textContent, en.conceptPreview.unavailable); assert.equal(status.tabIndex, 0);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  const before = calls.length; assert.equal(await view.load('bad'), null); await view.download();
+  assert.equal(calls.length, before); assert.equal(downloads.length, 0);
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: [], features: { images: ['images'] },
+    artifacts: Object.fromEntries(['first', 'bad', 'last'].map(id => [id, { purposes: ['images'], unavailable: id === 'bad' }])) });
+  assert.deepEqual(view.displayItems, [], 'AIT-428: unavailable images are removed when their purpose is deselected');
+  assert.equal(view.dialog.open, false);
+});
+
+test('AIT-374: newly delivered artifacts retain coverage before the next consent document read', t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [] });
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts'], features: { html: ['drafts'] }, artifacts: {} });
+  view.update({ ...c.session, concepts: [draft('new')] });
+  assert.deepEqual(view.items.map(i => i.id), ['new'], 'server-published delivery uses the existing feature coverage until the next read');
+});
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } }, ...extra }; }
 // A clickable draft as the server publishes it (AIT-113): text/html, no pixel size.
@@ -1321,6 +1417,24 @@ for (const kind of ['html', 'image']) for (const directed of [false, true]) test
   assert.deepEqual(view.items.map(item => item.id), [kind === 'html' ? 'image' : 'html']);
   assert.equal(root.querySelector('.concept-html').artifact, null);
   assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
+});
+
+for (const changed of [undefined, ['future-scope']]) for (const granted of [false, true]) test(`AIT-371: ${JSON.stringify(changed)}/granted=${granted} keeps the legacy refresh path through a later scoped grant`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html');
+  const snapshot = state.snapshot;
+  state.snapshot = () => new Promise(() => {});
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  const fail = t.mock.method(view, 'failClosedConsent');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted, conversationUnchanged: true, ...(changed ? { changed } : {}) } });
+  state.snapshot = snapshot;
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'], removed: [] } });
+  await tick();
+  assert.equal(state.documents, 2, 'the later save reaches the stale document in the same refresh window');
+  assert.equal(fail.mock.callCount(), 1, 'a later scoped grant cannot restore the lagging-document wait');
+  assert.equal(root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  assert.deepEqual(view.items, []);
 });
 
 test('AIT-365 R2: a removal-only scoped save cannot use the lagging grant-document wait', async t => {

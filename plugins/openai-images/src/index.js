@@ -76,7 +76,8 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
     const scope = operationScope(options); let invocation, completed = false, reporting;
     const cap = spendCap;
     let reservation, dispatched = false, chargedMicro = null, responseGenerationId = null;
-    const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
+    const now = options.now ?? Date.now;
+    const checkLifetime = () => { scope.signal.throwIfAborted(); if (now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
     const directCost = usage => {
       // Common binding rates are required placeholders, not admitted image prices.
@@ -187,7 +188,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       } else throw new PluginError('invalid-output');
       checkLifetime();
       if (gateway && !['image/png', 'image/webp'].includes(imageInfo(bytes).mediaType)) throw new PluginError('invalid-output');
-      const result = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation: wireOperation,
+      const result = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation: wireOperation, now: now(),
         ...(gateway ? { provider: 'openrouter' } : {}) });
       checkLifetime();
       completed = true; return result;

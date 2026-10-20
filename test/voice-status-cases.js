@@ -9,11 +9,14 @@ export function voiceStatusCases(copy) {
   return [
     ...creditStatusCases(copy),
     { id: 'consent', full: copy.featureConsent.voice, kind: 'consent' },
-    ...Object.entries(copy.voiceStates).map(([id, full]) => ({ id, full, kind: 'state' })),
+    ...Object.entries(copy.voiceStates).map(([id, full]) => id === 'usedUp'
+      ? creditStatusCases(copy).find(sample => sample.id === id) : { id, full, kind: 'state' }),
     ...compactVoiceMessageKeys.map(id => ({ id, full: copy[id], kind: 'error' })),
     { id: 'notConfigured', full: copy.notConfigured, kind: 'unavailable' },
     { id: 'unknown-host-reason', full: 'A host-defined availability explanation', kind: 'unavailable' },
-    ...Object.entries(copy.reasons).map(([reason, full], index) => ({ id: `reason-${index}`, reason, full: isConsentReason(reason) ? copy.featureConsent.voice : full, kind: isConsentReason(reason) ? 'consent' : 'reason' })),
+    ...Object.entries(copy.reasons).map(([reason, full], index) => reason === 'budget denied'
+      ? { ...creditStatusCases(copy).find(sample => sample.reason === reason), id: `reason-${index}` }
+      : { id: `reason-${index}`, reason, full: isConsentReason(reason) ? copy.featureConsent.voice : full, kind: isConsentReason(reason) ? 'consent' : 'reason' }),
   ];
 }
 
@@ -51,16 +54,16 @@ export function approvedNarrowForm(copy, sample) {
   return approvedNarrowForms[sample.reason ?? sample.id]?.[copy.display.locale === 'de' ? 0 : 1];
 }
 
-// Tick's binding AIT-310 table: only a host limit without an upgrade is budget copy.
+// Tick's binding AIT-422 table supersedes AIT-310's upgrade-dependent labels.
 export function creditStatusCases(copy) {
   const credits = copy.display.locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up';
-  const budget = copy.display.locale === 'de' ? 'Budget ausgeschöpft' : 'Budget used up';
+  const unavailable = copy.display.locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now';
   return [
-    { id: 'host-limit-with-upgrade', endReason: 'host-limit', nextTier: 'emailGiven', exhausted: true, short: credits },
-    { id: 'host-limit-without-upgrade', endReason: 'host-limit', nextTier: null, exhausted: true, short: budget },
-    { id: 'usedUp', exhausted: true, short: credits },
+    { id: 'host-limit-with-upgrade', endReason: 'host-limit', nextTier: 'emailGiven', exhausted: true, short: unavailable },
+    { id: 'host-limit-without-upgrade', endReason: 'host-limit', nextTier: null, exhausted: true, short: unavailable },
+    { id: 'usedUp', exhausted: true, short: unavailable },
     { id: 'budget-denied', reason: 'budget denied', short: credits },
-  ].map(sample => ({ ...sample, creditCase: true, kind: 'credit', full: sample.reason ? copy.reasons[sample.reason] : copy.voiceStates.usedUp }));
+  ].map(sample => ({ ...sample, creditCase: true, kind: 'credit', full: sample.short }));
 }
 
 export function applyCreditStatusCase(rail, sample) {

@@ -28,6 +28,10 @@ export function createUIRenderLimiter({ storage, perSession = 20, perDay = 200, 
     return null;
   };
   return { reason,
+    setClock(clock) {
+      if (typeof clock !== 'function') throw new TypeError('Render clock must be a function');
+      now = clock;
+    },
     consume(attemptId, sessionId, dispatch) {
       return storage.transaction(() => {
         const date = day(), denied = reason(sessionId, date);

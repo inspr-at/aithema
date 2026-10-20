@@ -3026,7 +3026,7 @@ for (const funding of ['session', 'voiceVisitor', 'owner']) test(`AIT-163 fix3: 
   await rail.start();
   assert.deepEqual(denial, { status: 403, body: { error: 'not-admitted', reason: 'host-limit' } });
   assert.equal(root.hasAttribute('data-used-up'), true);
-  assert.equal(root.querySelector('.voice-state').textContent, en.voiceStates.usedUp);
+  assert.equal(root.querySelector('.voice-state').textContent, 'Voice unavailable right now');
   assert.equal(root.hasAttribute('data-message'), false, 'the calm used-up state replaces a generic connection error');
   assert.equal(h.authChecks().healthReads, healthReads + 1, 'recovery rechecks provider health');
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);

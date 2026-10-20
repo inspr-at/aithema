@@ -392,8 +392,8 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
     const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
       '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
     ] }), page = await browser.newPage();
-    const viewport = async target => {
-      if (touch) await target.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: true, isMobile: false });
+    const viewport = async (target, frameWidth = width) => {
+      if (touch) await target.setViewport({ width:frameWidth, height: frameWidth === 390 ? 844 : 900, hasTouch: true, isMobile: false });
       else {
         target.ait404Metrics = await target.createCDPSession();
         await target.ait404Metrics.send('Emulation.setDeviceMetricsOverride', { width, height: width === 390 ? 844 : 900, deviceScaleFactor: 1, mobile: false });
@@ -439,8 +439,14 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         await finishWorkspaceEntry(page);
       };
       await retire();
-      // Keep the composer in the viewport before recording any geometry.
-      await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
+      // This fixture deliberately scrolls the document to the composer before
+      // takeback. Record that separately from the production takeback itself.
+      const pagePlacement = await shadow(page, c => {
+        const before = scrollY;
+        c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' });
+        return { before, after:scrollY, cause:'fixture composer.scrollIntoView before takeback' };
+      });
+      await finishWorkspaceEntry(page);
       const outcomes = width === 390 && touch && locale === 'en' ? ['success', 'paused', 'error'] : ['success'];
       for (const outcome of outcomes) {
         if (outcome !== 'success') await retire();
@@ -463,6 +469,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
               pausedVisible: visible(paused) || visible(reason) && reason.textContent.includes(pausedCopy),
               sessionPaused: session.paused, textAvailable: text?.available, textReason: text?.reason, unpausedTextAvailable: text?.unpaused?.available,
               boxes: current, movementPx: Math.max(...current.flatMap((box, i) => box.map((v, j) => Math.abs(v - run.baseline[i][j])))) };
+            reading.pageScroll = scrollY;
             run.allSamples.push(reading);
             if (run.listeningAt !== null) run.samples.push(reading);
           };
@@ -494,13 +501,14 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           root.querySelector('.pause').click();
         }, { outcome, pausedCopy: { de, en }[locale].paused });
         await until(page, () => globalThis.ait404.held > 0 && globalThis.ait404.listeningAt !== null);
-        const capture = async state => {
+        const capture = async (state, frameWidth = width) => {
           await page.mouse.move(-1, -1);
           await shadow(page, async c => {
             c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
             await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           });
-          const file = `ait404-${width}-light-${locale}-${state}.png`;
+          const file = `ait404-${touch ? 'touch' : 'desktop'}-${frameWidth}-light-${locale}-${state}.png`;
+          assert.ok(!files.includes(file), `AIT-432: each capture has a distinct filename: ${file}`);
           if (state === 'mid-delay') assert.equal(await page.evaluate(() => globalThis.ait404.pending), true, 'mid-delay shot has the GET pending');
           if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
           if (state === 'mid-delay') {
@@ -509,6 +517,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
             await page.evaluate(() => { globalThis.ait404.midDelayCapturedPending = true; });
           }
           files.push(file);
+          return file;
         };
         if (outcome === 'success' && touch && width === 390) await capture('mid-delay');
         await until(page, () => globalThis.ait404.done);
@@ -522,19 +531,21 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           shortcutInListeningTick: preVerdict.every(s => s.shortcut),
           movementPx0: result.samples.every(s => s.movementPx === 0),
           wholeTakebackMovementPx0: result.allSamples.every(s => s.movementPx === 0),
+          pageScrollMovementPx0: result.allSamples.every(s => s.pageScroll === result.allSamples[0].pageScroll),
           midDelayShotPending: width !== 390 || !touch || outcome !== 'success' || result.midDelayCapturedPending === true,
           deviceMatches: touch ? device.hoverNone && device.coarse : device.fine,
           noPageErrors: errors.length === 0,
           confirmedOrRestored: outcome === 'success' ? result.samples.every(s => !s.pausedVisible && s.shortcut)
             : result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut),
         };
-        const check = { width, theme: 'light', locale, touch, outcome, device, assertions, ...result, errors };
+        const check = { width, theme: 'light', locale, touch, outcome, device, assertions, pagePlacement, ...result, errors };
         checks.push(check);
         if (Object.values(assertions).some(value => !value)) t.diagnostic(JSON.stringify({ width, touch, locale, outcome, assertions,
           firstBadPending: preVerdict.find(s => s.pausedVisible || !s.shortcut),
           firstMovement: result.allSamples.find(s => s.movementPx !== 0), selectors: result.selectors, baseline: result.baseline }));
         // Persist the red trace too, including the actual frame and its bounds.
         if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
+        assert.equal(Math.max(...result.allSamples.map(s => Math.abs(s.pageScroll - result.allSamples[0].pageScroll))), 0, 'AIT-412: takeback moves the document 0 px');
         assert.ok(assertions.deviceMatches, 'the case uses the requested touch or fine-pointer device');
         assert.equal(Math.max(...result.allSamples.map(s => s.movementPx)), 0, 'geometry stays at 0 px from the click through 1 s after the snapshot');
         assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'every outcome preserves composer, label slot and transcript geometry');
@@ -545,7 +556,39 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         if (outcome === 'success') {
           assert.ok(result.samples.every(s => !s.pausedVisible && s.shortcut), 'no paused label or shortcut transient through 1 s after the snapshot');
           assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'composer, label slot and transcript rows have movementPx 0 on every frame');
-          if (width === 390 && touch || width === 1440 && !touch) await capture('settled');
+          // Reuse the settled call for the extra Tick widths: no additional call/browser.
+          const widths = touch && width === 390 ? [390, 1024, ...(locale === 'en' ? [1440] : [])] : [width];
+          for (const frameWidth of widths) {
+            if (frameWidth !== width) {
+              await viewport(page, frameWidth);
+              await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block:'center' }));
+              await finishWorkspaceEntry(page);
+            }
+            const file = touch || width === 1440 ? await capture('settled', frameWidth) : null;
+            const clearance = await shadow(page, (c, scrollProof) => {
+              const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
+              return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
+                headerBottom: r.querySelector('.band').getBoundingClientRect().bottom,
+                lastTopRowBottom: Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom),
+                scrollTop: shell.scrollTop, pageScroll: scrollY, headerTop:r.querySelector('.band').getBoundingClientRect().top,
+                headerPosition:getComputedStyle(r.querySelector('.band')).position, ...scrollProof };
+            }, { pagePlacement, takebackPageScrollMovementPx:Math.max(...result.allSamples.map(s => Math.abs(s.pageScroll - result.allSamples[0].pageScroll))) });
+            (check.transcriptClearances ??= []).push({ width:frameWidth, file, ...clearance });
+            if (evidence) {
+              await mkdir(join(evidence, 'ait412'), { recursive:true });
+              await writeFile(join(evidence, 'ait412', 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true,
+                files, checks:checks.flatMap(c => (c.transcriptClearances ?? []).map(clearance => ({ locale:c.locale, touch:c.touch, ...clearance }))) }, null, 2));
+            }
+            assert.ok(clearance.shellTop >= clearance.headerBottom, `AIT-412: scroll area starts below the sticky header: ${JSON.stringify(clearance)}`);
+            assert.ok(clearance.bubbleTop >= clearance.headerBottom, `AIT-412: first bubble is wholly below the sticky header: ${JSON.stringify(clearance)}`);
+            assert.ok(clearance.shellTop >= clearance.lastTopRowBottom && clearance.bubbleTop >= clearance.lastTopRowBottom,
+              `AIT-412: scroll area and first bubble follow the last top row: ${JSON.stringify(clearance)}`);
+          }
+          if (widths.length > 1) {
+            await viewport(page);
+            await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block:'center' }));
+            await finishWorkspaceEntry(page);
+          }
         } else {
           assert.ok(result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut), 'failed confirming GET restores the existing paused state');
         }

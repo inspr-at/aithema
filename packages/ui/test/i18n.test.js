@@ -6,6 +6,7 @@ import { withDemoConsentCopy } from '../../../demo/consent-copy.js';
 import { reasonText, catalogLabel } from '../src/settings-dialog.js';
 import { reasonText as hostReasonText } from '../../../demo/reason-text.js';
 import { demoPresets } from '../../../demo/choices.js';
+import { FEATURES } from '../../core/src/presets.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
@@ -37,7 +38,7 @@ test('every inventoried feature, HTML, voice and provider reason has English and
       assert.ok(Object.hasOwn(bundle.reasons, code), code);
       assert.equal(typeof bundle.reasons[code], 'string', code);
       assert.ok(bundle.reasons[code].length > 0, code);
-      assert.equal(reasonText(bundle, code), BINDING_REASON_CODES.includes(code) ? bundle.chooser.unavailable : bundle.reasons[code]);
+      assert.equal(reasonText(bundle, code), BINDING_REASON_CODES.includes(code) || code === 'binding invalid' ? bundle.chooser.unavailable : bundle.reasons[code]);
     }
     assert.notEqual(de.reasons[code], en.reasons[code], code);
   }
@@ -46,11 +47,11 @@ test('every inventoried feature, HTML, voice and provider reason has English and
 test('compound voice reasons translate known codes and preserve unknown server text', () => {
   for (const bundle of [en, de]) {
     for (const code of FEATURE_REASON_CODES) {
-      assert.equal(reasonText(bundle, `delegated reasoning: ${code}`), BINDING_REASON_CODES.includes(code)
+      assert.equal(reasonText(bundle, `delegated reasoning: ${code}`), BINDING_REASON_CODES.includes(code) || code === 'binding invalid'
         ? bundle.chooser.unavailable : bundle.reasons.delegated.replace('{reason}', bundle.reasons[code]));
     }
     for (const method of ['get', 'post', 'patch']) {
-      assert.equal(reasonText(bundle, `agent-api-${method}-403`), bundle.reasons['agent-api'].replace('{status}', '403'));
+      assert.equal(reasonText(bundle, `agent-api-${method}-403`), bundle.chooser.unavailable);
     }
     for (const unknown of ['future reason from host', '__proto__', 'constructor', 'agent-api-delete-403']) {
       assert.equal(reasonText(bundle, unknown), unknown);
@@ -144,8 +145,8 @@ for (const [copy, generic, voice, drafts] of [
   test(`AIT-380 Tick v2 ${copy.display.locale}: each feature × binding reason is exactly in its neutral allow-list`, () => {
     const allow = { voice, images: drafts, html: drafts };
     const jargon = /provider|contract|evidence|anbieter|vertrag|nachweis/iu;
-    for (const code of BINDING_REASON_CODES) for (const reason of [code, `delegated reasoning: ${code}`]) {
-      for (const feature of [undefined, 'voice', 'text', 'analysis', 'transcription', 'images', 'html', 'uploads']) {
+    for (const code of [...BINDING_REASON_CODES, 'binding invalid', 'agent-api', 'agent-api-get-401', 'agent-api-post-403', 'agent-api-patch-503']) for (const reason of [code, `delegated reasoning: ${code}`]) {
+      for (const feature of [undefined, ...FEATURES]) {
         const expected = allow[feature] ?? generic;
         const visible = reasonText(copy, reason, feature);
         assert.equal(visible, expected, `${feature}: ${reason}`);
@@ -155,3 +156,26 @@ for (const [copy, generic, voice, drafts] of [
     }
   });
 }
+
+test('AIT-387: the visitor inventory uses the core evidence reason set and excludes the unused voice key', async () => {
+  const core = await import('../../core/src/presets.js');
+  assert.equal(BINDING_REASON_CODES, core.BINDING_REASON_CODES, 'the fixture must share the core export');
+  for (const copy of [en, de]) assert.equal(Object.hasOwn(copy.host, 'voiceUnavailable'), false);
+});
+
+test('AIT-429: agent-api-unavailable keeps its diagnostic code and renders Tick’s neutral voice copy', async () => {
+  const { narrowVoiceStatus } = await import('../src/voice-status.js');
+  const code = 'agent-api-unavailable';
+  assert.ok(VOICE_REASON_CODES.includes(code));
+  for (const [copy, expected] of [[de, 'Sprache gerade nicht verfügbar'], [en, 'Voice unavailable right now']]) {
+    assert.ok(Object.hasOwn(copy.reasons, code));
+    for (const render of [reasonText, hostReasonText]) for (const feature of [undefined, 'voice']) {
+      assert.equal(render(copy, code, feature), expected);
+      assert.equal(render(copy, `delegated reasoning: ${code}`, feature), copy.reasons.delegated.replace('{reason}', expected));
+    }
+    const compact = narrowVoiceStatus(copy, expected, { reason: code });
+    assert.doesNotMatch(compact, /provider|anbieter/iu);
+    assert.equal(compact, copy.voiceReasonsNarrow.unavailable);
+    assert.ok([...compact].length <= 22);
+  }
+});

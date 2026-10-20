@@ -41,11 +41,11 @@ test('CI artifacts keep deterministic width rotation; full evidence retains ever
 test('nightly runs every browser shard with its own full-matrix switch and CI timing policy', () => {
   const workflow = parse(readFileSync(new URL('../.github/workflows/nightly.yml', import.meta.url), 'utf8'));
   const job = workflow.jobs.browser;
-  assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7]);
-  assert.equal(job.name, 'full browser (${{ matrix.shard }}/7)');
-  assert.ok(job.steps.some(step => step.with?.name === 'full-browser-evidence-${{ matrix.shard }}-of-7'));
+  assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(job.name, 'full browser (${{ matrix.shard }}/8)');
+  assert.ok(job.steps.some(step => step.with?.name === 'full-browser-evidence-${{ matrix.shard }}-of-8'));
   const step = job.steps.find(step => step.name === 'Full browser matrix with evidence');
-  assert.equal(step.run, 'npm run test:browser -- --shard ${{ matrix.shard }}/7');
+  assert.equal(step.run, 'npm run test:browser -- --shard ${{ matrix.shard }}/8');
   assert.equal(step.env.AITHEMA_FULL_MATRIX, '1');
   assert.equal(step.env.CI, undefined, 'GitHub Actions keeps its default CI=true');
   assert.equal(step.env.AITHEMA_EVIDENCE_DIR, '${{ runner.temp }}/evidence');

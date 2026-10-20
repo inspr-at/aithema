@@ -1321,7 +1321,8 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
     const short = narrow.dataset.copy;
     const approved = approvedNarrowForm(copy, sample);
     if (approved) assert.equal(short, approved, `${sample.reason ?? sample.id}: Tick’s approved short form`);
-    assert.ok(short && [...short].length <= 22, `${sample.id}: ${short}`);
+    if (sample.creditCase) assert.equal(short, sample.short, `${sample.id}: exact AIT-422 status`);
+    else assert.ok(short && [...short].length <= 22, `${sample.id}: ${short}`);
     assert.equal(narrow.getAttribute('aria-hidden'), 'true');
     const expected = sample.full + (sample.kind === 'consent' ? '\u00a0· ' : '');
     assert.equal(full.textContent, expected, `${sample.id}: >=600px output unchanged`);
@@ -1341,7 +1342,7 @@ for (const copy of [de, en]) test(`AIT-310: ${copy.display.locale} credit owners
     if (source !== 'end') {
       rail.usedUp = () => false; rail.endReason = () => null;
       rail.feature = () => ({ available: false, rawReason: sample.endReason ?? sample.reason, reason: copy.voiceStates.usedUp });
-      full = copy.voiceStates.usedUp;
+      full = sample.full;
       if (source === 'admission') rail.failure({ code: 'not-admitted', reason: sample.endReason ?? sample.reason });
     }
     rail.render();
@@ -1436,6 +1437,39 @@ for (const reason of BINDING_REASON_CODES.flatMap(code => [code, `delegated reas
       assert.equal(root.querySelector('.voice-state').getAttribute('aria-label'), plain);
       assert.equal(root.querySelector('.voice-state .consent-wide').textContent, plain);
       assert.equal(rail.errorReason, reason, 'the raw lane stays available for diagnostics');
+    }
+  });
+}
+
+for (const copy of [de, en]) {
+  test(`AIT-429: ${copy.display.locale} admission-denied sentence keeps the phone label within 22 characters`, async t => {
+    const reason = 'agent-api-unavailable';
+    const { rail, root } = fixture(t, { start: async () => { throw { code: 'not-admitted', reason }; } });
+    rail.copy = copy;
+    await rail.start();
+    assert.equal(rail.errorKey, 'voiceAdmissionDenied');
+    assert.equal(rail.errorReason, reason, 'retain the admission reason for diagnostics');
+    // The admission can fail before the next feature read supplies its reason.
+    assert.equal(rail.feature().rawReason, undefined);
+    const status = root.querySelector('.voice-state');
+    assert.equal(status.querySelector('.consent-wide').textContent, copy.reasons[reason]);
+    assert.equal(status.getAttribute('aria-label'), copy.reasons[reason]);
+    const compact = status.querySelector('.consent-narrow').dataset.copy;
+    assert.ok([...compact].length <= 22, `phone label exceeds 22 characters: ${compact}`);
+    assert.equal(compact, copy.voiceReasonsNarrow.unavailable);
+    assert.doesNotMatch(compact, /provider|anbieter/iu);
+  });
+
+  test(`AIT-429: ${copy.display.locale} unavailable feature reason preserves other sentences' compact labels`, t => {
+    const { rail, root } = fixture(t);
+    rail.copy = copy;
+    rail.feature = () => ({ available: false, rawReason: 'agent-api-unavailable', reason: copy.reasons['agent-api-unavailable'] });
+    for (const key of ['voiceConflict', 'voiceDeadline', 'voiceConnectionFailed', 'voiceEnded']) {
+      rail.errorKey = key; rail.render();
+      const status = root.querySelector('.voice-state');
+      assert.equal(status.querySelector('.consent-wide').textContent, copy[key]);
+      assert.equal(status.getAttribute('aria-label'), copy[key]);
+      assert.equal(status.querySelector('.consent-narrow').dataset.copy, copy.voiceMessagesNarrow[key], key);
     }
   });
 }

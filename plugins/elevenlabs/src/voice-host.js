@@ -99,7 +99,7 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
         endpoint, accountRef, secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),
         maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds, minRunwaySeconds,
         upstreamMicroPerMinute, visitorMicroPerMinute: upstreamMicroPerMinute,
-        ...(usdPerCredit === undefined ? {} : { usdPerCredit }), publicFacadeBaseUrl: publicOrigin });
+        ...(usdPerCredit === undefined ? {} : { usdPerCredit }), publicFacadeBaseUrl: publicOrigin }, now());
       let prepared = { binding };
       for (const listener of listeners) prepared = { ...prepared, ...listener({ ...host, ...prepared }) };
       if (stop.signal.aborted) return;

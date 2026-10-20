@@ -112,14 +112,15 @@ function speechText(text) {
 // That HTTP example does not promise a WebSocket upgrade header; absence is explicit.
 async function identifiedInvocation(options, spec) {
   if (typeof options?.report !== 'function') throw new PluginError('not-admitted');
+  const now = options.now ?? Date.now;
   let identity = null, matchingKey;
   const invocation = await componentInvocation({ ...options, report: terminal => options.report({ ...terminal, identity,
     ...(identity === null ? { identityReason: spec.role === 'tts' ? 'no-request-id' : 'stt-provider-identity-not-observed' } : {}),
-    ...(matchingKey ? { matchingKey: { ...matchingKey, endedAt: new Date().toISOString() } } : {}) }) }, spec);
+    ...(matchingKey ? { matchingKey: { ...matchingKey, endedAt: new Date(now()).toISOString() } } : {}) }) }, spec);
   return { ...invocation,
     dispatch() {
       invocation.dispatch();
-      if (spec.matchingKey) matchingKey = { ...spec.matchingKey, startedAt: new Date().toISOString() };
+      if (spec.matchingKey) matchingKey = { ...spec.matchingKey, startedAt: new Date(now()).toISOString() };
     },
     identify(field, value) {
     if (typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value)) identity = { ...identity, [field]: value };
