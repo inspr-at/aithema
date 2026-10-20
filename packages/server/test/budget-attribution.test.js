@@ -219,7 +219,8 @@ test('AIT-401: voice runtime forwards extension context to the host wallet and u
   const runtime = createPluginRuntime({ storage, now: () => clock, consent,
     registry: new PluginRegistry().register(createMockReasoning()).register(plugin),
     presets: { best: { plugins: ['mock', binding.plugin], bindings: { ...mockPresets().best.bindings, voice: binding }, policy: { endpoints: [endpoint] } } } });
-  const calls = [], host = { now: () => clock, walletForSession: () => ({ admit: () => ({ ok: true }), release() {},
+  const calls = [], host = { now: () => clock, walletForSession: () => ({ balance: () => ({ limitMicro: 10_000_000, committedMicro: 0 }),
+    admit: () => ({ ok: true }), release() {},
     canAdmit(extra, context) { calls.push({ extra, context }); return true; } }) };
   const handlers = createHandlers({ storage, pluginRuntime: runtime, host, log: () => {} });
   t.after(async () => { await handlers.close(); storage.close(); });
