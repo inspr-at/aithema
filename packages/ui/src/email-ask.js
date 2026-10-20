@@ -63,7 +63,9 @@ export class EmailAsk {
   }
   get eligible() { return this.credits?.exhausted !== true && !this.root.querySelector('.audio-rail')?.hasAttribute('data-used-up') && this.email.canCollect && !this.email.address && this.credits?.tiers?.next === 'emailGiven' && this.credits.tiers.delta > 0; }
   get reservedLowLine() {
-    if (this.lowCredits && this.credits?.emailAskLowCredits !== false || !lowCredit(this.credits)) return null;
+    if (this.lowCredits && this.credits?.emailAskLowCredits !== false) return null;
+    if (this.state.lowLine) return { ...this.state.lowLine, reserved: true };
+    if (!lowCredit(this.credits)) return null;
     const turns = activeTurns(this.session()), last = turns.at(-1);
     if (last?.role !== 'assistant') return null;
     return { ...(this.state.lowLine ?? { at: last.id, kind: this.credits?.tiers?.next === 'emailConfirmed' ? 'confirm' : this.eligible ? 'give' : 'none',

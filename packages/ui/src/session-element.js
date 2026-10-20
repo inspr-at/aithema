@@ -1474,7 +1474,9 @@ export class AithemaSession extends HTMLElement {
         if (lowLine) {
           if (!row) { row = node('li', lowLine.reserved ? 'email-low-reserve' : 'email-low-line'); row.dataset.id = key; }
           this.#host.emailAsk.paintLine(row, lowLine);
-          if (lowLine.reserved) { row.inert = true; row.setAttribute('aria-hidden', 'true'); }
+          row.className = lowLine.reserved ? 'email-low-reserve' : 'email-low-line';
+          row.inert = Boolean(lowLine.reserved);
+          if (lowLine.reserved) row.setAttribute('aria-hidden', 'true'); else row.removeAttribute('aria-hidden');
           if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
           continue;
         }

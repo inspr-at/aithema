@@ -78,12 +78,11 @@ export async function creditHostOptionsCheck(t) {
       await document.fonts.ready;
     }, { state, locale, theme });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent !== '…');
-    await shadow(page, async c => {
-      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    });
     if (state.startsWith('delete-')) await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+    // Settle once after all mutations, then read every box in the same frame.
     return shadow(page, async c => {
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const r = c.shadowRoot, rect = selector => { const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
       const visible = selector => { const n = r.querySelector(selector); return !!n && !n.hidden && !n.inert && getComputedStyle(n).visibility === 'visible'; };
