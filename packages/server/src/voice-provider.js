@@ -117,6 +117,7 @@ export function createLocalVoiceProvider({ storage, now: configuredNow = () => s
       return { audio: { format: 'pcm_16000', data: Buffer.alloc(32_000).toString('base64') }, usage };
     },
     async startSegment(request, options) {
+      const now = options.now ?? configuredNow;
       const segment = await start(request, options);
       return { ...segment, grant: fakeMediaGrant({ callId: segment.callId, providerSessionId: segment.providerSessionId,
         spendDeadlineAt: segment.spendDeadlineAt, browserLivenessDeadlineAt: segment.browserLivenessDeadlineAt,
@@ -124,6 +125,7 @@ export function createLocalVoiceProvider({ storage, now: configuredNow = () => s
     },
     stopSegment: (segment, options) => segment.close(options?.reason ?? 'closed', options?.outcome ?? 'completed'),
     async reconciliationEvidence(request, options) {
+      const now = options?.now ?? configuredNow;
       return voiceOperation(options, async () => ({ details: { simulated: true }, terminal: terminal(request.call, now(), request.outcome) }));
     },
   });

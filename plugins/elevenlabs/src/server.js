@@ -423,7 +423,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         facadeCallId: request.facadeCallId ?? request.callId,
         ...(request.epoch === undefined ? {} : { epoch: request.epoch }),
         ...(segment.overrides ? { overrides: segment.overrides } : {}) };
-      try { return { ...segment, grant: elevenLabsMediaGrant(receipt) }; }
+      try { return { ...segment, grant: elevenLabsMediaGrant(receipt, (options.now ?? configuredNow)()) }; }
       catch (error) { await segment.close('start-failed', 'cancelled'); throw error; }
     },
     stopSegment: (segment, options) => segment.close(options?.reason ?? 'closed', options?.outcome ?? 'completed'),

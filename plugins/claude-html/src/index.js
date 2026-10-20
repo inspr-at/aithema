@@ -87,7 +87,7 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const scope = operationScope(options);
     let invocation, completed = false, reporting, reservation = null, dispatched = false, cost = null, ceiling = null;
     let receipts = Promise.resolve();
-    const clock = options.now ?? now;
+    const clock = options.now ?? Date.now;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (clock() >= options.deadlineAt) throw new PluginError('deadline'); };
     // Report synchronously on abort before the lane can fall back to its larger
     // binding hold. Both ledgers retain the dispatched request's computed ceiling.
@@ -190,7 +190,7 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       if (payload?.choices?.length !== 1 || choice?.finish_reason !== 'stop' || typeof choice?.message?.content !== 'string') throw new PluginError('invalid-output');
       const html = repairHTML(choice.message.content);
       checkLifetime();
-      const result = htmlArtifact(html, { prompt: messages.map(m => m.content).join('\n\n'), model: binding.model, operation, now: clock() });
+      const result = htmlArtifact(html, { prompt: messages.map(m => m.content).join('\n\n'), model: binding.model, operation, now: (options.now ?? now)() });
       checkLifetime();
       completed = true; return result;
     } catch (error) { throw normalizedError(error, scope.signal); }
