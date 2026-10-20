@@ -132,7 +132,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   let browser; t.after(async () => { await browser?.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
   if (evidence) await mkdir(evidence, { recursive: true });
-  const passes = [];
+  const passes = [], footerChecks = [];
   for (const locale of ['de', 'en']) {
     browser = await browserForFile();
     const page = await browser.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
@@ -244,7 +244,10 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       await page.evaluate(() => { window.ait164.after = Date.now() + 86_400_000; window.ait164.spent = 12_000_000 - 980_000; }); await reply();
       stable(footerBefore, await boxes(page, ['.host-credits', '.engine-info']), `${label}/footer-fewer-digits`);
       const footer = await shadow(page, c => { const r = c.shadowRoot, left = r.querySelector('.ai-notice').getBoundingClientRect(), credit = r.querySelector('.host-credits').getBoundingClientRect(); return { gap: credit.left - left.right, numeric: getComputedStyle(r.querySelector('.host-credits__amount')).fontVariantNumeric }; });
-      if (evidence && footer.gap < 23.5) {
+      // Tick AIT-406 (2026-10-20), AIT-260 ee4fe983: band-styles.js
+      // .display-foot__row is 24px at :137, overridden to 8px below 600px at :340.
+      const phoneFooter = width < 600;
+      if (evidence) {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
         const file = `ait406-footer-gap-${label}.png`;
@@ -255,7 +258,12 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
             return { selector, box: node.getBoundingClientRect().toJSON(), gap: style.gap, fontFamily: style.fontFamily };
           })) }, null, 2));
       }
-      assert.ok(footer.gap >= 23.5, `${label}: footer gap ${footer.gap}`); assert.equal(footer.numeric, 'tabular-nums'); await shot('footer-fewer-digits');
+      assert.ok(phoneFooter ? Math.abs(footer.gap - 8) <= .5 : footer.gap >= 23.5, `${label}: footer gap ${footer.gap}`);
+      assert.equal(footer.numeric, 'tabular-nums');
+      footerChecks.push({ locale, width, ...footer, phoneFooter, pass: true, decision: 'Tick AIT-406, 2026-10-20; AIT-260 ee4fe983' });
+      if (evidence) await writeFile(join(evidence, 'ait406-footer-checks.json'), JSON.stringify(footerChecks, null, 2));
+      if (evidence && locale === 'de' && width === 390) await page.screenshot({ path: join(evidence, 'ait406-footer-after.png'), fullPage: false });
+      await shot('footer-fewer-digits');
       await begin({ motion: 'on' }); baseline = await boxes(page, targets);
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#message'); input.value = 'draft'; input.focus(); input.dispatchEvent(new Event('input')); });
       await reply(); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed', 'typing defers the ask');
