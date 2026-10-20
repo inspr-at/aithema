@@ -79,6 +79,19 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
         // Background tabs suspend requestAnimationFrame. Activate the captured
         // tab before settling; the owner's normal visibility hold still applies.
         await target.bringToFront();
+        if (name === 'takeback-here') {
+          // Listening precedes onPause's asynchronous feature refresh. Its
+          // paused text verdict can still change the hint's text, bounds and
+          // visibility; settle that projection before sampling any pixels.
+          await until(target, () => {
+            const c = document.querySelector('aithema-session'), root = c.shadowRoot;
+            return !c.session.paused && c.session.featureMatrix.best.text.available
+              && !root.querySelector('.audio-rail').hasAttribute('data-moved')
+              && root.querySelector('.composer-reason').hasAttribute('data-shortcut');
+          });
+        }
+        await target.mouse.move(-1, -1);
+        await shadow(target, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         const scrollBefore = await target.evaluate(() => scrollY);
         await finishWorkspaceEntry(target);
         // Phones retain their scrollable conversation. Include the composer below the sticky band.
@@ -234,7 +247,7 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
       // then tested its obsolete crop after the shortcut became CSS-hidden.
       const delayedText = width === 1024 && theme === 'dark' && locale === 'en';
       if (delayedText) {
-        await page.evaluate(({ epoch, tabId }) => {
+        await page.evaluate(({ callId, epoch, tabId }) => {
           const original = window.fetch.bind(window), path = `/api/sessions/${document.querySelector('aithema-session').session.id}`;
           let release;
           const gate = new Promise(resolve => { release = resolve; });
@@ -243,13 +256,13 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
             const response = await original(url, init);
             if ((init.method ?? 'GET') === 'GET' && new URL(url, location.href).pathname === path && response.ok) {
               const snapshot = await response.clone().json(), voice = snapshot.voiceLifecycle;
-              if (voice?.epoch === epoch && voice.controllingTabId === tabId && snapshot.paused === false && snapshot.featureMatrix.best.text.available) {
+              if (voice?.callId === callId && voice.epoch === epoch && voice.controllingTabId === tabId && snapshot.paused === false && snapshot.featureMatrix.best.text.available) {
                 globalThis.continuityTextSnapshot.held++; await gate;
               }
             }
             return response;
           };
-        }, { epoch: next.epoch + 1, tabId: call.tabId });
+        }, { callId: call.callId, epoch: next.epoch + 1, tabId: call.tabId });
         st.after(async () => { if (!page.isClosed()) await page.evaluate(() => globalThis.continuityTextSnapshot.release()); });
       }
       let epoch = await takeback(page, other, next.epoch);
