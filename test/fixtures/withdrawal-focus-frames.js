@@ -86,6 +86,11 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
+      console.log('AIT411_MAIN_INITIAL ' + JSON.stringify(await page.evaluate(({width, locale}) => {
+        const shell = c.shadowRoot.querySelector('.transcript-shell');
+        return { base: '60af959f89b534e602cae7b6563943e4f4e6c367', width, locale,
+          scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight };
+      }, {width, locale})));
       // This case reads the first row; the phone may initially follow the
       // last reply once the four fixture turns overflow the bounded pane.
       await page.evaluate(async () => {
