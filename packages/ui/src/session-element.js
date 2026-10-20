@@ -1459,7 +1459,7 @@ export class AithemaSession extends HTMLElement {
         ['host-confirm', u.hostConfirm.replace('{delta}', tierDelta('emailGiven', 'emailConfirmed'))],
         ['host-confirm-anonymous', u.hostConfirm.replace('{delta}', tierDelta('anonymous', 'emailConfirmed'))],
         ...Object.entries(credits.ended).filter(([, value]) => value && typeof value === 'object')
-          .map(([key, value]) => [key, value.body]), ['daily-cap', credits.dailyCap],
+          .map(([key, value]) => [key, key === 'session' ? credits.ended.sessionDefaultBody ?? value.body : value.body]), ['daily-cap', credits.dailyCap],
       ].map(([key, text]) => [key, { text, option: false }]);
       // Default hosts keep main's exact peers. Opted-in panels add only real
       // hint/confirmation variants, each painted in its corresponding state.

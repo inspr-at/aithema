@@ -488,9 +488,10 @@ export const en = {
       ended: {
         newConversationAction: 'Start a new conversation',
         newConversationHint: 'A new conversation has its own credits again.',
+        sessionDefaultBody: 'Your transcript stays saved.',
         sessionUpgrade: 'With a confirmed email address, this continues with {next} credits.',
         'one-hour': { title: 'The conversation time has run out.', body: 'A conversation here lasts at most one hour. Your transcript stays saved.', footer: false },
-        'session': { title: "This conversation's credits are used up.", body: 'Your transcript stays saved.', footer: true },
+        'session': { title: "This conversation's credits are used up.", body: 'A new conversation has its own credits again.', footer: true },
         'voiceVisitor': { title: 'The voice credits are used up.', body: 'Speaking is no longer possible in this conversation.', footer: true },
         'host-limit': { title: 'Conversations are not available here right now.', body: 'The budget for this service is used up. Your conversation stays saved.', footer: false },
       },
