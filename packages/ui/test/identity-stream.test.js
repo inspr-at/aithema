@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { inputRevision } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { EmailAsk } from '../src/email-ask.js';
 import { window, tick, identity, setup, userTurn } from './host-surface-helpers.js';
 
 for (const copy of [en, de]) test(`AIT-418: address change stays editable, blocks submit, then re-enables (${copy.display.locale})`, async t => {
@@ -47,4 +48,21 @@ test('AIT-418: an accepted turn with no running reply does not block address cha
   await tick(8); userTurn(c);
   c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
   assert.equal(root.querySelector('.verify-send').getAttribute('aria-disabled'), 'false');
+});
+
+for (const state of ['waiting', 'failed']) test(`AIT-418: email-ask still treats an unanswered ${state} turn as streaming`, async t => {
+  let ask;
+  const update = EmailAsk.prototype.update;
+  t.mock.method(EmailAsk.prototype, 'update', function (...args) { ask = this; return update.apply(this, args); });
+  const { c, root } = setup(t, { host: { verification: true, credits: true } });
+  await tick(8); assert.ok(ask);
+  assert.equal(Boolean(ask.streaming()), false);
+  userTurn(c);
+  const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', retryable: true };
+  if (state === 'failed') c.receive({ type: 'lane.failed', data: failure });
+  c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: state === 'failed' ? [failure] : [], lastFailure: state === 'failed' ? failure : null } });
+  assert.equal(root.querySelector('.verify-send').getAttribute('aria-disabled'), 'false', 'O9 permits address changes once reply work stops');
+  assert.equal(ask.streaming(), true, 'email-ask waits for a completed reply, including before dispatch and after failure');
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
+  assert.equal(Boolean(ask.streaming()), false);
 });
