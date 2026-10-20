@@ -37,6 +37,9 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         tileAbsent:!visible(tile),hitTile:!!hit?.closest('.concept-preview'),hit:hit?.className,
         hitTranscriptOrComposer:!!hit?.closest('.conversation,.transcript-shell,.composer-dock'),
         outline:getComputedStyle(notice).outlineStyle,layout:r.querySelector('.workspace').dataset.conceptLayout,boxes:boxes()};};
+    window.scrollWrites=[];
+    const scrollDescriptor=Object.getOwnPropertyDescriptor(Element.prototype,'scrollTop');
+    Object.defineProperty(Element.prototype,'scrollTop',{...scrollDescriptor,set(value){if(this.classList.contains('transcript-shell'))window.scrollWrites.push({value,stack:new Error().stack});scrollDescriptor.set.call(this,value);}});
     window.ready=true;</script></body></html>`;
   const server = createServer(async (req, res) => {
     try {
@@ -86,11 +89,13 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
-      console.log('AIT411_MAIN_INITIAL ' + JSON.stringify(await page.evaluate(({width, locale}) => {
+      const mounted = await page.evaluate(({width, locale}) => {
         const shell = c.shadowRoot.querySelector('.transcript-shell'), b = c.shadowRoot.querySelector('.composer').getBoundingClientRect();
         return { base: '60af959f89b534e602cae7b6563943e4f4e6c367', width, locale,
-          scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight, composer: [b.x,b.y,b.width,b.height] };
-      }, {width, locale})));
+          scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight, composer: [b.x,b.y,b.width,b.height], html: c.shadowRoot.querySelector('.composer-shell').outerHTML, writes: window.scrollWrites };
+      }, {width, locale});
+      if(evidence)await writeFile(join(evidence,`initial-${width}-${locale}.json`),JSON.stringify(mounted));
+      console.log('AIT411_MAIN_INITIAL ' + JSON.stringify(mounted));
       // This case reads the first row; the phone may initially follow the
       // last reply once the four fixture turns overflow the bounded pane.
       await page.evaluate(async () => {
