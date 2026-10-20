@@ -1867,6 +1867,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, workspace = root.querySelector('.workspace'), intro = root.querySelector('.intro'), active = root.activeElement;
     const focus = active && intro.contains(active) ? active.dataset.focusKey : null;
     const stage = this.#stage(), mode = { entrance: 'chooser', ready: 'ready' }[stage] ?? '';
+    const stageChanged = workspace.dataset.stage !== stage;
     workspace.dataset.stage = stage;
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
     // A host verification lock holds its email form there, so the pane is present while it is locked.
@@ -1881,6 +1882,7 @@ export class AithemaSession extends HTMLElement {
     guardConceptControls(root);
     this.#placeOrb(stage);
     intro.dataset.mode = mode; intro.hidden = !mode;
+    if (stageChanged) this.#syncBandScroll();
     const card = intro.querySelector('.intro__card');
     if (!mode) { card.replaceChildren(); return; }
     // The card is built once per mode and its controls are keyed and updated in place, so a

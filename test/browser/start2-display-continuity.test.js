@@ -507,7 +507,8 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
             c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
             await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           });
-          const file = `ait404-${frameWidth}-light-${locale}-${state}.png`;
+          const file = `ait404-${touch ? 'touch' : 'desktop'}-${frameWidth}-light-${locale}-${state}.png`;
+          assert.ok(!files.includes(file), `AIT-432: each capture has a distinct filename: ${file}`);
           if (state === 'mid-delay') assert.equal(await page.evaluate(() => globalThis.ait404.pending), true, 'mid-delay shot has the GET pending');
           if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
           if (state === 'mid-delay') {
@@ -516,6 +517,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
             await page.evaluate(() => { globalThis.ait404.midDelayCapturedPending = true; });
           }
           files.push(file);
+          return file;
         };
         if (outcome === 'success' && touch && width === 390) await capture('mid-delay');
         await until(page, () => globalThis.ait404.done);
@@ -562,7 +564,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
               await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block:'center' }));
               await finishWorkspaceEntry(page);
             }
-            if (touch || width === 1440) await capture('settled', frameWidth);
+            const file = touch || width === 1440 ? await capture('settled', frameWidth) : null;
             const clearance = await shadow(page, (c, scrollProof) => {
               const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
               return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
@@ -571,7 +573,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
                 scrollTop: shell.scrollTop, pageScroll: scrollY, headerTop:r.querySelector('.band').getBoundingClientRect().top,
                 headerPosition:getComputedStyle(r.querySelector('.band')).position, ...scrollProof };
             }, { pagePlacement, takebackPageScrollMovementPx:Math.max(...result.allSamples.map(s => Math.abs(s.pageScroll - result.allSamples[0].pageScroll))) });
-            (check.transcriptClearances ??= []).push({ width:frameWidth, ...clearance });
+            (check.transcriptClearances ??= []).push({ width:frameWidth, file, ...clearance });
             if (evidence) {
               await mkdir(join(evidence, 'ait412'), { recursive:true });
               await writeFile(join(evidence, 'ait412', 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true,
