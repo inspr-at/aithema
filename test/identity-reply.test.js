@@ -12,7 +12,7 @@ for (const purposePolicy of [undefined, start2PurposePolicy]) test(`AIT-418: adm
   await wire.frame({ choices: [{ delta: { content: purposePolicy ? '{"content":"Welche Arbeit?' : 'Welche Arbeit? ' } }] });
   h.storage.append(h.id, 'identity.state', { status: 'verification-pending', address: 'after@example.test', identified: false });
   assert.notEqual(inputRevision(h.storage.get(h.id)), revision, 'identity-dependent assessment remains invalidated');
-  await wire.frame({ choices: [{ delta: { content: purposePolicy ? '","scope":"in","question_short":null,"options":[]}' : 'Wie geht es weiter?' }, finish_reason: 'stop' }], usage: { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 } });
+  await wire.frame({ choices: [{ delta: { content: purposePolicy ? '","scope":"in","question_short":null,"options":[]}' : 'Wie geht es weiter?' }, finish_reason: 'stop' }], usage: { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 } }).catch(() => {});
   await wire.end().catch(() => {});
   assert.equal(await pending, 'completed');
   const session = h.storage.get(h.id), replies = session.transcript.filter(turn => turn.role === 'assistant');
