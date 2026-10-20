@@ -40,6 +40,57 @@ function fixture(t, { pause, unavailable = false, journal, ready, start } = {}) 
   t.after(async () => { playback?.destroy(); await rail.close(); rail.destroy(); root.remove(); });
   return { root, rail, commands, events, context };
 }
+test('AIT-404: resumed listening publishes pause projection before media setup and rolls it back on setup error', async t => {
+  const { rail } = fixture(t), setup = Promise.withResolvers(), projections = [];
+  rail.waitingCall = { callId: 'local-call', providerSessionId: 'local-provider' };
+  rail.paused = true; rail.state = 'waiting';
+  rail.onPause = (paused, detail) => projections.push({ paused, resuming: detail?.resuming, state: rail.state });
+  const start = rail.client.start;
+  rail.client.start = async (...args) => {
+    const session = await start(...args);
+    session.setInput = () => {
+      assert.equal(rail.state, 'listening');
+      assert.deepEqual(projections, [{ paused: false, resuming: true, state: 'listening' }],
+        'composer projection is published synchronously before the first media await');
+      return setup.promise;
+    };
+    return session;
+  };
+  const opening = rail.start(); await tick();
+  assert.equal(projections.length, 1);
+  setup.reject(new Error('fixture media setup failure')); await opening;
+  assert.equal(projections.at(-1).paused, true, 'a failed resumed startup restores the paused projection');
+  assert.equal(rail.state, 'failed');
+});
+test('AIT-404: refused startup retains its admission error without publishing a local unpause', async t => {
+  const { rail } = fixture(t, { start: async () => { throw Object.assign(new Error('fixture admission refusal'), { code: 'not-admitted', reason: 'host-limit' }); } });
+  rail.waitingCall = { callId: 'local-call', providerSessionId: 'local-provider' };
+  rail.paused = true; rail.state = 'waiting';
+  const projections = []; rail.onPause = paused => projections.push(paused);
+  await rail.start();
+  assert.deepEqual(projections, [], 'a refused startup has no published unpause to roll back or refresh');
+  assert.equal(rail.allowanceDenied, true, 'the authoritative admission refusal remains visible');
+});
+for (const available of [true, false]) test(`AIT-404: local resumed composer preserves unpaused text availability ${available}`, async t => {
+  const session = createSession({ demo: true }), events = voiceEvents(), observed = [];
+  session.paused = true;
+  session.voiceLifecycle = { callId: 'local-resume', providerSessionId: 'provider', epoch: 2, controllingTabId: 'here', state: 'waiting' };
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: false, reason: 'session paused',
+    unpaused: available ? { available: true } : { available: false, reason: 'budget denied' } } } };
+  const element = document.createElement('aithema-session');
+  const client = { manifest, tabId: 'here', async start() {
+    return { ...session.voiceLifecycle, events, async setInput() {
+      const reason = element.shadowRoot.querySelector('.composer-reason');
+      observed.push({ shortcut: reason.hasAttribute('data-shortcut'), disabled: element.shadowRoot.querySelector('textarea').disabled });
+    }, async setOutput() {}, async updateContext() {}, async close() { events.end(); return { closureConfirmed: true }; } };
+  } };
+  element.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { element.configure({ copy: en, session: createSession() }); element.remove(); await tick(); });
+  assert.equal(element.shadowRoot.querySelector('.composer-reason').hasAttribute('data-shortcut'), false);
+  element.shadowRoot.querySelector('.pause').click(); await tick();
+  assert.deepEqual(observed, [{ shortcut: available, disabled: !available }],
+    'the first media setup observes the local composer verdict, including an existing denial');
+});
 test('AIT-138 d: newcomer must Take over, then separately Resume; takeover acquires no media', async t => {
   const { rail, root } = fixture(t); let takeovers = 0, starts = 0;
   rail.client.tabId = 'new-tab';

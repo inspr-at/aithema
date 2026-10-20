@@ -256,6 +256,7 @@ they are not test coverage switches.
 | `test/browser/session-credits-check.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_RUN_ID` ×1 | AIT-395 evidence binds the PR head and CI run from GitHub provenance |
 | `test/browser/start-journey.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/start-look.test.js` | `CI` ×1, `GITHUB_EVENT_PATH` ×2 | Linux headless Chrome sandbox selection; evidence binds PR branch head from the GitHub event payload |
+| `test/browser/start2-display-continuity.test.js` | `GITHUB_EVENT_PATH` ×2 | AIT-404 takeback evidence binds the PR branch head from the GitHub event payload |
 | `test/browser/start2-display-helpers.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/tick-followups.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload |
