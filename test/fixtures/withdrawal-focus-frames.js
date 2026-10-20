@@ -37,6 +37,9 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         tileAbsent:!visible(tile),hitTile:!!hit?.closest('.concept-preview'),hit:hit?.className,
         hitTranscriptOrComposer:!!hit?.closest('.conversation,.transcript-shell,.composer-dock'),
         outline:getComputedStyle(notice).outlineStyle,layout:r.querySelector('.workspace').dataset.conceptLayout,boxes:boxes()};};
+    window.scrollWrites=[];
+    const scrollDescriptor=Object.getOwnPropertyDescriptor(Element.prototype,'scrollTop');
+    Object.defineProperty(Element.prototype,'scrollTop',{...scrollDescriptor,set(value){if(this.classList.contains('transcript-shell'))window.scrollWrites.push({value,stack:new Error().stack});scrollDescriptor.set.call(this,value);}});
     window.ready=true;</script></body></html>`;
   const server = createServer(async (req, res) => {
     try {
@@ -89,8 +92,9 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       const mounted = await page.evaluate(() => {
         const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = r.querySelector('.composer').getBoundingClientRect();
         return { scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight,
-          composer: [b.x, b.y, b.width, b.height] };
+          composer: [b.x, b.y, b.width, b.height], html: r.querySelector('.composer-shell').outerHTML, writes: window.scrollWrites };
       });
+      if(evidence)await writeFile(join(evidence,`initial-${width}-${locale}.json`),JSON.stringify(mounted));
       console.log('AIT411_BRANCH_INITIAL ' + JSON.stringify({ width, locale, ...mounted }));
       assert.equal(mounted.scrollTop, 0, 'default composer matches merged main before fixture scroll setup');
       // Keep main's explicit first-row setup and every existing assertion; the
