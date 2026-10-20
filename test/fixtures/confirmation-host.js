@@ -9,6 +9,7 @@ export async function confirmationHost(t) {
     demo: true,
     identity: {
       deliversVerification: true,
+      configuration() { return { policy: { resendCooldownMs: 0 } }; },
       async requestVerification(effect) { deliveries.push(effect); return { status: 'sent' }; },
       async verify({ address, revision, token }) {
         return { verified: token === 'fixture-confirmation', address, revision };
