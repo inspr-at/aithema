@@ -31,7 +31,7 @@ test('AIT-403 component preflight default deadline uses its supplied clock', asy
     observed.push(options); return offered[0];
   };
   const format = { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 };
-  await preflightVoiceComposition({ ...components, capture: format, playback: format, languages: ['de'] }, { now });
+  await preflightVoiceComposition({ ...components, capture: format, playback: format, languages: ['de'], voice: 'fixture' }, { now });
   assert.equal(observed.length, 2);
   for (const options of observed) assert.equal(options.deadlineAt, now() + 1000);
 });
