@@ -135,6 +135,13 @@
     ],
     "reason": "Linux headless Chrome sandbox selection"
   },
+  "test/browser/start2-display-continuity.test.js": {
+    "reads": [
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH"
+    ],
+    "reason": "AIT-404 takeback evidence binds the PR branch head from the GitHub event payload"
+  },
   "test/browser/start-look.test.js": {
     "reads": [
       "CI",
