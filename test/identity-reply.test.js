@@ -25,3 +25,26 @@ for (const purposePolicy of [undefined, start2PurposePolicy]) test(`AIT-418: adm
   assert.equal(rows[0].settled_micro, 110); assert.equal(rows[0].visitor_credit_released, 0);
   assert.deepEqual(h.settlements, [rows[0].attempt_id]);
 });
+
+test('AIT-418: an undelivered paid reply releases visitor credits and retains the provider receipt', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness(); t.after(() => h.close());
+  const pending = h.run('reaction'), call = await h.next('reaction');
+  call.resolve('', { costUSD: 0.00011 });
+  await assert.rejects(pending, /Empty reasoning stream/u);
+  const row = h.storage.db.prepare('SELECT * FROM budget_attempts').get();
+  assert.equal(row.state, 'settled'); assert.equal(row.settled_micro, 110);
+  assert.equal(row.visitor_credit_released, 1);
+  assert.equal(h.runtime.budget.breakdown(h.id, { visitorCredits: true }).confirmedSpendMicro, 0);
+  assert.deepEqual(h.settlements, [row.attempt_id]);
+  assert.equal(h.storage.get(h.id).transcript.filter(turn => turn.role === 'assistant').length, 0);
+});
+
+test('AIT-418: identity changes still discard an in-flight assessment', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness(); t.after(() => h.close());
+  h.storage.append(h.id, 'identity.state', { status: 'verified', identified: true });
+  const pending = h.run('understanding'), call = await h.next('understanding');
+  h.storage.append(h.id, 'identity.state', { status: 'verification-pending', identified: false });
+  h.resolve(call);
+  assert.equal(await pending, 'stale');
+  assert.equal(h.storage.get(h.id).understanding.inputRevision, null);
+});

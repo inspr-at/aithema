@@ -742,7 +742,7 @@ export class AithemaSession extends HTMLElement {
       openSettings: (opener, options) => options?.processing ? this.openSettings(opener) : this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
-      streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
+      streaming: () => !this.#failure && (this.#sending || this.#partials.size > 0 || this.#clarifyBusy() || activeTurns(this.#session).at(-1)?.role === 'user'),
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
       onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); },
@@ -2604,6 +2604,7 @@ export class AithemaSession extends HTMLElement {
     }
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
+    this.#host?.update();
   }
   #watchConsentRefresh(granted, changed, removed) {
     // Missing or unknown scopes retain AIT-364 exactly. Only an explicitly

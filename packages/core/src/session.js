@@ -9,6 +9,9 @@ const ERASED_PRESET = 'best';
 const erasedTurn = turn => Object.fromEntries(Object.entries(turn).filter(([key]) =>
   !['content', 'question_short', 'options', 'origin', 'model', 'provider', 'engine'].includes(key)));
 export const inputRevision = session => `${session.inputRevision}:${session.conversationConsentRevision ?? session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
+// Identity still invalidates assessment input, but an admitted reply owns its turn.
+export const replyInputRevision = session => inputRevision({ ...session,
+  sessionRevision: (session.sessionRevision ?? 0) - (session.identityRevision ?? 0) });
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
 /** IDs belong to one assessment, including replacements at the same input revision. */
 export function openQuestionItems(session) {
@@ -114,7 +117,10 @@ export function applyEvent(session, event) {
     next.identity = event.data.erased ? { erased: true } : event.data;
     // Retained transition metadata keeps revisions stable after address erasure.
     const identified = event.data.identified ?? (next.identity?.status === 'verified');
-    if (identified !== next.identified) next.sessionRevision += 1;
+    if (identified !== next.identified) {
+      next.sessionRevision += 1;
+      next.identityRevision = (next.identityRevision ?? 0) + 1;
+    }
     next.identified = identified;
   } else if (event.type === 'handover.state') {
     next.handover = event.data;

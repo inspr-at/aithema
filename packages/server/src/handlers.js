@@ -6,7 +6,7 @@ import { createUploadHandlers } from './upload-handlers.js';
 import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, replyInputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError, ConsentConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -118,7 +118,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
   // A lane's work identity: its input revision plus the processing choice it runs with.
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
-  const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}|${lane === 'reaction' ? session.questionFocus?.requestId ?? '' : ''}`;
+  const laneKey = (session, lane) => `${lane === 'reaction' ? replyInputRevision(session) : inputRevision(session)}|${selection(session, lane)}|${lane === 'reaction' ? session.questionFocus?.requestId ?? '' : ''}`;
   // New turns may obsolete a paid assessment but must let it collect its receipt.
   // Consent, locale, correction, upload and identity revisions remain strict.
   const keepUnderstanding = (source, current) => {
@@ -366,7 +366,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
               const removedFocus = error?.code === 'not-admitted' && error.message === 'focused-question-removed';
               const busyReply = error?.code === 'not-admitted' && error.message === 'reply-in-flight';
-              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: !removedFocus,
+              const failure = { inputRevision: inputRevision(storage.get(id)), lane, error: 'reasoning-unavailable', retryable: !removedFocus,
                 ...(removedFocus ? { reason: 'focused-question-removed' } : {}),
                 ...(busyReply ? { reason: 'reply-in-flight' } : {}),
                 ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };

@@ -19,13 +19,13 @@ export class Verification {
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
   /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}; notice() is the AI notice line. */
-  constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale, creditsChanged }) {
+  constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale, creditsChanged, streaming = () => false }) {
     this.#root = root; this.#copy = copy; this.#request = request; this.#status = status; this.#onChange = onChange;
     this.#focusAfterUnlock = focusAfterUnlock; this.#pollMs = pollMs; this.#notice = notice;
     this.#beforeOpen = beforeOpen; this.#focusReturn = focusReturn;
     this.#entry = entry; this.#lock = lock; this.#dialog = dialog;
-    this.#creditsChanged = creditsChanged;
-    this.#email = new VisitorEmail({ root, entry, copy, request, demo, delivery, privacyDocumentConfigured, handover, locale,
+    this.#creditsChanged = creditsChanged; this.streaming = streaming;
+    this.#email = new VisitorEmail({ root, entry, copy, request, demo, delivery, privacyDocumentConfigured, handover, locale, streaming,
       openDialog: opener => this.openDialog(opener), changed: async ({ refresh }) => {
         if (refresh) { this.#identityGeneration++; this.#identity = structuredClone(this.#email.identity); await this.#creditsChanged?.(); }
         this.#paint(); this.#onChange?.({ saved: refresh });
@@ -84,7 +84,7 @@ export class Verification {
   /** A2 save acknowledgement precedes C1/C2. A failed link keeps the saved tier. */
   async saveAndConfirm(address, { delivery } = {}) {
     if (!this.#email.notice?.version) await this.load();
-    if (!this.#alive) return { ok: false };
+    if (!this.#alive || this.changeBlocked) return { ok: false };
     this.#identityGeneration++;
     const saved = await this.#email.persist(address);
     if (!this.#alive || !saved?.ok) return saved;
@@ -215,9 +215,11 @@ export class Verification {
     const mode = this.#mode();
     (mode === 'capture' ? entry.input : mode === 'pending' ? entry.resend : entry.root.closest('dialog')?.querySelector('.verify-dialog-close'))?.focus();
   }
+  update() { this.#paint(); this.#email.paint(); }
+  get changeBlocked() { return Boolean(this.#identity?.address && this.streaming()); }
   async #send(entry) {
     const v = this.#v, address = entry.input.value.trim();
-    if (this.#ui.busy || !this.canCollect) return;
+    if (this.#ui.busy || !this.canCollect || this.changeBlocked) return;
     if (!address || !entry.input.checkValidity?.() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(address)) {
       this.#ui = { ...this.#ui, message: v.invalid, error: true }; this.#paint(); entry.input.focus(); return;
     }
@@ -301,10 +303,11 @@ export class Verification {
       form.cancel.style.visibility = this.#ui.editing && mode === 'capture' ? '' : 'hidden';
       form.cancel.toggleAttribute('inert', !(this.#ui.editing && mode === 'capture'));
       // Busy and cooling down stay focusable (aria-disabled): a disabled button would drop focus.
-      form.send.setAttribute('aria-disabled', String(this.#ui.busy));
+      form.send.setAttribute('aria-disabled', String(this.#ui.busy || this.changeBlocked));
       setText(form.send, this.#email.tiers ? this.#copy.hostSurface.email.save : v.send);
       form.resend.setAttribute('aria-disabled', String(this.#ui.busy || cooldown > 0));
-      setText(form.message, text); form.message.dataset.error = String(Boolean(this.#ui.error && this.#ui.message));
+      setText(form.message, this.changeBlocked && mode === 'capture' ? v.streamWait : text);
+      form.message.classList.toggle('identity-stream-wait', this.changeBlocked && mode === 'capture'); form.message.dataset.error = String(Boolean(this.#ui.error && this.#ui.message));
       setText(form.note, note);
     }
   }
