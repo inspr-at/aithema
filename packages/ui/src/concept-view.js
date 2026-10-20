@@ -774,11 +774,12 @@ export class ConceptView {
     request.hidden = !line.action;
     request.disabled = this.#busy || pending || !feature.available || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
     const readable = this.items.some(item => item.id === this.#selected);
+    const current = this.current(), dismissible = readable || current?.mediaType === HTML_MEDIA_TYPE && this.unavailable('html', current);
     this.root.querySelector('.concept-download').disabled = !readable;
     const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = [this.copy.conceptRegenerate, costCopy].filter(Boolean).join(reasonSeparator);
     regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !readable; regenerate.title = request.title;
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button')) {
-      node.disabled = this.#busy || !feature.available || !readable; node.title = !feature.available ? feature.reason : '';
+      node.disabled = this.#busy || !feature.available || !(node.matches('.concept-reject') ? dismissible : readable); node.title = !feature.available ? feature.reason : '';
     }
     // A live update (e.g. SSE "pending" after the POST settled) can disable the focused
     // control; browsers then drop focus out of the modal and its arrow-key navigation.
@@ -864,7 +865,8 @@ export class ConceptView {
     finally { if (active()) { this.#busy = false; this.gates(); this.refocus(focused); } }
   }
   async feedback(vote, chips, reject = false) {
-    const current = this.current(); if (this.#busy || !current || !this.items.some(item => item.id === current.id) || !this.feature().available || chips.length > 8) return;
+    const current = this.current(); if (this.#busy || !current || !this.feature().available || chips.length > 8 ||
+      !this.items.some(item => item.id === current.id) && !(reject && current.mediaType === HTML_MEDIA_TYPE && this.unavailable('html', current))) return;
     const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id, lifetime = this.#lifetime;
     const active = () => lifetime === this.#lifetime && sessionId === this.#session.id;
     try {
