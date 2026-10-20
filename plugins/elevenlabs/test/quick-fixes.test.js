@@ -368,6 +368,71 @@ test('AIT-136 repeated persistence failure closes after bounded retries; 403 clo
   }
 });
 
+for (const transport of ['webrtc', 'websocket']) for (const timing of ['before-final', 'after-final']) {
+  test(`AIT-384: ${transport} 409 marker ${timing} keeps the interruption and next turn working`, async t => {
+    const entered = deferred(), refused = deferred(), markers = [], persisted = [], logs = [];
+    const local = await setup(t, { transport, persistenceTimeoutMs: 1000,
+      persistEvent: async event => { persisted.push(event); }, log: line => logs.push(line) });
+    t.after(() => refused.resolve());
+    local.control.reportActivity = async event => {
+      if (event.type !== 'interrupted') return;
+      markers.push(event); entered.resolve(); await refused.promise;
+      throw Object.assign(new Error('private refusal content'), { status: 409, body: 'private response body' });
+    };
+    const callbacks = local.sdk.starts[0], text = 'Known prefix and unheard remainder';
+    if (timing === 'before-final') local.sdk.interrupt(2);
+    callbacks.onMessage({ role: 'agent', message: text, event_id: 2 });
+    await until(() => local.observed.some(event => event.type === 'final'));
+    if (timing === 'after-final') local.sdk.interrupt(2);
+    assert.deepEqual(local.sdk.effects.filter(([name]) => name === 'setVolume').at(-1), ['setVolume', 0]);
+    await entered.promise;
+    callbacks.onAgentResponseCorrection({ event_id: 2, original_agent_response: text, corrected_agent_response: 'Known prefix' });
+    message(local.sdk, 3);
+    callbacks.onMessage({ role: 'agent', message: 'Next reply', event_id: 4 });
+    refused.resolve();
+    await until(() => local.observed.some(event => event.type === 'ended' || event.turnId === 'conv_1:assistant:4'));
+    assert.equal(local.session.lifecycle.state.state, 'active', 'a refused optional marker must not end the call');
+    assert.equal(local.sdk.closed, false); assert.deepEqual(local.closed, []);
+    assert.equal(local.sdk.starts.length, 1, 'the next turn uses the same provider connection');
+    assert.equal(markers.length, 1, 'the refused marker is dropped without retry');
+    assert.deepEqual(logs, [{ event: 'voice.interruption-marker-refused', status: 409 }], 'log only the event and status, never content or identity');
+    assert.deepEqual(persisted.map(event => [event.type, event.turnId]), [
+      ['final', 'conv_1:assistant:2'], ['heard', 'conv_1:assistant:2'],
+      ['final', 'conv_1:user:3'], ['final', 'conv_1:assistant:4'],
+    ]);
+    assert.equal(local.observed.find(event => event.type === 'heard')?.prefix, 'Known prefix', 'the cut-off correction is still delivered unchanged');
+    assert.equal(local.observed.some(event => event.type === 'interrupted'), false, 'the dropped marker creates no public transcript event');
+    assert.deepEqual(local.sdk.effects.filter(([name]) => name === 'setVolume').at(-1), ['setVolume', 1], 'only the fresh reply restores playback');
+    await local.session.sendText('The next turn still accepts input');
+    assert.ok(local.sdk.effects.some(([name, value]) => name === 'sendUserMessage' && value === 'The next turn still accepts input'));
+  });
+}
+
+for (const refused of ['user-final', 'assistant-final', 'correction']) {
+  test(`AIT-384: a 409 on ${refused} still ends the call`, async t => {
+    const attempts = [], logs = [], local = await setup(t, { log: line => logs.push(line), persistEvent: async event => {
+      const target = refused === 'correction' ? event.type === 'heard'
+        : event.type === 'final' && event.role === (refused === 'user-final' ? 'user' : 'assistant');
+      if (target) { attempts.push(event); throw Object.assign(new Error('refused'), { status: 409 }); }
+    } });
+    if (refused === 'user-final') message(local.sdk, 1);
+    else {
+      local.sdk.starts[0].onMessage({ role: 'agent', message: 'Known prefix and remainder', event_id: 2 });
+      if (refused === 'correction') {
+        await until(() => local.observed.some(event => event.type === 'final'));
+        local.sdk.starts[0].onAgentResponseCorrection({ event_id: 2,
+          original_agent_response: 'Known prefix and remainder', corrected_agent_response: 'Known prefix' });
+      }
+    }
+    await local.reader;
+    assert.equal(attempts.length, 1, 'refused durable evidence is never retried');
+    assert.equal(local.sdk.closed, true);
+    assert.equal(local.observed.at(-1).reason, 'transcript-persistence-failed');
+    assert.equal(local.closed.at(-1).reason, 'transcript-persistence-failed');
+    assert.deepEqual(logs, [], 'a final/correction refusal is not treated as a dropped marker');
+  });
+}
+
 
 test('AIT-136 withdrawal during an existing drain cancels pending and queued persistence', async t => {
   const held = deferred(), posted = [], signals = [];
