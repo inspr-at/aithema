@@ -582,3 +582,45 @@ test('a never-settling retired hook times out per session, backs off and checkpo
   assert.deepEqual(logs, [{ event: 'session.retirement.failed', sessionId: hung.id, error: 'RetirementHookTimeoutError' }]);
   assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 0, more: false });
 });
+
+for (const via of ['idle retirement', 'erase route']) for (const lane of ['reaction', 'voice']) {
+  test(`AIT-421: ${via} cannot purge a ${lane} receipt unseen by the host`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const storage = new SQLiteStorage(), session = storage.create({ ownerToken: testToken });
+    const ledger = new SQLiteBudgetLedger(storage);
+    ledger.admit({ attemptId: 'late', sessionId: session.id, lane, maxMicro: 100, maxVisitorMicro: lane === 'voice' ? 50 : 0,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+      ...(lane === 'reaction' ? { providerCost: { generationId: 'late-generation' } } : {}) });
+    const claim = ledger.claim('late'); claim.consume();
+    if (lane === 'voice') ledger.settleVoice(claim.claimId, { attemptId: 'late', outcome: 'uncertain' });
+    else { ledger.settle(claim.claimId, { attemptId: 'late', outcome: 'uncertain' }); ledger.acknowledgeCost('late'); }
+    // Exhaust the receipt wait without mixing a fixture date with a real clock.
+    t.mock.timers.setTime(Date.now() + 3_600_001);
+    let seen, committed, receiptError, hookInfo, finish, entered;
+    const barrier = new Promise(resolve => { finish = resolve; });
+    const started = new Promise(resolve => { entered = resolve; });
+    const handlers = createHandlers({ storage, consent: mockConsent, host: {
+      async retired(info) { hookInfo = info; seen = ledger.get('late').settled_micro; entered(); await barrier; },
+    } });
+    t.after(async () => { finish(); await handlers.close(); storage.close(); });
+    if (via === 'erase route') assert.equal((await handlers.handle(request(`${session.id}/erase`, { method: 'POST' }))).status, 200);
+    else age(storage, session.id);
+    const retiring = handlers.retire({ before: 2 });
+    await started;
+    try {
+      if (lane === 'reaction') ledger.reconcileCost('late', { chargedMicro: 250, generationId: 'late-generation' });
+      else ledger.reconcileVoice('late', { closureConfirmed: true, providerSessionId: 'late-voice', usage: {
+        providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 250, visitorMicro: 125 } });
+    } catch (error) { receiptError = error; }
+    committed = ledger.get('late').settled_micro;
+    finish();
+    assert.deepEqual(await retiring, { retired: 1, failed: 0, more: false });
+    assert.equal(committed, seen, 'a receipt must not commit above the host snapshot before purge');
+    assert.match(receiptError?.message ?? '', /sealed/);
+    assert.equal(hookInfo.attempts[0].attemptId, 'late');
+    assert.equal(hookInfo.attempts[0].settledMicro, seen);
+    assert.deepEqual(hookInfo.attempts[0].corrections, []);
+    assert.equal(ledger.get('late'), undefined);
+    assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections').get().n, 0);
+  });
+}
