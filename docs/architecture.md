@@ -72,8 +72,8 @@ and per-mint response statuses are retained in the `preview-security` artifact,
 independently of console output; duplicate initial frame GETs stop qualification
 for LEAD rather than granting multiple uses. Engine setup downloads occur before
 qualification; browser traffic is confined to the two loopback fixture origins.
-The small separate job preserves every existing browser shard/name and the
-400-second target/420-second ceiling. Its six-minute job and two-minute test
+The small separate job preserves the eight browser shards, four required
+aggregate names, and 405-second target/420-second ceiling. Its six-minute job and two-minute test
 limits bound additional CI cost; measured timings belong in the PR handoff.
 
 ## Privacy-safe voice correlation (AIT-139 Part 1)

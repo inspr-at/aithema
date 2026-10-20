@@ -123,7 +123,7 @@ a ZIP download, the dialog at a 400 × 800 viewport (inside the viewport, no
 horizontal overflow, hovering presets, selects and gauges moves no control, Escape
 returns focus) and the Advanced tab against a loopback OpenAI-compatible fixture
 (handshake, model choice and a streamed test chat). Console errors, page exceptions and failed
-same-origin requests fail the test. The separate PR CI `browser` jobs run seven shards on
+same-origin requests fail the test. The separate PR CI `browser` jobs run eight shards on
 Ubuntu with Node 24 and ten-minute limits;
 `npm test` does not require a browser. To prove the missing JSON content-type
 regression is detected, run `AITHEMA_BROWSER_REGRESSION=1 npm run test:browser`:

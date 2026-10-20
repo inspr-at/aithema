@@ -269,8 +269,9 @@ browserTestWeights['test/browser/start2-display-continuity.test.js'] = Math.max(
 browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
   browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 159);
 
-// AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
-export const browserShardCount = 7;
+// AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
+// measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
+export const browserShardCount = 8;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
 export const browserShardHeadroomTarget = 405;
