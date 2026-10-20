@@ -98,6 +98,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   renderLimiter = createUIRenderLimiter({ storage, now: configuredNow, ...uiRenderLimits }),
   conversationLimits = createConversationLimits({ storage, now: configuredNow }) } = {}) {
   let now = configuredNow ?? (() => Date.now());
+  // Follow later host-clock installation while retaining explicit runtime precedence.
+  voiceCap?.setClock?.(() => now());
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
   if (configuredNow) storage.setHostClock?.(now);
   // A synchronous session lease precedes every authorization, quote and wallet await.

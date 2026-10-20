@@ -94,7 +94,7 @@ deadline to nested operations and `operationScope`; it defaults to `Date.now`.
 An explicitly configured runtime clock remains authoritative for policy checks;
 otherwise handlers install `host.now`, then legacy `voice.now`, then `Date.now`.
 The runtime exposes that shared clock as `runtime.now`; HTTP/voice deadlines,
-continuation reservations, binding evidence and voice callbacks use it. Exact
+continuation reservations, voice-cap UTC days and holds, binding evidence and voice callbacks use it. Exact
 evidence expiry refuses admission before spend. Ledger settlement timestamps
 retain the host clock for accounting attribution. Receipt reconciliation lookup
 and repair-batch timeouts use separate elapsed wall-clock transport budgets.

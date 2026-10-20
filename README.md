@@ -971,6 +971,9 @@ so recovery can require additional headroom. Replayed commands do not reserve tw
 Library hosts pass `createVoiceCap({storage, ...voiceCapConfig(values)})` as
 `voiceCap` to `createPluginRuntime`, await `handlers.resume()` at startup, and use
 `runtime.reconcileVoice(attemptId, confirmedTerminal)` for later authenticated usage.
+The runtime installs its forwarding clock on the cap: UTC-day checks, snapshots and
+reservations follow later `host.now` installation, preserving an explicit runtime
+`now`. Existing reservations retain their original admission day and duration hold.
 `budget.used(sessionId)` tracks upstream spend;
 `budget.visitorUsed(sessionId)` tracks voice visitor credits. Terminal usage
 retains full `providerSeconds`/`providerMinutes`, `pausedSeconds`, `visitorSeconds`,
