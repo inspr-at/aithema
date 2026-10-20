@@ -2295,7 +2295,8 @@ above. No provider identity, usage payload or evidence JSON is included. Persist
 needed cap history idempotently in that hook before returning; purge deletes it.
 The snapshot and a durable billing seal commit before the hook starts. Reconciliation
 and all budget-attempt writes are refused after sealing, including during failed
-or timed-out hooks and after restart; background recovery skips sealed attempts.
+or timed-out hooks and after restart; budget recovery and reasoning cost scans
+skip sealed attempts.
 Receipts committed before sealing are included, even if they arrive during
 `host.erased`. That earlier hook releases session resources; it is not the final
 cost snapshot. Custom host budgets must provide equivalent finality themselves.

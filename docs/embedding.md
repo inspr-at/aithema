@@ -680,8 +680,8 @@ reconciliation; live receipts remain retryable until retirement seals them.
 The seal and `attempts` snapshot commit atomically before any async retirement
 hook. SQLite rejects all subsequent budget-attempt inserts and updates with
 `Retirement billing sealed`; rejected reconciliation also rolls back its correction.
-The seal survives hook failure, timeout and restart. Recovery/receipt scans skip
-sealed attempts. Hosts must provide equivalent fencing for custom budget stores.
+The seal survives hook failure, timeout and restart. Budget recovery and reasoning
+cost scans skip sealed attempts. Hosts must provide equivalent fencing for custom budget stores.
 Each snapshot entry contains `attemptId`, `lane`, `state`, `outcome`, `settledAtMs`,
 `settledMicro`, `settledVisitorMicro`, `maxMicro`, `maxVisitorMicro`, `final`,
 `corrections`, and `voiceExposures`. The two histories use AIT-409's dated amount

@@ -306,7 +306,7 @@ for (const erased of [true, false]) test(`AIT-297: removed plugin ends scheduled
 test('AIT-295: live retirement retries keep bounded billing behavior across restart', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const path = await temporaryDb();
-  let storage = new SQLiteStorage(path), handlers, calls = 0;
+  let storage = bindSQLiteClock(new SQLiteStorage(path)), handlers, calls = 0;
   t.after(async () => { await handlers?.close(); storage.close(); });
   const session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
   ledger.admit({ attemptId: 'live-retry', sessionId: session.id, lane: 'reaction', maxMicro: 100,
@@ -320,7 +320,7 @@ test('AIT-295: live retirement retries keep bounded billing behavior across rest
   assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 1, more: false });
   assert.equal(calls, 1, 'live retirement reaches the host after the bounded receipt window');
   await handlers.close(); storage.close();
-  storage = new SQLiteStorage(path);
+  storage = bindSQLiteClock(new SQLiteStorage(path));
   handlers = createHandlers({ storage, consent: mockConsent, host: { retired() { calls++; } } });
   storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
   assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 1, failed: 0, more: false });
@@ -592,7 +592,7 @@ test('a never-settling retired hook times out per session, backs off and checkpo
 for (const via of ['idle retirement', 'erase route']) for (const lane of ['reaction', 'voice']) {
   test(`AIT-421: ${via} cannot purge a ${lane} receipt unseen by the host`, async t => {
     t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-    const storage = new SQLiteStorage(), session = storage.create({ ownerToken: testToken });
+    const storage = bindSQLiteClock(new SQLiteStorage()), session = storage.create({ ownerToken: testToken });
     const ledger = new SQLiteBudgetLedger(storage);
     ledger.admit({ attemptId: 'late', sessionId: session.id, lane, maxMicro: 100, maxVisitorMicro: lane === 'voice' ? 50 : 0,
       requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
@@ -687,7 +687,7 @@ test('AIT-421: live receipts defer retirement, then a final receipt reaches the 
 test('AIT-421: active billing has a durable bounded wait and the seal survives a failed hook and restart', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const path = await temporaryDb();
-  let storage = new SQLiteStorage(path), ledger = new SQLiteBudgetLedger(storage), handlers, snapshot;
+  let storage = bindSQLiteClock(new SQLiteStorage(path)), ledger = new SQLiteBudgetLedger(storage), handlers, snapshot;
   const session = storage.create();
   ledger.admit({ attemptId: 'open', sessionId: session.id, lane: 'concept', maxMicro: 100,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
@@ -699,7 +699,7 @@ test('AIT-421: active billing has a durable bounded wait and the seal survives a
   const deadline = storage.db.prepare('SELECT billing_deadline_ms FROM retirement_pending').get().billing_deadline_ms;
   assert.equal(deadline, Date.now() + 3_600_000);
   await handlers.close(); storage.close();
-  storage = new SQLiteStorage(path); ledger = new SQLiteBudgetLedger(storage);
+  storage = bindSQLiteClock(new SQLiteStorage(path)); ledger = new SQLiteBudgetLedger(storage);
   handlers = createHandlers({ storage, consent: mockConsent, host: { retired({ attempts }) { snapshot = attempts; throw new Error('offline'); } } });
   t.mock.timers.setTime(deadline);
   storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
@@ -711,7 +711,7 @@ test('AIT-421: active billing has a durable bounded wait and the seal survives a
   assert.throws(() => ledger.admit({ attemptId: 'new', sessionId: session.id, lane: 'concept', maxMicro: 1,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) }), /sealed/);
   await handlers.close(); storage.close();
-  storage = new SQLiteStorage(path); ledger = new SQLiteBudgetLedger(storage);
+  storage = bindSQLiteClock(new SQLiteStorage(path)); ledger = new SQLiteBudgetLedger(storage);
   assert.equal(ledger.recover(), 0, 'restart recovery must not mutate the sealed host snapshot');
   assert.deepEqual(ledger.pendingCosts(), []);
   assert.deepEqual(ledger.deferredCosts(Date.now()), []);
