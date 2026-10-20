@@ -485,7 +485,7 @@ for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'em
     assert.equal(action.hidden, ['emailConfirmed', 'dailyCap'].includes(state));
     if (!action.hidden) assert.equal(action.textContent, copy.hostSurface.credits.confirm);
     if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'), 'Tick fix1: equal allowances name the confirmed tier without an email-given promise');
-    if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
+    if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
     if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250\u00a0Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250\u00a0credits are used up.");
     if (state === 'dailyCap') {
       assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow.");
@@ -511,7 +511,7 @@ for (const copy of [de, en]) test(`AIT-395: exhaustion offers exactly the conver
   assert.equal(root.querySelector('.composer-out').dataset.next, 'confirm');
   assert.match(root.querySelector('.composer-out__confirm').textContent, /750/u);
   assert.equal(root.querySelector('.host-credits__next').textContent,
-    copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
+    copy.hostSurface.credits.afterConfirm.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
 });
 
 for (const copy of [de, en]) for (const [variant, canCollect, confirmedMicro] of [

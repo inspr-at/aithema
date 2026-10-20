@@ -343,7 +343,7 @@ export class HostSurface {
     const sessionLayout = scoped || !this.#credits && this.#initialCreditScope === 'session';
     line.toggleAttribute('data-session-credits', sessionLayout); line.toggleAttribute('data-daily-cap', capped);
     setText(line.querySelector('.host-credits__measure-cap'), sessionLayout ? c.dailyCapShort : '');
-    const tierText = text => scoped ? text.replace(/ Credits/gu, '\u00a0Credits') : text;
+    const tierText = text => scoped ? text.replace(/ (credits)/giu, '\u00a0$1') : text;
     const reservedLimit = owner ? Math.max(owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger)) : null;
     const warningLimit = this.#credits?.lowAtMaxMicro ?? this.#credits?.lowAtMicro;
     const warningAvailable = owner && Number.isSafeInteger(warningLimit) ? Math.min(owner.availableMicro, warningLimit) : 0;

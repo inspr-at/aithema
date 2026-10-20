@@ -45,7 +45,7 @@ export async function creditHostOptionsCheck(t) {
     await shadow(page, async (c, { state, locale, theme, profile }) => {
       const f = window.ait411, { [locale]: source } = await import(`/packages/ui/src/i18n/${locale}.js`), copy = structuredClone(source);
       const confirmed = ['U2', 'S2', 'S3', 'confirmed', 'delete-false', 'delete-true'].includes(state);
-      const ended = ['U1', 'U2', 'U3', 'S1', 'S2', 'S3'].includes(state);
+      const ended = ['U1', 'U2', 'U3', 'S1', 'S2', 'S3', 'host-limit'].includes(state);
       const current = confirmed ? 'emailConfirmed' : 'anonymous', low = state.startsWith('low-');
       const limitMicro = confirmed ? 10000000 : 2500000, availableMicro = ended ? 0 : low ? 10000 : limitMicro;
       f.canDelete = state !== 'delete-false'; f.lowCredits = !['low-off', 'S1'].includes(state); f.lineRequests = 0; f.deletes = 0;
@@ -63,7 +63,8 @@ export async function creditHostOptionsCheck(t) {
         question_short: question, options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', likely: true }, { text: locale === 'de' ? 'Ressourcen' : 'Resources' }] });
       session.identity = { status: confirmed ? 'verified' : 'guest', address: confirmed ? 'reader@example.test' : null,
         verificationRequired: false, assessmentUnlocked: true, conceptsUnlocked: true, roles: ['visitor'] };
-      session.credits = { status: state.startsWith('S') ? 'ended' : 'active', endReason: state.startsWith('S') ? 'session' : null };
+      session.credits = { status: state.startsWith('S') || state === 'host-limit' ? 'ended' : 'active',
+        endReason: state.startsWith('S') ? 'session' : state === 'host-limit' ? 'host-limit' : null };
       session.settings.origin = 'chosen'; session.processingPreset = 'best';
       session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: false } };
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
@@ -115,10 +116,19 @@ export async function creditHostOptionsCheck(t) {
       await page.setViewport({ width, height: 1000 });
       let baseline;
       const inserted = new Set(), painted = new Set();
-      for (const state of ['B1', 'U1', 'U2', 'U3', 'reconciling', 'reconciled', 'S1', 'S2', 'S3']) {
+      for (const state of ['B1', 'U1', 'U2', 'U3', 'reconciling', 'reconciled', 'host-limit', 'S1', 'S2', 'S3']) {
         const value = await scene(state, locale, theme, profile), label = `${profile}/${locale}/${theme}/${width}/${state}`;
         if (!baseline) baseline = value.boxes;
         assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
+        assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
+        assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
+        if (profile === 'O4' && state === 'reconciling') {
+          assert.equal(value.reconciling, true); assert.equal(value.footerTextFits, true);
+          assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …');
+        }
+        if (profile === 'O4' && state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }
+        if (profile === 'O5' && state === 'U3') { assert.ok(value.deadline.length > 0); assert.equal(value.panelDeadline, value.deadline); }
+        if (profile === 'O2-none' && state === 'U3') { assert.equal(value.actionRowHidden, 'true'); assert.equal(value.export, false); }
         const peers = value.reservation.filter(n => n.option);
         assert.deepEqual(peers.map(n => n.key), state.startsWith('S')
           ? ['option-new-conversation', 'option-session-emailConfirmed'] : [], `${label}: no never-painted option peers`);

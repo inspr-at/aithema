@@ -481,7 +481,7 @@ export const en = {
       balanceOut: 'Your {limit} Credits are used up, for all your conversations.',
       usedUp: 'Credits used up', usedUpShort: 'Used up', timeExpired: 'Time up', anonymous: 'Credit: {tier} Credits',
       withEmail: 'With email address: {tier} Credits', withConfirmed: 'With confirmed email address: {tier} Credits',
-      afterConfirm: 'After confirmation: {tier} Credits', give: 'Add your email address', confirm: 'Confirm your email address',
+      afterConfirm: 'After confirmation: {n}\u00a0credits', give: 'Add your email address', confirm: 'Confirm your email address',
       noMore: 'No further credits are available here at the moment.', unit: '1 Credit = 1 US cent',
       ended: {
         newConversationAction: 'Start a new conversation',

@@ -1462,8 +1462,9 @@ export class AithemaSession extends HTMLElement {
       ].map(([key, text]) => [key, { text, option: false }]);
       // Default hosts keep main's exact peers. Opted-in panels add only real
       // hint/confirmation variants, each painted in its corresponding state.
-      const optionVariants = newConversationEnabled || this.#options.host?.credits?.reconcilingVisible === true ||
-        this.#options.host?.credits?.dailyCapReset === true || noAction || this.#host?.endReason === 'session';
+      // Footer reconciliation, reset labels and empty cap actions cannot paint
+      // these hints and therefore must not add composer reservation peers.
+      const optionVariants = newConversationEnabled || this.#host?.endReason === 'session';
       if (optionVariants) bodies.push(...[
         ['new-conversation', credits.ended.newConversationHint],
         ['session-emailConfirmed', credits.ended.sessionUpgrade.replace('{next}', allowances?.emailConfirmed === undefined ? ''
