@@ -561,6 +561,9 @@ evidence, retirement fences and provider-cap audits use the runtime forwarding
 clock installed on storage, including when an explicit policy clock differs from
 host accounting time. Local call reconciliation also measures duration on the
 provider's clock; an elapsed receipt-lookup clock cannot change call age.
+Storage's receipt-age check likewise uses the forwarding accounting clock
+installed alongside its policy clock; a future policy epoch cannot prematurely
+seal a fresh unsettled receipt. Its bounded retirement fence uses policy time.
 Existing timestamps are never rewritten.
 
 Elapsed transport budgets are separate: upload queue/parser CPU limits, receipt

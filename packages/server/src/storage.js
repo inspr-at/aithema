@@ -36,6 +36,7 @@ export class SettingsConflictError extends ConflictError {
 export class SQLiteStorage {
   constructor(path = ':memory:', { now = () => Date.now() } = {}) {
     this.now = now;
+    this.accountingNow = now;
     // An OS-backed SQLite lock also releases on process death. It is separate
     // from the WAL journal so the writer can commit without releasing ownership.
     if (path !== ':memory:') {
@@ -172,7 +173,7 @@ export class SQLiteStorage {
    * renew retention, including events and async work spawned inside that scope.
    * AsyncLocalStorage keeps concurrent person/host requests independent. */
   countsAsActivity() { return this.activityOrigin.getStore() !== 'system'; }
-  setHostClock(now) { this.now = now; }
+  setHostClock(now, { accountingNow = now } = {}) { this.now = now; this.accountingNow = accountingNow; }
   systemWork(fn) { return this.activityOrigin.run('system', fn); }
   touch(id) {
     if (!this.countsAsActivity()) return;
@@ -268,6 +269,11 @@ export class SQLiteStorage {
     if (now >= deadline) return;
     const tables = new Set(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
     if (!tables.has('budget_attempts')) return;
+    // Receipt dates retain host accounting attribution even when policy uses an
+    // explicit clock. Only receipt age uses that epoch; the bounded retirement
+    // fence above remains on the storage policy clock.
+    const accountingAt = this.accountingNow();
+    if (!Number.isSafeInteger(accountingAt) || accountingAt < 0) throw new TypeError('Invalid retirement accounting clock');
     if (this.db.prepare(`SELECT 1 FROM budget_attempts WHERE session_id=? AND (
       state!='settled' OR (COALESCE(settled_at_ms,0)+3600000>? AND (
         json_extract(provider_cost_json,'$.retryAt') IS NOT NULL OR
@@ -276,7 +282,7 @@ export class SQLiteStorage {
           (outcome='uncertain' AND cost_reconciliation_json IS NULL AND voice_reconciliation_json IS NULL) OR
           json_extract(cost_reconciliation_json,'$.estimated')=1 OR
           json_extract(usage,'$.estimated')=1 OR json_extract(usage,'$.costEstimated')=1))))) LIMIT 1`)
-      .get(id, now)) throw new ConflictError('Retirement billing unsettled');
+      .get(id, accountingAt)) throw new ConflictError('Retirement billing unsettled');
     if (tables.has('spend_reservations')) {
       this.db.exec('CREATE INDEX IF NOT EXISTS spend_retirement_attempt ON spend_reservations(attempt_id)');
       if (this.db.prepare(`SELECT 1 FROM spend_reservations WHERE actual_micro IS NULL AND state IN ('reserved','dispatched') AND attempt_id IN

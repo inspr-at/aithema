@@ -150,6 +150,9 @@ test('AIT-430 retirement cannot age host-stamped billing evidence on a future po
   h.storage.erase(h.session.id);
   assert.throws(() => h.storage.assertRetirementSettled(h.session.id), { message: 'Retirement billing unsettled' });
   assert.equal(h.storage.db.prepare('SELECT billing_sealed FROM retirement_pending WHERE session_id=?').get(h.session.id).billing_sealed, 0);
+  assert.equal(h.runtime.budget.used(h.session.id), 100);
+  h.runtime.budget.now = () => NaN;
+  assert.throws(() => h.storage.assertRetirementSettled(h.session.id), { message: 'Invalid retirement accounting clock' });
 });
 
 test('AIT-403 sweep provider-cap audit evidence uses installed host clock', async t => {

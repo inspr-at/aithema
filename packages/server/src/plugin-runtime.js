@@ -110,7 +110,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   voiceCap?.setClock?.(now);
   renderLimiter.setClock?.(now);
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
-  if (configuredNow) storage.setHostClock?.(now);
+  if (configuredNow) storage.setHostClock?.(now, { accountingNow: () => budget.now() });
   // A synchronous session lease precedes every authorization, quote and wallet await.
   // It survives the synthesis receipt until playback ends (or its bounded lease expires).
   const replyReplays = new Map();
@@ -544,7 +544,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       clockSource = configuredNow ?? clock;
       // Accounting timestamps retain host attribution even with an explicit
       // policy clock. Their age and retry eligibility use this same epoch.
-      budget.now = clock; storage.setHostClock?.(now);
+      budget.now = clock; storage.setHostClock?.(now, { accountingNow: () => budget.now() });
     },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
