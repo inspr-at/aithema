@@ -149,6 +149,16 @@ export async function composerCreditReservationMatrix(t) {
     await page.select('#locale', locale); await page.select('#theme', theme);
     await fixture(page, locale);
     const before = await boxes(page, selectors);
+    // AIT-422: copy changes must preserve the pre-change reservation, too.
+    const currentOffer = await shadow(page, (c, locale) => {
+      const peer = c.shadowRoot.querySelector('[data-credit-variant="host-give"]'), text = peer.textContent;
+      peer.textContent = locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.'
+        : 'Add your email address to get +600 more Credits. Your conversation stays saved.';
+      return text;
+    }, locale);
+    const originalCopyBoxes = await boxes(page, selectors);
+    await shadow(page, (c, text) => { c.shadowRoot.querySelector('[data-credit-variant="host-give"]').textContent = text; }, currentOffer);
+    unchanged(originalCopyBoxes, before, `AIT-422 ${locale}/${theme}/${width}: original-copy reservation`);
     // Retain the container handle, but inspect its current descendants for
     // every state: changing text can replace a text node inside a stable span.
     const { result } = await accessibility.send('Runtime.evaluate', { expression: "document.querySelector('aithema-session').shadowRoot.querySelector('.composer-out__body')" });
