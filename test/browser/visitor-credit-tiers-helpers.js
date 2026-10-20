@@ -364,6 +364,7 @@ export async function visitorCreditMatrix(t, locales) {
   for (const locale of locales) {
     browser = await browserForFile();
     const page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.session);
@@ -844,7 +845,10 @@ export async function replyRowsMatrix(t) {
       window.ait410Actions = window.ait410First.querySelector('.reply-actions');
     });
     const original = await boxes(page, ['.turn:not(.user)']);
-    for (let i = 2; i <= 3; i++) await shadow(page, (c, i) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `ait410-reply-${i}`, role: 'assistant', content: `Reply ${i}` } }), i);
+    for (let i = 2; i <= 3; i++) await shadow(page, (c, { i, width }) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+      id: `ait410-reply-${i}`, role: 'assistant',
+      content: width === 390 ? `Reply ${i}` : `${(c.session.transcript.find(t => t.role === 'assistant').content + ' ').repeat(8)}${i}`,
+    } }), { i, width });
     await settle(page);
     // Compare size only: following the growing transcript legitimately scrolls it.
     const afterReplies = await boxes(page, ['.turn:not(.user)']);
@@ -857,6 +861,7 @@ export async function replyRowsMatrix(t) {
       shell.scrollTop = 0; shell.dispatchEvent(new Event('scroll'));
     });
     await settle(page);
+    assert.equal(await shadow(page, c => { const s = c.shadowRoot.querySelector('.transcript-shell'); return s.scrollHeight - s.clientHeight > 8; }), true, 'earlier-reply fixture exceeds the bottom-follow threshold');
     const selectors = ['.turn:not(.user)', '.turn:last-child', '.qopts', '.question-card', '.composer-shell'];
     const before = await boxes(page, selectors);
     const presentation = await shadow(page, c => {
