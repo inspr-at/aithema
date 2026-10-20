@@ -545,7 +545,7 @@ const coordinator = createComposedVoiceCoordinator({ ...coordinatorPorts, now: r
 ```
 
 The same rule applies to `createElevenLabsServer`, `createComposedVoice`,
-`createGrokVoiceProvider`, `createVoxtralComponents`, `createCompletionsHandler`,
+`createGrokVoiceProvider`, `createVoxtralProviderAuthority`, `createCompletionsHandler`,
 `createOperatorSessions` and `createZitadelOIDC`. The demo keeps a forwarding
 getter during startup, passes it to independently composed server factories,
 then links it to `pluginRuntime.now`. Admitted invocation `options.now` also
