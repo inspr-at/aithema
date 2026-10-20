@@ -731,7 +731,20 @@ async function postRelease297(browserPage, t, legalHTML) {
       assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
       assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
       assert.equal(state.upgradeVisible, variant !== 'no-upgrade', `${label}: fixture renders the requested tier action`);
-      if (!state.bodyClear) t.diagnostic(`${label}: clearance geometry ${JSON.stringify(state)}`);
+      if (!state.bodyClear) {
+        t.diagnostic(`${label}: clearance geometry ${JSON.stringify(state)}`);
+        const sizing = await inShadow(page, c => {
+          const r = c.shadowRoot, body = r.querySelector('.composer-out__body'), active = body.querySelector('[data-active="true"]');
+          const read = () => ({ rows: getComputedStyle(r.querySelector('.composer-out')).gridTemplateRows,
+            body: body.getBoundingClientRect().toJSON(), action: r.querySelector('.composer-out__actions').getBoundingClientRect().toJSON(),
+            variants: [...body.children].map(n => ({ key: n.dataset.key, text: n.textContent, box: n.getBoundingClientRect().toJSON(), top: getComputedStyle(n).top, visibility: getComputedStyle(n).visibility })) });
+          const current = read(), text = active.textContent;
+          active.textContent = body.querySelector('[data-credit-variant="host-give-measure"]').textContent;
+          const originalCopy = read(); active.textContent = text;
+          return { current, originalCopy };
+        });
+        t.diagnostic(`AIT422 sizing ${label}: ${JSON.stringify(sizing)}`);
+      }
       assert.equal(state.bodyClear, true, `${label}: body clears both actions`);
       if (width < 389) assert.ok(state.legal.every(n => n.top >= Math.max(...state.boxes.map(([, y, , h]) => y + h))), `${label}: stacked action targets clear legal targets`);
       assert.equal(state.overlap, false, `${label}: action targets do not overlap`);
