@@ -98,6 +98,7 @@ export class AithemaSession extends HTMLElement {
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #postCallMatrix = null;
   #voiceResumeProjection = null;
+  #voiceProjectionRevision = 0;
   #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
@@ -168,7 +169,7 @@ export class AithemaSession extends HTMLElement {
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
-    this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false; this.#voiceResumeProjection = null;
+    this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false; this.#voiceResumeProjection = null; this.#voiceProjectionRevision++;
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
     // On my device in place, and a device conversation never starts a call, so its journal stays empty.
     this.#journal = voiceJournal(tabStorage(), session.id);
@@ -649,6 +650,11 @@ export class AithemaSession extends HTMLElement {
         },
         // A call that starts, ends or fails moves the stage and the avatar with it.
         onState: state => {
+          // Keep the held hint's space when this click starts a resumed call.
+          // Ordinary touch shortcuts retain their compact confirmation slot.
+          if (state === 'connecting' && this.#rail?.waitingCall && !root.querySelector('.composer-reason').hasAttribute('data-shortcut')) {
+            root.querySelector('.composer-feedback').setAttribute('data-voice-space', '');
+          }
           if (this.#clarify?.waitingForReply) this.#render('aside');
           if (state === 'speaking') this.#updateVoiceTranscript({ type: 'speaking' });
           if (['paused', 'recovering', 'waiting', 'closing', 'idle', 'failed'].includes(state)) this.#updateVoiceTranscript({ type: 'reset' });
@@ -660,7 +666,7 @@ export class AithemaSession extends HTMLElement {
         },
         context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.understanding.openQuestions.includes(this.#session.focusedQuestion) ? this.#session.focusedQuestion : null }),
         onEnd: () => {
-          this.#voiceResumeProjection = null;
+          this.#voiceResumeProjection = null; this.#voiceProjectionRevision++;
           this.#updateVoiceTranscript({ type: 'reset' }); this.#render('transcript');
           // The in-call verdict cannot describe post-call admission. Keep it closed
           // with waiting copy until a generation-fenced server snapshot replaces it.
@@ -671,6 +677,7 @@ export class AithemaSession extends HTMLElement {
           if (this.isConnected && !this.#rail?.unloading && this.#invalidatedAt <= this.#cursor) void this.#refreshFeatures();
         },
         onPause: (paused, { resuming = false } = {}) => {
+          this.#voiceProjectionRevision++;
           if (paused) this.#voiceResumeProjection = null;
           else if (resuming) {
             this.#voiceResumeProjection = { generation: this.#rail.generation, revision: this.#rail.pauseRevision };
@@ -2614,7 +2621,9 @@ export class AithemaSession extends HTMLElement {
   async #refreshFeatures(consentRetry = false) {
     if (this.#session.processingPreset === 'device') return;
     const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
-    const resume = this.#voiceResumeProjection;
+    // A read begun before the local listening acknowledgement cannot repaint
+    // its cached paused verdict afterward, even within the same rail generation.
+    const projectionRevision = this.#voiceProjectionRevision, resume = this.#voiceResumeProjection;
     const currentResume = () => resume && resume === this.#voiceResumeProjection &&
       resume.generation === this.#rail?.generation && resume.revision === this.#rail?.pauseRevision;
     const restorePaused = () => {
@@ -2637,7 +2646,8 @@ export class AithemaSession extends HTMLElement {
         pending.timer.unref?.();
       }
     }
-    const active = () => sessionId === this.#session.id && pending === this.#consentRefresh && (!pending || pending.attempt === attempt);
+    const active = () => sessionId === this.#session.id && projectionRevision === this.#voiceProjectionRevision &&
+      pending === this.#consentRefresh && (!pending || pending.attempt === attempt);
     const fail = () => { if (active()) { restorePaused(); this.#failConsentRefresh(pending); } };
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });

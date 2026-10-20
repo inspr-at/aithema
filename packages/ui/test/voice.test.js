@@ -62,6 +62,15 @@ test('AIT-404: resumed listening publishes pause projection before media setup a
   assert.equal(projections.at(-1).paused, true, 'a failed resumed startup restores the paused projection');
   assert.equal(rail.state, 'failed');
 });
+test('AIT-404: refused startup retains its admission error without publishing a local unpause', async t => {
+  const { rail } = fixture(t, { start: async () => { throw Object.assign(new Error('fixture admission refusal'), { code: 'not-admitted', reason: 'host-limit' }); } });
+  rail.waitingCall = { callId: 'local-call', providerSessionId: 'local-provider' };
+  rail.paused = true; rail.state = 'waiting';
+  const projections = []; rail.onPause = paused => projections.push(paused);
+  await rail.start();
+  assert.deepEqual(projections, [], 'a refused startup has no published unpause to roll back or refresh');
+  assert.equal(rail.allowanceDenied, true, 'the authoritative admission refusal remains visible');
+});
 for (const available of [true, false]) test(`AIT-404: local resumed composer preserves unpaused text availability ${available}`, async t => {
   const session = createSession({ demo: true }), events = voiceEvents(), observed = [];
   session.paused = true;

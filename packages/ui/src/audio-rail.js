@@ -403,7 +403,7 @@ export class AudioRail {
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
     if (this.root.ownerDocument.hidden) holdController.abort();
-    let session, connectTimer;
+    let session, connectTimer, resumeProjected = false;
     const connectDeadline = () => {
       clearTimeout(connectTimer);
       connectTimer = setTimeout(() => controller.abort(Object.assign(new Error('Voice connection deadline'), { code: 'deadline' })), 30_000);
@@ -467,7 +467,7 @@ export class AudioRail {
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
       // The acknowledged Resume clears the composer's cached pause verdict in
       // this listening tick, before media setup or its confirming snapshot read.
-      if (resuming) this.onPause?.(false, { resuming: true });
+      if (resuming) { resumeProjected = true; this.onPause?.(false, { resuming: true }); }
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;
       await session.setOutput(this.output);
@@ -503,7 +503,7 @@ export class AudioRail {
       if (this.startupPhase === 'microphone' && typeof error.code !== 'string' && !error.phase) error.phase = 'microphone';
       this.startupPhase = null; this.stopReplyWatch();
       this.state = this.waitingCall ? 'waiting' : 'failed';
-      if (resuming) this.onPause?.(true);
+      if (resumeProjected) this.onPause?.(true);
       this.failure(error);
     } finally { clearTimeout(connectTimer); }
   }
