@@ -281,6 +281,7 @@ export class AudioRail {
     const pageReply = !this.notices.recovery ? this.lastReply?.() : null;
     if (this.notices.pageReply?.turnId !== pageReply?.turnId || this.notices.pageReply?.text !== pageReply?.text) {
       this.client?.stopReplay?.(); this.notices.playing = false;
+      if (!this.notices.recovery) this.notices.recoveryContext = false;
     }
     this.notices.pageReply = pageReply;
     this.notices.copy = c; this.notices.render();
@@ -402,7 +403,7 @@ export class AudioRail {
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
     this.button('close').focus({ preventScroll: true });
-    this.notices.clear();
+    this.notices.recoveryContext = false; this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
     if (this.root.ownerDocument.hidden) holdController.abort();

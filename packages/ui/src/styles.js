@@ -182,6 +182,18 @@ svg { display:block; flex:none; }
   .turn:is(:hover,:focus-within) > .reply-actions > button svg { visibility:visible; }
   .turn:is(:hover,:focus-within) > .reply-actions > button:not(:disabled) { color:var(--aithema-ink); }
 }
+/* A cleared recovery offer shares the existing reply slot and may retire
+   independently. The permanent row owns keyboard/AX access at all times. */
+.turn > .voice-reply-actions--recovery { position:absolute; inset-inline-start:.8rem; bottom:.65rem; height:44px; gap:0; }
+.turn > .voice-reply-actions--recovery > button { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px;
+  padding:0; font-size:0; text-decoration:none; }
+.turn > .voice-reply-actions--recovery .voice-repeat-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.turn > .voice-reply-actions--recovery > button::before, .turn > .voice-reply-actions--recovery > button::after { content:none; }
+.turn > .voice-reply-actions--recovery > button svg { width:16px; height:16px; }
+@media (hover:hover) and (pointer:fine) {
+  .turn > .voice-reply-actions--recovery svg { visibility:hidden; }
+  .turn:is(:hover,:focus-within) > .voice-reply-actions--recovery svg { visibility:visible; }
+}
 .voice-reply-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; padding:24px; border:1px solid var(--aithema-line);
   border-radius:16px; background:var(--aithema-paper); color:var(--aithema-ink); box-shadow:var(--aithema-shadow-raised); }
 .voice-reply-dialog::backdrop { background:rgba(0,0,0,.4); }
