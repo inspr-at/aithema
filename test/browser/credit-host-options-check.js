@@ -48,7 +48,7 @@ export async function creditHostOptionsCheck(t) {
       const ended = ['U1', 'U2', 'U3', 'S1', 'S2', 'S3'].includes(state);
       const current = confirmed ? 'emailConfirmed' : 'anonymous', low = state.startsWith('low-');
       const limitMicro = confirmed ? 10000000 : 2500000, availableMicro = ended ? 0 : low ? 10000 : limitMicro;
-      f.canDelete = state !== 'delete-false'; f.lineRequests = 0; f.deletes = 0;
+      f.canDelete = state !== 'delete-false'; f.lowCredits = !['low-off', 'S1'].includes(state); f.lineRequests = 0; f.deletes = 0;
       f.receipt = { scope: 'session', dailyCapReached: state === 'U3', dailyCapResetAt: Date.now() + 3600000,
         exhausted: ended, reconciling: state === 'reconciling', lowAtMicro: 250000, nowMs: Date.now(),
         emailAsk: low ? { lowLine: { at: 'reply', kind: 'confirm', deltaMicro: 7500000, availableMicro } } : {},
@@ -72,7 +72,7 @@ export async function creditHostOptionsCheck(t) {
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       copy.hostSurface.credits.afterConfirm = locale === 'de' ? 'Nach der Bestätigung: {tier}\u00a0Credits' : 'After confirmation: {tier} credits';
       c.configure({ copy, session, host: { verification: true, credits: { scope: 'session', reconcilingVisible: true, dailyCapReset: true },
-        usedUp: { newConversation: { enabled: state !== 'S3' }, dailyCapActions: 'none' }, emailAsk: { lowCredits: state !== 'low-off' } } });
+        usedUp: { newConversation: { enabled: state !== 'S3' }, dailyCapActions: 'none' }, emailAsk: { lowCredits: f.lowCredits } } });
       let legal = c.querySelector('[slot="legal"][data-aithema-privacy]');
       if (!legal) { legal = document.createElement('a'); legal.slot = 'legal'; legal.setAttribute('data-aithema-privacy', ''); legal.href = '/privacy'; legal.textContent = 'Privacy'; c.append(legal); }
       await document.fonts.ready;
@@ -87,7 +87,7 @@ export async function creditHostOptionsCheck(t) {
       const r = c.shadowRoot, rect = selector => { const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
       const visible = selector => { const n = r.querySelector(selector); return !!n && !n.hidden && !n.inert && getComputedStyle(n).visibility === 'visible'; };
       return { boxes: Object.fromEntries(['.composer-shell', '.question-card', '.composer-out'].map(s => [s, rect(s)])),
-        overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth), emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
+        lowCredits: window.ait411.lowCredits, overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth), emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
         newAction: visible('.composer-out__new'), upgrade: visible('.composer-out__upgrade'), export: visible('.composer-out__export'),
         actionRowHidden: r.querySelector('.composer-out__actions').getAttribute('aria-hidden'), next: r.querySelector('.host-credits__next').textContent,
         current: r.querySelector('.host-credits__current').textContent, panelDeadline: r.querySelector('.composer-out__deadline')?.textContent, deadline: r.querySelector('.host-credits__deadline').textContent,
@@ -148,9 +148,10 @@ export async function creditHostOptionsCheck(t) {
     await scene(state, 'de', 'light');
     const opened = await shadow(page, c => {
       c.shadowRoot.querySelector(window.ait411.receipt.exhausted ? '.composer-out__upgrade' : '.credits-email').click();
-      return c.shadowRoot.querySelector('dialog.settings').open;
+      return { open: c.shadowRoot.querySelector('dialog.settings').open, lowCredits: window.ait411.lowCredits };
     });
-    assert.equal(opened, true, `${state}: confirmation entry still opens email settings`);
+    assert.equal(opened.open, true, `${state}: confirmation entry still opens email settings`);
+    assert.equal(opened.lowCredits, false, `${state}: confirmation works with the inline low ask disabled`);
     checks.push({ assert: 'O6 confirmation path', state, pass: true });
   }
   assert.deepEqual(errors, []);
