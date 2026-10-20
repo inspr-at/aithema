@@ -278,6 +278,15 @@ browserTestWeights['test/browser/start2-display-continuity.test.js'] = Math.max(
 browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
   browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 159);
 
+// AIT-411 combined-head CI 39492236313, e791da30, shard 7/8:
+// visitor file 6/6 PASS; top-level work 128.294181508s, ceil(*1.25)=161s.
+// Host file 7/7 PASS on shard 4/8: 163.000446575s, ceil(*1.25)=204s;
+// retain its conservative 210s floor. The unrelated frozen-email comparison
+// failed because its approved grid overlay lacked the new measurement peers.
+// Successful file diagnostics only; trusted rolling-main history is unchanged.
+browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
+  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 161);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 export const browserShardCount = 8;
