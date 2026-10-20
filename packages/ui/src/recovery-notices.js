@@ -66,7 +66,7 @@ export class RecoveryNotices {
     if (this.actions.parentNode !== parent) parent.append(this.actions);
     this.actions.hidden = this.button.hidden;
     this.replyNotice.hidden = !this.replyNotice.querySelector('span').textContent && (Boolean(target) || this.button.hidden);
-    const duringCall = !recovery && this.inCall();
+    const duringCall = !recovery && !this.button.hidden && this.inCall();
     this.readText.disabled = duringCall || !available || !reply;
     this.button.disabled = duringCall || !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? this.pageReply?.text);
     this.button.title = duringCall ? c.voiceReplyDuringCall : reply ? label : c.voiceReplyUnavailable;
