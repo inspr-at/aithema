@@ -162,3 +162,17 @@ test('AIT-387: the visitor inventory uses the core evidence reason set and exclu
   assert.equal(BINDING_REASON_CODES, core.BINDING_REASON_CODES, 'the fixture must share the core export');
   for (const copy of [en, de]) assert.equal(Object.hasOwn(copy.host, 'voiceUnavailable'), false);
 });
+
+test('AIT-429: agent-api-unavailable keeps its diagnostic code and renders Tick’s neutral voice copy', async () => {
+  const { narrowVoiceStatus } = await import('../src/voice-status.js');
+  const code = 'agent-api-unavailable';
+  assert.ok(VOICE_REASON_CODES.includes(code));
+  for (const [copy, expected] of [[de, 'Sprache gerade nicht verfügbar'], [en, 'Voice unavailable right now']]) {
+    assert.ok(Object.hasOwn(copy.reasons, code));
+    for (const render of [reasonText, hostReasonText]) for (const feature of [undefined, 'voice']) {
+      assert.equal(render(copy, code, feature), expected);
+      assert.equal(render(copy, `delegated reasoning: ${code}`, feature), copy.reasons.delegated.replace('{reason}', expected));
+    }
+    assert.doesNotMatch(narrowVoiceStatus(copy, expected, { reason: code }), /provider|anbieter/iu);
+  }
+});

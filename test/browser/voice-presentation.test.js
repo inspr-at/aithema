@@ -346,7 +346,7 @@ async function checkPhoneVoiceHeader(t, widths) {
         // Tick's copy-table evidence: each named status, then only new short forms
         // among availability/admission sources. Every source still runs every check.
         const capture = width >= 600 || Boolean(evidence &&
-          (!sample.id.startsWith('reason-') || !capturedShorts.has(short)));
+          (sample.reason === 'agent-api-unavailable' || !sample.id.startsWith('reason-') || !capturedShorts.has(short)));
         const geometry = await page.evaluate(async ({ sample, capture }) => {
           const rail = globalThis.ait302Rail, copy = rail.copy;
           rail.session = sample.kind === 'state' && !['idle', 'failed'].includes(sample.id) ? {} : null;
@@ -408,6 +408,10 @@ async function checkPhoneVoiceHeader(t, widths) {
         assert.equal(geometry.accessibleName, sample.full, `${label}: accessible name keeps full sentence`);
         assert.equal(geometry.live, (sample.creditCase ? sample.exhausted : ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id)) ? 'off' : 'polite', `${label}: existing live-region policy`);
         assert.equal(geometry.text, sample.full + (sample.kind === 'consent' ? `\u00a0· ${copy.featureConsent.action}` : ''), `${label}: live announcement keeps full sentence`);
+        if (sample.reason === 'agent-api-unavailable') {
+          assert.equal(geometry.accessibleName, locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now');
+          assert.doesNotMatch(geometry.short, /provider|anbieter/iu);
+        }
         if (width < 600) {
           assert.equal(geometry.font, geometry.captionFont, `${label}: existing phone type scale`);
           if (geometry.canShareLine) assert.equal(geometry.lines.length, 1, `${label}: both consent units fit on one line`);
