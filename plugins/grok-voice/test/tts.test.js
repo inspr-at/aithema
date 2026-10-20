@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGrokTTS, TTS_FORMAT } from '../src/tts.js';
-import { config, operation } from './fixtures.js';
+import { config, operation, expiredEvidenceAt } from './fixtures.js';
 import { ttsHarness, ttsText, TTS_DOC, PRICE_DOC } from './tts-fixtures.js';
 const collect = async source => { const values = []; for await (const value of source) values.push(value); return values; };
 const request = { text: ttsText, voice: 'eve', language: 'de', format: 'pcm_s16le' };
@@ -99,6 +99,6 @@ test('expired evidence, small ceiling and cancelled claim never resolve a secret
     { ...operation().options, attempt: { ...operation().options.attempt, maxMicro: 1 } }]) {
     await assert.rejects(collect(tts.speak(request, options)));
   }
-  assert.throws(() => component(h, { config: { ...config, accountEvidence: { ...config.accountEvidence, expiresAt: '2020-01-01' } } }));
+  assert.throws(() => component(h, { config: { ...config, accountEvidence: { ...config.accountEvidence, expiresAt: expiredEvidenceAt } } }));
   assert.equal(secrets, 0); assert.equal(h.fixtures.requestCount(), 0);
 });

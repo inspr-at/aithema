@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateGrokConfiguration } from '../src/configuration.js';
 import { createGrokSTT, createGrokBatchSTT } from '../src/stt.js';
-import { config } from './fixtures.js';
+import { config, expiredEvidenceAt } from './fixtures.js';
 
 const invalid = [
   { model: 'native-speech-to-speech' }, { sttFormat: { encoding: 'mp3', sampleRateHz: 16000, channels: 1 } },
@@ -17,7 +17,7 @@ const invalid = [
   { accountEvidence: { ...config.accountEvidence, dpaAccepted: false } },
   ...['zdrRef', 'dpaRef', 'retentionRef', 'transferRef', 'approvalRef', 'contractRef'].map(key => ({ accountEvidence: { ...config.accountEvidence, [key]: '' } })),
   { accountEvidence: { ...config.accountEvidence, processing: 'US-only' } },
-  { accountEvidence: { ...config.accountEvidence, expiresAt: '2020-01-01' } },
+  { accountEvidence: { ...config.accountEvidence, expiresAt: expiredEvidenceAt } },
   { accountEvidence: { ...config.accountEvidence, reviewedAt: '2026-02-30' } },
 ];
 for (const [index, override] of invalid.entries()) test(`invalid private configuration ${index} rejects before secrets or transport`, () => {

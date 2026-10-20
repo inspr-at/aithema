@@ -94,7 +94,7 @@ export function mockPresets() {
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
-  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
+  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, now = () => Date.now(), budget = new SQLiteBudgetLedger(storage, { now }), voiceCap, healthMs = 1000, uiRenderLimits = {},
   renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }),
   conversationLimits = createConversationLimits({ storage, now }) } = {}) {
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
@@ -126,8 +126,47 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const componentAccounting = createComposedComponentAccounting({ storage, budget, reserve: admitBudget,
     assertCurrent({ sessionId }) { conversationLimits.assertOpen(sessionId); } });
+  // Voice never inherits the analysis route. Validate every configured model/voice
+  // combination at registration, then recheck the selected route at admission:
+  // saved choices, host recovery and expired evidence cannot bypass this rule.
+  const voiceConfigurationErrors = new Set();
+  const fastReactionRefusal = reason => Object.assign(new PluginError('not-admitted', reason), { reason: 'voice-host-unavailable' });
+  function fastReactionReason(preset, model, voice) {
+    if (localVoiceImplementation(registry.get(voice?.binding?.plugin))) return null;
+    const reaction = model?.bindings.reaction, understanding = model?.bindings.understanding;
+    const plugin = registry.get(reaction?.plugin);
+    // The canonical, zero-cost demo does no model processing. Identity, rather
+    // than a provider name or a host-controlled flag, owns this exemption.
+    if (registry.isCanonicalMock(plugin) && free(reaction)) return null;
+    let reason = !reaction ? 'reaction not configured'
+      : reaction.model === understanding?.model ? 'reaction uses the analysis model'
+      : reaction.effort !== 'none' ? 'reaction effort must be none'
+      : !presets[preset]?.plugins?.includes(reaction.plugin) ? 'reaction plugin not in preset' : null;
+    if (!reason) {
+      try {
+        const binding = createBinding(reaction);
+        reason = bindingReason({ binding, plugin, preset, policy: presets[preset]?.policy, now: now() });
+        const supported = plugin?.manifest.models.find(m => m.id === binding.model) ?? plugin?.manifest.models.find(m => m.id === '*');
+        if (!reason && (!plugin.manifest.kinds.includes('reasoning') || !supported?.streaming || !supported.operations.includes('stream'))) reason = 'reaction streaming unsupported';
+      } catch { reason = 'reaction binding invalid'; }
+    }
+    if (!reason) return null;
+    const key = JSON.stringify([preset, voice?.id, model?.id, reason]);
+    if (!voiceConfigurationErrors.has(key)) {
+      voiceConfigurationErrors.add(key);
+      console.error(`Voice configuration error: preset ${preset}, voice ${voice?.id ?? 'selected'}, reaction binding for model ${model?.id ?? 'default'} requires an explicitly qualified fast reaction route distinct from the analysis binding with effort none (${reason}); voice start refused.`);
+    }
+    // Only a neutral code reaches public availability; operator details stay here.
+    return 'fast reaction binding required';
+  }
   // Invalid host choices fail at startup instead of at a visitor's first request.
-  for (const preset of PROCESSING_PRESETS) if (preset !== 'device') normalizeChoices(presets[preset]);
+  for (const preset of PROCESSING_PRESETS) if (preset !== 'device') {
+    const choices = normalizeChoices(presets[preset]);
+    for (const voice of choices?.voices ?? []) if (voice.binding) {
+      const models = choices.models.filter(model => Object.values(model.bindings).some(Boolean));
+      for (const model of models.length ? models : [null]) fastReactionReason(preset, model, voice);
+    }
+  }
   const choicesFor = preset => { try { return normalizeChoices(presets[preset]); } catch { return null; } };
   // The session's own choice applies to its preset; other presets show their defaults.
   function selectionFor(session, preset) {
@@ -243,7 +282,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     if (visual(feature) && !['generate', 'edit'].includes(operation)) return { reason: 'operation unsupported' };
     if (config?.bindings?.visuals && !['html', 'images'].includes(config.bindings.visuals)) return { reason: 'visual kind invalid' };
     if (!config) return { reason: 'preset not configured' };
-    const { raw, reason: unselected } = options.raw ? { raw: options.raw } : selectedBinding(session, preset, lane);
+    if (feature === 'text' && options.voiceReply === true) {
+      const selected = selectionFor(session, preset);
+      const reason = fastReactionReason(preset, selected.model, selected.voice);
+      if (reason) return { reason: 'binding evidence unverified', configurationError: reason };
+    }
+    const { raw, reason: unselected } = options.raw && !(feature === 'text' && options.voiceReply === true)
+      ? { raw: options.raw } : selectedBinding(session, preset, lane);
     if (!raw) return { reason: unselected };
     if (!config.plugins?.includes(raw.plugin)) return { reason: 'plugin not in preset' };
     let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { return { reason: 'binding invalid' }; }
@@ -292,6 +337,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         coverage = await coverageFor(session, scope, options);
         const reason = consentReason(coverage, scope, now(), session.consentRevision); if (reason) return { reason };
       } catch { return { reason: 'consent port unavailable' }; }
+    }
+    if (feature === 'voice') {
+      const selected = selectionFor(session, preset);
+      const reason = fastReactionReason(preset, selected.model, { ...selected.voice, binding: raw });
+      if (reason) return { reason: 'binding evidence unverified', configurationError: reason };
     }
     const admissionReason = plugin.ports?.serverAdapter?.admissionReason;
     if (feature === 'voice' && admissionReason) {
@@ -470,6 +520,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return adapter ? [adapter] : [];
     }),
     setOwnerWallet(provider) { ownerWallet = provider; },
+    setHostClock(clock) { budget.now = clock; },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       // OPS and the background worker share one writer. A dry-run performs only
@@ -813,6 +864,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         session.processingPreset ?? 'best', 'voice', options);
       const current = storage.get(session.id);
       conversationLimits.assertOpen(session.id);
+      if (result.configurationError) throw fastReactionRefusal(result.configurationError);
       if (result.reason || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn ||
         (!allowPaused && current.paused) || voiceAuthorizationRevision(current) !== voiceAuthorizationRevision(session) ||
         selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason === 'budget denied' ? 'host-limit' : result.reason ?? 'Session changed');
@@ -952,7 +1004,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           // only elapsed + one segment, bounded by the technical end.
           const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
           const extended = budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
-            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
+            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, (extra, context) => ownerWallet?.(session)?.canAdmit(extra, context));
           fundedSeconds = Math.max(fundedSeconds, totalSeconds);
           return extended;
         } } : {}), async consume() {
@@ -1010,6 +1062,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const selected = visualKind(session), html = lane === 'concept' && selected === 'html';
       if (lane === 'concept' && options.visualKind && options.visualKind !== selected) throw new PluginError('not-admitted', 'Visual kind changed');
       const result = await boundedEvaluate(purposeAssessment && session.pauseReason === 'purpose' ? { ...session, paused: false } : session, session.processingPreset ?? 'best', lane === 'concept' ? selected : lane === 'reaction' ? 'text' : 'analysis', { ...options, operation, costRequest: request });
+      if (result.configurationError) throw fastReactionRefusal(result.configurationError);
       if (result.reason) throw new PluginError(result.reason.startsWith('UI render limit reached') ? 'rate-limit' : 'not-admitted', result.reason);
       options.signal?.throwIfAborted();
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
