@@ -88,7 +88,7 @@ export async function creditHostOptionsCheck(t) {
       const r = c.shadowRoot, rect = selector => { const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
       const visible = selector => { const n = r.querySelector(selector); return !!n && !n.hidden && !n.inert && getComputedStyle(n).visibility === 'visible'; };
       return { boxes: Object.fromEntries(['.composer-shell', '.question-card', '.composer-out'].map(s => [s, rect(s)])),
-        emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
+        overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth), emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
         newAction: visible('.composer-out__new'), upgrade: visible('.composer-out__upgrade'), export: visible('.composer-out__export'),
         actionRowHidden: r.querySelector('.composer-out__actions').getAttribute('aria-hidden'), next: r.querySelector('.host-credits__next').textContent,
         current: r.querySelector('.host-credits__current').textContent, panelDeadline: r.querySelector('.composer-out__deadline')?.textContent, deadline: r.querySelector('.host-credits__deadline').textContent,
@@ -105,6 +105,7 @@ export async function creditHostOptionsCheck(t) {
       const value = await scene(state, locale, theme), label = `${locale}/${theme}/${width}/${state}`;
       if (!baseline) baseline = value.boxes;
       assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
+      assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
       assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
       if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
       if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ wieder verfügbar$/u : /^Available again from /u); assert.equal(value.panelDeadline, value.deadline); }

@@ -190,7 +190,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const slot = creditsView(projected, clock(projected));
     // Wallet session refusals are a read-only projection: an acknowledged tier
     // increase can reopen them without restarting the conversation deadline.
-    if (preview?.reason === 'session' && !['ending', 'ended'].includes(slot.status)) {
+    if (preview?.reason === 'session' && (!['ending', 'ended'].includes(slot.status) || slot.endReason === 'host-limit')) {
       slot.status = 'ended'; slot.endReason = 'session'; slot.canStartPaidWork = false;
     }
     return { balance, limitSlot: slot, tiers, exhausted, fullHold, reconciling, ...warning,

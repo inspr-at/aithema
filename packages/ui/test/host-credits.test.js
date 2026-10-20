@@ -556,6 +556,8 @@ for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, sess
   assert.equal(root.querySelector('.composer-out__body span').textContent, copy.hostSurface.credits.ended.newConversationHint);
   assert.equal(root.querySelector('.composer-out__new').hidden, false);
   assert.equal(root.querySelector('.composer-out__export').inert, false);
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.ended.session.title, 'session takes precedence over a later host-limit event');
 });
 
 for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and custom offer uses the separate key (${copy.display.locale})`, async t => {

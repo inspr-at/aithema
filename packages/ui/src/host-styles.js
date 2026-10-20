@@ -206,6 +206,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits[data-reconciling] .host-credits__reconciling { visibility:visible; }
 .host-credits[data-reconciling] :is(.host-credits__text,.host-credits__used-up) { visibility:hidden; }
 .m-delete-reason { color:var(--aithema-muted); }
+.m-mail-notice[data-delete-reservation] { display:grid; }
+.m-mail-notice[data-delete-reservation] > span { grid-area:1/1; min-width:0; }
+.m-mail-notice[data-delete-reservation] .m-notice-measure { display:block; visibility:hidden; }
 .m-notice .m-pp:not([href]) { color:inherit; text-decoration:none; cursor:inherit; }
 /* Footer labels share a cell. The track and the neighboring controls never move. */
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }

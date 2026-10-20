@@ -373,7 +373,7 @@ export class HostSurface {
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
     if (reconciling) button.setAttribute('aria-label', c.reconciling);
     current.hidden = !tiers || tiers.current === 'anonymous';
-    if (tiers) setText(current.querySelector('span:last-child'), tierText(fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) })));
+    if (tiers) setText(current.querySelector('span:last-child'), tierText(fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale), n: format(tiers.allowancesMicro?.[tiers.current], locale) })));
     // Built-in RC13 dictionaries retain their historic anonymous offer. A host
     // supplies afterConfirm by providing its own credits dictionary; absence falls back.
     const hasOfferCopy = Object.hasOwn(c, 'afterConfirm') && c !== de.hostSurface.credits && c !== en.hostSurface.credits;

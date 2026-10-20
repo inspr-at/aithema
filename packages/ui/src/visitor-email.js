@@ -183,6 +183,8 @@ export class VisitorEmail {
     this.q('.m-mail-notice').style.visibility = this.address && this.canDelete === true ? 'hidden' : '';
     if (this.address && this.canDelete !== true) {
       const notice = this.q('.m-mail-notice');
+      notice.setAttribute('data-delete-reservation', '');
+      setText(notice.querySelector('.m-notice-old'), this.noticeText());
       const text = notice.querySelector('.m-notice-content .m-notice-text') ?? notice.querySelector('.m-notice-text');
       const link = notice.querySelector('.m-notice-content .m-pp') ?? notice.querySelector('.m-pp');
       const [before, after] = e.deleteUnavailable.split('{privacy}');
@@ -194,7 +196,7 @@ export class VisitorEmail {
       let savedReason = this.q('.m-delete-reason');
       if (!savedReason) { savedReason = notice.cloneNode(true); savedReason.className = 'm-delete-reason m-notice'; this.q('[data-view="saved"]').append(savedReason); }
       savedReason.innerHTML = notice.innerHTML; savedReason.style.visibility = '';
-    } else { this.q('.m-delete-reason')?.remove(); this.q('.m-delete-tail')?.remove(); }
+    } else { this.q('.m-delete-reason')?.remove(); this.q('.m-delete-tail')?.remove(); this.q('.m-mail-notice').removeAttribute('data-delete-reservation'); }
     this.q('.m-mail-notice').inert = Boolean(this.address && this.canDelete === true);
     this.q('.m-change').setAttribute('aria-disabled', String(!this.canCollect));
   }
