@@ -561,3 +561,13 @@ test('owner wallet kit rejects a wallet accepting mismatched request fingerprint
     assert.ok(result.failures.includes(`owner attempt conflict ${field}`), field);
   }
 });
+
+for (const reason of ['session', 'host-limit', 'unknown', undefined]) test(`AIT-411 O7: wallet refusal ${reason} survives preview and atomic admission`, async () => {
+  const ledger = { sessionCapMicro: 100, visitorCapMicro: 100, used: () => 0, visitorUsed: () => 0,
+    canAdmit: () => true, admit: () => { throw new Error('must not reserve'); } };
+  const refusal = { ok: false, reason }, expected = reason === 'session' ? 'session' : 'host-limit';
+  const wallet = { ...ownerWallet, canAdmit: () => refusal, admit: async () => refusal };
+  assert.equal(creditAdmission(ledger, 's', 1, 0, wallet).reason, expected);
+  wallet.canAdmit = () => true;
+  assert.equal((await creditContracts.admitCredits(ledger, { ...walletRequest, attemptId: crypto.randomUUID() }, wallet)).reason, expected);
+});
