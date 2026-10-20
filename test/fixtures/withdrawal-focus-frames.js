@@ -178,10 +178,12 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
           // lane clears it and returns to ready through the production renderer.
           const { inputRevision } = await import('/packages/core/src/session.js');
           window.stagePartial = () => c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:inputRevision(c.session) } });
-          if (mode === 'hide') stagePartial();
           document.body.style.paddingBottom = '1600px'; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
         }, mode);
         const result = await page.evaluate(mode => {
+          // Keep both transitions and the measurements in one task, before
+          // the offline fixture's failed event stream can clear the partial.
+          if (mode === 'hide') stagePartial();
           const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), workspace = r.querySelector('.workspace');
           const measure = () => ({ inset:parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0,
             shellTop:shell.getBoundingClientRect().top, bubbleTop:shell.querySelector('.turn').getBoundingClientRect().top,
