@@ -4,6 +4,7 @@ import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers, buildVoiceReplyRequest } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
 import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
+import { createTouchVisitor } from './host-activity.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
 import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
@@ -221,15 +222,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
   const conceptHandlers = createConceptHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal, ...concepts });
-  const touchVisitor = session => {
-    const failed = () => {
-      try { Promise.resolve(log({ event: 'host.touch-visitor.failed', sessionId: session.id })).catch(() => {}); }
-      catch { /* Diagnostics cannot interrupt a turn or call. */ }
-    };
-    // Activity is best effort: accepted input and call controls must continue.
-    try { Promise.resolve(host?.touchVisitor?.(session)).catch(failed); }
-    catch { failed(); }
-  };
+  const touchVisitor = createTouchVisitor({ host, log });
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
@@ -248,7 +241,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     async onWithdraw(id, event) {
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
-  const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot,
+  const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot, log,
     budget: pluginRuntime.budget, conversationLimits: pluginRuntime.conversationLimits, signal: stop.signal, now: host?.now, deadlineMs,
     async createConversation(ownerToken, options = {}) {
       const initial = await initialSettings(ownerToken, options);
@@ -514,7 +507,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       hostHandlers.initialize(id, ownerToken);
       const guard = { ownerToken, revision: inputRevision(authorized) };
       if (!action && request.method === 'GET') {
-        host?.touchVisitor?.(authorized);
+        touchVisitor(authorized);
         return json(await snapshot(id));
       }
       if (action === 'events' && request.method === 'GET') return events(request, id);
@@ -594,13 +587,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           event = storage.pause(id, true, { ownerToken }); broadcast(id, event);
           await voiceHandlers?.pauseSession(id, true, { deadlineAt: now() + deadlineMs, now });
         } else {
+          // Refuse before voice resume, journal writes, broadcasts or scheduling.
+          hostHandlers.assertPauseAllowed(id, false);
           const before = storage.get(id).seq;
           const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: now() + deadlineMs, now });
           event = voiceAck ? storage.read(id, before).find(e => e.type === 'session.paused') : storage.pause(id, false, guard);
           if (event) broadcast(id, event);
         }
-        if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
         hostHandlers.syncPause(id, ownerToken);
+        if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
         return json({ paused: storage.get(id).paused, event });
       }
       if (action === 'withdraw' && request.method === 'POST') {
