@@ -10,6 +10,8 @@ const HOUR = 60 * 60_000, epoch = 1_800_000_000_000, owner = 'deadline-owner';
 function fixture(t, { path, at = epoch, ownerGuard = false } = {}) {
   let time = at;
   const storage = new SQLiteStorage(path), now = () => time;
+  // Admission deadlines and the host's conversation limit must use one clock.
+  t.mock.method(Date, 'now', now);
   const host = createDemoHost({ storage, now, ownerGuard, demoBypass: true });
   const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: time, expiresAt: time + 60_000 }) };
   const runtime = createPluginRuntime({ storage, now, consent, presets: mockPresets() });

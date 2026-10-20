@@ -81,18 +81,19 @@ test('reservation replay and recovery extend the same call by remaining duration
 test('reservations, actual usage and overruns persist across restart', async t => {
   const midnight = Date.parse('2028-10-21T00:00:00Z');
   t.mock.timers.enable({ apis: ['Date'], now: midnight - 1 });
+  const now = () => midnight - 1;
   const path = await temporaryDb(); let storage = new SQLiteStorage(path); t.after(() => storage.close());
-  let cap = createVoiceCap({ storage, capMilliseconds: 120_000, perDayMilliseconds: 120_000 });
+  let cap = createVoiceCap({ storage, capMilliseconds: 120_000, perDayMilliseconds: 120_000, now });
   const first = reserve(cap, 'first'), second = reserve(cap, 'second');
   cap.settle(first, 30); const before = cap.snapshot();
   t.mock.timers.setTime(midnight);
   storage.close(); storage = new SQLiteStorage(path);
-  cap = createVoiceCap({ storage, capMilliseconds: 120_000, perDayMilliseconds: 120_000 });
+  cap = createVoiceCap({ storage, capMilliseconds: 120_000, perDayMilliseconds: 120_000, now });
   assert.deepEqual(cap.snapshot(), before);
   assert.throws(() => reserve(cap, 'third', 30_001), { code: 'not-admitted' });
   cap.settle(second, 91);
   storage.close(); storage = new SQLiteStorage(path);
-  cap = createVoiceCap({ storage, capMilliseconds: 120_000, perDayMilliseconds: 120_000 });
+  cap = createVoiceCap({ storage, capMilliseconds: 120_000, perDayMilliseconds: 120_000, now });
   assert.equal(cap.snapshot().spentMilliseconds, 121_000);
   assert.equal(cap.snapshot().reservedMilliseconds, 0);
   assert.equal(cap.reason(0), VOICE_CAP_REASON);

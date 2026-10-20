@@ -263,7 +263,7 @@ test('AIT-322: module erase and retirement triggers respect session and visitor 
       } else {
         if (trigger === 'storage-retirement') host.storage.erase(session.id);
         else {
-          host.storage.append(session.id, 'turn.final', { id: 'old-turn', role: 'user', content: 'old input', at: '2000-01-01T00:00:00.000Z' });
+          host.storage.append(session.id, 'turn.final', { id: 'old-turn', role: 'user', content: 'old input', at: new Date(Date.now() - 86_400_000).toISOString() });
           await host.handlers.expire(Date.now());
           assert.equal(rows('host_visitor_tiers', session.ownerHash).length, 1, 'content expiry alone is not full erasure');
           assert.equal(rows('host_tier_holds', session.ownerHash).length, 2);
@@ -312,7 +312,7 @@ async function eraseOneSession(host, session, owner, trigger) {
   } else {
     if (trigger === 'storage-retirement') host.storage.erase(session.id);
     else {
-      host.storage.append(session.id, 'turn.final', { id: 'expired-turn', role: 'user', content: 'old input', at: '2000-01-01T00:00:00.000Z' });
+      host.storage.append(session.id, 'turn.final', { id: 'expired-turn', role: 'user', content: 'old input', at: new Date(Date.now() - 86_400_000).toISOString() });
       await host.handlers.expire(Date.now());
       assert.ok(host.storage.get(session.id), 'content expiry keeps the session');
       host.storage.db.prepare('UPDATE session_retention SET last_activity=1 WHERE session_id=?').run(session.id);

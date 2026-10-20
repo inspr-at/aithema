@@ -180,10 +180,11 @@ test('retirement removes accounting links while preserving deployment spend and 
   const midnight = Date.parse('2028-10-21T00:00:00Z');
   t.mock.timers.enable({ apis: ['Date'], now: midnight - 1 });
   const { storage, handlers } = fixture(t), s = storage.create();
-  const ledger = new SQLiteBudgetLedger(storage);
-  const spend = createSpendCap({ storage, account: 'test-account', capMicro: 100 });
-  const voice = createVoiceCap({ storage, capMilliseconds: 60_000, perDayMilliseconds: 60_000 });
-  const renders = createUIRenderLimiter({ storage, perDay: 1 });
+  const now = () => midnight - 1;
+  const ledger = new SQLiteBudgetLedger(storage, { now });
+  const spend = createSpendCap({ storage, account: 'test-account', capMicro: 100, now });
+  const voice = createVoiceCap({ storage, capMilliseconds: 60_000, perDayMilliseconds: 60_000, now });
+  const renders = createUIRenderLimiter({ storage, perDay: 1, now });
   ledger.admit({ attemptId: 'attempt', sessionId: s.id, lane: 'concept', maxMicro: 100, requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
   const reservation = spend.reserve(100, { attemptId: 'attempt', provider: 'private-provider' });
   spend.record(reservation, { generationId: 'private-generation', chargedMicro: 101 });
