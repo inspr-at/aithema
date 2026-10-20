@@ -57,7 +57,8 @@ export const previewCopy = Object.freeze({ label: 'Draft, generated', title: 'Ge
   unavailable: "This preview isn't available.",
   policy: "Previews aren't enabled on this site.",
   policyOperator: 'For site operators: the exact preview address must be allowed as a frame.' });
-const MESSAGE_STATES = ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy', 'unavailable'];
+// The neutral unavailable sentence fits the existing longest-message reserve.
+const MESSAGE_STATES = ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy'];
 const FRAME_READY = 'aithema-html-preview-ready';
 // A private reply port distinguishes a served draft from an error document.
 // It proves display readiness; the response and host CSP enforce containment.
