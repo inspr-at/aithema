@@ -5,6 +5,7 @@ import { assertComponentUsage } from '@inspr/aithema-core/voice-components';
 import { createVoiceComponentStore } from './voice-operation-storage.js';
 const integer = n => Number.isSafeInteger(n) && n >= 0;
 const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL) AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0 AND COALESCE(json_extract(usage,'$.estimated'),0)=0 AND COALESCE(json_extract(cost_reconciliation_json,'$.estimated'),0)=0";
+const mutable = "NOT EXISTS (SELECT 1 FROM retirement_pending WHERE session_id=budget_attempts.session_id AND billing_sealed=1)";
 const maximumExposure = "MAX(max_micro,COALESCE(json_extract(component_json,'$.observedMicro'),0))";
 // Slim port of Gen-2 runtime/budget/{sqlite,gate}: reservation under BEGIN IMMEDIATE,
 // UNIQUE claims, burned before provider opening, conservative unknown recovery.
@@ -66,7 +67,13 @@ export class SQLiteBudgetLedger {
       WHERE state='settled' AND provider_cost_json IS NULL AND outcome='uncertain' AND lane IN ('reaction','understanding');
       CREATE INDEX IF NOT EXISTS budget_cost_deferred ON budget_attempts(json_extract(provider_cost_json,'$.retryAt'))
       WHERE state='settled' AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=1
-        AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL;`);
+        AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL;
+      CREATE TRIGGER IF NOT EXISTS budget_retirement_update BEFORE UPDATE ON budget_attempts
+        WHEN EXISTS (SELECT 1 FROM retirement_pending WHERE session_id=OLD.session_id AND billing_sealed=1)
+        BEGIN SELECT RAISE(ABORT,'Retirement billing sealed'); END;
+      CREATE TRIGGER IF NOT EXISTS budget_retirement_insert BEFORE INSERT ON budget_attempts
+        WHEN EXISTS (SELECT 1 FROM retirement_pending WHERE session_id=NEW.session_id AND billing_sealed=1)
+        BEGIN SELECT RAISE(ABORT,'Retirement billing sealed'); END;`);
   }
   // AIT-201: counts only, derived from existing admitted attempts. No second ledger.
   startOutcome(attemptId, lane) {
@@ -322,15 +329,15 @@ export class SQLiteBudgetLedger {
     // Keep the predicates identical to the partial indexes: the legacy branch
     // must not turn the normal receipt lookup into a full-ledger OR scan.
     return this.db.prepare(`SELECT * FROM budget_attempts WHERE state='settled' AND provider_cost_json IS NOT NULL
-      AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0
+      AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0 AND ${mutable}
       UNION ALL SELECT * FROM budget_attempts WHERE state='settled' AND provider_cost_json IS NULL
-        AND outcome='uncertain' AND lane IN ('reaction','understanding') ORDER BY attempt_id`).all();
+        AND outcome='uncertain' AND lane IN ('reaction','understanding') AND ${mutable} ORDER BY attempt_id`).all();
   }
   deferredCosts(atMs) {
     return this.db.prepare(`SELECT * FROM budget_attempts WHERE state='settled'
       AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=1
       AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL
-      AND json_extract(provider_cost_json,'$.retryAt')<=? ORDER BY attempt_id`).all(atMs);
+      AND json_extract(provider_cost_json,'$.retryAt')<=? AND ${mutable} ORDER BY attempt_id`).all(atMs);
   }
   acknowledgeCost(attemptId, retryAt = null, retryAttempts = null) {
     if (retryAttempts !== null && !integer(retryAttempts)) throw new TypeError('Invalid cost retry count');
@@ -433,6 +440,9 @@ export class SQLiteBudgetLedger {
   releaseUnderstandingCredits(attemptId) {
     this.db.prepare("UPDATE budget_attempts SET visitor_credit_released=1 WHERE attempt_id=? AND lane='understanding' AND state='settled'").run(attemptId);
   }
+  releaseReplyCredits(attemptId) {
+    this.db.prepare("UPDATE budget_attempts SET visitor_credit_released=1 WHERE attempt_id=? AND lane='reaction' AND state='settled'").run(attemptId);
+  }
   settleVoice(claimId, terminal) {
     const known = terminal?.closureConfirmed === true && ['completed', 'cancelled'].includes(terminal.outcome) &&
       ['providerSeconds', 'providerMinutes', 'pausedSeconds', 'visitorSeconds'].every(k => Number.isFinite(terminal.usage?.[k]) && terminal.usage[k] >= 0) &&
@@ -495,7 +505,7 @@ export class SQLiteBudgetLedger {
   get(attemptId) { return this.db.prepare('SELECT * FROM budget_attempts WHERE attempt_id=?').get(attemptId); }
   recover(sessionId) {
     return this.storage.transaction(() => {
-      const rows = this.db.prepare("SELECT * FROM budget_attempts WHERE state!='settled' AND (? IS NULL OR session_id=?)").all(sessionId ?? null, sessionId ?? null);
+      const rows = this.db.prepare(`SELECT * FROM budget_attempts WHERE state!='settled' AND (? IS NULL OR session_id=?) AND ${mutable}`).all(sessionId ?? null, sessionId ?? null);
       for (const row of rows) {
         if (row.lane === 'voice') this.freezeVoiceEstimate(row.attempt_id);
         const providerRecord = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;

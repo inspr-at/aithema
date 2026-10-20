@@ -293,6 +293,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-mail .m-cancel { grid-area:cancel; margin-left:0; } .m-form:not(.editing) .m-cancel { visibility:hidden; }
 .m-form .m-msg { grid-area:msg; }
 .m-msg { display:flex; align-items:center; gap:.4rem; min-height:2.6em; margin:0; font-size:.8rem; line-height:1.3; color:var(--aithema-ink); }
+.verify__message.identity-stream-wait,.m-msg.identity-stream-wait { color:var(--aithema-muted); }
 .m-ico { flex:none; width:14px; height:14px; display:grid; color:var(--aithema-accent); } .m-ico:empty { visibility:hidden; }
 .m-form .m-notice { grid-area:notice; }
 .m-notice { font-size:.75rem; line-height:1.5; color:var(--aithema-muted); max-width:34rem; margin:0; }

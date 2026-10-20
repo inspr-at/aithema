@@ -37,7 +37,7 @@ export const hostImports = [...['VOICE', 'IMAGE'].map(kind =>
   `(await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_${kind}_HOST_MODULE)).href`),
   'pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href',
   'pathToFileURL(resolve(process.env.AITHEMA_GROK_VOICE_HOST_MODULE)).href'];
-export const browserSources = ['demo/host.js', 'demo/consent-page.js', 'demo/admin-view.js', 'demo/admin-copy.js', 'demo/fake-voice.js'];
+export const browserSources = ['demo/host.js', 'demo/reason-text.js', 'demo/consent-page.js', 'demo/admin-view.js', 'demo/admin-copy.js', 'demo/fake-voice.js'];
 export function renderExceptionTable() {
   return ['| Source | Exact exception | Owner / reason |', '| --- | --- | --- |',
     ...edgeExceptions.map(row => `| \`${row.from}\` | \`${row.targets.join('`, `')}\` | ${row.reason} |`),

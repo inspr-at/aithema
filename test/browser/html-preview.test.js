@@ -896,6 +896,11 @@ test('AIT-369: delivered coverage survives visual choices and revokes per kind',
   await deliveredConsentFrames(t);
 });
 
+test('AIT-374: unavailable revision keeps its preview slot between good siblings', { timeout: 45_000 }, async t => {
+  const { artifactConsentFrames } = await import('../fixtures/artifact-consent-frames.js');
+  await artifactConsentFrames(t);
+});
+
 // AIT-386 stays in the existing preview shard: reuse one page for the request
 // matrix and two viewport pairs, without another browser file or shard bin.
 test('AIT-386: delivered artifacts never turn draft bytes into image requests', { timeout: 45_000 }, async t => {
@@ -1061,4 +1066,9 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
 test('AIT-385: withdrawal removes the empty focus tile and clears the chevron', { timeout: 45_000 }, async t => {
   const { withdrawalFocusFrames } = await import('../fixtures/withdrawal-focus-frames.js');
   await withdrawalFocusFrames(t);
+});
+
+test('AIT-400: withdrawal preserves the top transcript row and reserved status slot', { timeout: 45_000 }, async t => {
+  const { withdrawalFocusFrames } = await import('../fixtures/withdrawal-focus-frames.js');
+  await withdrawalFocusFrames(t, { transcriptTop: true });
 });

@@ -1321,7 +1321,8 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
     const short = narrow.dataset.copy;
     const approved = approvedNarrowForm(copy, sample);
     if (approved) assert.equal(short, approved, `${sample.reason ?? sample.id}: Tick’s approved short form`);
-    assert.ok(short && [...short].length <= 22, `${sample.id}: ${short}`);
+    if (sample.creditCase) assert.equal(short, sample.short, `${sample.id}: exact AIT-422 status`);
+    else assert.ok(short && [...short].length <= 22, `${sample.id}: ${short}`);
     assert.equal(narrow.getAttribute('aria-hidden'), 'true');
     const expected = sample.full + (sample.kind === 'consent' ? '\u00a0· ' : '');
     assert.equal(full.textContent, expected, `${sample.id}: >=600px output unchanged`);
@@ -1341,7 +1342,7 @@ for (const copy of [de, en]) test(`AIT-310: ${copy.display.locale} credit owners
     if (source !== 'end') {
       rail.usedUp = () => false; rail.endReason = () => null;
       rail.feature = () => ({ available: false, rawReason: sample.endReason ?? sample.reason, reason: copy.voiceStates.usedUp });
-      full = copy.voiceStates.usedUp;
+      full = sample.full;
       if (source === 'admission') rail.failure({ code: 'not-admitted', reason: sample.endReason ?? sample.reason });
     }
     rail.render();
