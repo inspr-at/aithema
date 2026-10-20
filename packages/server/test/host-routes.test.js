@@ -756,10 +756,14 @@ test('verified identity erasure keeps replay revisions stable while removing add
 test('AIT-405: a throwing tier display callback cannot strand a saved and broadcast turn', async t => {
   const f = fixture(t, { demoBypass: true }), session = await f.create();
   const tiers = t.mock.method(f.host, 'creditTiers', () => { throw new Error('tier display unavailable'); });
-  const stream = await f.call(`/api/sessions/${session.id}/events?after=${f.storage.get(session.id).seq}`);
+  const abort = new AbortController();
+  const stream = await f.handlers.handle(new Request(`http://local/api/sessions/${session.id}/events?after=${f.storage.get(session.id).seq}`, {
+    headers: { 'x-aithema-session-token': owner }, signal: abort.signal,
+  }));
   const response = await f.call(`/api/sessions/${session.id}/turns`, { clientEventId: 'tier-failure', content: 'systems: API' });
   await f.handlers.idle();
-  const events = await readEvents(stream, 1);
+  abort.abort();
+  const events = await readEvents(stream, Infinity);
   assert.equal(events.some(event => event.type === 'turn.final' && event.data.id === 'tier-failure'), true);
   assert.equal(response.status, 200);
   assert.equal(tiers.mock.callCount(), 0, 'tier display has no role in initial admission');
@@ -770,7 +774,10 @@ test('AIT-405: a throwing tier display callback cannot strand a saved and broadc
 for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} fails closed before saving or broadcasting a turn`, async t => {
   const f = fixture(t, { demoBypass: true }), session = await f.create();
   const before = f.storage.get(session.id), journal = f.storage.read(session.id);
-  const stream = await f.call(`/api/sessions/${session.id}/events?after=${before.seq}`);
+  const abort = new AbortController();
+  const stream = await f.handlers.handle(new Request(`http://local/api/sessions/${session.id}/events?after=${before.seq}`, {
+    headers: { 'x-aithema-session-token': owner }, signal: abort.signal,
+  }));
   const wallet = f.host.wallet;
   const broken = t.mock.method(f.host, 'wallet', (token, context) => {
     if (failure === 'wallet') throw new Error('wallet unavailable');
@@ -779,7 +786,8 @@ for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} 
   const body = { clientEventId: 'wallet-failure', content: 'systems: API' };
   const response = await f.call(`/api/sessions/${session.id}/turns`, body);
   await f.handlers.idle();
-  const events = await readEvents(stream, 1);
+  abort.abort();
+  const events = await readEvents(stream, Infinity);
   assert.equal(response.status, 500);
   assert.deepEqual(f.storage.get(session.id), before, 'failed credit reads leave no saved turn or partial credit state');
   assert.deepEqual(f.storage.read(session.id), journal);
