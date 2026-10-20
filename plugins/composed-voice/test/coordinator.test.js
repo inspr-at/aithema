@@ -157,21 +157,21 @@ for (const turn of ['typed', 'spoken']) for (const late of [false, true]) {
       relay = createComposedRelay({ callId: request.callId, providerSessionId: 'composed-generation-1', epoch: 0,
         expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
       h = fixture(t, { callId: request.callId, interruptionAwareness: true,
-      commitUtterance: async (envelope, opts) => { saved.push({ envelope, ...opts }); },
-      relay: { audio: frame => relay.audio(frame), silence: frame => relay.silence(frame), event: value => {
-        if (value.type === 'final' && value.role === 'assistant') serverFinals.push(value);
-        relay.event(value);
-      } },
-      replyExecutor: { async *execute(envelope) {
-        const first = envelope.payload.callbackBody.messages.at(-1).content === 'First';
-        const replyId = first ? 'reply-A' : 'reply-B', text = first ? 'First answer. ' : 'Second answer.';
-        yield { type: 'operation', replyId };
-        // A is audible but reasoning has not completed when B interrupts it.
-        if (first) { yield { type: 'delta', text }; await releaseA.promise; }
-        else { await releaseB.promise; yield { type: 'delta', text }; }
-        yield { type: 'completion', replyId, text };
-      } },
-      tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(4); } } });
+        commitUtterance: async (envelope, opts) => { saved.push({ envelope, ...opts }); },
+        relay: { audio: frame => relay.audio(frame), silence: frame => relay.silence(frame), event: value => {
+          if (value.type === 'final' && value.role === 'assistant') serverFinals.push(value);
+          relay.event(value);
+        } },
+        replyExecutor: { async *execute(envelope) {
+          const first = envelope.payload.callbackBody.messages.at(-1).content === 'First';
+          const replyId = first ? 'reply-A' : 'reply-B', text = first ? 'First answer. ' : 'Second answer.';
+          yield { type: 'operation', replyId };
+          // A is audible but reasoning has not completed when B interrupts it.
+          if (first) { yield { type: 'delta', text }; await releaseA.promise; }
+          else { await releaseB.promise; yield { type: 'delta', text }; }
+          yield { type: 'completion', replyId, text };
+        } },
+        tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(4); } } });
       relay.attach(h.coordinator);
       return { ...relay.grant, epoch: 0, mediaGrant: relay.grant };
     };

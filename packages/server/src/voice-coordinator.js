@@ -394,7 +394,10 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           // aborts this reply signal and prevents any later final publication.
           if (!signal.aborted) {
             appendHistory('assistant', full);
-            event({ type: 'final', role: 'assistant', turnId: replyId, text: full });
+            // Keep completed reasoning, but an interrupted reply cannot answer
+            // the visitor's next turn through the browser's live reply signal.
+            event({ type: 'final', role: 'assistant', turnId: replyId, text: full,
+              ...(delivery.interrupted || revision !== playbackRevision ? { interrupted: true } : {}) });
           }
           await speak(pending, revision, signal, playback);
         } else throw new PluginError('invalid-output');

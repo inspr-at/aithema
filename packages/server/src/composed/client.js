@@ -94,6 +94,9 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
             playbackRevision = frame.playbackRevision;
             if (!playbackBlocked) playFrame(frame, source);
           } else if (frame.type === 'event') {
+            // Durable transcript/interruption records belong to the server.
+            // A late interrupted final must not satisfy the next turn's S5 watch.
+            if (frame.event.type === 'final' && frame.event.role === 'assistant' && frame.event.interrupted === true) continue;
             if (frame.event.type === 'final' && frame.event.role === 'user') retirePlayback();
             if (frame.event.type === 'waiting') { hold = true; holdRevision++; localStop(); lifecycle.wait(frame.event.reason); }
             else if (frame.event.type === 'ended') {
