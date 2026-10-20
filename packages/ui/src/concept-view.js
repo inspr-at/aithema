@@ -73,6 +73,23 @@ export class ConceptView {
       ...['draftsPreset', 'draftsDevice', 'draftsQuote', 'draftsTimeout'].map(key =>
         `${copy.display[key]}${reasonSeparator}${copy.display[key === 'draftsPreset' || key === 'draftsDevice' ? 'draftsChoose' : 'draftsRetry']}`),
     ].map(words => { const line = document.createElement('span'); line.textContent = words; return line; }));
+    // Consent recovery is another status in the same permanent rail cell.
+    for (const feature of ['html', 'images']) {
+      const line = document.createElement('span'), action = document.createElement('span');
+      line.textContent = `${copy.featureConsent[feature]}${reasonSeparator}`;
+      action.className = 'drafts-consent-action-reserve'; action.textContent = copy.featureConsent.action;
+      line.append(action); root.querySelector('.drafts-reason-reserve').append(line);
+    }
+    // Withdrawal and expiry share the existing status grid, including wrapped DE copy.
+    root.querySelector('.concept-withdrawn-reserve').replaceChildren();
+    for (const key of ['conceptWithdrawn', 'conceptDraftWithdrawn', 'conceptImageWithdrawn']) {
+      for (const narrow of [false, true]) {
+        const line = document.createElement('span');
+        line.className = `drafts-withdrawn-reserve ${narrow ? 'narrow' : 'wide'}`;
+        line.textContent = copy[key + (narrow && key !== 'conceptWithdrawn' ? 'Narrow' : '')];
+        root.querySelector('.concept-withdrawn-reserve').append(line);
+      }
+    }
     root.querySelector('.concept-image').alt = copy.conceptImageAlt;
     if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
     root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });
@@ -82,7 +99,7 @@ export class ConceptView {
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
     this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      <div class="concept-activity"><span class="concept-activity-text" role="status"></span><span class="drafts-reason-reserve" aria-hidden="true"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
+      <span class="drafts-reason-reserve" aria-hidden="true"></span><div class="concept-activity"><span class="concept-activity-text" role="status"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
       <button class="concept-request" type="button"></button>`;
     // The label shares one cell with both possible labels, so the thumbnail keeps its width when an image or a draft arrives.
     root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><span class="concept-preview-thumbs"><img alt="" aria-hidden="true" decoding="async"><img alt="" aria-hidden="true" decoding="async"></span><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-label"></span><span class="concept-preview-sizer" aria-hidden="true"></span><span class="concept-preview-sizer" aria-hidden="true"></span></span></button>`;
@@ -91,6 +108,8 @@ export class ConceptView {
     const reserve = document.createElement('span'); reserve.className = 'concept-preview-reserve'; reserve.setAttribute('aria-hidden', 'true');
     reserve.innerHTML = `<span class="concept-preview-glyph">${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-sizer"></span><span class="concept-preview-sizer"></span></span>`;
     root.querySelector('.concept-preview-slot').append(reserve);
+    const statusReserve = document.createElement('span'); statusReserve.className = 'concept-withdrawn-reserve'; statusReserve.setAttribute('aria-hidden', 'true');
+    root.querySelector('.concept-access').append(statusReserve);
     const dialog = document.createElement('dialog'); dialog.className = 'concept-viewer'; dialog.setAttribute('aria-labelledby', 'concept-title');
     dialog.innerHTML = `<header class="concept-viewer-head"><h2 id="concept-title"></h2><span class="concept-count" aria-live="polite"></span><button class="concept-close" type="button"></button></header>
       <div class="concept-stage"><img class="concept-image" decoding="async"><aithema-html-preview class="concept-html" fill hidden></aithema-html-preview><p class="concept-image-status" role="status"></p></div>

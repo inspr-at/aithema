@@ -232,7 +232,16 @@ svg { display:block; flex:none; }
 .concept-activity { grid-area:1/2; min-width:0; display:grid; gap:.2rem; }
 .concept-activity-text, .drafts-reason-reserve { grid-area:1/1; font-size:.8125rem; color:var(--aithema-muted); line-height:1.4; }
 .drafts-reason-reserve { display:grid; visibility:hidden; pointer-events:none; }
+.concept-rail > .drafts-reason-reserve { grid-area:1/2; }
+.drafts-consent-action-reserve { white-space:nowrap; }
 .drafts-reason-reserve > span { grid-area:1/1; }
+.concept-withdrawn-reserve { display:grid; grid-area:1/1; align-self:center; min-width:0; visibility:hidden; pointer-events:none; font-size:14px; }
+.concept-withdrawn-reserve > span { grid-area:1/1; }
+.drafts-withdrawn-reserve.narrow { display:none; }
+@media(max-width:600px) {
+  .drafts-withdrawn-reserve.wide { display:none; }
+  .drafts-withdrawn-reserve.narrow { display:block; }
+}
 .concept-progress, .concept-countdown { display:none; }
 .concept-rail[data-phase="pending"] :is(.concept-progress,.concept-countdown) { display:block; }
 .concept-request { grid-area:1/2; justify-self:start; min-height:44px; padding:.4rem 0; font-size:.8125rem; line-height:1.4; text-align:left; }
@@ -348,11 +357,12 @@ svg { display:block; flex:none; }
 @media(prefers-reduced-motion:reduce) { :is(.concept-backdrop,.concept-preview) img { transition:none; } }
 
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
-.transcript-shell { position:relative; min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
+.transcript-shell { position:relative; margin-top:var(--transcript-top-inset,0px); min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   /* Fade only the real top edge; retain just enough inset for the first row. */
   mask-image:linear-gradient(to bottom,transparent 0,#000 8px);
   padding:calc(8px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
+/* Visibility preserves Latest’s original reserved bottom slot in both states. */
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
