@@ -111,7 +111,7 @@ export const de = {
   conceptPreview: { label: 'Entwurf, generiert', title: 'Generierter klickbarer Entwurf', width: 'Vorschaubreite', wide: 'Breit', phone: 'Telefon',
     loading: 'Entwurf wird geladen…', failure: 'Der Entwurf konnte nicht geladen werden.', reload: 'Neu laden', empty: 'Noch kein Entwurf.', invalid: 'Dieser Entwurf kann nicht sicher angezeigt werden.',
     navigated: 'Der Entwurf wollte eine andere Seite öffnen und wurde angehalten.',
-    policy: 'Die Vorschau ist auf dieser Website nicht freigeschaltet.',
+    unavailable: 'Diese Vorschau ist nicht verfügbar.', policy: 'Die Vorschau ist auf dieser Website nicht freigeschaltet.',
     policyOperator: 'Für Betreiber: Die genaue Vorschau-Adresse muss als Rahmen erlaubt sein.' },
   conceptRestarted: 'Der Server wurde während der Erstellung neu gestartet. Wählen Sie „Erneut versuchen“.',
   conceptSourceRemoved: 'Eine Nachricht, auf der dieser Entwurf beruhte, wurde zurückgezogen. Der Entwurf wurde angehalten.',

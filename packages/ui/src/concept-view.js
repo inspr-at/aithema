@@ -155,10 +155,11 @@ export class ConceptView {
         if (root.activeElement === draft && !e.shiftKey && draft.state === 'ready') return;
         // A failed preview has two shadow controls: the selected width and Reload.
         // Include both in the trap so backwards entry reaches Reload too.
-        const failedDraft = draft.state === 'failure';
-        const stops = [...dialog.querySelectorAll('button, aithema-html-preview')].filter(b => !b.disabled && !b.hidden)
-          .flatMap(b => b === draft && failedDraft ? [...draft.shadowRoot.querySelectorAll('button')].filter(b => !b.disabled && b.tabIndex >= 0) : [b]);
-        const active = root.activeElement === draft && failedDraft ? draft.shadowRoot.activeElement : root.activeElement;
+        const failedDraft = draft.state === 'failure', unavailableDraft = draft.state === 'unavailable';
+        const stops = [...dialog.querySelectorAll('button, aithema-html-preview, .concept-image-status[tabindex="0"]')].filter(b => !b.disabled && !b.hidden)
+          .flatMap(b => b === draft && unavailableDraft ? [draft.shadowRoot.querySelector('.state')]
+            : b === draft && failedDraft ? [...draft.shadowRoot.querySelectorAll('button')].filter(b => !b.disabled && b.tabIndex >= 0) : [b]);
+        const active = root.activeElement === draft && (failedDraft || unavailableDraft) ? draft.shadowRoot.activeElement : root.activeElement;
         const index = stops.indexOf(active); e.preventDefault(); stops[(index + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]?.focus();
       }
     });
@@ -175,13 +176,15 @@ export class ConceptView {
   }
   // Delivered artifacts follow producer consent and publication availability.
   // Temporary admission gates (pause, budget, visuals off) do not hide them.
-  covered(kind) {
+  covered(kind, artifact, placeholder = false) {
     const feature = kind === 'html' ? 'html' : 'images', session = this.#session;
-    if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || this.unavailable(kind) || session.consentWithdrawn || session.tombstone) return false;
+    if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || session.consentWithdrawn || session.tombstone) return false;
     const doc = this.#consentDocument;
+    if (this.unavailable(kind, artifact)) return placeholder && Boolean(artifact && doc.artifacts?.[artifact.id]);
     const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
     const matchingDocument = doc?.consentRevision === session.consentRevision;
-    const ids = matchingDocument ? doc.features?.[feature] : undefined;
+    const producer = matchingDocument && artifact ? doc.artifacts?.[artifact.id] : undefined;
+    const ids = matchingDocument ? producer ? producer.purposes : doc.features?.[feature] : undefined;
     // A consent refusal for the producer still applies when the document matches.
     // Purpose metadata distinguishes an unrelated current choice's refusal.
     for (const decision of [verdict, verdict?.unpaused]) {
@@ -191,12 +194,14 @@ export class ConceptView {
     if (matchingDocument) return Array.isArray(ids) && ids.length > 0 && ids.every(id => doc.selected.includes(id));
     return true;
   }
-  unavailable(kind) {
-    return this.#consentDocument?.consentRevision === this.#session?.consentRevision &&
-      this.#consentDocument.unavailableFeatures?.includes(kind === 'html' ? 'html' : 'images');
+  unavailable(kind, artifact) {
+    const doc = this.#consentDocument;
+    return doc?.consentRevision === this.#session?.consentRevision && (artifact && doc.artifacts
+      ? doc.artifacts[artifact.id]?.unavailable === true : doc.unavailableFeatures?.includes(kind === 'html' ? 'html' : 'images'));
   }
-  get items() { return this.#session?.consentWithdrawn || this.#session?.tombstone ? [] : (this.#session?.concepts ?? []).filter(c => this.covered(conceptKind(c)) && !c.archived && !c.erased && !c.withdrawn && !c.turnIds?.some(id => this.#session.transcript.some(turn => turn.id === id && (turn.erased || turn.withdrawn)))); }
-  current() { return this.items.find(c => c.id === this.#selected); }
+  get displayItems() { return (this.#session?.concepts ?? []).filter(c => this.covered(conceptKind(c), c, true) && !c.archived && !c.erased && !c.withdrawn && !c.turnIds?.some(id => this.#session.transcript.some(turn => turn.id === id && (turn.erased || turn.withdrawn)))); }
+  get items() { return this.displayItems.filter(c => !this.unavailable(conceptKind(c), c)); }
+  current() { return this.displayItems.find(c => c.id === this.#selected); }
   path(suffix = '') { return `${this.baseUrl}/api/sessions/${this.#session.id}/concepts${suffix}`; }
   // Every owner-authenticated concept request, GET or POST, passes here before it is sent.
   sameOrigin(path) { return sameOrigin(this.root.ownerDocument.defaultView, path, 'Concept routes require same origin'); }
@@ -266,12 +271,15 @@ export class ConceptView {
     this.#session = session;
     if (consentDocument) this.#consentDocument = consentDocument;
     if (this.#canvasWithdrawnKind && this.covered(this.#canvasWithdrawnKind)) this.#canvasWithdrawnKind = undefined;
-    const partial = !changedOwner && !session.consentWithdrawn && !session.tombstone && (this.#consentRefreshFailed ? this.#visible.at(-1) : this.#visible.find(item => !this.covered(conceptKind(item))));
+    const partial = !changedOwner && !session.consentWithdrawn && !session.tombstone && (this.#consentRefreshFailed ? this.#visible.at(-1) : this.#visible.find(item => !this.covered(conceptKind(item), item)));
     if (partial) {
-      for (const kind of ['html', 'image']) if (this.#visible.some(item => conceptKind(item) === kind && !this.covered(kind))) this.#scopeEpoch[kind]++;
+      for (const kind of ['html', 'image']) {
+        const siblings = this.#visible.filter(item => conceptKind(item) === kind);
+        if (siblings.length && siblings.every(item => !this.covered(kind, item))) this.#scopeEpoch[kind]++;
+      }
       for (const id of this.#loads.keys()) if (!this.items.some(item => item.id === id)) this.#loads.delete(id);
     }
-    const selectedRemoved = this.dialog.open && this.#selected && !this.items.some(item => item.id === this.#selected);
+    const selectedRemoved = this.dialog.open && this.#selected && !this.displayItems.some(item => item.id === this.#selected);
     const valid = new Set(this.items.map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
     if (changedOwner || partial || previous && !valid.has(previous.id) || !wasRevoked && (session.consentWithdrawn || session.tombstone) || lostSource || wasPending && session.conceptStatus?.error === 'source-removed') {
@@ -280,8 +288,8 @@ export class ConceptView {
       clearTimeout(this.#withdrawnTimer);
       // Keep the access reservation's kind when an earlier feature refusal
       // already removed its latest item before the refresh deadline fired.
-      this.#withdrawnKind = partial && !this.unavailable(conceptKind(partial)) ? this.#consentRefreshFailed ? this.#withdrawnKind ?? conceptKind(previous) : conceptKind(partial) : undefined;
-      this.#withdrawnUntil = changedOwner || this.#consentRefreshFailed || partial && this.unavailable(conceptKind(partial)) ? 0 : Date.now() + 4000;
+      this.#withdrawnKind = partial && !this.unavailable(conceptKind(partial), partial) ? this.#consentRefreshFailed ? this.#withdrawnKind ?? conceptKind(previous) : conceptKind(partial) : undefined;
+      this.#withdrawnUntil = changedOwner || this.#consentRefreshFailed || partial && this.unavailable(conceptKind(partial), partial) ? 0 : Date.now() + 4000;
       if (this.#withdrawnUntil) {
         this.#withdrawnTimer = consentTimeout(() => {
           this.#withdrawnUntil = 0;
@@ -305,20 +313,21 @@ export class ConceptView {
     // the fold state or the modal's selected revision.
     const canvas = this.root.querySelector('.canvas-html'), canvasImage = this.root.querySelector('.canvas-image');
     const canvasId = canvas?.dataset.id ?? canvasImage?.dataset.id;
-    if (partial && canvasId && !valid.has(canvasId)) this.#canvasWithdrawnKind = conceptKind(this.#visible.find(item => item.id === canvasId));
+    if (partial && canvasId && !valid.has(canvasId) && !this.displayItems.some(item => item.id === canvasId)) this.#canvasWithdrawnKind = conceptKind(this.#visible.find(item => item.id === canvasId));
     if (changedOwner || session.consentWithdrawn || session.tombstone ||
       (canvasId || canvas?.artifact || canvasImage?.hasAttribute('src')) && !valid.has(canvasId)) this.suspendCanvas();
     // Redact revoked content immediately.
     if (changedOwner || session.consentWithdrawn || session.tombstone || this.#selected && !valid.has(this.#selected)) {
-      if (!partial) this.#epoch++;
+      if (!partial && (changedOwner || session.consentWithdrawn || session.tombstone || selectedRemoved)) this.#epoch++;
       this.root.querySelector('.concept-image').removeAttribute('src'); this.root.querySelector('.concept-disclosure').textContent = '';
       this.root.querySelector('.concept-html').artifact = null;
-      this.paintGuidance([]); this.close();
+      this.paintGuidance([]);
+      if (changedOwner || session.consentWithdrawn || session.tombstone || selectedRemoved) this.close();
     }
     // A request error stands until the generation state moves on.
     const statusKey = JSON.stringify(session.conceptStatus ?? null);
     if (statusKey !== this.#statusKey) { this.#statusKey = statusKey; this.#requestError = null; }
-    const latest = this.items.at(-1);
+    const latest = this.displayItems.at(-1);
     if (!latest) this.clearThumbnail();
     this.#visible = this.items;
     this.follow(latest);
@@ -434,7 +443,7 @@ export class ConceptView {
   render() {
     const owner = this.#session?.id, epoch = this.#epoch;
     this.progress();
-    const latest = this.items.at(-1), tab = this.root.querySelector('.concept-tab'), latestDraft = latest ? conceptKind(latest) === 'html' : this.#withdrawnKind === 'html';
+    const latest = this.displayItems.at(-1), tab = this.root.querySelector('.concept-tab'), latestDraft = latest ? conceptKind(latest) === 'html' : this.#withdrawnKind === 'html';
     if (latest) this.#readViewed();
     const view = latestDraft ? this.copy.conceptDraftView : this.copy.conceptView;
     tab.dataset.unread = String(Boolean(latest && !this.#seen.has(latest.id))); tab.disabled = !latest;
@@ -465,13 +474,13 @@ export class ConceptView {
     let current = this.current();
     if (!current) { this.#selected = latest?.id; current = latest; }
     if (!current) { this.close(); return; }
-    const index = this.items.findIndex(c => c.id === current.id), html = conceptKind(current) === 'html';
+    const index = this.displayItems.findIndex(c => c.id === current.id), html = conceptKind(current) === 'html';
     this.dialog.dataset.kind = html ? 'html' : 'image';
     this.root.querySelector('#concept-title').textContent = html
-      ? this.copy.conceptDraftTitle.replace('{number}', this.items.filter(c => conceptKind(c) === 'html').indexOf(current) + 1)
+      ? this.copy.conceptDraftTitle.replace('{number}', this.displayItems.filter(c => conceptKind(c) === 'html').indexOf(current) + 1)
       : this.copy.conceptTitle.replace('{number}', index + 1);
-    this.root.querySelector('.concept-count').textContent = this.copy.conceptCount.replace('{current}', index + 1).replace('{count}', this.items.length);
-    this.root.querySelector('.concept-previous').disabled = index <= 0; this.root.querySelector('.concept-next').disabled = index >= this.items.length - 1;
+    this.root.querySelector('.concept-count').textContent = this.copy.conceptCount.replace('{current}', index + 1).replace('{count}', this.displayItems.length);
+    this.root.querySelector('.concept-previous').disabled = index <= 0; this.root.querySelector('.concept-next').disabled = index >= this.displayItems.length - 1;
     const fake = current.provenance?.generator?.provider === 'local-demo-fake';
     const manipulated = current.provenance?.origin === 'ai-manipulated';
     this.root.querySelector('.concept-disclosure').textContent = html ? fake ? this.copy.conceptDraftFake : manipulated ? this.copy.conceptDraftManipulated : this.copy.conceptDraftGenerated
@@ -484,6 +493,11 @@ export class ConceptView {
     if (html) { this.renderDraft(current, draft, imageStatus); image.removeAttribute('src'); delete image.dataset.id; return; }
     if (draft.artifact) draft.artifact = null;
     delete draft.dataset.id;
+    if (this.unavailable('image', current)) {
+      image.removeAttribute('src'); delete image.dataset.id;
+      this.paintUnavailable(imageStatus); return;
+    }
+    this.clearUnavailable(imageStatus);
     if (image.dataset.id !== current.id) { image.removeAttribute('src'); image.dataset.id = current.id; }
     imageStatus.textContent = this.copy.conceptLoading;
     void this.loadImageURL(current.id).then(url => { if (owner === this.#session?.id && epoch === this.#epoch && this.current()?.id === current.id && this.dialog.open) {
@@ -494,11 +508,25 @@ export class ConceptView {
   // The preview keeps one frame per shown revision: live renders that don't change the
   // revision leave it (and whatever the person did inside it) alone.
   renderDraft(current, draft, status) {
-    if (!this.covered('html') || !this.items.some(item => item.id === current.id)) { draft.artifact = null; delete draft.dataset.id; return; }
+    this.clearUnavailable(status);
+    draft.unavailable = this.unavailable('html', current);
+    if (draft.unavailable) { draft.artifact = null; draft.dataset.id = current.id; status.textContent = ''; return; }
+    if (!this.covered('html', current) || !this.items.some(item => item.id === current.id)) { draft.artifact = null; delete draft.dataset.id; return; }
     status.textContent = '';
     if (draft.dataset.id === current.id && draft.artifact) return;
     draft.dataset.id = current.id;
     draft.artifact = this.previewSource(current.id);
+  }
+  paintUnavailable(status) {
+    status.innerHTML = WARNING_ICON;
+    const icon = status.querySelector('svg'); icon.setAttribute('width', '20'); icon.setAttribute('height', '20');
+    status.style.color = 'var(--aithema-muted)';
+    status.append(document.createTextNode(this.copy.conceptPreview.unavailable));
+    status.tabIndex = 0; status.setAttribute('aria-label', this.copy.conceptPreview.unavailable);
+  }
+  clearUnavailable(status) {
+    status.style.removeProperty('color');
+    status.removeAttribute('tabindex'); status.removeAttribute('aria-label');
   }
   previewSource(id) {
     const sessionId = this.#session.id, epoch = this.#epoch, scopeEpoch = this.#scopeEpoch.html;
@@ -548,7 +576,7 @@ export class ConceptView {
     if (!this.canShowCanvas()) { this.suspendCanvas(); return; }
     const epoch = this.#canvasEpoch, sessionId = this.#session.id;
     const empty = this.root.querySelector('.canvas-empty'), status = this.root.querySelector('.canvas-status');
-    const item = this.#session?.consentWithdrawn || this.#session?.tombstone || this.#canvasWithdrawnKind ? null : this.items.at(-1);
+    const item = this.#session?.consentWithdrawn || this.#session?.tombstone || this.#canvasWithdrawnKind ? null : this.displayItems.at(-1);
     if (this.#canvasCopy !== this.copy.conceptPreview) { draft.copy = this.copy.conceptPreview; this.#canvasCopy = this.copy.conceptPreview; }
     empty.hidden = Boolean(item); draft.hidden = !item || conceptKind(item) !== 'html'; image.hidden = !item || conceptKind(item) === 'html';
     if (!item) {
@@ -564,10 +592,17 @@ export class ConceptView {
     if (draft.dataset.id !== item.id) { draft.dataset.id = item.id; draft.artifact = null; image.removeAttribute('src'); }
     status.textContent = conceptKind(item) === 'html' ? this.copy.conceptDraftLoading : this.copy.conceptLoading;
     if (conceptKind(item) === 'html') {
+      draft.unavailable = this.unavailable('html', item);
+      if (draft.unavailable) { draft.artifact = null; status.textContent = ''; return; }
       if (!draft.artifact) draft.artifact = this.previewSource(item.id);
       status.textContent = ''; return;
     }
     if (draft.artifact) draft.artifact = null;
+    if (this.unavailable('image', item)) {
+      image.removeAttribute('src'); delete image.dataset.id;
+      this.paintUnavailable(status); return;
+    }
+    this.clearUnavailable(status);
     const url = await this.loadImageURL(item.id);
     if (epoch !== this.#canvasEpoch || sessionId !== this.#session.id || !this.root.querySelector('.workspace')?.hasAttribute('data-folded') ||
       !this.canShowCanvas() || this.items.at(-1)?.id !== item.id) return;
@@ -738,10 +773,12 @@ export class ConceptView {
     request.textContent = this.#session?.conceptStatus?.phase === 'failed' && line.action ? [this.copy.conceptRetry, costCopy].filter(Boolean).join(reasonSeparator) : line.text;
     request.hidden = !line.action;
     request.disabled = this.#busy || pending || !feature.available || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
+    const readable = this.items.some(item => item.id === this.#selected);
+    this.root.querySelector('.concept-download').disabled = !readable;
     const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = [this.copy.conceptRegenerate, costCopy].filter(Boolean).join(reasonSeparator);
-    regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
+    regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !readable; regenerate.title = request.title;
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button')) {
-      node.disabled = this.#busy || !feature.available || !this.current(); node.title = !feature.available ? feature.reason : '';
+      node.disabled = this.#busy || !feature.available || !readable; node.title = !feature.available ? feature.reason : '';
     }
     // A live update (e.g. SSE "pending" after the POST settled) can disable the focused
     // control; browsers then drop focus out of the modal and its arrow-key navigation.
@@ -753,9 +790,9 @@ export class ConceptView {
     if (!this.dialog.open || this.dialog.contains(this.root.activeElement)) return;
     (node?.isConnected && !node.disabled && this.dialog.contains(node) ? node : this.root.querySelector('.concept-close')).focus();
   }
-  open(id = this.items.at(-1)?.id) {
+  open(id = this.displayItems.at(-1)?.id) {
     if (conceptControlsBlocked(this.root)) return;
-    if (!id || !this.items.some(c => c.id === id)) return;
+    if (!id || !this.displayItems.some(c => c.id === id)) return;
     this.#readViewed();
     this.#trigger = this.root.activeElement; this.#selected = id; this.#seen.add(id); this.rememberViewed();
     if (!this.dialog.open) this.dialog.showModal(); this.render(); this.root.querySelector('.concept-close').focus();
@@ -769,7 +806,7 @@ export class ConceptView {
     this.dialog.close(); this.#trigger?.focus(); this.#trigger = null;
   }
   navigate(delta) {
-    const index = this.items.findIndex(c => c.id === this.#selected), next = this.items[index + delta];
+    const index = this.displayItems.findIndex(c => c.id === this.#selected), next = this.displayItems[index + delta];
     if (next) { this.#selected = next.id; this.#seen.add(next.id); this.rememberViewed(); this.root.querySelector('.concept-viewer-message').textContent = ''; this.render(); }
   }
   /** Image rendering accepts only object URLs minted here for covered image items. */
@@ -809,6 +846,7 @@ export class ConceptView {
   }
   async request(artifactId) {
     if (conceptControlsBlocked(this.root)) return;
+    if (artifactId && !this.items.some(item => item.id === artifactId)) return;
     if (this.#busy || !this.feature().available || !draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature: this.feature() }).action || this.#session.conceptStatus?.phase === 'pending') return;
     const sourceTurnId = this.#session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id;
     if (!sourceTurnId) return;
@@ -826,7 +864,7 @@ export class ConceptView {
     finally { if (active()) { this.#busy = false; this.gates(); this.refocus(focused); } }
   }
   async feedback(vote, chips, reject = false) {
-    const current = this.current(); if (this.#busy || !current || !this.feature().available || chips.length > 8) return;
+    const current = this.current(); if (this.#busy || !current || !this.items.some(item => item.id === current.id) || !this.feature().available || chips.length > 8) return;
     const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id, lifetime = this.#lifetime;
     const active = () => lifetime === this.#lifetime && sessionId === this.#session.id;
     try {
@@ -838,7 +876,7 @@ export class ConceptView {
     finally { if (active()) { this.#busy = false; this.gates(); this.refocus(focused); } }
   }
   async download() {
-    const current = this.current(); if (!current) return;
+    const current = this.current(); if (!current || !this.items.some(item => item.id === current.id)) return;
     const sessionId = this.#session.id, epoch = this.#epoch; let url;
     if (conceptKind(current) === 'html') {
       // The same static file as the export: the draft with scripts turned off, never the raw bytes.

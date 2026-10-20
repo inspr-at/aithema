@@ -280,20 +280,27 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function consentDocument(session, options) {
     const document = validateConsentDocument(await consent.describe(session.id, options));
     const ids = new Set(document.items?.map(item => item.id) ?? ['mock-processing']);
-    const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
-      pluginRuntime.scopes(session, { feature, delivered: true }).map(scope => ids.has(scope.purpose) ? scope.purpose
-        : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
+    const purposes = (source, feature) => [...new Set(pluginRuntime.scopes(source, { feature, delivered: true })
+      .map(scope => ids.has(scope.purpose) ? scope.purpose : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
+      .filter(id => ids.has(id)))];
+    const features = Object.fromEntries(FEATURES.map(feature => [feature, purposes(session, feature)]));
     const unavailableFeatures = [];
+    const delivered = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn);
+    // Each full publication gate remains authoritative; independent reads must
+    // not queue behind a slow producer. No verdict survives this request.
+    const artifacts = Object.fromEntries(await Promise.all(delivered.map(async artifact => {
+      const feature = artifact.mediaType === 'text/html' ? 'html' : 'images';
+      const producerPurposes = purposes({ ...session, concepts: [artifact] }, feature);
+      const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature,
+        operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
+      return [artifact.id, { purposes: producerPurposes, unavailable: !producerPurposes.length || status === 'unavailable' }];
+    })));
     for (const feature of ['html', 'images']) {
-      const artifacts = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn &&
-        (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
-      for (const artifact of artifacts) {
-        const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature,
-          operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
-        if (!features[feature].length || status === 'unavailable') { unavailableFeatures.push(feature); break; }
-      }
+      const kind = delivered.filter(item => (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
+      if (!kind.length) continue;
+      if (kind.every(item => artifacts[item.id].unavailable)) unavailableFeatures.push(feature);
     }
-    return { ...document, features, unavailableFeatures, consentRevision: session.consentRevision };
+    return { ...document, features, artifacts, unavailableFeatures, consentRevision: session.consentRevision };
   }
   async function consentEnrichment(session, options) {
     // Enrichment must not hold a grant behind an unavailable host describe.
