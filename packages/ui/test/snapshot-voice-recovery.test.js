@@ -127,6 +127,19 @@ test('AIT-391: an unpaused snapshot cannot resume a locally paused call', async 
   assert.equal(f.commands.filter(([name]) => name === 'resume').length, 0);
 });
 
+test('AIT-391: a duplicate paused snapshot cannot fence the visitor Resume already in flight', async t => {
+  const f = await fixture(t), resumed = Promise.withResolvers();
+  await f.recover([{ type: 'session.paused', data: { paused: true } }]);
+  assert.equal(f.c.shadowRoot.querySelector('.audio-rail').dataset.state, 'paused');
+  f.voice.resume = () => resumed.promise;
+  f.c.shadowRoot.querySelector('.pause').click(); await tick();
+  await f.repeat();
+  resumed.resolve({ acknowledged: true, paused: false }); await tick();
+  assert.equal(f.c.shadowRoot.querySelector('.audio-rail').dataset.state, 'listening');
+  assert.equal(f.c.session.paused, false);
+  assert.equal(f.commands.filter(([name]) => name === 'pause').length, 1, 'an unchanged paused projection cannot create another hold');
+});
+
 for (const state of ['waiting', 'ended']) test(`AIT-391: recovered ${state} lifecycle reaches the matching active voice session once`, async t => {
   const f = await fixture(t), reason = state === 'waiting' ? 'browser-liveness-deadline' : 'visitor-ended';
   await f.recover([{ type: 'verification.requested', data: {} }], { voiceLifecycle: {

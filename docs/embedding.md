@@ -579,6 +579,15 @@ holds. Voice adapters expose the optional `VoiceSession.speakReply({turnId, text
 port for already persisted replies. No synthetic SDK user message or transcript
 turn triggers speech.
 
+After a journal sequence gap, accepted snapshot recovery reconciles voice effects
+from the previous local session: changed understanding, transcript or focused question
+refreshes the active call's context; only a newly discovered, current selected
+clarify completion is spoken. Repeated/concurrent snapshots and late journal
+delivery do not speak known replies again. Muted, paused, withdrawn, erased,
+superseded and stale replies stay silent. Server pause and lifecycle holds apply
+before context or speech; an unpaused snapshot never creates a Resume command.
+Skipped events are not re-emitted as `aithema-event` host notifications.
+
 The overview controls follow these states:
 
 - **Requesting:** start `focusQuestion(id)`; use reaction in `lane.status.running`
