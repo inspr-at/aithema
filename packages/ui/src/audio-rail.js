@@ -405,7 +405,7 @@ export class AudioRail {
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
     if (this.root.ownerDocument.hidden) holdController.abort();
-    let session, connectTimer;
+    let session, connectTimer, resumeProjected = false;
     const connectDeadline = () => {
       clearTimeout(connectTimer);
       connectTimer = setTimeout(() => controller.abort(Object.assign(new Error('Voice connection deadline'), { code: 'deadline' })), 30_000);
@@ -467,6 +467,9 @@ export class AudioRail {
       clearTimeout(connectTimer); this.stopReplyWatch();
       if (!continuing && this.client.manifest?.liveVoice?.capabilities?.opener === true) this.awaitReply(session, generation);
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
+      // The acknowledged Resume clears the composer's cached pause verdict in
+      // this listening tick, before media setup or its confirming snapshot read.
+      if (resuming) { resumeProjected = true; this.onPause?.(false, { resuming: true }); }
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;
       await session.setOutput(this.output);
@@ -494,15 +497,16 @@ export class AudioRail {
       }, 80);
       void this.consume(session, generation);
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
-      // An early Resume echo stays fenced until startup succeeds. Publish its
-      // acknowledged projection now, retaining any hold that superseded startup.
-      if (resuming && this.current(session, generation)) this.onPause?.(Boolean(this.paused));
+      // A hold that superseded startup must retain its paused projection.
+      if (resuming && this.current(session, generation) && this.paused) this.onPause?.(true);
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
       this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; controller.abort();
       if (this.startupPhase === 'microphone' && typeof error.code !== 'string' && !error.phase) error.phase = 'microphone';
       this.startupPhase = null; this.stopReplyWatch();
-      this.state = this.waitingCall ? 'waiting' : 'failed'; this.failure(error);
+      this.state = this.waitingCall ? 'waiting' : 'failed';
+      if (resumeProjected) this.onPause?.(true);
+      this.failure(error);
     } finally { clearTimeout(connectTimer); }
   }
   receiveState(state) {

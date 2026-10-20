@@ -1,7 +1,7 @@
 // AIT-138 d: real tab takeover, wake and durable restart recovery. Remote browser runner only.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
@@ -140,7 +140,7 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
               fontFamily: labelStyle.fontFamily, fontSize: labelStyle.fontSize },
             labelInRailCentre: Math.abs(labelBox.left + labelBox.width / 2 - centre.left - centre.width / 2) <= 1 &&
               (phone ? labelBox.top === 88 && labelBox.bottom === 124 && labelBox.height === 36 : labelBox.top >= railBox.top && labelBox.bottom <= railBox.bottom) && labelStyle.opacity === '1',
-            noPopover: !rail.hasAttribute('data-message') && noPopoverRole && noOverlap && labelStyle.boxShadow === 'none',
+            noPopover: !rail.hasAttribute('data-message') && (phone || labelStyle.position !== 'absolute') && noPopoverRole && noOverlap && labelStyle.boxShadow === 'none',
             noPopoverRole, noOverlap, obstacles: obstacles.map(box => box.toJSON()),
             noRailRing: (railStyle.outlineStyle === 'none' || parseFloat(railStyle.outlineWidth) === 0) && railStyle.boxShadow === 'none' &&
               ['Top', 'Right', 'Bottom', 'Left'].every(side => parseFloat(railStyle[`border${side}Width`]) === 0),
@@ -376,4 +376,189 @@ test('AIT-177: continuity baseline awaits the persisted greeting and workspace e
   const before = await layoutBoxes(page, selectors);
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   sameBoxes(before, await layoutBoxes(page, selectors), 'first greeting workspace entry completed');
+});
+
+// AIT-404: sample the local listening projection before a delayed GET can confirm it.
+test('AIT-404: takeback clears the composer in the listening tick with zero movement', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-takeback-composer-'));
+  const demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), join(directory, 'session.sqlite'));
+  t.after(() => demo.kill());
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], files = [];
+  const head = process.env.GITHUB_EVENT_PATH
+    ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha ?? evidenceCommit : evidenceCommit;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const touch of [true, false]) for (const width of [390, 1440]) for (const locale of width === 390 ? ['de', 'en'] : ['de']) {
+    // Match pause-phone's native desktop fixture: setViewport resets hover on Linux.
+    const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
+      '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
+    ] }), page = await browser.newPage();
+    const viewport = async target => {
+      if (touch) await target.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: true, isMobile: false });
+      else {
+        target.ait404Metrics = await target.createCDPSession();
+        await target.ait404Metrics.send('Emulation.setDeviceMetricsOverride', { width, height: width === 390 ? 844 : 900, deviceScaleFactor: 1, mobile: false });
+      }
+    };
+    let other;
+    try {
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await viewport(page);
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.evaluateOnNewDocument(locale => {
+        localStorage.setItem('aithema-locale', locale); localStorage.setItem('aithema-motion', 'off');
+      }, locale);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await page.bringToFront();
+      await until(page, () => document.querySelector('aithema-session')?.session?.id);
+      await page.select('#locale', locale); await page.select('#theme', 'light'); await mockConsent(page);
+      await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
+      await shadow(page, c => c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click());
+      await shadow(page, c => c.shadowRoot.querySelector('.ready__start').click());
+      await until(page, () => ['speaking', 'listening'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
+      await finishWorkspaceEntry(page);
+      other = await browser.newPage();
+      await viewport(other);
+      await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await other.bringToFront();
+      await until(other, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === 'waiting');
+      const retire = async () => {
+        await other.bringToFront();
+        const moved = await shadow(other, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-moved'));
+        await shadow(other, c => c.shadowRoot.querySelector('.pause').click());
+        if (!moved) {
+          await until(other, resume => {
+            const button = document.querySelector('aithema-session').shadowRoot.querySelector('.pause');
+            return button.textContent.trim() === resume && !button.disabled;
+          }, { de, en }[locale].resume);
+          await shadow(other, c => c.shadowRoot.querySelector('.pause').click());
+        }
+        await until(other, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+        await page.bringToFront();
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-moved'));
+        await finishWorkspaceEntry(page);
+      };
+      await retire();
+      // Keep the composer in the viewport before recording any geometry.
+      await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
+      const outcomes = width === 390 && touch && locale === 'en' ? ['success', 'paused', 'error'] : ['success'];
+      for (const outcome of outcomes) {
+        if (outcome !== 'success') await retire();
+        await page.mouse.move(-1, -1);
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.evaluate(({ outcome, pausedCopy }) => {
+          const c = document.querySelector('aithema-session'), root = c.shadowRoot, path = `/api/sessions/${c.session.id}`;
+          const original = window.fetch.bind(window);
+          const selectors = ['.composer', '.composer-actions', '.composer-feedback', '.composer-reason', '.transcript-shell', ...[...root.querySelectorAll('.turn')].map(n => `.turn[data-id="${CSS.escape(n.dataset.id)}"]`)];
+          const boxes = () => selectors.map(selector => {
+            const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+          });
+          const run = globalThis.ait404 = { outcome, samples: [], allSamples: [], baseline: boxes(), selectors, held: 0, returned: 0, done: false, listeningAt: null };
+          const sample = source => {
+            if (root.querySelector('.audio-rail').dataset.state === 'listening') run.listeningAt ??= performance.now();
+            const reason = root.querySelector('.composer-reason'), paused = root.querySelector('.composer-paused');
+            const visible = n => n.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+            const current = boxes(), session = c.session, text = session.featureMatrix?.[session.processingPreset ?? 'best']?.text;
+            const reading = { source, at: performance.now(), listeningSet: run.listeningAt !== null, shortcut: reason.hasAttribute('data-shortcut'),
+              pausedVisible: visible(paused) || visible(reason) && reason.textContent.includes(pausedCopy),
+              sessionPaused: session.paused, textAvailable: text?.available, textReason: text?.reason, unpausedTextAvailable: text?.unpaused?.available,
+              boxes: current, movementPx: Math.max(...current.flatMap((box, i) => box.map((v, j) => Math.abs(v - run.baseline[i][j])))) };
+            run.allSamples.push(reading);
+            if (run.listeningAt !== null) run.samples.push(reading);
+          };
+          const observer = new MutationObserver(() => sample('mutation'));
+          observer.observe(root.querySelector('.audio-rail'), { attributes: true, attributeFilter: ['data-state'] });
+          const frame = () => {
+            sample('frame');
+            if (run.lastAppliedAt && performance.now() >= run.lastAppliedAt + 1000) { observer.disconnect(); window.fetch = original; run.done = true; }
+            else requestAnimationFrame(frame);
+          };
+          requestAnimationFrame(frame);
+          window.fetch = async (url, init = {}) => {
+            const response = await original(url, init);
+            if ((init.method ?? 'GET') !== 'GET' || new URL(url, location.href).pathname !== path || !response.ok) return response;
+            const snapshot = await response.clone().json(), voice = snapshot.voiceLifecycle;
+            const local = JSON.parse(sessionStorage.getItem(`aithema-voice-call:${c.session.id}`));
+            if (voice?.controllingTabId !== local?.tabId || snapshot.paused || !snapshot.featureMatrix.best.text.available) return response;
+            run.held++; run.pending = true;
+            await new Promise(resolve => setTimeout(resolve, 800));
+            run.returned++; run.pending = false;
+            const returned = outcome === 'error' ? new Response(null, { status: 503 }) : outcome === 'paused'
+              ? Response.json({ ...snapshot, paused: true, featureMatrix: c.session.featureMatrix }) : response;
+            // The verdict is returned before the component applies it; a refused
+            // read may restore the label in the very next microtask.
+            run.verdictAt ??= performance.now();
+            setTimeout(() => { run.appliedAt ??= performance.now(); run.lastAppliedAt = performance.now(); }, 0);
+            return returned;
+          };
+          root.querySelector('.pause').click();
+        }, { outcome, pausedCopy: { de, en }[locale].paused });
+        await until(page, () => globalThis.ait404.held > 0 && globalThis.ait404.listeningAt !== null);
+        const capture = async state => {
+          await page.mouse.move(-1, -1);
+          await shadow(page, async c => {
+            c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+            await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+          });
+          const file = `ait404-${width}-light-${locale}-${state}.png`;
+          if (state === 'mid-delay') assert.equal(await page.evaluate(() => globalThis.ait404.pending), true, 'mid-delay shot has the GET pending');
+          if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+          if (state === 'mid-delay') {
+            const pending = await page.evaluate(() => globalThis.ait404.pending);
+            assert.equal(pending, true, 'mid-delay GET stays pending throughout viewport capture');
+            await page.evaluate(() => { globalThis.ait404.midDelayCapturedPending = true; });
+          }
+          files.push(file);
+        };
+        if (outcome === 'success' && touch && width === 390) await capture('mid-delay');
+        await until(page, () => globalThis.ait404.done);
+        const result = await page.evaluate(() => globalThis.ait404);
+        const preVerdict = result.samples.filter(s => s.at < result.verdictAt);
+        const device = await page.evaluate(() => ({ hoverNone: matchMedia('(hover:none)').matches, fine: matchMedia('(pointer:fine)').matches, coarse: matchMedia('(pointer:coarse)').matches }));
+        const assertions = {
+          listeningTickSample: preVerdict.some(s => s.source === 'mutation'),
+          delayedFramesAtLeast10: preVerdict.filter(s => s.source === 'frame').length >= 10,
+          noPausedBeforeSnapshot: preVerdict.every(s => !s.pausedVisible),
+          shortcutInListeningTick: preVerdict.every(s => s.shortcut),
+          movementPx0: result.samples.every(s => s.movementPx === 0),
+          wholeTakebackMovementPx0: result.allSamples.every(s => s.movementPx === 0),
+          midDelayShotPending: width !== 390 || !touch || outcome !== 'success' || result.midDelayCapturedPending === true,
+          deviceMatches: touch ? device.hoverNone && device.coarse : device.fine,
+          noPageErrors: errors.length === 0,
+          confirmedOrRestored: outcome === 'success' ? result.samples.every(s => !s.pausedVisible && s.shortcut)
+            : result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut),
+        };
+        const check = { width, theme: 'light', locale, touch, outcome, device, assertions, ...result, errors };
+        checks.push(check);
+        if (Object.values(assertions).some(value => !value)) t.diagnostic(JSON.stringify({ width, touch, locale, outcome, assertions,
+          firstBadPending: preVerdict.find(s => s.pausedVisible || !s.shortcut),
+          firstMovement: result.allSamples.find(s => s.movementPx !== 0), selectors: result.selectors, baseline: result.baseline }));
+        // Persist the red trace too, including the actual frame and its bounds.
+        if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
+        assert.ok(assertions.deviceMatches, 'the case uses the requested touch or fine-pointer device');
+        assert.equal(Math.max(...result.allSamples.map(s => s.movementPx)), 0, 'geometry stays at 0 px from the click through 1 s after the snapshot');
+        assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'every outcome preserves composer, label slot and transcript geometry');
+        assert.ok(preVerdict.some(s => s.source === 'mutation'), 'sample the listening mutation in its own tick');
+        assert.ok(preVerdict.filter(s => s.source === 'frame').length >= 10, 'sample every frame while the 800 ms GET is pending');
+        assert.ok(preVerdict.every(s => !s.pausedVisible), 'paused label is never visible after listening is set, including before the GET');
+        assert.ok(preVerdict.every(s => s.shortcut), 'data-shortcut is set in the listening tick before the GET');
+        if (outcome === 'success') {
+          assert.ok(result.samples.every(s => !s.pausedVisible && s.shortcut), 'no paused label or shortcut transient through 1 s after the snapshot');
+          assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'composer, label slot and transcript rows have movementPx 0 on every frame');
+          if (width === 390 && touch || width === 1440 && !touch) await capture('settled');
+        } else {
+          assert.ok(result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut), 'failed confirming GET restores the existing paused state');
+        }
+        assert.deepEqual(errors, []);
+        t.diagnostic(`AIT-404 ${width}/light/${locale}/${touch ? 'touch' : 'pointer'}/${outcome}: ${result.samples.length} samples, ${result.held} delayed GETs`);
+      }
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
+    } catch (error) {
+      for (const [name, target] of [['original', page], ['newcomer', other]]) if (target && !target.isClosed()) {
+        t.diagnostic(JSON.stringify({ name, width, touch, locale, state: await shadow(target, c => ({ id: c.session?.id, paused: c.session?.paused, voice: c.session?.voiceLifecycle, rail: c.shadowRoot.querySelector('.audio-rail')?.dataset.state, stage: c.shadowRoot.querySelector('.workspace')?.dataset.stage, error: document.querySelector('#error')?.textContent })) }));
+      }
+      throw error;
+    } finally { await browser.close(); }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
 });

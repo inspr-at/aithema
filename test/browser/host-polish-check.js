@@ -12,7 +12,7 @@ import { en } from '../../packages/ui/src/i18n/en.js';
 
 export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   // AIT-293: axe is manual evidence tooling, never part of the CI browser path.
-  // Nightly deliberately unsets CI for full matrices; it is still automated CI.
+  // Nightly selects full matrices with AITHEMA_FULL_MATRIX=1 and keeps CI=true.
   if (evidenceDirectory && a11yEvidenceMode) {
     const { auditMainSurfaces } = await import('./a11y-evidence.js');
     await auditMainSurfaces(t, evidenceDirectory);

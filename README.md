@@ -2269,6 +2269,30 @@ are durable, share attempt IDs with the budget ledger, and count once. Financial
 totals retain owner attribution after conversation erasure; startup releases
 wallet admissions that never reached the ledger.
 
+Hosts can read dated ledger events synchronously through
+`runtime.budget.corrections(attemptId)` and `runtime.budget.voiceExposures(attemptId)`
+(AIT-409). Both return arrays in posting order, each event shaped as
+`{ id, attemptId, lane, atMs, oldMicro, newMicro, oldVisitorMicro, newVisitorMicro }`.
+`atMs` is the posted epoch millisecond (`budget_corrections.at_ms` for corrections);
+amounts are integer micro-USD. These reads expose no internal JSON evidence or
+secrets and return `[]` for missing attempts or empty histories. Use
+`{attemptId, stream, id}` as the stable deduplication key, where `stream` is
+`corrections` or `voiceExposures`. Replayed receipts/exposure raises append nothing.
+
+These records complement AIT-401's dated `budget.get(attemptId).voice_extensions_json`
+and first `settled_at_ms`; reconciliation never changes that first settlement time.
+For a daily cap, date each positive correction delta (`newMicro - oldMicro`, or
+the visitor equivalents) on the UTC day of `atMs`, and date exposure increases
+the same way. A $10 uncertain settlement at 23:40 reduced to a $0.01 estimate
+before midnight then corrected to $8 after midnight consumes $7.99 of the new
+day's cap. Allocate refunds against the earlier dated charges; do not reopen
+today's headroom by filing an old-day refund today. Rebuild or reconcile the
+host projection idempotently before admission, counting each event once.
+Exposure raises record existing provider liability even above a cap and are
+separate from admitted extensions; include both when deriving dated holds.
+Historical exposure times before this upgrade remain unknown, so retain the
+host's existing history. See [dated budget attribution](docs/embedding.md#dated-budget-attribution-ait-401-ait-409).
+
 `creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro, ownerWallet)` is a
 preview. Paid hosts must call `await admitCredits(ledger, request, ownerWallet)`:
 it requires confirmed owner admission before the existing atomic `ledger.admit`.
