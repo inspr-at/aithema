@@ -535,7 +535,7 @@ export class AithemaSession extends HTMLElement {
     this.#fold = new ConversationFold({ root, copy: this.#copy, canFold: () => this.#concept?.canShowCanvas() ?? false, onChange: folded => {
       if (folded) void this.#concept?.paintCanvas();
       else this.#concept?.suspendCanvas();
-      this.#syncPanes();
+      this.#syncBandScroll(); this.#syncPanes();
     } });
     root.querySelector('.drafts-canvas').setAttribute('aria-label', this.#copy.layout.canvas);
     this.#mountMotion();
@@ -855,7 +855,10 @@ export class AithemaSession extends HTMLElement {
     const scrolled = (this.ownerDocument.defaultView?.scrollY ?? 0) > 0 || band.getBoundingClientRect().top > workspace.getBoundingClientRect().top;
     band.toggleAttribute('data-scrolled', scrolled);
     const shell = this.shadowRoot.querySelector('.transcript-shell');
-    if (!shell?.getClientRects().length || workspace.hasAttribute('data-folded')) return;
+    if (!shell?.getClientRects().length || workspace.hasAttribute('data-folded')) {
+      shell?.style.removeProperty('--transcript-top-inset');
+      return;
+    }
     // Page/embedding scroll can carry the bounded pane behind the sticky band.
     // Give up only the occluded part of its grid cell; the composer stays put.
     const inset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
