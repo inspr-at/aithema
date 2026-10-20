@@ -90,6 +90,7 @@ export class HostSurface {
   }
   get dailyCapped() { return this.#credits?.scope === 'session' && this.#credits.dailyCapReached === true; }
   get newConversationAction() { return this.usedUp && !this.dailyCapped && (!this.endReason || ['host-limit', 'session'].includes(this.endReason)) && !this.nextTier && this.#options.usedUp?.newConversation?.enabled === true; }
+  get dailyCapResetLabel() { return this.dailyCapped && this.#options.credits?.dailyCapReset ? this.#root.querySelector('.host-credits__deadline').textContent : ''; }
   get noDailyAction() { return this.dailyCapped && this.#options.usedUp?.dailyCapActions === 'none'; }
   get limitCopy() {
     const { credits, usedUp } = this.#copy.hostSurface;
@@ -336,7 +337,7 @@ export class HostSurface {
     const button = line.querySelector('.host-credits__button'), track = line.querySelector('.host-credits__track');
     const scope = line.querySelector('.host-credits__scope'), current = line.querySelector('.host-credits__current');
     for (const attribute of ['title', 'aria-description']) {
-      if (this.#credits?.reconciling) button.setAttribute(attribute, c.reconciling);
+      if (this.#credits?.reconciling) button.setAttribute(attribute, this.#options.credits?.reconcilingVisible ? c.reconciling : c.reconcilingTooltip ?? c.reconciling);
       else button.removeAttribute(attribute);
     }
     // Tick AIT-357: reserve the six-glyph 10,000-credit envelope before the

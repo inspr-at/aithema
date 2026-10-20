@@ -466,6 +466,7 @@ export const en = {
     credits: {
       dailyCapReset: 'Available again from {time}',
       reconciling: 'Updating credits …',
+      reconcilingTooltip: 'Costs are still being reconciled',
       low: '{available} Credits left', lowShort: '{available} left',
       title: 'Your credits', scope: 'for all your conversations', loading: 'Loading credits',
       balance: 'Your credits: {available} of {limit} left, for all your conversations.',

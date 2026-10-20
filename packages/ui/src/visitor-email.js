@@ -152,6 +152,11 @@ export class VisitorEmail {
     this.q('.m-cons').classList.toggle('over', over);
     setText(this.q('.m-delete-normal'), this.canDelete === true && this.tiers && Number.isFinite(spent) ? fill(e.deleteDrop, { ...n, available: this.format(Math.max(0, base - spent)) }) : '');
     setText(this.q('.m-delete-over'), this.canDelete === true && Number.isFinite(spent) ? fill(e.deleteOver, { spent: this.format(spent) }) : '');
+    const consequence = this.q('.m-cons');
+    if (this.canDelete !== true && this.tiers && Number.isFinite(spent)) {
+      consequence.setAttribute('data-delete-normal', fill(e.deleteDrop, { ...n, available: this.format(Math.max(0, base - spent)) }));
+      consequence.setAttribute('data-delete-over', fill(e.deleteOver, { spent: this.format(spent) }));
+    } else { consequence.removeAttribute('data-delete-normal'); consequence.removeAttribute('data-delete-over'); }
     setText(this.q('.m-msg-text'), this.ui.message); this.q('.m-ico').innerHTML = this.ui.message && !this.ui.busy ? this.ui.invalid || this.ui.failed ? INFO : CHECK : '';
     setText(this.q('.m-delete-message'), this.ui.deleting ? this.ui.message : '');
     setText(this.q('.m-unavailable-message'), state === 'unavailable' ? this.ui.message : '');

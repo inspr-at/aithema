@@ -574,7 +574,7 @@ for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and 
 
 for (const copy of [de, en]) test(`AIT-411 O4/O5: one reconciliation announcement and reset retained until cap clears (${copy.display.locale})`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
-  const receipt = { scope: 'session', balance, dailyCapReached: true, dailyCapResetAt: 123456789, reconciling: false };
+  const receipt = { scope: 'session', balance, exhausted: true, dailyCapReached: true, dailyCapResetAt: 123456789, reconciling: false };
   const { root } = setup(t, { copy, host: { credits: { reconcilingVisible: true, dailyCapReset: true } },
     routes: { 'GET /credits': () => Response.json(receipt) } });
   await tick(10);

@@ -1404,6 +1404,12 @@ export class AithemaSession extends HTMLElement {
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
       out.toggleAttribute('data-host-limit', ['host-limit', 'session'].includes(this.#host?.endReason));
       const newAction = this.#host?.newConversationAction, noAction = this.#host?.noDailyAction;
+      if (this.#options.host?.credits?.dailyCapReset) {
+        let deadline = out.querySelector('.composer-out__deadline');
+        if (!deadline) { deadline = node('span', 'composer-out__deadline'); out.append(deadline); out.setAttribute('data-reset-slot', ''); }
+        setText(deadline, this.#host?.dailyCapResetLabel ?? '');
+        deadline.hidden = !this.#host?.dailyCapped;
+      }
       let start = out.querySelector('.composer-out__new');
       if (this.#options.host?.usedUp?.newConversation?.enabled && !start) {
         start = node('button', 'composer-out__new'); start.type = 'button';

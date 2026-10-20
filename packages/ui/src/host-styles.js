@@ -196,6 +196,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
 .composer-out__actions { position:relative; }
+.composer-out[data-reset-slot] { position:relative; }
+.composer-out__deadline { position:absolute; inset-inline:clamp(.85rem,2vw,1.25rem); bottom:54px; font-size:12px; line-height:1.4; color:var(--aithema-muted); }
 .composer-out__new { position:absolute; inset-inline-start:0; bottom:0; min-height:44px; max-width:55%; padding:0 8px; border-radius:12px; background:var(--aithema-accent); color:var(--aithema-on-accent); font-size:13px; font-weight:600; }
 .composer-out[data-credit-actions="new"] .composer-out__actions { width:100%; }
 .composer-out[data-credit-actions="new"] .composer-out__steps { visibility:hidden; }
@@ -204,6 +206,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits[data-reconciling] .host-credits__reconciling { visibility:visible; }
 .host-credits[data-reconciling] :is(.host-credits__text,.host-credits__used-up) { visibility:hidden; }
 .m-delete-reason { color:var(--aithema-muted); }
+.m-notice .m-pp:not([href]) { color:inherit; text-decoration:none; cursor:inherit; }
 /* Footer labels share a cell. The track and the neighboring controls never move. */
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
 .host-credits__measure-cap { visibility:hidden; white-space:nowrap; font-weight:600; }
@@ -329,6 +332,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 [data-email-mode="mail"] [data-address="false"] .m-mail-tier-state { visibility:hidden; }
 .host-mail .verify-entry-state { display:block; }
 .m-q { font-size:.95rem; font-weight:600; margin:0; min-height:1.5rem; }
+.m-cons[data-delete-normal]::before { content:attr(data-delete-normal); visibility:hidden; grid-area:1/1; }
+.m-cons[data-delete-over]::after { content:attr(data-delete-over); visibility:hidden; grid-area:1/1; }
 .m-cons { font-size:.85rem; line-height:1.45; margin:0; max-width:34rem; }
 .host-mail .m-del { min-height:44px; margin-left:0; padding:0 1rem; border-radius:.55rem; border:1px solid var(--aithema-line); color:var(--aithema-ink); font-weight:600; font-size:.85rem; }
 .m-delete-message,.m-unavailable-message { min-height:2.6em; margin:0; font-size:.8rem; }

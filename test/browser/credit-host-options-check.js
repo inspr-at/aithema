@@ -56,7 +56,11 @@ export async function creditHostOptionsCheck(t) {
         tiers: { current, next: confirmed ? null : 'emailConfirmed', canConfirm: true, delta: 7500000,
           allowancesMicro: { anonymous: 2500000, emailGiven: 2500000, emailConfirmed: 10000000 } } };
       const session = structuredClone(f.seed); session.id = 'ait411'; session.locale = locale; session.demo = false;
-      session.transcript = [{ id: 'reply', role: 'assistant', content: 'A settled reply.' }];
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      session.transcript = [{ id: 'visitor', role: 'user', content: locale === 'de' ? 'Anforderungen besprechen.' : 'Discuss requirements.' }];
+      const question = locale === 'de' ? 'Welche Anforderungen stehen im Vordergrund?' : 'Which requirements matter most?';
+      session.transcript.push({ id: 'reply', role: 'assistant', content: question, inputRevision: inputRevision(session),
+        question_short: question, options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', likely: true }, { text: locale === 'de' ? 'Ressourcen' : 'Resources' }] });
       session.identity = { status: confirmed ? 'verified' : 'guest', address: confirmed ? 'reader@example.test' : null,
         verificationRequired: false, assessmentUnlocked: true, conceptsUnlocked: true, roles: ['visitor'] };
       session.credits = { status: ended ? 'ended' : 'active', endReason: ended ? state.startsWith('S') ? 'session' : 'host-limit' : null };
@@ -87,9 +91,9 @@ export async function creditHostOptionsCheck(t) {
         emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
         newAction: visible('.composer-out__new'), upgrade: visible('.composer-out__upgrade'), export: visible('.composer-out__export'),
         actionRowHidden: r.querySelector('.composer-out__actions').getAttribute('aria-hidden'), next: r.querySelector('.host-credits__next').textContent,
-        current: r.querySelector('.host-credits__current').textContent, deadline: r.querySelector('.host-credits__deadline').textContent,
+        current: r.querySelector('.host-credits__current').textContent, panelDeadline: r.querySelector('.composer-out__deadline')?.textContent, deadline: r.querySelector('.host-credits__deadline').textContent,
         reconciling: visible('.host-credits__reconciling'), live: r.querySelector('.host-credits__reconcile-live')?.textContent,
-        transcript: rect('.transcript-shell'), reply: rect('.transcript-shell ol > li'), lowLines: r.querySelectorAll('.email-low-line').length, deleteDisabled: r.querySelector('.m-delete-mail')?.disabled,
+        transcript: rect('.transcript-shell'), reply: rect('.transcript-shell ol > li[data-id="reply"]'), lowLines: r.querySelectorAll('.email-low-line').length, deleteDisabled: r.querySelector('.m-delete-mail')?.disabled,
         deleteReason: r.querySelector('.m-mail-notice .m-notice-content')?.textContent.trim(), deleteTab: r.querySelector('.m-delete-mail')?.tabIndex,
         deleteCopy: r.querySelector('.m-delete-normal').textContent, deletes: window.ait411.deletes };
     });
@@ -103,7 +107,7 @@ export async function creditHostOptionsCheck(t) {
       assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
       assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
       if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
-      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ wieder verfügbar$/u : /^Available again from /u); }
+      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ wieder verfügbar$/u : /^Available again from /u); assert.equal(value.panelDeadline, value.deadline); }
       if (state === 'S1') { assert.equal(value.upgrade, true); assert.equal(value.export, true); assert.match(value.body, /1[.,]000/u); }
       if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
       if (state === 'offer') assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
