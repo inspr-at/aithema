@@ -226,7 +226,7 @@ for (const explicitRuntimeClock of [false, true]) {
     const before = attempts();
     const refused = await h.route('', { callId: 'day-cap-refused' });
     assert.equal(refused.status, 403, 'a new wall-clock day must not reopen the exhausted host day');
-    assert.deepEqual(await refused.json(), { error: 'not-admitted' });
+    assert.deepEqual(await refused.json(), { error: 'not-admitted', reason: 'Voice minute cap reached for this UTC day' });
     await assert.rejects(h.runtime.checkVoice(h.storage.get(h.session.id)),
       { code: 'not-admitted', message: 'Voice minute cap reached for this UTC day' });
     assert.equal(attempts(), before, 'day-cap refusal precedes every spend reservation');
