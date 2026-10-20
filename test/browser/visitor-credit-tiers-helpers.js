@@ -813,11 +813,6 @@ export async function replyRowsMatrix(t) {
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [];
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
-  // Observe the actual rail without changing its behavior.
-  await page.evaluate(async () => {
-    const { AudioRail } = await import('/packages/ui/src/audio-rail.js'), render = AudioRail.prototype.render;
-    AudioRail.prototype.render = function () { window.ait410Rail = this; return render.call(this); };
-  });
   const shot = async name => {
     if (!evidence) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
@@ -827,6 +822,14 @@ export async function replyRowsMatrix(t) {
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000, isMobile: width === 390, hasTouch: width === 390 });
     await page.select('#locale', locale); await page.select('#theme', theme);
+    // Touch emulation can reload the page; install observation afterwards.
+    await page.evaluate(async () => {
+      const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+      if (!AudioRail.prototype.ait410Render) {
+        const render = AudioRail.prototype.render; AudioRail.prototype.ait410Render = render;
+        AudioRail.prototype.render = function () { window.ait410Rail = this; return render.call(this); };
+      }
+    });
     await fixture(page, locale, { voiceAdmissionFailure: true });
     await shadow(page, c => {
       window.a2.denyVoice = false; window.a2.replays = [];
