@@ -90,7 +90,14 @@ export async function creditHostOptionsCheck(t) {
       const footerTextFits = footerLabel.left >= footer.left && footerLabel.right <= footer.right && footerNeighbors.every(({ box }) =>
         box.width === 0 || box.height === 0 || footerLabel.right <= box.left || footerLabel.left >= box.right || footerLabel.bottom <= box.top || footerLabel.top >= box.bottom);
       const visible = selector => { const n = r.querySelector(selector); return !!n && !n.hidden && !n.inert && getComputedStyle(n).visibility === 'visible'; };
+      const body = r.querySelector('.composer-out__body');
+      const reservation = [...body.children].map(n => ({ key: n.dataset.creditVariant ?? n.dataset.creditOptionVariant,
+        option: n.hasAttribute('data-credit-option-variant'), text: n.textContent,
+        cell: [getComputedStyle(n).gridRowStart, getComputedStyle(n).gridColumnStart].join('/'),
+        hidden: getComputedStyle(n).visibility === 'hidden', ariaHidden: n.getAttribute('aria-hidden'),
+        height: n.getBoundingClientRect().height }));
       return { boxes: Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot'].map(s => [s, rect(s)])),
+        reservation, bodyHeight: body.getBoundingClientRect().height,
         footerTextFits, footerTextRects: { label: [footerLabel.x, footerLabel.y, footerLabel.width, footerLabel.height], neighbors: footerNeighbors.map(({ selector, box }) => ({ selector, rect: [box.x, box.y, box.width, box.height] })) },
         lowCredits: window.ait411.lowCredits, overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth), emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
         newAction: visible('.composer-out__new'), upgrade: visible('.composer-out__upgrade'), export: visible('.composer-out__export'),
@@ -110,6 +117,13 @@ export async function creditHostOptionsCheck(t) {
       if (!baseline) baseline = value.boxes;
       assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
       assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
+      assert.deepEqual(value.reservation.filter(n => !n.option).map(n => n.key),
+        ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
+      assert.deepEqual(value.reservation.filter(n => n.option).map(n => n.key),
+        ['option-new-conversation', 'option-session-emailGiven', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every hint and upgrade`);
+      assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: v1 and O variants share one cell`);
+      assert.ok(value.reservation.every(n => value.bodyHeight >= n.height), `${label}: cell reserves the tallest variant`);
+      assert.ok(value.reservation.filter(n => n.option).every(n => n.hidden && n.ariaHidden === 'true'), `${label}: O measurements stay hidden and outside AX`);
       assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
       if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
       if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ wieder verfügbar$/u : /^Available again from /u); assert.equal(value.panelDeadline, value.deadline); }
@@ -138,6 +152,11 @@ export async function creditHostOptionsCheck(t) {
         await shadow(page, async c => { await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
         const file = `ait411-${width}-${theme}-${locale}-${state}.png`;
         await page.screenshot({ path: join(evidence, file), fullPage: false }); shots.push(file);
+        if (mobile && locale === 'de' && state === 'S1') {
+          await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+          await page.screenshot({ path: join(evidence, 'ait411-390-light-de-shared-cell.png'), fullPage: false });
+          await page.evaluate(() => scrollTo(0, 0));
+        }
       }
     }
   }
@@ -163,7 +182,8 @@ export async function creditHostOptionsCheck(t) {
   assert.deepEqual(errors, []);
   if (evidence) {
     assert.equal(shots.length, 20, 'exact Tick v1–v1.3 shot list');
-    await writeFile(join(evidence, 'ait411-checks.json'), JSON.stringify({ head, workflowSHA: evidenceCommit, runId: process.env.GITHUB_RUN_ID ?? null, checks, shots, errors }, null, 2));
+    await writeFile(join(evidence, 'ait411-checks.json'), JSON.stringify({ head, workflowSHA: evidenceCommit, runId: process.env.GITHUB_RUN_ID ?? null, checks, shots,
+      sharedCellShot: 'ait411-390-light-de-shared-cell.png', errors }, null, 2));
   }
   t.diagnostic(`${checks.length} state checks; 20 viewport shots; one reused page`);
 }

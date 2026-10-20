@@ -14,7 +14,7 @@ function fixture(t, options = {}) {
     identityPolicy: { resendCooldownMs: 100, verificationTtlMs: 500 }, ...options });
   const runtime = createPluginRuntime({ storage, consent: mockConsent, presets: options.presets });
   const handlers = createHandlers({ storage, consent: mockConsent, pluginRuntime: runtime, host, ownership: options.ownership,
-    deadlineMs: options.deadlineMs ?? 30_000 });
+    deadlineMs: options.deadlineMs ?? 30_000, log: options.log });
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await handlers.close(); storage.close(); };
   t.after(close);
@@ -25,6 +25,37 @@ function fixture(t, options = {}) {
   const create = async () => (await call('/api/sessions', {})).json();
   const message = async id => (await (await call(`/api/sessions/${id}/demo/outbox`)).json()).messages.at(-1);
   return { storage, host, runtime, handlers, call, create, message, close, at: value => { time = value; } };
+}
+
+for (const route of ['create', 'snapshot', 'library-open']) {
+  for (const failure of [TypeError, Error, RangeError, 'rejection']) {
+    test(`AIT-417: ${route} survives touchVisitor ${failure.name ?? failure}`, async t => {
+      const log = t.mock.fn(), f = fixture(t, { log });
+      const session = route === 'create' ? null : await f.create();
+      const touch = t.mock.method(f.host, 'touchVisitor', () => {
+        if (failure === 'rejection') return Promise.reject(new Error('private host activity diagnostic'));
+        throw new failure('private host activity diagnostic');
+      });
+      const path = route === 'create' ? '/api/sessions'
+        : route === 'snapshot' ? `/api/sessions/${session.id}` : `/api/library/${session.id}`;
+      const response = await f.call(path, route === 'create' ? {} : undefined);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(response.status, route === 'create' ? 201 : 200);
+      const body = await response.json(), id = body.id;
+      assert.equal(f.storage.authorize(id, owner).id, id);
+      if (session) assert.equal(id, session.id);
+      if (route === 'library-open') assert.equal(body.session.id, id);
+      assert.ok(f.storage.hostState(id).handover, 'host initialization must complete');
+      assert.deepEqual(f.storage.get(id).transcript, []);
+      assert.equal(touch.mock.callCount(), 1);
+      assert.equal(touch.mock.calls[0].arguments[0].id, id);
+      assert.deepEqual(log.mock.calls.map(call => call.arguments), [
+        [{ event: 'host.touch-visitor.failed', sessionId: id }],
+      ]);
+      assert.equal(JSON.stringify({ body, events: f.storage.read(id), diagnostics: log.mock.calls.map(call => call.arguments) })
+        .includes('private host activity diagnostic'), false);
+    });
+  }
 }
 
 for (const route of ['sessions', 'library', 'reset']) test(`AIT-217: ${route} creation renews ownership once on the 201 response`, async t => {
@@ -410,11 +441,20 @@ for (const keepIdentity of [false, true]) for (const status of ['guest', 'verifi
     }
     assert.equal(storage.get(s.id).seq, seq + 2);
     if (status === 'verification-pending') {
-      // A normal transition retaining an address still needs privacy permission.
+      // Refusing an address-retaining transition must leave the pause and journal untouched.
+      const sessionBefore = storage.get(s.id), eventsBefore = storage.read(s.id);
+      const reasoning = t.mock.method(handlers.lanes, 'run');
+      const concepts = t.mock.method(handlers.conceptLane, 'run');
       const denied = await call(`${base}/pause`, { paused: false });
       assert.equal(denied.status, 403);
       assert.deepEqual(await denied.json(), { error: 'privacy-document-required' });
       assert.deepEqual(storage.hostState(s.id).identity, { ...before, verificationRequired: false });
+      await handlers.idle();
+      assert.equal(storage.get(s.id).paused, true);
+      assert.deepEqual(storage.get(s.id), sessionBefore);
+      assert.deepEqual(storage.read(s.id), eventsBefore);
+      assert.equal(reasoning.mock.callCount(), 0);
+      assert.equal(concepts.mock.callCount(), 0);
     }
   });
 }
@@ -769,6 +809,65 @@ test('AIT-405: a throwing tier display callback cannot strand a saved and broadc
   assert.equal(tiers.mock.callCount(), 0, 'tier display has no role in initial admission');
   assert.equal(f.storage.get(session.id).transcript.some(turn => turn.role === 'assistant'), true, 'the saved turn reaches the reply lane');
   assert.equal(f.storage.get(session.id).understanding.inputRevision, inputRevision(f.storage.get(session.id)));
+});
+
+test('AIT-420: wallet and balance may SELECT through storage getters and host tables inside turn preflight', async t => {
+  const f = fixture(t, { demoBypass: true }), session = await f.create();
+  const before = f.storage.get(session.id), hostState = f.storage.hostState(session.id);
+  f.storage.db.exec('CREATE TABLE host_wallet_limits (session_id TEXT PRIMARY KEY, limit_micro INTEGER NOT NULL)');
+  f.storage.db.prepare('INSERT INTO host_wallet_limits VALUES (?,?)').run(session.id, 2_000_000);
+  const reads = [], wallet = f.host.wallet;
+  function readLimit(stage, id) {
+    assert.equal(f.storage.db.isTransaction, true, 'host reads run inside the turn transaction');
+    assert.deepEqual(f.storage.get(id), before, 'preflight reads the session before the turn is saved');
+    assert.deepEqual(f.storage.hostState(id), hostState);
+    const row = f.storage.db.prepare('SELECT limit_micro FROM host_wallet_limits WHERE session_id=?').get(id);
+    reads.push(stage);
+    return row.limit_micro;
+  }
+  t.mock.method(f.host, 'wallet', (token, context) => {
+    assert.equal(token, owner);
+    assert.deepEqual(context, { sessionId: session.id });
+    readLimit('wallet', context.sessionId);
+    const current = wallet(token, context);
+    return Object.create(current, { balance: { value: () => ({ ...current.balance(), limitMicro: readLimit('balance', context.sessionId) }) } });
+  });
+  const body = { clientEventId: 'wallet-select', content: 'systems: API' };
+  const response = await f.call(`/api/sessions/${session.id}/turns`, body);
+  assert.equal(response.status, 200);
+  assert.deepEqual(reads, ['wallet', 'balance']);
+  assert.equal(f.storage.get(session.id).transcript.filter(turn => turn.id === body.clientEventId).length, 1);
+  await f.handlers.idle();
+});
+
+for (const callback of ['wallet', 'balance']) test(`AIT-420: a nested storage.transaction in ${callback} returns 500 without saving the turn`, async t => {
+  const f = fixture(t, { demoBypass: true }), session = await f.create();
+  const before = f.storage.get(session.id), journal = f.storage.read(session.id), hostState = f.storage.hostState(session.id);
+  const nested = t.mock.fn(), wallet = f.host.wallet;
+  function reenter() {
+    assert.equal(f.storage.db.isTransaction, true);
+    return f.storage.transaction(nested);
+  }
+  const broken = t.mock.method(f.host, 'wallet', (token, context) => {
+    if (callback === 'wallet') return reenter();
+    return Object.create(wallet(token, context), { balance: { value: reenter } });
+  });
+  const body = { clientEventId: 'wallet-nested', content: 'systems: API' };
+  const response = await f.call(`/api/sessions/${session.id}/turns`, body);
+  await f.handlers.idle();
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: 'server-error' });
+  assert.equal(nested.mock.callCount(), 0, 'the nested BEGIN fails before entering the callback');
+  assert.equal(f.storage.db.isTransaction, false, 'the outer turn transaction rolls back');
+  assert.deepEqual(f.storage.get(session.id), before);
+  assert.deepEqual(f.storage.read(session.id), journal);
+  assert.deepEqual(f.storage.hostState(session.id), hostState);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM receipts WHERE session_id=?').get(session.id).n, 0);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
+  broken.mock.restore();
+  assert.equal((await f.call(`/api/sessions/${session.id}/turns`, body)).status, 200, 'rollback leaves the same client event retryable');
+  await f.handlers.idle();
+  assert.equal(f.storage.get(session.id).transcript.filter(turn => turn.id === body.clientEventId).length, 1);
 });
 
 const creditCallbackErrors = [Error, TypeError, RangeError, SyntaxError].map(ErrorType => [ErrorType.name, () => new ErrorType('private host diagnostic')]);

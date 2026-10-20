@@ -1,8 +1,12 @@
+import { icon } from './icons.js';
+import { ReplyControls } from './reply-controls.js';
+
 // Only a new recovery changes the live region. Once its sentence clears,
 // the existing controls belong to the exact assistant reply, without a notice row.
 export class RecoveryNotices {
-  constructor({ root, copy, available, replay, stopReplay, replyVisible = text => Boolean(text), audioAvailable = () => true, replyTarget = () => null }) {
-    Object.assign(this, { root, copy, available, replay, stopReplay, replyVisible, audioAvailable, replyTarget });
+  constructor({ root, copy, available, replay, stopReplay, replyVisible = text => Boolean(text), audioAvailable = () => true, replyTarget = () => null, inCall = () => false, replies }) {
+    Object.assign(this, { root, copy, available, replay, stopReplay, replyVisible, audioAvailable, replyTarget, inCall, replies });
+    this.replyRows = new Map();
     this.revision = 0;
     root.innerHTML = `<div class="voice-notice voice-notice--recovered"></div>
       <div class="voice-notice voice-notice--user"></div>
@@ -21,7 +25,7 @@ export class RecoveryNotices {
     this.render();
   }
   recovered(recovery = {}) {
-    this.clear(); this.completedReply = null; this.recovery = { ...recovery }; this.render();
+    this.clear(); this.completedReply = null; this.recoveryContext = true; this.recovery = { ...recovery }; this.render();
     this.root.querySelector('.voice-notice-live').textContent = [this.copy.voiceRecovered,
       recovery.userUnconfirmed && this.copy.voiceUserUnconfirmed,
       recovery.deliveryUncertain && recovery.playbackPositionUnknown && this.copy.voiceReplyIncomplete].filter(Boolean).join('. ');
@@ -42,7 +46,26 @@ export class RecoveryNotices {
     if (completed) this.completedReply = this.playbackReply ?? this.currentReply();
     this.playing = false; this.interrupted = !completed; this.render();
   }
+  renderReplyRows() {
+    const replies = this.replies(), retained = new Set();
+    for (const reply of replies) {
+      retained.add(reply.turnId);
+      let controls = this.replyRows.get(reply.turnId);
+      if (controls && controls.reply.text !== reply.text) {
+        this.stopReplay?.(); controls.playing = false; controls.fallback = false;
+        controls.reply = { text: reply.text, turnId: reply.turnId };
+      }
+      if (controls && controls.row.parentElement !== reply.target) reply.target.append(controls.row);
+      if (!controls) {
+        controls = new ReplyControls({ reply: { text: reply.text, turnId: reply.turnId }, target: reply.target, owner: this });
+        this.replyRows.set(reply.turnId, controls);
+      }
+      controls.render(reply === replies.at(-1));
+    }
+    for (const [id, controls] of this.replyRows) if (!retained.has(id)) { controls.dispose(); this.replyRows.delete(id); }
+  }
   render() {
+    if (this.replies) this.renderReplyRows();
     const c = this.copy, recovery = this.recovery, available = this.available();
     if (!available && this.wasAvailable) { this.revision++; this.pending = null; }
     this.wasAvailable = available;
@@ -50,14 +73,28 @@ export class RecoveryNotices {
     text('.voice-notice--recovered', recovery ? c.voiceRecovered : '');
     text('.voice-notice--user', recovery?.userUnconfirmed ? c.voiceUserUnconfirmed : '');
     text('.voice-notice--reply span', recovery?.deliveryUncertain && recovery.playbackPositionUnknown ? c.voiceReplyIncomplete : '');
-    const reply = recovery?.lastReplyText ?? this.pageReply?.text;
+    // The legacy notice row is detached while ordinary replies own their rows.
+    // This also keeps hidden placeholders out of transcript layout and AX.
+    if (this.replies && !recovery && (!this.recoveryContext || this.inCall())) {
+      if (this.recoveryContext) {
+        this.button.hidden = true; this.readText.hidden = true; this.actions.hidden = true;
+        this.replyNotice.append(this.actions);
+      } else this.actions.remove();
+      this.replyNotice.hidden = true;
+      text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
+      if (!available && this.dialog.open) this.dialog.close();
+      return;
+    }
+    this.button.querySelector('svg')?.remove(); this.readText.querySelector('svg')?.remove();
+    const pageReply = this.replies && (recovery || this.inCall()) ? null : this.pageReply;
+    const reply = recovery?.lastReplyText ?? pageReply?.text;
     const label = this.playing ? c.voiceReplayStop : this.fallback || !this.audioAvailable() ? c.voiceReadFullReply : c.voiceRepeatReply;
     text('.voice-repeat-label', label);
     this.button.dataset.stopLabel = c.voiceReplayStop; this.button.dataset.fallbackLabel = c.voiceReadFullReply;
     text('.voice-read-text', c.voiceReadText);
     this.button.dataset.replayState = this.playing ? 'playing' : this.interrupted ? 'interrupted' : 'idle';
     this.button.setAttribute('aria-pressed', String(Boolean(this.playing)));
-    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || this.pageReply) || Boolean(reply) && !this.replyVisible(reply, recovery?.lastReplyTurnId ?? this.pageReply?.turnId);
+    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || pageReply) || Boolean(reply) && !this.replyVisible(reply, recovery?.lastReplyTurnId ?? pageReply?.turnId);
     const identity = this.currentReply();
     if (identity?.text && this.completedReply?.turnId === identity.turnId && this.completedReply?.text === identity.text) this.button.hidden = true;
     this.readText.hidden = this.button.hidden;
@@ -65,11 +102,31 @@ export class RecoveryNotices {
     const parent = target ?? this.replyNotice;
     if (this.actions.parentNode !== parent) parent.append(this.actions);
     this.actions.hidden = this.button.hidden;
+    // A recovery can retire its own replay offer after completion. On a
+    // transcript reply it shares the permanent slot, leaving that reply's
+    // independent controls and keyboard targets in place throughout.
+    const recoveryOverlay = Boolean(this.replies && target);
+    this.actions.classList.toggle('voice-reply-actions--recovery', recoveryOverlay);
+    this.actions.setAttribute('aria-hidden', String(recoveryOverlay));
+    for (const control of [this.button, this.readText]) {
+      if (recoveryOverlay) control.tabIndex = -1; else control.removeAttribute('tabindex');
+    }
+    if (recoveryOverlay) {
+      this.button.insertAdjacentHTML('beforeend', icon('volume'));
+      this.readText.insertAdjacentHTML('beforeend', icon('conversations'));
+    }
     this.replyNotice.hidden = !this.replyNotice.querySelector('span').textContent && (Boolean(target) || this.button.hidden);
-    this.readText.disabled = !available || !reply;
-    this.button.disabled = !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? this.pageReply?.text);
-    this.button.title = reply ? label : c.voiceReplyUnavailable;
-    this.button.setAttribute('aria-label', this.button.title);
+    const duringCall = !recovery && !this.button.hidden && this.inCall();
+    this.readText.disabled = duringCall || !available || !reply;
+    this.button.disabled = duringCall || !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? pageReply?.text);
+    this.button.title = duringCall ? c.voiceReplyDuringCall : reply ? label : c.voiceReplyUnavailable;
+    this.button.setAttribute('aria-label', reply ? label : c.voiceReplyUnavailable);
+    this.readText.title = duringCall ? c.voiceReplyDuringCall : '';
+    for (const control of [this.button, this.readText]) {
+      control.setAttribute('aria-disabled', String(control.disabled));
+      if (duringCall) control.setAttribute('aria-description', c.voiceReplyDuringCall);
+      else control.removeAttribute('aria-description');
+    }
     text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
     if (!available && this.dialog.open) this.dialog.close();
   }

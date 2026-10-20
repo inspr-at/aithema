@@ -895,10 +895,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       let playing = false;
       try {
         const last = snapshot => snapshot.transcript.findLast(turn => turn.role === 'assistant' && !turn.erased && !turn.withdrawn && turn.content);
-        const reply = last(storage.get(session.id));
+        const requested = snapshot => snapshot.transcript.findLast(turn => turn.id === turnId && turn.role === 'assistant' && !turn.erased && !turn.withdrawn && turn.content);
+        const snapshot = storage.get(session.id), reply = requested(snapshot), latestAtStart = last(snapshot);
         const current = () => {
-          const fresh = storage.get(session.id), latest = last(fresh);
-          if (!voiceUnchanged(session) || options.current?.() === false || latest?.id !== reply?.id || latest?.content !== reply?.content) throw new PluginError('unavailable');
+          const fresh = storage.get(session.id), latest = last(fresh), exact = requested(fresh);
+          // Earlier replies are valid replay targets. Keep both their exact
+          // bytes and the existing in-flight newer-reply/authority fences.
+          if (!voiceUnchanged(session) || options.current?.() === false || exact?.id !== reply?.id || exact?.content !== reply?.content ||
+              latest?.id !== latestAtStart?.id || latest?.content !== latestAtStart?.content) throw new PluginError('unavailable');
           options.signal?.throwIfAborted();
         };
         if (!reply || reply.id !== turnId) throw new PluginError('unavailable');

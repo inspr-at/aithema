@@ -58,7 +58,7 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     t.after(() => observer.disconnect());
     for (const type of ['credits.limit-reached', 'conversation.end-requested', 'credits.limit-reached']) {
       c.receive({ seq: c.session.seq + 1, type, data: { reason } }); await tick(8);
-      assert.equal(root.querySelector('.composer-out__body').textContent, limit.body);
+      assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, limit.body);
       assert.equal(root.querySelector('.status__label').closest('.composer-dock'), null, 'no end-reason toast');
     }
     assert.deepEqual(announcements, ['credit-announcement sr-only'], 'exactly one polite block announcement');
@@ -143,7 +143,7 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } }); await tick(8);
     const ended = copy.hostSurface.credits.ended[reason], body = typeof ended === 'string' ? ended : ended.body;
     assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
-    assert.equal(root.querySelector('.composer-out__body').textContent, body, 'the composer shows the actual ended reason');
+    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, body, 'the composer shows the actual ended reason');
     const toast = root.querySelector('.composer-dock > .status__label');
     assert.equal(toast?.textContent ?? '', '', `duplicate ended-reason toast: ${toast?.textContent ?? ''}`);
   });

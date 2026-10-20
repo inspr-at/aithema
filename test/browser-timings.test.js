@@ -202,7 +202,13 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
   const seven = Array.from({ length: 7 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-7` }));
   const sevenSuccess = invoke({ artifacts: seven });
   assert.equal(sevenSuccess.status, 0, sevenSuccess.stderr);
+  const eight = Array.from({ length: 8 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-8` }));
+  const eightSuccess = invoke({ artifacts: eight });
+  assert.equal(eightSuccess.status, 0, eightSuccess.stderr);
   for (const incomplete of [artifacts.slice(1), seven.slice(1), [...seven.slice(1), seven[1]],
+    eight.slice(1), [...eight.slice(1), eight[1]], [...seven, eight[7]],
+    eight.map((a, i) => i ? a : { ...a, name: 'browser-timings-9-of-8' }),
+    eight.map((a, i) => i ? a : { ...a, expired: true }),
     [...artifacts, seven[6]], seven.map((a, i) => i ? a : { ...a, name: 'browser-timings-8-of-7' }),
     seven.map((a, i) => i ? a : { ...a, expired: true })]) {
     const rejected = invoke({ artifacts: incomplete });

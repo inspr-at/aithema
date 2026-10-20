@@ -31,7 +31,7 @@ import { hostStyles } from './host-styles.js';
 import { entranceStyles } from './entrance-styles.js';
 import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
-import { modelDisplayName, languageFlag } from './display.js';
+import { modelDisplayName, languageFlag, formatCredits } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
@@ -623,6 +623,13 @@ export class AithemaSession extends HTMLElement {
           const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);
           if (!turn || turn.id !== turnId || turn.content !== text) return null;
           return [...root.querySelectorAll('.turn:not(.user):not(.partial)')].find(row => row.dataset.id === turn.id && row.querySelector('.turn-text')?.textContent === text);
+        },
+        replies: () => {
+          const turns = new Map(this.#session.transcript.filter(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content).map(t => [t.id, t]));
+          return [...root.querySelectorAll('.turn:not(.user):not(.partial)')].flatMap(target => {
+            const turn = turns.get(target.dataset.id);
+            return turn && target.querySelector('.turn-text')?.textContent === turn.content ? [{ target, turnId: turn.id, text: turn.content }] : [];
+          });
         },
         lastReply: () => {
           if (this.#session.paused || this.#session.tombstone || this.#session.consentWithdrawn) return null;
@@ -1427,10 +1434,38 @@ export class AithemaSession extends HTMLElement {
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
       out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
       setText(out.querySelector('.composer-out__title span'), limit.title);
-      setText(out.querySelector('.composer-out__body span'), limit.body);
-      // Keep the normal composer's body reservation through host-limit and receipt changes.
-      out.querySelector('.composer-out__body').dataset.defaultBody = u.body;
       const delta = this.#host?.deltaCredits ?? '';
+      // Tick spec v1 (AIT-406, 2026-10-20): the tallest localized variant
+      // reserves the credit line. Hidden grid peers never enter the AX tree.
+      const allowances = this.#host?.tiers?.allowancesMicro;
+      const tierDelta = (from, to) => allowances?.[from] !== undefined && allowances?.[to] !== undefined
+        ? formatCredits(Math.max(0, allowances[to] - allowances[from]), this.#session.locale ?? 'en') : delta;
+      const bodies = [
+        ['active', limit.body], ['default', u.body],
+        ['host-give', u.hostGive.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
+        ['host-confirm', u.hostConfirm.replace('{delta}', tierDelta('emailGiven', 'emailConfirmed'))],
+        ['host-confirm-anonymous', u.hostConfirm.replace('{delta}', tierDelta('anonymous', 'emailConfirmed'))],
+        ...Object.entries(credits.ended).filter(([, value]) => value && typeof value === 'object')
+          .map(([key, value]) => [key, value.body]), ['daily-cap', credits.dailyCap],
+      ].map(([key, text]) => [key, { text, option: false }]);
+      // Keep v1's ten spans intact. O1/O7 measurement peers share their grid
+      // cell, including both possible upgrade allowances before a tier changes.
+      // These hidden b elements have inherited typography and no AX presence.
+      bodies.push(...[
+        ['new-conversation', credits.ended.newConversationHint],
+        ...['emailGiven', 'emailConfirmed'].map(tier => [`session-${tier}`,
+          credits.ended.sessionUpgrade.replace('{next}', allowances?.[tier] === undefined ? ''
+            : formatCredits(allowances[tier], this.#session.locale ?? 'en'))]),
+      ].map(([key, text]) => [`option-${key}`, { text, option: true }]));
+      reconcile(out.querySelector('.composer-out__body'), bodies, body => node(body.option ? 'b' : 'span'), (span, { text, option }) => {
+        const key = span.dataset.key;
+        setText(span, text);
+        if (option) span.dataset.creditOptionVariant = key;
+        else span.dataset.creditVariant = key;
+        span.dataset.active = String(key === 'active');
+        span.toggleAttribute('data-host-body', option || key.startsWith('host-') || key === 'active' && out.hasAttribute('data-host-limit'));
+        span.setAttribute('aria-hidden', String(!usedUp || key !== 'active'));
+      });
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');
       footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);
@@ -2573,13 +2608,7 @@ export class AithemaSession extends HTMLElement {
       this.#host?.receive(event);
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'voice.state') {
-      const voice = this.#rail?.session;
-      this.#rail?.receiveState(event.data);
-      if (voice && event.data.state === 'waiting' && voice.callId === event.data.callId &&
-        voice.providerSessionId === event.data.providerSessionId && !['tab-takeover', 'server-restart'].includes(event.data.reason)) voice.lifecycle?.wait(event.data.reason);
-      if (voice && ['closing', 'ended'].includes(event.data.state) && !recoverableVoiceEnd(event.data.reason) &&
-        voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
-      this.#rail?.settlement(event.data);
+      this.#receiveVoiceState(event.data);
       this.#host?.receive(event);
       if (['closing', 'ended'].includes(event.data.state) && this.isConnected) void this.#refreshFeatures();
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session) &&
@@ -2605,6 +2634,37 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
+  #receiveVoiceState(state) {
+    const voice = this.#rail?.session;
+    this.#rail?.receiveState(state);
+    if (voice && state.state === 'waiting' && voice.callId === state.callId &&
+      voice.providerSessionId === state.providerSessionId && !['tab-takeover', 'server-restart'].includes(state.reason)) voice.lifecycle?.wait(state.reason);
+    if (voice && ['closing', 'ended'].includes(state.state) && !recoverableVoiceEnd(state.reason) &&
+      voice.callId === state.callId && voice.providerSessionId === state.providerSessionId) void this.#rail.close(state.reason);
+    this.#rail?.settlement(state);
+  }
+  #restoreVoiceEffects(before) {
+    if (!this.#rail) return;
+    const session = this.#session, lifecycle = session.voiceLifecycle;
+    if (lifecycle && JSON.stringify(lifecycle) !== JSON.stringify(before.voiceLifecycle)) this.#receiveVoiceState(lifecycle);
+    // Snapshot reads carry no Resume intent. Keep the same media/command fences
+    // as a durable pause event, and apply the hold before any context or speech.
+    if (session.pauseReason !== 'purpose' &&
+      (session.paused !== before.paused || session.paused !== Boolean(this.#rail.paused)) &&
+      !this.#rail.syncPause(session.paused)) session.paused = Boolean(this.#rail.paused);
+    if (session.paused || session.consentWithdrawn || session.tombstone ||
+      ['waiting', 'recovering', 'closing', 'ended'].includes(lifecycle?.state)) return;
+    if (JSON.stringify([before.understanding, before.focusedQuestion, before.transcript]) !==
+      JSON.stringify([session.understanding, session.focusedQuestion, session.transcript])) void this.#rail?.updateContext().catch(() => {});
+    // Only the newly discovered, still-current clarify completion is pending.
+    // Adoption precedes delivery, so concurrent restores and late SSE see it as
+    // already known even while speech is in flight. Historical replies stay silent.
+    const reply = activeTurns(session).at(-1), focus = session.questionFocus;
+    if (reply?.role === 'assistant' && focus?.requestId && focus.inputRevision === inputRevision(session) && reply.focusRequestId === focus.requestId &&
+      reply.inputRevision === inputRevision(session) && !before.transcript.some(turn => turn.id === reply.id)) {
+      void deliverFocusedReply(this.#rail, reply).catch(() => {});
+    }
+  }
   #watchConsentRefresh(granted, changed, removed) {
     // Missing or unknown scopes retain AIT-364 exactly. Only an explicitly
     // scoped grant may wait for a lagging host ledger under E3.
@@ -2612,8 +2672,8 @@ export class AithemaSession extends HTMLElement {
       FEATURES.some(feature => (feature === 'html' ? 'html-drafts' : feature) === scope));
     const removalOnly = scoped && Array.isArray(removed) && removed.length > 0 && changed.every(scope => removed.includes(scope));
     const scopedGrant = granted === true && scoped && !removalOnly;
-    // Repeated saves cannot extend the window or inherit an older grant's wait.
-    if (this.#consentRefresh) { this.#consentRefresh.scopedGrant = scopedGrant; return; }
+    // Repeated saves cannot extend the window or restore a legacy/withdrawal window's grant wait.
+    if (this.#consentRefresh) { this.#consentRefresh.scopedGrant &&= scopedGrant; return; }
     const pending = { sessionId: this.#session.id, retries: 0, scopedGrant };
     this.#consentRefresh = pending;
     // Coverage is bounded from the event, including snapshot and document reads.
@@ -2750,8 +2810,9 @@ export class AithemaSession extends HTMLElement {
       }
       // An accepted snapshot protects its state from older responses to concurrent restores.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
+      const before = this.#session;
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
-      if (session.voiceLifecycle) this.#rail?.receiveState(session.voiceLifecycle);
+      this.#restoreVoiceEffects(before);
       this.#repaintLocale();
       this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');

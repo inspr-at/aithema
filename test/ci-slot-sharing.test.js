@@ -14,12 +14,12 @@ const lightCondition = "github.event_name == 'pull_request' && needs.changes.res
 const heavyCondition = "(github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')";
 const expression = (value, github) => runInNewContext(value.slice(3, -2), { github });
 
-test('dedupe cancels only PRs, with unique queue refs and all seven browser shards in parallel', () => {
+test('dedupe cancels only PRs, with unique queue refs and all eight browser shards in parallel', () => {
   assert.equal(ci.concurrency.group, 'ci-${{ github.event.pull_request.number || github.ref }}');
   assert.equal(ci.concurrency['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}");
-  // AIT-207: all seven shards run at once for every event (AEON-1407 baseline: Enterprise runners, Aithema ~2 % of CI hours).
+  // AIT-207: all eight shards run at once for every event (AEON-1407 baseline: Enterprise runners, Aithema ~2 % of CI hours).
   assert.equal(ci.jobs.browser.strategy['max-parallel'], undefined);
-  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7, 8]);
   const groups = [];
   for (const [event, ref, number] of [
     ['pull_request', 'refs/pull/204/merge', 204],
@@ -43,10 +43,10 @@ test('required jobs always exist; docs-only success gates every heavy step', () 
   assert.deepEqual(Object.keys(ci.on), ['pull_request', 'merge_group', 'push']);
   assert.equal(ci.on.pull_request, null); // No workflow-level paths filter.
   assert.deepEqual(ci.on.merge_group, { types: ['checks_requested'] });
-  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7]);
-  assert.equal(ci.jobs.browser.name, 'browser (${{ matrix.shard }}/7)');
-  assert.ok(ci.jobs.browser.steps.some(step => step.run === 'npm run test:browser -- --shard ${{ matrix.shard }}/7'));
-  for (const name of ['browser-timings-${{ matrix.shard }}-of-7', 'browser-evidence-${{ matrix.shard }}-of-7']) {
+  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(ci.jobs.browser.name, 'browser (${{ matrix.shard }}/8)');
+  assert.ok(ci.jobs.browser.steps.some(step => step.run === 'npm run test:browser -- --shard ${{ matrix.shard }}/8'));
+  for (const name of ['browser-timings-${{ matrix.shard }}-of-8', 'browser-evidence-${{ matrix.shard }}-of-8']) {
     assert.ok(ci.jobs.browser.steps.some(step => step.with?.name === name), name);
   }
   assert.equal(ci.jobs.changes.if, undefined);

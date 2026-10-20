@@ -206,3 +206,20 @@ test('AIT-154 round 3: an aborted request cannot release a newer lease with the 
   assert.equal(audio.kind, 'audio');
   assert.equal(quotes, 2); assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 1);
 });
+
+test('AIT-410: an earlier unwithdrawn reply can be replayed by its own exact turn identity', async t => {
+  const f = fixture(t);
+  f.storage.append(f.session.id, 'turn.final', { id: 'reply-b', role: 'assistant', content: 'A newer answer.' });
+  const replay = await f.runtime.speakText({ session: f.storage.get(f.session.id), turnId: 'reply-a' });
+  assert.equal(replay.kind, 'audio'); assert.equal(replay.text, 'Exact answer.'); assert.equal(replay.turnId, 'reply-a');
+  assert.equal(JSON.parse(f.requests.find(r => r.options.method === 'POST').options.body).text, 'Exact answer.');
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).id, 'reply-b', 'replay does not create or replace a turn');
+});
+
+test('AIT-410: withdrawing an earlier replay target during synthesis fences its audio and accounts usage', async t => {
+  const f = fixture(t, { onPost: storage => storage.append(storage.list()[0], 'turn.withdrawn', { turnId: 'reply-a' }) });
+  f.storage.append(f.session.id, 'turn.final', { id: 'reply-b', role: 'assistant', content: 'A newer answer.' });
+  await assert.rejects(f.runtime.speakText({ session: f.storage.get(f.session.id), turnId: 'reply-a' }), { code: 'unavailable' });
+  assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 1);
+  assert.equal(f.budget.used(f.session.id), 1200);
+});

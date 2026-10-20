@@ -20,6 +20,8 @@ const oldDeclaration: LiveVoiceDeclaration = { reasoning: 'delegated',
   transcript: { finality: 'turns', persistence: 'durable' }, billing: { visitor: 'duration', upstream: 'duration' },
   capabilities: { sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'emulated',
     pause: 'emulated', resume: 'emulated', interrupt: 'native', heard: 'unavailable' } };
+const nativeInterruption: LiveVoiceDeclaration = { ...oldDeclaration,
+  capabilities: { ...oldDeclaration.capabilities, interruption: 'native' } };
 declare const adapter: VoiceServerAdapter;
 declare const browserMedia: VoiceBrowserMedia;
 declare const replyExecutor: VoiceReplyExecutor;
@@ -38,4 +40,4 @@ const forgedEnvelope: VoiceReplyEnvelope = { ...envelope, operation: { key: 'for
 const invented: ComponentTerminal = { attemptId: 'attempt', outcome: 'completed', usage: { inputTokens: 1, outputTokens: 2 } };
 // @ts-expect-error Completion without an admitted attempt has no terminal identity.
 const unidentified: ComponentTerminal = { outcome: 'completed', usage: terminal.usage };
-void [waiting, oldDeclaration, ports, untrusted, forgedEnvelope, invented, unidentified];
+void [waiting, oldDeclaration, nativeInterruption, ports, untrusted, forgedEnvelope, invented, unidentified];

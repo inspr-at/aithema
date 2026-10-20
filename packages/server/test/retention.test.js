@@ -187,6 +187,8 @@ test('retirement removes accounting links while preserving deployment spend and 
   const voice = createVoiceCap({ storage, capMilliseconds: 60_000, perDayMilliseconds: 60_000, now });
   const renders = createUIRenderLimiter({ storage, perDay: 1, now });
   ledger.admit({ attemptId: 'attempt', sessionId: s.id, lane: 'concept', maxMicro: 100, requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = ledger.claim('attempt'); claim.consume();
+  ledger.settle(claim.claimId, { attemptId: 'attempt', outcome: 'completed', chargedMicro: 101, usage: { inputTokens: 1, outputTokens: 1 } });
   const reservation = spend.reserve(100, { attemptId: 'attempt', provider: 'private-provider' });
   spend.record(reservation, { generationId: 'private-generation', chargedMicro: 101 });
   spend.settle(reservation, 101);
@@ -301,9 +303,10 @@ for (const erased of [true, false]) test(`AIT-297: removed plugin ends scheduled
   }
 });
 
-test('AIT-295: live retirement retries keep mainline billing behavior across restart', async t => {
+test('AIT-295: live retirement retries keep bounded billing behavior across restart', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const path = await temporaryDb();
-  let storage = new SQLiteStorage(path), handlers, calls = 0;
+  let storage = bindSQLiteClock(new SQLiteStorage(path)), handlers, calls = 0;
   t.after(async () => { await handlers?.close(); storage.close(); });
   const session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
   ledger.admit({ attemptId: 'live-retry', sessionId: session.id, lane: 'reaction', maxMicro: 100,
@@ -311,12 +314,13 @@ test('AIT-295: live retirement retries keep mainline billing behavior across res
   const claim = ledger.claim('live-retry'); claim.consume();
   ledger.settle(claim.claimId, { attemptId: 'live-retry', outcome: 'uncertain' });
   ledger.acknowledgeCost('live-retry', Date.now() + 60_000);
+  t.mock.timers.setTime(Date.now() + 3_600_001);
   handlers = createHandlers({ storage, consent: mockConsent, host: { retired() { calls++; throw new Error('offline'); } } });
   age(storage, session.id);
   assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 1, more: false });
-  assert.equal(calls, 1, 'live retirement reaches the host despite a pending receipt');
+  assert.equal(calls, 1, 'live retirement reaches the host after the bounded receipt window');
   await handlers.close(); storage.close();
-  storage = new SQLiteStorage(path);
+  storage = bindSQLiteClock(new SQLiteStorage(path));
   handlers = createHandlers({ storage, consent: mockConsent, host: { retired() { calls++; } } });
   storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
   assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 1, failed: 0, more: false });
@@ -349,6 +353,7 @@ test('AIT-295: existing tombstones migrate in bounded pages without resetting pe
 
 for (const state of ['live', 'erased']) for (const receipt of ['terminal estimate', 'uncertain without cost lookup', 'uncertain without provider record', 'voice estimate', 'uncertain voice']) {
   test(`AIT-295: ${state} ${receipt} retires with conservative spend totals`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
     const { storage, handlers } = fixture(t), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
     const spend = createSpendCap({ storage, account: 'terminal', capMicro: 100 });
     ledger.admit({ attemptId: 'terminal', sessionId: session.id, lane: receipt.includes('voice') ? 'voice' : 'reaction', maxMicro: 100,
@@ -368,6 +373,7 @@ for (const state of ['live', 'erased']) for (const receipt of ['terminal estimat
         ledger.acknowledgeCost('terminal', null, 3);
       }
     }
+    t.mock.timers.setTime(Date.now() + 3_600_001);
     if (state === 'erased') storage.erase(session.id);
     else age(storage, session.id);
     const total = spend.snapshot();
@@ -581,4 +587,136 @@ test('a never-settling retired hook times out per session, backs off and checkpo
   assert.equal(pending.attempts, 1); assert.ok(pending.retry_at > Date.now());
   assert.deepEqual(logs, [{ event: 'session.retirement.failed', sessionId: hung.id, error: 'RetirementHookTimeoutError' }]);
   assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 0, more: false });
+});
+
+for (const via of ['idle retirement', 'erase route']) for (const lane of ['reaction', 'voice']) {
+  test(`AIT-421: ${via} cannot purge a ${lane} receipt unseen by the host`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const storage = bindSQLiteClock(new SQLiteStorage()), session = storage.create({ ownerToken: testToken });
+    const ledger = new SQLiteBudgetLedger(storage);
+    ledger.admit({ attemptId: 'late', sessionId: session.id, lane, maxMicro: 100, maxVisitorMicro: lane === 'voice' ? 50 : 0,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+      ...(lane === 'reaction' ? { providerCost: { generationId: 'late-generation' } } : {}) });
+    const claim = ledger.claim('late'); claim.consume();
+    if (lane === 'voice') ledger.settleVoice(claim.claimId, { attemptId: 'late', outcome: 'uncertain' });
+    else { ledger.settle(claim.claimId, { attemptId: 'late', outcome: 'uncertain' }); ledger.acknowledgeCost('late'); }
+    // Exhaust the receipt wait without mixing a fixture date with a real clock.
+    t.mock.timers.setTime(Date.now() + 3_600_001);
+    let seen, committed, receiptError, hookInfo, finish, entered;
+    const barrier = new Promise(resolve => { finish = resolve; });
+    const started = new Promise(resolve => { entered = resolve; });
+    const handlers = createHandlers({ storage, consent: mockConsent, host: {
+      async retired(info) { hookInfo = info; seen = ledger.get('late').settled_micro; entered(); await barrier; },
+    } });
+    t.after(async () => { finish(); await handlers.close(); storage.close(); });
+    if (via === 'erase route') assert.equal((await handlers.handle(request(`${session.id}/erase`, { method: 'POST' }))).status, 200);
+    else age(storage, session.id);
+    const retiring = handlers.retire({ before: 2 });
+    await started;
+    try {
+      if (lane === 'reaction') ledger.reconcileCost('late', { chargedMicro: 250, generationId: 'late-generation' });
+      else ledger.reconcileVoice('late', { closureConfirmed: true, providerSessionId: 'late-voice', usage: {
+        providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 250, visitorMicro: 125 } });
+    } catch (error) { receiptError = error; }
+    committed = ledger.get('late').settled_micro;
+    finish();
+    assert.deepEqual(await retiring, { retired: 1, failed: 0, more: false });
+    assert.equal(committed, seen, 'a receipt must not commit above the host snapshot before purge');
+    assert.match(receiptError?.message ?? '', /sealed/);
+    assert.equal(hookInfo.attempts[0].attemptId, 'late');
+    assert.equal(hookInfo.attempts[0].settledMicro, seen);
+    assert.deepEqual(hookInfo.attempts[0].corrections, []);
+    assert.equal(ledger.get('late'), undefined);
+    assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections').get().n, 0);
+  });
+}
+
+for (const lane of ['reaction', 'voice']) test(`AIT-421: ${lane} receipt during erased is included in the final retirement handoff`, async t => {
+  const storage = new SQLiteStorage(), session = storage.create({ ownerToken: testToken }), ledger = new SQLiteBudgetLedger(storage);
+  ledger.admit({ attemptId: 'before-seal', sessionId: session.id, lane, maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+    ...(lane === 'reaction' ? { providerCost: { generationId: 'private-generation' } } : {}) });
+  const claim = ledger.claim('before-seal'); claim.consume();
+  if (lane === 'voice') ledger.settleVoice(claim.claimId, { attemptId: 'before-seal', outcome: 'uncertain' });
+  else ledger.settle(claim.claimId, { attemptId: 'before-seal', outcome: 'uncertain' });
+  const settledAtMs = ledger.get('before-seal').settled_at_ms;
+  let snapshot;
+  const handlers = createHandlers({ storage, consent: mockConsent, host: {
+    async erased() {
+      await Promise.resolve();
+      if (lane === 'reaction') {
+        ledger.reconcileCost('before-seal', { chargedMicro: 250, generationId: 'private-generation' });
+        ledger.acknowledgeCost('before-seal');
+      } else ledger.reconcileVoice('before-seal', { closureConfirmed: true, providerSessionId: 'private-voice', usage: {
+        providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 250, visitorMicro: 125 } });
+    },
+    retired({ attempts }) { snapshot = attempts; },
+  } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  assert.equal((await handlers.handle(request(`${session.id}/erase`, { method: 'POST' }))).status, 200);
+  const corrections = ledger.corrections('before-seal');
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+  assert.equal(snapshot.length, 1);
+  assert.equal(snapshot[0].settledMicro, 250);
+  assert.equal(snapshot[0].settledVisitorMicro, lane === 'voice' ? 125 : 0);
+  assert.equal(snapshot[0].settledAtMs, settledAtMs);
+  assert.equal(snapshot[0].final, true);
+  assert.deepEqual(snapshot[0].corrections, corrections);
+  assert.equal(JSON.stringify(snapshot).includes('private-'), false);
+});
+
+test('AIT-421: live receipts defer retirement, then a final receipt reaches the host before purge', async t => {
+  const { storage, handlers, erased } = fixture(t), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  ledger.admit({ attemptId: 'awaiting', sessionId: session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), providerCost: { generationId: 'awaiting-generation' } });
+  const claim = ledger.claim('awaiting'); claim.consume();
+  ledger.settle(claim.claimId, { attemptId: 'awaiting', outcome: 'uncertain' });
+  ledger.acknowledgeCost('awaiting', Date.now() + 60_000);
+  age(storage, session.id);
+  assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 1, more: false });
+  assert.equal(erased.length, 0);
+  assert.ok(storage.get(session.id).tombstone);
+  ledger.reconcileCost('awaiting', { chargedMicro: 250, generationId: 'awaiting-generation' });
+  ledger.acknowledgeCost('awaiting');
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 1, failed: 0, more: false });
+  assert.equal(erased[0].attempts[0].settledMicro, 250);
+  assert.equal(erased[0].attempts[0].final, true);
+});
+
+test('AIT-421: active billing has a durable bounded wait and the seal survives a failed hook and restart', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const path = await temporaryDb();
+  let storage = bindSQLiteClock(new SQLiteStorage(path)), ledger = new SQLiteBudgetLedger(storage), handlers, snapshot;
+  const session = storage.create();
+  ledger.admit({ attemptId: 'open', sessionId: session.id, lane: 'concept', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = ledger.claim('open'); claim.consume();
+  storage.erase(session.id);
+  handlers = createHandlers({ storage, consent: mockConsent, host: { retired({ attempts }) { snapshot = attempts; throw new Error('offline'); } } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  const deadline = storage.db.prepare('SELECT billing_deadline_ms FROM retirement_pending').get().billing_deadline_ms;
+  assert.equal(deadline, Date.now() + 3_600_000);
+  await handlers.close(); storage.close();
+  storage = bindSQLiteClock(new SQLiteStorage(path)); ledger = new SQLiteBudgetLedger(storage);
+  handlers = createHandlers({ storage, consent: mockConsent, host: { retired({ attempts }) { snapshot = attempts; throw new Error('offline'); } } });
+  t.mock.timers.setTime(deadline);
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  assert.equal(snapshot[0].final, false);
+  assert.equal(snapshot[0].settledMicro, null);
+  assert.equal(snapshot[0].maxMicro, 100);
+  assert.throws(() => ledger.settle(claim.claimId, { attemptId: 'open', outcome: 'completed', chargedMicro: 250, usage: { inputTokens: 1, outputTokens: 1 } }), /sealed/);
+  assert.throws(() => ledger.admit({ attemptId: 'new', sessionId: session.id, lane: 'concept', maxMicro: 1,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) }), /sealed/);
+  await handlers.close(); storage.close();
+  storage = bindSQLiteClock(new SQLiteStorage(path)); ledger = new SQLiteBudgetLedger(storage);
+  assert.equal(ledger.recover(), 0, 'restart recovery must not mutate the sealed host snapshot');
+  assert.deepEqual(ledger.pendingCosts(), []);
+  assert.deepEqual(ledger.deferredCosts(Date.now()), []);
+  handlers = createHandlers({ storage, consent: mockConsent, host: { retired({ attempts }) { assert.deepEqual(attempts, snapshot); } } });
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+  assert.throws(() => storage.get(session.id), /not found/i);
 });

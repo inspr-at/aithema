@@ -33,7 +33,7 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     const { root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ending', endReason: reason } } });
     await tick(8);
     assert.equal(root.querySelector('form.composer').inert, true);
-    assert.equal(root.querySelector('.composer-out__body').textContent, copy.hostSurface.credits.ended[reason].body);
+    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, copy.hostSurface.credits.ended[reason].body);
     assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
   });
 }
@@ -64,7 +64,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
       c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
       await tick(8);
       assert.equal(root.querySelector('.composer-out__title').textContent, title);
-      assert.equal(root.querySelector('.composer-out__body').textContent, body);
+      assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, body);
       const none = root.querySelector('.composer-out__none');
       assert.equal(none.hidden, !footer);
       assert.equal(none.textContent, footer ? copy.hostSurface.usedUp.none : '');
@@ -127,7 +127,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     const out = root.querySelector('.composer-out'), upgrade = out.querySelector('.composer-out__upgrade'), link = out.querySelector('.composer-out__export');
     assert.equal(out.dataset.next, next);
     assert.equal(out.querySelector('.composer-out__title').textContent, title);
-    assert.equal(out.querySelector('.composer-out__body').textContent, body);
+    assert.equal(out.querySelector('.composer-out__body > [data-active="true"]').textContent, body);
     assert.equal(upgrade.inert, next === 'none');
     assert.equal(upgrade.getAttribute('aria-hidden'), String(next === 'none'));
     if (next !== 'none') assert.equal(upgrade.querySelector(`[data-next="${next}"]`).textContent, copy.hostSurface.credits[next === 'give' ? 'give' : 'confirm']);

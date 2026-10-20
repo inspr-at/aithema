@@ -4,6 +4,7 @@ import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers, buildVoiceReplyRequest } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
 import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
+import { createTouchVisitor } from './host-activity.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
 import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
@@ -220,13 +221,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
   const conceptHandlers = createConceptHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal, ...concepts });
+  const touchVisitor = createTouchVisitor({ host, log });
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
+    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
-        host?.touchVisitor?.(storage.get(id));
+        touchVisitor(storage.get(id));
         conceptHandlers.onTurn(id, event.data.id);
       }
       if (purposePolicy && !voiceHandlers.delegatesReply(id)) schedule(id);
@@ -238,7 +240,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     async onWithdraw(id, event) {
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
-  const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot,
+  const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot, log,
     budget: pluginRuntime.budget, conversationLimits: pluginRuntime.conversationLimits, signal: stop.signal, now: host?.now, deadlineMs,
     async createConversation(ownerToken, options = {}) {
       const initial = await initialSettings(ownerToken, options);
@@ -504,7 +506,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       hostHandlers.initialize(id, ownerToken);
       const guard = { ownerToken, revision: inputRevision(authorized) };
       if (!action && request.method === 'GET') {
-        host?.touchVisitor?.(authorized);
+        touchVisitor(authorized);
         return json(await snapshot(id));
       }
       if (action === 'events' && request.method === 'GET') return events(request, id);
@@ -567,7 +569,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
-        if (!replayed) host?.touchVisitor?.(storage.get(id));
+        if (!replayed) touchVisitor(storage.get(id));
         if (!replayed) hostHandlers.startCredits(id, ownerToken, initialBalance);
         schedule(id);
         return json(event, 200);
@@ -584,13 +586,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           event = storage.pause(id, true, { ownerToken }); broadcast(id, event);
           await voiceHandlers?.pauseSession(id, true, { deadlineAt: Date.now() + deadlineMs });
         } else {
+          // Refuse before voice resume, journal writes, broadcasts or scheduling.
+          hostHandlers.assertPauseAllowed(id, false);
           const before = storage.get(id).seq;
           const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: Date.now() + deadlineMs });
           event = voiceAck ? storage.read(id, before).find(e => e.type === 'session.paused') : storage.pause(id, false, guard);
           if (event) broadcast(id, event);
         }
-        if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
         hostHandlers.syncPause(id, ownerToken);
+        if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
         return json({ paused: storage.get(id).paused, event });
       }
       if (action === 'withdraw' && request.method === 'POST') {
@@ -826,13 +830,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
-          storage.assertRetirementSettled(id);
+          const attempts = storage.sealRetirement(id, host?.now?.() ?? Date.now());
           await consent?.withdraw?.({ sessionId: id });
           if (host?.retired) {
             let timer;
             try {
               await Promise.race([
-                Promise.resolve().then(() => host.retired({ sessionId: id, ownerHash: storage.retirementOwnerHash(id) })),
+                Promise.resolve().then(() => host.retired({ sessionId: id, ownerHash: storage.retirementOwnerHash(id), attempts })),
                 new Promise((_, reject) => { timer = setTimeout(() => {
                   reject(new RetirementHookTimeoutError('Retirement hook deadline'));
                 }, retiredHookTimeoutMs); }),

@@ -1323,6 +1323,24 @@ for (const kind of ['html', 'image']) for (const directed of [false, true]) test
   assert.equal(root.querySelectorAll(`img[data-id="${kind}"][src]`).length, 0);
 });
 
+for (const changed of [undefined, ['future-scope']]) for (const granted of [false, true]) test(`AIT-371: ${JSON.stringify(changed)}/granted=${granted} keeps the legacy refresh path through a later scoped grant`, async t => {
+  const { c, root, view, state, grant } = consentRecoveryFixture(t);
+  grant(); await tick(); await tick(); view.open('html');
+  const snapshot = state.snapshot;
+  state.snapshot = () => new Promise(() => {});
+  state.document = () => Response.json({ consentRevision: c.session.consentRevision - 1, selected: ['models'], features: { html: ['drafts'], images: ['images'] } });
+  const fail = t.mock.method(view, 'failClosedConsent');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted, conversationUnchanged: true, ...(changed ? { changed } : {}) } });
+  state.snapshot = snapshot;
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['html-drafts'], removed: [] } });
+  await tick();
+  assert.equal(state.documents, 2, 'the later save reaches the stale document in the same refresh window');
+  assert.equal(fail.mock.callCount(), 1, 'a later scoped grant cannot restore the lagging-document wait');
+  assert.equal(root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  assert.deepEqual(view.items, []);
+});
+
 test('AIT-365 R2: a removal-only scoped save cannot use the lagging grant-document wait', async t => {
   const { c, view, state, grant } = consentRecoveryFixture(t);
   grant(); await tick(); await tick(); view.open('html');

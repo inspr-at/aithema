@@ -479,7 +479,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     }, { original, locale, reason, copy: locale === 'de' ? de : en });
     await until(page, expected => {
       const r = document.querySelector('aithema-session').shadowRoot;
-      return r.querySelector('form.composer').inert && r.querySelector('.composer-out__body').textContent === expected;
+      return r.querySelector('form.composer').inert && r.querySelector('.composer-out__body > [data-active="true"]').textContent === expected;
     }, expected);
     const state = await inShadow(page, c => {
       const r = c.shadowRoot, link = r.querySelector('.composer-out__export');
@@ -547,7 +547,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
           overlap: upgrade.getBoundingClientRect().right > link.getBoundingClientRect().left && upgrade.getBoundingClientRect().bottom > link.getBoundingClientRect().top,
           bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(upgrade.getBoundingClientRect().top, link.getBoundingClientRect().top),
           textContained: r.querySelector('.composer-out__title').getBoundingClientRect().top >= r.querySelector('.composer-out').getBoundingClientRect().top && link.getBoundingClientRect().bottom <= r.querySelector('.composer-out').getBoundingClientRect().bottom,
-          clip: box('.composer-out'), body: r.querySelector('.composer-out__body').textContent };
+          clip: box('.composer-out'), body: r.querySelector('.composer-out__body > [data-active="true"]').textContent };
       });
       assert.deepEqual([geometry.boxes[0], geometry.boxes[1], geometry.boxes[5]], beforeLimit, `${locale}/${width}/${variant}: 0 px on entering host-limit`);
       reserved ??= geometry.boxes;

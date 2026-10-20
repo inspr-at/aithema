@@ -601,7 +601,13 @@ test('AIT-188 r3 ordinary row: touch-only call start/end, 24 turns DE/EN L/D 390
       assert.ok(beforeStart.controls.every(b => b.height >= 44), 'ordinary row exists before call starts');
       await page.evaluate(() => globalThis.tickRail.start()); await frame(page);
       const started = await noticeMetrics(page);
-      assert.ok(started.controls.every(b => b.height === 0), 'ordinary row removed at call start');
+      assert.ok(started.controls.every(b => b.height >= 44), 'ordinary row stays visible during the call');
+      assert.equal(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.voice-repeat,.voice-read-text')].every(n => {
+        n.focus({ preventScroll: true });
+        const description = c.session.locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call';
+        return n.disabled && n.getAttribute('aria-disabled') === 'true' && n.title === description &&
+          n.getAttribute('aria-description') === description && c.shadowRoot.activeElement !== n;
+      })), true, 'visible controls are disabled, described and cannot enter the tab order');
       if (following) assert.equal(started.scrollTop, started.maxScroll, 'removed last item settles at bottom');
       else assert.deepEqual(started.first, beforeStart.first, 'call start removes row: first bubble shift 0px');
       await record(t, 'r3-ordinary', page, `${locale}-${theme}-${width}-${position}-call-start`, { ...started, firstBubbleShift: following ? null : started.first.top - beforeStart.first.top });

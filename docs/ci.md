@@ -2,7 +2,7 @@
 
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
-CI hours (measured baseline AEON-1407, 2026-10-15). All seven browser shards run
+CI hours (measured baseline AEON-1407, 2026-10-15). All eight browser shards run
 at once for every event. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
@@ -27,7 +27,7 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-Seven worker shards report `browser (1/7)` through `browser (7/7)`. The ruleset
+Eight worker shards report `browser (1/8)` through `browser (8/8)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
 skipped shard fails the summaries. PR and merge-group events use the same jobs.
@@ -39,6 +39,27 @@ path filter leaves required checks pending. The separate `dco` and `dco-tests`
 jobs still run normally, so docs contributions also need commit signoffs.
 Merge queue and main push runs always take the full path, even for docs.
 Repository rulesets and required-check settings are unchanged.
+
+## AIT-423 eighth-shard capacity (2026-10-20)
+
+LEAD's standing AIT-410 decision permits 405 s once, then an eighth shard on
+another guard trip, not a 410 s target. AIT-411 round 2 on main `56c9fade`
+projected `415.376 / 406.809 / 407.731 / 408.401 / 408.158 / 406.552 / 407.504` s:
+**2860.531 s** against seven times 405 s (**2835 s**), exceeding capacity by
+**25.531 s**. AIT-423 therefore adds the eighth worker in PR CI and nightly.
+
+With the unchanged packer and all existing weights/floors, main `56c9fade`
+projects `347.522 / 346.940 / 348.334 / 352.959 / 353.476 / 353.169 / 352.583 / 346.548` s
+across eight bins (total **2801.531 s**, maximum **353.476 s**).
+Replaying every file/weight from AIT-411's `round2-capacity-stop.json` projects
+`357.802 / 357.020 / 357.840 / 356.884 / 356.472 / 357.905 / 358.264 / 358.344` s
+(total **2860.531 s**, maximum **358.344 s**, **46.656 s** below target).
+These are planning projections, not new execution measurements.
+
+No coverage loosened: the **405 s target**, **420 s ceiling**, packing algorithm,
+25% warmup margin, and all weights/floors are unchanged. The four required
+`browser (N/4)` aggregates require all eight workers; no ruleset change is needed.
+Timing imports retain complete historical six/seven-shard runs and admit eight.
 
 ## AIT-312 capacity calibration (2026-10-18)
 
@@ -100,13 +121,13 @@ Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
 with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
-deterministic LPT across **seven** bins, followed by whole-file moves/swaps
+deterministic LPT across **eight** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
-refinement still exceeds 400 s, a deterministic whole-file placement search
+refinement still exceeds 405 s, a deterministic whole-file placement search
 tries at most 100,000 nodes to meet that target. On failure it retains the
 original plan for the guard's diagnostics. `npm run test:browser-shards` checks
-complete, exactly-once coverage, a separate **400 s projected headroom target**, and the
+complete, exactly-once coverage, a separate **405 s projected headroom target**, and the
 unchanged **420 s per-bin ceiling**; this leaves
 headroom for installation, Chrome startup, process cleanup and artifact upload
 within the unchanged ten-minute job timeout. Required check names stay unchanged.
@@ -123,11 +144,13 @@ projected 381.944 s and 381.261 s on shards 1/7 and 3/7. With AIT-310's measured
 floor, total projected work is 2655.3 s across 33 files: the seven-shard lower
 bound is 379.33 s, and whole-file packing cannot meet 380 s. The 400 s target
 corresponds to about 320 s real work with the 1.25 projection margin; AIT-312
-measured a 308.2 s shard maximum against 377.8 s projected. Seven shards and the
-420 s ceiling stay unchanged. **If the 400 s guard trips again before the floors
-are re-derived in AIT-314, add an eighth shard; do not raise the target again.**
+measured a 308.2 s shard maximum against 377.8 s projected. That decision
+retained seven shards and the 420 s ceiling, with an eighth shard as the next capacity step. AIT-419 later
+raised the target once to 405 s under LEAD's AIT-410 decision (2026-10-20);
+AIT-423 implements its standing answer to the next overshoot: an eighth shard,
+not a 410 s target. The current target is 405 s; the hard ceiling remains 420 s.
 
-Each CI shard writes `browser-timings-N-of-7` artifacts (14-day retention).
+Each CI shard writes `browser-timings-N-of-8` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.
 Nested subtests are excluded because their parent's duration already includes
@@ -143,10 +166,10 @@ npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
 npm run test:browser-shards
 ```
 
-The importer accepts complete historical six-shard and current seven-shard runs;
+The importer accepts complete historical six/seven-shard and current eight-shard runs;
 it rejects mixed counts, missing indices, duplicates, and expired artifacts.
-CI screenshots use `browser-evidence-N-of-7`; the full nightly matrix uses
-`full-browser-evidence-N-of-7`. All seven workers run concurrently, so this adds
+CI screenshots use `browser-evidence-N-of-8`; the full nightly matrix uses
+`full-browser-evidence-N-of-8`. All eight workers run concurrently, so this adds
 runner minutes while keeping wall-clock time comparable.
 
 Nightly selects the full Cartesian matrix with `AITHEMA_FULL_MATRIX=1`.
@@ -154,9 +177,9 @@ It retains GitHub Actions' `CI=true`, including the CI timing budgets in
 fixtures such as `scoped-consent-edges.js`. An evidence directory alone keeps
 PR width rotation when `CI` is set; local manual evidence retains its existing
 full-matrix path. GitHub Actions never enables the manual axe audit. Nightly
-retains seven shards and a 25-minute job timeout; successful complete jobs must
+retains eight shards and a 25-minute job timeout; successful complete jobs must
 finish within 17:30 (70%) before claiming measured headroom. Small timing
-artifacts are `full-browser-timings-N-of-7`, separate from viewport screenshots.
+artifacts are `full-browser-timings-N-of-8`, separate from viewport screenshots.
 
 The script downloads only the small timing artifacts through the selected `gh`
 account, pinned to `inspr-at/aithema`. Both automatic selection and explicit
@@ -418,8 +441,8 @@ latest-20-per-workload policy and full per-test observations/run provenance.
 A workload change resets its series; it does not combine older hashes to reach
 five samples. The 1.25 warmup multiplier still applies only below five matching
 samples. At five or more, the generated weight is the sum of per-test rolling
-p95 values without that multiplier. Neither the 7 shards, 420s ceiling, 400s
-target, packing algorithm nor workflow/check names changes.
+p95 values without that multiplier. AIT-314 retained the then-current 7 shards,
+420s ceiling, 400s target, packing algorithm and workflow/check names.
 
 Completed-file work below sums only completed top-level tests, never nested
 tests or shard/setup wall time. Values are seconds, rounded here to six decimals;
@@ -525,8 +548,9 @@ been published before merging.
 
 The existing `test/browser/consent-lines.test.js` owns the two-page stale-image
 regression and the eight DE/EN × 320/352/390/1440 reload/evidence states. No browser
-file or shard is added. Keep **7 shards**, the **400 s projected headroom guard**,
-the 420 s hard ceiling, and all existing shard/check names.
+file or shard was added by AIT-321. That change retained the then-current
+**7 shards**, **400 s projected headroom guard**, 420 s hard ceiling, and all
+existing shard/check names.
 
 The temporary **158 s** floor in `scripts/browser-shards.js` comes from the
 complete changed file in successful PR CI

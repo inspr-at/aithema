@@ -267,10 +267,23 @@ browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
 browserTestWeights['test/browser/start2-display-continuity.test.js'] = Math.max(
   browserTestWeights['test/browser/start2-display-continuity.test.js'], 94);
 
-// AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
-export const browserShardCount = 7;
+// AIT-410 round 3: PR #356 CI 39460524265, head 7c339a18, shard 6/7:
+// complete visitor file 6/6 PASS (four top-level workloads), including all
+// 48 v1, 48 v2, 60 v3 and 60 v4 samples plus the unchanged visitor matrix.
+// 16.929841537 + 19.046584278 + 77.811351389 + 13.379499805
+// = 127.167277009s; ceil(observed * 1.25) = 159s, superseding 155s.
+// Source: browser-timings-6-of-7/batch-0.jsonl. Keep this diagnostic floor
+// outside trusted rolling-main history. AIT-419 supplies the 405s target;
+// this recalibration changes no capacity setting, method, margin or name.
+browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
+  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 159);
+
+// AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
+// measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
+export const browserShardCount = 8;
 export const browserShardBudget = 420;
-export const browserShardHeadroomTarget = 400;
+// AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
+export const browserShardHeadroomTarget = 405;
 
 export function packBrowserTests(files, weights = browserTestWeights, shardCount = browserShardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Invalid browser shard count');

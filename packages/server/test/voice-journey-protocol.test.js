@@ -125,6 +125,73 @@ for (const [header, expected] of [['Thu, 01 Jan 1970 00:01:52 GMT', '12'], ['not
   });
 }
 
+test('AIT-384: correction, exact interruption marker and receipt roll back together before retry', async t => {
+  const path = await temporaryDb(), h = voiceFixture(t, { path }), grant = await h.start();
+  const turnId = `${grant.providerSessionId}:assistant:1`, full = 'Heard. Unheard remainder.';
+  const post = event => h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+    event: { callId: grant.callId, providerSessionId: grant.providerSessionId, turnId, ...event } });
+  assert.equal((await post({ type: 'final', role: 'assistant', text: full })).status, 200);
+  const before = h.storage.get(h.session.id).seq;
+  const receipts = () => h.storage.db.prepare('SELECT COUNT(*) n FROM receipts WHERE session_id=?').get(h.session.id).n;
+  const receiptsBefore = receipts();
+  h.storage.db.exec(`CREATE TRIGGER fail_interruption BEFORE INSERT ON events
+    WHEN json_extract(NEW.event, '$.type') = 'voice.interrupted'
+    BEGIN SELECT RAISE(ABORT, 'fixture marker write failed'); END`);
+  assert.equal((await post({ type: 'heard', prefix: 'Heard.' })).status, 503);
+  const reopened = new DatabaseSync(path, { readOnly: true });
+  const durable = JSON.parse(reopened.prepare('SELECT snapshot FROM sessions WHERE id=?').get(h.session.id).snapshot); reopened.close();
+  assert.equal(durable.seq, before, 'failed marker must roll back the correction');
+  assert.equal(h.storage.get(h.session.id).transcript.at(-1).content, full);
+  assert.equal(receipts(), receiptsBefore, 'failed marker must not acknowledge the correction');
+  h.storage.db.exec('DROP TRIGGER fail_interruption');
+  const saved = await post({ type: 'heard', prefix: 'Heard.' });
+  assert.equal(saved.status, 200); assert.equal((await saved.json()).type, 'turn.corrected');
+  assert.equal(h.storage.get(h.session.id).transcript.at(-1).content, 'Heard.');
+  assert.deepEqual(h.storage.get(h.session.id).transcript.at(-1).interruption, { heardLength: 6 });
+  const seq = h.storage.get(h.session.id).seq;
+  assert.equal((await post({ type: 'heard', prefix: 'Heard.' })).status, 200);
+  assert.equal(h.storage.get(h.session.id).seq, seq, 'retry must not duplicate either event');
+  assert.equal(h.storage.read(h.session.id).filter(event => event.type === 'voice.interrupted').length, 1);
+});
+
+for (const [id, interruption, turnTaking, expected] of [
+  ['elevenlabs', undefined, 'provider', 403], ['elevenlabs', 'unavailable', 'provider', 403],
+  ['other-native', 'native', 'provider', 200], ['other-native', 'native', 'server', 403],
+]) test(`AIT-384: interruption authority uses declaration ${id}/${interruption}/${turnTaking}`, async t => {
+  const h = voiceFixture(t), admitVoice = h.runtime.admitVoice;
+  h.runtime.admitVoice = async args => {
+    const admission = await admitVoice.call(h.runtime, args);
+    const manifest = structuredClone(admission.plugin.manifest);
+    manifest.id = id; manifest.liveVoice.ownership.turnTaking = turnTaking;
+    delete manifest.liveVoice.capabilities.interruption;
+    if (interruption !== undefined) manifest.liveVoice.capabilities.interruption = interruption;
+    return { ...admission, plugin: { ...admission.plugin, manifest } };
+  };
+  const grant = await h.start(), turnId = `${grant.providerSessionId}:assistant:1`;
+  const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+    event: { type: 'interrupted', callId: grant.callId, providerSessionId: grant.providerSessionId, turnId, heardLength: 'unknown' } });
+  assert.equal(response.status, expected);
+  assert.equal(h.storage.read(h.session.id).filter(event => event.type === 'voice.interrupted').length, expected === 200 ? 1 : 0);
+});
+
+for (const [header, expected] of [
+  ['-1', undefined], ['12.5', undefined], ['+12', undefined], ['1e2', undefined], ['2026-10-20', undefined],
+  ['Thu, 31 Feb 1970 00:01:52 GMT', undefined], ['Thu, 01 Jan 1970 00:01:52 UTC', undefined],
+  ['Thu, 01 Jan 1970 00:01:52 GMT junk', undefined], ['Fri, 01 Jan 1970 00:01:52 GMT', undefined],
+  ['Thu, 01 Jan 1970 24:01:52 GMT', undefined], ['0', '0'], ['0012', '12'], ['120', '120'],
+  ['Thu, 01 Jan 1970 00:01:00 GMT', '0'], ['Thu, 01 Jan 1970 00:01:41 GMT', '1'],
+  ['Thursday, 01-Jan-70 00:01:52 GMT', '12'], ['Thu Jan  1 00:01:52 1970', '12'],
+]) test(`AIT-384: strict provider Retry-After ${header}`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+  await assert.rejects(mintConversationCredential(binding, {}, {}, {
+    resolveSecret: () => 'offline-fixture',
+    fetchImpl: async () => Response.json({}, { status: 429, headers: { 'Retry-After': header } }),
+  }), error => {
+    assert.equal(error.code, 'rate-limit'); assert.equal(error.status, 429);
+    assert.equal(error.retryAfter, expected); return true;
+  });
+});
+
 // Isolated copy of the existing offline voice fixture; no test-module imports.
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
