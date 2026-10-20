@@ -140,7 +140,7 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
               fontFamily: labelStyle.fontFamily, fontSize: labelStyle.fontSize },
             labelInRailCentre: Math.abs(labelBox.left + labelBox.width / 2 - centre.left - centre.width / 2) <= 1 &&
               (phone ? labelBox.top === 88 && labelBox.bottom === 124 && labelBox.height === 36 : labelBox.top >= railBox.top && labelBox.bottom <= railBox.bottom) && labelStyle.opacity === '1',
-            noPopover: !rail.hasAttribute('data-message') && noPopoverRole && noOverlap && labelStyle.boxShadow === 'none',
+            noPopover: !rail.hasAttribute('data-message') && (phone || labelStyle.position !== 'absolute') && noPopoverRole && noOverlap && labelStyle.boxShadow === 'none',
             noPopoverRole, noOverlap, obstacles: obstacles.map(box => box.toJSON()),
             noRailRing: (railStyle.outlineStyle === 'none' || parseFloat(railStyle.outlineWidth) === 0) && railStyle.boxShadow === 'none' &&
               ['Top', 'Right', 'Bottom', 'Left'].every(side => parseFloat(railStyle[`border${side}Width`]) === 0),
