@@ -200,6 +200,7 @@ svg { display:block; flex:none; }
 @media (hover:hover) and (pointer:fine) {
   .turn > .voice-reply-actions--recovery svg { visibility:hidden; }
   .turn:is(:hover,:focus-within) > .voice-reply-actions--recovery svg { visibility:visible; }
+  .turn:is(:hover,:focus-within) > .voice-reply-actions--recovery > button:not(:disabled) { color:var(--aithema-ink); }
 }
 .voice-reply-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; padding:24px; border:1px solid var(--aithema-line);
   border-radius:16px; background:var(--aithema-paper); color:var(--aithema-ink); box-shadow:var(--aithema-shadow-raised); }

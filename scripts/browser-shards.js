@@ -258,6 +258,16 @@ browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
 browserTestWeights['test/browser/start2-display-continuity.test.js'] = Math.max(
   browserTestWeights['test/browser/start2-display-continuity.test.js'], 94);
 
+// AIT-410: green PR #356 CI 39455274442, head 3ba2b675, shard 7/7:
+// complete visitor file 6/6 PASS (four top-level workloads), including all
+// 48 v1, 48 v2, 60 v3 and 60 v4 samples plus the unchanged visitor matrix.
+// 16.895921928 + 19.715951001 + 74.758963103 + 12.049294207
+// = 123.420130239s; ceil(observed * 1.25) = 155s.
+// Source: browser-timings-7-of-7/batch-0.jsonl. Keep this diagnostic floor
+// outside trusted rolling-main history; no capacity limits or names change.
+browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
+  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 155);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
