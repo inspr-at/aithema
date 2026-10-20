@@ -125,6 +125,9 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
           const compactFooter = statusStyle.display === 'none';
           return {
             label: label.textContent, railState: rail.dataset.state,
+            geometry: { label: labelBox.toJSON(), signal: signalBox.toJSON(), rail: railBox.toJSON(),
+              position: labelStyle.position, opacity: labelStyle.opacity, boxShadow: labelStyle.boxShadow,
+              fontFamily: labelStyle.fontFamily, fontSize: labelStyle.fontSize },
             labelInRailCentre: Math.abs(labelBox.left + labelBox.width / 2 - signalBox.left - signalBox.width / 2) <= 1 &&
               labelBox.top >= railBox.top && labelBox.bottom <= railBox.bottom && labelStyle.opacity === '1',
             noPopover: !rail.hasAttribute('data-message') && labelStyle.position !== 'absolute' && labelStyle.boxShadow === 'none',
@@ -140,6 +143,14 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
             footerLabel: status.textContent, compactFooter,
           };
         });
+        // Retain settled viewport evidence even when a presentation assertion
+        // fails before the normal success capture (AIT-406).
+        if (evidence && ['labelInRailCentre', 'noPopover', 'noRailRing', 'enabledResumeStyle', 'footerUntruncated']
+          .some(key => !presentation[key])) {
+          const file = `ait-406-failure-${name}-${label}.png`;
+          await target.screenshot({ path: join(evidence, file), fullPage: false });
+          await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation }, null, 2));
+        }
         for (const key of ['labelInRailCentre', 'noPopover', 'noRailRing', 'enabledResumeStyle', 'footerUntruncated']) {
           assert.ok(presentation[key], `${label}/${name}: ${key}: ${JSON.stringify(presentation)}`);
         }
