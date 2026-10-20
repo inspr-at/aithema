@@ -75,6 +75,7 @@ export class HostSurface {
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
     root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));
+    root.querySelectorAll('.handover__state-sizer').forEach(n => setText(n, s.handover[n.dataset.state]));
     this.update();
   }
   openRoleSettings(opener) { return this.#actorRole?.openSheet(opener) ?? false; }
@@ -204,6 +205,11 @@ export class HostSurface {
     // The button keeps the width of its longest label, so a state change never moves it.
     for (const label of [h.request, h.update, h.retry]) { const sizer = node('span', 'handover__sizer', label); sizer.setAttribute('aria-hidden', 'true'); button.append(sizer); }
     button.prepend(node('span', 'handover__label'));
+    const stateSlot = band.querySelector('.handover__state-slot');
+    for (const state of ['needsInput', 'preparing', 'sent', 'changed', 'failed', 'limit']) {
+      const sizer = node('span', 'handover__state-sizer', h[state]);
+      sizer.dataset.state = state; sizer.setAttribute('aria-hidden', 'true'); stateSlot.append(sizer);
+    }
     button.addEventListener('click', () => void this.#requestHandover());
   }
   async #loadHandover() {

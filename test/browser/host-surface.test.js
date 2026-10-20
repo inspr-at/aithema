@@ -1101,7 +1101,8 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
         const root = c.shadowRoot, rect = n => { const b = n.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
         const measure = selector => {
           const n = root.querySelector(selector), css = getComputedStyle(n), range = document.createRange(); range.selectNodeContents(n);
-          return { ...rect(n), text: n.textContent, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
+          const slot = n.querySelector('slot'), assigned = slot?.assignedNodes({ flatten: true });
+          return { ...rect(n), text: assigned?.length ? assigned.map(n => n.textContent).join('') : n.textContent, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
             scrollWidth: n.scrollWidth, clientWidth: n.clientWidth, maxHeight: css.maxHeight, clamp: css.webkitLineClamp,
             textAlign: css.textAlign, lines: new Set([...range.getClientRects()].filter(r => r.width > 0).map(r => r.y)).size };
         };
@@ -1129,7 +1130,7 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
       if (width === 390 && locale === 'de') require(metric.state.lines <= 2, `state uses ${metric.state.lines} lines > 2`);
       const displacement = Math.max(...['block', 'action', 'state'].flatMap(name => ['x', 'y', 'width', 'height'].map(key => Math.abs(metric[name][key] - baseline[name][key]))));
       require(displacement === 0, `block/action/state displacement is ${displacement}px`);
-      checks.push({ locale, width, state, beside, displacement, ...metric });
+      checks.push({ locale, width, phase: state, beside, displacement, ...metric });
       if (evidence && locale === 'de' && ((width === 390 && state !== 'error') || (width === 1440 && state === 'sent'))) {
         await page.screenshot({ path: join(evidence, `ait-433-de-light-${width}-handover-${state}.png`), fullPage: false, captureBeyondViewport: false });
       }

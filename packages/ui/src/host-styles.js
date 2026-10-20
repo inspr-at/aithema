@@ -81,15 +81,17 @@ export const hostStyles = `
 /* The handover band follows the assessment in its scrolling pane (START: contact below the assessment), so the
    readable assessment comes first and the band never squeezes it; the export line stays below the pane. */
 .handover { display:grid; gap:.3rem; padding:.75rem 0; border-top:1px solid var(--aithema-line); }
-.handover h3 { margin:0; font-size:.86rem; font-weight:700; } .handover__offer { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-muted); max-height:2.7em; overflow-y:auto; overflow-wrap:anywhere; }
-.handover__row { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:.5rem; min-height:0; }
-.handover-request { display:inline-grid; margin-left:-.85rem; font-size:.8rem; line-height:1.2; text-align:left; }
+.handover h3 { margin:0; font-size:.86rem; font-weight:700; } .handover__offer { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-muted); overflow-wrap:anywhere; }
+.handover__row { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; min-width:0; }
+.handover-request { display:inline-grid; flex:1 0 max-content; max-width:100%; height:44px; padding-inline:0; font-size:.8rem; line-height:1.2; text-align:left; }
 .handover-request > * { grid-area:1/1; } .handover__sizer { visibility:hidden; }
-/* Three reserved lines (a longer state scrolls in them): failed, retried and sent states never resize the row under the pointer. */
-.handover__state { margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); height:3.9em; overflow-y:auto; overflow-wrap:anywhere; }
-@media(60rem <= width < 70rem) {
-  .handover__row { grid-template-columns:minmax(0,1fr); gap:.25rem; }
-  .handover__state { overflow-wrap:normal; }
+/* Actual state strings share a grid cell: reserve the longest without clipping.
+   Flex wrapping puts the state below the action whenever 200px cannot fit beside it. */
+.handover__state-slot { display:grid; flex:1 0 200px; min-width:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); text-align:left; overflow-wrap:anywhere; }
+.handover__state-slot > * { grid-area:1/1; margin:0; min-width:0; }
+.handover__state-sizer { visibility:hidden; }
+@media(width < 640px) {
+  .handover__row { display:grid; grid-template-columns:minmax(0,1fr); gap:.25rem; }
 }
 
 /* Dialogs: the settings dialog's frame, smaller. */
