@@ -310,6 +310,23 @@ browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
 browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
   browserTestWeights['test/browser/pause-phone.test.js'], 220);
 
+// AIT-411 integration of main 9b6629b0: its successful AIT-400/AIT-412 PR
+// CI 39489180770 measures display 212.477007298s (ceil(*1.25)=266s),
+// continuity 88.053112613s (111s), voice-presentation 194.444552242s (244s),
+// and demo 57.047005682s (72s). AIT-422's successful PR CI 39487274007
+// measures the expanded visitor file at 136.347s (171s). Our green browser
+// CI 39494521010 measures voice-presentation 206.656730502s (259s) and
+// tick-followups 81.616895931s (103s). Retain the larger samples and round
+// diagnostic floors conservatively; all original zero-pixel coverage stays.
+for (const [file, seconds] of Object.entries({
+  'test/browser/start2-display.test.js': 270,
+  'test/browser/start2-display-continuity.test.js': 120,
+  'test/browser/voice-presentation.test.js': 270,
+  'test/browser/demo.test.js': 80,
+  'test/browser/visitor-credit-tiers.test.js': 180,
+  'test/browser/tick-followups.test.js': 110,
+})) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 export const browserShardCount = 8;

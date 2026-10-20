@@ -92,6 +92,13 @@ export class HostSurface {
   get newConversationAction() { return this.usedUp && !this.dailyCapped && (!this.endReason || ['host-limit', 'session'].includes(this.endReason)) && !this.nextTier && this.#options.usedUp?.newConversation?.enabled === true; }
   get dailyCapResetLabel() { return this.dailyCapped && this.#options.credits?.dailyCapReset ? this.#root.querySelector('.host-credits__deadline').textContent : ''; }
   get noDailyAction() { return this.dailyCapped && this.#options.usedUp?.dailyCapActions === 'none'; }
+  get creditStatusReason() {
+    if (this.#credits?.scope === 'session') {
+      if (this.#credits.dailyCapReached) return 'dailyCap';
+      if (this.#credits.exhausted) return 'session';
+    }
+    return this.endReason;
+  }
   get limitCopy() {
     const { credits, usedUp } = this.#copy.hostSurface;
     const next = this.nextTier;

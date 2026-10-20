@@ -85,9 +85,10 @@
   "test/browser/host-surface.test.js": {
     "reads": [
       "CI",
-      "CI"
+      "CI",
+      "GITHUB_EVENT_PATH"
     ],
-    "reason": "Linux headless Chrome sandbox selection"
+    "reason": "Linux headless Chrome sandbox selection; AIT-387 evidence pins the PR head"
   },
   "test/browser/html-preview.test.js": {
     "reads": [
@@ -287,6 +288,10 @@
       "process.env"
     ],
     "reason": "AIT-398 remote browser qualification forwards the child environment after removing NODE_TEST_CONTEXT"
+  },
+  "test/fixtures/withdrawal-focus-frames.js": {
+    "reads": ["GITHUB_EVENT_PATH", "GITHUB_EVENT_PATH"],
+    "reason": "AIT-400 withdrawal evidence binds the PR branch head from the GitHub event payload"
   },
   "test/fixtures/lane-race-validation.js": {
     "reads": [

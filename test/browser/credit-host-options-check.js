@@ -118,7 +118,7 @@ export async function creditHostOptionsCheck(t) {
       assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
       assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
       assert.deepEqual(value.reservation.filter(n => !n.option).map(n => n.key),
-        ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
+        ['active', 'default', 'host-give-measure', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
       assert.deepEqual(value.reservation.filter(n => n.option).map(n => n.key),
         ['option-new-conversation', 'option-session-emailGiven', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every hint and upgrade`);
       assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: v1 and O variants share one cell`);
