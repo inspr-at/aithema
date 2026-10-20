@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createLocalHTML,
-  localHTMLBinding, createSpendCap, createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server';
+  localHTMLBinding, createSpendCap } from '@inspr/aithema-server';
+import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
 import { createConceptHandlers } from '../packages/server/src/concept-handlers.js';
 import { createMockConsent } from '../demo/mock-consent.js';
 import { createProcessingConsent } from '../demo/processing-consent.js';
@@ -114,7 +115,7 @@ test('AIT-403 sweep storage event and content evidence timestamps follow install
   const h = fixture(t);
   const event = h.storage.append(h.session.id, 'turn.final', { id: 'clock-turn', role: 'user', content: 'clock' });
   assert.equal(event.at, new Date(h.now()).toISOString());
-  assert.equal(h.storage.db.prepare('SELECT created_at FROM content WHERE session_id=? LIMIT 1').get(h.session.id).created_at,
+  assert.equal(h.storage.db.prepare('SELECT at FROM content WHERE session_id=? LIMIT 1').get(h.session.id).at,
     new Date(h.now()).toISOString());
 });
 
