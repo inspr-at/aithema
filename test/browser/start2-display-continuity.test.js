@@ -370,12 +370,12 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
     try {
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
-      await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: touch, isMobile: touch });
+      await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: touch, isMobile: false });
       await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.evaluateOnNewDocument(locale => {
         localStorage.setItem('aithema-locale', locale); localStorage.setItem('aithema-motion', 'off');
       }, locale);
-      await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await page.bringToFront();
       await until(page, () => document.querySelector('aithema-session')?.session?.id);
       await page.select('#locale', locale); await page.select('#theme', 'light'); await mockConsent(page);
       await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
@@ -387,7 +387,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
       await finishWorkspaceEntry(page);
       other = await browser.newPage();
       await other.setViewport({ width, height: width === 390 ? 844 : 900 });
-      await other.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await other.bringToFront();
       await until(other, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail').dataset.state === 'waiting');
       const retire = async () => {
         await other.bringToFront();
@@ -450,7 +450,9 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
             run.returned++; run.pending = false;
             const returned = outcome === 'error' ? new Response(null, { status: 503 }) : outcome === 'paused'
               ? Response.json({ ...snapshot, paused: true, featureMatrix: c.session.featureMatrix }) : response;
-            // After fetch resolves, the component's continuation applies its verdict.
+            // The verdict is returned before the component applies it; a refused
+            // read may restore the label in the very next microtask.
+            run.verdictAt ??= performance.now();
             setTimeout(() => { run.appliedAt ??= performance.now(); run.lastAppliedAt = performance.now(); }, 0);
             return returned;
           };
@@ -471,7 +473,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         if (outcome === 'success' && touch && width === 390) await capture('mid-delay');
         await until(page, () => globalThis.ait404.done);
         const result = await page.evaluate(() => globalThis.ait404);
-        const preVerdict = result.samples.filter(s => s.at < result.appliedAt);
+        const preVerdict = result.samples.filter(s => s.at < result.verdictAt);
         const device = await page.evaluate(() => ({ hoverNone: matchMedia('(hover:none)').matches, fine: matchMedia('(pointer:fine)').matches, coarse: matchMedia('(pointer:coarse)').matches }));
         const assertions = {
           listeningTickSample: preVerdict.some(s => s.source === 'mutation'),
