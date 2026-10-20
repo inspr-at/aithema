@@ -624,6 +624,13 @@ export class AithemaSession extends HTMLElement {
           if (!turn || turn.id !== turnId || turn.content !== text) return null;
           return [...root.querySelectorAll('.turn:not(.user):not(.partial)')].find(row => row.dataset.id === turn.id && row.querySelector('.turn-text')?.textContent === text);
         },
+        replies: () => {
+          const turns = new Map(this.#session.transcript.filter(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content).map(t => [t.id, t]));
+          return [...root.querySelectorAll('.turn:not(.user):not(.partial)')].flatMap(target => {
+            const turn = turns.get(target.dataset.id);
+            return turn && target.querySelector('.turn-text')?.textContent === turn.content ? [{ target, turnId: turn.id, text: turn.content }] : [];
+          });
+        },
         lastReply: () => {
           if (this.#session.paused || this.#session.tombstone || this.#session.consentWithdrawn) return null;
           const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);

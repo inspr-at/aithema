@@ -25,8 +25,8 @@ function startupWait(pending, signal, timeoutMs) {
   return Promise.race([pending === undefined ? new Promise(() => {}) : pending, cancelled, timeout]).finally(() => { clearTimeout(timer); signal.removeEventListener('abort', abort); });
 }
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replies, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replies, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -47,12 +47,13 @@ export class AudioRail {
     this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean((this.session || this.lastReply?.()) && !this.paused && !this.busy && this.output &&
       !['recovering', 'waiting', 'closing'].includes(this.state)),
       replyVisible: (text, turnId) => this.replyVisible?.(text, turnId) ?? Boolean(text && this.lastReply?.()?.text === text),
-      replyTarget,
+      replyTarget, replies,
       inCall: () => this.root.dataset.call === 'active',
       audioAvailable: () => !this.usedUp?.() && !this.allowanceDenied && this.feature()?.available !== false &&
         Boolean(this.session ? this.session.replayLastReply : this.client?.replayReply),
-      stopReplay: () => this.session?.stopReplay?.() ?? this.client?.stopReplay?.(), replay: async () => {
+      stopReplay: () => this.session?.stopReplay?.() ?? this.client?.stopReplay?.(), replay: async (candidate, options) => {
         try {
+          if (candidate) return await (this.client?.replayReply?.(candidate, options) ?? { kind: 'text', text: candidate.text });
           if (this.session) return await (this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText });
           const reply = this.lastReply?.();
           return await (this.client?.replayReply?.(reply, {
@@ -66,7 +67,7 @@ export class AudioRail {
         catch (error) {
           if (error.code === 'not-admitted' && error.reason === 'host-limit') {
             this.failure(error); this.render();
-            return { kind: 'text', text: this.notices.recovery?.lastReplyText ?? this.lastReply?.()?.text };
+            return { kind: 'text', text: candidate?.text ?? this.notices.recovery?.lastReplyText ?? this.lastReply?.()?.text };
           }
           throw error;
         }

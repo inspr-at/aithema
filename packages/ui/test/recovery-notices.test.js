@@ -251,3 +251,48 @@ for (const completion of ['undefined', 'missing']) test(`AIT-190 r2: ${completio
   assert.equal(notices.button.hidden, false, 'unknown completion cannot retire the row');
   assert.equal(notices.readText.hidden, false);
 });
+
+for (const copy of [de, en]) test(`AIT-410: ${copy.voiceReadText} every reply survives completed playback and recovery, with exact replay identity`, async t => {
+  const { RecoveryNotices } = await import('../src/recovery-notices.js');
+  const window = new Window(), host = window.document.createElement('div');
+  window.document.body.append(host); t.after(() => window.happyDOM.close());
+  host.innerHTML = '<ol></ol><div class="voice-notices"></div>';
+  const replies = [], requests = [];
+  let inCall = false, available = true;
+  const notices = new RecoveryNotices({ root: host.querySelector('.voice-notices'), copy,
+    available: () => available, inCall: () => inCall, replies: () => replies,
+    replyVisible: (text, id) => replies.some(reply => reply.text === text && reply.turnId === id),
+    replay: async (reply, options) => { requests.push(reply); options.onState(false, { completed: true }); return { kind: 'audio' }; },
+  });
+  for (let index = 0; index < 3; index++) {
+    const target = window.document.createElement('li'); host.querySelector('ol').append(target);
+    replies.push({ turnId: `reply-${index}`, text: `Exact reply ${index}`, target }); notices.render();
+  }
+  const originalRows = replies.map(reply => reply.target.firstElementChild);
+  for (const reply of replies) {
+    const controls = notices.replyRows.get(reply.turnId);
+    await controls.repeat();
+    assert.equal(controls.row, originalRows[replies.indexOf(reply)]);
+    assert.equal(controls.button.hidden, false, 'completed playback never retires an ordinary reply row');
+    assert.equal(controls.button.disabled, false);
+    assert.equal(controls.readText.disabled, false);
+  }
+  assert.deepEqual(requests, replies.map(({ turnId, text }) => ({ turnId, text })));
+  notices.recovered({ userUnconfirmed: true }); notices.clear();
+  for (const [index, reply] of replies.entries()) assert.equal(reply.target.firstElementChild, originalRows[index]);
+  inCall = true; notices.render();
+  for (const controls of notices.replyRows.values()) for (const button of [controls.button, controls.readText]) {
+    assert.equal(button.disabled, true); assert.equal(button.getAttribute('aria-disabled'), 'true');
+    assert.equal(button.title, copy.voiceReplyDuringCall); assert.equal(button.getAttribute('aria-description'), copy.voiceReplyDuringCall);
+  }
+  inCall = false; notices.render();
+  for (const controls of notices.replyRows.values()) for (const button of [controls.button, controls.readText]) {
+    assert.equal(button.disabled, false); assert.equal(button.getAttribute('aria-description'), null);
+  }
+  available = false; notices.render();
+  for (const controls of notices.replyRows.values()) { await controls.repeat(); assert.equal(controls.button.disabled, true); }
+  assert.equal(requests.length, 3, 'a hold cannot start playback');
+  available = true; replies.shift(); notices.render();
+  assert.equal(notices.replyRows.has('reply-0'), false, 'withdrawn replies lose their actions');
+  assert.equal(originalRows[0].isConnected, false);
+});
