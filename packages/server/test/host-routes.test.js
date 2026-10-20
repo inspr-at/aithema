@@ -752,3 +752,68 @@ test('verified identity erasure keeps replay revisions stable while removing add
   assert.equal(inputRevision(replay), inputRevision(f.storage.get(s.id))); assert.equal(replay.identity, null);
   const persistent = JSON.stringify(f.storage.read(s.id)); assert.equal(persistent.includes('erased@example.test'), false); assert.equal(persistent.includes('changed@example.test'), false);
 });
+
+for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance' : 'credits read'} passes the authorized conversation to both projections`, async t => {
+  const f = fixture(t, { demoBypass: true }), a = await f.create(), b = await f.create();
+  const wallet = f.host.wallet(owner), seen = { wallet: [], tiers: [] };
+  t.mock.method(f.host, 'wallet', (token, context) => {
+    seen.wallet.push([token, context]);
+    const limitMicro = context?.sessionId === a.id ? 10_000_000 : 2_500_000;
+    return Object.create(wallet, { displayBalance: { value: undefined }, creditScope: { value: 'session' }, balance: { value: () => ({ ...wallet.balance(), limitMicro, availableMicro: limitMicro }) } });
+  });
+  t.mock.method(f.host, 'creditTiers', (token, context) => {
+    seen.tiers.push([token, context]);
+    return { current: context?.sessionId === a.id ? 'emailConfirmed' : 'anonymous', next: null, delta: 0, canConfirm: true,
+      allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: 10_000_000 } };
+  });
+  for (const session of [a, b]) {
+    if (initial) { await f.call(`/api/sessions/${session.id}/turns`, { clientEventId: `start-${session.id}`, content: 'Hi' }); await f.handlers.idle(); }
+    else {
+      const view = await (await f.call(`/api/sessions/${session.id}/credits`)).json();
+      assert.equal(view.balance.owner.limitMicro, session === a ? 10_000_000 : 2_500_000);
+      assert.equal(view.scope, 'session');
+      assert.equal(view.tiers.current, session === a ? 'emailConfirmed' : 'anonymous');
+    }
+  }
+  for (const calls of Object.values(seen)) assert.deepEqual(calls, [[owner, { sessionId: a.id }], [owner, { sessionId: b.id }]]);
+  for (const calls of Object.values(seen)) calls.length = 0;
+  assert.equal((await f.call(`/api/sessions/${b.id}/credits`, undefined, foreign)).status, 404);
+  assert.deepEqual(seen, { wallet: [], tiers: [] }, 'foreign owner never reaches projection callbacks');
+});
+
+test('AIT-395: callbacks ignoring context keep the complete owner-wide receipt snapshot', async t => {
+  const f = fixture(t), s = await f.create();
+  const before = await (await f.call(`/api/sessions/${s.id}/credits`)).json();
+  const empty = { limitMicro: 10_000_000, committedMicro: 0, availableMicro: 10_000_000, overrunMicro: 0,
+    reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0 };
+  const balance = { sessionId: s.id, owner: empty, session: empty, voiceVisitor: empty };
+  assert.deepEqual(before, {
+    balance, limitSlot: { sessionId: s.id, status: 'ready', balance, remainingMs: null, endReason: null, canStartPaidWork: false, topUpOwnedByHost: true },
+    tiers: { current: 'anonymous', next: null, delta: 0, canConfirm: false,
+      allowancesMicro: { anonymous: 10_000_000, emailGiven: 10_000_000, emailConfirmed: 10_000_000 } },
+    exhausted: false, fullHold: false, reconciling: false, lowAtMicro: 1_000_000, lowAtMaxMicro: 1_000_000,
+    emailAsk: {}, emailAskAfter: 0, lowEmailAsk: { after: 0, armed: true }, nowMs: 1_000,
+  }, 'owner-wide golden receipt from the unchanged demo policy');
+  const wallet = f.host.wallet, tiers = f.host.creditTiers;
+  t.mock.method(f.host, 'wallet', token => wallet(token));
+  t.mock.method(f.host, 'creditTiers', token => tiers(token));
+  assert.deepEqual(await (await f.call(`/api/sessions/${s.id}/credits`)).json(), before);
+  assert.equal(Object.hasOwn(before, 'scope'), false);
+});
+
+for (const privacy of [false, true]) test(`AIT-395: session tier offers respect daily cap and privacy (privacy ${privacy})`, async t => {
+  const f = fixture(t, { demo: false, privacyDocumentConfigured: () => privacy }), s = await f.create();
+  const wallet = f.host.wallet(owner);
+  t.mock.method(f.host, 'wallet', () => Object.create(wallet, { creditScope: { value: 'session' } }));
+  let dailyCapReached = true;
+  t.mock.method(f.host, 'creditTiers', () => ({ current: 'emailGiven', next: 'emailConfirmed', delta: 7_500_000, canConfirm: true, dailyCapReached,
+    allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: 10_000_000 } }));
+  for (const capped of [true, false]) {
+    dailyCapReached = capped;
+    const receipt = await (await f.call(`/api/sessions/${s.id}/credits`)).json();
+    assert.equal(receipt.dailyCapReached, capped);
+    assert.equal(receipt.tiers.next, !capped && privacy ? 'emailConfirmed' : null);
+    assert.equal(receipt.tiers.delta, !capped && privacy ? 7_500_000 : 0);
+    assert.equal(receipt.tiers.canConfirm, !capped && privacy);
+  }
+});

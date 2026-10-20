@@ -285,7 +285,27 @@ still bounds per-conversation voice in the ledger. Hosts with different visitor
 pricing must implement that billing policy in their wallet, settlements and
 extension checks; they must not silently reuse this upstream-cost policy.
 
-`creditTiers(ownerToken)` returns
+The credits route and initial balance projection call
+`wallet(ownerToken, { sessionId })` and `creditTiers(ownerToken, { sessionId })`
+only after owner authorization. Existing one-argument callbacks may ignore the
+context and retain their complete owner-wide receipt and copy. To project a
+conversation allowance, return a wallet with `creditScope: 'session'`; the
+receipt then includes `scope: 'session'`. The wallet's balance/displayBalance and
+tiers must describe that requested conversation, while its admission methods
+still enforce all applicable owner/address/day limits. This display contract
+does not change `walletForSession`, runtime admission, or owner authorization.
+
+A session-aware tier projection may return `dailyCapReached: true` when the
+address's daily allowance prevents an upgrade. The receipt exposes that boolean,
+suppresses `next`, `delta` and `canConfirm`, and the UI shows the dedicated daily
+limit copy without an upgrade action. Hosts remain responsible for the cap's
+policy, atomic enforcement and reset; the module does not infer it from a zero
+balance. Session-aware demo receipts use the shorter no-top-up note in place of
+the owner-wide demo slot. The UI remembers only this layout scope across sibling
+switches while each new receipt loads. A host can also configure
+`host: { credits: { scope: 'session' } }` to reserve it before the first receipt.
+
+`creditTiers(ownerToken, { sessionId })` returns
 `{ current, next, delta, canConfirm, allowancesMicro }` from those same live
 settings. `next` is `emailGiven` for anonymous visitors only when it raises the
 allowance, or `emailConfirmed` for email-given visitors only when qualified
@@ -293,8 +313,10 @@ confirmation is enabled and raises the allowance; otherwise it is `null` and
 `delta` is 0. Equal allowances do not advertise an upgrade. The owned
 `GET /api/sessions/:id/credits` exposes this as `tiers`. AIT-291's UI `nextTier`
 derives from **`tiers.next`**, subject to the existing collection/end-reason
-gates; it is not another server field. Set `privacyDocumentConfigured` only
-after validating the host's document, otherwise the server suppresses collection
+gates; it is not another server field. Session-aware hosts with equal anonymous
+and email-given allowances go directly to qualified confirmation when it raises
+the allowance, without displaying an email-given upgrade line.
+Set `privacyDocumentConfigured` only after validating the host's document, otherwise the server suppresses collection
 and next-tier offers. Host identity/verification ports must also enable the
 corresponding visitor actions before the UI can offer them.
 

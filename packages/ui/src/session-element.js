@@ -101,7 +101,7 @@ export class AithemaSession extends HTMLElement {
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
-  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
+  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #creditLayoutScope; #options; #refocus = null;
   #introOrb = null; #reveal = null; #fold; #phoneViewport; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
@@ -141,6 +141,8 @@ export class AithemaSession extends HTMLElement {
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
+    // Carry only the host's layout contract across sibling switches, never a receipt.
+    this.#creditLayoutScope = this.#base === baseUrl.replace(/\/$/u, '') && this.#sessionToken === sessionToken ? this.#host?.creditScope : null;
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#phoneViewport?.destroy(); this.#popups?.destroy();
     this.#questionCard?.destroy();
     clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false; this.#savedAnnouncedAt = -Infinity; this.#sendFailed = false;
@@ -499,11 +501,11 @@ export class AithemaSession extends HTMLElement {
           <span class="host-credits__low" aria-hidden="true"><span class="host-credits__low-full"></span><span class="host-credits__low-short"></span></span>
           <span class="host-credits__measure" aria-hidden="true"><strong class="host-credits__measure-amount"></strong><span class="host-credits__measure-total"></span><span class="host-credits__measure-unit"></span></span>
           <span class="host-credits__measure-low" aria-hidden="true"><span class="host-credits__measure-low-full"></span><span class="host-credits__measure-low-short"></span></span>
-          <span class="host-credits__used-up" aria-hidden="true"><span class="host-credits__used-up-full"></span><span class="host-credits__used-up-short"></span></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span></button>
+          <span class="host-credits__measure-cap" aria-hidden="true"></span><span class="host-credits__used-up" aria-hidden="true"><span class="host-credits__used-up-full"></span><span class="host-credits__used-up-short"></span></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span></button>
           <div class="footer-popup credits-popup" id="credits-popup" role="group" aria-labelledby="credits-balance"><p class="host-credits__scope" id="credits-balance"></p>
             <p class="host-credits__current"><span class="credits-check" aria-hidden="true">${ICONS.check}</span><span></span></p>
             <p class="host-credits__next"></p><a class="credits-email" href="#email"></a>
-            <span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span><p class="host-credits__equivalence"></p></div></div>
+            <p class="host-credits__daily-cap" hidden></p><span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot><span class="host-credits__demo"></span></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" hidden><slot name="legal"></slot></div></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
@@ -707,7 +709,7 @@ export class AithemaSession extends HTMLElement {
       if (this.#follow) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
-    if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
+    if (this.#options.host) this.#host = new HostSurface({ root, initialCreditScope: this.#creditLayoutScope, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       openSettings: (opener, options) => options?.processing ? this.openSettings(opener) : this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
