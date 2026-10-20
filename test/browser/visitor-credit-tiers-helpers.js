@@ -9,7 +9,8 @@ import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-covera
 import { startChild } from '../helpers.js';
 import { contrast } from '../contrast.js';
 
-const head = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
+const workflowEvent = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+const head = workflowEvent?.pull_request?.head?.sha ?? process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 40 });
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
@@ -893,9 +894,10 @@ export async function replyRowsMatrix(t) {
       await shadow(page, c => {
         window.a2.spent = 12_000_000;
         c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
-        c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { reason: 'visitor' } });
+        c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'visitor' } });
       });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+      assert.equal(await shadow(page, c => c.session.paused && c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up')), true, 'paused budget-denied evidence shows the used-up panel');
       await shot('390-light-de-paused-budget-denied');
     }
   }
