@@ -763,7 +763,7 @@ for (const receipt of ['observation', 'cost reconciliation', 'terminal', 'priced
     storage.db.prepare('INSERT INTO retired_spend VALUES (?,?,?,?,?)').run('sealed-account', 20, 10, 5, 0);
     ledger.admit({ attemptId: 'refused', sessionId: session.id, lane: voice ? 'voice' : 'reaction', maxMicro: 100,
       requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
-      ...(!voice ? { providerCost: { generationId: 'private-generation' } } : {}) });
+      ...(!voice ? { providerCost: { generationId: 'gen-private-generation' } } : {}) });
     const claim = ledger.claim('refused'); claim.consume();
     const reservation = spend.reserve(100, { attemptId: 'refused', provider: 'private-provider' });
     spend.dispatch(reservation); spend.uncertain(reservation);
@@ -776,8 +776,8 @@ for (const receipt of ['observation', 'cost reconciliation', 'terminal', 'priced
     const voiceReceipt = { attemptId: 'refused', outcome: 'completed', closureConfirmed: true, providerSessionId: 'private-voice', usage: {
       providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 250, visitorMicro: 125 } };
     const apply = () => {
-      if (receipt === 'observation') return ledger.observeCost('refused', { chargedMicro: 250, generationId: 'private-generation' });
-      if (receipt === 'cost reconciliation') return ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'private-generation' });
+      if (receipt === 'observation') return ledger.observeCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation' });
+      if (receipt === 'cost reconciliation') return ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation' });
       if (receipt === 'voice reconciliation') return ledger.reconcileVoice('refused', voiceReceipt);
       if (receipt === 'voice terminal') return ledger.settleVoice(claim.claimId, voiceReceipt);
       return ledger.settle(claim.claimId, { attemptId: 'refused', outcome: 'completed', usage: { inputTokens: 1, outputTokens: 1 },
@@ -786,7 +786,7 @@ for (const receipt of ['observation', 'cost reconciliation', 'terminal', 'priced
     // Invalid identity and estimates cannot turn a hold into confirmed spend.
     if (receipt === 'cost reconciliation') {
       assert.throws(() => ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'wrong-generation' }), /not-admitted/);
-      assert.throws(() => ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'private-generation', estimated: true }), /sealed/);
+      assert.throws(() => ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation', estimated: true }), /sealed/);
       assert.equal(spend.snapshot().spentMicro, 20);
       assert.equal(spend.snapshot().uncertainMicro, 105);
     }
