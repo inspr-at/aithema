@@ -559,6 +559,10 @@ restart and export. SQLite secure deletion and WAL checkpointing run before
 erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation;
 hosts await `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
 The demo retires whole sessions after twelve months of inactivity, checking each minute.
+Retention creation, activity, lease release and cleanup retries use the storage
+clock, including SQLite triggers. `new SQLiteStorage(path, { now })` sets it at
+startup; handlers with `host.now` install that clock through the plugin runtime.
+Existing retention timestamps remain intact, and activity never moves backwards.
 
 Assistant replies, including assistant voice transcripts, and generated
 understanding objects carry `origin: "ai-generated"` in API snapshots, durable
@@ -1018,7 +1022,13 @@ Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
 `stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
 (`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning,
 the ElevenLabs live-voice integration, standalone UI generation and extractors are
-implemented here. Every operation takes `{signal, deadlineAt}`;
+implemented here. Every operation takes `{signal, deadlineAt, now?}`. `now` is
+the clock that produced the absolute deadline and defaults to `Date.now`.
+Runtime admission, publication checks and admitted reasoning options carry the
+runtime clock; handlers install `host.now` when supplied. `operationScope` uses
+that clock for expiry and converts the remaining budget into an elapsed timer.
+The ElevenLabs completions facade uses its injected `now` for callback, call,
+reasoning and cleanup deadlines, and forwards it to bounded ports.
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
 ports, including independent voice input/output, acknowledged pause/resume,
 turn ids, transcript policy and delegated/native reasoning. The [ElevenLabs README](plugins/elevenlabs/README.md) documents duration bindings,

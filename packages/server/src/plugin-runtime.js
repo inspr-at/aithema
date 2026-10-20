@@ -98,6 +98,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }),
   conversationLimits = createConversationLimits({ storage, now }) } = {}) {
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
+  storage.setHostClock?.(now);
   // A synchronous session lease precedes every authorization, quote and wallet await.
   // It survives the synthesis receipt until playback ends (or its bounded lease expires).
   const replyReplays = new Map();
@@ -415,12 +416,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     return { plugins };
   }
   async function boundedEvaluate(session, preset, feature, options = {}) {
-    const scope = operationScope({ ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) });
+    const bounded = { ...options, now, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) };
+    const scope = operationScope(bounded);
     let abort;
     try {
       const expired = new Promise(resolve => { abort = () => resolve({ reason: 'admission deadline' });
         scope.signal.addEventListener('abort', abort, { once: true }); if (scope.signal.aborted) abort(); });
-      return await Promise.race([evaluate(session, preset, feature, { ...options, signal: scope.signal, deadlineAt: now() + healthMs }), expired]);
+      return await Promise.race([evaluate(session, preset, feature, { ...bounded, signal: scope.signal }), expired]);
     } finally { scope.signal.removeEventListener('abort', abort); scope.dispose(); }
   }
   // Resolve by the admitted scope, never an option id that the host can rebind.
@@ -520,7 +522,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return adapter ? [adapter] : [];
     }),
     setOwnerWallet(provider) { ownerWallet = provider; },
-    setHostClock(clock) { budget.now = clock; },
+    setHostClock(clock) { now = clock; budget.now = clock; storage.setHostClock?.(clock); },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       // OPS and the background worker share one writer. A dry-run performs only
@@ -618,7 +620,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     },
     /** Revalidate a dispatched operation's admitted scope against the current grant. */
     async processingAllowed(session, consentScope, options = {}) {
-      const scope = operationScope({ ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) });
+      options = { ...options, now, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) };
+      const scope = operationScope(options);
       try {
         const current = storage.get(session.id);
         if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash) return false;
@@ -971,6 +974,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       finally { if (!playing) releaseReplyReplay(session.id, lease); }
     },
     async admitVoice({ session, request, options = {} }) {
+      options = { ...options, now };
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
       const result = await this.checkVoice(session, options);
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
@@ -1053,6 +1057,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return (await boundedEvaluate(session, session.processingPreset ?? 'best', 'text', options)).reason ?? null;
     },
     async admit({ session, lane, operation, request, options = {} }) {
+      options = { ...options, now };
       conversationLimits.assertOpen(session.id);
       const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
         Boolean(storage.purposeAssessmentInput(session));

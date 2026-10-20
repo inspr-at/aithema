@@ -34,7 +34,8 @@ export class SettingsConflictError extends ConflictError {
   constructor(code, session) { super(code); this.code = code; this.session = session; }
 }
 export class SQLiteStorage {
-  constructor(path = ':memory:') {
+  constructor(path = ':memory:', { now = () => Date.now() } = {}) {
+    this.now = now;
     // An OS-backed SQLite lock also releases on process death. It is separate
     // from the WAL journal so the writer can commit without releasing ownership.
     if (path !== ':memory:') {
@@ -48,6 +49,7 @@ export class SQLiteStorage {
     this.activityOrigin = new AsyncLocalStorage();
     this.erasingRetirements = new Map();
     this.db = new DatabaseSync(path);
+    this.db.function('retention_now', () => this.now());
     this.db.function('retention_activity', () => this.countsAsActivity() ? 1 : 0);
     this.db.function('retirement_ready', id => this.erasingRetirements.has(id) ? 0 : 1);
     this.db.exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
@@ -142,15 +144,16 @@ export class SQLiteStorage {
       // Only the initial live-set migration visits historical event timestamps.
       if (!exists) this.db.exec(`INSERT INTO session_retention(session_id,last_activity)
         SELECT id, COALESCE((SELECT MAX(CAST((julianday(json_extract(event,'$.at'))-2440587.5)*86400000 AS INTEGER))
-          FROM events WHERE session_id=sessions.id), CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))
+          FROM events WHERE session_id=sessions.id), retention_now())
         FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NULL;`);
       // The exclusive writer lock makes process-local leases safe to reset at boot.
       this.db.exec(`DROP TRIGGER IF EXISTS retention_event;
+        DROP TRIGGER IF EXISTS retention_create;
         UPDATE session_retention SET busy=0;
-        CREATE TRIGGER IF NOT EXISTS retention_create AFTER INSERT ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NULL BEGIN
-          INSERT INTO session_retention(session_id,last_activity) VALUES (NEW.id,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)); END;
+        CREATE TRIGGER retention_create AFTER INSERT ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NULL BEGIN
+          INSERT INTO session_retention(session_id,last_activity) VALUES (NEW.id,retention_now()); END;
         CREATE TRIGGER retention_event AFTER INSERT ON events WHEN retention_activity()=1 BEGIN
-          UPDATE session_retention SET last_activity=MAX(last_activity,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)) WHERE session_id=NEW.session_id; END;
+          UPDATE session_retention SET last_activity=MAX(last_activity,retention_now()) WHERE session_id=NEW.session_id; END;
         CREATE TRIGGER IF NOT EXISTS retention_erase AFTER UPDATE ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL BEGIN
           DELETE FROM session_retention WHERE session_id=NEW.id; END;
         DROP TRIGGER IF EXISTS retirement_erase;
@@ -169,10 +172,11 @@ export class SQLiteStorage {
    * renew retention, including events and async work spawned inside that scope.
    * AsyncLocalStorage keeps concurrent person/host requests independent. */
   countsAsActivity() { return this.activityOrigin.getStore() !== 'system'; }
+  setHostClock(now) { this.now = now; }
   systemWork(fn) { return this.activityOrigin.run('system', fn); }
   touch(id) {
     if (!this.countsAsActivity()) return;
-    this.db.prepare('UPDATE session_retention SET last_activity=MAX(last_activity,?) WHERE session_id=?').run(Date.now(), id);
+    this.db.prepare('UPDATE session_retention SET last_activity=MAX(last_activity,?) WHERE session_id=?').run(this.now(), id);
   }
   /** Leases exclude in-flight requests, open event streams and reasoning jobs. */
   hold(id) {
@@ -182,7 +186,7 @@ export class SQLiteStorage {
     return () => {
       if (released) return;
       released = true;
-      this.db.prepare('UPDATE session_retention SET busy=MAX(0,busy-1),last_activity=MAX(last_activity,?) WHERE session_id=?').run(activity ? Date.now() : 0, id);
+      this.db.prepare('UPDATE session_retention SET busy=MAX(0,busy-1),last_activity=MAX(last_activity,?) WHERE session_id=?').run(activity ? this.now() : 0, id);
     };
   }
   liveIds(after = '', limit = 100) {
@@ -224,7 +228,7 @@ export class SQLiteStorage {
     return Boolean(this.db.prepare(`SELECT 1 FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL
       AND id>? AND id<=? LIMIT 1`).get(this.erasedRetirementCursor, this.erasedRetirementEnd));
   }
-  pendingRetirements(limit, now = Date.now()) {
+  pendingRetirements(limit, now = this.now()) {
     return this.db.prepare('SELECT session_id FROM retirement_pending WHERE retry_at<=? AND retirement_ready(session_id)=1 ORDER BY retry_at,session_id LIMIT ?').all(now, limit).map(row => row.session_id);
   }
   retirementOwnerHash(id) {
@@ -233,7 +237,7 @@ export class SQLiteStorage {
   failRetirement(id) {
     const pending = this.db.prepare('SELECT attempts FROM retirement_pending WHERE session_id=?').get(id);
     if (pending) this.db.prepare('UPDATE retirement_pending SET attempts=attempts+1,retry_at=? WHERE session_id=?')
-      .run(Date.now() + Math.min(3_600_000, 1000 * 2 ** Math.min(pending.attempts, 12)), id);
+      .run(this.now() + Math.min(3_600_000, 1000 * 2 ** Math.min(pending.attempts, 12)), id);
   }
   /** Topological order over the explicit core list; host tables never enter it. */
   retirementDeleteOrder() {
