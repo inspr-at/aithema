@@ -1405,7 +1405,7 @@ export class AithemaSession extends HTMLElement {
       const newAction = this.#host?.newConversationAction, noAction = this.#host?.noDailyAction;
       const newConversationEnabled = this.#options.host?.usedUp?.newConversation?.enabled === true;
       out.toggleAttribute('data-host-limit', ['host-limit', 'session'].includes(this.#host?.endReason) || usedUp && newConversationEnabled ||
-        this.#host?.dailyCapped && (noAction || this.#options.host?.credits?.dailyCapReset === true));
+        this.#host?.dailyCapped === true && (noAction || this.#options.host?.credits?.dailyCapReset === true));
       if (this.#options.host?.credits?.dailyCapReset) {
         let deadline = out.querySelector('.composer-out__deadline');
         if (!deadline) { deadline = node('span', 'composer-out__deadline'); out.append(deadline); out.setAttribute('data-reset-slot', ''); }
