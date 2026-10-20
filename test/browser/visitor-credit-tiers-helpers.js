@@ -35,6 +35,15 @@ const settle = page => shadow(page, async c => {
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
 }), selectors);
+const runOutGeometry = page => shadow(page, c => Object.fromEntries([
+  '.question-card', '.qtext', '.qopts', '.qhint', '.transcript-shell', '.turn:last-child',
+  '.composer-shell', '.composer', '.composer-out', '.composer-out__title', '.composer-out__body', '.composer-out__bar',
+  ...[...c.shadowRoot.querySelectorAll('[data-credit-variant]')].map(n => `[data-credit-variant="${n.dataset.creditVariant}"]`),
+].map(selector => {
+  const n = c.shadowRoot.querySelector(selector), b = n.getBoundingClientRect(), s = getComputedStyle(n);
+  return [selector, { box: [b.x, b.y, b.width, b.height], text: n.textContent, style: n.getAttribute('style'),
+    font: s.font, rows: s.gridTemplateRows, visibility: s.visibility, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight }];
+})));
 const unchanged = (before, after, label) => {
   const displacement = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
   assert.equal(displacement, 0, `${label}: surrounding controls displaced ${displacement} px; ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
@@ -932,6 +941,7 @@ export async function visitorCreditMatrix(t, locales) {
       await fixture(page, locale, { spent: 11_990_000, voiceRunning: true });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
       const liveBefore = await boxes(page, liveFixed);
+      const runOutBefore = await runOutGeometry(page);
       const creditsBefore = await page.evaluate(() => window.a2.creditsReads);
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
@@ -957,6 +967,9 @@ export async function visitorCreditMatrix(t, locales) {
       assert.deepEqual(calm, { questionReadable: true, answersRest: true, pauseDisabled: true, neutral: true });
       assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).color), theme === 'dark' ? 'rgb(79, 189, 181)' : 'rgb(14, 111, 108)', 'the host-limit upgrade link keeps the approved START teal');
       assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).backgroundColor), 'rgba(0, 0, 0, 0)', 'the host-limit primary stays a text link in both themes');
+      const runOutAfter = await runOutGeometry(page);
+      if (evidence) await writeFile(join(evidence, `ait426-${label}-run-out.json`), JSON.stringify({ head, branchHead, before: runOutBefore, after: runOutAfter }, null, 2));
+      t.diagnostic(`AIT-426 ${label}/run-out: ${JSON.stringify({ before: runOutBefore, after: runOutAfter })}`);
       passLines.push({ locale, theme, width, state: 'run-out', displacementPx: unchanged(liveBefore, await boxes(page, liveFixed), `${label}/run-out`), pass: true }); await shot('run-out');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'no horizontal overflow');
       await fixture(page, locale);
