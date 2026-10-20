@@ -68,8 +68,8 @@ test('AIT-165 login → stubbed PKCE exchange → private operator session; visi
 
 for (const [label, claims, header] of [
   ['nonce mismatch', { nonce: 'wrong' }], ['wrong audience', { aud: 'wrong' }], ['wrong issuer', { iss: 'https://wrong.test' }],
-  ['expired token', { exp: 1 }], ['non-allowlisted subject', { sub: 'visitor' }], ['missing subject', { sub: null }],
-  ['missing nonce', { nonce: null }], ['missing iat', { iat: null }], ['future iat', { iat: 4_000_000_000 }],
+  ['expired token', now => ({ exp: now - 600 })], ['non-allowlisted subject', { sub: 'visitor' }], ['missing subject', { sub: null }],
+  ['missing nonce', { nonce: null }], ['missing iat', { iat: null }], ['future iat', now => ({ iat: now + 600 })],
   ['wrong azp', { azp: 'wrong' }], ['multiple audiences without azp', { aud: ['fixture-client', 'other'] }],
   ['unknown kid', {}, { kid: 'unknown' }], ['wrong algorithm', {}, { alg: 'HS256' }],
 ]) test(`AIT-165 refuses ${label} and consumes state`, async t => {

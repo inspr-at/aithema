@@ -27,8 +27,9 @@ export async function stubOperatorIssuer() {
     assert.equal(createHash('sha256').update(body.get('code_verifier')).digest('base64url'), pending.challenge);
     const now = Math.floor(Date.now() / 1000);
     const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const claims = typeof pending.claims === 'function' ? pending.claims(now) : pending.claims;
     const payload = { iss: issuer, aud: pending.clientId, sub: 'allowed-operator', name: 'Ada',
-      exp: now + 600, iat: now, nonce: pending.nonce, ...pending.claims };
+      exp: now + 600, iat: now, nonce: pending.nonce, ...claims };
     const input = `${encode({ alg: 'RS256', kid: key.kid, ...pending.header })}.${encode(payload)}`;
     return Response.json({ id_token: `${input}.${sign('RSA-SHA256', Buffer.from(input), privateKey).toString('base64url')}` });
   });

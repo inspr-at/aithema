@@ -7,9 +7,12 @@ import { createGrokVoiceProvider } from '@inspr/aithema-plugin-grok-voice/server
 import { createGrokVoiceClient } from '@inspr/aithema-plugin-grok-voice/client';
 
 export async function testGrokConsumer() {
+  // Synthetic account validity follows the wall clock read by both Grok factories.
+  const fixtureNow = Date.now(), day = 86_400_000;
+  const date = offset => new Date(fixtureNow + offset).toISOString().slice(0, 10);
   const config = { secretRef: 'private:fixture-secret', accountRef: 'private:fixture-account',
     accountEvidence: { zdrEnabled: true, dpaAccepted: true, recipient: 'SpaceXAI LLC', recipientCountry: 'US',
-      processing: 'international-no-guaranteed-region', reviewedAt: '2026-10-18', expiresAt: '2099-01-01',
+      processing: 'international-no-guaranteed-region', reviewedAt: date(-day), expiresAt: date(30 * day),
       zdrRef: 'private:zdr', dpaRef: 'private:dpa', retentionRef: 'private:retention', transferRef: 'private:transfers',
       approvalRef: 'private:approval', contractRef: 'private:contract' } };
   const binding = (model = 'grok-voice') => ({ plugin: 'grok-voice', model, endpoint: 'https://api.x.ai', effort: 'none',
