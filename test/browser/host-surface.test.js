@@ -12,7 +12,7 @@ import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -841,6 +841,8 @@ async function postRelease297(browserPage, t, legalHTML) {
 // AIT-376: reuse one browser and page for the deadline matrix. All consent I/O
 // is deferred in-page; the real page, legal document, CSS and action wiring run.
 test('AIT-376: consent deadline viewport matrix, focus, announcements and zero movement', { timeout: 90_000 }, async t => {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  const head = eventPath ? JSON.parse(await readFile(eventPath, 'utf8')).pull_request?.head.sha ?? evidenceCommit : evidenceCommit;
   const directory = await mkdtemp(join(tmpdir(), 'aithema-consent-deadlines-'));
   const demo = await startDemo(directory); let browser;
   t.after(async () => { try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); } });
@@ -1039,7 +1041,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
   if (evidence) await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-376 Tick v1', checks }, null, 2));
   if (evidence) {
     const dir = join(evidence, 'ait387'); await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-387 Tick v1', checks: primaryChecks }, null, 2));
+    await writeFile(join(dir, 'checks.json'), JSON.stringify({ head, commit: evidenceCommit, spec: 'AIT-387 Tick v1', checks: primaryChecks }, null, 2));
   }
 });
 

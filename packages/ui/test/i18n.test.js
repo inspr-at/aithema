@@ -145,7 +145,7 @@ for (const [copy, generic, voice, drafts] of [
   test(`AIT-380 Tick v2 ${copy.display.locale}: each feature × binding reason is exactly in its neutral allow-list`, () => {
     const allow = { voice, images: drafts, html: drafts };
     const jargon = /provider|contract|evidence|anbieter|vertrag|nachweis/iu;
-    for (const code of [...BINDING_REASON_CODES, 'binding invalid', 'agent-api-get-401', 'agent-api-post-403', 'agent-api-patch-503']) for (const reason of [code, `delegated reasoning: ${code}`]) {
+    for (const code of [...BINDING_REASON_CODES, 'binding invalid', 'agent-api', 'agent-api-get-401', 'agent-api-post-403', 'agent-api-patch-503']) for (const reason of [code, `delegated reasoning: ${code}`]) {
       for (const feature of [undefined, ...FEATURES]) {
         const expected = allow[feature] ?? generic;
         const visible = reasonText(copy, reason, feature);

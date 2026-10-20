@@ -646,7 +646,6 @@ export const en = {
     consentWithdrawn: 'Consent withdrawn.', consentStopped: 'Consent withdrawn. Running work stopped.',
     processingTitle: 'Consent for data processing', processingGrant: 'Grant consent',
     processingWaiting: 'Processing waits for the selected permissions.', processingSaved: 'Your consent has been saved.',
-    voiceUnavailable: 'Voice unavailable: {reason}',
     consentStale: 'Not saved: your consent was changed in another window. The current state is loaded.',
     consentFailed: 'Could not save consent. Try again.', restoreFailed: 'Could not restore the demo. Reload to retry.',
     visualsOff: 'No visual concepts',

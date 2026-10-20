@@ -151,6 +151,7 @@ The browser-facing core root does not import these Node artifact constructors.
 | `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
 | `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION/GROK_VOICE host-module expressions | #173 / AIT-160 / AIT-350: injected host entrypoints |
 | `demo/host.js` | Relative public source URLs | AIT-205: native browser loading |
+| `demo/reason-text.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/consent-page.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-copy.js` | Relative public source URLs | AIT-205: native browser loading |
@@ -248,7 +249,7 @@ they are not test coverage switches.
 | `test/browser/demo.test.js` | `CI` ×9 | Linux headless Chrome sandbox selection |
 | `test/browser/external-plugin.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/host-surface.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
+| `test/browser/host-surface.test.js` | `CI` ×2, `GITHUB_EVENT_PATH` ×1 | Linux headless Chrome sandbox selection; AIT-387 evidence pins the PR head |
 | `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection (--no-sandbox); AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix |
 | `test/browser/matrix-coverage.js` | `CI` ×1, `GITHUB_ACTIONS` ×1 | AIT-406 full matrix explicitly selected by AITHEMA_FULL_MATRIX while retaining CI timing; AIT-192 local evidence also selects full coverage outside CI; AIT-293 manual axe excludes GITHUB_ACTIONS |
 | `test/browser/operator-login.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |

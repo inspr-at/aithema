@@ -85,9 +85,10 @@
   "test/browser/host-surface.test.js": {
     "reads": [
       "CI",
-      "CI"
+      "CI",
+      "GITHUB_EVENT_PATH"
     ],
-    "reason": "Linux headless Chrome sandbox selection"
+    "reason": "Linux headless Chrome sandbox selection; AIT-387 evidence pins the PR head"
   },
   "test/browser/html-preview.test.js": {
     "reads": [
