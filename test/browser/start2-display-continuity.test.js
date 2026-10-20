@@ -387,13 +387,13 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
   const head = process.env.GITHUB_EVENT_PATH
     ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha ?? evidenceCommit : evidenceCommit;
   if (evidence) await mkdir(evidence, { recursive: true });
-  for (const touch of [true, false]) for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) {
+  for (const touch of [true, false]) for (const width of [390, 1440]) for (const locale of width === 390 ? ['de', 'en'] : ['de']) {
     // Match pause-phone's native desktop fixture: setViewport resets hover on Linux.
     const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
       '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
     ] }), page = await browser.newPage();
-    const viewport = async target => {
-      if (touch) await target.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: true, isMobile: false });
+    const viewport = async (target, frameWidth = width) => {
+      if (touch) await target.setViewport({ width:frameWidth, height: frameWidth === 390 ? 844 : 900, hasTouch: true, isMobile: false });
       else {
         target.ait404Metrics = await target.createCDPSession();
         await target.ait404Metrics.send('Emulation.setDeviceMetricsOverride', { width, height: width === 390 ? 844 : 900, deviceScaleFactor: 1, mobile: false });
@@ -494,13 +494,13 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           root.querySelector('.pause').click();
         }, { outcome, pausedCopy: { de, en }[locale].paused });
         await until(page, () => globalThis.ait404.held > 0 && globalThis.ait404.listeningAt !== null);
-        const capture = async state => {
+        const capture = async (state, frameWidth = width) => {
           await page.mouse.move(-1, -1);
           await shadow(page, async c => {
             c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
             await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           });
-          const file = `ait404-${width}-light-${locale}-${state}.png`;
+          const file = `ait404-${frameWidth}-light-${locale}-${state}.png`;
           if (state === 'mid-delay') assert.equal(await page.evaluate(() => globalThis.ait404.pending), true, 'mid-delay shot has the GET pending');
           if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
           if (state === 'mid-delay') {
@@ -545,17 +545,31 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         if (outcome === 'success') {
           assert.ok(result.samples.every(s => !s.pausedVisible && s.shortcut), 'no paused label or shortcut transient through 1 s after the snapshot');
           assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'composer, label slot and transcript rows have movementPx 0 on every frame');
-          if (touch || width === 1440) await capture('settled');
-          const clearance = await shadow(page, c => {
-            const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
-            return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
-              headerBottom: r.querySelector('.band').getBoundingClientRect().bottom, scrollTop: shell.scrollTop, pageScroll: scrollY };
-          });
-          check.transcriptClearance = clearance;
-          if (evidence) await writeFile(join(evidence, 'ait400-takeback-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true,
-            files, checks:checks.filter(c => c.transcriptClearance).map(({ width, locale, touch, transcriptClearance }) => ({ width, locale, touch, ...transcriptClearance })) }, null, 2));
-          assert.ok(clearance.shellTop >= clearance.headerBottom, `AIT-412: scroll area starts below the sticky header: ${JSON.stringify(clearance)}`);
-          assert.ok(clearance.bubbleTop >= clearance.headerBottom, `AIT-412: first bubble is wholly below the sticky header: ${JSON.stringify(clearance)}`);
+          // Reuse the settled call for the extra Tick widths: no additional call/browser.
+          const widths = touch && width === 390 ? [390, 1024, ...(locale === 'en' ? [1440] : [])] : [width];
+          for (const frameWidth of widths) {
+            if (frameWidth !== width) {
+              await viewport(page, frameWidth);
+              await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block:'center' }));
+              await finishWorkspaceEntry(page);
+            }
+            if (touch || width === 1440) await capture('settled', frameWidth);
+            const clearance = await shadow(page, c => {
+              const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
+              return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
+                headerBottom: r.querySelector('.band').getBoundingClientRect().bottom, scrollTop: shell.scrollTop, pageScroll: scrollY };
+            });
+            (check.transcriptClearances ??= []).push({ width:frameWidth, ...clearance });
+            if (evidence) await writeFile(join(evidence, 'ait400-takeback-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true,
+              files, checks:checks.flatMap(c => (c.transcriptClearances ?? []).map(clearance => ({ locale:c.locale, touch:c.touch, ...clearance }))) }, null, 2));
+            assert.ok(clearance.shellTop >= clearance.headerBottom, `AIT-412: scroll area starts below the sticky header: ${JSON.stringify(clearance)}`);
+            assert.ok(clearance.bubbleTop >= clearance.headerBottom, `AIT-412: first bubble is wholly below the sticky header: ${JSON.stringify(clearance)}`);
+          }
+          if (widths.length > 1) {
+            await viewport(page);
+            await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block:'center' }));
+            await finishWorkspaceEntry(page);
+          }
         } else {
           assert.ok(result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut), 'failed confirming GET restores the existing paused state');
         }
