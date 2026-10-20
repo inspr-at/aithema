@@ -160,7 +160,7 @@ for (const [id, interruption, turnTaking, expected] of [
 ]) test(`AIT-384: interruption authority uses declaration ${id}/${interruption}/${turnTaking}`, async t => {
   const h = voiceFixture(t), admitVoice = h.runtime.admitVoice;
   h.runtime.admitVoice = async args => {
-    const admission = await admitVoice(args);
+    const admission = await admitVoice.call(h.runtime, args);
     const manifest = structuredClone(admission.plugin.manifest);
     manifest.id = id; manifest.liveVoice.ownership.turnTaking = turnTaking;
     delete manifest.liveVoice.capabilities.interruption;
