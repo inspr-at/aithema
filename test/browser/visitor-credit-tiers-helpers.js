@@ -840,7 +840,8 @@ export async function visitorCreditMatrix(t, locales) {
 
 // Tick v4: reuse one page, keeping exact reply identities through every transition.
 export async function replyRowsMatrix(t) {
-  const { page } = await reservationPage();
+  const { browser, demo } = await reservationPage();
+  let page;
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [], captures = [], pointerRest = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   const pointerBoxes = () => shadow(page, c => [...c.shadowRoot.querySelectorAll('.reply-actions, .reply-actions button, .reply-actions svg')]
@@ -860,7 +861,14 @@ export async function replyRowsMatrix(t) {
     await page.mouse.move(-1, -1);
   };
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    // Linux headless-shell restores hardware-none defaults when touch emulation
+    // is reconfigured on a reused page. Configure a fresh target before navigation
+    // so Blink's mouse defaults apply consistently; keep every media assertion.
+    page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.setViewport({ width, height: width === 390 ? 844 : 1000, isMobile: width === 390, hasTouch: width === 390 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session);
     const media = await page.evaluate(() => ({ fine: matchMedia('(hover:hover) and (pointer:fine)').matches,
       hover: matchMedia('(hover:hover)').matches, pointer: matchMedia('(pointer:fine)').matches,
       coarse: matchMedia('(pointer:coarse)').matches }));
@@ -1067,6 +1075,7 @@ export async function replyRowsMatrix(t) {
       assert.equal(await shadow(page, c => c.session.paused && c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up')), true, 'paused budget-denied evidence shows the used-up panel');
       await shot('390-light-de-paused-budget-denied');
     }
+    await page.close();
   }
   if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4.1', rows, captures }, null, 2));
   assert.equal(rows.length, 60);
