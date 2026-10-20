@@ -1043,3 +1043,100 @@ test('AIT-376 round 2: every DE/EN status fits at 390, including stale failed an
 // Reuse this existing shard/file and one page for the complete AIT-395 matrix.
 import { sessionCreditsCheck } from './session-credits-check.js';
 test('AIT-395: session credit matrix, sibling frame sampling and zero movement', { timeout: 90_000 }, sessionCreditsCheck);
+
+test('AIT-433: handover notice and reserved states fit without movement at narrow widths', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-handover-fit-'));
+  const demo = await startDemo(directory); let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); } });
+  browser = await launch(directory, 'handover-fit'); const page = await browser.newPage();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], failures = [], problems = [];
+  await preparePage(page, ['de'], problems);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await inShadow(page, c => {
+    window.ait433 = { seed: structuredClone(c.session) };
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (url, init = {}) => {
+      const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/handover')) return Response.json({ offer: { available: true }, handover: { status: 'idle' } });
+      if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        if (init.signal?.aborted) controller.close();
+        else init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+      if (path === `/api/sessions/${c.session.id}`) return Response.json(c.session);
+      return nativeFetch(url, init);
+    };
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) for (const width of [390, 640, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    const expected = await inShadow(page, async (c, locale) => {
+      const { [locale]: bundle } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const copy = { ...bundle, hostSurface: { ...bundle.hostSurface, handover: { ...bundle.hostSurface.handover, ...bundle.host.handover } } };
+      const session = structuredClone(window.ait433.seed);
+      session.locale = locale; session.demo = true; session.paused = false; session.settings.origin = 'chosen';
+      session.transcript = [{ id: 'ait433-input', role: 'user', content: locale === 'de' ? 'Wir brauchen eine App.' : 'We need an app.' }];
+      session.understanding = { ...session.understanding, summary: session.transcript[0].content, readinessAssessed: true };
+      session.handover = { status: 'idle' };
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      document.documentElement.lang = locale; document.documentElement.dataset.theme = 'light';
+      c.configure({ session, copy, host: { handover: true } });
+      c.querySelector('[slot="handover-offer"]').textContent = bundle.host.slots.handoverOffer;
+      return { notice: bundle.host.slots.handoverOffer, sent: copy.hostSurface.handover.sent, error: copy.hostSurface.handover.failed };
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.handover-request').getAttribute('aria-disabled') === 'false');
+    await inShadow(page, c => c.shadowRoot.querySelector('.handover').scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await settleEvidenceFrame(page);
+    let baseline;
+    for (const state of ['idle', 'sent', 'error']) {
+      if (state !== 'idle') await inShadow(page, async (c, state) => {
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        c.receive({ seq: c.session.seq + 1, type: 'handover.state', data: { status: state === 'error' ? 'failed' : state, revision: inputRevision(c.session) } });
+      }, state);
+      await settleEvidenceFrame(page);
+      const metric = await inShadow(page, c => {
+        const root = c.shadowRoot, rect = n => { const b = n.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
+        const measure = selector => {
+          const n = root.querySelector(selector), css = getComputedStyle(n), range = document.createRange(); range.selectNodeContents(n);
+          return { ...rect(n), text: n.textContent, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
+            scrollWidth: n.scrollWidth, clientWidth: n.clientWidth, maxHeight: css.maxHeight, clamp: css.webkitLineClamp,
+            textAlign: css.textAlign, lines: new Set([...range.getClientRects()].filter(r => r.width > 0).map(r => r.y)).size };
+        };
+        return { block: rect(root.querySelector('.handover')), row: rect(root.querySelector('.handover__row')),
+          heading: rect(root.querySelector('.handover h3')), action: rect(root.querySelector('.handover-request')),
+          notice: measure('.handover__offer'), state: measure('.handover__state') };
+      });
+      baseline ??= metric;
+      const label = `${locale}/${width}/${state}`, require = (ok, message) => { if (!ok) failures.push(`${label}: ${message}`); };
+      const beside = metric.state.x >= metric.action.x + metric.action.width;
+      for (const name of ['notice', 'state']) {
+        require(metric[name].scrollHeight <= metric[name].clientHeight, `${name} vertically overflows ${metric[name].scrollHeight} > ${metric[name].clientHeight}`);
+        require(metric[name].scrollWidth <= metric[name].clientWidth, `${name} horizontally overflows`);
+      }
+      require(metric.notice.text === expected.notice, 'full demo notice remains present');
+      require(metric.state.text === (state === 'idle' ? '' : expected[state]), 'actual handover state text is shown');
+      require(metric.notice.maxHeight === 'none' && ['none', '0'].includes(metric.notice.clamp), 'notice has no max-height or line clamp');
+      require(!beside || metric.state.width >= 200, `beside-action state column is ${metric.state.width}px < 200px`);
+      require(metric.notice.y >= metric.heading.y + metric.heading.height && metric.action.y >= metric.notice.y + metric.notice.height, 'heading, full notice, then action');
+      if (width < 640 || !beside) {
+        require(!beside && metric.state.y >= metric.action.y + metric.action.height, 'state stacks below action');
+        require(metric.action.width === metric.row.width && metric.action.height === 44, 'stacked action is full width and 44px');
+        require(metric.state.x === metric.row.x && ['start', 'left'].includes(metric.state.textAlign), 'stacked state is left-aligned');
+      }
+      if (width === 390 && locale === 'de') require(metric.state.lines <= 2, `state uses ${metric.state.lines} lines > 2`);
+      const displacement = Math.max(...['block', 'action', 'state'].flatMap(name => ['x', 'y', 'width', 'height'].map(key => Math.abs(metric[name][key] - baseline[name][key]))));
+      require(displacement === 0, `block/action/state displacement is ${displacement}px`);
+      checks.push({ locale, width, state, beside, displacement, ...metric });
+      if (evidence && locale === 'de' && ((width === 390 && state !== 'error') || (width === 1440 && state === 'sent'))) {
+        await page.screenshot({ path: join(evidence, `ait-433-de-light-${width}-handover-${state}.png`), fullPage: false, captureBeyondViewport: false });
+      }
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-433-checks.json'), JSON.stringify({ commit: evidenceCommit, checks, failures }, null, 2));
+  t.diagnostic(JSON.stringify({ checks: checks.length, failures }));
+  assert.deepEqual(failures, [], 'Tick spec v1: full notice, readable reserved states, and exact zero movement');
+  assert.deepEqual(problems, []);
+});
