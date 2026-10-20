@@ -364,13 +364,23 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
   const head = process.env.GITHUB_EVENT_PATH
     ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha ?? evidenceCommit : evidenceCommit;
   if (evidence) await mkdir(evidence, { recursive: true });
-  for (const width of [390, 1440]) for (const touch of [true, false]) for (const locale of width === 390 ? ['de', 'en'] : ['de']) {
-    const browser = await browserForFile(), page = await browser.newPage();
+  for (const touch of [true, false]) for (const width of [390, 1440]) for (const locale of width === 390 ? ['de', 'en'] : ['de']) {
+    // Match pause-phone's native desktop fixture: setViewport resets hover on Linux.
+    const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
+      '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
+    ] }), page = await browser.newPage();
+    const viewport = async target => {
+      if (touch) await target.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: true, isMobile: false });
+      else {
+        target.ait404Metrics = await target.createCDPSession();
+        await target.ait404Metrics.send('Emulation.setDeviceMetricsOverride', { width, height: width === 390 ? 844 : 900, deviceScaleFactor: 1, mobile: false });
+      }
+    };
     let other;
     try {
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
-      await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: touch, isMobile: false });
+      await viewport(page);
       await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.evaluateOnNewDocument(locale => {
         localStorage.setItem('aithema-locale', locale); localStorage.setItem('aithema-motion', 'off');
@@ -386,7 +396,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
       await until(page, () => ['speaking', 'listening'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
       await finishWorkspaceEntry(page);
       other = await browser.newPage();
-      await other.setViewport({ width, height: width === 390 ? 844 : 900 });
+      await viewport(other);
       await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await other.bringToFront();
       await until(other, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === 'waiting');
       const retire = async () => {
@@ -470,6 +480,11 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           const file = `ait404-${width}-light-${locale}-${state}.png`;
           if (state === 'mid-delay') assert.equal(await page.evaluate(() => globalThis.ait404.pending), true, 'mid-delay shot has the GET pending');
           if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+          if (state === 'mid-delay') {
+            const pending = await page.evaluate(() => globalThis.ait404.pending);
+            assert.equal(pending, true, 'mid-delay GET stays pending throughout viewport capture');
+            await page.evaluate(() => { globalThis.ait404.midDelayCapturedPending = true; });
+          }
           files.push(file);
         };
         if (outcome === 'success' && touch && width === 390) await capture('mid-delay');
@@ -484,6 +499,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           shortcutInListeningTick: preVerdict.every(s => s.shortcut),
           movementPx0: result.samples.every(s => s.movementPx === 0),
           wholeTakebackMovementPx0: result.allSamples.every(s => s.movementPx === 0),
+          midDelayShotPending: width !== 390 || !touch || outcome !== 'success' || result.midDelayCapturedPending === true,
           deviceMatches: touch ? device.hoverNone && device.coarse : device.fine,
           noPageErrors: errors.length === 0,
           confirmedOrRestored: outcome === 'success' ? result.samples.every(s => !s.pausedVisible && s.shortcut)

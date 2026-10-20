@@ -633,9 +633,10 @@ export class AithemaSession extends HTMLElement {
         feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, endReason: () => this.#host?.endReason, nextTier: () => this.#host?.nextTier ?? null, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
         ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
         onRender: rail => {
-          // The internal startup state can still paint as paused. Preserve the
-          // held hint's space before the queued composer repaint runs.
-          if (rail.state === 'connecting' && rail.waitingCall && !root.querySelector('.composer-reason').hasAttribute('data-shortcut')) {
+          // Preserve held space from takeover through startup. The internal
+          // connecting state can still paint as paused in the public rail.
+          const resuming = rail.takeoverController || rail.state === 'connecting' && rail.waitingCall;
+          if (resuming && !root.querySelector('.composer-reason').hasAttribute('data-shortcut')) {
             root.querySelector('.composer-feedback').setAttribute('data-voice-space', '');
           }
           this.#syncVoicePause(rail); this.#syncRailFit();
