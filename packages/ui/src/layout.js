@@ -345,7 +345,7 @@ export class PhoneComposerViewport {
           // Transcript uploads and text paints do not own the action row.
           // Observe the list only to see that existing row move in or out.
           const relevant = notices?.contains(record.target) || actions?.contains(record.target) ||
-            record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].includes(actions);
+            record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some(node => node === actions || node.matches?.('.reply-actions'));
           return relevant && (record.type !== 'attributes' ||
             record.oldValue !== record.target.getAttribute(record.attributeName));
         });
