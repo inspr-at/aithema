@@ -1343,8 +1343,10 @@ already returns the accepted selection can ignore the second argument.
 Both fields are optional for backward compatibility: hosts without `describe`,
 legacy/unavailable documents and legacy events retain the previous shape. Optional
 grant enrichment reads each have a 250 ms deadline; a timeout omits both fields
-and retains the legacy refresh path. Full withdrawals include every known scope
-in both fields as a revocation and bypass host document reads so host latency cannot delay it. Existing
+and retains the legacy refresh path. Full withdrawals through `POST /consent` include
+every known scope in both fields as a revocation. The server-side `withdrawConsent(id)`
+helper omits both fields, so the client takes the legacy (E2) refresh path. Both full
+withdrawal paths bypass host document reads so host latency cannot delay them. Existing
 consumers can ignore these optional fields. The UI removes a known withdrawn artifact kind
 synchronously in the handler, then verifies through the normal refresh. A
 revision-matched client document showing missing coverage identifies an addition.

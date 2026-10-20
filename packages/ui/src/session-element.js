@@ -2637,8 +2637,8 @@ export class AithemaSession extends HTMLElement {
       FEATURES.some(feature => (feature === 'html' ? 'html-drafts' : feature) === scope));
     const removalOnly = scoped && Array.isArray(removed) && removed.length > 0 && changed.every(scope => removed.includes(scope));
     const scopedGrant = granted === true && scoped && !removalOnly;
-    // Repeated saves cannot extend the window or inherit an older grant's wait.
-    if (this.#consentRefresh) { this.#consentRefresh.scopedGrant = scopedGrant; return; }
+    // Repeated saves cannot extend the window or restore a legacy/withdrawal window's grant wait.
+    if (this.#consentRefresh) { this.#consentRefresh.scopedGrant &&= scopedGrant; return; }
     const pending = { sessionId: this.#session.id, retries: 0, scopedGrant };
     this.#consentRefresh = pending;
     // Coverage is bounded from the event, including snapshot and document reads.
