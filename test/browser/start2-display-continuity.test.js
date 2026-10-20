@@ -439,8 +439,14 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         await finishWorkspaceEntry(page);
       };
       await retire();
-      // Keep the composer in the viewport before recording any geometry.
-      await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
+      // This fixture deliberately scrolls the document to the composer before
+      // takeback. Record that separately from the production takeback itself.
+      const pagePlacement = await shadow(page, c => {
+        const before = scrollY;
+        c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' });
+        return { before, after:scrollY, cause:'fixture composer.scrollIntoView before takeback' };
+      });
+      await finishWorkspaceEntry(page);
       const outcomes = width === 390 && touch && locale === 'en' ? ['success', 'paused', 'error'] : ['success'];
       for (const outcome of outcomes) {
         if (outcome !== 'success') await retire();
@@ -463,6 +469,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
               pausedVisible: visible(paused) || visible(reason) && reason.textContent.includes(pausedCopy),
               sessionPaused: session.paused, textAvailable: text?.available, textReason: text?.reason, unpausedTextAvailable: text?.unpaused?.available,
               boxes: current, movementPx: Math.max(...current.flatMap((box, i) => box.map((v, j) => Math.abs(v - run.baseline[i][j])))) };
+            reading.pageScroll = scrollY;
             run.allSamples.push(reading);
             if (run.listeningAt !== null) run.samples.push(reading);
           };
@@ -522,19 +529,21 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           shortcutInListeningTick: preVerdict.every(s => s.shortcut),
           movementPx0: result.samples.every(s => s.movementPx === 0),
           wholeTakebackMovementPx0: result.allSamples.every(s => s.movementPx === 0),
+          pageScrollMovementPx0: result.allSamples.every(s => s.pageScroll === result.allSamples[0].pageScroll),
           midDelayShotPending: width !== 390 || !touch || outcome !== 'success' || result.midDelayCapturedPending === true,
           deviceMatches: touch ? device.hoverNone && device.coarse : device.fine,
           noPageErrors: errors.length === 0,
           confirmedOrRestored: outcome === 'success' ? result.samples.every(s => !s.pausedVisible && s.shortcut)
             : result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut),
         };
-        const check = { width, theme: 'light', locale, touch, outcome, device, assertions, ...result, errors };
+        const check = { width, theme: 'light', locale, touch, outcome, device, assertions, pagePlacement, ...result, errors };
         checks.push(check);
         if (Object.values(assertions).some(value => !value)) t.diagnostic(JSON.stringify({ width, touch, locale, outcome, assertions,
           firstBadPending: preVerdict.find(s => s.pausedVisible || !s.shortcut),
           firstMovement: result.allSamples.find(s => s.movementPx !== 0), selectors: result.selectors, baseline: result.baseline }));
         // Persist the red trace too, including the actual frame and its bounds.
         if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
+        assert.equal(Math.max(...result.allSamples.map(s => Math.abs(s.pageScroll - result.allSamples[0].pageScroll))), 0, 'AIT-412: takeback moves the document 0 px');
         assert.ok(assertions.deviceMatches, 'the case uses the requested touch or fine-pointer device');
         assert.equal(Math.max(...result.allSamples.map(s => s.movementPx)), 0, 'geometry stays at 0 px from the click through 1 s after the snapshot');
         assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'every outcome preserves composer, label slot and transcript geometry');
@@ -554,13 +563,14 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
               await finishWorkspaceEntry(page);
             }
             if (touch || width === 1440) await capture('settled', frameWidth);
-            const clearance = await shadow(page, c => {
+            const clearance = await shadow(page, (c, scrollProof) => {
               const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
               return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
                 headerBottom: r.querySelector('.band').getBoundingClientRect().bottom,
                 lastTopRowBottom: Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom),
-                scrollTop: shell.scrollTop, pageScroll: scrollY };
-            });
+                scrollTop: shell.scrollTop, pageScroll: scrollY, headerTop:r.querySelector('.band').getBoundingClientRect().top,
+                headerPosition:getComputedStyle(r.querySelector('.band')).position, ...scrollProof };
+            }, { pagePlacement, takebackPageScrollMovementPx:Math.max(...result.allSamples.map(s => Math.abs(s.pageScroll - result.allSamples[0].pageScroll))) });
             (check.transcriptClearances ??= []).push({ width:frameWidth, ...clearance });
             if (evidence) {
               await mkdir(join(evidence, 'ait412'), { recursive:true });

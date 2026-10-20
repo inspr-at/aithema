@@ -143,6 +143,58 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         assert.ok(state.firstVisible.top >= Math.max(state.shell[1] + 8, state.headerBottom, state.slotBottom), 'AIT-400: the retained reading row is wholly below the last top row');
       }
     });
+    // Reuse this page for the round-2 geometry checks; no extra browser/call.
+    for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) {
+      await t.test(`Latest reserved bottom/${width}/${locale}`, async () => {
+        const turns = Array.from({ length: 24 }, (_, i) => ({ id: i ? `bottom-${i}` : 'source', role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine längere Unterhaltung für den unveränderten unteren Platz.' : 'A longer conversation to verify the unchanged bottom slot.' }));
+        await mount(width, 'light', locale, 't1', false, turns);
+        const bottom = await page.evaluate(() => {
+          const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), latest = r.querySelector('.transcript-latest');
+          const measure = () => ({ lastBottom: shell.querySelector('.turn:last-child').getBoundingClientRect().bottom,
+            latestTop: latest.getBoundingClientRect().top, latestBottom: latest.getBoundingClientRect().bottom,
+            shellBottom: shell.getBoundingClientRect().bottom, scrollHeight: shell.scrollHeight, scrollTop: shell.scrollTop });
+          shell.scrollTop = shell.scrollHeight; latest.style.visibility = 'hidden'; const hidden = measure();
+          latest.style.visibility = 'visible'; const shown = measure();
+          latest.style.visibility = 'hidden'; return { hidden, shown, hiddenAgain: measure() };
+        });
+        checks.push({ width, locale, bottom });
+        if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+        assert.deepEqual(bottom.shown, bottom.hidden, 'AIT-400 v1.1: Latest shown/hidden moves the last-row bottom and scroll geometry 0 px');
+        assert.deepEqual(bottom.hiddenAgain, bottom.hidden, 'AIT-400 v1.1: hiding Latest again moves the last-row bottom 0 px');
+        assert.ok(bottom.shown.lastBottom <= bottom.shown.latestTop, `AIT-400 v1.1: Latest occupies its reserved slot below the last message: ${JSON.stringify(bottom)}`);
+        assert.ok(bottom.shown.latestBottom <= bottom.shown.shellBottom, 'Latest is wholly inside the scroll area');
+      });
+      for (const mode of ['fold', 'hide']) await t.test(`inset reset/${mode}/${width}/${locale}`, async () => {
+        await mount(width, 'light', locale, 't1');
+        await page.evaluate(async () => {
+          // Attach the production page watchers to this otherwise offline mount.
+          const { [c.session.locale]: copy } = await import('/packages/ui/src/i18n/' + c.session.locale + '.js');
+          c.configure({ session:c.session, copy, sessionToken:'fixture-owner', concepts:{ previewURL:location.origin+'/_aithema/html-preview' } });
+          document.body.style.paddingBottom = '1600px'; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
+        });
+        const result = await page.evaluate(mode => {
+          const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), workspace = r.querySelector('.workspace');
+          const measure = () => ({ inset:parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0,
+            shellTop:shell.getBoundingClientRect().top, bubbleTop:shell.querySelector('.turn').getBoundingClientRect().top,
+            lastTopRowBottom:Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom) });
+          const before = measure(); scrollTo(0, 400); dispatchEvent(new Event('scroll')); const scrolled = measure();
+          if (mode === 'fold') r.querySelector('.fold').click(); else workspace.dataset.stage = 'ready';
+          dispatchEvent(new Event('resize')); const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
+          scrollTo(0, 0); dispatchEvent(new Event('scroll'));
+          if (mode === 'fold') r.querySelector('.fold-strip').click(); else workspace.dataset.stage = 'live';
+          // Inspect synchronously on return, before another scroll can repair it.
+          const returned = measure();
+          document.body.style.paddingBottom = ''; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
+          return { before, scrolled, hiddenInset, returned };
+        }, mode);
+        checks.push({ width, locale, mode, insetReset:result });
+        if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+        assert.ok(result.scrolled.inset > 0, 'fixture first creates a real sticky-header inset');
+        assert.equal(result.hiddenInset, 0, 'AIT-400: fold/hide clears the stale top inset');
+        assert.deepEqual(result.returned, result.before, 'AIT-400: fold/hide → live has 0 px empty top gap before the next scroll');
+        assert.ok(result.returned.bubbleTop >= result.returned.lastTopRowBottom, 'returned first bubble is fully below the last top row');
+      });
+    }
     return;
   }
   for(const [width,theme,locale,state] of configs)await t.test(`${state}/${width}/${theme}/${locale}`,async()=>{
