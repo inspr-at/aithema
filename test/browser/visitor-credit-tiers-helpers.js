@@ -94,6 +94,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     const question = locale === 'de' ? 'Welche Anforderungen möchten Sie besprechen?' : 'Which requirements would you like to discuss?';
     session.transcript.push({ id: 'visitor-fixture-question', role: 'assistant', content: question, inputRevision: inputRevision(session),
       question_short: question, options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', likely: true }, { text: locale === 'de' ? 'Ressourcen' : 'Resources' }] });
+    if (handover) session.transcript = session.transcript.filter(turn => turn.role === 'user');
     session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
     c.setAttribute('motion', 'off');
     let voiceClient;
@@ -633,6 +634,11 @@ export async function visitorCreditMatrix(t, locales) {
         await settleEvidenceFrame(page);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.handover__state').textContent), 'Ihre Anfrage wurde gesendet. Sie erhalten eine persönliche Rückmeldung.');
         const shiftPx = unchanged(before, await boxes(page, targets), 'AIT-426 handover sent');
+        assert.equal(await shadow(page, c => {
+          const r = c.shadowRoot, state = r.querySelector('.handover__state').getBoundingClientRect();
+          return state.top >= r.querySelector('.band').getBoundingClientRect().bottom &&
+            state.bottom <= r.querySelector('.composer-shell').getBoundingClientRect().top;
+        }), true, 'AIT-426 handover sent text clears the sticky band and composer');
         uiChecks.push({ locale, theme, width, state: 'ait-426-handover-sent', pass: true, shiftPx });
         if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-handover-sent.png'), fullPage: false });
       }
