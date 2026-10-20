@@ -72,7 +72,7 @@ export class SessionLanes {
           !latest.paused && latest.questionFocus?.requestId === focus.requestId);
       // Accepted focus owns the question text, while assessment IDs are ephemeral.
       // A replacement may reorder that question; removing it must fail visibly.
-      if (valid && focus && !openQuestionItems({ ...latest, sessionRevision: session.sessionRevision }).some(item => item.question === session.focusedQuestion)) {
+      if (valid && focus && !openQuestionItems(latest.understanding.inputRevision === revision ? { ...latest, sessionRevision: session.sessionRevision } : latest).some(item => item.question === session.focusedQuestion)) {
         throw new PluginError('not-admitted', 'focused-question-removed');
       }
       if (valid && focus && !this.focusReplyAvailable(id)) throw new PluginError('not-admitted', 'reply-in-flight');

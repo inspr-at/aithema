@@ -929,6 +929,7 @@ for (const fails of [false, true]) test(`AIT-418: identity/change during an admi
   await f.call(`${base}/turns`, { clientEventId: 'identity-race', content: 'systems: API' });
   await entered.promise;
   const revision = inputRevision(f.storage.get(s.id));
+  f.at(1_100); // The injected host clock passes the request's resend cooldown.
   assert.equal((await f.call(`${base}/identity/change`, { address: 'after@example.test' })).status, 200);
   assert.notEqual(inputRevision(f.storage.get(s.id)), revision);
   held.resolve(); await f.handlers.idle();
