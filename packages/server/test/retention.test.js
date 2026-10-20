@@ -752,6 +752,37 @@ test('AIT-427: removing wait_for_billing preserves pending seals, deadlines and 
   assert.equal(storage.retirementOwnerHash(fresh.id), fresh.ownerHash, 'the migrated erase trigger still queues retirement');
 });
 
+test('AIT-427: a failed reservation write preserves the seal error and the spend hold', t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const storage = bindSQLiteClock(new SQLiteStorage()), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => storage.close());
+  const session = storage.create();
+  const spend = createSpendCap({ storage, account: 'sealed-account', capMicro: 100 });
+  ledger.admit({ attemptId: 'refused', sessionId: session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+    providerCost: { generationId: 'gen-private-generation' } });
+  const claim = ledger.claim('refused'); claim.consume();
+  const reservation = spend.reserve(100, { attemptId: 'refused' });
+  spend.dispatch(reservation); spend.uncertain(reservation);
+  ledger.settle(claim.claimId, { attemptId: 'refused', outcome: 'uncertain' });
+  storage.erase(session.id);
+  assert.throws(() => storage.sealRetirement(session.id), /unsettled/);
+  t.mock.timers.setTime(Date.now() + 3_600_001);
+  const snapshot = storage.sealRetirement(session.id), frozen = ledger.get('refused');
+  storage.db.exec(`CREATE TRIGGER fail_reservation_write BEFORE UPDATE ON spend_reservations
+    BEGIN SELECT RAISE(ABORT,'reservation write failed'); END;`);
+  assert.throws(() => ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation' }), error => {
+    assert.equal(error.message, 'Retirement billing sealed');
+    assert.equal(error.cause?.message, 'reservation write failed');
+    return true;
+  });
+  assert.deepEqual(ledger.get('refused'), frozen);
+  assert.deepEqual(ledger.corrections('refused'), []);
+  assert.deepEqual(storage.sealRetirement(session.id), snapshot);
+  assert.deepEqual(spend.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 100, capMicro: 100, breached: false });
+  assert.throws(() => spend.reserve(1), /spend cap exhausted/);
+});
+
 for (const receipt of ['observation', 'cost reconciliation', 'terminal', 'priced terminal', 'voice reconciliation', 'voice terminal']) {
   test(`AIT-427: seal-refused ${receipt} reaches retained spend without reopening the attempt`, async t => {
     t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
