@@ -406,7 +406,7 @@ export async function visitorCreditMatrix(t, locales) {
       && document.documentElement.lang === locale && document.querySelector('#language-value').textContent === locale.toUpperCase(), { timeout: 20_000 }, locale);
     for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 2, 'visitor-credit')) {
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
       const label = `${locale}-${theme}-${width}`;
       const ait292Capture = async state => {
         if (!evidence || locale !== 'de' || ![1440, 390].includes(width)) return;
