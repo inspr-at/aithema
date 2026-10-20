@@ -779,7 +779,11 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       await record(t, 'ait190', page, `${label}-clear`, { ...sentence, shiftPx: following ? sentence.dock.top - before.dock.top : sentence.first.top - before.first.top });
       await setPosition(); await frame(page);
       const beforeClear = await recoveryRowMetrics(page);
-      await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page);
+      await page.evaluate(() => {
+        // This fixture clears the notice directly; production clears repaint
+        // the owning rail too, refreshing its cached latest-reply projection.
+        globalThis.tickRail.notices.clear(); globalThis.tickRail.render();
+      }); await frame(page);
       const row = await recoveryRowMetrics(page);
       assert.equal(row.audioAvailable, false, `${label}-action-row remains text-only`);
       assert.equal(row.clientReplayAvailable, false, `${label}-action-row has no replay client`);
