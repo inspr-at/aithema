@@ -143,15 +143,15 @@ export async function composerCreditReservationMatrix(t) {
         key: n.dataset.creditVariant, text: n.textContent, visibility: getComputedStyle(n).visibility, ariaHidden: n.getAttribute('aria-hidden'),
         gridCell: [getComputedStyle(n).gridRowStart, getComputedStyle(n).gridColumnStart],
       })));
-      const hiddenAX = [];
-      for (let i = 0; i < variants.length; i++) {
-        if (variants[i].ariaHidden !== 'true') continue;
+      // The hidden variants are independent reads of the same settled tree.
+      const hiddenAX = (await Promise.all(variants.map(async (variant, i) => {
+        if (variant.ariaHidden !== 'true') return null;
         const { result } = await accessibility.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelectorAll('.composer-out__body > span')[${i}]` });
         const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
         const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
         await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
-        hiddenAX.push({ key: variants[i].key, ignored: nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored === true });
-      }
+        return { key: variant.key, ignored: nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored === true };
+      }))).filter(Boolean);
       const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
         variants, hiddenAX, hiddenVariantsAbsent: hiddenAX.every(n => n.ignored),
@@ -859,6 +859,31 @@ export async function replyRowsMatrix(t) {
     await settle(page);
     const selectors = ['.turn:not(.user)', '.turn:last-child', '.qopts', '.question-card', '.composer-shell'];
     const before = await boxes(page, selectors);
+    const presentation = await shadow(page, c => {
+      const r = c.shadowRoot, fine = matchMedia('(hover:hover) and (pointer:fine)').matches;
+      const ink = getComputedStyle(r.querySelector('.voice-reply-dialog')).color;
+      const controls = [...r.querySelectorAll('.reply-actions button')].map(button => {
+        const rest = getComputedStyle(button.querySelector('svg')).visibility;
+        button.focus({ preventScroll: true });
+        const focus = { visible: getComputedStyle(button.querySelector('svg')).visibility, color: getComputedStyle(button).color };
+        button.blur(); return { rest, focus };
+      });
+      return { fine, ink, controls };
+    });
+    for (const control of presentation.controls) {
+      assert.equal(control.rest, presentation.fine ? 'hidden' : 'visible', 'resting pointer icons reserve space; touch icons stay visible');
+      assert.equal(control.focus.visible, 'visible', 'native focus reveals the icon');
+      if (presentation.fine) assert.equal(control.focus.color, presentation.ink, 'pointer focus paints full ink');
+    }
+    if (presentation.fine) {
+      const [x, y, , h] = (await boxes(page, ['.turn:not(.user)']))[0];
+      await page.mouse.move(x + 20, y + h / 2);
+      const hover = await shadow(page, c => [...c.shadowRoot.querySelector('.reply-actions').querySelectorAll('button')].map(n => ({ visibility: getComputedStyle(n.querySelector('svg')).visibility, color: getComputedStyle(n).color })));
+      for (const control of hover) { assert.equal(control.visibility, 'visible'); assert.equal(control.color, presentation.ink, 'row hover paints full ink'); }
+      presentation.hover = hover;
+      await page.mouse.move(-1, -1);
+    }
+    unchanged(before, await boxes(page, selectors), 'focus and hover reserve exactly the same space');
     const record = async state => {
       await settle(page);
       const after = await boxes(page, selectors);
@@ -866,7 +891,7 @@ export async function replyRowsMatrix(t) {
         id: row.parentElement.dataset.id, height: row.getBoundingClientRect().height,
         controls: [...row.querySelectorAll('button')].map(n => ({ disabled: n.disabled, ariaDisabled: n.getAttribute('aria-disabled'),
           description: n.getAttribute('aria-description'), title: n.title, visible: getComputedStyle(n).visibility,
-          icons: n.querySelectorAll('svg').length, label: n.getAttribute('aria-label'), text: n.textContent.trim() }))
+          icons: n.querySelectorAll('svg').length, iconVisibility: getComputedStyle(n.querySelector('svg')).visibility, label: n.getAttribute('aria-label'), text: n.textContent.trim() }))
       })));
       const movementPx = unchanged(before, after, `${locale}/${theme}/${width}/${state}`);
       assert.equal(controls.length, 3, 'all three replies own a row');
@@ -876,12 +901,13 @@ export async function replyRowsMatrix(t) {
           assert.equal(control.icons, 1); assert.equal(control.text, '', 'icon buttons have no visible labels'); assert.ok(control.label);
           const inCall = state === 'running';
           assert.equal(control.disabled, inCall); assert.equal(control.ariaDisabled, String(inCall));
+          assert.equal(control.iconVisibility, inCall || !presentation.fine ? 'visible' : 'hidden', 'call-disabled and touch icons remain visible in place');
           if (inCall) assert.equal(control.description, locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call');
           else assert.equal(control.description, null);
           assert.equal(control.visible, 'visible');
         }
       }
-      rows.push({ locale, theme, width, state, movementPx, before, after, controls });
+      rows.push({ locale, theme, width, state, movementPx, before, after, controls, presentation });
     };
     await record('ready');
     await click(page, '.voice-start');
