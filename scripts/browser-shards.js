@@ -287,6 +287,19 @@ browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
 browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
   browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 161);
 
+// AIT-411 final-main integration (AIT-418): green browser shard 7/8 in
+// PR CI 39493499517 at 3f7e68e1 measures the expanded email-space file at
+// 69.358467245s; ceil(*1.25)=87s. Retain the mature main series unchanged
+// and add this diagnostic floor for the newly merged stream-wait coverage.
+browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-mail-space.test.js'], 87);
+
+// The same CI's green shard 5/8 measures AIT-425's expanded pause-phone
+// workload at 170.669575097s; ceil(*1.25)=214s. This is also a diagnostic
+// floor, without rewriting the trusted main samples or changing capacity.
+browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
+  browserTestWeights['test/browser/pause-phone.test.js'], 214);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 export const browserShardCount = 8;
