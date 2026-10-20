@@ -29,7 +29,7 @@ export function creditVoiceStatus(copy, { reason, creditReason, exhausted = fals
 
 /** All header copy sources get a bounded visual label, including host-defined refusals. */
 export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditReason } = {}) {
-  if (rawReason === 'agent-api-unavailable') return copy.voiceReasonsNarrow.unavailable;
+  if (rawReason === 'agent-api-unavailable' && sentence === copy.reasons[rawReason]) return copy.voiceReasonsNarrow.unavailable;
   if (sentence === copy.voiceStates.usedUp || rawReason && sentence === copy.reasons?.[rawReason]) {
     const credit = creditVoiceStatus(copy, { reason: rawReason, creditReason, exhausted: sentence === copy.voiceStates.usedUp });
     if (credit) return credit;
