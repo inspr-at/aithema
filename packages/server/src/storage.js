@@ -687,7 +687,7 @@ export class SQLiteStorage {
       return { event: this.#append(session, decision.type, { ...decision.data, requestId: randomUUID() }) };
     });
   }
-  postTurn(id, clientId, bytes, content, guard = {}) {
+  postTurn(id, clientId, bytes, content, guard = {}, beforeSave = () => {}) {
     return this.transaction(() => {
       const session = this.get(id);
       this.#check(session, { ...guard, revision: undefined });
@@ -704,6 +704,8 @@ export class SQLiteStorage {
         this.read(id, guard.initialLocaleSeq).every(event => event.type === 'session.locale-changed');
       this.#check(session, localeOnly ? { ...guard, revision: undefined } : guard);
       if (session.transcript.some(turn => turn.id === clientId)) throw new ConflictError('Turn id already exists');
+      // Synchronous host preflight follows replay/revision checks and precedes persistence.
+      beforeSave();
       const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content,
         ...(guard.voiceCallId ? { voiceCallId: guard.voiceCallId, voiceProviderId: guard.voiceProviderId } : {}),
         at: new Date().toISOString() });

@@ -187,14 +187,15 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, fullHold, reconciling, ...warning,
       ...(sessionAware ? { scope: 'session', dailyCapReached } : {}) };
   }
-  function startCredits(id, ownerToken) {
-    const state = conversationLimits.start(id);
+  function initialCreditBalance(id, ownerToken) {
     if (!host?.wallet) return;
-    const context = { sessionId: id };
-    const wallet = host.wallet(ownerToken, context);
-    host.creditTiers?.(ownerToken, context);
-    // Initial admission keeps the conservative balance, including for old hosts.
-    const balance = budgetCreditView(budget, id, wallet);
+    // Read before saving the turn: a broken host must not strand accepted input.
+    // Keep conservative reservation maxima, including for old hosts.
+    return budgetCreditView(budget, id, host.wallet(ownerToken, { sessionId: id }));
+  }
+  function startCredits(id, ownerToken, balance) {
+    const state = conversationLimits.start(id);
+    if (!balance) return;
     conversationLimits.transition(id, { type: 'balance', balance }, ownerToken);
     const paused = storage.get(id).paused;
     const current = state.paused === paused ? storage.creditState(id)
@@ -502,7 +503,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   return { handle, initialize, syncPause, roleChoice,
     retentionActive: id => deliveries.has(id),
-    startCredits,
+    initialCreditBalance, startCredits,
     resume() {
       if (!host) return;
       for (const id of storage.list()) {

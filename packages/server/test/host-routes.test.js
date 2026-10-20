@@ -798,9 +798,12 @@ for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} 
   await f.handlers.idle();
   assert.equal(f.storage.get(session.id).transcript.filter(turn => turn.id === body.clientEventId).length, 1);
   assert.equal(f.storage.get(session.id).transcript.some(turn => turn.role === 'assistant'), true);
+  const replayWallet = t.mock.method(f.host, 'wallet', () => { throw new Error('wallet unavailable again'); });
+  assert.equal((await f.call(`/api/sessions/${session.id}/turns`, body)).status, 200, 'receipted retries bypass credit preflight');
+  assert.equal(replayWallet.mock.callCount(), 0);
 });
 
-for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance' : 'credits read'} passes the authorized conversation to both projections`, async t => {
+for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance' : 'credits read'} passes the authorized conversation to each required projection`, async t => {
   const f = fixture(t, { demoBypass: true }), a = await f.create(), b = await f.create();
   const wallet = f.host.wallet(owner), seen = { wallet: [], tiers: [] };
   t.mock.method(f.host, 'wallet', (token, context) => {
@@ -822,7 +825,9 @@ for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance
       assert.equal(view.tiers.current, session === a ? 'emailConfirmed' : 'anonymous');
     }
   }
-  for (const calls of Object.values(seen)) assert.deepEqual(calls, [[owner, { sessionId: a.id }], [owner, { sessionId: b.id }]]);
+  const expected = [[owner, { sessionId: a.id }], [owner, { sessionId: b.id }]];
+  assert.deepEqual(seen.wallet, expected);
+  assert.deepEqual(seen.tiers, initial ? [] : expected, 'tiers receive context on credits reads and are never called for initial admission');
   for (const calls of Object.values(seen)) calls.length = 0;
   assert.equal((await f.call(`/api/sessions/${b.id}/credits`, undefined, foreign)).status, 404);
   assert.deepEqual(seen, { wallet: [], tiers: [] }, 'foreign owner never reaches projection callbacks');
