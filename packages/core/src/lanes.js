@@ -17,11 +17,11 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 
 export class SessionLanes {
   #flights = new Map();
-  constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
+  constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000, now = () => Date.now(),
     hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, understandingInput = session => session, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, focusReplyAvailable = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, focusReplyAvailable, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, now, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, focusReplyAvailable, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -62,8 +62,8 @@ export class SessionLanes {
     const abort = () => controller.abort(signal.reason);
     if (signal?.aborted) abort();
     else signal?.addEventListener('abort', abort, { once: true });
-    const deadlineAt = Date.now() + this.deadlineMs;
-    const scope = operationScope({ signal: controller.signal, deadlineAt });
+    const deadlineAt = this.now() + this.deadlineMs;
+    const scope = operationScope({ signal: controller.signal, deadlineAt, now: this.now });
     const current = () => {
       const latest = this.getSession(id);
       const valid = !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
@@ -77,7 +77,7 @@ export class SessionLanes {
       if (valid && focus && !this.focusReplyAvailable(id)) throw new PluginError('not-admitted', 'reply-in-flight');
       return valid;
     };
-    const options = { signal: scope.signal, deadlineAt };
+    const options = { signal: scope.signal, deadlineAt, now: this.now };
 
     const work = async () => {
       scope.signal.throwIfAborted();

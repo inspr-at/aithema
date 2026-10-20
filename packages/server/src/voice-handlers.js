@@ -176,7 +176,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
     presentation: calls.get(call.callId)?.presentation ?? 'opening',
     ...(call.overrides ? { overrides: call.overrides } : {}) });
-  const options = request => ({ signal: request.signal, deadlineAt: Date.now() + deadlineMs });
+  const options = request => ({ signal: request.signal, deadlineAt: now() + deadlineMs, now });
   function revoke(entry) { entry.callbackContext?.revoke(); }
   function close(entry, reason = 'closed', outcome = 'completed') {
     if (entry.closing) return entry.closing;
@@ -487,7 +487,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (paused) {
       try {
         if (entry.closing || !entry.call) throw new PluginError('unavailable');
-        await voiceOperation({ ...opts, deadlineAt: Math.min(opts.deadlineAt ?? Infinity, Date.now() + 1000) }, bounded =>
+        await voiceOperation({ ...opts, deadlineAt: Math.min(opts.deadlineAt ?? Infinity, now() + 1000) }, bounded =>
           entry.call.pause({ ...bounded, guard: { ownerToken: entry.ownerToken } }));
       } catch { void close(entry, 'pause-failed', 'cancelled'); }
       return { acknowledged: true, paused: true };

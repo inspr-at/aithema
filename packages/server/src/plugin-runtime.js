@@ -94,11 +94,12 @@ export function mockPresets() {
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
-  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, now = () => Date.now(), budget = new SQLiteBudgetLedger(storage, { now }), voiceCap, healthMs = 1000, uiRenderLimits = {},
-  renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }),
-  conversationLimits = createConversationLimits({ storage, now }) } = {}) {
+  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, now: configuredNow, budget = new SQLiteBudgetLedger(storage, { now: configuredNow }), voiceCap, healthMs = 1000, uiRenderLimits = {},
+  renderLimiter = createUIRenderLimiter({ storage, now: configuredNow, ...uiRenderLimits }),
+  conversationLimits = createConversationLimits({ storage, now: configuredNow }) } = {}) {
+  let now = configuredNow ?? (() => Date.now());
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
-  storage.setHostClock?.(now);
+  if (configuredNow) storage.setHostClock?.(now);
   // A synchronous session lease precedes every authorization, quote and wallet await.
   // It survives the synthesis receipt until playback ends (or its bounded lease expires).
   const replyReplays = new Map();
@@ -416,7 +417,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     return { plugins };
   }
   async function boundedEvaluate(session, preset, feature, options = {}) {
-    const bounded = { ...options, now, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) };
+    const clock = options.now ?? now;
+    const bounded = { ...options, now: clock, deadlineAt: Math.min(options.deadlineAt ?? Infinity, clock() + healthMs) };
     const scope = operationScope(bounded);
     let abort;
     try {
@@ -522,7 +524,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return adapter ? [adapter] : [];
     }),
     setOwnerWallet(provider) { ownerWallet = provider; },
-    setHostClock(clock) { now = clock; budget.now = clock; storage.setHostClock?.(clock); },
+    setHostClock(clock) { now = configuredNow ?? clock; budget.now = clock; storage.setHostClock?.(clock); },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       // OPS and the background worker share one writer. A dry-run performs only
@@ -620,7 +622,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     },
     /** Revalidate a dispatched operation's admitted scope against the current grant. */
     async processingAllowed(session, consentScope, options = {}) {
-      options = { ...options, now, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) };
+      const clock = options.now ?? now;
+      options = { ...options, now: clock, deadlineAt: Math.min(options.deadlineAt ?? Infinity, clock() + healthMs) };
       const scope = operationScope(options);
       try {
         const current = storage.get(session.id);
@@ -974,7 +977,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       finally { if (!playing) releaseReplyReplay(session.id, lease); }
     },
     async admitVoice({ session, request, options = {} }) {
-      options = { ...options, now };
+      options = { ...options, now: options.now ?? now };
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
       const result = await this.checkVoice(session, options);
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
@@ -1057,7 +1060,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return (await boundedEvaluate(session, session.processingPreset ?? 'best', 'text', options)).reason ?? null;
     },
     async admit({ session, lane, operation, request, options = {} }) {
-      options = { ...options, now };
+      options = { ...options, now: options.now ?? now };
       conversationLimits.assertOpen(session.id);
       const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
         Boolean(storage.purposeAssessmentInput(session));

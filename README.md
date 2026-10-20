@@ -1025,8 +1025,13 @@ the ElevenLabs live-voice integration, standalone UI generation and extractors a
 implemented here. Every operation takes `{signal, deadlineAt, now?}`. `now` is
 the clock that produced the absolute deadline and defaults to `Date.now`.
 Runtime admission, publication checks and admitted reasoning options carry the
-runtime clock; handlers install `host.now` when supplied. `operationScope` uses
-that clock for expiry and converts the remaining budget into an elapsed timer.
+deadline's `now` or the runtime clock; handlers install `host.now` as the default
+runtime clock, preserving an explicitly configured runtime clock. `operationScope`
+uses the deadline's clock for expiry and converts its remaining budget into an elapsed timer.
+HTTP text deadlines use `voice.now`, then `host.now`, then `Date.now`; voice
+requests use their configured clock. Concept lanes forward their own clock.
+Upload request budgets remain elapsed wall-clock budgets and identify that clock
+explicitly when calling runtime admission.
 The ElevenLabs completions facade uses its injected `now` for callback, call,
 reasoning and cleanup deadlines, and forwards it to bounded ports.
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later

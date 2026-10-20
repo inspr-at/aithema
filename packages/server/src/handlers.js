@@ -65,6 +65,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   if (typeof host?.now === 'function') pluginRuntime.setHostClock?.(() => host.now());
+  const now = voice?.now ?? (typeof host?.now === 'function' ? () => host.now() : () => Date.now());
   pluginRuntime.setLaneDiagnostic?.(log);
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -159,7 +160,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       set.add(check); signal.addEventListener('abort', done, { once: true }); check();
     });
   };
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, keepUnderstanding, settleUnderstanding,
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, now, hostPrompt, purposePolicy, selection, retainUnderstanding, keepUnderstanding, settleUnderstanding,
     offTopicTurns: id => storage.safeguards(id).offTopicTurns,
     guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
     canUnderstand: id => Boolean(storage.purposeAssessmentInput(storage.get(id))),
@@ -528,7 +529,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         focusRequests.add(id);
         try {
           const reason = await pluginRuntime.checkReply(storage.get(id), { signal: request.signal,
-            deadlineAt: Date.now() + deadlineMs });
+            deadlineAt: now() + deadlineMs, now });
           if (reason) return refused({ error: 'focus-refused', reason: isConsentReason(reason) ? 'consent-required' : 'not-admitted', admissionReason: reason });
           // Recheck assessment, input and pause after asynchronous availability work.
           const result = storage.focusQuestion(id, body, { ownerToken, inFlight: replyInFlight() });
@@ -591,10 +592,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         let event;
         if (body.paused) {
           event = storage.pause(id, true, { ownerToken }); broadcast(id, event);
-          await voiceHandlers?.pauseSession(id, true, { deadlineAt: Date.now() + deadlineMs });
+          await voiceHandlers?.pauseSession(id, true, { deadlineAt: now() + deadlineMs, now });
         } else {
           const before = storage.get(id).seq;
-          const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: Date.now() + deadlineMs });
+          const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: now() + deadlineMs, now });
           event = voiceAck ? storage.read(id, before).find(e => e.type === 'session.paused') : storage.pause(id, false, guard);
           if (event) broadcast(id, event);
         }

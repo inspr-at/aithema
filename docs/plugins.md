@@ -76,6 +76,7 @@ export type Terminal = { attemptId: string; servedModel?: string; chargedMicro?:
 export interface OperationOptions {
   signal: AbortSignal;
   deadlineAt: number;
+  now?: () => number;
   attempt: { attemptId: string; claimId: string; consume(): Promise<void> | void };
   report(terminal: Terminal): Promise<void> | void;
 }
@@ -83,12 +84,15 @@ export interface Health { available: boolean; reason?: string }
 export interface Reasoning {
   stream(request: { system: string; messages: { role: string; content: string }[] }, options: OperationOptions): AsyncIterable<string>;
   structured(request: { system: string; messages: { role: string; content: string }[]; schema: object }, options: OperationOptions): Promise<unknown>;
-  health(options: Pick<OperationOptions, 'signal' | 'deadlineAt'>): Promise<Health>;
+  health(options: Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>): Promise<Health>;
 }
 ```
 
 Honor `signal` and the absolute `deadlineAt` for the entire operation, including
-response-body reads. Consume the admitted claim **once, before outbound work**.
+response-body reads. Pass the same optional `now` clock that produced the
+deadline to nested operations and `operationScope`; it defaults to `Date.now`.
+An explicitly configured runtime clock remains authoritative for policy checks;
+otherwise handlers install `host.now`. Consume the admitted claim **once, before outbound work**.
 A refused claim must produce no output or provider dispatch. A retry needs a new
 admission. `beginInvocation`, `operationScope`, `PluginError` and
 `normalizedError` are public helpers; always dispose operation scopes.
@@ -256,7 +260,7 @@ export interface ConsentGrant extends ProcessingScope {
 }
 export interface ConsentPort {
   coverage(query: { sessionId: string; scope: ProcessingScope; consentRevision: number },
-    options?: Pick<OperationOptions, 'signal' | 'deadlineAt'>): Promise<ConsentGrant | { covered: false }> | ConsentGrant | { covered: false };
+    options?: Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>): Promise<ConsentGrant | { covered: false }> | ConsentGrant | { covered: false };
   grant?(query: { sessionId: string; consentRevision: number;
     decision?: { contract?: string; items?: string[]; revision?: number };
     scopes?: ProcessingScope[] }): Promise<boolean | void> | boolean | void;
