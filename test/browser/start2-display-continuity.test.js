@@ -12,7 +12,10 @@ import { en } from '../../packages/ui/src/i18n/en.js';
 import { mockConsent } from './consent-helpers.js';
 import { shadow, until, settle, layoutBoxes, sameBoxes, finishWorkspaceEntry, evidenceCommit } from './start2-display-helpers.js';
 
-test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence', { timeout: 240_000 }, async t => {
+// Opt-in committed-head soak; normal CI still runs the matrix once.
+const repetitions = Number(process.env.AITHEMA_CONTINUITY_REPEATS ?? 1);
+assert.ok(Number.isSafeInteger(repetitions) && repetitions >= 1 && repetitions <= 30);
+for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-'));
   const db = join(directory, 'session.sqlite');
   const settings = { AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit };
@@ -129,6 +132,8 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
         }
         assert.ok(composer.fullyVisible, `${label}/${name}: settled composer must be fully visible: ${JSON.stringify(composer)}`);
         if (name === 'takeback-here') {
+          assert.equal(await shadow(target, c => c.session.featureMatrix.best.text.available), true,
+            'takeback evidence must use the acknowledged unpaused text verdict');
           assert.equal(presentation.moved, false);
           assert.notEqual(presentation.composerHint, { de, en }[locale].voiceInAnotherTab, 'the controlling tab clears its old composer hint');
           assert.notEqual(presentation.panelStatus, { de, en }[locale].voiceInAnotherTab, 'the controlling tab clears its old panel status');
@@ -223,7 +228,39 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
           oneClick: true, controllingTabs: 1, otherTabHeldAndLabelled: true, confirmations: dialogs, pass: true });
         return held.epoch;
       };
+      // AIT-394: hold only this tab's fresh, unpaused text snapshot for the
+      // upcoming takeover epoch. Other reads, epochs and tabs keep flowing.
+      // The old capture sampled 'Conversation paused' before this response,
+      // then tested its obsolete crop after the shortcut became CSS-hidden.
+      const delayedText = width === 1024 && theme === 'dark' && locale === 'en';
+      if (delayedText) {
+        await page.evaluate(({ epoch, tabId }) => {
+          const original = window.fetch.bind(window), path = `/api/sessions/${document.querySelector('aithema-session').session.id}`;
+          let release;
+          const gate = new Promise(resolve => { release = resolve; });
+          globalThis.continuityTextSnapshot = { held: 0, release };
+          window.fetch = async (url, init = {}) => {
+            const response = await original(url, init);
+            if ((init.method ?? 'GET') === 'GET' && new URL(url, location.href).pathname === path && response.ok) {
+              const snapshot = await response.clone().json(), voice = snapshot.voiceLifecycle;
+              if (voice?.epoch === epoch && voice.controllingTabId === tabId && snapshot.paused === false && snapshot.featureMatrix.best.text.available) {
+                globalThis.continuityTextSnapshot.held++; await gate;
+              }
+            }
+            return response;
+          };
+        }, { epoch: next.epoch + 1, tabId: call.tabId });
+        st.after(async () => { if (!page.isClosed()) await page.evaluate(() => globalThis.continuityTextSnapshot.release()); });
+      }
       let epoch = await takeback(page, other, next.epoch);
+      if (delayedText) {
+        await until(page, () => globalThis.continuityTextSnapshot.held > 0);
+        // Deliberately keep the old verdict through the old capture's settling
+        // window. This is fixture latency, not a longer assertion deadline.
+        const release = setTimeout(() => { void page.evaluate(() => globalThis.continuityTextSnapshot.release()); }, 1000);
+        st.after(() => clearTimeout(release));
+        st.diagnostic('AIT-394: held the exact unpaused text snapshot for takeback epoch 2');
+      }
       await shot(page, 'takeback-here'); await shot(other, 'takeback-other-tab');
       for (let i = 0; i < 3; i++) epoch = i % 2 === 0 ? await takeback(other, page, epoch) : await takeback(page, other, epoch);
       st.diagnostic(`PASS ${evidenceCommit} ${label}: old-tab ▶ enabled, pointer and ink; one click takeover + Resume; A→B→A→B ping-pong; one controlling tab, other held and labelled; no double confirm`);
