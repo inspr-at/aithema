@@ -96,6 +96,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       console.log('AIT411_BRANCH_INITIAL ' + JSON.stringify({ width, locale, ...mounted, html: undefined }));
       assert.equal(mounted.html, mainLayout.composerHTML[process.platform][locale], 'default composer DOM equals independently captured main before fixture setup');
       assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
+      assert.equal(mounted.scrollTop, 0, 'default mount ignores queued no-op viewport resize before fixture setup');
       // Keep main's explicit first-row setup and every existing assertion; the
       // independent assertions above prevent it from hiding a default regression.
       await page.evaluate(async () => {
