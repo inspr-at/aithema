@@ -637,7 +637,7 @@ export class AithemaSession extends HTMLElement {
           return turn && { turnId: turn.id, text: turn.content };
         },
         consent: opener => this.#dialog.openConsent('voice', opener),
-        feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, endReason: () => this.#host?.endReason, nextTier: () => this.#host?.nextTier ?? null, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
+        feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, endReason: () => this.#host?.endReason, creditReason: () => this.#host?.creditStatusReason, nextTier: () => this.#host?.nextTier ?? null, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
         ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
         onRender: rail => {
           // Preserve held space from takeover through startup. The internal

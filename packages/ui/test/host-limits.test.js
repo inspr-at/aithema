@@ -121,8 +121,8 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
     const title = next === 'none' ? releaseLimits[locale]['host-limit'][0] : copy.hostSurface.usedUp.title;
     const body = next === 'none' ? releaseLimits[locale]['host-limit'][1] : locale === 'de'
-      ? next === 'give' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.' : 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
-      : next === 'give' ? 'Add your email address to get +600 more Credits. Your conversation stays saved.' : 'Confirm your email address to get +600 more Credits.';
+      ? next === 'give' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie 600 weitere\u00a0Credits.' : 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
+      : next === 'give' ? 'With your email address you get 600 more\u00a0credits.' : 'Confirm your email address to get +600 more Credits.';
     await waitForText(announcement, `${title} ${body}`);
     const out = root.querySelector('.composer-out'), upgrade = out.querySelector('.composer-out__upgrade'), link = out.querySelector('.composer-out__export');
     assert.equal(out.dataset.next, next);
@@ -273,13 +273,12 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const confirmed of
     const { root } = a2Setup(t, { copy, confirmed, endReason: 'host-limit', voiceClient: {} });
     await waitForText(root.querySelector('.credit-announcement'), confirmed
       ? `${releaseLimits[locale]['host-limit'][0]} ${releaseLimits[locale]['host-limit'][1]}`
-      : `${copy.hostSurface.usedUp.title} ${locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.' : 'Add your email address to get +600 more Credits. Your conversation stays saved.'}`);
+      : `${copy.hostSurface.usedUp.title} ${locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie 600 weitere\u00a0Credits.' : 'With your email address you get 600 more\u00a0credits.'}`);
     const status = root.querySelector('.voice-state');
     assert.equal(status.querySelector('.consent-narrow').dataset.copy,
-      confirmed ? (locale === 'de' ? 'Budget ausgeschöpft' : 'Budget used up')
-        : (locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up'));
-    assert.equal(status.querySelector('.consent-wide').textContent, copy.voiceStates.usedUp);
-    assert.equal(status.getAttribute('aria-label'), copy.voiceStates.usedUp);
+      locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now');
+    assert.equal(status.querySelector('.consent-wide').textContent, copy.voiceCreditStatus.hostLimit);
+    assert.equal(status.getAttribute('aria-label'), copy.voiceCreditStatus.hostLimit);
     assert.equal(status.getAttribute('aria-live'), 'off');
   });
 }
@@ -293,6 +292,7 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     ['session-over-host', { scope: 'session', exhausted: true }, 'host-limit', ['Credits aufgebraucht', 'Credits used up']],
     ['session-reason', {}, 'session', ['Credits aufgebraucht', 'Credits used up']],
     ['host-with-credits', {}, 'host-limit', ['Sprache gerade nicht verfügbar', 'Voice unavailable right now']],
+    ['unknown-credit-owner', { exhausted: true }, null, ['Sprache gerade nicht verfügbar', 'Voice unavailable right now']],
   ]) test(`AIT-422 ${locale}: ${name} uses the approved voice status`, async t => {
     const { root } = a2Setup(t, { copy, endReason: reason, voiceClient: {},
       creditsRead: async read => Response.json({ ...await read().json(), ...receipt }) });
@@ -302,6 +302,14 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     assert.equal(status.querySelector('.consent-wide').textContent, label);
     assert.equal(status.getAttribute('aria-label'), label);
     assert.doesNotMatch(status.textContent, /Budget/iu);
+  });
+  test(`AIT-422 ${locale}: O7 session admission refusal is ready before AIT-411`, async t => {
+    const { root } = a2Setup(t, { copy, voiceClient: { async start() {
+      throw Object.assign(new Error('fixture admission refused'), { code: 'not-admitted', reason: 'session' });
+    } } });
+    await tick(12); root.querySelector('.voice-start').click(); await tick(12);
+    assert.equal(root.querySelector('.voice-state').getAttribute('aria-label'), locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up');
+    assert.equal(root.querySelector('.audio-rail').hasAttribute('data-used-up'), true);
   });
   for (const delta of [6_000_000, 7_250_000]) test(`AIT-422 ${locale}: offer uses the tier delta ${delta} and NBSP`, async t => {
     const { root } = a2Setup(t, { copy, endReason: 'host-limit', voiceClient: {},

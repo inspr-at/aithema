@@ -86,6 +86,13 @@ export class HostSurface {
     const state = this.#session().credits;
     return this.#ended ?? (['ending', 'ended'].includes(state?.status) ? state.endReason ?? 'session' : null);
   }
+  get creditStatusReason() {
+    if (this.#credits?.scope === 'session') {
+      if (this.#credits.dailyCapReached) return 'dailyCap';
+      if (this.#credits.exhausted) return 'session';
+    }
+    return this.endReason;
+  }
   get limitCopy() {
     const { credits, usedUp } = this.#copy.hostSurface;
     const next = this.nextTier;

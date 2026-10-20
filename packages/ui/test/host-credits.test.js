@@ -452,7 +452,7 @@ for (const copy of [de, en]) test(`AIT-138 d merge: ${copy.display.locale} exhau
   f.setSpent(12_000_000);
   f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
   await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
-  assert.equal(f.root.querySelector('.voice-state').textContent, copy.voiceStates.usedUp);
+  assert.equal(f.root.querySelector('.voice-state').textContent, copy.voiceCreditStatus.hostLimit);
   assert.equal(f.root.querySelector('.pause').disabled, true);
   assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-moved'), true);
   assert.equal(closes, 0, 'the old tab must not close or forget the foreign logical call');
