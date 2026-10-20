@@ -2,6 +2,7 @@
 // three-minute file deadline under merge-group CPU contention.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -537,6 +538,15 @@ for (const copy of [de, en]) test(`AIT-411: opt-in defaults preserve the credits
     fixture.c.remove(); await tick(10);
   }
   assert.deepEqual(snapshots[1], snapshots[0], 'all explicit defaults equal untouched RC13 DOM');
+});
+
+for (const copy of [de, en]) test(`AIT-411: defaults equal independently captured main DOM (${copy.display.locale})`, async t => {
+  const baseline = JSON.parse(await readFile(new URL('../../../test/fixtures/ait411-rc13-dom.json', import.meta.url), 'utf8'));
+  const fixture = setup(t, { copy, host: { credits: true, verification: true } });
+  await tick(10);
+  const actual = ['.host-credits', '.composer-out', '.transcript-shell'].map(selector => fixture.root.querySelector(selector).outerHTML.replaceAll(fixture.c.session.id, '<session>'));
+  assert.deepEqual(actual, baseline.snapshots[copy.display.locale], 'no AIT-411 DOM delta from main without this feature');
+  assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');
 });
 
 for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, session wins over host limit (${copy.display.locale})`, async t => {
