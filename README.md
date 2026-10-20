@@ -2588,7 +2588,8 @@ The owner-bound credits response also includes `tiers` for the visitor UI:
 ```
 
 These are configured server values, not UI defaults. Hosts expose the optional
-`creditTiers(ownerToken)` projection; hosts without it return `tiers: null`.
+`creditTiers(ownerToken, context)` projection, with `context: { sessionId }`;
+hosts without it return `tiers: null`.
 Ownership is checked before that projection. A missing privacy document removes
 `next`, sets `delta` to zero and disables `canConfirm` without changing accounting.
 Identity reads expose `delivery` and `privacyDocumentConfigured` separately from
