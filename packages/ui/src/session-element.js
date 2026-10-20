@@ -1629,8 +1629,9 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
     const itemRetry = this.#clarify?.state === 'retry';
-    const replyRetry = replyFailed && (overviewFailed || !analysis.available || locked) && !itemRetry;
-    if (replyFailed && !itemRetry && !this.#host?.usedUp) {
+    const identityReplyFailed = failures.some(f => f.lane === 'reaction' && f.reason === 'identity-changed');
+    const replyRetry = replyFailed && (overviewFailed || identityReplyFailed && (!analysis.available || locked)) && !itemRetry;
+    if (identityReplyFailed && !itemRetry && !this.#host?.usedUp) {
       root.querySelector('.retry').hidden = Boolean(running);
       root.querySelector('.retry').disabled = !this.#feature('text').available || Boolean(running);
     }

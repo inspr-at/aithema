@@ -938,6 +938,7 @@ for (const fails of [false, true]) test(`AIT-418: identity/change during an admi
   assert.equal(snapshot.transcript.filter(turn => turn.role === 'assistant').length, fails ? 0 : 1);
   if (fails) {
     assert.equal(snapshot.operations.lastFailure.lane, 'reaction');
+    assert.equal(snapshot.operations.lastFailure.reason, 'identity-changed');
     assert.equal(snapshot.operations.lastFailure.inputRevision, inputRevision(snapshot));
     assert.equal(snapshot.operations.lastFailure.retryable, true);
     assert.equal((await f.call(`${base}/retry`, {})).status, 202);

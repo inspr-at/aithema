@@ -32,7 +32,7 @@ test('AIT-418: race failure renders existing failed reply with retry and permits
   const { c, root } = setup(t, { host: { verification: true }, session: { identified: true, identity: verified, featureMatrix: { best: { text: { available: true }, analysis: { available: false, reason: 'not configured' } } } } });
   await tick(8); userTurn(c);
   c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...verified, status: 'verification-pending', identified: false } });
-  const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', retryable: true };
+  const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', reason: 'identity-changed', retryable: true };
   c.receive({ type: 'lane.failed', data: failure });
   c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [failure], lastFailure: failure } });
   assert.equal(root.querySelector('.reaction-failure').hidden, false);

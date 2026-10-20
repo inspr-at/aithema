@@ -558,7 +558,7 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
         const { inputRevision } = await import('/packages/core/src/session.js');
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'o9-race-user', role: 'user', content: 'Bitte weiter.' } });
         c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, identified: false, status: 'verification-pending', address: 'race@example.test' } });
-        const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', retryable: true };
+        const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', reason: 'identity-changed', retryable: true };
         c.receive({ type: 'lane.failed', data: failure });
         c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [failure], lastFailure: failure } });
         c.shadowRoot.querySelector('.reaction-failure').scrollIntoView({ block: 'center' });

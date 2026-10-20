@@ -367,6 +367,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
               const removedFocus = error?.code === 'not-admitted' && error.message === 'focused-question-removed';
               const busyReply = error?.code === 'not-admitted' && error.message === 'reply-in-flight';
               const failure = { inputRevision: inputRevision(storage.get(id)), lane, error: 'reasoning-unavailable', retryable: !removedFocus,
+                ...(lane === 'reaction' && started.identityRevision !== storage.get(id).identityRevision ? { reason: 'identity-changed' } : {}),
                 ...(removedFocus ? { reason: 'focused-question-removed' } : {}),
                 ...(busyReply ? { reason: 'reply-in-flight' } : {}),
                 ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };
