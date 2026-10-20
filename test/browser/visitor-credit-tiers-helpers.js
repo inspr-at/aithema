@@ -558,6 +558,9 @@ export async function visitorCreditMatrix(t, locales) {
         await shot(`top-up-${action}-ready`);
         await click(page, waitingCall ? '.pause' : '.voice-retry');
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+        // Listening is published before the acknowledged feature repaint and
+        // its ResizeObserver reservation. Compare the settled card, as above.
+        await settle(page);
         const requests = await page.evaluate(() => window.a2.voiceRequests);
         assert.equal(requests.length, 2);
         if (waitingCall) assert.deepEqual(requests[1], requests[0], 'Resume keeps the same logical call');

@@ -165,7 +165,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out__title > span { grid-area:1/1; }
 .composer-out__body { display:grid; grid-template-columns:minmax(0,1fr); min-width:0; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 /* Tick spec v1 (AIT-406): every variant sizes the same cell, even while hidden. */
-.composer-out__body > span { grid-area:1/1; min-width:0; }
+.composer-out__body > span { grid-area:1/1; min-width:0; align-self:start; }
 .composer-out__body > [data-active="false"] { visibility:hidden; }
 /* Match the question card's text inset, accounting for the composer border.
    Only copy moves; the measured surface and action cells retain their padding. */
