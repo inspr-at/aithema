@@ -97,7 +97,10 @@ export default {
           env: { PATH: process.env.PATH, ...options.env, HOME: home, TMPDIR: temporary,
             XDG_CACHE_HOME: cache, XDG_CONFIG_HOME: config },
           signal: controller.signal, userDataDir: launcher.profile,
-          args: [...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu'] : [])],
+          // Nightly unsets CI to select every width. Linux runner sandbox
+          // policy must match shared-browser.js independently of that switch.
+          args: [...(process.platform === 'linux' && !options.args?.includes('--no-sandbox') ? ['--no-sandbox'] : []),
+            ...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu'] : [])],
         });
         launcher.started = true;
         browser.once('disconnected', () => options.signal?.removeEventListener('abort', abort));

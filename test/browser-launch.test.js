@@ -53,6 +53,15 @@ test('non-timeout launch error is never retried', async t => {
   assert.deepEqual(f.messages, []);
 });
 
+test('all Linux launch paths apply the shared-browser sandbox policy and retain caller flags', async t => {
+  const f = await fixture(t, 0);
+  const browser = await browserLauncher.launch({ ...f.options, args: ['--lang=de'] });
+  t.after(() => browser.close());
+  const args = browser.process().spawnargs;
+  assert.equal(args.includes('--no-sandbox'), process.platform === 'linux');
+  assert.ok(args.includes('--lang=de'));
+});
+
 test('explicit caller timeout is used on both attempts', async t => {
   const f = await fixture(t, 2);
   await assert.rejects(browserLauncher.launch({ ...f.options, timeout: 2250 }), /\(2250 ms per attempt\)/u);
