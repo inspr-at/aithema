@@ -31,7 +31,7 @@ import { hostStyles } from './host-styles.js';
 import { entranceStyles } from './entrance-styles.js';
 import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
-import { modelDisplayName, languageFlag } from './display.js';
+import { modelDisplayName, languageFlag, formatCredits } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
@@ -1390,17 +1390,22 @@ export class AithemaSession extends HTMLElement {
       const delta = this.#host?.deltaCredits ?? '';
       // Tick spec v1 (AIT-406, 2026-10-20): the tallest localized variant
       // reserves the credit line. Hidden grid peers never enter the AX tree.
+      const allowances = this.#host?.tiers?.allowancesMicro;
+      const tierDelta = (from, to) => allowances?.[from] !== undefined && allowances?.[to] !== undefined
+        ? formatCredits(Math.max(0, allowances[to] - allowances[from]), this.#session.locale ?? 'en') : delta;
       const bodies = [
-        ['default', u.body], ['host-give', u.hostGive.replace('{delta}', delta)], ['host-confirm', u.hostConfirm.replace('{delta}', delta)],
+        ['active', limit.body], ['default', u.body],
+        ['host-give', u.hostGive.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
+        ['host-confirm', u.hostConfirm.replace('{delta}', tierDelta('emailGiven', 'emailConfirmed'))],
+        ['host-confirm-anonymous', u.hostConfirm.replace('{delta}', tierDelta('anonymous', 'emailConfirmed'))],
         ...Object.entries(credits.ended).map(([key, value]) => [key, value.body]), ['daily-cap', credits.dailyCap],
       ];
-      const activeBody = bodies.find(([, body]) => body === limit.body)?.[0] ?? 'default';
       reconcile(out.querySelector('.composer-out__body'), bodies, () => node('span'), (span, body) => {
         const key = span.dataset.key;
         setText(span, body); span.dataset.creditVariant = key;
-        span.dataset.active = String(key === activeBody);
-        span.toggleAttribute('data-host-body', ['host-give', 'host-confirm', 'host-limit'].includes(key));
-        span.setAttribute('aria-hidden', String(!usedUp || key !== activeBody));
+        span.dataset.active = String(key === 'active');
+        span.toggleAttribute('data-host-body', key.startsWith('host-') || key === 'active' && out.hasAttribute('data-host-limit'));
+        span.setAttribute('aria-hidden', String(!usedUp || key !== 'active'));
       });
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');
