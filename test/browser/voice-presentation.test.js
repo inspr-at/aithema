@@ -474,7 +474,7 @@ test('AIT-361: both provider fixtures, failure anchors, disabled Pause and retry
 test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', { timeout: 90_000 }, async t => {
   const { execFile } = await import('node:child_process'), { promisify } = await import('node:util');
   // Controlled state assertions and viewport assertions share this CI artifact receipt.
-  await promisify(execFile)(process.execPath, ['--test', '--test-concurrency=2', '--test-timeout=15000', 'packages/ui/test/voice-waits.test.js'], {
+  await promisify(execFile)(process.execPath, ['--test', '--test-concurrency=2', '--test-timeout=15000', 'packages/ui/test/voice-waits.test.js', 'packages/ui/test/provider-signals.test.js'], {
     timeout: 40_000, env: { PATH: process.env.PATH, AITHEMA_EVIDENCE_DIR: process.env.AITHEMA_EVIDENCE_DIR },
   });
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ait377-'));
@@ -630,11 +630,13 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
     }
     await page.evaluate(async () => { await window.ait377Rail.close(); window.ait377Today.current.end(); });
   }
+  const { checkProviderSignals } = await import('./provider-signals-helpers.js');
+  await checkProviderSignals(page, evidence, configs, checks);
+  if (evidence) checks.push(...JSON.parse(await readFile(join(evidence, 'ait383-state-checks.json'), 'utf8')).checks);
   assert.deepEqual(problems, []);
   if (evidence) await writeFile(join(evidence, 'ait377-checks.json'), JSON.stringify({ ticket: 'AIT-377', head, testedCommit: evidenceCommit,
     capture: 'viewport', reducedMotion: true, blurred: true, checks, problems,
-    limitations: ['S1 and grant-relative rail timer require declared onMicrophoneState; neither current client declares it (AIT-383).',
-      'S5 requires declared replyStarted with qualified audible non-filler speaking; neither current client declares it (AIT-383).',
-      'Declared capability shots are synthetic; today/ shots use real clients with offline ports and show Connecting before grant, Listening after connect.',
+    limitations: ['enabled/ shots exercise declared real clients with offline provider/device ports; today/ retains the undeclared-client compatibility contract.',
+      'Grok has no unsolicited opener; its S5 shot follows a visitor turn. ElevenLabs watches its guaranteed initial opener.',
       'ElevenLabs native ended has no usage: retain pending charge until server settlement.'] }, null, 2));
 });

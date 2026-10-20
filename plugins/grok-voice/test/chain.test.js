@@ -119,6 +119,27 @@ test('AIT-346: unavailable components never fall back', async t => {
   const h = fixture(t, { missingTransport: true });
   assert.equal((await h.post('', { callId: 'denied', tabId: 'tab' })).status, 403); assert.deepEqual(h.consumed, []);
 });
+test('AIT-383 round 3: typed interruption persists through the real Grok host and reload', async t => {
+  const h = fixture(t, { ttsAudioBytes: 48000 });
+  const session = await h.client.start({ callId: 'typed-interruption-chain' }, { deadlineAt: Date.now() + 5000 });
+  t.after(() => session.close().catch(() => {}));
+  await h.audio(pcm()); await h.audio(Buffer.alloc(16000));
+  for (let i = 0; i < 200 && !h.played.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(h.played.length, 1);
+  const reply = h.storage.get(h.session.id).transcript.find(turn => turn.role === 'assistant');
+  await session.sendText('Please continue', { deliveryId: 'typed-interruption' });
+  assert.deepEqual(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).interruption,
+    { heardLength: 'unknown' });
+  assert.equal(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).content, 'Which company?');
+  assert.equal(h.persisted.filter(event => event.type === 'voice.interrupted' && event.data.id === reply.id).length, 1);
+  assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
+  await session.sendText('Please continue', { deliveryId: 'typed-interruption' });
+  assert.equal(h.persisted.filter(event => event.type === 'voice.interrupted' && event.data.id === reply.id).length, 1);
+  // Retire the browser reader before fixture teardown revokes its relay.
+  // Otherwise the still-live reader can attempt recovery against a closed host.
+  await session.close();
+});
+
 test('AIT-346: authenticated grant rejects wrong origin, owner, stale epoch and replay', async t => {
   const h = fixture(t), response = await h.post('', { callId: 'relay', tabId: 'tab' });
   assert.equal(response.status, 201); const receipt = await response.json();

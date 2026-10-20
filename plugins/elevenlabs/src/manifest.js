@@ -31,7 +31,7 @@ export const manifest = deepFreeze({
   liveVoice: { reasoning: 'delegated', transcript: { finality: 'turns', persistence: 'durable' },
     optionalCapabilities: { speakText: 'native' },
     ownership: { stt: 'provider', tts: 'provider', turnTaking: 'provider' },
-    capabilities: { sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'emulated',
+    capabilities: { onMicrophoneState: 'native', replyStarted: 'native', opener: true, sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'emulated',
       pause: 'emulated', resume: 'emulated', interrupt: 'native', heard: 'native' },
     billing: { visitor: 'Exclude server-acknowledged paused duration from visitor credits.',
       upstream: 'Provider session remains alive while paused; record all provider duration and usage.' } },

@@ -16,7 +16,7 @@ const stopStream = stream => { for (const track of stream?.getTracks() ?? []) { 
 // SDK 1.17.0 requests a preliminary stream and publishes/attaches input before
 // onConversationCreated. Guard acquisition for the entire call, including SDK
 // device resets. A paused setup receives silence made without a physical device.
-function microphoneCapture(mediaDevices, AudioContext) {
+function microphoneCapture(mediaDevices, AudioContext, onMicrophoneState, permissions) {
   let enabled = true, ended = false, released = false, operations = 0, acquisitionEpoch = 0, context, destination;
   const streams = new Set(), silentStreams = new Set();
   const original = mediaDevices?.getUserMedia, descriptor = mediaDevices && Object.getOwnPropertyDescriptor(mediaDevices, 'getUserMedia');
@@ -30,13 +30,23 @@ function microphoneCapture(mediaDevices, AudioContext) {
     if (!constraints?.audio) return original.call(mediaDevices, constraints);
     if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
     if (!enabled) return silence();
-    const epoch = acquisitionEpoch, stream = await original.call(mediaDevices, constraints);
+    const epoch = acquisitionEpoch;
+    let stream;
+    try {
+      let permission;
+      try { permission = await permissions?.query({ name: 'microphone' }); } catch { /* Some browsers omit this permission query. */ }
+      if (ended) throw new PluginError('cancelled');
+      if (!enabled || epoch !== acquisitionEpoch) return silence();
+      if (!permission || permission.state === 'prompt') onMicrophoneState?.('requesting');
+      stream = await original.call(mediaDevices, constraints);
+    } catch (error) { error.phase = 'microphone'; throw error; }
     // Pause/close can race the permission prompt or native device acquisition.
     if (!enabled || ended || epoch !== acquisitionEpoch) {
       stopStream(stream);
       if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
       return silence();
     }
+    onMicrophoneState?.('granted');
     streams.add(stream); return stream;
   };
   const restore = () => {
@@ -75,7 +85,7 @@ function microphoneCapture(mediaDevices, AudioContext) {
 export function createElevenLabsClient(ports = {}) {
   const { sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000,
   mediaDevices = globalThis.navigator?.mediaDevices, AudioContext = globalThis.AudioContext,
-  document = globalThis.document,
+  document = globalThis.document, permissions = globalThis.navigator?.permissions,
   persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000 } = ports;
   if (!control?.start || !control?.close || !control?.pause || !control?.resume || !control?.heartbeat ||
     typeof persistEvent !== 'function' || ![closeTimeoutMs, persistenceTimeoutMs, drainTimeoutMs].every(value => Number.isFinite(value) && value > 0) ||
@@ -93,6 +103,21 @@ export function createElevenLabsClient(ports = {}) {
     closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),
     async start(request, options = {}) {
       pageReplay.stop();
+      // The capable host owns preparation/S3 guards. A permission decision has
+      // no clock deadline, including voiceOperation's default 30-second scope.
+      const startupOperation = async (opts, operation) => {
+        if (!options.onMicrophoneState || opts?.deadlineAt !== undefined) return voiceOperation(opts, operation);
+        const signal = opts?.signal ?? new AbortController().signal;
+        let abort;
+        try {
+          signal.throwIfAborted();
+          return await Promise.race([Promise.resolve().then(() => operation({ ...opts, signal })), new Promise((_, reject) => {
+            abort = () => reject(new PluginError(signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled'));
+            signal.addEventListener('abort', abort, { once: true });
+            if (signal.aborted) abort();
+          })]);
+        } finally { signal.removeEventListener('abort', abort); }
+      };
       const events = voiceEvents();
       const playback = document?.defaultView?.MutationObserver && document.body
         ? watchVoicePlayback(document, () => options.onPlaybackBlocked?.(() => playback.retry())) : undefined;
@@ -101,7 +126,7 @@ export function createElevenLabsClient(ports = {}) {
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
-      let lastReply, lastPlaybackTurnId;
+      let lastReply, lastPlaybackTurnId, lastActivity, capturePhase;
       let silenceReply = () => {};
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId,
         ...(grant?.epoch !== undefined ? { epoch: grant.epoch } : {}) });
@@ -153,7 +178,11 @@ export function createElevenLabsClient(ports = {}) {
       const emit = (event, expose = true) => {
         const value = Object.freeze({ ...event, ...identity() });
         const captured = ++checkpointSequence;
-        if (['speaking', 'listening'].includes(value.type)) lifecycle.dispatch({ type: 'playback', active: value.type === 'speaking' });
+        const activityChanged = ['speaking', 'listening'].includes(value.type) && value.type !== lastActivity;
+        if (activityChanged) {
+          lastActivity = value.type;
+          lifecycle.dispatch({ type: 'playback', active: value.type === 'speaking' });
+        }
         if (value.type === 'partial') lifecycle.dispatch({ type: 'partial', sequence: captured });
         // Playback acknowledgements must not hold captured finals behind a
         // network round trip: Pause can reach the server while they wait.
@@ -164,7 +193,7 @@ export function createElevenLabsClient(ports = {}) {
         saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;
-          if (['speaking', 'listening'].includes(value.type) && control.reportActivity) {
+          if (activityChanged && control.reportActivity) {
             await voiceOperation({ signal: persistenceCancellation.signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => control.reportActivity(value, opts));
             // A mode can enable Pause immediately. Persist finals already
             // captured by this point before exposing that mode to the host.
@@ -282,9 +311,30 @@ export function createElevenLabsClient(ports = {}) {
         playbackInterrupted = false;
         let lastInterruptionId = -1, latestAssistantId = -1, userTurnOrdinal = 0;
         let tentativeOpen = true, tentativeSequence = 1, providerMode = 'listening';
+        lastActivity = undefined;
         silenceReply = () => {
           lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
           playbackInterrupted = true; conversation?.setVolume({ volume: outputVolume() });
+        };
+        const audioTexts = new Map(), replyTexts = new Map(), qualifiedAudio = new Set();
+        const nonFiller = text => {
+          const value = text?.trim();
+          return Boolean(value) && !['Einen Moment, bitte.', 'One moment, please.'].some(line => line.startsWith(value));
+        };
+        const reportAudio = (eventId, text) => {
+          if (!active() || paused || transportBlocked || outputVolume() === 0 || !Number.isSafeInteger(eventId) || eventId < 0 || eventId < latestAssistantId || qualifiedAudio.has(eventId)) return;
+          if (text) audioTexts.set(eventId, ((audioTexts.get(eventId) ?? '') + text).slice(0, 512));
+          const knownText = audioTexts.get(eventId) || replyTexts.get(eventId);
+          // Unaligned PCM can still be the holding prefix while text generation
+          // runs ahead. Only aligned non-filler words can qualify that stream.
+          const holdingPrefix = !audioTexts.has(eventId) && ['Einen Moment, bitte.', 'One moment, please.'].some(line => knownText?.trim().startsWith(line));
+          const filler = holdingPrefix || !nonFiller(knownText);
+          if (audioTexts.size > 256) audioTexts.delete(audioTexts.keys().next().value);
+          // SDK mode owns activity for unqualified/holding PCM. Such chunks
+          // can arrive after listening and must never reopen playback.
+          if (filler) return;
+          emit({ type: 'speaking', audio: true, filler: false });
+          qualifiedAudio.add(eventId);
         };
         const replyIds = new Map(), confirmedInterruptions = new Set();
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
@@ -296,6 +346,10 @@ export function createElevenLabsClient(ports = {}) {
           : connectionType !== 'webrtc' || typeof conversationToken !== 'string' || !conversationToken || signedUrl !== undefined) throw new PluginError('invalid-output', 'Invalid voice credential transport');
         if (![receipt.spendDeadlineAt, receipt.browserLivenessDeadlineAt].every(Number.isFinite)) throw new PluginError('invalid-output', 'Missing server voice deadlines');
         grant = receipt; transportBlocked = false;
+        // The server lease begins at control.start, before the SDK opens the
+        // permission prompt. Renew throughout startup and retain those renewals
+        // when the provider finally connects.
+        if (current === 1) { lifecycle.connected(grant); lifecycle.startHeartbeat(); }
         const active = () => generation === current && !ended;
         const observeAssistant = eventId => {
           if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
@@ -374,6 +428,9 @@ export function createElevenLabsClient(ports = {}) {
                   if (lastInterruptionId >= 0 && (!Number.isSafeInteger(audioId) ||
                     audioId <= lastInterruptionId || audioId < latestAssistantId)) return;
                   observeAssistant(audioId);
+                  // Alignment belongs to provider audio. WebRTC analyser ticks
+                  // and mode callbacks carry no reply-start authority.
+                  reportAudio(audioId, message.audio_event?.alignment?.chars?.join(''));
                 }
                 return handleMessage.call(this, message);
               };
@@ -392,6 +449,10 @@ export function createElevenLabsClient(ports = {}) {
             providerMode = mode; emit({ type: mode });
           },
           onAgentChatResponsePart({ event_id: eventId, type, text }) {
+            if (active() && Number.isSafeInteger(eventId) && ['start', 'delta'].includes(type) && typeof text === 'string') {
+              replyTexts.set(eventId, ((type === 'start' ? '' : replyTexts.get(eventId) ?? '') + text).slice(0, 512));
+              if (replyTexts.size > 256) replyTexts.delete(replyTexts.keys().next().value);
+            }
             // Provider stream starts/deltas precede the final response and
             // identify the reply, unlike speaking mode or analyser counters.
             if (connectionType === 'webrtc' && typeof text === 'string' &&
@@ -411,6 +472,8 @@ export function createElevenLabsClient(ports = {}) {
             if (paused) return;
             if (speaker === 'user') stopReplayForInput();
             if (speaker === 'assistant') {
+              replyTexts.set(eventId, message);
+              if (replyTexts.size > 256) replyTexts.delete(replyTexts.keys().next().value);
               assistants.set(turnId, { text: message, eventId, replyId: replyIds.get(eventId) });
               if (assistants.size > 256) assistants.delete(assistants.keys().next().value);
             }
@@ -497,22 +560,56 @@ export function createElevenLabsClient(ports = {}) {
               ['connection_state_changed', 'socket_error', 'websocket_error', 'transport_error'].includes(context?.type))) void lifecycle.recover().catch(() => {});
           },
         };
-        const implementation = await getSdk();
-        if (!active()) throw new PluginError('cancelled');
-        capture ??= microphoneCapture(mediaDevices, AudioContext);
-        capture.setEnabled(!paused && inputOn);
-        const pending = capture.run(() => implementation.startSession({
-          ...(receipt.credential.connectionType === 'websocket'
-            ? { signedUrl: receipt.credential.signedUrl, connectionType: 'websocket' }
-            : { conversationToken: receipt.credential.conversationToken, connectionType: 'webrtc' }),
-          customLlmExtraBody: { aithema_call: receipt.facadeCallId ?? request.callId },
-          ...(receipt.overrides ? { overrides: voiceOverrides(receipt.overrides) } : {}),
-          ...(workletPaths ? { workletPaths } : {}), ...callbacks,
-        }));
-        // A late successful SDK connection after a deadline must still be torn down.
-        Promise.resolve(pending).then(late => { if (!active()) void capture.run(() => late.endSession()).catch(() => {}); }, () => {});
-        conversation = await voiceOperation({ ...connectOptions,
-          deadlineAt: Math.min(connectOptions?.deadlineAt ?? Infinity, credentialDeadlineAt) }, () => pending);
+        // Verified agent provisioning supplies the default spoken AI opener.
+        // Capable fresh-call startup cannot override that guarantee with a silent
+        // greeting. Legacy starts and trusted continuations retain their contract.
+        if (options.onMicrophoneState && current === 1 && !request.providerSessionId &&
+          receipt.presentation !== 'continuation' && receipt.overrides?.agent?.firstMessage === '')
+          throw new PluginError('invalid-output', 'Fresh voice connection requires its spoken opener');
+        // Credential work remains bounded. Only an actual visitor permission
+        // decision suspends its clock; SDK preparation and post-grant setup
+        // still spend the remaining credential budget, even without a rail.
+        const credentialCancellation = new AbortController();
+        const suspendForPrompt = options.onMicrophoneState && connectOptions?.deadlineAt === undefined;
+        let credentialRemainingMs = credentialDeadlineAt - Date.now(), credentialTimer, credentialRunningAt;
+        const credentialClock = running => {
+          clearTimeout(credentialTimer);
+          if (credentialRunningAt !== undefined) credentialRemainingMs -= Date.now() - credentialRunningAt;
+          credentialRunningAt = running ? Date.now() : undefined;
+          if (running) credentialTimer = setTimeout(() => credentialCancellation.abort(new DOMException('Voice credential expired', 'TimeoutError')),
+            Math.max(0, credentialRemainingMs));
+        };
+        capturePhase = phase => {
+          if (!active() || paused || !inputOn) return;
+          if (suspendForPrompt) credentialClock(phase !== 'requesting');
+          options.onMicrophoneState?.(phase);
+        };
+        credentialClock(true);
+        try {
+          conversation = await startupOperation({ ...connectOptions,
+            signal: AbortSignal.any([connectOptions?.signal, commandCancellation.signal, credentialCancellation.signal].filter(Boolean)),
+            ...(suspendForPrompt ? {} : { deadlineAt: Math.min(connectOptions?.deadlineAt ?? Infinity, credentialDeadlineAt) }),
+          }, async () => {
+            const implementation = await getSdk();
+            if (!active()) throw new PluginError('cancelled');
+            capture ??= microphoneCapture(mediaDevices, AudioContext, phase => capturePhase?.(phase), permissions);
+            capture.setEnabled(!paused && inputOn);
+            const pending = capture.run(() => implementation.startSession({
+              ...(receipt.credential.connectionType === 'websocket'
+                ? { signedUrl: receipt.credential.signedUrl, connectionType: 'websocket' }
+                : { conversationToken: receipt.credential.conversationToken, connectionType: 'webrtc' }),
+              customLlmExtraBody: { aithema_call: receipt.facadeCallId ?? request.callId },
+              ...(receipt.overrides ? { overrides: voiceOverrides(receipt.overrides) } : {}),
+              ...(workletPaths ? { workletPaths } : {}), ...callbacks,
+            }));
+            // A late successful SDK connection after cancellation is torn down.
+            Promise.resolve(pending).then(late => { if (!active()) void capture.run(() => late.endSession()).catch(() => {}); }, () => {});
+            return pending;
+          });
+        } finally {
+          clearTimeout(credentialTimer);
+          capturePhase = phase => { if (active() && !paused && inputOn) options.onMicrophoneState?.(phase); };
+        }
         if (!active()) throw new PluginError('cancelled');
         if (conversation.getId() !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Provider identity mismatch');
         await (creationChannels ?? capture.run(() => channels()));
@@ -538,10 +635,23 @@ export function createElevenLabsClient(ports = {}) {
         terminal: reason => { void close(reason).catch(() => {}); }, onEvent: event => emit(event),
         async renew(opts) {
           const previous = identity();
-          const ack = await voiceOperation({ ...opts,
+          const renewalOptions = { ...opts,
             signal: opts?.signal ? AbortSignal.any([opts.signal, commandCancellation.signal]) : commandCancellation.signal,
             deadlineAt: Math.min(opts?.deadlineAt ?? Infinity, grant.spendDeadlineAt, grant.browserLivenessDeadlineAt),
-          }, bounded => control.heartbeat(previous, bounded));
+          };
+          let ack;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try { ack = await voiceOperation(renewalOptions, bounded => control.heartbeat(previous, bounded)); break; }
+            catch (error) {
+              const transient = error?.status >= 500 || error?.code === 'deadline' || !error?.code && !error?.status;
+              if (conversation || generation !== 1 || ended || transportBlocked || renewalOptions.signal.aborted || !transient) throw error;
+              // No provider connection exists yet (possibly still in S1).
+              // Retry only this renewal within its original deadline/lease;
+              // replacing a nonexistent transport would cancel the prompt.
+              // Exhaustion defers to the next beat and the real lease expiry.
+              if (attempt === 2) return { acknowledged: true, deferred: true };
+            }
+          }
           if (!ended && !transportBlocked && grant.providerSessionId === previous.providerSessionId && Number.isFinite(ack?.browserLivenessDeadlineAt)) {
             grant = { ...grant, browserLivenessDeadlineAt: ack.browserLivenessDeadlineAt };
           }
@@ -608,7 +718,7 @@ export function createElevenLabsClient(ports = {}) {
         options.holdSignal?.addEventListener('abort', retainHold, { once: true });
         document?.addEventListener('freeze', freeze); document?.addEventListener('resume', wake);
         document?.addEventListener('visibilitychange', visible);
-        await voiceOperation(options, async opts => {
+        await startupOperation(options, async opts => {
           const revision = pauseRevision;
           lifecycle.dispatch({ type: 'start' });
           if (options.holdSignal?.aborted) retainHold();
@@ -616,7 +726,7 @@ export function createElevenLabsClient(ports = {}) {
           const receipt = request.providerSessionId
             ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId,
               ...(request.epoch !== undefined ? { epoch: request.epoch } : {}), explicit: true }, opts) : await control.start(request, opts);
-          await connect(receipt, opts); lifecycle.connected(receipt);
+          await connect(receipt, opts); lifecycle.connected(grant);
           if (lifecycle.state.holds.includes('ownership-lost')) throw Object.assign(new PluginError('not-admitted'), { code: 'voice-ownership-lost' });
           if (request.providerSessionId && !options.holdSignal?.aborted) {
             const ack = await resumeControl(opts);

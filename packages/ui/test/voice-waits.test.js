@@ -107,7 +107,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
   });
   for (const [name, key] of [['NotReadableError', 'voiceMicBusy'], ['NoMediaAPIError', 'voiceMicUnavailable'], ['OverconstrainedError', 'voiceMicFailed'], ['AbortError', 'voiceMicFailed'], ['Error', 'voiceMicFailed']]) {
     test(`AIT-377 ${provider}: ${name} has device guidance and failure focus`, async t => {
-      const { rail } = fixture(t, provider, { microphone: name === 'Error', error: Object.assign(new Error('offline acquisition'), { name }) });
+      const { rail } = fixture(t, provider, { microphone: name === 'Error', error: Object.assign(new Error('offline acquisition'), { name, phase: 'microphone' }) });
       await rail.start(); assert.equal(rail.errorKey, key);
       for (const copy of [de, en]) {
         rail.copy = copy; rail.render(); assert.equal(full(rail), micCopy[key][copy === de ? 0 : 1]);

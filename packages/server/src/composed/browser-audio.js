@@ -2,10 +2,10 @@ const cancelled = () => new DOMException('Capture cancelled', 'AbortError');
 
 /** Permission denial is surfaced to the host; a late permission result cannot
  * resurrect a stopped capture. onFault feeds the existing lifecycle controller. */
-export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioContext: Context = globalThis.AudioContext, AudioWorkletNode: Worklet = globalThis.AudioWorkletNode,
-  workletURL = new URL('./pcm-capture-worklet.js', import.meta.url), onTiming = () => {}, onFault = () => {},
+export function createPCMCapture({ mediaDevices = globalThis.navigator?.mediaDevices, AudioContext: Context = globalThis.AudioContext, AudioWorkletNode: Worklet = globalThis.AudioWorkletNode,
+  permissions = globalThis.navigator?.permissions, workletURL = new URL('./pcm-capture-worklet.js', import.meta.url), onTiming = () => {}, onFault = () => {},
   audioProcessing = true, clock = () => performance.now() } = {}) {
-  return async function capture({ signal, onAudio, onError = () => {} }) {
+  return async function capture({ signal, onAudio, onMicrophoneState, onError = () => {} }) {
     let stream, context, source, node, stopped = false, pending = 0, tail = Promise.resolve(), level = 0, levelAt = -Infinity;
     const stop = () => {
       if (stopped) return;
@@ -18,10 +18,17 @@ export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioC
     signal?.addEventListener('abort', stop, { once: true });
     try {
       if (signal?.aborted) throw cancelled();
-      if (typeof mediaDevices?.getUserMedia !== 'function') throw new DOMException('No microphone available', 'NotFoundError');
-      stream = await mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000,
+      try {
+        if (typeof mediaDevices?.getUserMedia !== 'function') throw Object.assign(new Error('Microphone API unavailable'), { name: 'NoMediaAPIError' });
+        let permission;
+        try { permission = await permissions?.query({ name: 'microphone' }); } catch { /* Not exposed by every browser. */ }
+        if (stopped || signal?.aborted) throw cancelled();
+        if (!permission || permission.state === 'prompt') onMicrophoneState?.('requesting');
+        stream = await mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000,
         echoCancellation: audioProcessing, noiseSuppression: audioProcessing, autoGainControl: false }, video: false });
+      } catch (error) { error.phase = 'microphone'; throw error; }
       if (stopped || signal?.aborted) { stream.getTracks().forEach(track => track.stop()); throw cancelled(); }
+      onMicrophoneState?.('granted');
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => fault(new Error('Capture track ended')), { once: true });
       context = new Context({ sampleRate: 16000 });
       await context.audioWorklet.addModule(workletURL);
@@ -64,7 +71,7 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
       outputTimestamp: context?.getOutputTimestamp?.() ?? null });
   };
   return Object.freeze({
-    async play(bytes, { format, sampleRateHz, channels, replyId } = {}) {
+    async play(bytes, { format, sampleRateHz, channels, replyId, onStarted } = {}) {
       if (!(bytes instanceof Uint8Array) || !bytes.length || !['pcm_s16le', 'pcm_f32le'].includes(format) ||
         !Number.isSafeInteger(sampleRateHz) || sampleRateHz < 8000 || sampleRateHz > 96000 || channels !== 1) throw new TypeError('Explicit mono PCM format required');
       const width = format === 'pcm_s16le' ? 2 : 4;
@@ -101,9 +108,12 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
         clearTimeout(resumeTimer); completion.reject(error); stop({ origin: 'teardown' });
       });
       completion.promise.finally(() => clearTimeout(resumeTimer)).catch(() => {});
+      let started = false;
+      const audible = samples.some(value => Math.abs(value) > 0.00001);
       const observeStart = () => {
         if (!sources.has(row)) return;
         const timestamp = context.getOutputTimestamp?.();
+        if (audible && !started && context.state === 'running' && context.currentTime >= start) { started = true; onStarted?.(); }
         if (timestamp?.contextTime >= start && timestamp.performanceTime > 0) {
           onTiming({ kind: 'playback-start', replyId, firstAudioAt: timestamp.performanceTime - (timestamp.contextTime - start) * 1000,
             outputTimestamp: timestamp });
