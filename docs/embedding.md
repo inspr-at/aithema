@@ -259,7 +259,7 @@ Use the same current settings/evidence reader in the wallet and credit projectio
 const host = {
   wallet: ownerToken => walletForHash(hash(ownerToken)),
   walletForSession: session => walletForHash(session.ownerHash),
-  creditTiers: ownerToken => creditTiers(ownerToken),
+  creditTiers: (ownerToken, context) => creditTiers(ownerToken, context),
   credits: { ownerGuard: true },
   privacyDocumentConfigured: () => hostHasValidatedPrivacyDocument,
 };
@@ -271,7 +271,10 @@ Here `hash`, `walletForHash` and `creditTiers` are host functions implemented in
 the reference file; the remaining configured ports come from the earlier mount
 example. Supply the **same ledger** to runtime and wallet. `createHandlers` binds
 `walletForSession` into runtime owner admission; `wallet(ownerToken)` serves
-owned credit reads. In the reference, `balance()` and every `canAdmit`/atomic
+owned credit reads. During turn credit preflight, `wallet(ownerToken, context)`
+and its `balance()` run inside the turn's database transaction. Both must be
+synchronous and side-effect free, and must not re-enter storage.
+In the reference, `balance()` and every `canAdmit`/atomic
 `admit` read current SQLite settings, even on a previously obtained wallet.
 There is no startup allowance cache. USD 10 changed to USD 5 changes the limit,
 not the already committed amount. `committedMicro` includes ledger reservations,
