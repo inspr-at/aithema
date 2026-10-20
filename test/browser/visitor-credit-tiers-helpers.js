@@ -149,15 +149,20 @@ export async function composerCreditReservationMatrix(t) {
     await page.select('#locale', locale); await page.select('#theme', theme);
     await fixture(page, locale);
     const before = await boxes(page, selectors);
-    // AIT-422: copy changes must preserve the pre-change reservation, too.
+    // AIT-434: pre-AIT-422 (00adb72c) had the reassurance and no spacer.
     const currentOffer = await shadow(page, (c, locale) => {
       const peer = c.shadowRoot.querySelector('[data-credit-variant="host-give"]'), text = peer.textContent;
+      const spacer = c.shadowRoot.querySelector('[data-credit-variant="host-give-measure"]');
+      if (spacer) spacer.style.display = 'none';
       peer.textContent = locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.'
         : 'Add your email address to get +600 more Credits. Your conversation stays saved.';
       return text;
     }, locale);
     const originalCopyBoxes = await boxes(page, selectors);
-    await shadow(page, (c, text) => { c.shadowRoot.querySelector('[data-credit-variant="host-give"]').textContent = text; }, currentOffer);
+    await shadow(page, (c, text) => {
+      c.shadowRoot.querySelector('[data-credit-variant="host-give"]').textContent = text;
+      c.shadowRoot.querySelector('[data-credit-variant="host-give-measure"]')?.style.removeProperty('display');
+    }, currentOffer);
     unchanged(originalCopyBoxes, before, `AIT-422 ${locale}/${theme}/${width}: original-copy reservation`);
     // Retain the container handle, but inspect its current descendants for
     // every state: changing text can replace a text node inside a stable span.
@@ -200,7 +205,7 @@ export async function composerCreditReservationMatrix(t) {
         const checkedBackendNodes = descendants(node);
         return [{ key: variant.key, ignored: checkedBackendNodes.every(id => !exposed.has(id)), checkedBackendNodes }];
       });
-      const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
+      const row = { locale, theme, width, state, originalCopyBoxes, before, after, composerHeight: after[1][3],
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
         variants, hiddenAX, hiddenVariantsAbsent: hiddenAX.every(n => n.ignored),
         activeBody };
@@ -229,9 +234,9 @@ export async function composerCreditReservationMatrix(t) {
   }
   for (const row of rows) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
-    assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give-measure', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
+    assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
     assert.ok(row.variants.every(n => n.gridCell.join('/') === '1/1'), `${label}: variants share grid-area 1/1`);
-    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 11 : 10, `${label}: inactive variants aria-hidden`);
+    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 10 : 9, `${label}: inactive variants aria-hidden`);
     assert.ok(row.variants.filter(n => n.ariaHidden === 'true').every(n => n.visibility === 'hidden'), `${label}: inactive variants hidden`);
     assert.equal(row.hiddenVariantsAbsent, true, `${label}: hidden variants absent from accessibility tree`);
     assert.equal(row.activeBody.length, row.state === 'default' ? 0 : 1, `${label}: only the active variant is painted`);
@@ -388,7 +393,7 @@ export async function topUpReservationMatrix(t) {
         : locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now';
       assert.equal(presentation.full, expected); assert.equal(presentation.short, expected); assert.equal(presentation.label, expected);
       assert.equal(presentation.footer, '0');
-      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie 600 weitere\u00a0Credits.' : 'With your email address you get 600 more\u00a0credits.');
+      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie 600 weitere\u00a0Credits. Ihr Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.');
       assert.equal(presentation.ink3, presentation.muted);
       assert.equal(presentation.muted, theme === 'light' ? '#496477' : '#9db4c4');
       assert.equal(presentation.reducedMotion, true); assert.equal(presentation.focused, false);
@@ -399,6 +404,14 @@ export async function topUpReservationMatrix(t) {
       if (evidence) {
         await mkdir(join(evidence, 'ait422'), { recursive: true });
         await page.screenshot({ path: join(evidence, 'ait422', shot), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+        if (creditReason === 'host-limit' && theme === 'light' && (width === 390 || width === 1440 && locale === 'de')) {
+          const scrollBefore = await page.evaluate(() => scrollY);
+          await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+          await settle(page);
+          await mkdir(join(evidence, 'ait434'), { recursive: true });
+          await page.screenshot({ path: join(evidence, 'ait434', `${width}-light-${locale}-host-give.png`), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+          await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
+        }
       }
     }
   }
