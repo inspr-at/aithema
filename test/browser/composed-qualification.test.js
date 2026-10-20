@@ -110,7 +110,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
         tts:${JSON.stringify({ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings })}}},
     consentDecision:{items:['voice-elevenlabs','models-international']}, controlCapability, hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
     ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), sampleTimeoutMs,
-    launchArgs: [...production.launchArgs,...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])],
+    launchArgs: [...production.launchArgs,...(process.platform === 'linux' ? ['--no-sandbox'] : [])],
     verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'fake price evidence', expiresAt: Date.now() + 60000 }),
     verifyReceipt: async () => true,
     async reconcile({ snapshot, reconcile }) {
