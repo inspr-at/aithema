@@ -577,6 +577,8 @@ The demo retires whole sessions after twelve months of inactivity, checking each
 Retention creation, activity, lease release and cleanup retries use the storage
 clock, including SQLite triggers. `new SQLiteStorage(path, { now })` sets it at
 startup; handlers with `host.now` install that clock through the plugin runtime.
+An explicit runtime `now` retains precedence for storage policy and evidence too;
+ledger settlement attribution remains on the host clock.
 Existing retention timestamps remain intact, and activity never moves backwards.
 
 Assistant replies, including assistant voice transcripts, and generated
@@ -1050,7 +1052,10 @@ HTTP text and voice deadlines, continuation spend reservations, binding evidence
 and callback operations use the runtime's clock. An explicit runtime `now` wins;
 otherwise handlers install `host.now`, then legacy `voice.now`, then `Date.now`.
 Evidence expires at the exact boundary on that clock. Ledger settlement timestamps
-retain the host clock for accounting attribution. Concept lanes forward their own clock.
+retain the host clock for accounting attribution; reconciliation age and retry
+dates use that same accounting epoch. Render admission/UTC days, concept lanes,
+storage evidence and retention use the runtime forwarding clock. Custom voice
+caps and render limiters require `setClock(clock)` when a host clock is installed.
 Upload request budgets remain elapsed wall-clock budgets and identify that clock
 explicitly when calling runtime admission.
 The ElevenLabs completions facade uses its injected `now` for callback, call,

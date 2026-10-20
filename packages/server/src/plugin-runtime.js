@@ -544,7 +544,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       clockSource = configuredNow ?? clock;
       // Accounting timestamps retain host attribution even with an explicit
       // policy clock. Their age and retry eligibility use this same epoch.
-      budget.now = clock; storage.setHostClock?.(clock);
+      budget.now = clock; storage.setHostClock?.(now);
     },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {

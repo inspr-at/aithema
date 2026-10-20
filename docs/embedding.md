@@ -557,8 +557,11 @@ real handler wiring and the standalone ElevenLabs/coordinator/provider paths.
 Accounting remains on `host.now` when an explicit runtime policy clock differs:
 settlement time, reconciliation age, deferred receipt eligibility and retry dates
 all use `budget.now`, the epoch that wrote `settledAt`. Storage event/content
-evidence, retirement fences and provider-cap audits use the installed storage
-clock. Existing timestamps are never rewritten.
+evidence, retirement fences and provider-cap audits use the runtime forwarding
+clock installed on storage, including when an explicit policy clock differs from
+host accounting time. Local call reconciliation also measures duration on the
+provider's clock; an elapsed receipt-lookup clock cannot change call age.
+Existing timestamps are never rewritten.
 
 Elapsed transport budgets are separate: upload queue/parser CPU limits, receipt
 polling, cleanup/drain timeouts, persistence throttles and audio pacing use a

@@ -125,8 +125,9 @@ export function createLocalVoiceProvider({ storage, now: configuredNow = () => s
     },
     stopSegment: (segment, options) => segment.close(options?.reason ?? 'closed', options?.outcome ?? 'completed'),
     async reconciliationEvidence(request, options) {
-      const now = options?.now ?? configuredNow;
-      return voiceOperation(options, async () => ({ details: { simulated: true }, terminal: terminal(request.call, now(), request.outcome) }));
+      // Lookup options may carry a separate elapsed transport clock. Call age
+      // belongs to the provider's policy clock, as do its start/end timestamps.
+      return voiceOperation(options, async () => ({ details: { simulated: true }, terminal: terminal(request.call, configuredNow(), request.outcome) }));
     },
   });
   const plugin = { manifest, health: options => voiceOperation(options, async () => ({ available: true })),
