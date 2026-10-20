@@ -1424,6 +1424,7 @@ export class AithemaSession extends HTMLElement {
         ? formatCredits(Math.max(0, allowances[to] - allowances[from]), this.#session.locale ?? 'en') : delta;
       const bodies = [
         ['active', limit.body], ['default', u.body],
+        ['host-give-measure', u.hostGiveMeasure.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
         ['host-give', u.hostGive.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
         ['host-confirm', u.hostConfirm.replace('{delta}', tierDelta('emailGiven', 'emailConfirmed'))],
         ['host-confirm-anonymous', u.hostConfirm.replace('{delta}', tierDelta('anonymous', 'emailConfirmed'))],

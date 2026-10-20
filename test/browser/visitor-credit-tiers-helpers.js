@@ -219,9 +219,9 @@ export async function composerCreditReservationMatrix(t) {
   }
   for (const row of rows) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
-    assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
+    assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give-measure', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
     assert.ok(row.variants.every(n => n.gridCell.join('/') === '1/1'), `${label}: variants share grid-area 1/1`);
-    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 10 : 9, `${label}: inactive variants aria-hidden`);
+    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 11 : 10, `${label}: inactive variants aria-hidden`);
     assert.ok(row.variants.filter(n => n.ariaHidden === 'true').every(n => n.visibility === 'hidden'), `${label}: inactive variants hidden`);
     assert.equal(row.hiddenVariantsAbsent, true, `${label}: hidden variants absent from accessibility tree`);
     assert.equal(row.activeBody.length, row.state === 'default' ? 0 : 1, `${label}: only the active variant is painted`);
