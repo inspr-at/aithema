@@ -86,6 +86,13 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
+      const mounted = await page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = r.querySelector('.composer').getBoundingClientRect();
+        return { scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight,
+          composer: [b.x, b.y, b.width, b.height], html: r.querySelector('.composer-shell').outerHTML };
+      });
+      console.log('AIT411_MAIN_ONLY ' + JSON.stringify({ width, locale, ...mounted, html: undefined }));
+      if (evidence) await writeFile(join(evidence, `ait411-main-${width}-${locale}.json`), JSON.stringify(mounted));
       // This case reads the first row; the phone may initially follow the
       // last reply once the four fixture turns overflow the bounded pane.
       await page.evaluate(async () => {
@@ -155,6 +162,13 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       await t.test(`Latest reserved bottom/${width}/${locale}`, async () => {
         const turns = Array.from({ length: 24 }, (_, i) => ({ id: i ? `bottom-${i}` : 'source', role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine längere Unterhaltung für den unveränderten unteren Platz.' : 'A longer conversation to verify the unchanged bottom slot.' }));
         await mount(width, 'light', locale, 't1', false, turns);
+      const mounted = await page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = r.querySelector('.composer').getBoundingClientRect();
+        return { scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight,
+          composer: [b.x, b.y, b.width, b.height], html: r.querySelector('.composer-shell').outerHTML };
+      });
+      console.log('AIT411_MAIN_ONLY ' + JSON.stringify({ width, locale, ...mounted, html: undefined }));
+      if (evidence) await writeFile(join(evidence, `ait411-main-${width}-${locale}.json`), JSON.stringify(mounted));
         const bottom = await page.evaluate(() => {
           const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), latest = r.querySelector('.transcript-latest');
           const measure = () => ({ lastBottom: shell.querySelector('.turn:last-child').getBoundingClientRect().bottom,
