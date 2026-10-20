@@ -267,6 +267,7 @@ they are not test coverage switches.
 | `test/fixtures/launch-browser.mjs` | `destructure { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error }` ×1 | Pinned fake-CDP fixture controls; exact destructured keys and aliases required |
 | `test/live/soak.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/measurements/browser-comparison.js` | `process.env` ×1 | Intentional browser measurement child-process environment forwarding; exact occurrence pinned |
+| `test/measurements/consent-reload-repeat.test.js` | `process.env` ×1 | AIT-398 remote browser qualification forwards the child environment after removing NODE_TEST_CONTEXT |
 | `test/release-prep.test.js` | `GITHUB_RUN_ID` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/release-workflow.test.js` | `process.env` ×1 | Hermetic release-workflow child-process setup; exact occurrence pinned |
 | `test/soak/unit-worker.test.js` | `process.env[key]` ×2 | Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned |
