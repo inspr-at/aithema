@@ -327,6 +327,15 @@ for (const [file, seconds] of Object.entries({
   'test/browser/tick-followups.test.js': 110,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
+// AIT-411 final-head CI 39497793398, 2503e01d: email-mail-space work
+// 71.171632711s requires ceil(*1.25)=89s; visitor work 143.560138164s
+// requires 180s. Round these diagnostic floors to 100s/200s for placement
+// variance rather than consuming the exact boundary. All prior samples stay.
+browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-mail-space.test.js'], 100);
+browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
+  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 200);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 export const browserShardCount = 8;
