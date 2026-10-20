@@ -2,7 +2,7 @@
 
 Aithema uses **INSPR-CalVer3**; `release/version.json` is the
 single version authority. The root workspace is private. The release packer
-emits independently installable core, server, UI and thirteen provider/integration
+emits independently installable core, server, UI and provider/integration
 plugin tarballs, with exact dependency pins, plus a retained workspace archive.
 Aithema is published as immutable [GitHub releases](https://github.com/inspr-at/aithema/releases)
 with signed, attested tarballs. Hosts pin a release with `deployment-pin.json`
@@ -19,8 +19,12 @@ lifecycle into a consuming application.
 For candidate validation on the build runner, retain the candidate directory
 and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
-From a separate host directory, install **all sixteen** module tarballs so npm
-can resolve their exact mutual dependencies without a registry publication:
+From a separate host directory, install the modules the host uses and their
+complete transitive dependency closure in one invocation, so npm can resolve
+their exact mutual dependencies without a registry publication. Unused leaf
+plugins, such as `@inspr/aithema-plugin-grok-voice` for a host with no Grok voice,
+may be omitted if no installed module depends on them. Every installed Aithema
+module must come from the same release. Installing the full set is also valid:
 
 ```sh
 npm install --save-exact /path/to/candidate/first/inspr-aithema-*.tgz
@@ -32,16 +36,20 @@ bundler resolves the UI and its core dependency; an unbundled browser needs an
 import map for each exported package subpath. Workspace source browser URLs
 are converted to declared package subpaths by `release:pack`.
 
-For a published release, install the same sixteen modules by release URL in
-one invocation, rather than from a package registry. The URL pattern is:
+For a published release, install the selected modules and their dependency
+closure by release URL in one invocation, rather than from a package registry.
+The URL pattern is:
 
 ```sh
 npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<tag>/<pkg>.tgz
 ```
 
 Use the exact `v<version>` tag and module filenames from `release-set.json`, and
-pass all sixteen module URLs together. First download and verify the attested
-SHA256SUMS, manifest and tarballs as described in the [release route](../release/README.md).
+pass the selected closure's module URLs together. First download and verify
+SHA256SUMS, the manifest, selected tarballs and their attestations as described
+in the [release route](../release/README.md). Check that `npm ls` is clean after
+installation; omitting an unused plugin does not permit missing dependencies,
+mixed releases or unverified artifacts.
 Commit the host lockfile with the URL resolutions and **sha512 integrity**; use
 `npm ci` for repeat deployments and retain the verified artifacts for rollback.
 Public release downloads need no consumer token. The Linux tag build tests the
@@ -313,12 +321,20 @@ switches while each new receipt loads. A host can also configure
 settings. `next` is `emailGiven` for anonymous visitors only when it raises the
 allowance, or `emailConfirmed` for email-given visitors only when qualified
 confirmation is enabled and raises the allowance; otherwise it is `null` and
-`delta` is 0. Equal allowances do not advertise an upgrade. The owned
-`GET /api/sessions/:id/credits` exposes this as `tiers`. AIT-291's UI `nextTier`
-derives from **`tiers.next`**, subject to the existing collection/end-reason
-gates; it is not another server field. Session-aware hosts with equal anonymous
-and email-given allowances go directly to qualified confirmation when it raises
-the allowance, without displaying an email-given upgrade line.
+`delta` is 0. The owned `GET /api/sessions/:id/credits` exposes this as `tiers`.
+With equal anonymous and `emailGiven` allowances, the payload for an anonymous
+visitor keeps `next: null` and `delta: 0`; `creditTiers` does not skip directly to
+`emailConfirmed` (`demo/visitor-credits.js:270-272`). The UI's `nextTier` is a
+derived value, not another server field. Owner-wide receipts use `tiers.next`,
+but session-scoped receipts can offer `emailConfirmed` while `current` is still
+`anonymous` when the anonymous and `emailGiven` allowances are equal,
+`canConfirm` is true and the confirmed allowance is higher, subject to the
+verification, collection, end-reason and daily-cap gates
+(`packages/ui/src/host-surface.js:106-116`). In that case, the UI shows the
+confirmation action and confirmed-tier line, with no email-given upgrade line
+(`packages/ui/test/host-credits.test.js:485-486`). After the visitor gives an
+address, the payload's `current: 'emailGiven'` can offer
+`next: 'emailConfirmed'` if qualified confirmation raises the allowance.
 Set `privacyDocumentConfigured` only after validating the host's document, otherwise the server suppresses collection
 and next-tier offers. Host identity/verification ports must also enable the
 corresponding visitor actions before the UI can offer them.
@@ -332,6 +348,57 @@ the same ID. Definitive pre-dispatch refusal releases only that hold; uncertain
 outcomes retain it for recovery. The fixture qualifies this contract with the
 public conformance kit. The host must recover orphaned owner-only holds using
 authoritative dispatch evidence; the reference conservatively retains them.
+
+#### Address-derived daily spend guards (AIT-396)
+
+The accounting-key prohibition above still applies: tier evidence and module
+accounting remain bound to the owner hash. A host may separately enforce a
+host-private address-derived spend guard, for example USD 30 per confirmed
+address per day across owners. This is a host policy, not a built-in module cap
+or a replacement owner identity. The reference tier fixture does not implement
+it. This is design guidance, not a GDPR legal assessment.
+
+Derive the guard key with a keyed HMAC over the host's consistently canonicalized,
+server-confirmed address, using a secret host key and a distinct purpose domain
+such as `daily-spend`. Plain SHA-256 or hashing with a public salt is insufficient:
+addresses are guessable. Keep the key private, persist it securely, and ensure
+rotation or restore cannot reset live buckets or strand their holds. Define
+canonicalization explicitly; do not assume aliases are the same recipient or
+treat an unconfirmed address as confirmed evidence.
+
+Keep the guard counters separate from the owner ledger: retain only the HMAC,
+day bucket, required amounts and expiry metadata there, without raw addresses,
+tokens or visitor references. Any private attempt-to-bucket/hold mapping needed
+for settlement is separate visitor-linked data with its own retention and
+erasure duties. Never use the address or its HMAC as `session.ownerHash` or as
+the module's accounting key.
+
+Check and reserve the remaining address/day allowance atomically across **all
+owners** sharing that guard, before dispatch, alongside the owner admission
+contract. A read-only balance check followed by a later reservation can overspend
+under concurrent tabs or owners. Use durable, idempotent attempt reservations;
+enforce positive voice extensions too. Count confirmed spend, uncertain spend
+and unresolved reservations once, without double-counting a host hold and its
+ledger row. Release only with definitive evidence; recover orphaned holds from
+authoritative dispatch/settlement evidence.
+
+Define the calendar timezone (for example UTC), day boundaries and rollover
+policy explicitly; a calendar day is not a rolling 24-hour window. Persist the
+guard and day attribution at reservation, and define how dated extensions,
+settlements and corrections affect buckets using the evidence described below.
+Retries, restart, settlement after midnight and address changes must not silently
+move or reset already attributed spend. New work uses the current confirmed
+address; old work keeps its original attribution, and a changed address requires
+fresh confirmation. Specify whether unresolved prior-day exposure also limits
+new-day admission; rollover never releases a live hold.
+
+Retain buckets and linkage only as long as needed for the declared daily guard
+and unresolved settlement duties, then expire them with bounded cleanup that
+also runs without new traffic. Define session, address and visitor erasure
+handling explicitly, including the minimum evidence needed for unresolved holds.
+Any guard retained after visitor erasure needs its own documented purpose and
+expiry decision; the demo's separate 24-hour mail-abuse retention is not a spend
+guard retention rule. HMACs are pseudonymous, not anonymous data.
 
 #### Dated budget attribution (AIT-401, AIT-409)
 
