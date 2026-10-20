@@ -159,9 +159,10 @@ for (const epoch of epochs) for (const stream of [false, true]) test(`AIT-403 fa
 
 // A noncanonical, priced offline adapter exercises binding evidence, budget and
 // aggregate duration admission. It cannot gain the canonical mock exemption.
-function voiceClockFixture(t, { evidenceMs = 300_000, explicitRuntimeClock = false, voiceClock = false } = {}) {
+function voiceClockFixture(t, { evidenceMs = 300_000, explicitRuntimeClock = false, voiceClock = false,
+  initialClock = wall - 120_000, capLimits = { capMilliseconds: 300_000 } } = {}) {
   t.mock.timers.enable({ apis: ['Date'], now: wall });
-  let clock = wall - 120_000;
+  let clock = initialClock;
   const now = () => clock, storage = new SQLiteStorage(), starts = [];
   const binding = { plugin: 'clock-voice', model: 'fixture', effort: 'none', endpoint: 'https://voice.example.test',
     accountRef: 'fixture', secretRef: 'fixture', maxMicro: 600, maxTokens: 1,
@@ -198,7 +199,9 @@ function voiceClockFixture(t, { evidenceMs = 300_000, explicitRuntimeClock = fal
   const presets = mockPresets();
   presets.best.plugins.push(binding.plugin); presets.best.bindings.voice = binding;
   presets.best.policy = { endpoints: [binding.endpoint] };
-  const port = consent(now), cap = createVoiceCap({ storage, now, capMilliseconds: 300_000 });
+  // Match demo/server.js: construct the cap without a clock; only handlers
+  // install host.now on the runtime (or preserve its explicitly configured now).
+  const port = consent(now), cap = createVoiceCap({ storage, ...capLimits });
   const runtime = createPluginRuntime({ storage, consent: port, presets, voiceCap: cap,
     registry: new PluginRegistry().register(createMockReasoning()).register(plugin), ...(explicitRuntimeClock ? { now } : {}) });
   const handlers = createHandlers({ storage, pluginRuntime: runtime, consent: port, host: voiceClock ? undefined : { now: explicitRuntimeClock ? () => wall : now },
@@ -209,6 +212,52 @@ function voiceClockFixture(t, { evidenceMs = 300_000, explicitRuntimeClock = fal
     method: 'POST', body: JSON.stringify(body),
   }));
   return { now, advance: ms => { clock += ms; }, storage, session, binding, plugin, presets, runtime, starts, cap, route };
+}
+
+for (const explicitRuntimeClock of [false, true]) {
+  test(`AIT-403 demo-wired voice day cap refuses an exhausted lagging host day (explicit runtime: ${explicitRuntimeClock})`, async t => {
+    const h = voiceClockFixture(t, { explicitRuntimeClock, initialClock: wall - 43_230_000,
+      capLimits: { capMilliseconds: 300_000, perDayMilliseconds: 60_000 } });
+    const hostDay = new Date(h.now()).toISOString().slice(0, 10);
+    // Durable usage from the host's current UTC day, before wall-clock midnight.
+    h.storage.db.prepare('INSERT INTO voice_cap_reservations VALUES (?,?,?,?,?,?)')
+      .run('previous-attempt', h.session.id, 'previous-call', hostDay, 60_000, 60_000);
+    const attempts = () => h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
+    const before = attempts();
+    const refused = await h.route('', { callId: 'day-cap-refused' });
+    assert.equal(refused.status, 403, 'a new wall-clock day must not reopen the exhausted host day');
+    assert.deepEqual(await refused.json(), { error: 'not-admitted' });
+    await assert.rejects(h.runtime.checkVoice(h.storage.get(h.session.id)),
+      { code: 'not-admitted', message: 'Voice minute cap reached for this UTC day' });
+    assert.equal(attempts(), before, 'day-cap refusal precedes every spend reservation');
+    assert.equal(h.starts.length, 0);
+    assert.equal(h.cap.snapshot().day, hostDay);
+    assert.equal(h.cap.snapshot().perDay.spentMilliseconds, 60_000);
+    assert.equal(h.cap.snapshot().reservedMilliseconds, 0);
+    h.advance(30_000);
+    const admitted = await h.route('', { callId: 'next-host-day' });
+    assert.equal(admitted.status, 201, await admitted.clone().text());
+    assert.equal(h.cap.snapshot().perDay.spentMilliseconds, 0);
+    assert.equal(h.cap.snapshot().perDay.reservedMilliseconds, 60_000);
+    assert.equal(h.cap.snapshot().spentMilliseconds, 60_000, 'rollover retains lifetime spend');
+    assert.equal(h.starts.length, 1);
+  });
+
+  test(`AIT-403 demo-wired voice cap reserves on the runtime day and follows clock installation (explicit runtime: ${explicitRuntimeClock})`, async t => {
+    const h = voiceClockFixture(t, { explicitRuntimeClock, initialClock: wall - 43_230_000,
+      capLimits: { capMilliseconds: 300_000, perDayMilliseconds: 60_000 } });
+    const response = await h.route('', { callId: 'day-cap-reserved' });
+    assert.equal(response.status, 201, await response.clone().text());
+    const row = h.storage.db.prepare('SELECT day,reserved_ms,actual_ms FROM voice_cap_reservations WHERE attempt_id=?')
+      .get(h.starts[0].attempt.attemptId);
+    assert.deepEqual({ ...row }, { day: new Date(h.runtime.now()).toISOString().slice(0, 10), reserved_ms: 60_000, actual_ms: null });
+    assert.equal(h.cap.reason(1), 'Voice minute cap reached for this UTC day');
+    h.runtime.setHostClock(() => h.now() + 86_400_000);
+    assert.equal(h.cap.snapshot().day, new Date(h.runtime.now()).toISOString().slice(0, 10));
+    assert.equal(h.cap.snapshot().perDay.reservedMilliseconds, explicitRuntimeClock ? 60_000 : 0);
+    assert.equal(h.cap.snapshot().reservedMilliseconds, 60_000, 'clock installation cannot release an unreconciled hold');
+    assert.equal(h.cap.reason(1), explicitRuntimeClock ? 'Voice minute cap reached for this UTC day' : null);
+  });
 }
 
 for (const explicitRuntimeClock of [false, true]) test(`AIT-403 voice continuation reserves only host-clock remainder (explicit runtime: ${explicitRuntimeClock})`, async t => {
