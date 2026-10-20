@@ -9,10 +9,9 @@
   "test/browser/admin-pages.test.js": {
     "reads": [
       "CI",
-      "CI",
       "CI"
     ],
-    "reason": "Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI"
+    "reason": "Linux headless Chrome sandbox selection; AIT-406 coverage uses shared fullMatrix"
   },
   "test/browser/audio-replay.test.js": {
     "reads": [
@@ -45,11 +44,9 @@
   },
   "test/browser/credit-hold.test.js": {
     "reads": [
-      "CI",
-      "CI",
       "CI"
     ],
-    "reason": "Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI"
+    "reason": "Linux headless Chrome sandbox selection; AIT-406 coverage uses shared fullMatrix"
   },
   "test/browser/credits-first-receipt-check.js": {
     "reads": [
@@ -96,14 +93,14 @@
     "reads": [
       "CI"
     ],
-    "reason": "Linux headless Chrome sandbox selection"
+    "reason": "AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix"
   },
   "test/browser/matrix-coverage.js": {
     "reads": [
       "CI",
       "GITHUB_ACTIONS"
     ],
-    "reason": "AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI; AIT-293 manual axe evidence also excludes GITHUB_ACTIONS so PR and nightly CI never run axe"
+    "reason": "AIT-406 full matrix explicitly selected by AITHEMA_FULL_MATRIX while retaining CI timing; AIT-192 local evidence also selects full coverage outside CI; AIT-293 manual axe excludes GITHUB_ACTIONS"
   },
   "test/browser/operator-login.test.js": {
     "reads": [
