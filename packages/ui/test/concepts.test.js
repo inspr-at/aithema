@@ -61,6 +61,15 @@ test('AIT-374: image availability is per artifact and its unavailable slot canno
   const before = calls.length; assert.equal(await view.load('bad'), null); await view.download();
   assert.equal(calls.length, before); assert.equal(downloads.length, 0);
 });
+
+test('AIT-374: newly delivered artifacts retain coverage before the next consent document read', t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c } = setup(t, { concepts: [] });
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['drafts'], features: { html: ['drafts'] }, artifacts: {} });
+  view.update({ ...c.session, concepts: [draft('new')] });
+  assert.deepEqual(view.items.map(i => i.id), ['new'], 'server-published delivery uses the existing feature coverage until the next read');
+});
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } }, ...extra }; }
 // A clickable draft as the server publishes it (AIT-113): text/html, no pixel size.

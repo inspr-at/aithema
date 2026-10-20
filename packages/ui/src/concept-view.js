@@ -183,7 +183,8 @@ export class ConceptView {
     if (this.unavailable(kind, artifact)) return placeholder && Boolean(artifact && doc.artifacts?.[artifact.id]);
     const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
     const matchingDocument = doc?.consentRevision === session.consentRevision;
-    const ids = matchingDocument ? artifact && doc.artifacts ? doc.artifacts[artifact.id]?.purposes : doc.features?.[feature] : undefined;
+    const producer = matchingDocument && artifact ? doc.artifacts?.[artifact.id] : undefined;
+    const ids = matchingDocument ? producer ? producer.purposes : doc.features?.[feature] : undefined;
     // A consent refusal for the producer still applies when the document matches.
     // Purpose metadata distinguishes an unrelated current choice's refusal.
     for (const decision of [verdict, verdict?.unpaused]) {
