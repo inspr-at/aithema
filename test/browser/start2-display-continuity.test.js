@@ -387,7 +387,10 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         const moved = await shadow(other, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-moved'));
         await shadow(other, c => c.shadowRoot.querySelector('.pause').click());
         if (!moved) {
-          await until(other, () => document.querySelector('aithema-session').shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true');
+          await until(other, resume => {
+            const button = document.querySelector('aithema-session').shadowRoot.querySelector('.pause');
+            return button.textContent.trim() === resume && !button.disabled;
+          }, { de, en }[locale].resume);
           await shadow(other, c => c.shadowRoot.querySelector('.pause').click());
         }
         await until(other, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
@@ -451,7 +454,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           await page.mouse.move(-1, -1);
           await shadow(page, async c => {
             c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
-            await Promise.all(c.shadowRoot.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+            await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           });
           const file = `ait404-${width}-light-${locale}-${state}.png`;
           if (state === 'mid-delay') assert.equal(await page.evaluate(() => globalThis.ait404.pending), true, 'mid-delay shot has the GET pending');
@@ -473,7 +476,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         if (outcome === 'success') {
           assert.ok(result.samples.every(s => !s.pausedVisible && s.shortcut), 'no paused label or shortcut transient through 1 s after the snapshot');
           assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'composer, label slot and transcript rows have movementPx 0 on every frame');
-          if (touch || width === 1440) await capture('settled');
+          if (width === 390 && touch || width === 1440 && !touch) await capture('settled');
         } else {
           assert.ok(result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut), 'failed confirming GET restores the existing paused state');
         }
@@ -483,4 +486,5 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
     } finally { await browser.close(); }
   }
+  if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
 });
