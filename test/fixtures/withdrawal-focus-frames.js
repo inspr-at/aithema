@@ -153,43 +153,55 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
           const measure = () => ({ lastBottom: shell.querySelector('.turn:last-child').getBoundingClientRect().bottom,
             latestTop: latest.getBoundingClientRect().top, latestBottom: latest.getBoundingClientRect().bottom,
             shellBottom: shell.getBoundingClientRect().bottom, scrollHeight: shell.scrollHeight, scrollTop: shell.scrollTop });
+          // Visibility alone also stays identical when a negative margin cancels
+          // Latest's slot. Measure the scroll room without that slot as well.
+          latest.style.display = 'none'; const withoutLatest = measure(); latest.style.display = '';
           shell.scrollTop = shell.scrollHeight; latest.style.visibility = 'hidden'; const hidden = measure();
           latest.style.visibility = 'visible'; const shown = measure();
-          latest.style.visibility = 'hidden'; return { hidden, shown, hiddenAgain: measure() };
+          latest.style.visibility = 'hidden'; return { withoutLatest, hidden, shown, hiddenAgain: measure() };
         });
         checks.push({ width, locale, bottom });
         if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+        assert.ok(bottom.hidden.scrollHeight > bottom.withoutLatest.scrollHeight, 'AIT-400 v1.1: hidden Latest reserves real scroll room below the last row');
         assert.deepEqual(bottom.shown, bottom.hidden, 'AIT-400 v1.1: Latest shown/hidden moves the last-row bottom and scroll geometry 0 px');
         assert.deepEqual(bottom.hiddenAgain, bottom.hidden, 'AIT-400 v1.1: hiding Latest again moves the last-row bottom 0 px');
         assert.ok(bottom.shown.lastBottom <= bottom.shown.latestTop, `AIT-400 v1.1: Latest occupies its reserved slot below the last message: ${JSON.stringify(bottom)}`);
         assert.ok(bottom.shown.latestBottom <= bottom.shown.shellBottom, 'Latest is wholly inside the scroll area');
       });
       for (const mode of ['fold', 'hide']) await t.test(`inset reset/${mode}/${width}/${locale}`, async () => {
-        await mount(width, 'light', locale, 't1');
-        await page.evaluate(async () => {
+        await mount(width, 'light', locale, 't1', false, mode === 'hide' ? [] : undefined);
+        await page.evaluate(async mode => {
           // Attach the production page watchers to this otherwise offline mount.
           const { [c.session.locale]: copy } = await import('/packages/ui/src/i18n/' + c.session.locale + '.js');
           c.configure({ session:c.session, copy, sessionToken:'fixture-owner', concepts:{ previewURL:location.origin+'/_aithema/html-preview' } });
+          // A partial can enter live before any durable input exists. A failed
+          // lane clears it and returns to ready through the production renderer.
+          if (mode === 'hide') c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:c.session.inputRevision } });
           document.body.style.paddingBottom = '1600px'; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
-        });
+        }, mode);
         const result = await page.evaluate(mode => {
           const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), workspace = r.querySelector('.workspace');
           const measure = () => ({ inset:parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0,
             shellTop:shell.getBoundingClientRect().top, bubbleTop:shell.querySelector('.turn').getBoundingClientRect().top,
             lastTopRowBottom:Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom) });
           const before = measure(); scrollTo(0, 400); dispatchEvent(new Event('scroll')); const scrolled = measure();
-          if (mode === 'fold') r.querySelector('.fold').click(); else workspace.dataset.stage = 'ready';
-          dispatchEvent(new Event('resize')); const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
+          if (mode === 'fold') r.querySelector('.fold').click();
+          else c.receive({ type:'lane.failed', data:{ lane:'reaction', inputRevision:c.session.inputRevision } });
+          const hiddenStage = workspace.dataset.stage;
+          const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
           scrollTo(0, 0); dispatchEvent(new Event('scroll'));
-          if (mode === 'fold') r.querySelector('.fold-strip').click(); else workspace.dataset.stage = 'live';
+          if (mode === 'fold') r.querySelector('.fold-strip').click();
+          else c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:c.session.inputRevision } });
           // Inspect synchronously on return, before another scroll can repair it.
           const returned = measure();
           document.body.style.paddingBottom = ''; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
-          return { before, scrolled, hiddenInset, returned };
+          return { before, scrolled, hiddenStage, returnedStage:workspace.dataset.stage, hiddenInset, returned };
         }, mode);
         checks.push({ width, locale, mode, insetReset:result });
         if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
         assert.ok(result.scrolled.inset > 0, 'fixture first creates a real sticky-header inset');
+        assert.equal(result.hiddenStage, mode === 'hide' ? 'ready' : 'live', 'fixture exercises the requested production stage');
+        assert.equal(result.returnedStage, 'live', 'fixture returns to the live stage');
         assert.equal(result.hiddenInset, 0, 'AIT-400: fold/hide clears the stale top inset');
         assert.deepEqual(result.returned, result.before, 'AIT-400: fold/hide → live has 0 px empty top gap before the next scroll');
         assert.ok(result.returned.bubbleTop >= result.returned.lastTopRowBottom, 'returned first bubble is fully below the last top row');
