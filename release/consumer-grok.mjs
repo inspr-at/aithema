@@ -7,9 +7,12 @@ import { createGrokVoiceProvider } from '@inspr/aithema-plugin-grok-voice/server
 import { createGrokVoiceClient } from '@inspr/aithema-plugin-grok-voice/client';
 
 export async function testGrokConsumer() {
+  // Synthetic account validity follows the wall clock read by both Grok factories.
+  const fixtureNow = Date.now(), day = 86_400_000;
+  const date = offset => new Date(fixtureNow + offset).toISOString().slice(0, 10);
   const config = { secretRef: 'private:fixture-secret', accountRef: 'private:fixture-account',
     accountEvidence: { zdrEnabled: true, dpaAccepted: true, recipient: 'SpaceXAI LLC', recipientCountry: 'US',
-      processing: 'international-no-guaranteed-region', reviewedAt: '2026-10-18', expiresAt: '2099-01-01',
+      processing: 'international-no-guaranteed-region', reviewedAt: date(-day), expiresAt: date(30 * day),
       zdrRef: 'private:zdr', dpaRef: 'private:dpa', retentionRef: 'private:retention', transferRef: 'private:transfers',
       approvalRef: 'private:approval', contractRef: 'private:contract' } };
   const binding = (model = 'grok-voice') => ({ plugin: 'grok-voice', model, endpoint: 'https://api.x.ai', effort: 'none',
@@ -36,7 +39,7 @@ export async function testGrokConsumer() {
   reasoningBinding.legal = { ...voiceLegal, purpose: 'models-international', recipient: 'Fixture reasoning', countries: ['AT'],
     evidence: { ...voiceLegal.evidence, accountRef: reasoningBinding.accountRef, secretRef: reasoningBinding.secretRef,
       model: reasoningBinding.model, endpoint: reasoningBinding.endpoint } };
-  const reasoning = { binding: reasoningBinding,
+  const reasoning = { bind(binding) { return { ...this, binding }; }, binding: reasoningBinding,
     manifest: publicReasoningManifest(reasoningBinding.plugin, 'Fixture reasoning', reasoningBinding.endpoint),
     health: async () => ({ available: true }), structured() { assert.fail('Voice uses admitted streaming reasoning'); },
     async *stream(request, options) {
@@ -74,9 +77,11 @@ export async function testGrokConsumer() {
       componentBindings: { stt: binding('grok-voice-transcribe-2.0'), tts: binding('grok-voice-tts') },
       resolveSecret: () => 'synthetic-only', connect,
       authenticateRelay: request => request.headers.get('x-owner'), relayOrigin: 'https://host.test' });
+    const understanding = { ...reasoningBinding, model: 'fixture-analysis', legal: { ...reasoningBinding.legal,
+      evidence: { ...reasoningBinding.legal.evidence, model: 'fixture-analysis' } } };
     const registry = new PluginRegistry().register(provider).register(reasoning);
     const preset = { plugins: ['grok-voice', reasoningBinding.plugin],
-      bindings: { voice: binding(), reaction: reasoningBinding, understanding: reasoningBinding },
+      bindings: { voice: binding(), reaction: reasoningBinding, understanding },
       policy: { endpoints: ['https://api.x.ai', reasoningBinding.endpoint] } };
     const runtime = createPluginRuntime({ storage, budget, registry, consent, presets: { best: preset } });
     handlers = createVoiceHandlers({ storage, runtime, ownership: { token: request => request.headers.get('x-owner') },

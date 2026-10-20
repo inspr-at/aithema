@@ -274,6 +274,12 @@
     ],
     "reason": "AIT-201 lane-race red proof forwards the child environment after removing NODE_TEST_CONTEXT"
   },
+  "test/measurements/consent-reload-repeat.test.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "AIT-398 remote browser qualification forwards the child environment after removing NODE_TEST_CONTEXT"
+  },
   "test/fixtures/lane-race-validation.js": {
     "reads": [
       "process.env"

@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { bindSQLiteClock } from '../../../test/fixtures/sqlite-clock.js';
 import { CORE_RETIREMENT_TABLES } from '../src/storage.js';
 import assert from 'node:assert/strict';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
@@ -9,7 +10,7 @@ import { testToken, ownedRequest, mockConsent, temporaryDb } from '../../../test
 
 const request = (path, init) => ownedRequest(`http://localhost/api/sessions/${path}`, init);
 function fixture(t) {
-  const storage = new SQLiteStorage(), erased = [];
+  const storage = bindSQLiteClock(new SQLiteStorage()), erased = [];
   const handlers = createHandlers({ storage, consent: mockConsent, host: { retired: info => erased.push(info) } });
   t.after(async () => { await handlers.close(); storage.close(); });
   return { storage, handlers, erased };
@@ -177,11 +178,14 @@ test('failed host cleanup survives restart, is retried and only then acknowledge
 });
 
 test('retirement removes accounting links while preserving deployment spend and daily caps', async t => {
+  const midnight = Date.parse('2028-10-21T00:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now: midnight - 1 });
   const { storage, handlers } = fixture(t), s = storage.create();
-  const ledger = new SQLiteBudgetLedger(storage);
-  const spend = createSpendCap({ storage, account: 'test-account', capMicro: 100 });
-  const voice = createVoiceCap({ storage, capMilliseconds: 60_000, perDayMilliseconds: 60_000 });
-  const renders = createUIRenderLimiter({ storage, perDay: 1 });
+  const now = () => midnight - 1;
+  const ledger = new SQLiteBudgetLedger(storage, { now });
+  const spend = createSpendCap({ storage, account: 'test-account', capMicro: 100, now });
+  const voice = createVoiceCap({ storage, capMilliseconds: 60_000, perDayMilliseconds: 60_000, now });
+  const renders = createUIRenderLimiter({ storage, perDay: 1, now });
   ledger.admit({ attemptId: 'attempt', sessionId: s.id, lane: 'concept', maxMicro: 100, requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
   const reservation = spend.reserve(100, { attemptId: 'attempt', provider: 'private-provider' });
   spend.record(reservation, { generationId: 'private-generation', chargedMicro: 101 });
@@ -191,6 +195,7 @@ test('retirement removes accounting links while preserving deployment spend and 
   const spentBefore = spend.snapshot({ includeBreachReason: true }), voiceBefore = voice.snapshot();
   age(storage, s.id);
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
+  t.mock.timers.setTime(midnight);
   assert.deepEqual(spend.snapshot({ includeBreachReason: true }), spentBefore);
   assert.deepEqual(voice.snapshot(), voiceBefore);
   assert.equal(renders.reason('new-session'), 'UI render limit reached for this UTC day');

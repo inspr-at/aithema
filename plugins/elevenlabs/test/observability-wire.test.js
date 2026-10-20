@@ -4,12 +4,15 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { replayObservabilityCallbacks } from '../../../test/voice-observability-wire.js';
 import { readVoiceObservabilityFixture } from '../../../test/voice-observability-fixtures.js';
+import { VOICE_WIRE_EPOCH } from '../../../test/voice-wire-fixtures.js';
 import { readConversationDetails, reconcileUsage } from '../src/server.js';
 
 const load = name => readFile(new URL(`../../../test/fixtures/${name}.json`, import.meta.url), 'utf8');
 
 test('AIT-139: independent v1 callback fixtures replay growth, truncation, retry and partial streams offline', async t => {
   t.mock.method(globalThis, 'fetch', () => assert.fail('Offline replay must never access a provider'));
+  // Wire timestamps and facade deadlines share the fixture clock.
+  t.mock.timers.enable({ apis: ['Date'], now: VOICE_WIRE_EPOCH + 10_000 });
   const { bytes, fixture } = await readVoiceObservabilityFixture('callbacks'), logs = [];
   assert.equal(fixture.format, 'aithema-voice-wire'); assert.equal(fixture.version, 1);
   const observed = await replayObservabilityCallbacks(fixture, record => logs.push(typeof record === 'string' ? JSON.parse(record) : record));
