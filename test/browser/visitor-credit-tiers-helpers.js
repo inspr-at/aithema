@@ -59,6 +59,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
         const limitMicro = allowancesMicro[tier];
         return Response.json({ balance: { owner: { limitMicro, committedMicro: state.spent + state.reserved,
           confirmedSpendMicro: state.spent, reservedMicro: state.reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - state.spent - state.reserved) } }, exhausted: state.spent >= limitMicro, limitSlot: null,
+          ...(state.dailyCap ? { scope: 'session', dailyCapReached: true } : {}),
           tiers: { current: tier, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm: delivery && privacy, allowancesMicro } });
       }
       if (path.endsWith('/visitor/email')) {
@@ -100,6 +101,72 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
   }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
   await until(page, () => window.a2.creditsReads > 0);
   await settle(page);
+}
+
+// Tick spec v1, AIT-406 (2026-10-20): always cover all twelve combinations,
+// reuse one page, and compare every state against the same default geometry.
+export async function composerCreditReservationMatrix(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait406-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
+  browser = await browserForFile();
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const rows = [], selectors = ['.question-card', '.composer-shell'];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session);
+  const accessibility = await page.createCDPSession();
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1024, 390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.select('#locale', locale); await page.select('#theme', theme);
+    await fixture(page, locale);
+    const before = await boxes(page, selectors);
+    for (const state of ['default', 'host-limit', 'one-hour', 'daily-cap']) {
+      if (state !== 'default') {
+        const reads = await page.evaluate(() => window.a2.creditsReads);
+        await shadow(page, (c, state) => {
+          window.a2.spent = 12_000_000;
+          window.a2.dailyCap = state === 'daily-cap';
+          c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: state === 'one-hour' ? 'one-hour' : 'host-limit' } });
+        }, state);
+        await page.waitForFunction(reads => window.a2.creditsReads > reads, { timeout: 20_000 }, reads);
+      }
+      await settle(page);
+      const after = await boxes(page, selectors);
+      const variants = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].map(n => ({
+        key: n.dataset.creditVariant, text: n.textContent, visibility: getComputedStyle(n).visibility, ariaHidden: n.getAttribute('aria-hidden'),
+      })));
+      const { nodes } = await accessibility.send('Accessibility.getFullAXTree');
+      const axNames = nodes.filter(n => !n.ignored && n.role?.value === 'StaticText').map(n => n.name?.value);
+      const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
+        movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
+        variants, hiddenVariantsAbsent: variants.filter(n => n.ariaHidden === 'true').every(n => !axNames.includes(n.text)),
+        activeBody: await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].filter(n => getComputedStyle(n).visibility === 'visible').map(n => n.textContent)) };
+      rows.push(row);
+      t.diagnostic(`AIT-406 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
+      if (evidence && locale === 'de' && theme === 'light' && state === 'one-hour' && [390, 1024].includes(width)) {
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1);
+        if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+        await settle(page);
+        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-one-hour.png`), fullPage: false });
+      }
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait406-composer-checks.json'), JSON.stringify({ head: process.env.GITHUB_SHA, spec: 'Tick spec v1, AIT-406, 2026-10-20', rows }, null, 2));
+  assert.equal(rows.length, 48);
+  // Geometry precedes variant assertions so the unfixed baseline proves the
+  // original regression, rather than failing on the new markup contract first.
+  for (const row of rows) {
+    const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
+    unchanged(row.before, row.after, label);
+    assert.equal(row.composerHeight, row.before[1][3], `${label}: identical composer height`);
+    assert.ok(row.variants.length >= 4, `${label}: all credit variants reserve the grid cell`);
+    assert.ok(row.variants.filter(n => n.ariaHidden === 'true').every(n => n.visibility === 'hidden'), `${label}: inactive variants hidden`);
+    assert.equal(row.hiddenVariantsAbsent, true, `${label}: hidden variants absent from accessibility tree`);
+    assert.equal(row.activeBody.length, row.state === 'default' ? 0 : 1, `${label}: only the active variant is painted`);
+  }
 }
 
 export async function visitorCreditMatrix(t, locales) {
