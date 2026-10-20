@@ -140,6 +140,18 @@ test('AIT-403 sweep retirement receipt deferral defaults to installed storage cl
     h.now() + 3_600_000);
 });
 
+test('AIT-430 retirement cannot age host-stamped billing evidence on a future policy clock', async t => {
+  const h = fixture(t, { explicit: true });
+  h.advance(2 * 3_600_000);
+  h.runtime.budget.admit({ attemptId: 'retirement-clock', sessionId: h.session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), providerCost: { plugin: 'offline-cost' } });
+  const claim = h.runtime.budget.claim('retirement-clock'); claim.consume();
+  h.runtime.budget.settle(claim.claimId, { attemptId: claim.attemptId, outcome: 'uncertain' });
+  h.storage.erase(h.session.id);
+  assert.throws(() => h.storage.assertRetirementSettled(h.session.id), { message: 'Retirement billing unsettled' });
+  assert.equal(h.storage.db.prepare('SELECT billing_sealed FROM retirement_pending WHERE session_id=?').get(h.session.id).billing_sealed, 0);
+});
+
 test('AIT-403 sweep provider-cap audit evidence uses installed host clock', async t => {
   const h = fixture(t), cap = createSpendCap({ storage: h.storage, account: 'clock', capMicro: 100 });
   cap.saveSettings({ baseRevision: cap.settings().revision, capUsd: '0.000100' }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
