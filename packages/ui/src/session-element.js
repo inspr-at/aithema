@@ -1629,7 +1629,11 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
     const itemRetry = this.#clarify?.state === 'retry';
-    const replyRetry = replyFailed && overviewFailed && !itemRetry;
+    const replyRetry = replyFailed && (overviewFailed || !analysis.available || locked) && !itemRetry;
+    if (replyFailed && !itemRetry && !this.#host?.usedUp) {
+      root.querySelector('.retry').hidden = Boolean(running);
+      root.querySelector('.retry').disabled = !this.#feature('text').available || Boolean(running);
+    }
     if (itemRetry) root.querySelector('.retry').hidden = true;
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading

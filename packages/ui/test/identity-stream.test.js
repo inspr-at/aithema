@@ -27,7 +27,7 @@ for (const copy of [en, de]) test(`AIT-418: address change stays editable, block
 
 test('AIT-418: race failure renders existing failed reply with retry and permits address change', async t => {
   const verified = identity({ status: 'verified', address: 'before@example.test' });
-  const { c, root } = setup(t, { host: { verification: true }, session: { identified: true, identity: verified } });
+  const { c, root } = setup(t, { host: { verification: true }, session: { identified: true, identity: verified, featureMatrix: { best: { text: { available: true }, analysis: { available: false, reason: 'not configured' } } } } });
   await tick(8); userTurn(c);
   c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...verified, status: 'verification-pending', identified: false } });
   const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', retryable: true };

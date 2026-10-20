@@ -94,6 +94,7 @@ async function fixture(page, locale, delivery, canConfirm = delivery, credits = 
     for (const legal of c.querySelectorAll('[slot=legal]')) legal.remove();
     const legal = document.createElement('a'); legal.slot = 'legal'; legal.href = '/privacy'; legal.setAttribute('data-aithema-privacy', ''); legal.textContent = locale === 'de' ? 'Datenschutz' : 'Privacy'; c.append(legal);
     const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.identity = identity();
+    if (credits.replyAvailable) session.featureMatrix = { best: { text: { available: true }, analysis: { available: false, reason: 'not configured' } } };
     c.setAttribute('motion', 'off');
     c.configure({ session, copy, host: { credits: true, verification: { delivery, privacyDocumentConfigured: true }, operator: { url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', provider: 'Zitadel' } } });
   }, { locale, delivery, canConfirm, credits });
@@ -514,7 +515,7 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
     if (evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
   };
   for (const locale of ['de', 'en']) {
-    await fixture(page, locale, true);
+    await fixture(page, locale, true, true, { replyAvailable: true });
     await shadow(page, c => {
       c.setAttribute('theme', 'light'); c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
