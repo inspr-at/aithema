@@ -271,7 +271,8 @@ browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
-export const browserShardHeadroomTarget = 400;
+// AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
+export const browserShardHeadroomTarget = 405;
 
 export function packBrowserTests(files, weights = browserTestWeights, shardCount = browserShardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Invalid browser shard count');

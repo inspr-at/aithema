@@ -220,13 +220,22 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
   const conceptHandlers = createConceptHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal, ...concepts });
+  const touchVisitor = session => {
+    const failed = () => {
+      try { Promise.resolve(log({ event: 'host.touch-visitor.failed', sessionId: session.id })).catch(() => {}); }
+      catch { /* Diagnostics cannot interrupt a turn or call. */ }
+    };
+    // Activity is best effort: accepted input and call controls must continue.
+    try { Promise.resolve(host?.touchVisitor?.(session)).catch(failed); }
+    catch { failed(); }
+  };
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
+    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
-        host?.touchVisitor?.(storage.get(id));
+        touchVisitor(storage.get(id));
         conceptHandlers.onTurn(id, event.data.id);
       }
       if (purposePolicy && !voiceHandlers.delegatesReply(id)) schedule(id);
@@ -567,7 +576,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
-        if (!replayed) host?.touchVisitor?.(storage.get(id));
+        if (!replayed) touchVisitor(storage.get(id));
         if (!replayed) hostHandlers.startCredits(id, ownerToken, initialBalance);
         schedule(id);
         return json(event, 200);
