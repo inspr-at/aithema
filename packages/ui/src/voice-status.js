@@ -6,7 +6,7 @@ const reasonGroups = {
   voiceLimit: ['Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day'],
   checking: ['budget reconciling'], off: ['voice off'], verification: ['verification required'],
   setup: ['not configured', 'plugin not registered', 'preset not configured', 'template-agent-required'],
-  provider: ['plugin unhealthy', 'agent-api-unavailable'],
+  provider: ['plugin unhealthy'],
   ended: ['closed', 'turn-withdrawn', 'turn-expired', 'server-restart', 'server-stopping'],
   permission: ['call-authorization-lost'], consentWithdrawn: ['consent-withdrawn'],
   consentRevised: ['consent-revised'], sessionRevoked: ['session-revoked'],

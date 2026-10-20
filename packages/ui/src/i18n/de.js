@@ -588,7 +588,7 @@ export const de = {
     'public-origin-invalid': 'Adresse des Sprachhosts ungültig',
     'api-base-invalid': 'Adresse des Sprachanbieters ungültig',
     'voice-secret-unavailable': 'Zugang zum Sprachanbieter nicht verfügbar',
-    'agent-api-unavailable': 'Sprachanbieter antwortet nicht',
+    'agent-api-unavailable': 'Sprache gerade nicht verfügbar',
     'agent-api': 'Anfrage an den Sprachanbieter fehlgeschlagen (HTTP {status})',
     'agent-list-incomplete': 'Liste des Sprachanbieters unvollständig',
     'agent-list-invalid': 'Liste des Sprachanbieters ungültig',
