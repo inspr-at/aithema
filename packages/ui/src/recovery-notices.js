@@ -50,9 +50,11 @@ export class RecoveryNotices {
     for (const reply of replies) {
       retained.add(reply.turnId);
       let controls = this.replyRows.get(reply.turnId);
-      if (controls && (controls.reply.text !== reply.text || controls.row.parentElement !== reply.target)) {
-        controls.dispose(); this.replyRows.delete(reply.turnId); controls = null;
+      if (controls && controls.reply.text !== reply.text) {
+        this.stopReplay?.(); controls.playing = false; controls.fallback = false;
+        controls.reply = { text: reply.text, turnId: reply.turnId };
       }
+      if (controls && controls.row.parentElement !== reply.target) reply.target.append(controls.row);
       if (!controls) {
         controls = new ReplyControls({ reply: { text: reply.text, turnId: reply.turnId }, target: reply.target, owner: this });
         this.replyRows.set(reply.turnId, controls);

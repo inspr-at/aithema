@@ -17,6 +17,7 @@ export class ReplyControls {
   current() { return this.row.isConnected && this.owner.replyVisible(this.reply.text, this.reply.turnId); }
   render(latest) {
     const owner = this.owner, c = owner.copy, duringCall = owner.inCall();
+    if (duringCall) this.playing = false;
     // The legacy latest-reply hooks address only the current reply; every row
     // has permanent reply-action hooks for its own lifetime.
     this.row.classList.toggle('voice-reply-actions', latest && !owner.recovery);
@@ -33,8 +34,7 @@ export class ReplyControls {
     }
     this.button.dataset.replayState = this.playing ? 'playing' : 'idle';
     this.button.setAttribute('aria-pressed', String(Boolean(this.playing)));
-    if (this.wasInCall !== duringCall && duringCall) this.playing = false;
-    this.wasInCall = duringCall;
+
   }
   showText() {
     if (this.readText.disabled || !this.current()) return;
