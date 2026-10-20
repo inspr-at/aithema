@@ -528,8 +528,18 @@ export async function visitorCreditMatrix(t, locales) {
       });
       assert.equal(oneHour.duplicateToast, false); assert.equal(oneHour.polite, 'polite');
       assert.equal(oneHour.announcement, `${oneHour.title} ${oneHour.body}`);
+      const hourAfter = await boxes(page, liveFixed);
+      if (evidence && JSON.stringify(hourBefore) !== JSON.stringify(hourAfter)) {
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        const file = `ait406-one-hour-${label}.png`;
+        await page.screenshot({ path: join(evidence, file), fullPage: false });
+        await writeFile(join(evidence, `${file}.json`), JSON.stringify({ locale, theme, width, selectors: liveFixed,
+          before: hourBefore, after: hourAfter, settled: await boxes(page, liveFixed),
+          fonts: await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-shell')).fontFamily) }, null, 2));
+      }
       uiChecks.push({ locale, theme, width, state: 'one-hour-single-announcement', pass: true, ...oneHour,
-        displacementPx: unchanged(hourBefore, await boxes(page, liveFixed), `${label}/one-hour`) });
+        displacementPx: unchanged(hourBefore, hourAfter, `${label}/one-hour`) });
       if (theme === 'light') await ait292Capture('one-hour');
     }
     assert.deepEqual(problems, []);

@@ -244,6 +244,17 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       await page.evaluate(() => { window.ait164.after = Date.now() + 86_400_000; window.ait164.spent = 12_000_000 - 980_000; }); await reply();
       stable(footerBefore, await boxes(page, ['.host-credits', '.engine-info']), `${label}/footer-fewer-digits`);
       const footer = await shadow(page, c => { const r = c.shadowRoot, left = r.querySelector('.ai-notice').getBoundingClientRect(), credit = r.querySelector('.host-credits').getBoundingClientRect(); return { gap: credit.left - left.right, numeric: getComputedStyle(r.querySelector('.host-credits__amount')).fontVariantNumeric }; });
+      if (evidence && footer.gap < 23.5) {
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        const file = `ait406-footer-gap-${label}.png`;
+        await page.screenshot({ path: join(evidence, file), fullPage: false });
+        await writeFile(join(evidence, `${file}.json`), JSON.stringify({ locale, width, footer,
+          geometry: await shadow(page, c => ['.display-foot', '.ai-notice', '.host-credits'].map(selector => {
+            const node = c.shadowRoot.querySelector(selector), style = getComputedStyle(node);
+            return { selector, box: node.getBoundingClientRect().toJSON(), gap: style.gap, fontFamily: style.fontFamily };
+          })) }, null, 2));
+      }
       assert.ok(footer.gap >= 23.5, `${label}: footer gap ${footer.gap}`); assert.equal(footer.numeric, 'tabular-nums'); await shot('footer-fewer-digits');
       await begin({ motion: 'on' }); baseline = await boxes(page, targets);
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#message'); input.value = 'draft'; input.focus(); input.dispatchEvent(new Event('input')); });
