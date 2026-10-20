@@ -134,7 +134,11 @@ export class SQLiteStorage {
         CREATE INDEX IF NOT EXISTS lifecycle_session ON voice_lifecycle_calls(session_id);
         CREATE INDEX IF NOT EXISTS sessions_erased ON sessions(id) WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL;`);
       const pendingColumns = this.db.prepare('PRAGMA table_info(retirement_pending)').all();
-      for (const [name, type] of [['owner_hash', 'TEXT'], ['attempts', 'INTEGER NOT NULL DEFAULT 0'], ['retry_at', 'INTEGER NOT NULL DEFAULT 0'], ['wait_for_billing', 'INTEGER NOT NULL DEFAULT 0'], ['billing_sealed', 'INTEGER NOT NULL DEFAULT 0'], ['billing_deadline_ms', 'INTEGER']]) {
+      // Drop the legacy trigger before its referenced, unused column. The
+      // migration and replacement trigger commit with every pending row intact.
+      this.db.exec('DROP TRIGGER IF EXISTS retirement_erase');
+      if (pendingColumns.some(column => column.name === 'wait_for_billing')) this.db.exec('ALTER TABLE retirement_pending DROP COLUMN wait_for_billing');
+      for (const [name, type] of [['owner_hash', 'TEXT'], ['attempts', 'INTEGER NOT NULL DEFAULT 0'], ['retry_at', 'INTEGER NOT NULL DEFAULT 0'], ['billing_sealed', 'INTEGER NOT NULL DEFAULT 0'], ['billing_deadline_ms', 'INTEGER']]) {
         if (!pendingColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE retirement_pending ADD COLUMN ${name} ${type}`);
       }
       this.db.exec(`UPDATE retirement_pending SET owner_hash=(SELECT json_extract(snapshot,'$.ownerHash') FROM sessions WHERE id=session_id) WHERE owner_hash IS NULL;
@@ -153,11 +157,10 @@ export class SQLiteStorage {
           UPDATE session_retention SET last_activity=MAX(last_activity,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)) WHERE session_id=NEW.session_id; END;
         CREATE TRIGGER IF NOT EXISTS retention_erase AFTER UPDATE ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL BEGIN
           DELETE FROM session_retention WHERE session_id=NEW.id; END;
-        DROP TRIGGER IF EXISTS retirement_erase;
         CREATE TRIGGER retirement_erase AFTER UPDATE ON sessions
           WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL AND retirement_ready(NEW.id)=1 BEGIN
-          INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash,wait_for_billing)
-            VALUES (NEW.id,json_extract(NEW.snapshot,'$.ownerHash'),1); END;`);
+          INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash)
+            VALUES (NEW.id,json_extract(NEW.snapshot,'$.ownerHash')); END;`);
     });
     // New tombstones queue through the trigger. Revisit at most one indexed page
     // of older tombstones per sweep; restart may safely revisit already queued IDs.
@@ -204,8 +207,8 @@ export class SQLiteStorage {
       const remaining = this.erasingRetirements.get(id) - 1;
       if (remaining) { this.erasingRetirements.set(id, remaining); return; }
       this.erasingRetirements.delete(id);
-      this.db.prepare(`INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash,wait_for_billing)
-        SELECT id,json_extract(snapshot,'$.ownerHash'),1 FROM sessions
+      this.db.prepare(`INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash)
+        SELECT id,json_extract(snapshot,'$.ownerHash') FROM sessions
         WHERE id=? AND json_extract(snapshot,'$.tombstone') IS NOT NULL`).run(id);
     };
   }
@@ -214,7 +217,7 @@ export class SQLiteStorage {
       const rows = this.db.prepare(`SELECT id,json_extract(snapshot,'$.ownerHash') AS owner_hash FROM sessions
         WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL AND id>? AND id<=? AND retirement_ready(id)=1 ORDER BY id LIMIT ?`)
         .all(this.erasedRetirementCursor, this.erasedRetirementEnd, limit);
-      const queue = this.db.prepare('INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash,wait_for_billing) VALUES (?,?,1)');
+      const queue = this.db.prepare('INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash) VALUES (?,?)');
       for (const row of rows) queue.run(row.id, row.owner_hash);
       return rows;
     });
