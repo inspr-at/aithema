@@ -276,8 +276,8 @@ export class AudioRail {
         cell.removeAttribute('tabindex'); cell.removeAttribute('aria-label'); cell.removeAttribute('aria-describedby'); this.button(name).removeAttribute('aria-describedby');
       }
     }
-    // Tick v3: the latest reply keeps its action row through the call lifecycle.
-    const pageReply = this.lastReply?.();
+    // Recovery notices own their exact reply; Tick v3 retains the normal latest reply across call states.
+    const pageReply = !this.notices.recovery ? this.lastReply?.() : null;
     if (this.notices.pageReply?.turnId !== pageReply?.turnId || this.notices.pageReply?.text !== pageReply?.text) {
       this.client?.stopReplay?.(); this.notices.playing = false;
     }
