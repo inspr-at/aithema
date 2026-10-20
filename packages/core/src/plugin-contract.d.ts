@@ -45,16 +45,18 @@ export type VoiceCapability = 'native' | 'emulated' | 'unavailable';
 export interface LiveVoiceDeclaration {
   reasoning: 'delegated' | 'native';
   transcript: { finality: 'fragments' | 'turns'; persistence: 'durable' | 'memory-only' };
-  capabilities: Record<'sendText' | 'updateContext' | 'setInput' | 'setOutput' | 'pause' | 'resume' | 'interrupt' | 'heard', VoiceCapability>;
+  capabilities: Record<'sendText' | 'updateContext' | 'setInput' | 'setOutput' | 'pause' | 'resume' | 'interrupt' | 'heard', VoiceCapability> & {
+    onMicrophoneState?: VoiceCapability; replyStarted?: VoiceCapability; opener?: boolean;
+  };
   billing: { visitor: string; upstream: string };
   ownership?: Record<'stt' | 'tts' | 'turnTaking', 'provider' | 'server' | 'browser'>;
   optionalCapabilities?: Partial<Record<'forceInterrupt' | 'alignment' | 'playbackRetry' | 'metering' | 'speakText', VoiceCapability>>;
 }
 export type VoiceEvent = { callId: string; providerSessionId?: string; generation?: string | number; epoch?: number } & (
-  { type: 'listening' | 'speaking'; replay?: boolean; completed?: boolean } |
+  { type: 'listening' | 'speaking'; replay?: boolean; completed?: boolean; audio?: boolean; filler?: boolean; replyId?: string } |
   { type: 'recovering' | 'recovered' } |
   { type: 'waiting'; reason?: string; /** Absolute, capped retry-after deadline. */ retryAt?: number } |
-  { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string } |
+  { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string; filler?: boolean } |
   { type: 'heard'; turnId: string; prefix: string } |
   { type: 'ended'; reason: string }
 );
@@ -72,6 +74,8 @@ export interface VoiceTerminal {
 }
 export type VoiceCommandOptions = Pick<OperationOptions, 'signal' | 'deadlineAt'>;
 export interface VoiceStartOptions extends VoiceCommandOptions {
+  /** Only actual device acquisition may report these phases. */
+  onMicrophoneState?(phase: 'requesting' | 'granted'): void;
   attempt: OperationOptions['attempt'] & { maxMicro: number };
   report(terminal: VoiceTerminal): Promise<void> | void;
   spendDeadlineAt: number;

@@ -402,3 +402,106 @@ test('AIT-263: playback activity reaches the server before it is exposed to focu
   assert.deepEqual(activity.map(event => event.type), ['speaking', 'listening']);
   assert.deepEqual(exposed, ['speaking', 'final', 'listening', 'ended']);
 });
+
+test('AIT-383: a hold during permission inspection keeps startup device-free', async t => {
+  const local = fixture(), permission = Promise.withResolvers(), inspected = Promise.withResolvers(), hold = new AbortController(), phases = [];
+  const { createElevenLabsClient } = await import('../src/client.js');
+  const client = createElevenLabsClient({ control: local.control, sdk: local.sdk,
+    mediaDevices: local.sdk.mediaDevices, AudioContext: local.sdk.AudioContext, persistEvent: async () => {},
+    permissions: { query() { inspected.resolve(); return permission.promise; } } });
+  const starting = client.start({ callId: 'held-permission-inspection' }, invocationOptions({ holdSignal: hold.signal, onMicrophoneState: p => phases.push(p) }));
+  await inspected.promise; hold.abort(); permission.resolve({ state: 'prompt' });
+  const session = await starting; t.after(() => session.close());
+  assert.equal(local.sdk.acquired.length, 0); assert.deepEqual(phases, []);
+  assert.equal(local.sdk.conversations[0].track.source, 'silence');
+});
+
+test('AIT-383: capable fresh startup refuses a silent opener override before SDK dispatch', async () => {
+  const local = fixture(), start = local.control.start;
+  local.control.start = async (...args) => ({ ...await start(...args), overrides: { agent: { language: 'de', firstMessage: '' } } });
+  await assert.rejects(local.client.start({ callId: 'silent-fresh' }, invocationOptions({ onMicrophoneState() {} })), { code: 'invalid-output' });
+  assert.equal(local.sdk.starts.length, 0);
+});
+
+test('AIT-383: real server lease stays open through a 60 s permission prompt and grant', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const permission = Promise.withResolvers(), local = fixture(), startControl = local.control.start, phases = [];
+  local.sdk.beforeAcquire = () => permission.promise;
+  local.control.start = (request, opts) => startControl(request, invocationOptions({ ...opts,
+    deadlineAt: Date.now() + 30_000, spendDeadlineAt: Date.now() + 180_000, browserLivenessDeadlineAt: Date.now() + 30_000 }));
+  const starting = local.client.start({ callId: 'server-lease-permission' }, { onMicrophoneState: phase => phases.push(phase) });
+  let session;
+  t.after(async () => { permission.resolve(); await session?.close(); });
+  // Give each heartbeat the same event-loop turns as an actual browser timer.
+  const settle = async () => { for (let i = 0; i < 12; i++) await flush(); };
+  await settle(); assert.deepEqual(phases, ['requesting']);
+  const serverSession = [...local.sessions.values()][0];
+  assert.equal(serverSession.snapshot().browserLivenessDeadlineAt, 130_000);
+  for (let second = 0; second < 60; second++) { t.mock.timers.tick(1000); await settle(); }
+  assert.equal(serverSession.signal.aborted, false, 'real server lifetime must not expire at 30 s');
+  assert.equal(serverSession.snapshot().browserLivenessDeadlineAt, 190_000);
+  permission.resolve(); session = await starting;
+  assert.equal(session.lifecycle.state.state, 'active');
+  assert.equal(session.lifecycle.state.browserLivenessDeadlineAt, serverSession.snapshot().browserLivenessDeadlineAt);
+  await session.heartbeat(); assert.equal(serverSession.signal.aborted, false);
+  await session.close(); assert.equal(serverSession.snapshot().reason, 'closed');
+});
+
+test('AIT-383 round 3: one heartbeat hiccup during the prompt retries without cancelling startup', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  // Isolate one permission decision; the default fixture separately covers
+  // the SDK's preliminary acquisition followed by its main input acquisition.
+  const permission = Promise.withResolvers(), local = fixture({ sdk: fakeSdk({ preliminaryCapture: false }) }), start = local.control.start,
+    heartbeat = local.control.heartbeat, phases = [];
+  let renewals = 0, recoveries = 0, closures = 0, session;
+  local.sdk.beforeAcquire = () => permission.promise;
+  local.control.start = (request, opts) => start(request, invocationOptions({ ...opts,
+    deadlineAt: Date.now() + 30_000, spendDeadlineAt: Date.now() + 180_000, browserLivenessDeadlineAt: Date.now() + 30_000 }));
+  local.control.heartbeat = (...args) => {
+    if (++renewals === 1) throw new TypeError('temporary offline fixture');
+    return heartbeat(...args);
+  };
+  local.control.recover = async () => { recoveries++; throw new Error('startup must not recover'); };
+  const close = local.control.close;
+  local.control.close = (...args) => { closures++; return close(...args); };
+  const starting = local.client.start({ callId: 'prompt-renewal-hiccup' }, { onMicrophoneState: phase => phases.push(phase) });
+  const outcome = starting.catch(error => error);
+  t.after(async () => { permission.resolve(); await session?.close(); await outcome; });
+  const settle = async () => { for (let i = 0; i < 12; i++) await flush(); };
+  await settle(); assert.deepEqual(phases, ['requesting']);
+  for (let second = 0; second < 11; second++) { t.mock.timers.tick(1000); await settle(); }
+  assert.equal(recoveries, 0, 'there is no provider connection to recover during the prompt');
+  assert.equal(closures, 0, 'one renewal failure must not close the pending startup');
+  assert.ok(renewals >= 2, 'renewal retries within the existing lease');
+  for (let second = 11; second < 60; second++) { t.mock.timers.tick(1000); await settle(); }
+  assert.deepEqual(phases, ['requesting']);
+  assert.equal([...local.sessions.values()][0].signal.aborted, false);
+  permission.resolve(); session = await starting;
+  assert.deepEqual(phases, ['requesting', 'granted']);
+  assert.equal(session.lifecycle.state.state, 'active');
+  assert.equal(local.sdk.starts.length, 1); assert.equal(recoveries, 0);
+});
+
+test('AIT-383 round 3: prompt renewal retries are bounded and the next heartbeat can succeed', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const permission = Promise.withResolvers(), local = fixture(), start = local.control.start, heartbeat = local.control.heartbeat;
+  let renewals = 0, recoveries = 0, failing = true, session;
+  local.sdk.beforeAcquire = () => permission.promise;
+  local.control.start = (request, opts) => start(request, invocationOptions({ ...opts,
+    deadlineAt: Date.now() + 30_000, spendDeadlineAt: Date.now() + 180_000, browserLivenessDeadlineAt: Date.now() + 30_000 }));
+  local.control.heartbeat = (...args) => { renewals++; if (failing) throw new TypeError('offline fixture'); return heartbeat(...args); };
+  local.control.recover = async () => { recoveries++; throw new Error('no connected provider'); };
+  const starting = local.client.start({ callId: 'prompt-bounded-renewal' }, { onMicrophoneState() {} });
+  const outcome = starting.catch(error => error);
+  t.after(async () => { permission.resolve(); await session?.close(); await outcome; });
+  const settle = async () => { for (let i = 0; i < 12; i++) await flush(); };
+  await settle(); t.mock.timers.tick(10_000); await settle();
+  assert.equal(renewals, 3, 'a startup heartbeat permits only three renewal attempts');
+  assert.equal(recoveries, 0);
+  assert.equal([...local.sessions.values()][0].signal.aborted, false);
+  failing = false; t.mock.timers.tick(10_000); await settle();
+  assert.equal(renewals, 4);
+  assert.equal([...local.sessions.values()][0].snapshot().browserLivenessDeadlineAt, 150_000);
+  permission.resolve(); session = await starting;
+  assert.equal(session.lifecycle.state.state, 'active'); assert.equal(recoveries, 0);
+});

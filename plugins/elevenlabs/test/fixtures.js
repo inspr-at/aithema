@@ -17,7 +17,7 @@ function audioStream(source) {
     stop() { this.readyState = 'ended'; }, getSettings: () => ({}) };
   return { getTracks: () => [track], getAudioTracks: () => [track], clone: () => audioStream(source) };
 }
-export function fakeSdk() {
+export function fakeSdk({ preliminaryCapture = true } = {}) {
   const starts = [], effects = [], conversations = [], outgoing = [], acquired = []; let closed = false;
   const mediaDevices = { async getUserMedia() {
     await sdk.beforeAcquire?.();
@@ -43,7 +43,7 @@ export function fakeSdk() {
     async startSession(options) {
       starts.push(options); closed = false;
       const providerSessionId = options.conversationToken?.replace('fixture-token-', '') ?? new URL(options.signedUrl).searchParams.get('conversation_id');
-      const preliminary = await mediaDevices.getUserMedia({ audio: true });
+      const preliminary = preliminaryCapture ? await mediaDevices.getUserMedia({ audio: true }) : undefined;
       let stream = await mediaDevices.getUserMedia({ audio: true }), muted = false, publication;
       const publish = () => { publication = { track: { mediaStreamTrack: stream.getAudioTracks()[0],
         stop() { this.mediaStreamTrack.stop(); }, async mute() { muted = true; }, async unmute() { muted = false; } } }; };
@@ -88,7 +88,7 @@ export function fakeSdk() {
         getId: () => providerSessionId,
         async endSession() {
           effects.push(['endSession']); stream.getTracks().forEach(track => track.stop());
-          preliminary.getTracks().forEach(track => track.stop()); closed = true;
+          preliminary?.getTracks().forEach(track => track.stop()); closed = true;
           options.onDisconnect({ reason: 'user' });
         },
         setMicMuted(value) {
@@ -102,7 +102,7 @@ export function fakeSdk() {
       conversations.push(object);
       // Both transports attach/publish audio before the public creation hook.
       sdk.sample(); await sdk.beforeCreated?.(object, options);
-      preliminary.getTracks().forEach(track => track.stop());
+      preliminary?.getTracks().forEach(track => track.stop());
       options.onConversationCreated?.(object);
       options.onConnect({ conversationId: providerSessionId }); return object;
     },

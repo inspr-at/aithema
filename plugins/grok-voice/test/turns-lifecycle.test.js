@@ -405,3 +405,36 @@ test('AIT-349: captured barge-in silences the physical player before stalled rel
   assert.ok(stops > before, 'physical silence must precede network receipt');
   delivered.resolve(); await ingress;
 });
+
+test('AIT-383: coordinator reply-start provenance accompanies its first provider PCM frame', async t => {
+  const h = fixture(t);
+  await h.coordinator.sendText('Eine Frage.', receipt('provider-audio')); await h.coordinator.idle();
+  const speaking = h.events.filter(e => e.type === 'speaking');
+  assert.equal(speaking.length, 1); assert.equal(speaking[0].audio, true); assert.equal(speaking[0].filler, false);
+});
+
+test('AIT-383: physical PCM start callback waits for running audible output and ignores silence/stop', async t => {
+  const { createPCMPlayer } = await import('@inspr/aithema-server/composed-voice/browser-audio');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let context, starts = 0;
+  class Context {
+    currentTime = 0; state = 'suspended'; destination = {};
+    constructor() { context = this; }
+    createAnalyser() { return { connect() {}, disconnect() {} }; }
+    createBuffer(_channels, length) { const samples = new Float32Array(length); return { getChannelData: () => samples }; }
+    createBufferSource() { return { connect() {}, disconnect() {}, start() {}, stop() {} }; }
+    resume() { return Promise.resolve(); } close() { return Promise.resolve(); }
+  }
+  const player = createPCMPlayer({ AudioContext: Context }); t.after(() => player.close());
+  const options = { format: 'pcm_s16le', sampleRateHz: 16000, channels: 1, onStarted: () => starts++ };
+  const audible = player.play(new Uint8Array([0, 64]), options);
+  context.currentTime = 0.03; t.mock.timers.tick(10); assert.equal(starts, 0);
+  context.state = 'running'; t.mock.timers.tick(10); assert.equal(starts, 1);
+  t.mock.timers.tick(10); assert.equal(starts, 1);
+  player.stop(); await audible;
+  const silence = player.play(new Uint8Array(32), options);
+  context.currentTime += 0.03; t.mock.timers.tick(10); assert.equal(starts, 1);
+  player.stop(); await silence;
+  const stopped = player.play(new Uint8Array([0, 64]), options);
+  player.stop(); context.currentTime += 1; t.mock.timers.tick(1000); await stopped; assert.equal(starts, 1);
+});

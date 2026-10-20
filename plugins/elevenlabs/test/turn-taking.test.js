@@ -72,10 +72,10 @@ async function playbackFixture(t, transport, { persistEvent = async () => {} } =
     : roomEvents.get(RoomEvent.DataReceived)(new TextEncoder().encode(JSON.stringify(event)));
   const agent = (id, text = 'Eine Antwort zum Hosting.') => wire({ type: 'agent_response',
     agent_response_event: { event_id: id, agent_response: text } });
-  const audio = (id, sample = 16384) => wire({ type: 'audio', audio_event: { event_id: id,
+  const audio = (id, sample = 16384, text = 'H') => wire({ type: 'audio', audio_event: { event_id: id,
     ...(transport === 'websocket'
       ? { audio_base_64: Buffer.from(new Int16Array(512).fill(sample).buffer).toString('base64') }
-      : { alignment: { chars: ['H'], char_start_times_ms: [0], char_durations_ms: [32] } }) } });
+      : { alignment: { chars: [...text], char_start_times_ms: [0], char_durations_ms: [32] } }) } });
   // The SDK's WebRTC analyser synthesizes these IDs locally, after track audio.
   const analysedAudio = id => connection.handleMessage({ type: 'audio', audio_event: { event_id: id,
     audio_base_64: Buffer.from(new Int16Array(128).fill(16384).buffer).toString('base64') } });
@@ -288,4 +288,24 @@ test('AIT-146: replay a German utterance with pauses and spelling as one complet
   assert.equal(saved.find(event => event.role === 'user').text, text);
   assert.deepEqual(saved.filter(event => event.type === 'heard').map(event => event.prefix), ['Ich kann']);
   assert.equal(events.filter(event => event.type === 'partial').length, replay.length);
+});
+
+for (const transport of ['webrtc', 'websocket']) test(`AIT-383: ${transport} audible provenance excludes mode, holding prefixes, stale and muted audio`, async t => {
+  const local = await playbackFixture(t, transport), events = [];
+  const reading = (async () => { for await (const event of local.session.events) events.push(event); })();
+  t.after(async () => { await local.session.close(); await reading; });
+  const qualified = () => events.filter(e => e.type === 'speaking' && e.audio === true && e.filler === false);
+  local.sdk.starts[0].onModeChange({ mode: 'speaking' });
+  local.part(10, 'start', 'Einen Moment, bitte.');
+  local.agent(10, 'Einen Moment, bitte.');
+  local.audio(10, 16384, 'Einen '); local.audio(10, 16384, 'Moment, bitte.');
+  await flush(); await flush(); assert.equal(qualified().length, 0);
+  local.part(11, 'start', 'Eine Antwort.');
+  local.audio(11, 16384, 'Eine Antwort.');
+  await flush(); await flush(); assert.equal(qualified().length, 1);
+  local.audio(11, 16384, 'Mehr davon.'); local.audio(10, 16384, 'Ein alter Nachtrag.');
+  local.analysedAudio(99); await flush(); await flush(); assert.equal(qualified().length, 1);
+  await local.session.setOutput(false);
+  local.agent(12, 'Stumm.'); local.audio(12, 16384, 'Stumm.');
+  await flush(); await flush(); assert.equal(qualified().length, 1);
 });

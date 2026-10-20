@@ -4,6 +4,12 @@ import { createComposedVoiceCoordinator, callDurationSeconds } from '@inspr/aith
 import { elevenLabsCompletion, runElevenLabsReply } from '../../elevenlabs/src/reply.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
+import { createComposedRelay } from '@inspr/aithema-server/composed-voice/relay';
+import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
+import { createGrokVoiceClient } from '../../grok-voice/src/client.js';
+import { Window } from 'happy-dom';
+import { AudioRail } from '../../../packages/ui/src/audio-rail.js';
+import { de } from '../../../packages/ui/src/i18n/de.js';
 
 const pcm = (ms, amplitude = 8000) => {
   const bytes = Buffer.alloc(ms * 32);
@@ -89,6 +95,195 @@ test('AIT-160: interruption stops playback synchronously and retains admitted re
   release.resolve(); await interrupt; await h.coordinator.idle();
   assert.equal(finished, true); assert.equal(h.audio.length, 0);
 });
+
+test('AIT-383 round 3: a browser typed turn stops server TTS and records the previous reply interrupted', async t => {
+  const at = Date.now(), heard = Promise.withResolvers(), release = Promise.withResolvers(), saved = [];
+  const relay = createComposedRelay({ callId: 'call-offline', providerSessionId: 'composed-generation-1', epoch: 0,
+    expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
+  let synthesisSignal, lateChunks = 0;
+  const audio = [];
+  const h = fixture(t, { interruptionAwareness: true,
+    commitUtterance: async (envelope, opts) => { saved.push({ envelope, ...opts }); },
+    relay: { event: value => relay.event(value), silence: value => relay.silence(value),
+      audio: frame => { audio.push(frame); relay.audio(frame); } },
+    replyExecutor: { async *execute(envelope) {
+      const first = envelope.payload.callbackBody.messages.at(-1).content === 'First';
+      const replyId = first ? 'reply-A' : 'reply-B', text = first ? 'First answer. ' : 'Second answer.';
+      yield { type: 'operation', replyId };
+      yield { type: 'delta', text };
+      yield { type: 'completion', replyId, text };
+    } },
+    tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak({ text }, opts) {
+      await opts.attempt.consume();
+      if (text === 'First answer. ') {
+        synthesisSignal = opts.signal;
+        yield new Uint8Array(4);
+        await release.promise; lateChunks++;
+        yield new Uint8Array(4);
+      } else yield new Uint8Array(4);
+    } } });
+  relay.attach(h.coordinator);
+  const media = createComposedBrowserMedia({ openRelay: grant => relay.connect(grant),
+    capture: async () => ({ stop() {} }), player: { stop() {}, play() { heard.resolve(); } } });
+  const session = await media.connect(relay.grant);
+  t.after(async () => { release.resolve(); await session.close(); });
+  await session.sendText('First', { deliveryId: 'first' }); await heard.promise;
+  const before = audio.filter(frame => frame.replyId === 'reply-A').length;
+  assert.equal(before, 1);
+  await session.sendText('Second', { deliveryId: 'second' });
+  assert.equal(synthesisSignal.aborted, true, 'the typed turn must stop synthesis on the server');
+  assert.deepEqual(saved.filter(value => value.role === 'interrupted').map(value => [value.replyId, value.heardLength]),
+    [['reply-A', 'unknown']], 'Grok has no confirmed played offset; never claim the full reply was heard');
+  release.resolve(); await h.coordinator.idle();
+  assert.equal(audio.filter(frame => frame.replyId === 'reply-A').length, before, 'no reply-A TTS frames after the typed turn');
+  assert.equal(audio.filter(frame => frame.replyId === 'reply-B').length, 1);
+  assert.equal(lateChunks, 1, 'even an uncooperative late provider chunk is fenced');
+  await session.sendText('Second', { deliveryId: 'second' });
+  assert.equal(saved.filter(value => value.role === 'interrupted').length, 1, 'a delivery retry is not a new interruption');
+});
+
+for (const turn of ['typed', 'spoken']) for (const late of [false, true]) {
+  test(`AIT-383 round 4: ${turn} turn fences an interrupted final ${late ? 'after' : 'before'} S5 appears`, { timeout: 10_000 }, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const flush = async () => { for (let n = 0; n < 8; n++) await new Promise(resolve => setImmediate(resolve)); };
+    const advance = async ms => {
+      while (ms > 0) { const step = Math.min(ms, 1000); t.mock.timers.tick(step); await flush(); ms -= step; }
+    };
+    const releaseA = Promise.withResolvers(), releaseB = Promise.withResolvers(), heard = Promise.withResolvers();
+    const saved = [], serverFinals = [], clientFinals = [];
+    let h, relay, capture;
+    const start = async request => {
+      const at = Date.now();
+      relay = createComposedRelay({ callId: request.callId, providerSessionId: 'composed-generation-1', epoch: 0,
+        expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
+      h = fixture(t, { callId: request.callId, interruptionAwareness: true,
+        commitUtterance: async (envelope, opts) => { saved.push({ envelope, ...opts }); },
+        relay: { audio: frame => relay.audio(frame), silence: frame => relay.silence(frame), event: value => {
+          if (value.type === 'final' && value.role === 'assistant') serverFinals.push(value);
+          relay.event(value);
+        } },
+        replyExecutor: { async *execute(envelope) {
+          const first = envelope.payload.callbackBody.messages.at(-1).content === 'First';
+          const replyId = first ? 'reply-A' : 'reply-B', text = first ? 'First answer. ' : 'Second answer.';
+          yield { type: 'operation', replyId };
+          // A is audible but reasoning has not completed when B interrupts it.
+          if (first) { yield { type: 'delta', text }; await releaseA.promise; }
+          else { await releaseB.promise; yield { type: 'delta', text }; }
+          yield { type: 'completion', replyId, text };
+        } },
+        tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(4); } } });
+      relay.attach(h.coordinator);
+      return { ...relay.grant, epoch: 0, mediaGrant: relay.grant };
+    };
+    const client = createGrokVoiceClient({
+      control: { start,
+        close: () => h.coordinator.close(), heartbeat: () => h.coordinator.heartbeat(),
+        async pause() {}, async resume() {}, async recover() { assert.fail('No recovery expected'); } },
+      openRelay: grant => relay.connect(grant), capture: async opts => { capture = opts; return { stop() {} }; },
+      // No device-start callback for B: its final alone must clear S5.
+      player: { stop() {}, play() { heard.resolve(); } } });
+    const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+    const rail = new AudioRail({ root, copy: de, client, context: () => ({}), feature: () => ({ available: true }),
+      onFinal: event => clientFinals.push(event) });
+    t.after(async () => {
+      releaseA.resolve(); releaseB.resolve(); await rail.close(); rail.destroy(); await window.happyDOM.abort();
+    });
+    await rail.start();
+    assert.equal(rail.state, 'listening', 'the real Grok client connects');
+    await rail.sendText('First'); await heard.promise;
+    if (turn === 'typed') await rail.sendText('Second');
+    else { await capture.onAudio(pcm(100)); await capture.onAudio(pcm(500, 0)); }
+    await flush();
+    assert.equal(clientFinals.filter(event => event.role === 'user').length, 2, 'both visitor turns reached the real rail');
+    const watch = rail.replyTimer;
+    assert.ok(watch, 'B arms a new S5 watch');
+    await advance(late ? 15_000 : 14_999);
+    assert.equal(rail.errorKey, late ? 'voiceNoReply' : null);
+    const state = rail.state;
+    releaseA.resolve(); await flush();
+    assert.equal(serverFinals.find(event => event.turnId === 'reply-A')?.text, 'First answer. ', 'interrupted reasoning still completes');
+    assert.deepEqual(saved.filter(value => value.role === 'interrupted').map(value => [value.replyId, value.heardLength]),
+      [['reply-A', 'unknown']], 'retain the AIT-349 interruption record');
+    assert.equal(rail.replyTimer, watch, 'A\'s late final must not clear B\'s watch');
+    assert.equal(rail.errorKey, late ? 'voiceNoReply' : null, 'A\'s late final must not dismiss visible S5');
+    assert.equal(rail.state, state, 'A\'s late final must not flip S5 to speaking');
+    assert.equal(clientFinals.some(event => event.turnId === 'reply-A'), false, 'the interrupted final stays out of the live rail');
+    if (!late) { await advance(1); assert.equal(rail.errorKey, 'voiceNoReply', 'B still times out at 15 s'); }
+    releaseB.resolve(); await h.coordinator.idle(); await flush();
+    assert.equal(clientFinals.filter(event => event.turnId === 'reply-B').length, 1);
+    assert.equal(rail.replyTimer, null, 'B\'s own final clears its watch');
+    assert.equal(rail.errorKey, null, 'B\'s own final clears S5');
+    assert.equal(rail.state, 'speaking');
+  });
+}
+
+for (const cause of ['speaker-off', 'empty-stt']) for (const interruptionAwareness of [false, true]) {
+  test(`AIT-383 round 5: ${cause} keeps the current final live (interruption awareness ${interruptionAwareness})`, { timeout: 10_000 }, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const flush = async () => { for (let n = 0; n < 8; n++) await new Promise(resolve => setImmediate(resolve)); };
+    const advance = async ms => {
+      while (ms > 0) { const step = Math.min(ms, 1000); t.mock.timers.tick(step); await flush(); ms -= step; }
+    };
+    const release = Promise.withResolvers(), reasoning = Promise.withResolvers(), noiseFinalized = Promise.withResolvers();
+    const serverFinals = [], clientFinals = [], silences = [];
+    let h, relay, capture, replies = 0;
+    const start = async request => {
+      const at = Date.now();
+      relay = createComposedRelay({ callId: request.callId, providerSessionId: 'composed-generation-1', epoch: 0,
+        expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
+      h = fixture(t, { callId: request.callId, interruptionAwareness,
+        relay: { audio: frame => relay.audio(frame), silence: frame => { silences.push(frame); relay.silence(frame); }, event: value => {
+          if (value.type === 'final' && value.role === 'assistant') serverFinals.push(value);
+          relay.event(value);
+        } },
+        replyExecutor: { async *execute() {
+          replies++;
+          yield { type: 'operation', replyId: 'reply-B' };
+          reasoning.resolve(); await release.promise;
+          yield { type: 'delta', text: 'Second answer.' };
+          yield { type: 'completion', replyId: 'reply-B', text: 'Second answer.' };
+        } },
+        stt: { async *stream({ audio }, opts) {
+          await opts.attempt.consume(); await collect(audio);
+          await opts.report({ attemptId: opts.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
+          yield { text: '  ', final: true };
+          noiseFinalized.resolve();
+        } },
+        tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(4); } } });
+      relay.attach(h.coordinator);
+      return { ...relay.grant, epoch: 0, mediaGrant: relay.grant };
+    };
+    const client = createGrokVoiceClient({
+      control: { start,
+        close: () => h.coordinator.close(), heartbeat: () => h.coordinator.heartbeat(),
+        async pause() {}, async resume() {}, async recover() { assert.fail('No recovery expected'); } },
+      openRelay: grant => relay.connect(grant), capture: async opts => { capture = opts; return { stop() {} }; },
+      player: { stop() {}, play() { assert.fail('Silenced playback cannot supply a reply-start event'); } } });
+    const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+    const rail = new AudioRail({ root, copy: de, client, context: () => ({}), feature: () => ({ available: true }),
+      onFinal: event => clientFinals.push(event) });
+    t.after(async () => { release.resolve(); await rail.close(); rail.destroy(); await window.happyDOM.abort(); });
+    await rail.start(); await rail.sendText('Second'); await reasoning.promise; await flush();
+    const watch = rail.replyTimer;
+    assert.ok(watch, 'B arms the S5 watch while reasoning');
+    if (cause === 'speaker-off') { rail.button('output').click(); await flush(); assert.equal(rail.output, false); }
+    else { await capture.onAudio(pcm(100)); await capture.onAudio(pcm(500, 0)); await noiseFinalized.promise; await flush(); }
+    assert.equal(silences.at(-1).reason, cause === 'speaker-off' ? 'output-off' : 'barge-in');
+    assert.equal(clientFinals.filter(event => event.role === 'user').length, 1, 'no later visitor turn was accepted');
+    assert.equal(replies, 1, 'noise must not start another reply');
+    assert.equal(rail.replyTimer, watch, 'silencing alone keeps the existing S5 deadline');
+    await advance(14_999);
+    assert.equal(rail.errorKey, null);
+    release.resolve(); await h.coordinator.idle(); await flush();
+    assert.equal(serverFinals.length, 1, 'B completes despite silenced playback');
+    assert.equal(clientFinals.filter(event => event.turnId === 'reply-B').length, 1, 'B\'s own final must reach the rail');
+    assert.notEqual(serverFinals[0].interrupted, true, 'only an accepted replacement may interrupt a live final');
+    assert.equal(rail.replyTimer, null, 'B\'s own final clears its S5 watch');
+    await advance(1);
+    assert.equal(rail.errorKey, null, 'no false voiceNoReply at 15 s after B answered');
+    assert.ok(rail.session, 'the call stays connected');
+  });
+}
 
 test('AIT-160: pause holds capture until an authorized acknowledgement; explicit duration preserves the ceiling', async t => {
   let allowed = true;

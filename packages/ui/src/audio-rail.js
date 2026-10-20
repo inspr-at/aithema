@@ -290,10 +290,11 @@ export class AudioRail {
       error?.name === 'NotFoundError' ? 'voiceMicMissing' :
       error?.name === 'NotReadableError' ? 'voiceMicBusy' :
       error?.name === 'NoMediaAPIError' ? 'voiceMicUnavailable' :
-      ['OverconstrainedError', 'AbortError'].includes(error?.name) || error?.phase === 'microphone' ? 'voiceMicFailed' :
       error?.code === 'not-admitted' ? 'voiceAdmissionDenied' :
       error?.code === 'voice-conflict' ? 'voiceConflict' :
-      error?.code === 'deadline' ? 'voiceDeadline' : 'voiceConnectionFailed';
+      error?.code === 'deadline' ? 'voiceDeadline' :
+      error?.name === 'OverconstrainedError' || error?.phase === 'microphone' ||
+      error?.name === 'AbortError' && !error?.phase && !this.declaredSignal('onMicrophoneState') && typeof error?.code !== 'string' ? 'voiceMicFailed' : 'voiceConnectionFailed';
     this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
     this.retryAt = voiceRetryAt(error);
     this.render();
@@ -430,6 +431,7 @@ export class AudioRail {
       // Only requesting opens S1 and suspends this guard; grant starts a fresh
       // 30 s provider deadline. Cleanup/cooldown above remain outside both.
       if (microphonePhases) connectDeadline();
+      const continuing = Boolean(this.waitingCall);
       const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
         signal: controller.signal, holdSignal: holdController.signal,
         // Today's clients retain main's option and their own deadline scopes.
@@ -461,7 +463,7 @@ export class AudioRail {
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.startupPhase = null; this.state = 'listening';
       clearTimeout(connectTimer); this.stopReplyWatch();
-      if (this.client.manifest?.liveVoice?.capabilities?.opener === true) this.awaitReply(session, generation);
+      if (!continuing && this.client.manifest?.liveVoice?.capabilities?.opener === true) this.awaitReply(session, generation);
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;
@@ -496,7 +498,7 @@ export class AudioRail {
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
       this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; controller.abort();
-      if (this.startupPhase === 'microphone' && !error.code) error.phase = 'microphone';
+      if (this.startupPhase === 'microphone' && typeof error.code !== 'string' && !error.phase) error.phase = 'microphone';
       this.startupPhase = null; this.stopReplyWatch();
       this.state = this.waitingCall ? 'waiting' : 'failed'; this.failure(error);
     } finally { clearTimeout(connectTimer); }
