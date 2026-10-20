@@ -426,7 +426,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   // Resolve by the admitted scope, never an option id that the host can rebind.
   // Local mock scopes use the same path and existing-call evaluation as providers.
   async function publicationStatus(session, { signal, deadlineAt = now() + healthMs, operation = 'generate',
-    visualKind: selected = visualKind(session), visuals, artifactId, consentScope } = {}) {
+    visualKind: selected = visualKind(session), visuals, artifactId, consentScope, evaluations } = {}) {
     const current = storage.get(session.id), preset = current.processingPreset ?? 'best';
     if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash ||
       current.consentRevision !== session.consentRevision) return 'consent';
@@ -454,8 +454,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       : offered.filter(option => visuals === undefined || option.id === visuals);
     let refusal = 'unavailable';
     for (const { binding: raw } of candidates) {
-      const result = await boundedEvaluate({ ...current, paused: false }, preset, selected,
-        { signal, deadlineAt, operation, existingCall: true, raw });
+      const key = evaluations && hash([current.id, current.ownerHash, current.consentRevision, current.identity, preset, selected, operation, raw]);
+      let pending = evaluations?.get(key);
+      if (!pending) {
+        pending = boundedEvaluate({ ...current, paused: false }, preset, selected,
+          { signal, deadlineAt, operation, existingCall: true, raw });
+        evaluations?.set(key, pending);
+      }
+      const result = await pending;
       const latest = storage.get(session.id);
       if (signal?.aborted || latest.tombstone || latest.consentWithdrawn || latest.ownerHash !== session.ownerHash ||
         latest.consentRevision !== session.consentRevision) return 'consent';

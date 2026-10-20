@@ -286,15 +286,21 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const features = Object.fromEntries(FEATURES.map(feature => [feature, purposes(session, feature)]));
     const unavailableFeatures = [];
     const delivered = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn);
-    // Each full publication gate remains authoritative; independent reads must
-    // not queue behind a slow producer. No verdict survives this request.
-    const artifacts = Object.fromEntries(await Promise.all(delivered.map(async artifact => {
-      const feature = artifact.mediaType === 'text/html' ? 'html' : 'images';
-      const producerPurposes = purposes({ ...session, concepts: [artifact] }, feature);
-      const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature,
-        operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
-      return [artifact.id, { purposes: producerPurposes, unavailable: !producerPurposes.length || status === 'unavailable' }];
-    })));
+    // Bound full publication gates while sharing identical binding evaluations.
+    // Artifact checks stay authoritative; no evaluation survives this request.
+    const evaluations = new Map(), entries = new Array(delivered.length);
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(4, delivered.length) }, async () => {
+      while (next < delivered.length) {
+        const index = next++, artifact = delivered[index];
+        const feature = artifact.mediaType === 'text/html' ? 'html' : 'images';
+        const producerPurposes = purposes({ ...session, concepts: [artifact] }, feature);
+        const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature, evaluations,
+          operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
+        entries[index] = [artifact.id, { purposes: producerPurposes, unavailable: !producerPurposes.length || status === 'unavailable' }];
+      }
+    }));
+    const artifacts = Object.fromEntries(entries);
     for (const feature of ['html', 'images']) {
       const kind = delivered.filter(item => (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
       if (!kind.length) continue;

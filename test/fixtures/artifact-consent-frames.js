@@ -24,7 +24,7 @@ export async function artifactConsentFrames(t) {
     window.c=document.createElement('aithema-session');const session=await(await fetch('/api/sessions/ait374')).json();
     c.configure({session,copy,sessionToken:'fixture-owner',concepts:{previewURL:location.origin+'/_aithema/html-preview'}});
     c.setAttribute('theme','light');c.setAttribute('motion','off');document.documentElement.lang=locale;document.body.append(c);window.ready=true;
-    window.boxes=()=>Object.fromEntries(['.concept-stage','.concept-html','.concept-viewer-head','.concept-viewer-controls','.drafts-canvas','.composer','.concept-access'].map(s=>{const b=c.shadowRoot.querySelector(s).getBoundingClientRect();return[s,[b.x,b.y,b.width,b.height]];}));
+    window.boxes=(kind='html')=>Object.fromEntries(['.concept-stage','.concept-'+kind,'.concept-viewer-head','.concept-viewer-controls','.drafts-canvas','.composer','.concept-access'].map(s=>{const b=c.shadowRoot.querySelector(s).getBoundingClientRect();return[s,[b.x,b.y,b.width,b.height]];}));
   </script></body></html>`;
   const server = createServer(async (req, res) => {
     try {
@@ -33,6 +33,10 @@ export async function artifactConsentFrames(t) {
       const json = value => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
       if (path.endsWith('/events')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.write(': connected\n\n'); }
       if (path.endsWith('/consent')) return json(coverage);
+      if (path.endsWith('/image')) {
+        requests.push(path); res.writeHead(200, { 'content-type': 'image/png' });
+        return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+      }
       if (path.endsWith('/preview')) {
         requests.push(path);
         if (path.includes('/bad/')) { res.writeHead(403); return res.end(); }
@@ -50,7 +54,7 @@ export async function artifactConsentFrames(t) {
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await page.close(); await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], imageChecks = [], imageShots = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   for (const [width, locale] of [[390, 'de'], [390, 'en'], [1440, 'de']]) await t.test(`${width}/light/${locale}`, async () => {
@@ -89,6 +93,33 @@ export async function artifactConsentFrames(t) {
     }
     checks.push({ width, height: 900, locale, theme: 'light', ...state, movementPx: 0, siblingOrder: ['first', 'bad', 'last'], siblingsReady: true,
       keyboardReachedMessage: true, accessibleNameVerified: true, viewportOnly: true, settled: true, blurred: true, pinnedFonts: true });
+    if (locale === 'de') {
+      await page.evaluate(coverage => {
+        window.imageSession = { ...c.session, conceptVisualKind: 'image', settings: { ...c.session.settings, visuals: 'images' },
+          concepts: c.session.concepts.map(item => ({ ...item, mediaType: 'image/png', width: 480, height: 320 })) };
+        window.imageCoverage = { ...coverage, features: { images: ['drafts', 'old-drafts'] } };
+        view.update(imageSession, { ...imageCoverage, artifacts: Object.fromEntries(Object.entries(imageCoverage.artifacts).map(([id, value]) => [id, { ...value, unavailable: false }])) });
+        view.open('bad');
+      }, coverage);
+      await page.waitForFunction(() => { const image = c.shadowRoot.querySelector('.concept-image'); return image.src && image.complete && image.naturalWidth > 0; });
+      const imageBaseline = await page.evaluate(() => boxes('image')), before = requests.length;
+      await page.evaluate(() => view.update(imageSession, imageCoverage));
+      const imageState = await page.evaluate(() => ({ boxes: boxes('image'),
+        src: c.shadowRoot.querySelector('.concept-image').hasAttribute('src'),
+        message: c.shadowRoot.querySelector('.concept-image-status').textContent,
+        order: view.displayItems.map(item => item.id) }));
+      assert.deepEqual(imageState.boxes, imageBaseline, 'AIT-428: unavailable image slot moves 0 px');
+      assert.equal(imageState.src, false); assert.equal(imageState.message, 'Diese Vorschau ist nicht verfügbar.');
+      assert.deepEqual(imageState.order, ['first', 'bad', 'last']);
+      assert.equal(requests.length, before, 'unavailable image cannot request bytes');
+      await page.evaluate(async () => { c.shadowRoot.activeElement?.shadowRoot?.activeElement?.blur(); c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
+      await page.mouse.move(-10, -10);
+      const file = `ait428-image-${width}-light-${locale}.png`;
+      if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); imageShots.push(file);
+      imageChecks.push({ width, height: 900, locale, theme: 'light', ...imageState, baseline: imageBaseline, movementPx: 0,
+        viewportOnly: true, settled: true, blurred: true, pinnedFonts: true });
+    }
   });
   if (evidence) await writeFile(join(evidence, 'ait374-checks.json'), JSON.stringify({ shots, checks, offline: true }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait428-checks.json'), JSON.stringify({ shots: imageShots, checks: imageChecks, offline: true }, null, 2));
 }
