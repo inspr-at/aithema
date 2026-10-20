@@ -65,7 +65,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   if (!Number.isSafeInteger(retiredHookTimeoutMs) || retiredHookTimeoutMs < 1) throw new TypeError('Invalid retired hook timeout');
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
-  const handlerClock = voice?.now ?? (typeof host?.now === 'function' ? () => host.now() : () => Date.now());
+  const handlerClock = typeof host?.now === 'function' ? () => host.now() : voice?.now ?? (() => Date.now());
   if (voice?.now || typeof host?.now === 'function') pluginRuntime.setHostClock?.(handlerClock);
   const now = pluginRuntime.now ?? handlerClock;
   pluginRuntime.setLaneDiagnostic?.(log);

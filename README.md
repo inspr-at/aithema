@@ -1030,8 +1030,9 @@ runtime clock, preserving an explicitly configured runtime clock. `operationScop
 uses the deadline's clock for expiry and converts its remaining budget into an elapsed timer.
 HTTP text and voice deadlines, continuation spend reservations, binding evidence
 and callback operations use the runtime's clock. An explicit runtime `now` wins;
-otherwise handlers install `voice.now`, then `host.now`, then `Date.now`.
-Evidence expires at the exact boundary on that clock. Concept lanes forward their own clock.
+otherwise handlers install `host.now`, then legacy `voice.now`, then `Date.now`.
+Evidence expires at the exact boundary on that clock. Ledger settlement timestamps
+retain the host clock for accounting attribution. Concept lanes forward their own clock.
 Upload request budgets remain elapsed wall-clock budgets and identify that clock
 explicitly when calling runtime admission.
 The ElevenLabs completions facade uses its injected `now` for callback, call,

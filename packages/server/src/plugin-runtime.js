@@ -525,7 +525,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return adapter ? [adapter] : [];
     }),
     setOwnerWallet(provider) { ownerWallet = provider; },
-    setHostClock(clock) { now = configuredNow ?? clock; budget.now = now; storage.setHostClock?.(now); },
+    setHostClock(clock) { now = configuredNow ?? clock; budget.now = clock; storage.setHostClock?.(clock); },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       // OPS and the background worker share one writer. A dry-run performs only
