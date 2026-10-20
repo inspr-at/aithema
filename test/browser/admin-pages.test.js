@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import puppeteer from './launch.js';
 import { listen } from '../../packages/server/src/http.js';
 import { adminFixture } from '../fixtures/admin-host.js';
+import { adminCopy } from '../../demo/admin-copy.js';
 import { ADMIN_LAUNCH_TIMEOUT, ADMIN_STEP_TIMEOUT, adminSteps } from './admin-steps.js';
 import { browserPath, evidenceCommit } from './start2-display-helpers.js';
 import { fullMatrix } from './matrix-coverage.js';
@@ -263,4 +264,66 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   const saved = f.host.visitorCredits.settings();
   assert.equal(saved.allowancesMicro.emailGiven, 18_000_000); assert.equal(saved.mailCap.hour, 40); assert.equal(saved.confirmationEnabled, true);
   assert.deepEqual(await run('geometry', () => geometry(page)), before, 'three section saves: 0 px'); assert.deepEqual(errors, []);
+
+  // AIT-403 / Tick v1: both clocks are pinned, and Vienna midnight is still
+  // 22:00 UTC. Exercise the real host -> HTTP -> page path without a new browser.
+  const beforeMidnight = Date.parse('2026-10-14T21:59:59Z'), afterMidnight = beforeMidnight + 2000;
+  await run('page.emulateTimezone', () => page.emulateTimezone('Europe/Vienna'));
+  await run('page.evaluateOnNewDocument clock', () => page.evaluateOnNewDocument(wall => {
+    const NativeDate = Date;
+    window.__adminWallNow = wall;
+    window.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : [window.__adminWallNow])); }
+      static now() { return window.__adminWallNow; }
+    };
+  }, afterMidnight + 12 * 60 * 60_000));
+  const observed = [], expected = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await run('mkdir clock evidence', () => mkdir(evidence, { recursive: true }));
+  for (const [locale, width, theme] of [['de', 390, 'light'], ['en', 1440, 'dark']]) {
+    at('AIT-403 local midnight', { locale, theme, width });
+    f.setTime(beforeMidnight);
+    await run('page.setViewport clock', () => page.setViewport({ width, height: 900 }));
+    await run('page.emulateMediaFeatures clock', () => page.emulateMediaFeatures([
+      { name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' },
+    ]));
+    await run('page.goto clock', () => page.goto(server.url + '/admin?lang=' + locale, { waitUntil: 'domcontentloaded' }));
+    await run('page.import clock', () => page.evaluate(() => import('/demo/admin-page.js')));
+    await run('page.fonts clock', () => page.evaluate(() => document.fonts.ready));
+    const baseline = await run('geometry clock', () => geometry(page));
+    const record = async (phase, mode, at, sameDay) => {
+      const formatted = new Intl.DateTimeFormat(locale, { timeZone: 'Europe/Vienna', ...(sameDay ? {} : { day: 'numeric', month: 'short' }), hour: '2-digit', minute: '2-digit' }).format(new Date(at));
+      observed.push({ locale, phase, text: await run('page.status clock', () => page.$eval('[data-sec=credits] .ad-status .cur', n => n.textContent)) });
+      expected.push({ locale, phase, text: adminCopy[locale][mode].replace('{time}', formatted) });
+      assert.deepEqual(await run('geometry clock status', () => geometry(page)), baseline, `${locale} ${phase}: 0 px`);
+      if (evidence) {
+        await run('page.blur clock', () => page.evaluate(() => { document.activeElement?.blur(); document.querySelector('[data-sec=credits]').scrollIntoView(); }));
+        await run('page.pointer clock', () => page.mouse.move(-1, -1));
+        await run('page.settle clock', () => page.evaluate(async () => { await Promise.all(document.getAnimations().map(a => a.finished)); }));
+        await run('page.screenshot clock', () => page.screenshot({ path: join(evidence, `ait-403-${evidenceCommit}-${locale}-${theme}-${width}-${phase}.png`), fullPage: false }));
+      }
+    };
+    await run('edit before midnight', () => edit(page, '1900'));
+    await click(page, run, '[data-save=credits]');
+    await run('saved before midnight', signal => page.waitForSelector('[data-sec=credits][data-mode=saved]', { signal }));
+    await record('before-midnight', 'saved', beforeMidnight, true);
+    // A concurrent pre-midnight change is displayed after midnight. The browser
+    // is now on the old day, so using it would incorrectly omit the date.
+    const settings = f.host.visitorCredits.settings();
+    f.host.visitorCredits.saveSettings({ baseRevision: settings.revision, confirmationEnabled: !settings.confirmationEnabled }, { source: 'ops-cli', actor: 'ops-cli:clock' });
+    f.setTime(afterMidnight);
+    await run('page.pin old browser day', () => page.evaluate(wall => { window.__adminWallNow = wall; }, beforeMidnight));
+    await run('edit after midnight', () => edit(page, '2000'));
+    await click(page, run, '[data-save=credits]');
+    await run('conflict after midnight', signal => page.waitForSelector('[data-sec=credits][data-mode=conflict]', { signal }));
+    await record('after-midnight-conflict', 'conflict', beforeMidnight, false);
+    await click(page, run, '[data-save=credits]');
+    await run('reloaded after midnight', signal => page.waitForSelector('[data-sec=credits][data-mode=clean]', { signal }));
+    await run('edit new host day', () => edit(page, '2000'));
+    await click(page, run, '[data-save=credits]');
+    await run('saved after midnight', signal => page.waitForSelector('[data-sec=credits][data-mode=saved]', { signal }));
+    await record('after-midnight-saved', 'saved', afterMidnight, true);
+    assert.equal(await run('page.pinned clock', () => page.evaluate(() => Date.now())), beforeMidnight);
+  }
+  assert.deepEqual(observed, expected, 'AIT-403 today follows host.now across viewer-local midnight, independently of the browser clock');
+  assert.deepEqual(errors, []);
 });

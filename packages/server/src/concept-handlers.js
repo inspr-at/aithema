@@ -7,7 +7,7 @@ import { UI_RENDER_SESSION_REASON, UI_RENDER_DAY_REASON } from './ui-render-limi
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 export function createConceptHandlers({ storage, runtime, ownership, readBody, publish, signal, policy, deadlineMs, estimateMs,
-  references = () => [], previewURL, previewCapabilities = createHTMLPreviewCapabilities() }) {
+  references = () => [], previewURL, previewCapabilities = createHTMLPreviewCapabilities(), now = runtime.now ?? (() => storage.now()) }) {
   const preview = previewConfiguration(previewURL);
   const scopeFor = (session, artifactId, artifact) => ({ sessionId: session.id, artifactId, ownerHash: session.ownerHash,
     consentRevision: session.consentRevision, contentDigest: artifact.provenance?.subject?.contentDigest });
@@ -43,7 +43,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     }), referenceIds: selected.map(r => r.id), refreshReferenceIds: selected.filter(r => extras.includes(r)).map(r => r.id),
       feedback };
   };
-  const lane = new ConceptLane({ getSession: id => storage.get(id), prepare, policy, deadlineMs, estimateMs,
+  const lane = new ConceptLane({ getSession: id => storage.get(id), prepare, policy, deadlineMs, estimateMs, now,
     admit: args => runtime.admit(args), processingAllowed: (session, scope, options) => runtime.processingAllowed(session, scope, options),
     publicationAllowed: (session, options) => runtime.publicationAllowed(session, options),
     persist(id, data) { const event = storage.append(id, 'concept.state', data); if (event) publish(id, event); return event; },
@@ -52,7 +52,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
   function ended(id) {
     const session = storage.get(id);
     if (session.tombstone || session.conceptIntent?.eligible === false && !session.conceptIntent?.modelIntentTurnId) return null;
-    const intent = reduceConceptIntent(session.conceptIntent, { type: 'conversation-ended', now: Date.now() }, policy);
+    const intent = reduceConceptIntent(session.conceptIntent, { type: 'conversation-ended', now: now() }, policy);
     const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus });
     if (event) publish(id, event); return event;
   }
@@ -100,8 +100,8 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
       const session = storage.get(id), turn = session.transcript.find(t => t.id === turnId && t.role === 'user' && !t.erased && !t.withdrawn);
       if (!turn || session.consentWithdrawn || session.tombstone) return;
       const prepared = prepare(session);
-      let intent = syncConceptIntent(session, prepared.referenceIds, { policy, refreshReferenceIds: prepared.refreshReferenceIds });
-      intent = reduceConceptIntent(intent, { type: 'person-turn', id: turn.id, now: Date.now() }, policy);
+      let intent = syncConceptIntent(session, prepared.referenceIds, { now: now(), policy, refreshReferenceIds: prepared.refreshReferenceIds });
+      intent = reduceConceptIntent(intent, { type: 'person-turn', id: turn.id, now: now() }, policy);
       const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus }); publish(id, event);
       schedule(id);
     },
@@ -111,7 +111,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
       const turn = session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1);
       if (turn && turn.id === session.conceptIntent?.modelIntentTurnId) {
         const selected = corroborateConceptIntent(u.conceptIntent, session.transcript);
-        const intent = reduceConceptIntent(session.conceptIntent, { type: 'model-intent-consumed', now: Date.now() }, policy);
+        const intent = reduceConceptIntent(session.conceptIntent, { type: 'model-intent-consumed', now: now() }, policy);
         const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus }); publish(id, event);
         if (selected) lane.recordIntent(id, { intentId: turn.id, sourceTurnId: turn.id });
       }
@@ -181,10 +181,10 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
           if (body.intent !== true || typeof body.sourceTurnId !== 'string' || body.sourceTurnId.length > 256 || !current.transcript.some(t => t.id === body.sourceTurnId && t.role === 'user' && !t.erased && !t.withdrawn)) throw new TypeError('Recorded person intent required');
           if (current.conceptIntent?.pending) throw new ConflictError('Concept already pending');
           const prepared = prepare(current);
-          let intent = syncConceptIntent(current, prepared.referenceIds, { policy, refreshReferenceIds: prepared.refreshReferenceIds });
-          intent = reduceConceptIntent(intent, { type: 'eligibility', eligible: true, now: Date.now() }, policy);
-          intent = reduceConceptIntent(intent, { type: 'intent-recorded', id: body.clientEventId, sourceTurnId: body.sourceTurnId, now: Date.now() }, policy);
-          intent = syncConceptIntent({ ...current, conceptIntent: intent }, prepared.referenceIds, { policy, refreshReferenceIds: prepared.refreshReferenceIds });
+          let intent = syncConceptIntent(current, prepared.referenceIds, { now: now(), policy, refreshReferenceIds: prepared.refreshReferenceIds });
+          intent = reduceConceptIntent(intent, { type: 'eligibility', eligible: true, now: now() }, policy);
+          intent = reduceConceptIntent(intent, { type: 'intent-recorded', id: body.clientEventId, sourceTurnId: body.sourceTurnId, now: now() }, policy);
+          intent = syncConceptIntent({ ...current, conceptIntent: intent }, prepared.referenceIds, { now: now(), policy, refreshReferenceIds: prepared.refreshReferenceIds });
           // Initial requests wait for understanding. Explicit retries/refinements
           // may use manual planning after a previously admitted attempt.
           trigger = artifactId || current.conceptIntent?.lastAttempt || current.concepts?.length ? 'manual' : 'progress';
@@ -205,7 +205,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         if (!session.tombstone && session.conceptIntent?.pending) {
           // Recovery never repeats a dispatched image. A new explicit retry needs
           // a new intent, admission and claim, after conservative ledger recovery.
-          const intent = reduceConceptIntent(session.conceptIntent, { type: 'render-failed', id: session.conceptIntent.pending.id, now: Date.now() }, policy);
+          const intent = reduceConceptIntent(session.conceptIntent, { type: 'render-failed', id: session.conceptIntent.pending.id, now: now() }, policy);
           const event = storage.append(id, 'concept.state', { intent, status: { phase: 'failed', error: 'restart', retryable: true } }); publish(id, event);
         }
       }

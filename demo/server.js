@@ -36,6 +36,10 @@ import { smtpConfig, createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
 import { createConfirmationPage } from './confirmation-page.js';
 import { createAdminHTTP } from './admin-http.js';
 
+// Every independently composed server port keeps the runtime forwarding clock.
+// Before runtime construction only, startup checks use the default host epoch.
+let pluginRuntime;
+const now = () => pluginRuntime?.now() ?? Date.now();
 const deployment = deploymentConfig();
 // Refuse before database, ordinary provider setup or listener startup.
 // Source-only OPS tooling is absent from release packages; load it only under its flag.
@@ -68,17 +72,17 @@ const ownership = createOwnership(deployment);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
 if (!process.env.AITHEMA_DB) await mkdir(resolve(root, '.data'), { recursive: true });
-const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? defaultDb);
+const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? defaultDb, { now });
 let operatorSessions = null;
 try {
   const operatorConfig = zitadelOperatorConfig();
-  operatorSessions = createOperatorSessions({ provider: createZitadelOIDC({ config: operatorConfig }),
+  operatorSessions = createOperatorSessions({ now, provider: createZitadelOIDC({ config: operatorConfig, now }),
     ...(operatorConfig ? { store: createSQLiteOperatorStore(storage.db), publicOrigin: deployment.publicOrigin } : {}) });
 } catch {
   // One value-free startup warning; visitor functionality stays available.
   console.warn('Operator sign-in disabled: invalid configuration or unavailable host state.');
 }
-const voiceCap = createVoiceCap({ storage, ...voiceCaps });
+const voiceCap = createVoiceCap({ storage, ...voiceCaps, now });
 // Private references resolve from the environment at dispatch, never into public config.
 const privateBinding = openrouter?.reaction ?? { plugin: provider, model: provider === 'mistral' ? (process.env.MISTRAL_MODEL ?? 'mistral-small-latest')
   : 'mock', effort: 'none',
@@ -88,7 +92,7 @@ const privateBinding = openrouter?.reaction ?? { plugin: provider, model: provid
 const understandingBinding = openrouter?.understanding ?? privateBinding;
 const spendCap = provider === 'openrouter' || html.mode === 'claude' ? createSpendCap({ storage, account: 'start2-openrouter',
   capMicro: openrouter?.capMicro ?? html.capMicro }) : undefined;
-const { plugin: htmlPlugin, binding: selectedHTMLBinding } = configureHTML(html, { spend: spendCap, resolveSecret: resolveProviderSecret });
+const { plugin: htmlPlugin, binding: selectedHTMLBinding } = configureHTML(html, { now, spend: spendCap, resolveSecret: resolveProviderSecret });
 const htmlSelection = htmlPlugin ? { html: selectedHTMLBinding } : {};
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
   ? createOpenRouterReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret, spendCap, prices: openrouter.prices, uncertainEstimateMicro: openrouter.uncertainEstimateMicro }) : createMistralReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret });
@@ -100,7 +104,7 @@ if (voiceMode === 'elevenlabs') {
   const createVoiceHost = process.env.AITHEMA_VOICE_HOST_MODULE
     ? (await import((await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_VOICE_HOST_MODULE)).href)).createVoiceHost
     : createStart2VoiceHost;
-  voiceHost = await createVoiceHost({ storage, facadeSecrets: secrets,
+  voiceHost = await createVoiceHost({ storage, now, facadeSecrets: secrets,
     publicOrigin: deployment.publicOrigin, templateAgentId: process.env.AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID,
     resolveSecret: ref => secrets.resolve(ref) ?? resolveProviderSecret(ref) });
 }
@@ -110,42 +114,42 @@ let imageHost;
 if (imageMode === 'openai') {
   if (!process.env.AITHEMA_IMAGE_HOST_MODULE) throw new TypeError('Live images host module required');
   const { createImageHost } = await import((await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_IMAGE_HOST_MODULE)).href);
-  imageHost = await createImageHost({ storage });
+  imageHost = await createImageHost({ storage, now });
   imageHost.binding = createImageBinding(imageHost.binding);
   if (voiceHost && imageHost.consent !== voiceHost.consent) throw new TypeError('Images and voice require the same authoritative consent port');
 }
 // An optional host module owns private Grok account evidence. It supplies a fully
 // bound plugin plus parent/component processing bindings; no credentials enter config.
 const grokHost = process.env.AITHEMA_GROK_VOICE_HOST_MODULE ? await (await import(pathToFileURL(resolve(process.env.AITHEMA_GROK_VOICE_HOST_MODULE)).href)).createVoiceHost({
-  storage, publicOrigin: deployment.publicOrigin, resolveSecret: resolveProviderSecret,
+  storage, now, publicOrigin: deployment.publicOrigin, resolveSecret: resolveProviderSecret,
   consent: { coverage: (...args) => consent.coverage(...args) },
 }) : null;
 const grokBinding = grokHost?.binding;
-const grokPlugin = grokHost?.plugin ?? (voiceMode === 'elevenlabs' ? createGrokVoiceProvider({ storage }) : null);
+const grokPlugin = grokHost?.plugin ?? (voiceMode === 'elevenlabs' ? createGrokVoiceProvider({ storage, now }) : null);
 const voiceBinding = voiceHost?.binding ? createDurationBinding(normalizeElevenLabsDurationBinding(voiceHost.binding)) : undefined;
 const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceBinding ? [voiceBinding] : []), ...(html.binding?.legal ? [html.binding] : []), ...(grokBinding ? [grokBinding, ...(grokHost.processingBindings ?? [])] : []),
   ...(qualificationModule?.qualificationProcessingBindings?.(qualificationBinding) ?? [])];
 const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length || voiceMode === 'elevenlabs'
-  ? createProcessingConsent({ storage, bindings: liveBindings, voiceConfigured: voiceMode === 'elevenlabs', grokConfigured: Boolean(grokBinding),
+  ? createProcessingConsent({ storage, now, bindings: liveBindings, voiceConfigured: voiceMode === 'elevenlabs', grokConfigured: Boolean(grokBinding),
     voiceBinding: qualificationBinding ? undefined : () => readVoiceState().binding,
-    operationsForBinding: qualificationModule?.qualificationProcessingOperations }) : createMockConsent(storage));
+    operationsForBinding: qualificationModule?.qualificationProcessingOperations }) : createMockConsent(storage, now));
 if (voiceHost?.staticSecretRef) {
   const resolve = secrets.resolve;
   secrets.resolve = ref => ref === voiceHost.staticSecretRef ? resolveProviderSecret(ref) : resolve(ref);
 }
 const policy = imageHost?.policy ?? voiceHost?.policy ?? { endpoints: liveBindings.map(b => b.endpoint) };
 const { plugin: imagePlugin, binding: selectedImageBinding } = configureImages(imageMode, imageHost, {
-  resolveSecret: qualification.enabled ? resolveProviderSecret : imageHost?.resolveSecret ?? resolveProviderSecret });
+  now, resolveSecret: qualification.enabled ? resolveProviderSecret : imageHost?.resolveSecret ?? resolveProviderSecret });
 const imageSelection = imagePlugin ? { images: selectedImageBinding } : {};
 function configuredVoicePlugin(binding) {
-  return createVoiceProvider({ storage, binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef,
+  return createVoiceProvider({ storage, now, binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef,
       apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute,
       visitorMicroPerMinute: binding.visitorMicroPerMinute,
       reservationSeconds: binding.reservationSeconds }, resolveSecret: resolveProviderSecret,
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose,
     reconcileLater: () => handlers.reconcileVoiceLater(), log: voiceHost.log });
 }
-const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, provisionFacade: () => {}, revokeFacade: secrets.revoke })
+const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, now, provisionFacade: () => {}, revokeFacade: secrets.revoke })
   : voiceBinding ? configuredVoicePlugin(voiceBinding) : null;
 const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (grokPlugin) registry.register(grokPlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
 // The operator allowlist visitors choose from in settings (demo/choices.js).
@@ -157,7 +161,7 @@ const readVoiceState = () => voiceHost?.runtime ?? initialVoiceState;
 const runtimePorts = voiceRuntimePorts(readVoiceState);
 // START owns the lifetime wallet; these are per-conversation safety subcaps.
 const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT_CEILING_MICRO, visitorCapMicro: VISITOR_CREDIT_CEILING_MICRO });
-const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry: runtimePorts.registry, uiRenderLimits, presets: runtimePorts.presets, voiceCap, budget });
+pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry: runtimePorts.registry, uiRenderLimits, presets: runtimePorts.presets, voiceCap, budget });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined && process.env.NODE_ENV !== 'production', mailPlugin,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
   clientIpHeader: process.env.AITHEMA_CLIENT_IP_HEADER,
