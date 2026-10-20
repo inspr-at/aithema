@@ -31,9 +31,12 @@ for (const [name, now, pattern, files] of cases) test(`AIT-402 calendar: ${name}
   assert.equal(run.status, 0, `${run.error ?? ''}\n${run.stdout}\n${run.stderr}`);
 });
 
-test('AIT-402 calendar: release Grok consumer after its former 2099 expiry', { timeout: 40_000 }, () => {
+for (const [name, now] of [
+  ['after its former 2099 expiry', '2101-01-01T12:00:00Z'],
+  ['before its former 2026 review date', '2020-01-01T12:00:00Z'],
+]) test(`AIT-402 calendar: release Grok consumer ${name}`, { timeout: 40_000 }, () => {
   const run = spawnSync(process.execPath, [
-    '--import', './test/fixtures/calendar-clock.js?now=2101-01-01T12:00:00Z',
+    '--import', `./test/fixtures/calendar-clock.js?now=${now}`,
     '--input-type=module', '--eval',
     "import { testGrokConsumer } from './release/consumer-grok.mjs'; await testGrokConsumer();",
   ], {
