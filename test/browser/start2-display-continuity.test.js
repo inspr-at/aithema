@@ -388,7 +388,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
       other = await browser.newPage();
       await other.setViewport({ width, height: width === 390 ? 844 : 900 });
       await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await other.bringToFront();
-      await until(other, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail').dataset.state === 'waiting');
+      await until(other, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === 'waiting');
       const retire = async () => {
         await other.bringToFront();
         const moved = await shadow(other, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-moved'));
