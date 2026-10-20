@@ -2583,6 +2583,16 @@ it excludes voice, which has separate optional `AITHEMA_VOICE_CAP_MINUTES` and
 Replacing the visitor cookie can still obtain a fresh anonymous allowance.
 Abuse tracking is deferred.
 
+`GET /api/sessions/:id/identity` (and identity command responses) includes
+`visitorEmail: { canSave: boolean }`. `canSave` is true when the host supplies
+all four visitor-email functions: `visitor`, `saveEmail`, `deleteEmail`, and
+`eraseVisitor`, matching the visitor routes' availability check. This describes
+port availability; privacy and collection policy still apply. With `canSave: false`,
+email confirmation goes directly through the conversation's identity request/change
+command, even with credit tiers loaded, without a visitor-email write. With the
+port available, confirmation retains the save-before-confirm flow. The capability
+object can carry further visitor-email capabilities independently of identity.
+
 The visitor API uses the existing ownership cookie/token:
 
 - `GET /api/visitor/email` returns the profile and DE/EN optional-processing

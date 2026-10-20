@@ -148,13 +148,15 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       source: chosen || actor?.evidence === 'selected' ? 'chosen' : 'inferred',
       reasoning: chosen ? null : actor?.reasoning ?? null, revision: session.seq };
   }
+  const visitorEmailAvailable = () => ['visitor', 'saveEmail', 'deleteEmail', 'eraseVisitor']
+    .every(key => typeof host?.[key] === 'function');
   function identityResult(id, extra = {}, ownerToken) {
     let state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
     state = host.identity.project?.({ session: storage.get(id) }, state) ?? state;
     state.manualPaused = storage.get(id).paused;
     return { ...(host.identity.chooseRole === true ? { roleChoice: roleChoice(id) } : {}),
       identity: identityView(state, clock(state)), delivery: host.identity.deliversVerification === true,
-      privacyDocumentConfigured: privacyDocumentConfigured(host), ...extra };
+      privacyDocumentConfigured: privacyDocumentConfigured(host), visitorEmail: { canSave: visitorEmailAvailable() }, ...extra };
   }
   function creditResult(id, ownerToken) {
     const wallet = host.wallet(ownerToken, { sessionId: id });
@@ -249,7 +251,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       const ownerToken = ownership.token(request);
       if (visitorPath) {
         if (!ownerToken) return json({ error: 'owner-required' }, 401);
-        if (!host.visitor || !host.saveEmail || !host.deleteEmail || !host.eraseVisitor) return json({ error: 'visitor-unavailable' }, 503);
+        if (!visitorEmailAvailable()) return json({ error: 'visitor-unavailable' }, 503);
         if (url.pathname === '/api/visitor/email') {
           if (request.method === 'GET') return json({ visitor: host.visitor(ownerToken), notice: host.emailNotice ?? null,
             privacyDocumentConfigured: privacyDocumentConfigured(host) });
