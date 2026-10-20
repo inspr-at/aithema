@@ -232,6 +232,7 @@ svg { display:block; flex:none; }
 .concept-activity-text, .drafts-reason-reserve { grid-area:1/1; font-size:.8125rem; color:var(--aithema-muted); line-height:1.4; }
 .drafts-reason-reserve { display:grid; visibility:hidden; pointer-events:none; }
 .concept-rail > .drafts-reason-reserve { grid-area:1/2; }
+.drafts-consent-action-reserve { white-space:nowrap; }
 .drafts-reason-reserve > span { grid-area:1/1; }
 .concept-withdrawn-reserve { display:grid; grid-area:1/1; align-self:center; min-width:0; visibility:hidden; pointer-events:none; font-size:14px; }
 .concept-withdrawn-reserve > span { grid-area:1/1; }

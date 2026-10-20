@@ -77,7 +77,7 @@ export class ConceptView {
     for (const feature of ['html', 'images']) {
       const line = document.createElement('span'), action = document.createElement('span');
       line.textContent = `${copy.featureConsent[feature]}${reasonSeparator}`;
-      action.className = 'consent-action'; action.textContent = copy.featureConsent.action;
+      action.className = 'drafts-consent-action-reserve'; action.textContent = copy.featureConsent.action;
       line.append(action); root.querySelector('.drafts-reason-reserve').append(line);
     }
     // Withdrawal and expiry share the existing status grid, including wrapped DE copy.
