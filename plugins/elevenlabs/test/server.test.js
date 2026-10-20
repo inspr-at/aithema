@@ -20,6 +20,17 @@ test('AIT-430 standalone ElevenLabs adapter uses the admitted runtime clock with
   assert.equal(session.snapshot().spendDeadlineAt, options.spendDeadlineAt);
 });
 
+test('AIT-403 standalone ElevenLabs segment grant uses the admitted runtime clock', async t => {
+  const wall = Date.parse('2030-06-15T00:00:30Z');
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  const now = () => wall - 60_000, local = fixture();
+  const options = invocationOptions({ now, deadlineAt: now() + 1000,
+    spendDeadlineAt: now() + 60_000, browserLivenessDeadlineAt: now() + 30_000 });
+  const segment = await local.server.ports.serverAdapter.startSegment({ callId: 'segment_clock', facadeSecretRef: 'fixture-ref' }, options);
+  t.after(() => segment.close());
+  assert.equal(segment.grant.expiresAt, now() + 30_000);
+});
+
 test('bounded JSON reader coalesces tiny chunks and preserves split UTF-8 across slab boundaries', async () => {
   const expected = { text: `${'x'.repeat(65_526)}ä🙂` }, bytes = new TextEncoder().encode(JSON.stringify(expected));
   let offset = 0, observed = 0;
