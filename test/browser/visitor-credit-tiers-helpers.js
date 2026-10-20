@@ -125,6 +125,7 @@ export async function composerCreditReservationMatrix(t) {
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
   const accessibility = await page.createCDPSession();
+  await accessibility.send('Accessibility.enable');
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1024, 390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.select('#locale', locale); await page.select('#theme', theme);
@@ -151,7 +152,7 @@ export async function composerCreditReservationMatrix(t) {
         if (variant.ariaHidden !== 'true') return null;
         const { result } = await accessibility.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelectorAll('.composer-out__body > span')[${i}]` });
         const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
-        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId, fetchRelatives: false });
         await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
         return { key: variant.key, ignored: nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored === true };
       }))).filter(Boolean);
@@ -203,6 +204,7 @@ export async function topUpReservationMatrix(t) {
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-dock', '.composer-shell'];
   const accessibility = await page.createCDPSession();
+  await accessibility.send('Accessibility.enable');
   const v3Rows = [], v3Selectors = ['.transcript-shell .turn.user', '.transcript-shell .turn:last-child', '.voice-reply-actions', '.qopts', ...selectors];
   if (evidence) await mkdir(evidence, { recursive: true });
   // Settled geometry and evidence use the supported reduced-motion surface.
@@ -243,7 +245,7 @@ export async function topUpReservationMatrix(t) {
       if (inCall) for (const selector of ['.voice-repeat', '.voice-read-text']) {
         const { result } = await accessibility.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelector('${selector}')` });
         const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
-        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId, fetchRelatives: false });
         const ax = nodes.find(n => n.backendDOMNodeId === node.backendNodeId);
         axControls.push({ ignored: ax?.ignored, description: ax?.description?.value, properties: Object.fromEntries((ax?.properties ?? []).map(p => [p.name, p.value.value])) });
         await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
