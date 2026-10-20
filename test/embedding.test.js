@@ -6,6 +6,16 @@ import ts from 'typescript';
 import { MANIFEST_SCHEMA, PLUGIN_KINDS } from '@inspr/aithema-core';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
+for (const path of ['../README.md', '../docs/embedding.md']) test(`AIT-420: ${path} defines the host wallet preflight read contract`, () => {
+  const doc = readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\s+/gu, ' ');
+  assert.match(doc, /`wallet\(ownerToken, context\)` and its `balance\(\)` run inside the turn's database transaction/u);
+  assert.match(doc, /`wallet\(\)`, `balance\(\)`, `canAdmit\(\)` and `creditTiers\(\)` must be synchronous and side-effect free/u);
+  assert.match(doc, /Allowed: synchronous read-only Aithema getters such as `storage\.get\(id\)` and `storage\.hostState\(id\)`, and SELECT-only statements on the host's own tables through the same SQLite handle/u);
+  assert.match(doc, /Forbidden: any write \(INSERT\/UPDATE\/DELETE or DDL\), any Aithema storage mutator, async or network work, and any `storage\.transaction\(\)`/u);
+  assert.match(doc, /`BEGIN IMMEDIATE` without savepoints; a nested transaction fails the turn with HTTP 500 and nothing saved/u);
+  assert.doesNotMatch(doc, /must not re-enter storage/u);
+});
+
 test('every consumer-guide import resolves through a real package export', async () => {
   const guide = readFileSync(new URL('../docs/embedding.md', import.meta.url), 'utf8');
   const examples = [...guide.matchAll(/```js\n([\s\S]*?)```/gu)]; assert.ok(examples.length >= 3);

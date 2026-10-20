@@ -23,13 +23,13 @@ jobs:
 
   # AIT-192: full Cartesian evidence, including every width pruned from PR CI.
   browser:
-    name: full browser (${{ matrix.shard }}/7)
+    name: full browser (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -45,7 +45,7 @@ jobs:
           ulimit -a
           ps -eo comm= | sort | uniq -c | sort -nr | head -20
       - name: Full browser matrix with evidence
-        run: npm run test:browser -- --shard ${{ matrix.shard }}/7
+        run: npm run test:browser -- --shard ${{ matrix.shard }}/8
         env:
           AITHEMA_FULL_MATRIX: '1'
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
@@ -59,14 +59,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: full-browser-timings-${{ matrix.shard }}-of-7
+          name: full-browser-timings-${{ matrix.shard }}-of-8
           path: ${{ runner.temp }}/evidence/browser-timings
           if-no-files-found: error
           retention-days: 14
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: full-browser-evidence-${{ matrix.shard }}-of-7
+          name: full-browser-evidence-${{ matrix.shard }}-of-8
           path: ${{ runner.temp }}/evidence
           if-no-files-found: ignore
           compression-level: 0

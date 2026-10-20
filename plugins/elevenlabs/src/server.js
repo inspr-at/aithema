@@ -93,6 +93,32 @@ export async function readJson(response, maxBytes = 65_536, { signal, onBytes } 
     cancel(); reader.releaseLock();
   }
 }
+// RFC 9110 section 5.6.7: accept the three HTTP-date forms, not Date.parse's
+// permissive extensions. Normalize obsolete forms to GMT before parsing.
+function retryAfterSeconds(header, now = Date.now()) {
+  const value = header?.trim();
+  if (!value) return NaN;
+  if (/^\d+$/u.test(value)) return Number(value);
+  let normalized = value;
+  const rfc850 = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\d{2})-([A-Z][a-z]{2})-(\d{2}) (\d{2}:\d{2}:\d{2}) GMT$/u.exec(value);
+  const asctime = /^([A-Z][a-z]{2}) ([A-Z][a-z]{2}) ( \d|\d{2}) (\d{2}:\d{2}:\d{2}) (\d{4})$/u.exec(value);
+  if (rfc850) {
+    const limit = new Date(now); limit.setUTCFullYear(limit.getUTCFullYear() + 50);
+    let year = Math.floor(limit.getUTCFullYear() / 100) * 100 + Number(rfc850[4]);
+    const format = () => `${rfc850[1].slice(0, 3)}, ${rfc850[2]} ${rfc850[3]} ${year} ${rfc850[5]} GMT`;
+    if (Date.parse(format()) > limit.getTime()) year -= 100;
+    normalized = format();
+  } else if (asctime) {
+    normalized = `${asctime[1]}, ${asctime[3].trim().padStart(2, '0')} ${asctime[2]} ${asctime[5]} ${asctime[4]} GMT`;
+  }
+  if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/u.test(normalized)) return NaN;
+  const leapSecond = normalized.endsWith(':60 GMT');
+  const parsed = leapSecond ? normalized.replace(/:60 GMT$/u, ':59 GMT') : normalized;
+  const date = Date.parse(parsed);
+  // Round-trip rejects impossible dates, times and mismatched weekdays.
+  if (new Date(date).toUTCString() !== parsed) return NaN;
+  return Math.max(0, Math.ceil((date + (leapSecond ? 1000 : 0) - now) / 1000));
+}
 async function providerJson(binding, path, { fetchImpl, resolveSecret }, options, maxBytes = 65_536) {
   return voiceOperation(options, async ({ signal }) => {
     const key = await resolveSecret(binding.secretRef);
@@ -109,8 +135,7 @@ async function providerJson(binding, path, { fetchImpl, resolveSecret }, options
         const header = response.headers.get('retry-after');
         // The browser control accepts delta seconds. Normalize HTTP dates here,
         // retaining the provider wait; the lifecycle owns its existing 60s cap.
-        const seconds = header && /^\d+$/u.test(header.trim()) ? Number(header)
-          : header ? Math.max(0, Math.ceil((Date.parse(header) - Date.now()) / 1000)) : NaN;
+        const seconds = retryAfterSeconds(header);
         if (Number.isFinite(seconds) && seconds >= 0) error.retryAfter = String(seconds);
       }
       throw error;

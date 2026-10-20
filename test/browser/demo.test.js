@@ -498,8 +498,8 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         : ['images', 'html'].includes(feature) ? 'Visuelle Entwürfe sind gerade nicht verfügbar.' : 'Derzeit nicht verfügbar';
       assert.deepEqual(rendered[index].reasons, FEATURES.map(feature => inner === 'current processing consent required'
         ? de.featureConsent[feature === 'transcription' ? 'voice' : feature]
-        : BINDING_REASON_CODES.includes(inner) ? neutral(feature) : expected), code);
-      if (BINDING_REASON_CODES.includes(inner)) assert.doesNotMatch(rendered[index].dom, /provider|contract|evidence|anbieter|vertrag|nachweis/iu, code);
+        : BINDING_REASON_CODES.includes(inner) || inner === 'binding invalid' || status ? neutral(feature) : expected), code);
+      if (BINDING_REASON_CODES.includes(inner) || inner === 'binding invalid' || status) assert.doesNotMatch(rendered[index].dom, /provider|contract|evidence|anbieter|vertrag|nachweis/iu, code);
       const english = status ? en.reasons['agent-api'].replace('{status}', status[1])
         : inner !== code ? en.reasons.delegated.replace('{reason}', en.reasons[inner]) : en.reasons[code];
       assert.ok(rendered[index].reasons.every(text => text !== english), `English reason leaked: ${code}`);
@@ -519,7 +519,7 @@ test('AIT-117: a German processing-consent page contains START German copy and n
             .map(node => [node.textContent, node.getAttribute('title'), node.getAttribute('aria-label')].join(' ')).join(' ') });
       }
       return rows;
-    }, BINDING_REASON_CODES);
+    }, [...BINDING_REASON_CODES, 'binding invalid', 'agent-api-get-401', 'agent-api-post-403', 'agent-api-patch-503']);
     for (const row of englishBinding) {
       assert.deepEqual(row.reasons, FEATURES.map(feature => feature === 'voice' ? 'Voice is currently unavailable'
         : ['images', 'html'].includes(feature) ? 'Visual drafts are not available right now.' : 'Currently unavailable'), row.reason);

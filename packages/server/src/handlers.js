@@ -7,7 +7,7 @@ import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handler
 import { createTouchVisitor } from './host-activity.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, replyInputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError, ConsentConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -121,7 +121,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
   // A lane's work identity: its input revision plus the processing choice it runs with.
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
-  const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}|${lane === 'reaction' ? session.questionFocus?.requestId ?? '' : ''}`;
+  const laneKey = (session, lane) => `${lane === 'reaction' ? replyInputRevision(session) : inputRevision(session)}|${selection(session, lane)}|${lane === 'reaction' ? session.questionFocus?.requestId ?? '' : ''}`;
   // New turns may obsolete a paid assessment but must let it collect its receipt.
   // Consent, locale, correction, upload and identity revisions remain strict.
   const keepUnderstanding = (source, current) => {
@@ -282,20 +282,27 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function consentDocument(session, options) {
     const document = validateConsentDocument(await consent.describe(session.id, options));
     const ids = new Set(document.items?.map(item => item.id) ?? ['mock-processing']);
-    const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
-      pluginRuntime.scopes(session, { feature, delivered: true }).map(scope => ids.has(scope.purpose) ? scope.purpose
-        : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
+    const purposes = (source, feature) => [...new Set(pluginRuntime.scopes(source, { feature, delivered: true })
+      .map(scope => ids.has(scope.purpose) ? scope.purpose : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
+      .filter(id => ids.has(id)))];
+    const features = Object.fromEntries(FEATURES.map(feature => [feature, purposes(session, feature)]));
     const unavailableFeatures = [];
+    const delivered = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn);
+    // Each full publication gate remains authoritative; independent reads must
+    // not queue behind a slow producer. No verdict survives this request.
+    const artifacts = Object.fromEntries(await Promise.all(delivered.map(async artifact => {
+      const feature = artifact.mediaType === 'text/html' ? 'html' : 'images';
+      const producerPurposes = purposes({ ...session, concepts: [artifact] }, feature);
+      const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature,
+        operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
+      return [artifact.id, { purposes: producerPurposes, unavailable: !producerPurposes.length || status === 'unavailable' }];
+    })));
     for (const feature of ['html', 'images']) {
-      const artifacts = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn &&
-        (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
-      for (const artifact of artifacts) {
-        const status = await pluginRuntime.publicationStatus(session, { artifactId: artifact.id, visualKind: feature,
-          operation: artifact.operation ?? (artifact.referenceIds?.length ? 'edit' : 'generate') });
-        if (!features[feature].length || status === 'unavailable') { unavailableFeatures.push(feature); break; }
-      }
+      const kind = delivered.filter(item => (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
+      if (!kind.length) continue;
+      if (kind.every(item => artifacts[item.id].unavailable)) unavailableFeatures.push(feature);
     }
-    return { ...document, features, unavailableFeatures, consentRevision: session.consentRevision };
+    return { ...document, features, artifacts, unavailableFeatures, consentRevision: session.consentRevision };
   }
   async function consentEnrichment(session, options) {
     // Enrichment must not hold a grant behind an unavailable host describe.
@@ -361,7 +368,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
               const removedFocus = error?.code === 'not-admitted' && error.message === 'focused-question-removed';
               const busyReply = error?.code === 'not-admitted' && error.message === 'reply-in-flight';
-              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: !removedFocus,
+              const failure = { inputRevision: inputRevision(storage.get(id)), lane, error: 'reasoning-unavailable', retryable: !removedFocus,
+                ...(lane === 'reaction' && started.identityRevision !== storage.get(id).identityRevision ? { reason: 'identity-changed' } : {}),
                 ...(removedFocus ? { reason: 'focused-question-removed' } : {}),
                 ...(busyReply ? { reason: 'reply-in-flight' } : {}),
                 ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };
@@ -832,13 +840,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
-          storage.assertRetirementSettled(id);
+          const attempts = storage.sealRetirement(id, host?.now?.() ?? Date.now());
           await consent?.withdraw?.({ sessionId: id });
           if (host?.retired) {
             let timer;
             try {
               await Promise.race([
-                Promise.resolve().then(() => host.retired({ sessionId: id, ownerHash: storage.retirementOwnerHash(id) })),
+                Promise.resolve().then(() => host.retired({ sessionId: id, ownerHash: storage.retirementOwnerHash(id), attempts })),
                 new Promise((_, reject) => { timer = setTimeout(() => {
                   reject(new RetirementHookTimeoutError('Retirement hook deadline'));
                 }, retiredHookTimeoutMs); }),

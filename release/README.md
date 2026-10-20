@@ -1128,10 +1128,11 @@ The order is **lock tag → prep → gates → true merge → marker → cut →
    the final committed C. Do not put an evidence-only commit after that final
    build. `candidate-evidence.json` binds `source_commit`, `manifest_sha256` and
    `normalized_digest` to the retained `first/` directory.
-3. The coordinator obtains the cross-family release gate, green CI and Tick's
-   look when there is UI. The standing go applies after these gates. Re-cut
-   changes require new evidence and gates; re-ask any already-answered candidate
-   question when the approved candidate changes.
+3. The coordinator obtains the cross-family release gate, green CI (eight
+   browser shards, four required browser aliases, test, preview-security and DCO)
+   and Tick's look when there is UI. The standing go applies after these gates.
+   Re-cut changes require new evidence and gates; re-ask any already-answered
+   candidate question when the approved candidate changes.
 4. Merge the RC through the queue as a **true merge**, preserving C. The
    coordinator checks the queue's merge method is `merge` before each RC and
    hard-aborts unless `git merge-base --is-ancestor C origin/main` succeeds.

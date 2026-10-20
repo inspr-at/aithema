@@ -144,7 +144,7 @@ test('AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px 
     assert.deepEqual(view.visible, [], `${label}: no dead pause, mic or stop controls`);
     assert.equal(view.start, true); assert.equal(view.startDisabled, true); assert.equal(view.speaker, true); assert.equal(view.line, true);
     assert.equal(view.transform, 'none', 'the calm line is drawn at full stroke height');
-    assert.equal(view.railText, locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up');
+    assert.equal(view.railText, locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now');
     assert.deepEqual(await boxes(page, railBoxes), before, `${label}: 0 px shift`);
     const values = { ...view, shiftPx: 0 }; await evidence('F3', page, label, values); t.diagnostic(`PASS F3 ${label}: ${JSON.stringify(values)}`);
     await page.evaluate(() => { globalThis.tickRail.session = null; });

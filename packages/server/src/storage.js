@@ -136,7 +136,7 @@ export class SQLiteStorage {
         CREATE INDEX IF NOT EXISTS lifecycle_session ON voice_lifecycle_calls(session_id);
         CREATE INDEX IF NOT EXISTS sessions_erased ON sessions(id) WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL;`);
       const pendingColumns = this.db.prepare('PRAGMA table_info(retirement_pending)').all();
-      for (const [name, type] of [['owner_hash', 'TEXT'], ['attempts', 'INTEGER NOT NULL DEFAULT 0'], ['retry_at', 'INTEGER NOT NULL DEFAULT 0'], ['wait_for_billing', 'INTEGER NOT NULL DEFAULT 0']]) {
+      for (const [name, type] of [['owner_hash', 'TEXT'], ['attempts', 'INTEGER NOT NULL DEFAULT 0'], ['retry_at', 'INTEGER NOT NULL DEFAULT 0'], ['wait_for_billing', 'INTEGER NOT NULL DEFAULT 0'], ['billing_sealed', 'INTEGER NOT NULL DEFAULT 0'], ['billing_deadline_ms', 'INTEGER']]) {
         if (!pendingColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE retirement_pending ADD COLUMN ${name} ${type}`);
       }
       this.db.exec(`UPDATE retirement_pending SET owner_hash=(SELECT json_extract(snapshot,'$.ownerHash') FROM sessions WHERE id=session_id) WHERE owner_hash IS NULL;
@@ -256,20 +256,56 @@ export class SQLiteStorage {
     for (const name of tables) visit(name);
     return order;
   }
-  /** Visitor-erased sessions wait only for active work or a scheduled cost retry.
-   * Live retirement, including its durable retries, keeps the mainline contract. */
-  assertRetirementSettled(id) {
-    if (!this.db.prepare('SELECT wait_for_billing FROM retirement_pending WHERE session_id=?').get(id)?.wait_for_billing) return;
+  /** Bound receipt deferral to one hour; never extend it on a retry/restart.
+   * Erasure already removed content; only billing metadata waits for receipts. */
+  assertRetirementSettled(id, now = Date.now()) {
+    const pending = this.db.prepare('SELECT billing_sealed,billing_deadline_ms FROM retirement_pending WHERE session_id=?').get(id);
+    if (pending?.billing_sealed) return;
+    if (!Number.isSafeInteger(now) || now < 0) throw new TypeError('Invalid retirement clock');
+    if (pending && pending.billing_deadline_ms === null) this.db.prepare(
+      'UPDATE retirement_pending SET billing_deadline_ms=? WHERE session_id=?').run(now + 3_600_000, id);
+    const deadline = pending?.billing_deadline_ms ?? now + 3_600_000;
+    if (now >= deadline) return;
     const tables = new Set(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
     if (!tables.has('budget_attempts')) return;
     if (this.db.prepare(`SELECT 1 FROM budget_attempts WHERE session_id=? AND (
-      state!='settled' OR json_extract(provider_cost_json,'$.retryAt') IS NOT NULL) LIMIT 1`)
-      .get(id)) throw new ConflictError('Retirement billing unsettled');
+      state!='settled' OR (COALESCE(settled_at_ms,0)+3600000>? AND (
+        json_extract(provider_cost_json,'$.retryAt') IS NOT NULL OR
+        ((COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0 OR
+          json_extract(provider_cost_json,'$.retryAt') IS NOT NULL) AND (
+          (outcome='uncertain' AND cost_reconciliation_json IS NULL AND voice_reconciliation_json IS NULL) OR
+          json_extract(cost_reconciliation_json,'$.estimated')=1 OR
+          json_extract(usage,'$.estimated')=1 OR json_extract(usage,'$.costEstimated')=1))))) LIMIT 1`)
+      .get(id, now)) throw new ConflictError('Retirement billing unsettled');
     if (tables.has('spend_reservations')) {
       this.db.exec('CREATE INDEX IF NOT EXISTS spend_retirement_attempt ON spend_reservations(attempt_id)');
       if (this.db.prepare(`SELECT 1 FROM spend_reservations WHERE actual_micro IS NULL AND state IN ('reserved','dispatched') AND attempt_id IN
         (SELECT attempt_id FROM budget_attempts WHERE session_id=?) LIMIT 1`).get(id)) throw new ConflictError('Retirement spend unsettled');
     }
+  }
+  /** The durable fence and host projection commit together, before any async hook.
+   * Retries return the same amounts; the budget's SQLite triggers refuse writes. */
+  sealRetirement(id, now = Date.now()) {
+    // Persist the deadline even when the transactional readiness check rejects.
+    this.assertRetirementSettled(id, now);
+    return this.transaction(() => {
+      if (!this.get(id).tombstone || !this.db.prepare('SELECT 1 FROM retirement_pending WHERE session_id=?').get(id)) throw new ConflictError('Retirement not claimed');
+      this.assertRetirementSettled(id, now);
+      this.db.prepare('UPDATE retirement_pending SET billing_sealed=1 WHERE session_id=?').run(id);
+      if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='budget_attempts'").get()) return [];
+      return this.db.prepare(`SELECT attempt_id AS attemptId,lane,state,outcome,settled_at_ms AS settledAtMs,
+        settled_micro AS settledMicro,settled_visitor_micro AS settledVisitorMicro,
+        MAX(max_micro,voice_exposure_micro,COALESCE(json_extract(component_json,'$.observedMicro'),0)) AS maxMicro,
+        MAX(max_visitor_micro,voice_visitor_exposure_micro) AS maxVisitorMicro,
+        (state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL)
+          AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0 AND COALESCE(json_extract(usage,'$.estimated'),0)=0
+          AND COALESCE(json_extract(cost_reconciliation_json,'$.estimated'),0)=0) AS final,
+        voice_exposures_json AS exposures FROM budget_attempts WHERE session_id=? ORDER BY attempt_id`).all(id).map(({ exposures, final, ...row }) => ({
+          ...row, final: Boolean(final), voiceExposures: JSON.parse(exposures), corrections: this.db.prepare(`SELECT id,attempt_id AS attemptId,lane,at_ms AS atMs,
+            old_micro AS oldMicro,new_micro AS newMicro,old_visitor_micro AS oldVisitorMicro,new_visitor_micro AS newVisitorMicro
+            FROM budget_corrections WHERE attempt_id=? ORDER BY id`).all(row.attemptId),
+        }));
+    });
   }
   /** Only a tombstone claimed by retire can lose its append-only journal. */
   purgeRetired(id) {
@@ -358,7 +394,7 @@ export class SQLiteStorage {
       const session = this.get(id);
       if (session.tombstone || inputRevision(session) !== failure.inputRevision) return false;
       // Do not persist provider diagnostics or request content.
-      const reason = ['budget reconciling', 'focused-question-removed', 'reply-in-flight'].includes(failure.reason) ? failure.reason : null;
+      const reason = ['budget reconciling', 'focused-question-removed', 'reply-in-flight', 'identity-changed'].includes(failure.reason) ? failure.reason : null;
       const record = { inputRevision: failure.inputRevision, lane: failure.lane,
         error: 'reasoning-unavailable', retryable: reason !== 'focused-question-removed',
         ...(reason ? { reason } : {}) };
@@ -854,7 +890,7 @@ export class SQLiteStorage {
         return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
       }
       const turn = session.transcript.find(t => t.id === turnId);
-      let event;
+      let event, interruptionEvent;
       if (type === 'interrupted') {
         if (turn && (turn.role !== 'assistant' || turn.erased || turn.withdrawn)) throw new ConflictError('Reply transcript unavailable');
         event = this.#append(session, 'voice.interrupted', { id: turnId, callId, providerSessionId: providerId,
@@ -903,10 +939,16 @@ export class SQLiteStorage {
           ...(turn.userTurnOrdinal ? { userTurnOrdinal: turn.userTurnOrdinal } : {}),
           ...(turn.replyId ? { replyId: turn.replyId } : {}),
           ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
+        if (guard.nativeInterruption === true) {
+          // Commit the correction, length-only marker and receipt together:
+          // a marker failure must leave the correction retryable.
+          interruptionEvent = this.#append(this.get(id), 'voice.interrupted', { id: turnId, callId,
+            providerSessionId: providerId, interruption: { heardLength: value.prefix.length } });
+        }
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
-      return { event, replayed: false };
+      return { event, replayed: false, ...(interruptionEvent ? { interruptionEvent } : {}) };
     });
   }
   #invalidate(id, turnId, all = false, concepts = true) {

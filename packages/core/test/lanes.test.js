@@ -15,6 +15,33 @@ function harness(plugin = createMockReasoning(), options = {}, laneOptions = {})
   return { lanes, turn, published, partials, get session() { return session; } };
 }
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
+
+for (const policy of [false, true]) for (const change of ['answered', 'chosenBy', 'focus-revision', 'identity']) {
+  test(`AIT-418: focused reply revalidates ${change} (purpose=${policy})`, async () => {
+    const started = deferred(), gate = deferred();
+    const h = harness({ ...createMockReasoning(), async *stream() {
+      started.resolve(); await gate.promise;
+      yield policy ? JSON.stringify({ content: 'Launch date?', scope: 'in', question_short: null, options: [] }) : 'Launch date?';
+    } }, { identified: true }, policy ? { purposePolicy } : {});
+    h.turn('We need a website.');
+    Object.assign(h.session, { focusedQuestion: 'Launch date?',
+      questionFocus: { requestId: 'selected', chosenBy: 'user', inputRevision: inputRevision(h.session) },
+      understanding: { ...h.session.understanding, inputRevision: inputRevision(h.session), openQuestions: ['Launch date?'], draft: false } });
+    const pending = h.lanes.run(h.session.id, 'reaction');
+    try {
+      await started.promise;
+      if (change === 'answered') h.session.transcript.push({ id: 'already-answered', role: 'assistant', content: 'Launch date?', focusRequestId: 'selected' });
+      if (change === 'chosenBy') h.session.questionFocus.chosenBy = 'system';
+      if (change === 'focus-revision') h.session.questionFocus.inputRevision = 'obsolete-focus-revision';
+      if (change === 'identity') Object.assign(h.session, applyEvent(h.session, { seq: h.session.seq + 1, type: 'identity.state', data: { status: 'verification-pending', identified: false } }));
+    } finally { gate.resolve(); }
+    assert.equal(await pending, change === 'identity' ? 'completed' : 'stale');
+    assert.equal(h.published.length, change === 'identity' ? 1 : 0);
+    if (change !== 'identity') assert.deepEqual(h.partials, [], 'invalid focus never reaches the visitor');
+    else assert.equal(h.published[0].data.focusRequestId, 'selected');
+  });
+}
+
 for (const prefix of ['Gut, ', 'x'.repeat(80)]) test(`AIT-157: normal streaming opens at a clause or 80 characters (${prefix.length})`, async () => {
   const entered = deferred(), release = deferred();
   const h = harness({ ...createMockReasoning(), async *stream() {
