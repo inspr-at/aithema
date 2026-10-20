@@ -156,3 +156,21 @@ test('AIT-409: exposure event and maxima roll back together on a failed write', 
   assert.deepEqual(ledger.get('attempt'), before);
   assert.deepEqual(ledger.voiceExposures('attempt'), []);
 });
+
+test('AIT-409: migration preserves existing corrections and never invents historical exposure dates', t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  let ledger = new SQLiteBudgetLedger(storage, { now: () => beforeMidnight });
+  const session = storage.create();
+  admit(ledger, session.id, { providerCost: { secretRef: 'private-secret' } });
+  const claim = ledger.claim('attempt'); claim.consume();
+  ledger.settle(claim.claimId, { attemptId: 'attempt', outcome: 'uncertain' });
+  ledger.reconcileCost('attempt', { chargedMicro: 10_000, estimated: true });
+  const original = plain(ledger.corrections('attempt'));
+  // Reproduce a pre-upgrade schema with an already-raised voice maximum.
+  admit(ledger, session.id, { attemptId: 'old-voice', lane: 'voice', maxMicro: 1_000_000 });
+  storage.db.exec('ALTER TABLE budget_attempts DROP COLUMN voice_exposures_json');
+  ledger = new SQLiteBudgetLedger(storage, { now: () => afterMidnight });
+  assert.deepEqual(plain(ledger.corrections('attempt')), original);
+  assert.deepEqual(ledger.voiceExposures('old-voice'), []);
+  assert.equal(ledger.get('old-voice').max_micro, 1_000_000);
+});

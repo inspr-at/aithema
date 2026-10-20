@@ -44,6 +44,7 @@ export class SQLiteBudgetLedger {
     // Historical times are unknown: never backfill them with migration time.
     if (!columns.some(c => c.name === 'settled_at_ms')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN settled_at_ms INTEGER CHECK(settled_at_ms >= 0)');
     if (!columns.some(c => c.name === 'voice_extensions_json')) this.db.exec("ALTER TABLE budget_attempts ADD COLUMN voice_extensions_json TEXT NOT NULL DEFAULT '[]'");
+    if (!columns.some(c => c.name === 'voice_exposures_json')) this.db.exec("ALTER TABLE budget_attempts ADD COLUMN voice_exposures_json TEXT NOT NULL DEFAULT '[]'");
     this.components = createVoiceComponentStore(storage);
     for (const name of ['diagnostic_lane', 'diagnostic_outcome']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
@@ -300,6 +301,19 @@ export class SQLiteBudgetLedger {
         newVisitorMicro, JSON.stringify({ terminal: row.terminal_json, usage: row.usage,
           cost: row.cost_reconciliation_json, voice: row.voice_reconciliation_json }), JSON.stringify(evidence));
   }
+  // Host read: explicit projection keeps private evidence out of dated events.
+  // Row ids preserve posting order even when the injected clock moves back.
+  corrections(attemptId) {
+    return this.db.prepare(`SELECT id, attempt_id AS attemptId, lane, at_ms AS atMs,
+      old_micro AS oldMicro, new_micro AS newMicro,
+      old_visitor_micro AS oldVisitorMicro, new_visitor_micro AS newVisitorMicro
+      FROM budget_corrections WHERE attempt_id=? ORDER BY id`).all(attemptId);
+  }
+  // Same dated amount shape as corrections; ids are per-attempt sequence numbers.
+  voiceExposures(attemptId) {
+    const row = this.db.prepare('SELECT voice_exposures_json FROM budget_attempts WHERE attempt_id=?').get(attemptId);
+    return JSON.parse(row?.voice_exposures_json ?? '[]');
+  }
   attachCost(attemptId, record) {
     this.db.prepare('UPDATE budget_attempts SET provider_cost_json=? WHERE attempt_id=? AND provider_cost_json IS NULL')
       .run(JSON.stringify(record), attemptId);
@@ -354,8 +368,14 @@ export class SQLiteBudgetLedger {
       this.freezeVoiceEstimate(attemptId);
       const maxMicro = Math.max(row.max_micro, row.voice_exposure_micro);
       const maxVisitorMicro = Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro);
-      this.db.prepare('UPDATE budget_attempts SET max_micro=?,max_visitor_micro=?,voice_closing=1 WHERE attempt_id=?')
-        .run(maxMicro, maxVisitorMicro, attemptId);
+      const history = JSON.parse(row.voice_exposures_json);
+      if (maxMicro > row.max_micro || maxVisitorMicro > row.max_visitor_micro) {
+        history.push({ id: history.length + 1, attemptId, lane: row.lane, atMs: this.timestamp(),
+          oldMicro: row.max_micro, newMicro: maxMicro,
+          oldVisitorMicro: row.max_visitor_micro, newVisitorMicro: maxVisitorMicro });
+      }
+      this.db.prepare('UPDATE budget_attempts SET max_micro=?,max_visitor_micro=?,voice_closing=1,voice_exposures_json=? WHERE attempt_id=?')
+        .run(maxMicro, maxVisitorMicro, JSON.stringify(history), attemptId);
       return { maxMicro, maxVisitorMicro };
     });
   }
