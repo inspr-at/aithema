@@ -94,7 +94,7 @@ export function mockPresets() {
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
-  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
+  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, now = () => Date.now(), budget = new SQLiteBudgetLedger(storage, { now }), voiceCap, healthMs = 1000, uiRenderLimits = {},
   renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }),
   conversationLimits = createConversationLimits({ storage, now }) } = {}) {
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
@@ -520,6 +520,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return adapter ? [adapter] : [];
     }),
     setOwnerWallet(provider) { ownerWallet = provider; },
+    setHostClock(clock) { budget.now = clock; },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       // OPS and the background worker share one writer. A dry-run performs only
@@ -1003,7 +1004,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           // only elapsed + one segment, bounded by the technical end.
           const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
           const extended = budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
-            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
+            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, (extra, context) => ownerWallet?.(session)?.canAdmit(extra, context));
           fundedSeconds = Math.max(fundedSeconds, totalSeconds);
           return extended;
         } } : {}), async consume() {

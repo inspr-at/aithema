@@ -309,16 +309,73 @@ public conformance kit. The host must recover orphaned owner-only holds using
 authoritative dispatch evidence; the reference conservatively retains them.
 
 For ongoing voice, the runtime calls
-`budget.extendVoice(attemptId, totalMaxima, extra => wallet.canAdmit(extra))`.
-The callback receives **additional** maxima, not total cost. A zero-extra
-extension remains allowed when the owner is over limit or the allowance is zero:
-it adds no exposure. Positive extras still require headroom. It must read live
-policy inside the ledger's existing transaction; do not start a nested SQLite
-transaction or await there. The reference uses `db.isTransaction` to reuse that
-transaction. A reduction can refuse the next extension while preserving the
-existing reservation, provider exposure and settlement obligations. An increase
-can admit the next extension immediately. Normal admissions recheck atomically
-after the preview, so concurrent conversations cannot both spend the same room.
+`budget.extendVoice(attemptId, totalMaxima, (extra, context) => wallet.canAdmit(extra, context))`.
+The first argument remains `{ maxMicro, maxVisitorMicro }` with **additional**
+maxima, and the return remains the cumulative `{ maxMicro, maxVisitorMicro }`.
+Existing one-argument wallets keep the same calls and results, including a
+zero-extra callback on duplicate or smaller cumulative maxima. The additive,
+frozen second argument is `{ attemptId, sessionId, extraMicro, at }`:
+`extraMicro` equals `extra.maxMicro` (upstream cost); visitor-priced wallets use
+`extra.maxVisitorMicro`. All monetary values are integer micro-USD
+(1 USD = 1,000,000 micro); `at` is Unix epoch **milliseconds**.
+
+The callback is synchronous inside the ledger's `BEGIN IMMEDIATE` transaction.
+Return `false` to refuse, or throw to abort: both roll back the extension and
+any host writes on that same SQLite connection. Do not start a nested SQLite
+transaction, await, or perform external side effects there. The reference uses
+`db.isTransaction` to reuse that transaction. A zero-extra extension adds no
+exposure and the reference wallet allows it even when over limit. Positive
+extras require headroom. Policy changes can refuse or admit the next extension
+while preserving existing reservations, exposure and settlement obligations.
+Normal admissions recheck atomically after the preview, so concurrent
+conversations cannot both spend the same room.
+
+`budget.get(attemptId).voice_extensions_json` durably stores an ordered JSON
+array of accepted increases, each
+`{ maxMicro, maxVisitorMicro, extraMicro, extraVisitorMicro, at }`.
+Maxima are cumulative; extras are the amounts added at that event, including
+visitor-only increases. History and maxima commit together. Use the attempt ID
+plus cumulative maxima as the event's idempotency key. Duplicate/smaller maxima
+append nothing, pass zero extras, and reuse the latest committed extension's
+`at`; without any prior increase, a zero-extra callback samples the clock but
+records no event. Refusals leave no event. Only committed event times are stable;
+a rolled-back admission may retry at a later time.
+
+Every first settlement (`settle`, `settleVoice`, `settleComponent`, or `recover`)
+atomically records `budget.get(attemptId).settled_at_ms` alongside the receipt.
+Settlement methods also return this field. Exact terminal replays and repeated
+recovery keep it unchanged across restart. Provider cost records' `settledAt`
+use the same instant. Later reconciliation preserves the first settlement time;
+its existing append-only `budget_corrections.at_ms` records the correction time
+using the same clock. Replayed evidence adds no correction. Migration adds an
+empty extension array and a nullable settlement time to old rows: `null` means
+unknown, and an empty array cannot reconstruct pre-upgrade extensions. Retain
+host historical records for those rows; never assign them the migration day.
+
+Time comes from `host.now()` when supplied to `createHandlers`, including with
+a prebuilt runtime. Otherwise the runtime-created ledger uses the runtime's
+`now`; a separately supplied ledger uses its own `now` constructor option.
+The default is `Date.now`. Clocks must return nonnegative safe integer epoch
+milliseconds. There is no new settlement hook: durable receipt timestamps are
+the smaller contract, avoid fallible host code during settlement, and let a
+host rebuild totals after a crash. A settlement write failure rolls back its
+time and receipt together; it leaves the reservation in place for retry.
+
+For per-address **UTC-day** caps, keep the original hold on its admission day,
+file each extension extra on `new Date(event.at).toISOString().slice(0, 10)`,
+and file settlement above the reservation on the UTC day of `settled_at_ms`.
+For example, a 1 USD hold yesterday extended by 9 USD today counts 9 USD toward
+today's 30 USD address cap; it must not all be filed on yesterday's attempt.
+A subsequent 11 USD settlement adds another 1 USD on the settlement day.
+Derive admitted reservation from the host's original hold plus extension extras;
+`retainVoiceExposure` can raise ledger maxima for existing provider liability
+without admitting an extension. Allocate any refund against the original dated
+holds rather than moving all spend to settlement day. Later evidence deltas use
+their correction time. Read these durable records in every admission transaction,
+or reconcile a host projection idempotently before admitting more work: blindly
+adding callback/receipt amounts to a separate wallet can double-file retries or
+lose amounts on crash. Settled liability remains payable even above the cap;
+the cap refuses subsequent admission rather than erasing provider costs.
 
 No policy save changes owner tokens/hashes, ledger rows, attempt IDs, historical
 spend, voice exposure or existing holds. Lowering below committed costs leaves
