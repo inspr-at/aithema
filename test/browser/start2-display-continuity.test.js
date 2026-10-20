@@ -1,7 +1,7 @@
 // AIT-138 d: real tab takeover, wake and durable restart recovery. Remote browser runner only.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
@@ -361,6 +361,8 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
   const demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), join(directory, 'session.sqlite'));
   t.after(() => demo.kill());
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], files = [];
+  const head = process.env.GITHUB_EVENT_PATH
+    ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha ?? evidenceCommit : evidenceCommit;
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const width of [390, 1440]) for (const touch of [true, false]) for (const locale of width === 390 ? ['de', 'en'] : ['de']) {
     const browser = await browserForFile(), page = await browser.newPage();
@@ -377,6 +379,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
       await until(page, () => document.querySelector('aithema-session')?.session?.id);
       await page.select('#locale', locale); await page.select('#theme', 'light'); await mockConsent(page);
       await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
       await shadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
       await finishWorkspaceEntry(page);
@@ -428,7 +431,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           observer.observe(root.querySelector('.audio-rail'), { attributes: true, attributeFilter: ['data-state'] });
           const frame = () => {
             sample('frame');
-            if (run.appliedAt && performance.now() >= run.appliedAt + 1000) { observer.disconnect(); window.fetch = original; run.done = true; }
+            if (run.lastAppliedAt && performance.now() >= run.lastAppliedAt + 1000) { observer.disconnect(); window.fetch = original; run.done = true; }
             else requestAnimationFrame(frame);
           };
           requestAnimationFrame(frame);
@@ -444,7 +447,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
             const returned = outcome === 'error' ? new Response(null, { status: 503 }) : outcome === 'paused'
               ? Response.json({ ...snapshot, paused: true, featureMatrix: c.session.featureMatrix }) : response;
             // After fetch resolves, the component's continuation applies its verdict.
-            setTimeout(() => { run.appliedAt = performance.now(); }, 0);
+            setTimeout(() => { run.appliedAt ??= performance.now(); run.lastAppliedAt = performance.now(); }, 0);
             return returned;
           };
           root.querySelector('.pause').click();
@@ -465,10 +468,24 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         await until(page, () => globalThis.ait404.done);
         const result = await page.evaluate(() => globalThis.ait404);
         const preVerdict = result.samples.filter(s => s.at < result.appliedAt);
-        const check = { width, theme: 'light', locale, touch, outcome, ...result, errors };
+        const device = await page.evaluate(() => ({ hoverNone: matchMedia('(hover:none)').matches, fine: matchMedia('(pointer:fine)').matches, coarse: matchMedia('(pointer:coarse)').matches }));
+        const assertions = {
+          listeningTickSample: preVerdict.some(s => s.source === 'mutation'),
+          delayedFramesAtLeast10: preVerdict.filter(s => s.source === 'frame').length >= 10,
+          noPausedBeforeSnapshot: preVerdict.every(s => !s.pausedVisible),
+          shortcutInListeningTick: preVerdict.every(s => s.shortcut),
+          movementPx0: result.samples.every(s => s.movementPx === 0),
+          deviceMatches: touch ? device.hoverNone && device.coarse : device.fine,
+          noPageErrors: errors.length === 0,
+          confirmedOrRestored: outcome === 'success' ? result.samples.every(s => !s.pausedVisible && s.shortcut)
+            : result.samples.some(s => s.at >= result.appliedAt && s.pausedVisible && !s.shortcut),
+        };
+        const check = { width, theme: 'light', locale, touch, outcome, device, assertions, ...result, errors };
         checks.push(check);
         // Persist the red trace too, including the actual frame and its bounds.
-        if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
+        if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
+        assert.ok(assertions.deviceMatches, 'the case uses the requested touch or fine-pointer device');
+        assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'every outcome preserves composer, label slot and transcript geometry');
         assert.ok(preVerdict.some(s => s.source === 'mutation'), 'sample the listening mutation in its own tick');
         assert.ok(preVerdict.filter(s => s.source === 'frame').length >= 10, 'sample every frame while the 800 ms GET is pending');
         assert.ok(preVerdict.every(s => !s.pausedVisible), 'paused label is never visible after listening is set, including before the GET');
@@ -486,5 +503,5 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
     } finally { await browser.close(); }
   }
-  if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
 });
