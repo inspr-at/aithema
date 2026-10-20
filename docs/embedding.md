@@ -1147,6 +1147,10 @@ and actual verification methods. Host collection requires a configured privacy
 document. Pass the same consent port to handlers and plugin runtime. Consent,
 budgets, ownership and pause are checked before every dispatch.
 
+`POST /api/sessions/:id/pause` checks privacy permission before unpausing an
+address-bearing identity. A `privacy-document-required` refusal leaves the
+session paused and its journal unchanged, and schedules no work.
+
 ### Consent documents in Settings
 
 To let visitors edit consent in Settings, the same authoritative consent port

@@ -120,6 +120,14 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     if (erased) storage.checkpointErasure();
     return result;
   }
+  function assertPauseAllowed(id, paused) {
+    if (!host) return;
+    const state = storage.hostState(id)?.identity;
+    if (state && state.manualPaused !== paused) {
+      const identity = host.identity?.project?.({ session: storage.get(id) }, state) ?? state;
+      if (identity.address) assertAddressCollectionAllowed();
+    }
+  }
   function syncPause(id, ownerToken) {
     if (!host) return;
     initialize(id, ownerToken);
@@ -503,7 +511,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       throw error;
     }
   }
-  return { handle, initialize, syncPause, roleChoice,
+  return { handle, initialize, assertPauseAllowed, syncPause, roleChoice,
     retentionActive: id => deliveries.has(id),
     initialCreditBalance, startCredits,
     resume() {
