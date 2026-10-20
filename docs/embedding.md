@@ -321,15 +321,20 @@ switches while each new receipt loads. A host can also configure
 settings. `next` is `emailGiven` for anonymous visitors only when it raises the
 allowance, or `emailConfirmed` for email-given visitors only when qualified
 confirmation is enabled and raises the allowance; otherwise it is `null` and
-`delta` is 0. Equal allowances do not advertise an upgrade. The owned
-`GET /api/sessions/:id/credits` exposes this as `tiers`. AIT-291's UI `nextTier`
-derives from **`tiers.next`**, subject to the existing collection/end-reason
-gates; it is not another server field. With equal anonymous and `emailGiven`
-allowances, an anonymous visitor still has `next: null` and `delta: 0`; the
-projection does not skip directly to `emailConfirmed`. After the visitor gives
-an address through the host's optional collection flow, `current: 'emailGiven'`
-can offer `next: 'emailConfirmed'` if qualified confirmation raises the allowance.
-There is no email-given upgrade line for an equal allowance.
+`delta` is 0. The owned `GET /api/sessions/:id/credits` exposes this as `tiers`.
+With equal anonymous and `emailGiven` allowances, the payload for an anonymous
+visitor keeps `next: null` and `delta: 0`; `creditTiers` does not skip directly to
+`emailConfirmed` (`demo/visitor-credits.js:270-272`). The UI's `nextTier` is a
+derived value, not another server field. Owner-wide receipts use `tiers.next`,
+but session-scoped receipts can offer `emailConfirmed` while `current` is still
+`anonymous` when the anonymous and `emailGiven` allowances are equal,
+`canConfirm` is true and the confirmed allowance is higher, subject to the
+verification, collection, end-reason and daily-cap gates
+(`packages/ui/src/host-surface.js:106-116`). In that case, the UI shows the
+confirmation action and confirmed-tier line, with no email-given upgrade line
+(`packages/ui/test/host-credits.test.js:485-486`). After the visitor gives an
+address, the payload's `current: 'emailGiven'` can offer
+`next: 'emailConfirmed'` if qualified confirmation raises the allowance.
 Set `privacyDocumentConfigured` only after validating the host's document, otherwise the server suppresses collection
 and next-tier offers. Host identity/verification ports must also enable the
 corresponding visitor actions before the UI can offer them.
