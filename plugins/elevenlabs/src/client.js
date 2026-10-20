@@ -86,7 +86,8 @@ export function createElevenLabsClient(ports = {}) {
   const { sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000,
   mediaDevices = globalThis.navigator?.mediaDevices, AudioContext = globalThis.AudioContext,
   document = globalThis.document, permissions = globalThis.navigator?.permissions,
-  persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000 } = ports;
+  persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000,
+  log = console.warn } = ports;
   if (!control?.start || !control?.close || !control?.pause || !control?.resume || !control?.heartbeat ||
     typeof persistEvent !== 'function' || ![closeTimeoutMs, persistenceTimeoutMs, drainTimeoutMs].every(value => Number.isFinite(value) && value > 0) ||
     !Number.isSafeInteger(persistenceRetries) || persistenceRetries < 0 || persistenceRetries > 5 ||
@@ -175,6 +176,18 @@ export function createElevenLabsClient(ports = {}) {
           }
         }
       };
+      const persistInterruption = value => persist(value, (value, opts) => control.reportActivity(value, opts)).catch(error => {
+        // Optional marker refusal must not poison the durable evidence queue.
+        // Cancellation, ownership loss and exhausted transient failures keep
+        // their existing handling; finals and corrections never use this path.
+        if (persistenceCancellation.signal.aborted || error.code === 'voice-ownership-lost' ||
+          !(error.code === 'not-admitted' || error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status))) throw error;
+        try {
+          Promise.resolve(log?.({ event: 'voice.interruption-marker-refused',
+            ...(Number.isSafeInteger(error.status) && error.status >= 400 && error.status < 500 ? { status: error.status } : {}) }))
+            .catch(() => {});
+        } catch { /* Diagnostics cannot end the call. Never log content or identity. */ }
+      });
       const emit = (event, expose = true) => {
         const value = Object.freeze({ ...event, ...identity() });
         const captured = ++checkpointSequence;
@@ -189,7 +202,7 @@ export function createElevenLabsClient(ports = {}) {
         const saved = ['final', 'heard', 'reply'].includes(value.type)
           ? (persistence = persistence.then(() => persist(value)))
           : value.type === 'interrupted' && control.reportActivity
-            ? (persistence = persistence.then(() => persist(value, (value, opts) => control.reportActivity(value, opts)))) : null;
+            ? (persistence = persistence.then(() => persistInterruption(value))) : null;
         saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;

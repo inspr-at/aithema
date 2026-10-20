@@ -175,9 +175,13 @@ Part B must present it as audio barge-in, not a force-interrupt button.
 The manifest declares `capabilities.interruption: 'native'` with provider-owned
 turn-taking. A genuine heard-prefix correction, its length-only interruption
 marker and its persistence receipt commit in one storage transaction. Failed
-marker writes roll back the correction so a retry can save both. A refused
-interruption marker still ends the client call as `transcript-persistence-failed`;
-changing that visitor-visible outcome requires a separate Tick decision.
+marker writes roll back the correction so a retry can save both. Per Tick spec v1
+(AIT-384 item 4), a refused optional barge-in marker is dropped without retry;
+the call continues and the interruption remains honoured locally. The client
+logs only `voice.interruption-marker-refused` and an HTTP status when available
+(injectable `log` port, default `console.warn`), never content or identity.
+Refused finals and heard-prefix corrections still end the call as
+`transcript-persistence-failed`. The existing cut-off transcript rendering stays.
 
 Provider 429 responses retain `Retry-After` only for integer delta-seconds or a
 strict HTTP-date (IMF-fixdate, RFC 850 or asctime, interpreted in UTC). Invalid
