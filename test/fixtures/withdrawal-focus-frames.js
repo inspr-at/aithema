@@ -86,6 +86,12 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
+      // This case reads the first row; the phone may initially follow the
+      // last reply once the four fixture turns overflow the bounded pane.
+      await page.evaluate(async () => {
+        c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
       await page.mouse.move(-10, -10);
       const inspect = () => page.evaluate(() => {
         const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
@@ -98,6 +104,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
             .map(n => ({ id:n.dataset.id, top:n.getBoundingClientRect().top, bottom:n.getBoundingClientRect().bottom }))[0] };
       });
       const before = await inspect();
+      assert.equal(before.scrollTop, 0, 'first-row clearance starts at the top of the transcript');
       await page.evaluate(() => withdraw());
       await capture(width, 'light', locale, 'transcript-withdrawal');
       const withdrawn = await inspect();
