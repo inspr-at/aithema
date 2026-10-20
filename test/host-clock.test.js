@@ -248,7 +248,8 @@ test('AIT-403 voice binding evidence is valid on the deadline clock and refuses 
   const before = h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
   const expired = await h.route('/evidence-call/recover', { providerSessionId: first.providerSessionId });
   assert.equal(expired.status, 403);
-  assert.match(await expired.text(), /binding evidence expired/u);
+  assert.deepEqual(await expired.json(), { error: 'not-admitted' });
+  await assert.rejects(h.runtime.checkVoice(h.storage.get(h.session.id)), { code: 'not-admitted', message: 'binding evidence expired' });
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, before);
   assert.equal(h.starts.length, 1);
   assert.equal(h.cap.snapshot().reservedMilliseconds, 0);
