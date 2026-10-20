@@ -166,8 +166,10 @@ test('AIT-160: TTS rejects >240 fragments, wrong format, and under-reservation b
 });
 
 test('AIT-160: ElevenLabs fixture candidate runs offline qualification against existing baseline', async () => {
-  const result = await runOfflineQualification({ candidateComponents: item => ({
-    stt: setup('stt', { connect: () => fixtureSocket({ role: 'stt', text: item.reference }) }), tts: setup('tts'),
+  const result = await runOfflineQualification({ candidateComponents: (item, { now }) => ({
+    stt: setup('stt', { consent: fixtureConsent(fixtureBinding('stt'), true, now),
+      connect: () => fixtureSocket({ role: 'stt', text: item.reference }) }),
+    tts: setup('tts', { consent: fixtureConsent(fixtureBinding('tts'), true, now) }),
   }) });
   assert.equal(result.candidate.wer, 0); assert.equal(result.candidate.entityAccuracy, 1);
   assert.equal(result.candidate.firstAudioMs.p95, 900); assert.equal(result.candidate.bargeInStopMs, 0);
