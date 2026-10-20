@@ -449,3 +449,42 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
   }
   if (evidence) await writeFile(join(evidence, 'ait-172-settings-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, baseline: baseline.sourceHead, rows, shots }, null, 2));
 });
+
+// Real host routes, including the unavailable visitor-email route; no provider or mail calls.
+test('AIT-414: credit tiers with identity only confirm and change without visitor persistence', { timeout: 30_000 }, async t => {
+  const { confirmationHost } = await import('../fixtures/confirmation-host.js');
+  const f = await confirmationHost(t), dir = await mkdtemp(join(tmpdir(), 'aithema-confirm-identity-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'));
+  const browser = await browserForFile();
+  t.after(async () => { await browser.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
+  const page = await browser.newPage();
+  await page.exposeFunction('confirmationRequest', f.call);
+  await page.goto(server.url, { waitUntil: 'domcontentloaded' });
+  await page.evaluate(async ({ identity, tiers }) => {
+    const { Verification } = await import('/packages/ui/src/verification.js');
+    const { en: copy } = await import('/packages/ui/src/i18n/en.js');
+    const host = document.createElement('div'); document.body.replaceChildren(host);
+    const root = host.attachShadow({ mode: 'open' }), entry = document.createElement('section'), lock = document.createElement('section'), dialog = document.createElement('dialog');
+    root.append(entry, lock, dialog);
+    const v = window.confirmation = new Verification({ root, entry, lock, dialog, copy, request: window.confirmationRequest, identity, demo: true });
+    await v.load(); v.setCredits({ tiers });
+  }, { identity: f.session.identity, tiers: f.tiers() });
+  for (const [command, address] of [['request', 'first@example.test'], ['change', 'changed@example.test']]) {
+    await page.evaluate(({ command, address }) => {
+      const root = document.body.firstElementChild.shadowRoot;
+      if (command === 'change') root.querySelector('.verify-change').click();
+      root.querySelector('#verify-lock-email').value = address;
+      root.querySelector('#verify-lock-email').form.requestSubmit();
+    }, { command, address });
+    await page.waitForFunction(() => window.confirmation.identity.status === 'verification-pending');
+    assert.deepEqual(f.calls.filter(call => call.path === `identity/${command}`), [{ path: `identity/${command}`, body: { address } }]);
+    assert.equal(f.deliveries.at(-1).address, address);
+    const confirmed = await f.call('identity/confirm', { token: 'fixture-confirmation' });
+    assert.equal(confirmed.ok, true);
+    await page.evaluate(identity => window.confirmation.set(identity), confirmed.body.identity);
+    assert.equal(await page.evaluate(() => window.confirmation.identity.status), 'verified');
+    assert.equal(f.tiers().allowancesMicro[f.tiers().current], 1_000_000_000);
+  }
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email' && call.body).length, 0);
+  await page.evaluate(() => window.confirmation.destroy());
+});

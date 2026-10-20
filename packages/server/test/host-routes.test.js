@@ -869,3 +869,18 @@ for (const privacy of [false, true]) test(`AIT-395: session tier offers respect 
     assert.equal(receipt.tiers.canConfirm, !capped && privacy);
   }
 });
+
+for (const missing of [null, 'visitor', 'saveEmail', 'deleteEmail', 'eraseVisitor']) {
+  test(`AIT-414: identity explicitly advertises visitor-email saving (${missing ?? 'complete port'})`, async t => {
+    const f = fixture(t), session = await f.create();
+    if (missing) delete f.host[missing];
+    const identity = await f.call(`/api/sessions/${session.id}/identity`);
+    assert.equal(identity.status, 200);
+    assert.deepEqual((await identity.json()).visitorEmail, { canSave: missing === null });
+    const visitor = await f.call('/api/visitor/email');
+    assert.equal(visitor.status, missing ? 503 : 200);
+    const pending = await f.call(`/api/sessions/${session.id}/identity/request`, { address: 'port@example.test' });
+    assert.equal(pending.status, 200);
+    assert.deepEqual((await pending.json()).visitorEmail, { canSave: missing === null });
+  });
+}
