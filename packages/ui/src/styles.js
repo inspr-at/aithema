@@ -182,12 +182,11 @@ svg { display:block; flex:none; }
   .turn:is(:hover,:focus-within) > .reply-actions > button svg { visibility:visible; }
   .turn:is(:hover,:focus-within) > .reply-actions > button:not(:disabled) { color:var(--aithema-ink); }
 }
-/* The permanent 44px row takes room from the capped phone option list,
-   preserving the complete resting reply above the card and its fade. */
+/* Use the phone transcript's available width and compact bubble insets so
+   the permanent 44px controls fit above the card's existing option minimum. */
 @media (max-width:600px) {
-  .workspace:has(.reply-actions) .qcard:not([data-compact]) {
-    max-height:min(440px,max(0px,calc(var(--question-card-limit,440px) - 44px)),calc(100dvh - 280px));
-  }
+  .turn:has(> .reply-actions) { --turn-max-width:100%; padding-block:6px; }
+  .turn:has(> .reply-actions) > strong { margin-bottom:0; }
 }
 /* A cleared recovery offer shares the existing reply slot and may retire
    independently. The permanent row owns keyboard/AX access at all times. */
@@ -197,6 +196,7 @@ svg { display:block; flex:none; }
 .turn > .voice-reply-actions--recovery .voice-repeat-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .turn > .voice-reply-actions--recovery > button::before, .turn > .voice-reply-actions--recovery > button::after { content:none; }
 .turn > .voice-reply-actions--recovery > button svg { width:16px; height:16px; }
+@media (max-width:600px) { .turn > .voice-reply-actions--recovery { bottom:6px; } }
 @media (hover:hover) and (pointer:fine) {
   .turn > .voice-reply-actions--recovery svg { visibility:hidden; }
   .turn:is(:hover,:focus-within) > .voice-reply-actions--recovery svg { visibility:visible; }
