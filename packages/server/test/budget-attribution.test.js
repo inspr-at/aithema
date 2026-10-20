@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime } from '../src/index.js';
+import { PluginRegistry, publicReasoningManifest, createMockReasoning } from '@inspr/aithema-core';
+import { mockPresets } from '../src/plugin-runtime.js';
 import { temporaryDb } from '../../../test/helpers.js';
 
 const yesterday = Date.parse('2026-10-19T23:59:59.000Z');
@@ -183,12 +185,52 @@ test('AIT-401: legacy host callback calls and results snapshot remains identical
 });
 
 test('AIT-401: handlers supply host.now to a prebuilt runtime ledger', async t => {
-  const storage = new SQLiteStorage(); t.after(() => storage.close());
-  const runtime = createPluginRuntime({ storage, now: () => yesterday });
+  const storage = new SQLiteStorage();
+  const runtime = createPluginRuntime({ storage, now: () => yesterday, consent: { coverage: () => ({ covered: false }) } });
   const host = { now: () => today };
   const handlers = createHandlers({ storage, pluginRuntime: runtime, host, log: () => {} });
-  t.after(() => handlers.close());
+  t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create(); admission(runtime.budget, session.id);
   const claim = runtime.budget.claim('voice'); claim.consume();
   assert.equal(runtime.budget.settleVoice(claim.claimId, terminal('voice', 1_000_000)).settled_at_ms, today);
+});
+
+
+test('AIT-401: voice runtime forwards extension context to the host wallet and uses its clock', async t => {
+  let clock = yesterday;
+  const storage = new SQLiteStorage();
+  const endpoint = 'https://voice.example.test', base = publicReasoningManifest('attribution-voice', 'Fixture', endpoint);
+  const binding = { plugin: 'attribution-voice', model: 'fixture', effort: 'none', endpoint, accountRef: 'fixture', secretRef: 'fixture',
+    maxMicro: 1200, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 3600, reservationSeconds: 30,
+    upstreamMicroPerMinute: 600, visitorMicroPerMinute: 300,
+    legal: { approved: true, countries: ['AT'], training: false, retention: 'fixture', purpose: 'conversation',
+      recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
+      evidence: { qualified: true, accountRef: 'fixture', secretRef: 'fixture', model: 'fixture', endpoint, routing: {},
+        verifiedAt: yesterday - 1000, expiresAt: today + 100_000 } } };
+  const plugin = { binding, manifest: { ...base, kinds: ['live-voice'],
+    entrypoints: { server: './server.js', browser: './browser.js' },
+    models: [{ ...base.models[0], operations: ['start'], structured: false, cost: { ...base.models[0].cost, unit: 'minute' } }],
+    liveVoice: { reasoning: 'native', transcript: { finality: 'turns', persistence: 'durable' },
+      capabilities: Object.fromEntries(['sendText', 'updateContext', 'setInput', 'setOutput', 'pause', 'resume', 'interrupt', 'heard'].map(k => [k, 'unavailable'])),
+      billing: { visitor: 'duration', upstream: 'duration' } } },
+    health: async () => ({ available: true }), start() { throw new Error('No provider calls allowed'); } };
+  const consent = { coverage: async ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision,
+    checkedAt: clock, expiresAt: today + 100_000 }) };
+  const runtime = createPluginRuntime({ storage, now: () => clock, consent,
+    registry: new PluginRegistry().register(createMockReasoning()).register(plugin),
+    presets: { best: { plugins: ['mock', binding.plugin], bindings: { ...mockPresets().best.bindings, voice: binding }, policy: { endpoints: [endpoint] } } } });
+  const calls = [], host = { now: () => clock, walletForSession: () => ({ admit: () => ({ ok: true }), release() {},
+    canAdmit(extra, context) { calls.push({ extra, context }); return true; } }) };
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, host, log: () => {} });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: 'fixture-owner' });
+  const admitted = await runtime.admitVoice({ session, request: { callId: 'attribution-call' } });
+  await admitted.options.attempt.consume(); clock = today;
+  const attemptId = admitted.options.attempt.attemptId;
+  admitted.options.attempt.extend(150);
+  assert.deepEqual(calls.at(-1), { extra: { maxMicro: 300, maxVisitorMicro: 150 },
+    context: { attemptId, sessionId: session.id, extraMicro: 300, at: today } });
+  assert.equal(extensions(runtime.budget, attemptId)[0].at, today);
+  admitted.options.report(terminal(attemptId, 1500));
+  assert.equal(runtime.budget.get(attemptId).settled_at_ms, today);
 });
