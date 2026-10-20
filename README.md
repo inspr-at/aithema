@@ -2312,6 +2312,7 @@ The snapshot and a durable billing seal commit before the hook starts. Reconcili
 and all budget-attempt writes are refused after sealing, including during failed
 or timed-out hooks and after restart; budget recovery and reasoning cost scans
 skip sealed attempts.
+A validated, seal-refused charge is recorded on the existing host spend reservation and counts in `retired_spend` when purged; attempts stay frozen.
 Receipts committed before sealing are included, even if they arrive during
 `host.erased`. That earlier hook releases session resources; it is not the final
 cost snapshot. Custom host budgets must provide equivalent finality themselves.

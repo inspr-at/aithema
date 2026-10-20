@@ -298,10 +298,14 @@ export class SQLiteBudgetLedger {
     try {
       return this.storage.transaction(() => fn((attemptId, actualMicro) => { receipt = { attemptId, actualMicro }; }));
     } catch (error) {
-      if (error.message === 'Retirement billing sealed' && integer(receipt?.actualMicro) &&
-        this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='spend_reservations'").get()) {
-        this.db.prepare("UPDATE spend_reservations SET actual_micro=?,state='confirmed' WHERE attempt_id=? AND actual_micro IS NULL")
-          .run(receipt.actualMicro, receipt.attemptId);
+      try {
+        if (error.message === 'Retirement billing sealed' && integer(receipt?.actualMicro) &&
+          this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='spend_reservations'").get()) {
+          this.db.prepare("UPDATE spend_reservations SET actual_micro=?,state='confirmed' WHERE attempt_id=? AND actual_micro IS NULL")
+            .run(receipt.actualMicro, receipt.attemptId);
+        }
+      } catch (cause) {
+        error.cause = cause;
       }
       throw error;
     }
