@@ -122,6 +122,16 @@ test('AIT-403 sweep storage event and content evidence timestamps follow install
     new Date(h.now()).toISOString());
 });
 
+test('AIT-403 explicit runtime policy clock also owns storage retention and evidence', async t => {
+  const h = fixture(t, { explicit: true });
+  assert.equal(h.storage.now(), h.runtime.now());
+  h.runtime.setHostClock(() => wall + 60_000);
+  assert.equal(h.storage.now(), h.runtime.now(), 'later host accounting installation cannot change storage policy epoch');
+  assert.equal(h.runtime.budget.now(), wall + 60_000, 'ledger attribution keeps its documented host epoch');
+  const event = h.storage.append(h.session.id, 'session.paused', { paused: true });
+  assert.equal(event.at, new Date(h.runtime.now()).toISOString());
+});
+
 test('AIT-403 sweep retirement receipt deferral defaults to installed storage clock', async t => {
   const h = fixture(t);
   h.storage.erase(h.session.id);
@@ -183,6 +193,15 @@ test('AIT-403 sweep demo-wired local voice provider follows runtime clock withou
     assert.equal(voice.snapshot().startedAt, h.now());
     assert.equal(voice.snapshot().spendDeadlineAt, options.spendDeadlineAt);
   } finally { await voice.close(); }
+});
+
+test('AIT-403 local reconciliation does not use its elapsed lookup clock for call duration', async t => {
+  const h = fixture(t), plugin = createLocalVoiceProvider({ storage: h.storage });
+  const result = await plugin.ports.serverAdapter.reconciliationEvidence({
+    call: { providerSessionId: 'clock-orphan', startedAt: h.now() - 1000, pauses: [] }, outcome: 'completed',
+  }, { now: Date.now, deadlineAt: wall + 1000 });
+  assert.equal(result.terminal.usage.providerSeconds, 1);
+  assert.equal(result.terminal.usage.visitorSeconds, 1);
 });
 
 test('AIT-430 documented standalone coordinator forwards clock into component operation budgets', async t => {
