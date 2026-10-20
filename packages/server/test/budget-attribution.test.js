@@ -184,6 +184,27 @@ test('AIT-401: legacy host callback calls and results snapshot remains identical
   });
 });
 
+for (const preview of [false, { ok: false, reason: 'session' }, { ok: false, reason: 'host-limit' },
+  { ok: false, reason: 'dailyCap' }, { ok: false, reason: 'unknown' }, { ok: false }, {}, null, undefined, 1, 'true', { ok: true }]) {
+  test(`AIT-411: voice extension requires explicit wallet yes (${JSON.stringify(preview)})`, t => {
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    const ledger = new SQLiteBudgetLedger(storage, { now: () => today }), session = storage.create();
+    admission(ledger, session.id); ledger.claim('voice').consume();
+    const before = ledger.get('voice');
+    assert.throws(() => ledger.extendVoice('voice', { maxMicro: 2_000_000, maxVisitorMicro: 1_000_000 },
+      () => preview), { code: 'not-admitted' });
+    assert.deepEqual(ledger.get('voice'), before, 'refusal preserves every reservation and extension event');
+  });
+}
+test('AIT-411: explicit boolean wallet yes funds a voice extension', t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const ledger = new SQLiteBudgetLedger(storage, { now: () => today }), session = storage.create();
+  admission(ledger, session.id); ledger.claim('voice').consume();
+  assert.deepEqual(ledger.extendVoice('voice', { maxMicro: 2_000_000, maxVisitorMicro: 1_000_000 }, () => true),
+    { maxMicro: 2_000_000, maxVisitorMicro: 1_000_000 });
+  assert.equal(extensions(ledger).length, 1);
+});
+
 test('AIT-401: handlers supply host.now to a prebuilt runtime ledger', async t => {
   const storage = new SQLiteStorage();
   const runtime = createPluginRuntime({ storage, now: () => yesterday, consent: { coverage: () => ({ covered: false }) } });
