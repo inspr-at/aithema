@@ -176,7 +176,9 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
           c.configure({ session:c.session, copy, sessionToken:'fixture-owner', concepts:{ previewURL:location.origin+'/_aithema/html-preview' } });
           // A partial can enter live before any durable input exists. A failed
           // lane clears it and returns to ready through the production renderer.
-          if (mode === 'hide') c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:c.session.inputRevision } });
+          const { inputRevision } = await import('/packages/core/src/session.js');
+          window.stagePartial = () => c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:inputRevision(c.session) } });
+          if (mode === 'hide') stagePartial();
           document.body.style.paddingBottom = '1600px'; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
         }, mode);
         const result = await page.evaluate(mode => {
@@ -186,12 +188,12 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
             lastTopRowBottom:Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom) });
           const before = measure(); scrollTo(0, 400); dispatchEvent(new Event('scroll')); const scrolled = measure();
           if (mode === 'fold') r.querySelector('.fold').click();
-          else c.receive({ type:'lane.failed', data:{ lane:'reaction', inputRevision:c.session.inputRevision } });
+          else c.receive({ type:'lane.failed', data:{ lane:'reaction' } });
           const hiddenStage = workspace.dataset.stage;
           const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
           scrollTo(0, 0); dispatchEvent(new Event('scroll'));
           if (mode === 'fold') r.querySelector('.fold-strip').click();
-          else c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:c.session.inputRevision } });
+          else stagePartial();
           // Inspect synchronously on return, before another scroll can repair it.
           const returned = measure();
           document.body.style.paddingBottom = ''; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
