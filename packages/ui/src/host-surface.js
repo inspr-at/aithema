@@ -312,16 +312,20 @@ export class HostSurface {
     if (!this.#options.credits) return;
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
+    // RC13's reconciling key is also the legacy tooltip contract. Keep it
+    // unchanged by default; an explicit host override supplies visible copy too.
+    const reconcilingText = [de.hostSurface.credits.reconciling, en.hostSurface.credits.reconciling].includes(c.reconciling)
+      ? c.reconcilingVisible ?? c.reconciling : c.reconciling;
     if (this.#options.credits?.reconcilingVisible && !line.querySelector('.host-credits__reconciling')) {
       const stack = line.querySelector('.host-credits__stack');
-      const label = node('span', 'host-credits__reconciling', c.reconciling); label.setAttribute('aria-hidden', 'true'); stack.append(label);
+      const label = node('span', 'host-credits__reconciling', reconcilingText); label.setAttribute('aria-hidden', 'true'); stack.append(label);
       const live = node('span', 'host-credits__reconcile-live sr-only'); live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite'); line.append(live);
     }
     const reconciling = this.#options.credits?.reconcilingVisible && this.#credits?.reconciling === true;
     if (this.#options.credits?.reconcilingVisible) {
       line.toggleAttribute('data-reconciling', reconciling);
-      setText(line.querySelector('.host-credits__reconciling'), c.reconciling);
-      setText(line.querySelector('.host-credits__reconcile-live'), reconciling ? c.reconciling : '');
+      setText(line.querySelector('.host-credits__reconciling'), reconcilingText);
+      setText(line.querySelector('.host-credits__reconcile-live'), reconciling ? reconcilingText : '');
     }
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
     const scoped = this.#credits?.scope === 'session', capped = scoped && this.#credits.dailyCapReached;
@@ -337,7 +341,7 @@ export class HostSurface {
     const button = line.querySelector('.host-credits__button'), track = line.querySelector('.host-credits__track');
     const scope = line.querySelector('.host-credits__scope'), current = line.querySelector('.host-credits__current');
     for (const attribute of ['title', 'aria-description']) {
-      if (this.#credits?.reconciling) button.setAttribute(attribute, this.#options.credits?.reconcilingVisible ? c.reconciling : c.reconcilingTooltip ?? c.reconciling);
+      if (this.#credits?.reconciling) button.setAttribute(attribute, c.reconciling);
       else button.removeAttribute(attribute);
     }
     // Tick AIT-357: reserve the six-glyph 10,000-credit envelope before the
@@ -371,7 +375,7 @@ export class HostSurface {
     const balance = owner ? fill(scoped ? exhausted ? c.sessionBalanceOut : c.sessionBalance : exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : c.loading;
     setText(scope, balance); button.setAttribute('aria-label', capped ? c.dailyCap : balance);
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
-    if (reconciling) button.setAttribute('aria-label', c.reconciling);
+    if (reconciling) button.setAttribute('aria-label', reconcilingText);
     current.hidden = !tiers || tiers.current === 'anonymous';
     if (tiers) setText(current.querySelector('span:last-child'), tierText(fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale), n: format(tiers.allowancesMicro?.[tiers.current], locale) })));
     // Built-in RC13 dictionaries retain their historic anonymous offer. A host

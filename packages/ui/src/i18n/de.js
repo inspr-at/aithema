@@ -465,8 +465,8 @@ export const de = {
     },
     credits: {
       dailyCapReset: 'Ab {time} wieder verfügbar',
-      reconciling: 'Credits werden abgeglichen …',
-      reconcilingTooltip: 'Kosten werden noch abgeglichen',
+      reconcilingVisible: 'Credits werden abgeglichen …',
+      reconciling: 'Kosten werden noch abgeglichen',
       low: 'Noch {available} Credits', lowShort: 'Noch {available}',
       title: 'Ihre Credits', scope: 'für alle Ihre Gespräche', loading: 'Credits werden geladen',
       balance: 'Ihre Credits: {available} von {limit} übrig, für alle Ihre Gespräche.',

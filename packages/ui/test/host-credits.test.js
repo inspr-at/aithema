@@ -585,8 +585,8 @@ for (const copy of [de, en]) test(`AIT-411 O4/O5: one reconciliation announcemen
   receipt.reconciling = true; t.mock.timers.tick(15001); await tick(12);
   assert.equal(deadline.textContent, resetText);
   const live = root.querySelector('.host-credits__reconcile-live'), originalNode = live.firstChild;
-  assert.equal(live.textContent, copy.hostSurface.credits.reconciling);
-  assert.equal(root.querySelector('.host-credits__button').getAttribute('aria-label'), copy.hostSurface.credits.reconciling);
+  assert.equal(live.textContent, copy.hostSurface.credits.reconcilingVisible);
+  assert.equal(root.querySelector('.host-credits__button').getAttribute('aria-label'), copy.hostSurface.credits.reconcilingVisible);
   t.mock.timers.tick(15001); await tick(12);
   assert.equal(live.firstChild, originalNode, 'same reconciliation never re-announces');
   receipt.dailyCapReached = false; receipt.reconciling = false;
