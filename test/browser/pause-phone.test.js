@@ -766,6 +766,9 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       await page.evaluate(() => {
         const reply = document.querySelector('aithema-session').session.transcript.at(-1);
         globalThis.tickRail.notices.recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: reply.content, lastReplyTurnId: reply.id });
+        // A host refresh can repaint the rail before the sentence clears.
+        // Exercise that ordering deterministically instead of racing the GET.
+        globalThis.tickRail.render();
       }); await frame(page);
       const sentence = await recoveryRowMetrics(page), label = `${locale}-${theme}-${width}-${position}`;
       assert.equal(sentence.audioAvailable, false, `${label}-clear remains text-only`);
@@ -784,6 +787,12 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       assert.equal(row.audioAvailable, false, `${label}-action-row remains text-only`);
       assert.equal(row.clientReplayAvailable, false, `${label}-action-row has no replay client`);
       assert.equal(row.sentence, '');
+      if (row.turnId !== 'row-47') t.diagnostic(`N1 row mismatch ${label}: ${JSON.stringify(await shadow(page, c => ({
+        pageReply: globalThis.tickRail.notices.pageReply,
+        recovery: globalThis.tickRail.notices.recovery,
+        recoveryContext: globalThis.tickRail.notices.recoveryContext,
+        rows: [...c.shadowRoot.querySelectorAll('.voice-reply-actions')].map(n => ({ parent: n.parentElement.className, turnId: n.parentElement.dataset.id ?? null, hidden: n.hidden })),
+      })))}`);
       assert.equal(row.turnId, 'row-47', 'controls are the last assistant bubble action row');
       assert.equal(row.emptySpaceAbovePx, 0, 'no empty line above the action row');
       for (const b of row.controls) {
