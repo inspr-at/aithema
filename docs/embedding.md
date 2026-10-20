@@ -330,6 +330,8 @@ outcomes retain it for recovery. The fixture qualifies this contract with the
 public conformance kit. The host must recover orphaned owner-only holds using
 authoritative dispatch evidence; the reference conservatively retains them.
 
+#### Dated budget attribution (AIT-401, AIT-409)
+
 For ongoing voice, the runtime calls
 `budget.extendVoice(attemptId, totalMaxima, (extra, context) => wallet.canAdmit(extra, context))`.
 The first argument remains `{ maxMicro, maxVisitorMicro }` with **additional**
@@ -368,11 +370,56 @@ atomically records `budget.get(attemptId).settled_at_ms` alongside the receipt.
 Settlement methods also return this field. Exact terminal replays and repeated
 recovery keep it unchanged across restart. Provider cost records' `settledAt`
 use the same instant. Later reconciliation preserves the first settlement time;
-its existing append-only `budget_corrections.at_ms` records the correction time
-using the same clock. Replayed evidence adds no correction. Migration adds an
-empty extension array and a nullable settlement time to old rows: `null` means
+its append-only correction records use the same clock. Replayed evidence adds
+no correction. Migration adds an empty extension array and a nullable settlement
+time to old rows: `null` means
 unknown, and an empty array cannot reconstruct pre-upgrade extensions. Retain
 host historical records for those rows; never assign them the migration day.
+
+AIT-409 exposes two synchronous host reads on `SQLiteBudgetLedger` (also
+`runtime.budget`): `budget.corrections(attemptId)` and
+`budget.voiceExposures(attemptId)`. Both return an array of dated amount events:
+
+```json
+[
+  {
+    "id": 42,
+    "attemptId": "attempt",
+    "lane": "reaction",
+    "atMs": 1792454460000,
+    "oldMicro": 10000,
+    "newMicro": 8000000,
+    "oldVisitorMicro": 0,
+    "newVisitorMicro": 0
+  }
+]
+```
+
+Like extension events, amounts use camelCase integer micro-USD fields and time
+comes from the ledger clock. `atMs` is the posted epoch millisecond (the stored
+`budget_corrections.at_ms`), not the admission or first settlement time.
+Corrections include both reasoning/provider-cost and voice reconciliations;
+`oldMicro`/`newMicro` are upstream settlement amounts, and
+`oldVisitorMicro`/`newVisitorMicro` are visitor settlement amounts. The explicit
+projection never returns `previous_json`, `evidence_json`, provider/session
+details or secret references. Existing correction rows are readable immediately.
+Correction `id` is the persisted row ID, and results follow posting order (`id`),
+even for equal timestamps or a clock that moves backwards. Deduplicate by
+`{attemptId, stream: 'corrections', id}`. Missing attempts and empty histories
+return `[]`; reads change no ledger state.
+
+`retainVoiceExposure` now atomically records each actual maximum increase with
+the same shape in `budget.voiceExposures(attemptId)`. Here the old/new amounts
+are the upstream and visitor maxima, `lane` is `voice`, and `id` is a durable
+per-attempt sequence starting at 1. Deduplicate by
+`{attemptId, stream: 'voiceExposures', id}`. Repeated calls with unchanged maxima
+append nothing and preserve the original posting time, including after restart;
+visitor-only raises also record an event. These are existing provider liabilities,
+not admitted extensions: recording still occurs above the cap and adds no wallet
+callback. The event, raised maxima and closing state commit or roll back together.
+The backing `budget.get(attemptId).voice_exposures_json` defaults to `[]` for
+pre-upgrade attempts; earlier exposure dates are unknown and are never assigned
+the migration time. Preserve the host's historical accounting for those attempts.
 
 Time comes from `host.now()` when supplied to `createHandlers`, including with
 a prebuilt runtime. Otherwise the runtime-created ledger uses the runtime's
@@ -389,11 +436,21 @@ and file settlement above the reservation on the UTC day of `settled_at_ms`.
 For example, a 1 USD hold yesterday extended by 9 USD today counts 9 USD toward
 today's 30 USD address cap; it must not all be filed on yesterday's attempt.
 A subsequent 11 USD settlement adds another 1 USD on the settlement day.
-Derive admitted reservation from the host's original hold plus extension extras;
-`retainVoiceExposure` can raise ledger maxima for existing provider liability
-without admitting an extension. Allocate any refund against the original dated
-holds rather than moving all spend to settlement day. Later evidence deltas use
-their correction time. Read these durable records in every admission transaction,
+Derive dated holds from the host's original hold plus extension extras and
+retained-exposure deltas (`newMicro - oldMicro`, and the visitor equivalents),
+filing each exposure delta on the UTC day of `atMs`. Include exposure in the
+reservation already accounted for when calculating settlement above that amount,
+so a later settlement cannot double-charge the same liability. Allocate any refund
+against the original dated holds rather than moving all spend to settlement day.
+For each correction, file a positive `newMicro - oldMicro` (or
+`newVisitorMicro - oldVisitorMicro`) on `new Date(event.atMs).toISOString().slice(0, 10)`.
+Apply a negative delta against the earlier dated charges it refunds, not as new
+headroom on the posting day. For example, a $10 uncertain attempt at 23:40 reduced
+to the default $0.01 estimate at 23:45 can free $9.99 on that day. If the final
+$8 receipt posts at 00:01, its correction charges $7.99 to the new day's $30 cap,
+leaving $22.01 for new work. The old daily key may have expired; the correction
+still carries its posted date and both amounts. The unchanged `settled_at_ms`
+cannot date that later delta. Read these durable records in every admission transaction,
 or reconcile a host projection idempotently before admitting more work: blindly
 adding callback/receipt amounts to a separate wallet can double-file retries or
 lose amounts on crash. Settled liability remains payable even above the cap;
