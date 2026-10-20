@@ -58,7 +58,7 @@ test('AIT-401: replayed cumulative extensions preserve committed times and never
   storage.close(); storage = new SQLiteStorage(path); clock = tomorrow;
   ledger = new SQLiteBudgetLedger(storage, { now: () => clock });
   let context;
-  assert.deepEqual(ledger.extendVoice('voice', maxima, (_, info) => { context = info; }), maxima);
+  assert.deepEqual(ledger.extendVoice('voice', maxima, (_, info) => { context = info; return true; }), maxima);
   assert.deepEqual(context, { attemptId: 'voice', sessionId: session.id, extraMicro: 0, at: today });
   assert.deepEqual(extensions(ledger), committed);
   ledger.extendVoice('voice', { maxMicro: 2_000_000, maxVisitorMicro: 1_500_000 });

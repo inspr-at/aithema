@@ -378,7 +378,7 @@ export class SQLiteBudgetLedger {
       const history = JSON.parse(row.voice_extensions_json), increased = extra.maxMicro > 0 || extra.maxVisitorMicro > 0;
       const at = increased ? this.timestamp() : history.at(-1)?.at ?? this.timestamp();
       const context = Object.freeze({ attemptId, sessionId: row.session_id, extraMicro: extra.maxMicro, at });
-      if (ownerCanAdmit?.(extra, context) === false) throw new PluginError('not-admitted', 'Budget denied');
+      if (ownerCanAdmit && ownerCanAdmit(extra, context) !== true) throw new PluginError('not-admitted', 'Budget denied');
       // Cumulative maxima are the replay key. A duplicate still calls legacy
       // admission with zero extras, but cannot append or re-date an increase.
       if (increased) history.push({ maxMicro, maxVisitorMicro, extraMicro: context.extraMicro,

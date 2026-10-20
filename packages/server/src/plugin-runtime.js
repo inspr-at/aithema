@@ -392,10 +392,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     if (!options.existingCall) {
       const wallet = session.ownerHash && ownerWallet?.(session);
       const ledgerAllowed = budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro);
-      const ownerAllowed = wallet?.canAdmit(amounts) !== false;
+      const ownerAllowed = !ownerWallet || wallet?.canAdmit(amounts) === true;
       if (!ledgerAllowed || !ownerAllowed) {
         const onlyReconciling = (ledgerAllowed || budget.canAdmitWithoutReconcilingHold?.(session.id, amounts.maxMicro, amounts.maxVisitorMicro) === true) &&
-          (ownerAllowed || wallet.canAdmitWithoutReconcilingHold?.(amounts) === true);
+          (ownerAllowed || wallet?.canAdmitWithoutReconcilingHold?.(amounts) === true);
         return { reason: onlyReconciling ? 'budget reconciling' : 'budget denied' };
       }
     }
@@ -1039,7 +1039,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           // only elapsed + one segment, bounded by the technical end.
           const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
           const extended = budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
-            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, (extra, context) => ownerWallet?.(session)?.canAdmit(extra, context));
+            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, ownerWallet ? (extra, context) => ownerWallet(session)?.canAdmit(extra, context) : undefined);
           fundedSeconds = Math.max(fundedSeconds, totalSeconds);
           return extended;
         } } : {}), async consume() {
