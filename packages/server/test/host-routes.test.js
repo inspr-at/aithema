@@ -811,6 +811,65 @@ test('AIT-405: a throwing tier display callback cannot strand a saved and broadc
   assert.equal(f.storage.get(session.id).understanding.inputRevision, inputRevision(f.storage.get(session.id)));
 });
 
+test('AIT-420: wallet and balance may SELECT through storage getters and host tables inside turn preflight', async t => {
+  const f = fixture(t, { demoBypass: true }), session = await f.create();
+  const before = f.storage.get(session.id), hostState = f.storage.hostState(session.id);
+  f.storage.db.exec('CREATE TABLE host_wallet_limits (session_id TEXT PRIMARY KEY, limit_micro INTEGER NOT NULL)');
+  f.storage.db.prepare('INSERT INTO host_wallet_limits VALUES (?,?)').run(session.id, 2_000_000);
+  const reads = [], wallet = f.host.wallet;
+  function readLimit(stage, id) {
+    assert.equal(f.storage.db.isTransaction, true, 'host reads run inside the turn transaction');
+    assert.deepEqual(f.storage.get(id), before, 'preflight reads the session before the turn is saved');
+    assert.deepEqual(f.storage.hostState(id), hostState);
+    const row = f.storage.db.prepare('SELECT limit_micro FROM host_wallet_limits WHERE session_id=?').get(id);
+    reads.push(stage);
+    return row.limit_micro;
+  }
+  t.mock.method(f.host, 'wallet', (token, context) => {
+    assert.equal(token, owner);
+    assert.deepEqual(context, { sessionId: session.id });
+    readLimit('wallet', context.sessionId);
+    const current = wallet(token, context);
+    return Object.create(current, { balance: { value: () => ({ ...current.balance(), limitMicro: readLimit('balance', context.sessionId) }) } });
+  });
+  const body = { clientEventId: 'wallet-select', content: 'systems: API' };
+  const response = await f.call(`/api/sessions/${session.id}/turns`, body);
+  assert.equal(response.status, 200);
+  assert.deepEqual(reads, ['wallet', 'balance']);
+  assert.equal(f.storage.get(session.id).transcript.filter(turn => turn.id === body.clientEventId).length, 1);
+  await f.handlers.idle();
+});
+
+for (const callback of ['wallet', 'balance']) test(`AIT-420: a nested storage.transaction in ${callback} returns 500 without saving the turn`, async t => {
+  const f = fixture(t, { demoBypass: true }), session = await f.create();
+  const before = f.storage.get(session.id), journal = f.storage.read(session.id), hostState = f.storage.hostState(session.id);
+  const nested = t.mock.fn(), wallet = f.host.wallet;
+  function reenter() {
+    assert.equal(f.storage.db.isTransaction, true);
+    return f.storage.transaction(nested);
+  }
+  const broken = t.mock.method(f.host, 'wallet', (token, context) => {
+    if (callback === 'wallet') return reenter();
+    return Object.create(wallet(token, context), { balance: { value: reenter } });
+  });
+  const body = { clientEventId: 'wallet-nested', content: 'systems: API' };
+  const response = await f.call(`/api/sessions/${session.id}/turns`, body);
+  await f.handlers.idle();
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: 'server-error' });
+  assert.equal(nested.mock.callCount(), 0, 'the nested BEGIN fails before entering the callback');
+  assert.equal(f.storage.db.isTransaction, false, 'the outer turn transaction rolls back');
+  assert.deepEqual(f.storage.get(session.id), before);
+  assert.deepEqual(f.storage.read(session.id), journal);
+  assert.deepEqual(f.storage.hostState(session.id), hostState);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM receipts WHERE session_id=?').get(session.id).n, 0);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
+  broken.mock.restore();
+  assert.equal((await f.call(`/api/sessions/${session.id}/turns`, body)).status, 200, 'rollback leaves the same client event retryable');
+  await f.handlers.idle();
+  assert.equal(f.storage.get(session.id).transcript.filter(turn => turn.id === body.clientEventId).length, 1);
+});
+
 const creditCallbackErrors = [Error, TypeError, RangeError, SyntaxError].map(ErrorType => [ErrorType.name, () => new ErrorType('private host diagnostic')]);
 for (const code of ['not-admitted', 'rate-limit', 'provider-error']) creditCallbackErrors.push([`PluginError ${code}`, () => new PluginError(code, 'host-limit')]);
 for (const [label, makeError] of creditCallbackErrors)

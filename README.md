@@ -305,8 +305,17 @@ Host adapter contract:
   `wallet.displayBalance()` supplies the read-only owner balance for `GET S/credits`
   and low-credit email asks. Admission always uses `wallet.balance()`.
   During turn credit preflight, `wallet(ownerToken, context)` and its `balance()`
-  run inside the turn's database transaction. Both must be synchronous and
-  side-effect free, and must not re-enter storage.
+  run inside the turn's database transaction. On the host credit read path,
+  `wallet()`, `balance()`, `canAdmit()` and `creditTiers()` must be synchronous and
+  side-effect free. `canAdmit()` and `creditTiers()` are not called for initial
+  turn admission.
+  - Allowed: synchronous read-only Aithema getters such as `storage.get(id)` and
+    `storage.hostState(id)`, and SELECT-only statements on the host's own tables
+    through the same SQLite handle.
+  - Forbidden: any write (INSERT/UPDATE/DELETE or DDL), any Aithema storage
+    mutator, async or network work, and any `storage.transaction()`.
+    `storage.transaction()` issues a plain `BEGIN IMMEDIATE` without savepoints;
+    a nested transaction fails the turn with HTTP 500 and nothing saved.
 
 AIT-173's START display subtracts settled plus expected spend. Open voice duration
 uses the rate captured at admission, capped by its funded reservation, and freezes
