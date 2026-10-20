@@ -196,6 +196,7 @@ export async function composerCreditReservationMatrix(t) {
         assert.equal(measured.ariaHidden, 'false', `${label}: offer is accessible`);
         assert.ok(row.lineCount > 0, `${label}: offer has rendered line boxes`);
         if (locale === 'de' && width === 390) assert.ok(row.lineCount <= 2, `${label}: 1.000 delta must fit in at most two lines; got ${row.lineCount}: ${JSON.stringify(row.lines)}`);
+        if (locale === 'de' && width === 390) assert.ok(row.lines.every(line => !/(?:^|\s)Ihr$/u.test(line)), `${label}: 1.000 delta must not leave Ihr at a line end: ${JSON.stringify(row.lines)}`);
         assert.equal(measured.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 1.000 weitere\u00a0Credits. Ihr Gespräch bleibt gespeichert.'
           : 'With your email address you get 1,000 more\u00a0credits. Your conversation stays saved.', `${label}: exact Tick copy and formatted delta`);
         assert.equal(measured.font, 'ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif');
