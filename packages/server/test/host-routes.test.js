@@ -441,11 +441,20 @@ for (const keepIdentity of [false, true]) for (const status of ['guest', 'verifi
     }
     assert.equal(storage.get(s.id).seq, seq + 2);
     if (status === 'verification-pending') {
-      // A normal transition retaining an address still needs privacy permission.
+      // Refusing an address-retaining transition must leave the pause and journal untouched.
+      const sessionBefore = storage.get(s.id), eventsBefore = storage.read(s.id);
+      const reasoning = t.mock.method(handlers.lanes, 'run');
+      const concepts = t.mock.method(handlers.conceptLane, 'run');
       const denied = await call(`${base}/pause`, { paused: false });
       assert.equal(denied.status, 403);
       assert.deepEqual(await denied.json(), { error: 'privacy-document-required' });
       assert.deepEqual(storage.hostState(s.id).identity, { ...before, verificationRequired: false });
+      await handlers.idle();
+      assert.equal(storage.get(s.id).paused, true);
+      assert.deepEqual(storage.get(s.id), sessionBefore);
+      assert.deepEqual(storage.read(s.id), eventsBefore);
+      assert.equal(reasoning.mock.callCount(), 0);
+      assert.equal(concepts.mock.callCount(), 0);
     }
   });
 }

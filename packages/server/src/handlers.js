@@ -586,13 +586,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           event = storage.pause(id, true, { ownerToken }); broadcast(id, event);
           await voiceHandlers?.pauseSession(id, true, { deadlineAt: Date.now() + deadlineMs });
         } else {
+          // Refuse before voice resume, journal writes, broadcasts or scheduling.
+          hostHandlers.assertPauseAllowed(id, false);
           const before = storage.get(id).seq;
           const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: Date.now() + deadlineMs });
           event = voiceAck ? storage.read(id, before).find(e => e.type === 'session.paused') : storage.pause(id, false, guard);
           if (event) broadcast(id, event);
         }
-        if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
         hostHandlers.syncPause(id, ownerToken);
+        if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
         return json({ paused: storage.get(id).paused, event });
       }
       if (action === 'withdraw' && request.method === 'POST') {
