@@ -2333,6 +2333,8 @@ sessionElement.configure({
 - **O4:** `credits.reconcilingVisible` defaults to false. When true, the visible
   balance stack reserves both number and muted reconciling text. The text has
   one polite announcement per reconciliation; the tooltip remains available.
+  Phone hosts with legal links reserve a separate standing legal row, so the
+  visible status cannot overlap those links.
 - **O5:** `credits.dailyCapReset` defaults to false. On the server,
   `creditTiers(ownerToken, { sessionId })` supplies `dailyCapReached` and
   `dailyCapResetAt` (safe-integer Unix milliseconds) for a session-scoped wallet.

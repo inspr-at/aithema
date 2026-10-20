@@ -205,6 +205,17 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits__reconciling { visibility:hidden; white-space:nowrap; color:var(--aithema-muted); font-weight:400; }
 .host-credits[data-reconciling] .host-credits__reconciling { visibility:visible; }
 .host-credits[data-reconciling] :is(.host-credits__text,.host-credits__used-up) { visibility:hidden; }
+/* Opt-in visible reconciliation reserves its phone row before any receipt.
+   Host legal links keep their full targets in the standing row beneath it. */
+@media(width < 600px) {
+  .display-foot:has(.host-credits__reconciling):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px 44px; }
+  .display-foot:has(.host-credits__reconciling):has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
+  .display-foot:has(.host-credits__reconciling):has(.host-legal:not([hidden])) .host-credits { grid-area:1/2; }
+  .display-foot:has(.host-credits__reconciling):has(.host-legal:not([hidden])) .footer-right { display:contents; }
+  .display-foot:has(.host-credits__reconciling):has(.host-legal:not([hidden])) .preset-panel { grid-area:1/3; }
+  .display-foot:has(.host-credits__reconciling):has(.host-legal:not([hidden])) .host-legal { grid-area:2/1/3/-1; justify-content:center; margin-left:0; }
+}
+
 .m-delete-reason { color:var(--aithema-muted); }
 .m-mail-notice[data-delete-reservation] { display:grid; }
 .m-mail-notice[data-delete-reservation] > span { grid-area:1/1; min-width:0; }

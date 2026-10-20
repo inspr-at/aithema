@@ -85,8 +85,13 @@ export async function creditHostOptionsCheck(t) {
       await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const r = c.shadowRoot, rect = selector => { const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+      const footerLabel = r.querySelector('.host-credits__reconciling').getBoundingClientRect(), footer = r.querySelector('.display-foot').getBoundingClientRect();
+      const footerNeighbors = ['.footer-left', '.host-legal', '.engine-info'].map(selector => ({ selector, box: r.querySelector(selector).getBoundingClientRect() }));
+      const footerTextFits = footerLabel.left >= footer.left && footerLabel.right <= footer.right && footerNeighbors.every(({ box }) =>
+        box.width === 0 || box.height === 0 || footerLabel.right <= box.left || footerLabel.left >= box.right || footerLabel.bottom <= box.top || footerLabel.top >= box.bottom);
       const visible = selector => { const n = r.querySelector(selector); return !!n && !n.hidden && !n.inert && getComputedStyle(n).visibility === 'visible'; };
-      return { boxes: Object.fromEntries(['.composer-shell', '.question-card', '.composer-out'].map(s => [s, rect(s)])),
+      return { boxes: Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot'].map(s => [s, rect(s)])),
+        footerTextFits, footerTextRects: { label: [footerLabel.x, footerLabel.y, footerLabel.width, footerLabel.height], neighbors: footerNeighbors.map(({ selector, box }) => ({ selector, rect: [box.x, box.y, box.width, box.height] })) },
         lowCredits: window.ait411.lowCredits, overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth), emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
         newAction: visible('.composer-out__new'), upgrade: visible('.composer-out__upgrade'), export: visible('.composer-out__export'),
         actionRowHidden: r.querySelector('.composer-out__actions').getAttribute('aria-hidden'), next: r.querySelector('.host-credits__next').textContent,
@@ -112,7 +117,7 @@ export async function creditHostOptionsCheck(t) {
       if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
       if (state === 'offer') assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
       if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse:/u : /With confirmed email address:/u);
-      if (state === 'reconciling') { assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
+      if (state === 'reconciling') { assert.equal(value.footerTextFits, true, `${label}: visible reconciliation never overlaps legal or footer controls ${JSON.stringify(value.footerTextRects)}`); assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
       if (state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }
       if (state === 'low-off') { assert.equal(value.lowLines, 0); lowBaseline = { transcript: value.transcript, reply: value.reply }; }
       if (state === 'low-on') { assert.equal(value.lowLines, 1); assert.deepEqual({ transcript: value.transcript, reply: value.reply }, lowBaseline, `${label}: low ask switch moves transcript 0 px`); }
