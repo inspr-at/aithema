@@ -30,7 +30,8 @@ async function fixture(t) {
       async pause() { commands.push(['pause']); return { acknowledged: true, paused: true }; },
       async resume() { commands.push(['resume']); return { acknowledged: true, paused: false }; },
       async close() { commands.push(['close']); events.end(); return { closureConfirmed: true }; },
-      lifecycle: { wait(reason) { commands.push(['wait', reason]); events.push({ type: 'waiting', callId, reason }); } },
+      lifecycle: { startHeartbeat() { return () => {}; },
+        wait(reason) { commands.push(['wait', reason]); events.push({ type: 'waiting', callId, reason }); } },
     };
     return voice;
   } } });
@@ -51,10 +52,11 @@ async function fixture(t) {
   return { c, voice, commands, fetch, recover, repeat, gap };
 }
 
-for (const kind of ['understanding', 'transcript', 'focus']) test(`AIT-391: gap recovery refreshes changed ${kind} context once`, async t => {
+for (const kind of ['understanding', 'transcript', 'correction', 'focus']) test(`AIT-391: gap recovery refreshes changed ${kind} context once`, async t => {
   const f = await fixture(t);
   const change = kind === 'understanding' ? { type: 'understanding.updated', data: { ...f.c.session.understanding, summary: 'Recovered context' } }
-    : kind === 'transcript' ? { type: 'turn.corrected', data: { id: 'user', content: 'Corrected approvals' } }
+    : kind === 'transcript' ? { type: 'turn.final', data: { id: 'new-user', role: 'user', content: 'A new answer' } }
+      : kind === 'correction' ? { type: 'turn.corrected', data: { id: 'user', content: 'Corrected approvals' } }
       : { type: 'question.focused', data: { question: 'Which system?' } };
   await f.recover([change]);
   assert.deepEqual(f.commands, [['context', { understanding: f.c.session.understanding,
