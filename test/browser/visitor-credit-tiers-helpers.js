@@ -12,6 +12,9 @@ import { contrast } from '../contrast.js';
 
 const workflowEvent = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
 const head = workflowEvent?.pull_request?.head?.sha ?? process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
+// Headless-shell has no mouse by default. Touch viewport emulation still overrides
+// these defaults at 390; assert the actual media queries, never infer from width.
+const pointerLaunch = { args: ['--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] };
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 'raf' });
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
@@ -124,7 +127,7 @@ after(async () => {
 const reservationPage = () => reservationHarness ??= (async () => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-reservation-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
-  const browser = await browserForFile(), page = await browser.newPage();
+  const browser = await browserForFile(pointerLaunch), page = await browser.newPage();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
@@ -389,7 +392,7 @@ export async function visitorCreditMatrix(t, locales) {
   const branchHead = event?.pull_request?.head?.sha ?? head;
   const passLines = [], states = [], captures = [], uiChecks = [];
   for (const locale of locales) {
-    browser = await browserForFile();
+    browser = await browserForFile(pointerLaunch);
     const page = await browser.newPage();
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     const problems = []; page.on('pageerror', error => problems.push(error.message));
@@ -838,7 +841,7 @@ export async function visitorCreditMatrix(t, locales) {
 // Tick v4: reuse one page, keeping exact reply identities through every transition.
 export async function replyRowsMatrix(t) {
   const { page } = await reservationPage();
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [], captures = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [], captures = [], pointerRest = [];
   const shot = async name => {
     if (!evidence) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
@@ -847,6 +850,11 @@ export async function replyRowsMatrix(t) {
   };
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000, isMobile: width === 390, hasTouch: width === 390 });
+    const media = await page.evaluate(() => ({ fine: matchMedia('(hover:hover) and (pointer:fine)').matches,
+      hover: matchMedia('(hover:hover)').matches, pointer: matchMedia('(pointer:fine)').matches,
+      coarse: matchMedia('(pointer:coarse)').matches }));
+    assert.deepEqual(media, { fine: width !== 390, hover: width !== 390, pointer: width !== 390, coarse: width === 390 }, `${width}: asserted mouse/touch media queries`);
+    await page.mouse.move(-1, -1);
     await page.select('#locale', locale); await page.select('#theme', theme);
     // Touch emulation can reload the page; install observation afterwards.
     await page.evaluate(async () => {
@@ -894,6 +902,10 @@ export async function replyRowsMatrix(t) {
       });
       return { fine, ink, controls };
     });
+    if (width !== 390) {
+      pointerRest.push({ locale, theme, width, ...media, rest: presentation.controls.map(control => control.rest) });
+      t.diagnostic(`AIT-410 fine-pointer red-before: ${JSON.stringify(pointerRest.at(-1))}`);
+    }
     for (const control of presentation.controls) {
       assert.equal(control.rest, presentation.fine ? 'hidden' : 'visible', 'resting pointer icons reserve space; touch icons stay visible');
       assert.equal(control.focus.visible, 'visible', 'native focus reveals the icon');
@@ -995,4 +1007,7 @@ export async function replyRowsMatrix(t) {
   }
   if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4', rows, captures }, null, 2));
   assert.equal(rows.length, 60);
+  if (evidence) await writeFile(join(evidence, 'ait410-pointer-rest-checks.json'), JSON.stringify({ head, pointerRest }, null, 2));
+  assert.ok(pointerRest.every(row => row.rest.every(visibility => visibility === 'visible')),
+    `Tick v4.1: fine-pointer icons must be visible at rest: ${JSON.stringify(pointerRest)}`);
 }
