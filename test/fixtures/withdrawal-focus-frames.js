@@ -52,7 +52,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const browser=await browserForFile();
   t.after(async()=>{await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
-  const page=await browser.newPage(),checks=[],shots=[],evidence=process.env.AITHEMA_EVIDENCE_DIR;
+  const page=await browser.newPage(),checks=[],shots=[],evidence=process.env.AITHEMA_EVIDENCE_DIR && (transcriptTop ? join(process.env.AITHEMA_EVIDENCE_DIR, 'ait400') : process.env.AITHEMA_EVIDENCE_DIR);
   if(evidence)await mkdir(evidence,{recursive:true});
   await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.ready);
@@ -74,7 +74,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
     await page.evaluate(async()=>{c.shadowRoot.activeElement?.blur();document.activeElement?.blur();await document.fonts.ready;
       await Promise.all(c.shadowRoot.getAnimations({subtree:true}).filter(a=>Number.isFinite(a.effect.getComputedTiming().endTime)).map(a=>a.finished.catch(()=>{})));
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});
-    await page.mouse.move(-10,-10);const name=`ait385-${width}-${theme}-${locale}-${state}.png`;shots.push(name);
+    await page.mouse.move(-10,-10);const name=`${transcriptTop ? 'ait400' : 'ait385'}-${width}-${theme}-${locale}-${state}.png`;shots.push(name);
     if(evidence)await page.screenshot({path:join(evidence,name),fullPage:false,captureBeyondViewport:false});
   };
   if (transcriptTop) {
@@ -105,7 +105,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       await capture(width, 'light', locale, 'transcript-expired');
       const expired = await inspect();
       checks.push({ width, locale, before, withdrawn, expired });
-      if (evidence) await writeFile(join(evidence, 'ait400-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+      if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
       assert.deepEqual(withdrawn.slot, before.slot, 'AIT-400: status occupies the reserved slot at 0 px');
       assert.deepEqual(expired.slot, before.slot, 'AIT-400: status expiry preserves the reserved slot at 0 px');
       assert.deepEqual(withdrawn.shell, before.shell, 'AIT-400: withdrawal moves the scroll area 0 px');
@@ -136,7 +136,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       await capture(width, 'light', locale, 'transcript-reading-expired');
       const readingExpired = await inspect();
       checks.at(-1).reading = { before:reading, withdrawn:readingWithdrawn, expired:readingExpired };
-      if (evidence) await writeFile(join(evidence, 'ait400-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+      if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
       for (const state of [readingWithdrawn, readingExpired]) {
         assert.equal(state.scrollTop, reading.scrollTop, 'AIT-400: never jump to either end');
         assert.deepEqual(state.firstVisible, reading.firstVisible, 'AIT-400: keep the first visible reading row at 0 px');

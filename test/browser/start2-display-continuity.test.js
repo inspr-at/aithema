@@ -557,13 +557,20 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
             const clearance = await shadow(page, c => {
               const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
               return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
-                headerBottom: r.querySelector('.band').getBoundingClientRect().bottom, scrollTop: shell.scrollTop, pageScroll: scrollY };
+                headerBottom: r.querySelector('.band').getBoundingClientRect().bottom,
+                lastTopRowBottom: Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom),
+                scrollTop: shell.scrollTop, pageScroll: scrollY };
             });
             (check.transcriptClearances ??= []).push({ width:frameWidth, ...clearance });
-            if (evidence) await writeFile(join(evidence, 'ait400-takeback-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true,
-              files, checks:checks.flatMap(c => (c.transcriptClearances ?? []).map(clearance => ({ locale:c.locale, touch:c.touch, ...clearance }))) }, null, 2));
+            if (evidence) {
+              await mkdir(join(evidence, 'ait412'), { recursive:true });
+              await writeFile(join(evidence, 'ait412', 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true,
+                files, checks:checks.flatMap(c => (c.transcriptClearances ?? []).map(clearance => ({ locale:c.locale, touch:c.touch, ...clearance }))) }, null, 2));
+            }
             assert.ok(clearance.shellTop >= clearance.headerBottom, `AIT-412: scroll area starts below the sticky header: ${JSON.stringify(clearance)}`);
             assert.ok(clearance.bubbleTop >= clearance.headerBottom, `AIT-412: first bubble is wholly below the sticky header: ${JSON.stringify(clearance)}`);
+            assert.ok(clearance.shellTop >= clearance.lastTopRowBottom && clearance.bubbleTop >= clearance.lastTopRowBottom,
+              `AIT-412: scroll area and first bubble follow the last top row: ${JSON.stringify(clearance)}`);
           }
           if (widths.length > 1) {
             await viewport(page);

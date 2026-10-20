@@ -359,7 +359,8 @@ svg { display:block; flex:none; }
   /* Fade only the real top edge; retain just enough inset for the first row. */
   mask-image:linear-gradient(to bottom,transparent 0,#000 8px);
   padding:calc(8px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
-.transcript-latest { position:sticky; bottom:0; display:block; height:44px; margin:-44px auto 0; font-size:.75rem; border-radius:999px;
+/* Float Latest in its existing size: its hidden row must not add scroll room. */
+.transcript-latest { position:sticky; bottom:0; display:block; height:calc(1lh + 1rem); margin:calc(-1lh - 1rem) auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
 .turn { --turn-max-width:78%; position:relative; max-width:var(--turn-max-width); align-self:flex-start; padding:.65rem .8rem; line-height:1.45; overflow-wrap:anywhere;
