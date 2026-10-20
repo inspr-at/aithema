@@ -72,7 +72,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
           const detected = sniffUploadDocument(bytes, upload.filename, limits.maxBytes);
           if (bytes.length > EXTRACTOR_LIMITS.maxBytes || detected.reason) result = { status: 'unreadable', reason: bytes.length > EXTRACTOR_LIMITS.maxBytes ? 'limit' : detected.reason, truncated: false };
           else result = await runtime.extractUpload({ session, uploadId, bytes, metadata: { filename: upload.filename, mediaType: detected.mediaType },
-            options: { signal: scope.signal, deadlineAt: upload.deadlineAt } });
+            options: { signal: scope.signal, deadlineAt: upload.deadlineAt, now: Date.now } });
         }
       } catch (error) {
         result = { status: 'unreadable', reason: scope.signal.aborted ? scope.signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled'
@@ -149,7 +149,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         const replay = storage.uploadReceipt(id, clientEventId, digest, guard);
         if (replay) return json({ accepted: true, ...replay, uploads: replay.events.map(e => e.data), limits });
-        const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt });
+        const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt, now: Date.now });
         storage.authorize(id, ownerToken);
         if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         // An earlier file can finish during admission of the next batch. No receipt exists yet:

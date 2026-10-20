@@ -65,7 +65,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   if (!Number.isSafeInteger(retiredHookTimeoutMs) || retiredHookTimeoutMs < 1) throw new TypeError('Invalid retired hook timeout');
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
-  if (typeof host?.now === 'function') pluginRuntime.setHostClock?.(() => host.now());
+  const handlerClock = typeof host?.now === 'function' ? () => host.now() : voice?.now ?? (() => Date.now());
+  if (voice?.now || typeof host?.now === 'function') pluginRuntime.setHostClock?.(handlerClock);
+  const now = pluginRuntime.now ?? handlerClock;
   pluginRuntime.setLaneDiagnostic?.(log);
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -160,7 +162,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       set.add(check); signal.addEventListener('abort', done, { once: true }); check();
     });
   };
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, keepUnderstanding, settleUnderstanding,
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, now, hostPrompt, purposePolicy, selection, retainUnderstanding, keepUnderstanding, settleUnderstanding,
     offTopicTurns: id => storage.safeguards(id).offTopicTurns,
     guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
     canUnderstand: id => Boolean(storage.purposeAssessmentInput(storage.get(id))),
@@ -225,7 +227,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
+    ...voice, now, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         touchVisitor(storage.get(id));
@@ -241,7 +243,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
   const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot, log,
-    budget: pluginRuntime.budget, conversationLimits: pluginRuntime.conversationLimits, signal: stop.signal, now: host?.now, deadlineMs,
+    budget: pluginRuntime.budget, conversationLimits: pluginRuntime.conversationLimits, signal: stop.signal, now, deadlineMs,
     async createConversation(ownerToken, options = {}) {
       const initial = await initialSettings(ownerToken, options);
       if (initial.error) throw new TypeError(initial.error);
@@ -256,7 +258,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
   });
-  pluginRuntime.conversationLimits.configure({ publish: broadcast, now: voice?.now ?? host?.now,
+  pluginRuntime.conversationLimits.configure({ publish: broadcast, now,
     durationMs: host?.credits?.durationMs });
   async function eraseConversation(id, guard, ownerToken) {
     const release = guard.retire ? null : storage.holdErasedRetirement(id);
@@ -393,7 +395,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // last confirmed choice while the host still offers it, else the host defaults.
   async function initialSettings(ownerToken, options) {
     if (options.confirm !== undefined && typeof options.confirm !== 'boolean') return { status: 400, error: 'invalid-session' };
-    const provenance = origin => options.confirm === true ? { origin: 'chosen', at: new Date().toISOString() } : { origin };
+    const provenance = origin => options.confirm === true ? { origin: 'chosen', at: new Date(now()).toISOString() } : { origin };
     const requested = options.processingPreset ?? sessionOptions.processingPreset;
     const probe = createSession({ ...sessionOptions, processingPreset: requested ?? 'best' });
     if (pluginRuntime.offered?.(probe.processingPreset) === false && probe.processingPreset === 'device') {
@@ -529,7 +531,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         focusRequests.add(id);
         try {
           const reason = await pluginRuntime.checkReply(storage.get(id), { signal: request.signal,
-            deadlineAt: Date.now() + deadlineMs });
+            deadlineAt: now() + deadlineMs, now });
           if (reason) return refused({ error: 'focus-refused', reason: isConsentReason(reason) ? 'consent-required' : 'not-admitted', admissionReason: reason });
           // Recheck assessment, input and pause after asynchronous availability work.
           const result = storage.focusQuestion(id, body, { ownerToken, inFlight: replyInFlight() });
@@ -592,12 +594,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         let event;
         if (body.paused) {
           event = storage.pause(id, true, { ownerToken }); broadcast(id, event);
-          await voiceHandlers?.pauseSession(id, true, { deadlineAt: Date.now() + deadlineMs });
+          await voiceHandlers?.pauseSession(id, true, { deadlineAt: now() + deadlineMs, now });
         } else {
           // Refuse before voice resume, journal writes, broadcasts or scheduling.
           hostHandlers.assertPauseAllowed(id, false);
           const before = storage.get(id).seq;
-          const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: Date.now() + deadlineMs });
+          const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: now() + deadlineMs, now });
           event = voiceAck ? storage.read(id, before).find(e => e.type === 'session.paused') : storage.pause(id, false, guard);
           if (event) broadcast(id, event);
         }
@@ -744,7 +746,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             reason: current.consentWithdrawn ? 'consent-withdrawn' : 'publication-not-allowed' });
           else artifacts.push(storage.conceptArtifact(id, artifactId));
         }
-        return new Response(exportSession(current, artifacts, withheld), {
+        return new Response(exportSession(current, artifacts, withheld, { exportedAt: new Date(now()).toISOString() }), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
       }
@@ -786,7 +788,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     try { return await handle(request, context); }
     finally { for (const finish of erasureReleases) finish(); release?.(); }
   }
-  return { handle: retainedHandle,
+  return { handle: retainedHandle, now,
     buildVoiceReplyRequest: (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, hostPrompt, purposePolicy,
       offTopicTurns: storage.safeguards(session.id).offTopicTurns }),
     lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
@@ -838,7 +840,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
-          const attempts = storage.sealRetirement(id, host?.now?.() ?? Date.now());
+          const attempts = storage.sealRetirement(id);
           await consent?.withdraw?.({ sessionId: id });
           if (host?.retired) {
             let timer;

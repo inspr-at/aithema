@@ -66,7 +66,7 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
   }
   if (binding.maxMicro < 1) throw new TypeError('Claude HTML binding requires a per-call ceiling');
   if (!Number.isSafeInteger(capMicro) || capMicro < 0) throw new TypeError('Invalid spend cap');
-  const ledger = spend ?? createSpendLedger({ path: spendPath, capMicro });
+  const ledger = spend ?? createSpendLedger({ path: spendPath, capMicro, now });
   if (!['reserve', 'settle', 'snapshot', 'dispatch', 'record', 'uncertain', 'recover', 'evidence', 'reconcileAttempt']
     .every(k => typeof ledger[k] === 'function')) throw new TypeError('Spend port requires durable cost receipts and reconciliation');
   const snapshot = async () => {
@@ -87,7 +87,8 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const scope = operationScope(options);
     let invocation, completed = false, reporting, reservation = null, dispatched = false, cost = null, ceiling = null;
     let receipts = Promise.resolve();
-    const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
+    const clock = options.now ?? Date.now;
+    const checkLifetime = () => { scope.signal.throwIfAborted(); if (clock() >= options.deadlineAt) throw new PluginError('deadline'); };
     // Report synchronously on abort before the lane can fall back to its larger
     // binding hold. Both ledgers retain the dispatched request's computed ceiling.
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve(options.report({
@@ -189,7 +190,7 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       if (payload?.choices?.length !== 1 || choice?.finish_reason !== 'stop' || typeof choice?.message?.content !== 'string') throw new PluginError('invalid-output');
       const html = repairHTML(choice.message.content);
       checkLifetime();
-      const result = htmlArtifact(html, { prompt: messages.map(m => m.content).join('\n\n'), model: binding.model, operation, now: now() });
+      const result = htmlArtifact(html, { prompt: messages.map(m => m.content).join('\n\n'), model: binding.model, operation, now: (options.now ?? now)() });
       checkLifetime();
       completed = true; return result;
     } catch (error) { throw normalizedError(error, scope.signal); }

@@ -90,7 +90,7 @@ export async function preflightVoiceComposition(configuration = {}, options = {}
   // Copy caller-owned configuration before negotiation can yield.
   const result = { capture: { ...capture }, playback: { ...playback }, voice,
     capabilities: { ...selected, languages: [...selected.languages], streaming: { ...selected.streaming } } };
-  const bounded = { ...options, deadlineAt: options.deadlineAt ?? Date.now() + 1000 };
+  const bounded = { ...options, deadlineAt: options.deadlineAt ?? (options.now ?? Date.now)() + 1000 };
   for (const [role, component] of [['capture', stt], ['playback', tts]]) {
     const format = result[role], code = `composition-${role}-format`;
     if (!validFormat(format)) fail(code, `Valid ${role} audio format required`);

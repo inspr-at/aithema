@@ -2,7 +2,7 @@ import { createElevenLabsServer } from './server.js';
 
 // Adapter instances capture the owned session, never a browser-selected authority.
 export function createVoiceProvider({ storage, binding, resolveSecret, provisionFacade,
-  revokeFacade, fetchImpl, requestProviderClose, reconcileLater, closureTimeoutMs, log, staticFacade = false, now = Date.now }) {
+  revokeFacade, fetchImpl, requestProviderClose, reconcileLater, closureTimeoutMs, log, staticFacade = false, now = () => storage.now() }) {
   if (!staticFacade && (typeof provisionFacade !== 'function' || typeof revokeFacade !== 'function')) throw new TypeError('Facade provisioning and revocation required');
   const ports = request => ({ binding, resolveSecret, fetchImpl, requestProviderClose, reconcileLater, closureTimeoutMs, log, now,
     prepareCall: staticFacade ? () => {} : (record, options) => provisionFacade({ ...record, url: request.facadeUrl }, options),

@@ -20,6 +20,6 @@ export async function consentCoverage(port, session, scope, options, now) {
   if (session.tombstone || session.consentWithdrawn || !port?.coverage) return false;
   try {
     return coversProcessingScope(await port.coverage({ sessionId: session.id, scope: structuredClone(scope),
-      consentRevision: session.consentRevision }, options), scope, session.consentRevision, now ?? Date.now());
+      consentRevision: session.consentRevision }, options), scope, session.consentRevision, now ?? (options?.now ?? Date.now)());
   } catch { return false; }
 }

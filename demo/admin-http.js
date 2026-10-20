@@ -5,7 +5,6 @@ import { adminCopy } from './admin-copy.js';
 const headers = { 'cache-control': 'no-store', vary: 'Cookie', 'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'x-robots-tag': 'noindex',
   'content-security-policy': "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" };
-const json = (value, status = 200) => Response.json(value, { status, headers });
 const actorFor = session => {
   const name = session.name.replace(/[#\x00-\x1f\x7f-\x9f]/gu, '').trim().slice(0, 120) || 'Operator';
   return `operator:${name}#${session.subject}`;
@@ -28,6 +27,10 @@ async function input(request) {
 }
 
 export function createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin }) {
+  // Include the host clock on errors too: a stale-save label uses this response's
+  // current day, rather than the day of the last successful state read.
+  const json = (value, status = 200) => Response.json(value, { status,
+    headers: { ...headers, 'x-aithema-now': String(host.now()) } });
   const state = operator => ({ settings: readAdminSettings(host), deliveryEnabled: host.identity.deliversVerification === true,
     operator: { name: operator.name }, mailUsage: readAdminMailCap(host),
     busiestConnection: host.confirmation.busiestConnection(), providerCap: readProviderCap(spendCap, { details: true }) });

@@ -63,7 +63,7 @@ export function createLocalImages({ delayMs = 250, now = Date.now } = {}) {
       });
       const seed = JSON.stringify([spec.prompt, feedback, references.map(r => createHash('sha256').update(r.bytes).digest('hex'))]);
       const artifact = imageArtifact(dashboard(seed), { prompt: seed, provider: 'local-demo-fake', model: 'deterministic-ui',
-        operation: references.length ? 'edit' : 'generate', now: now() });
+        operation: references.length ? 'edit' : 'generate', now: (options.now ?? now)() });
       invocation.usage({ inputTokens: 1, outputTokens: 1 }); completed = true; return artifact;
     } finally { try { await invocation?.finish(completed); } finally { scope.dispose(); } }
   }

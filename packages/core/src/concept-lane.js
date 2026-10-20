@@ -75,9 +75,9 @@ export class ConceptLane {
     intent = next; const job = intent.pending;
     const controller = new AbortController(), abort = () => controller.abort(signal.reason);
     if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
-    const scope = operationScope({ signal: controller.signal, deadlineAt: this.now() + this.deadlineMs });
+    const scope = operationScope({ signal: controller.signal, deadlineAt: this.now() + this.deadlineMs, now: this.now });
     const visualKind = prepared.visualKind ?? 'images';
-    const options = { signal: scope.signal, deadlineAt: this.now() + this.deadlineMs, visualKind,
+    const options = { signal: scope.signal, deadlineAt: this.now() + this.deadlineMs, now: this.now, visualKind,
       operation: (visualKind === 'html' ? prepared.previousId : prepared.referenceIds.length) ? 'edit' : 'generate' };
     this.persist(id, { intent, status: { phase: 'pending', requestId, startedAt: this.now(), estimateMs: this.estimateMs,
       turnIds: job.turnIds, referenceIds: job.referenceIds } });
