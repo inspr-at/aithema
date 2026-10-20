@@ -23,7 +23,7 @@ for (const ErrorType of [TypeError, Error, RangeError]) test(`AIT-416: throwing 
     const session = storage.create({ demo: true, ownerToken: testToken });
     const response = await turn(handlers, session.id, 'activity-failure', 'systems: API');
     await handlers.idle();
-    const saved = storage.get(session.id), body = await response.json();
+    const saved = storage.get(session.id), body = (await response.json()).data;
     assert.equal(saved.transcript.filter(turn => turn.id === 'activity-failure').length, 1);
     assert.equal(saved.transcript.some(turn => turn.role === 'assistant'), true, `saved text turn must receive a reply (HTTP ${response.status})`);
     assert.equal(saved.understanding.inputRevision, inputRevision(saved));
