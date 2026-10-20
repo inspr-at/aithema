@@ -96,6 +96,9 @@ for (const epoch of epochs) test(`AIT-403 runtime admission and publication use 
   const admission = await runtime.admit({ session, lane: 'reaction', operation: 'stream',
     request: { system: '', messages: [] }, options: { deadlineAt: now() + 100 } });
   assert.equal(admission.options.now(), now());
+  let text = '';
+  for await (const chunk of admission.plugin.stream({ system: '', messages: [] }, admission.options)) text += chunk;
+  assert.match(text, /what should improve first/iu);
   await admission.finish();
 });
 
