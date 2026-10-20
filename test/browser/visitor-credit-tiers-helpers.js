@@ -1240,7 +1240,8 @@ export async function impersonalGermanEvidence(t) {
     await page.select('#locale', 'de'); await page.select('#theme', 'light');
     await fixture(page, 'de', { delivery: !handover });
     if (handover) {
-      await shadow(page, c => {
+      await shadow(page, async c => {
+        const { de: copy } = await import('/packages/ui/src/i18n/de.js');
         const creditFetch = window.fetch;
         window.fetch = (url, init = {}) => {
           if (new URL(url, location.href).pathname.endsWith('/handover') && (init.method ?? 'GET') === 'GET') {
@@ -1250,7 +1251,7 @@ export async function impersonalGermanEvidence(t) {
         };
         const session = structuredClone(c.session);
         session.transcript = session.transcript.filter(turn => turn.role === 'user');
-        c.configure({ session, host: { credits: true, verification: { delivery: false, privacyDocumentConfigured: true }, handover: true } });
+        c.configure({ session, copy, host: { credits: true, verification: { delivery: false, privacyDocumentConfigured: true }, handover: true } });
       });
     }
     await settleEvidenceFrame(page);
@@ -1282,8 +1283,8 @@ export async function impersonalGermanEvidence(t) {
     const page = await evidencePage();
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     await settle(page); await click(page, '.verify-entry'); await settleEvidenceFrame(page);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog[open] .m-notice').textContent),
-      'Ihre E-Mail-Adresse wird nur für Ihr Guthaben und später für eine Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog[open] .m-notice-text').textContent),
+      'Ihre E-Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.');
     checks.push({ locale: 'de', theme: 'light', width: 390, state: 'ait-426-email-dialog-notice', pass: true });
     if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-email-dialog-notice.png'), fullPage: false });
     await page.close();
