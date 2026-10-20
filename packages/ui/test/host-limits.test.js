@@ -283,3 +283,42 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const confirmed of
     assert.equal(status.getAttribute('aria-live'), 'off');
   });
 }
+
+
+// Tick spec v1, AIT-422: O7 precedence is independent of an upgrade offer.
+for (const [locale, copy] of Object.entries({ de, en })) {
+  for (const [name, receipt, reason, expected] of [
+    ['daily-cap-over-session', { scope: 'session', exhausted: true, dailyCapReached: true }, 'session', ['Tageslimit erreicht', 'Daily limit reached']],
+    ['daily-cap-over-host', { scope: 'session', exhausted: true, dailyCapReached: true }, 'host-limit', ['Tageslimit erreicht', 'Daily limit reached']],
+    ['session-over-host', { scope: 'session', exhausted: true }, 'host-limit', ['Credits aufgebraucht', 'Credits used up']],
+    ['session-reason', {}, 'session', ['Credits aufgebraucht', 'Credits used up']],
+    ['host-with-credits', {}, 'host-limit', ['Sprache gerade nicht verfügbar', 'Voice unavailable right now']],
+  ]) test(`AIT-422 ${locale}: ${name} uses the approved voice status`, async t => {
+    const { root } = a2Setup(t, { copy, endReason: reason, voiceClient: {},
+      creditsRead: async read => Response.json({ ...await read().json(), ...receipt }) });
+    await tick(12);
+    const status = root.querySelector('.voice-state'), label = expected[locale === 'de' ? 0 : 1];
+    assert.equal(status.querySelector('.consent-narrow').dataset.copy, label);
+    assert.equal(status.querySelector('.consent-wide').textContent, label);
+    assert.equal(status.getAttribute('aria-label'), label);
+    assert.doesNotMatch(status.textContent, /Budget/iu);
+  });
+  for (const delta of [6_000_000, 7_250_000]) test(`AIT-422 ${locale}: offer uses the tier delta ${delta} and NBSP`, async t => {
+    const { root } = a2Setup(t, { copy, endReason: 'host-limit', voiceClient: {},
+      creditsRead: async read => {
+        const receipt = await read().json(); receipt.tiers.delta = delta;
+        receipt.tiers.allowancesMicro.emailGiven = receipt.tiers.allowancesMicro.anonymous + delta;
+        return Response.json(receipt);
+      } });
+    await tick(12);
+    const number = delta / 10_000;
+    const expected = locale === 'de' ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number} weitere\u00a0Credits.`
+      : `With your email address you get ${number} more\u00a0credits.`;
+    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, expected);
+    assert.equal(copy.hostSurface.usedUp.give.replace('{delta}', number), expected);
+  });
+}
+test('AIT-422: ink-3 aliases the existing muted token without a new colour', async () => {
+  const { styles } = await import('../src/styles.js');
+  assert.match(styles, /--ink-3:var\(--aithema-muted\);/u);
+});
