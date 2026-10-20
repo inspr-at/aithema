@@ -19,8 +19,8 @@ export function emailAskIntent({ count, replied, streaming, callActive, typing, 
 }
 
 export class EmailAsk {
-  constructor({ root, copy, verification, request, session, streaming, changed, now = () => Date.now() }) {
-    Object.assign(this, { root, copy, verification, request, session, streaming, changed, now });
+  constructor({ root, copy, verification, request, session, streaming, changed, lowCredits = true, now = () => Date.now() }) {
+    Object.assign(this, { root, copy, verification, request, session, streaming, changed, lowCredits, now });
     this.alive = true; this.connected = true; this.state = {}; this.step = 'idle'; this.message = ''; this.lastInput = -Infinity;
     this.workspace = root.querySelector('.workspace'); this.composer = root.querySelector('#message');
     this.mq = root.ownerDocument.defaultView.matchMedia('(min-width: 60rem)');
@@ -62,6 +62,7 @@ export class EmailAsk {
       this.desktop && this.root.querySelector('.analysis-content').contains(focus) || Boolean(this.root.querySelector('dialog[open]'));
   }
   get eligible() { return this.credits?.exhausted !== true && !this.root.querySelector('.audio-rail')?.hasAttribute('data-used-up') && this.email.canCollect && !this.email.address && this.credits?.tiers?.next === 'emailGiven' && this.credits.tiers.delta > 0; }
+  get lowLine() { return this.lowCredits && this.credits?.emailAskLowCredits !== false ? this.state.lowLine : null; }
   setCredits(credits) {
     this.credits = credits;
     this.awaitingCredits = false;
@@ -81,9 +82,9 @@ export class EmailAsk {
     if (!this.alive || !this.connected) return;
     if (this.dismissPending) { this.paint(); if (!this.busy) void this.act('dismiss'); return; }
     const turns = activeTurns(this.session()), replied = turns.at(-1)?.role === 'assistant', count = turns.filter(turn => turn.role === 'user').length;
-    const low = lowCredit(this.credits), safe = replied && !this.streaming() && !this.callActive && !this.typing;
+    const low = this.lowCredits && this.credits?.emailAskLowCredits !== false && lowCredit(this.credits), safe = replied && !this.streaming() && !this.callActive && !this.typing;
     if (this.callActive && this.open && !this.desktop) { void this.dismiss(false); return; }
-    if (this.state.open && !this.open && safe && (this.eligible || this.email.address)) {
+    if ((this.state.why !== 'low' || low) && this.state.open && !this.open && safe && (this.eligible || this.email.address)) {
       this.open = true; if (this.email.address) { this.step = 'done'; this.sent = this.email.identity?.status === 'verification-pending' && this.email.identity?.delivery !== 'failed'; }
     }
     if (low && !this.announcedLow) { this.announcedLow = true; setText(this.root.querySelector('.email-ask-announcement'), fill(this.copy.hostSurface.emailAsk.announceLow, { available: this.format(this.credits.balance.owner.availableMicro) })); }
@@ -131,7 +132,7 @@ export class EmailAsk {
   format(value) { return Number.isFinite(value) ? formatCredits(value, this.session().locale ?? 'en') : ''; }
   paint() {
     const a = this.copy.hostSurface.emailAsk, e = this.copy.hostSurface.email, v = this.copy.hostSurface.verify;
-    const low = lowCredit(this.credits), n = this.email.numbers, owner = this.credits?.balance?.owner;
+    const low = this.lowCredits && this.credits?.emailAskLowCredits !== false && lowCredit(this.credits), n = this.email.numbers, owner = this.credits?.balance?.owner;
     const confirmRaises = this.credits?.tiers?.canConfirm === true && this.credits.tiers.allowancesMicro?.emailConfirmed > this.credits.tiers.allowancesMicro?.emailGiven;
     const open = Boolean(this.open && this.email.canCollect && this.credits?.exhausted !== true), desktop = this.desktop;
     const slot = this.root.querySelector(desktop ? '.email-ask-pane' : '.email-ask-dock');

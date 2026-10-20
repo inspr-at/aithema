@@ -40,7 +40,7 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
     calls.push({ method, path, body });
     const key = `${method} ${path.split('?')[0]}`;
     if (routes[key]) return routes[key](body, path);
-    if (key === 'GET /identity') return Response.json({ identity: c.session.identity ?? identity() });
+    if (key === 'GET /identity') return Response.json({ identity: c.session.identity ?? identity(), visitorEmail: { canSave: true, canDelete: true } });
     if (key === 'GET /handover') return Response.json({ handover: { status: 'idle', revision: null }, offer: { available: true } });
     if (key === 'GET /credits') return Response.json({ balance, limitSlot: null });
     if (key === 'GET /library') return Response.json({ items: [], total: 0, offset: 0, limit: 100 });
@@ -71,7 +71,7 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0
   const h = setup(t, { copy, voiceClient, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
     session: { demo: false, ...(endReason ? { credits: { status: 'ended', endReason } } : {}), ...(blocked || voiceClient ? { featureMatrix: features() } : {}), ...(waitingCall ? { voiceLifecycle: waitingCall } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
       'GET ': () => Response.json({ ...h.c.session, featureMatrix: features() }),
-      'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
+      'GET /identity': () => Response.json({ identity: identity({ address: saved }), visitorEmail: { canSave: true, canDelete: true }, delivery, privacyDocumentConfigured: privacy }),
       'GET /visitor/email': () => { const read = () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }); return visitorRead ? visitorRead(read) : read(); },
       'GET /credits': () => { const read = () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent + reserved,
         confirmedSpendMicro: spent, reservedMicro: reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - spent - reserved) } }, exhausted: spent >= limitMicro, limitSlot: null, tiers: tiers() }); }; return creditsRead ? creditsRead(read) : read(); },

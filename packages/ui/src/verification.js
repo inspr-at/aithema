@@ -59,7 +59,7 @@ export class Verification {
       const response = await this.#request('identity');
       if (this.#alive && response.ok && response.body?.identity) {
         this.#visitorEmail = response.body.visitorEmail ?? null;
-        this.#email.set({ ...(typeof response.body.delivery === 'boolean' ? { delivery: response.body.delivery } : {}),
+        this.#email.set({ canDelete: response.body.visitorEmail?.canDelete === true, ...(typeof response.body.delivery === 'boolean' ? { delivery: response.body.delivery } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
         if (generation === this.#identityGeneration) this.set(response.body.identity);
       }

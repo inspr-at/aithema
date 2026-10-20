@@ -156,7 +156,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     state.manualPaused = storage.get(id).paused;
     return { ...(host.identity.chooseRole === true ? { roleChoice: roleChoice(id) } : {}),
       identity: identityView(state, clock(state)), delivery: host.identity.deliversVerification === true,
-      privacyDocumentConfigured: privacyDocumentConfigured(host), visitorEmail: { canSave: visitorEmailAvailable() }, ...extra };
+      privacyDocumentConfigured: privacyDocumentConfigured(host), visitorEmail: { canSave: visitorEmailAvailable(), canDelete: visitorEmailAvailable() }, ...extra };
   }
   function creditResult(id, ownerToken) {
     const wallet = host.wallet(ownerToken, { sessionId: id });
@@ -187,7 +187,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
     return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, fullHold, reconciling, ...warning,
-      ...(sessionAware ? { scope: 'session', dailyCapReached } : {}) };
+      ...(host.emailAsk?.lowCredits === false ? { emailAskLowCredits: false } : {}),
+      ...(sessionAware ? { scope: 'session', dailyCapReached,
+        ...(dailyCapReached && Number.isSafeInteger(projection?.dailyCapResetAt) && projection.dailyCapResetAt >= 0
+          ? { dailyCapResetAt: projection.dailyCapResetAt } : {}) } : {}) };
   }
   function initialCreditBalance(id, ownerToken) {
     if (!host?.wallet) return;
@@ -359,11 +362,11 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             accepted = host.rearmLowEmailAsk?.(ownerToken) === true;
           }
           if (options.action === 'show' && eligible && settled && (!emailAsk.open || options.why === 'low') &&
-            (options.why === 'low' ? low && host.claimLowEmailAsk?.(ownerToken) : count >= 5 && host.claimEmailAsk?.(ownerToken))) {
+            (options.why === 'low' ? host.emailAsk?.lowCredits !== false && low && host.claimLowEmailAsk?.(ownerToken) : count >= 5 && host.claimEmailAsk?.(ownerToken))) {
             Object.assign(emailAsk, { open: true, why: options.why, openedAt: count, folded: false,
               ...(options.why === 'turn5' ? { shown5: true } : {}) }); accepted = true;
           }
-          if (options.action === 'line' && low && !emailAsk.lowLine && settled) {
+          if (host.emailAsk?.lowCredits !== false && options.action === 'line' && low && !emailAsk.lowLine && settled) {
             const next = credits.tiers?.next;
             emailAsk.lowLine = { at: turns.at(-1).id, kind: eligible ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none',
               deltaMicro: credits.tiers?.delta ?? 0, availableMicro: credits.balance.owner.availableMicro }; accepted = true;

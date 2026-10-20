@@ -3461,3 +3461,27 @@ Rejected model output and fallback use are reported as a model failure, even whe
 the server safely redirects. The evaluator covers typed, uploaded-data and voice prompt variants; local CI
 covers actual TXT/PDF/DOCX extraction. Its automatic pass flag checks scope and
 canary protection; approved live behavioral assessment remains a human task.
+
+### Optional credit presentation (AIT-411, RC13)
+
+Set these on `configure({ host })`; omitted options keep the RC13 DOM and
+behaviour. Use the supplied DE/EN dictionaries as before. A custom credits
+copy dictionary can opt into the separate offer wording.
+
+| Item | Host setting / contract | Behaviour |
+| --- | --- | --- |
+| O1 | `usedUp.newConversation: { enabled: true }` (default false) | When no upgrade remains, the primary action starts a fresh conversation through the existing new-session path. Export stays a secondary text link. |
+| O2 | `usedUp.dailyCapActions: 'none'` (default `'export'`) | Only the daily-cap panel suppresses actions; its empty row retains its height and is `aria-hidden`. |
+| O3 | Host-supplied `copy.hostSurface.credits.afterConfirm` | Separates the unconfirmed offer from `withConfirmed`, the confirmed current tier. Supports `{n}` and existing `{tier}`. Missing key falls back to `withConfirmed`; unchanged built-in dictionaries keep their historic anonymous offer. |
+| O4 | `credits: { reconcilingVisible: true }` (default false) | The balance stack reserves the visible reconciling text and announces it once through a polite live region. The existing tooltip remains. |
+| O5 | `credits: { dailyCapReset: true }` (default false) | Shows the host's `dailyCapResetAt` Unix milliseconds in local time (DE 24-hour; EN locale time), only while capped. Missing later reset receipts do not clear an acknowledged instant during the cap. |
+| O6 | `emailAsk: { lowCredits: false }` (default true) | Suppresses the low-credit transcript line and automatic low ask. The tier and panel confirmation entries remain. Set the same option on the server host; it rejects low line/show claims without consuming the latch. |
+| O7 | Wallet preview `canAdmit` may return `{ ok: false, reason: 'session' }`; atomic `admit` may return the same | Session exhaustion survives admission. Unknown/missing reasons fail closed to host-limit. Daily cap takes presentation precedence over session, then host-limit. An unconfirmed session with a higher confirmation tier offers confirmation; otherwise O1 selects new conversation or the existing export action. |
+| O8 | Identity receipt `visitorEmail: { canSave, canDelete }` | Server checks all four visitor/email/erasure port methods. Only explicit `canDelete: true` enables deletion. Otherwise the action stays disabled, outside the tab order, with an erasure reason and a link to the host privacy notice (plain text without a URL). No deletion or credit-drop confirmation occurs. |
+
+O5's server host supplies `creditTiers(ownerToken, { sessionId })` with
+`dailyCapReached: true` and a nonnegative safe-integer `dailyCapResetAt` while
+its wallet reports `creditScope: 'session'`. This is a display receipt, never
+an admission override. Host privacy links use the existing legal slot with
+`data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
+German, German digit grouping and a nonbreaking space before `Credits`.

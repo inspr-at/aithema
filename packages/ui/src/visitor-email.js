@@ -52,7 +52,7 @@ export class VisitorEmail {
     this.q('#email-input').addEventListener('input', () => { if (!this.ui.busy) { this.ui.invalid = false; this.ui.failed = false; this.ui.message = ''; this.paint(); } });
     this.q('.m-change').addEventListener('click', () => { if (!this.canCollect || this.ui.busy) return; this.ui.editing = true; this.ui.message = ''; this.paint(); const input = this.q('#email-input'); input.value = this.address; input.focus({ preventScroll: true }); input.select(); });
     this.q('.m-cancel').addEventListener('click', () => { if (this.ui.busy) return; this.ui.editing = false; this.ui.message = ''; this.paint(); this.q('.m-change').focus({ preventScroll: true }); });
-    for (const selector of ['.m-delete', '.m-delete-mail']) this.q(selector).addEventListener('click', () => { this.ui.deleting = true; this.ui.message = ''; this.paint(); this.q('.m-keep').focus({ preventScroll: true }); });
+    for (const selector of ['.m-delete', '.m-delete-mail']) this.q(selector).addEventListener('click', () => { if (this.canDelete !== true || this.ui.busy) return; this.ui.deleting = true; this.ui.message = ''; this.paint(); this.q('.m-keep').focus({ preventScroll: true }); });
     this.q('.m-keep').addEventListener('click', () => { if (this.ui.busy) return; this.ui.deleting = false; this.ui.message = ''; this.paint(); this.q(this.viewDelivery ? '.m-delete-mail' : '.m-delete').focus({ preventScroll: true }); });
     this.q('.m-del').addEventListener('click', () => void this.remove());
     for (const selector of ['.verify-entry', '.m-change-mail']) this.q(selector).addEventListener('click', event => this.openDialog(event.currentTarget));
@@ -91,7 +91,7 @@ export class VisitorEmail {
     this.#settings = null; this.paint();
   }
   get canCollect() { return this.demo || this.privacyDocumentConfigured === true && Boolean(this.privacyLink); }
-  get state() { return this.ui.deleting && this.address ? 'confirm' : !this.canCollect && !this.address ? 'unavailable' : this.viewDelivery ? 'mail' : this.address && !this.ui.editing ? 'saved' : this.canCollect ? 'capture' : 'saved'; }
+  get state() { return this.canDelete === true && this.ui.deleting && this.address ? 'confirm' : !this.canCollect && !this.address ? 'unavailable' : this.viewDelivery ? 'mail' : this.address && !this.ui.editing ? 'saved' : this.canCollect ? 'capture' : 'saved'; }
   set(values) { Object.assign(this, values); this.paint(); }
   format(value) { return Number.isFinite(value) ? formatCredits(value, this.locale?.() ?? this.copy.display.locale) : ''; }
   get numbers() { const a = this.tiers?.allowancesMicro; return { base: this.format(a?.anonymous), email: this.format(a?.emailGiven), confirmed: this.format(a?.emailConfirmed) }; }
@@ -150,8 +150,8 @@ export class VisitorEmail {
     const base = this.tiers?.allowancesMicro?.anonymous, spent = this.balance?.committedMicro;
     const over = Number.isFinite(base) && Number.isFinite(spent) && spent >= base;
     this.q('.m-cons').classList.toggle('over', over);
-    setText(this.q('.m-delete-normal'), this.tiers && Number.isFinite(spent) ? fill(e.deleteDrop, { ...n, available: this.format(Math.max(0, base - spent)) }) : '');
-    setText(this.q('.m-delete-over'), Number.isFinite(spent) ? fill(e.deleteOver, { spent: this.format(spent) }) : '');
+    setText(this.q('.m-delete-normal'), this.canDelete === true && this.tiers && Number.isFinite(spent) ? fill(e.deleteDrop, { ...n, available: this.format(Math.max(0, base - spent)) }) : '');
+    setText(this.q('.m-delete-over'), this.canDelete === true && Number.isFinite(spent) ? fill(e.deleteOver, { spent: this.format(spent) }) : '');
     setText(this.q('.m-msg-text'), this.ui.message); this.q('.m-ico').innerHTML = this.ui.message && !this.ui.busy ? this.ui.invalid || this.ui.failed ? INFO : CHECK : '';
     setText(this.q('.m-delete-message'), this.ui.deleting ? this.ui.message : '');
     setText(this.q('.m-unavailable-message'), state === 'unavailable' ? this.ui.message : '');
@@ -168,9 +168,28 @@ export class VisitorEmail {
     const button = this.q('.verify-entry'); button.hidden = !this.viewDelivery || !this.canCollect || verified;
     setText(button, pending ? v.resendOrChange : v.entry);
     this.q('.m-change-mail').hidden = !verified || !this.canCollect;
+    for (const selector of ['.m-delete', '.m-delete-mail']) {
+      const button = this.q(selector); button.disabled = this.canDelete !== true;
+      if (this.canDelete !== true) { button.setAttribute('aria-disabled', 'true'); button.tabIndex = -1; }
+      else { button.removeAttribute('aria-disabled'); button.removeAttribute('tabindex'); }
+    }
     this.q('.m-delete-mail').hidden = !this.address; this.q('.m-mail-dot').hidden = !this.address;
-    this.q('.m-mail-notice').style.visibility = this.address ? 'hidden' : '';
-    this.q('.m-mail-notice').inert = Boolean(this.address);
+    this.q('.m-mail-notice').style.visibility = this.address && this.canDelete === true ? 'hidden' : '';
+    if (this.address && this.canDelete !== true) {
+      const notice = this.q('.m-mail-notice');
+      const text = notice.querySelector('.m-notice-content .m-notice-text') ?? notice.querySelector('.m-notice-text');
+      const link = notice.querySelector('.m-notice-content .m-pp') ?? notice.querySelector('.m-pp');
+      const [before, after] = e.deleteUnavailable.split('{privacy}');
+      setText(text, before); setText(link, e.deletePrivacy); link.hidden = false;
+      if (this.privacyLink) link.href = this.privacyLink; else link.removeAttribute('href');
+      let tail = notice.querySelector('.m-delete-tail');
+      if (!tail) { tail = notice.ownerDocument.createElement('span'); tail.className = 'm-delete-tail'; link.after(tail); }
+      setText(tail, after ?? '');
+      let savedReason = this.q('.m-delete-reason');
+      if (!savedReason) { savedReason = notice.cloneNode(true); savedReason.className = 'm-delete-reason m-notice'; this.q('[data-view="saved"]').append(savedReason); }
+      savedReason.innerHTML = notice.innerHTML; savedReason.style.visibility = '';
+    } else { this.q('.m-delete-reason')?.remove(); this.q('.m-delete-tail')?.remove(); }
+    this.q('.m-mail-notice').inert = Boolean(this.address && this.canDelete === true);
     this.q('.m-change').setAttribute('aria-disabled', String(!this.canCollect));
   }
   focus() { const target = this.state === 'capture' ? '#email-input' : this.state === 'saved' ? '.m-change' : this.state === 'mail' ? this.identity?.status === 'verified' ? '.m-change-mail' : '.verify-entry' : 'h3'; this.q(target)?.focus({ preventScroll: true }); }
@@ -189,7 +208,7 @@ export class VisitorEmail {
     } else { this.ui.failed = true; this.ui.message = response?.status === 400 ? this.copy.hostSurface.verify.invalid : this.e.failed; this.ui.invalid = response?.status === 400; this.paint(); }
   }
   async remove() {
-    if (this.ui.busy || !this.address) return;
+    if (this.ui.busy || !this.address || this.canDelete !== true) return;
     this.ui.busy = true; this.ui.failed = false; this.ui.message = this.e.deleting; this.paint();
     let response; try { response = await this.request('/api/visitor/email', {}, 'DELETE'); } catch { /* Deletion is acknowledged before clearing the UI. */ }
     if (!this.alive) return;

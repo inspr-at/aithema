@@ -67,3 +67,31 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
     });
   }
 }
+
+for (const copy of [de, en]) for (const privacy of [false, true]) test(`AIT-411 O8: absent/false delete capability never confirms or sends (${copy.display.locale}, privacy ${privacy})`, async t => {
+  const window = new Window({ url: 'http://localhost/' }), host = window.document.createElement('div');
+  window.document.body.append(host);
+  if (privacy) host.innerHTML = '<a slot="legal" data-aithema-privacy href="/privacy">Privacy</a>';
+  const root = host.attachShadow({ mode: 'open' }), entry = window.document.createElement('section'); root.append(entry);
+  let sent = 0;
+  const email = new VisitorEmail({ root, entry, copy, privacyDocumentConfigured: privacy, request: () => { sent++; } });
+  t.after(() => { email.destroy(); window.happyDOM.abort(); });
+  email.set({ identity: { address: 'reader@example.test' }, balance: { committedMicro: 1 }, tiers: { allowancesMicro: { anonymous: 1000000 } } });
+  for (const capability of [undefined, false]) {
+    email.set({ canDelete: capability });
+    for (const selector of ['.m-delete', '.m-delete-mail']) {
+      const button = entry.querySelector(selector);
+      assert.equal(button.disabled, true); assert.equal(button.tabIndex, -1); assert.equal(button.getAttribute('aria-disabled'), 'true');
+      button.dispatchEvent(new window.Event('click'));
+    }
+    assert.notEqual(email.state, 'confirm');
+    await email.remove(); assert.equal(sent, 0);
+    assert.equal(entry.querySelector('.m-delete-normal').textContent, '');
+    assert.equal(entry.querySelector('.m-delete-over').textContent, '');
+    const notice = entry.querySelector('.m-mail-notice .m-notice-content');
+    assert.equal(notice.textContent.trim(), copy.hostSurface.email.deleteUnavailable.replace('{privacy}', copy.hostSurface.email.deletePrivacy).trim());
+    assert.equal(notice.querySelector('a').hasAttribute('href'), privacy);
+  }
+  email.set({ canDelete: true });
+  entry.querySelector('.m-delete-mail').click(); assert.equal(email.state, 'confirm');
+});

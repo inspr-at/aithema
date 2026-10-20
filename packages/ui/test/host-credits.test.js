@@ -527,3 +527,33 @@ for (const copy of [de, en]) for (const [variant, canCollect, confirmedMicro] of
   assert.equal(next.textContent, eligible ? copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits') : '');
   assert.equal(next.children.length, 0, 'the next line has no check mark');
 });
+
+for (const copy of [de, en]) test(`AIT-411: opt-in defaults preserve the credits and panel DOM (${copy.display.locale})`, async t => {
+  const snapshots = [];
+  for (const options of [{}, { usedUp: { newConversation: { enabled: false }, dailyCapActions: 'export' }, credits: { reconcilingVisible: false, dailyCapReset: false }, emailAsk: { lowCredits: true } }]) {
+    const fixture = setup(t, { copy, host: { credits: true, verification: true, ...options } });
+    await tick(10);
+    snapshots.push(['.host-credits', '.composer-out', '.transcript-shell'].map(selector => fixture.root.querySelector(selector).outerHTML));
+    fixture.c.remove(); await tick(10);
+  }
+  assert.deepEqual(snapshots[1], snapshots[0], 'all explicit defaults equal untouched RC13 DOM');
+});
+
+for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, session wins over host limit (${copy.display.locale})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const receipt = { scope: 'session', dailyCapReached: true, exhausted: true, balance,
+    tiers: { current: 'emailConfirmed', next: null, canConfirm: true, allowancesMicro: { anonymous: 1000000, emailConfirmed: 10000000 } } };
+  const { c, root } = setup(t, { copy, host: { credits: true, verification: true, usedUp: { newConversation: { enabled: true }, dailyCapActions: 'none' } },
+    routes: { 'GET /credits': () => Response.json(receipt) } });
+  await tick(10); userTurn(c);
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'session' } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.dailyCapShort);
+  assert.equal(root.querySelector('.composer-out__export').inert, true);
+  assert.equal(root.querySelector('.composer-out__actions').getAttribute('aria-hidden'), 'true');
+  receipt.dailyCapReached = false;
+  t.mock.timers.tick(15001); await tick(14);
+  assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.ended.session.title);
+  assert.equal(root.querySelector('.composer-out__body span').textContent, copy.hostSurface.credits.ended.newConversationHint);
+  assert.equal(root.querySelector('.composer-out__new').hidden, false);
+  assert.equal(root.querySelector('.composer-out__export').inert, false);
+});

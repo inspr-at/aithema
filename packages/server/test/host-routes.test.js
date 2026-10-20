@@ -901,12 +901,12 @@ for (const missing of [null, 'visitor', 'saveEmail', 'deleteEmail', 'eraseVisito
     if (missing) delete f.host[missing];
     const identity = await f.call(`/api/sessions/${session.id}/identity`);
     assert.equal(identity.status, 200);
-    assert.deepEqual((await identity.json()).visitorEmail, { canSave: missing === null });
+    assert.deepEqual((await identity.json()).visitorEmail, { canSave: missing === null, canDelete: missing === null });
     const visitor = await f.call('/api/visitor/email');
     assert.equal(visitor.status, missing ? 503 : 200);
     const pending = await f.call(`/api/sessions/${session.id}/identity/request`, { address: 'port@example.test' });
     assert.equal(pending.status, 200);
-    assert.deepEqual((await pending.json()).visitorEmail, { canSave: missing === null });
+    assert.deepEqual((await pending.json()).visitorEmail, { canSave: missing === null, canDelete: missing === null });
   });
 }
 
