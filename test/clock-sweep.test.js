@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
+import { PluginRegistry, createMockReasoning, consentCoverage, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+import { createComposedVoiceAuthority } from '../packages/server/src/composed/authority.js';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createLocalHTML,
   localHTMLBinding, createSpendCap, createLocalImages } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
@@ -176,9 +177,10 @@ test('AIT-403 sweep demo-wired local voice provider follows runtime clock withou
     browserLivenessDeadlineAt: h.now() + 30_000,
     attempt: { attemptId: 'local-clock', claimId: 'fixture', maxMicro: 0, consume() {} }, report() {} };
   const voice = await plugin.start({ sessionId: h.session.id, callId: 'local-clock', ownerToken: testToken }, options);
-  t.after(() => voice.close());
-  assert.equal(voice.snapshot().startedAt, h.now());
-  assert.equal(voice.snapshot().spendDeadlineAt, options.spendDeadlineAt);
+  try {
+    assert.equal(voice.snapshot().startedAt, h.now());
+    assert.equal(voice.snapshot().spendDeadlineAt, options.spendDeadlineAt);
+  } finally { await voice.close(); }
 });
 
 test('AIT-430 documented standalone coordinator forwards clock into component operation budgets', async t => {
@@ -204,13 +206,43 @@ test('AIT-430 reconciliation evidence age uses the accounting clock that stamped
   // A separate runtime policy epoch is supported; host accounting remains wall.
   const runtime = createPluginRuntime({ storage: h.storage, now: h.now,
     registry: new PluginRegistry().register(plugin), costReconciliationWindowMs: 1000 });
-  runtime.setHostClock(() => wall);
+  let accountingAt = wall - 1000;
+  runtime.setHostClock(() => accountingAt);
   runtime.budget.admit({ attemptId: 'cost-clock', sessionId: h.session.id, lane: 'reaction', maxMicro: 100,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
     providerCost: { plugin: plugin.manifest.id, settledAt: wall - 1000, estimateMicro: 25 } });
   const claim = runtime.budget.claim('cost-clock'); claim.consume();
   runtime.budget.settle(claim.claimId, { attemptId: 'cost-clock', outcome: 'uncertain' }, binding.rates);
+  accountingAt = wall;
   await runtime.reconcileCosts();
   assert.equal(runtime.budget.get('cost-clock').settled_micro, 25);
   assert.equal(JSON.parse(runtime.budget.get('cost-clock').cost_reconciliation_json).estimated, true);
+});
+
+test('AIT-403 sweep component consent refuses host-expired evidence even when wall clock still accepts it', async t => {
+  const h = fixture(t);
+  h.runtime.setHostClock(() => h.now() + 120_000);
+  const scope = MOCK_PROCESSING_SCOPE;
+  const port = { coverage: () => ({ ...scope, covered: true, consentRevision: h.session.consentRevision,
+    expiresAt: h.runtime.now() - 1 }) };
+  assert.equal(await consentCoverage(port, h.session, scope, { now: h.runtime.now }), false);
+});
+
+test('AIT-403 sweep composed reply creation evidence uses the admitted runtime clock', async t => {
+  const h = fixture(t), done = new Error('reply observed'); let created;
+  const authority = createComposedVoiceAuthority({ authorizeComposition() {}, commitCoordinator() {},
+    turnOperations: { async run(context, execute) {
+      const reply = await execute({ beforeAdmission() {}, admitted() {}, assertCurrent() {}, ordinal: 1,
+        signal: new AbortController().signal });
+      created = reply.created; throw done;
+    } },
+    admitReasoning: async () => ({ request: { system: '', messages: [] }, producer: localVoiceBinding,
+      options: { now: h.runtime.now, deadlineAt: h.now() + 1000, attempt: { attemptId: 'reply-clock' }, report() {} },
+      plugin: { async *stream(request, options) { yield 'Hello'; options.report({}); } }, finish() {} }) });
+  await assert.rejects(async () => {
+    for await (const _event of authority.replyExecutor.execute({ source: 'server-coordinator', payload: {
+      callId: 'reply-clock', providerSessionId: 'fixture', callbackBody: { messages: [] } } },
+    { now: h.runtime.now, deadlineAt: h.now() + 1000 })) {}
+  }, done);
+  assert.equal(created, Math.floor(h.now() / 1000));
 });
