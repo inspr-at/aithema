@@ -432,7 +432,7 @@ export const de = {
     question: { title: 'Offene Frage', suggested: 'Vorschlag', hint: 'Ein Klick sendet die Antwort. Oder sprechen oder tippen Sie einfach.' },
     usedUp: {
       title: 'Ihre Credits sind aufgebraucht.', body: 'Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.',
-      give: 'Mit Ihrer E-Mail-Adresse erhalten Sie {delta} weitere\u00a0Credits.', confirm: 'Mit bestätigter E-Mail-Adresse erhalten Sie {delta} Credits mehr.',
+      give: 'Mit Ihrer E-Mail-Adresse erhalten Sie {delta} Credits mehr.', confirm: 'Mit bestätigter E-Mail-Adresse erhalten Sie {delta} Credits mehr.',
       none: 'Weitere Credits gibt es hier derzeit nicht.', export: 'Gespräch exportieren',
       hostGive: 'Mit Ihrer E-Mail-Adresse erhalten Sie {delta} weitere\u00a0Credits.',
       hostConfirm: 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +{delta} weitere Credits.',

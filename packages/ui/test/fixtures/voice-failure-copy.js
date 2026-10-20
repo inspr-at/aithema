@@ -2,6 +2,8 @@
 // Keep this scoped to voice rendering; unrelated locale additions are deliberately absent.
 export const failureCopy = {
   de: {
+    // Tick AIT-422 v1: related copy required by the voice status renderer.
+    voiceCreditStatus: { dailyCap: 'Tageslimit erreicht', session: 'Credits aufgebraucht', hostLimit: 'Sprache gerade nicht verfügbar' },
     pause: "Pausieren",
     resume: "Fortsetzen",
     notConfigured: "Nicht eingerichtet",
@@ -46,6 +48,7 @@ export const failureCopy = {
     featureConsent: { voice: "Sprache braucht Ihre Einwilligung" },
   },
   en: {
+    voiceCreditStatus: { dailyCap: 'Daily limit reached', session: 'Credits used up', hostLimit: 'Voice unavailable right now' },
     pause: "Pause",
     resume: "Resume",
     notConfigured: "Not configured",

@@ -323,7 +323,8 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     const expected = locale === 'de' ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number} weitere\u00a0Credits.`
       : `With your email address you get ${number} more\u00a0credits.`;
     assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, expected);
-    assert.equal(copy.hostSurface.usedUp.give.replace('{delta}', number), expected);
+    assert.equal(copy.hostSurface.usedUp.give.replace('{delta}', number), locale === 'de'
+      ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number} Credits mehr.` : `Add your email address to get ${number} more Credits.`);
   });
 }
 test('AIT-422: ink-3 aliases the existing muted token without a new colour', async () => {

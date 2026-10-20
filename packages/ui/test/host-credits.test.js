@@ -83,7 +83,7 @@ test('AIT-135 A2 B: used-up composer preserves the form, offers the actual delta
   const { root } = a2Setup(t, { spent: 12_000_000, voiceClient: {} }); await tick(8);
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
   assert.equal(root.querySelector('form.composer').inert, true);
-  assert.equal(root.querySelector('.composer-out__give').textContent, 'With your email address you get 600 more\u00a0credits.');
+  assert.equal(root.querySelector('.composer-out__give').textContent, 'Add your email address to get 600 more Credits.');
   assert.equal(root.querySelector('.voice-state').textContent, 'Voice unavailable right now');
   assert.equal(root.querySelector('.voice-state').getAttribute('aria-live'), 'off', 'one region announces exhaustion');
   assert.equal(root.querySelector('.voice-start').disabled, true);
