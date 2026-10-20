@@ -69,7 +69,9 @@ export class SessionLanes {
       const latest = this.getSession(id);
       const valid = !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'reaction' && replyInputRevision(latest) === replyInputRevision(session) || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
         this.selection(latest, lane) === selection && (!focus ||
-          !latest.paused && latest.questionFocus?.requestId === focus.requestId);
+          // Identity alone may advance the session revision after this focus was
+          // accepted. Keep every focus guard against its original input snapshot.
+          !latest.paused && pendingQuestionFocus({ ...latest, sessionRevision: session.sessionRevision })?.requestId === focus.requestId);
       // Accepted focus owns the question text, while assessment IDs are ephemeral.
       // A replacement may reorder that question; removing it must fail visibly.
       if (valid && focus && !openQuestionItems(latest.understanding.inputRevision === revision ? { ...latest, sessionRevision: session.sessionRevision } : latest).some(item => item.question === session.focusedQuestion)) {
@@ -178,6 +180,7 @@ export class SessionLanes {
           // A non-delegating simulator already owns its normal spoken reply.
           // Classify privately without adding a duplicate assistant turn.
           if (!focus && !this.replyVisible(session) && classification !== 'off') {
+            replyDelivered = true;
             this.onScope(id, classification, revision, { reply: false });
             return 'completed';
           }
@@ -201,6 +204,8 @@ export class SessionLanes {
           const text = opener.push(chunk);
           if (!text) continue;
           shown += text;
+          // Once any text is exposed, supersession cannot refund the visitor.
+          replyDelivered = true;
           // Tagged with the settings revision it started under, so a client never shows a
           // superseded stream beside its replacement.
           this.transient(id, { type: 'turn.partial', data: { id: turnId, delta: text, ...draftProducer,
@@ -212,9 +217,12 @@ export class SessionLanes {
         if (!rawContent.trim()) throw new TypeError('Empty reasoning stream');
         // A provider may reorder JSON properties; reveal its remaining text only after parsing.
         const tail = (rawContent.startsWith(decoded) ? opener.push(rawContent.slice(decoded.length)) : '') + opener.finish();
-        if (tail) this.transient(id, { type: 'turn.partial', data: {
-          id: turnId, delta: tail, ...(draftProducer ?? producer(admitted, admitted?.plugin ?? this.reasoning)),
-          inputRevision: inputRevision(this.getSession(id)), settingsRevision: session.settings?.revision ?? 0 } });
+        if (tail) {
+          replyDelivered = true;
+          this.transient(id, { type: 'turn.partial', data: {
+            id: turnId, delta: tail, ...(draftProducer ?? producer(admitted, admitted?.plugin ?? this.reasoning)),
+            inputRevision: inputRevision(this.getSession(id)), settingsRevision: session.settings?.revision ?? 0 } });
+        }
         const content = shown + tail;
         if (opener.stripped) this.onOpenerStripped();
         // The admitted public choice labels which model and effort produced this reply.
@@ -227,7 +235,8 @@ export class SessionLanes {
     };
     const flight = { id, lane, session, revision, selection, controller, revoked: false, admitted: false, promise: null };
     const promise = Promise.resolve().then(work).finally(() => {
-      // Provider receipts remain host-side when no complete reply was published.
+      // Only replies with no delivered text (partial, final or simulator-owned)
+      // release visitor credits. Provider receipts and host spend stay intact.
       if (!replyDelivered) for (const admission of replyAdmissions) admission.releaseCredits?.();
       scope.dispose(); signal?.removeEventListener('abort', abort);
       if (this.#flights.get(key) === flight) this.#flights.delete(key);

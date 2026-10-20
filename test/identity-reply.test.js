@@ -79,3 +79,36 @@ test('AIT-418: the simulator-owned spoken reply keeps its visitor charge', { tim
   assert.equal(h.runtime.budget.breakdown(h.id, { visitorCredits: true }).confirmedSpendMicro, 110);
   assert.deepEqual(h.settlements, [row.attempt_id]);
 });
+
+test('AIT-418: a shown buffered tail keeps its charge when final publication is refused', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness(); t.after(() => h.close());
+  const partials = [], transient = h.handlers.lanes.transient;
+  h.handlers.lanes.transient = (id, event) => { transient(id, event); if (event.type === 'turn.partial') partials.push(event.data.delta); };
+  h.handlers.lanes.publish = () => false;
+  const pending = h.run('reaction'), call = await h.next('reaction');
+  call.resolve({ question_short: null, options: [], content: 'Kurzer Text' });
+  assert.equal(await pending, 'stale');
+  assert.equal(partials.join(''), 'Kurzer Text');
+  const row = h.storage.db.prepare('SELECT * FROM budget_attempts').get();
+  assert.equal(row.settled_micro, 110); assert.equal(row.visitor_credit_released, 0);
+  assert.equal(h.runtime.budget.breakdown(h.id, { visitorCredits: true }).confirmedSpendMicro, 110);
+  assert.deepEqual(h.settlements, [row.attempt_id]);
+});
+
+test('AIT-418: superseded private purpose text releases only visitor credits', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ purposePolicy: start2PurposePolicy }); t.after(() => h.close());
+  const observed = Promise.withResolvers(), observe = h.runtime.budget.observeCost.bind(h.runtime.budget), partials = [];
+  h.runtime.budget.observeCost = (id, evidence) => { const result = observe(id, evidence); if (evidence.chargedMicro === 110) observed.resolve(); return result; };
+  h.handlers.lanes.transient = (_, event) => partials.push(event);
+  const pending = h.run('reaction'), call = await h.next('reaction'), wire = call.openStream();
+  await wire.frame({ choices: [{ delta: { content: '{"content":"Private text, ' } }], usage: { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 } });
+  await observed.promise;
+  h.turn('New input before the privately buffered reply was shown.');
+  await Promise.allSettled([pending]);
+  assert.deepEqual(partials, []);
+  const row = h.storage.db.prepare('SELECT * FROM budget_attempts').get();
+  assert.equal(row.state, 'settled'); assert.equal(row.settled_micro, 110);
+  assert.equal(row.visitor_credit_released, 1);
+  assert.equal(h.runtime.budget.breakdown(h.id, { visitorCredits: true }).confirmedSpendMicro, 0);
+  assert.deepEqual(h.settlements, [row.attempt_id]);
+});
