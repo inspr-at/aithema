@@ -2,6 +2,11 @@ export const PROCESSING_PRESETS = Object.freeze(['best', 'eu', 'device', 'custom
 export const FEATURES = Object.freeze(['text', 'analysis', 'voice', 'transcription', 'images', 'html', 'uploads']);
 export const EU_COUNTRIES = Object.freeze(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU',
   'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
+export const BINDING_EVIDENCE_REASONS = Object.freeze({
+  manifestExpired: 'manifest evidence expired', unverified: 'binding evidence unverified',
+  mismatch: 'binding evidence mismatch', notYetValid: 'binding evidence not yet valid', expired: 'binding evidence expired',
+});
+export const BINDING_REASON_CODES = Object.freeze(Object.values(BINDING_EVIDENCE_REASONS));
 export const featureUnavailable = reason => ({ available: false, reason });
 export const deviceFeatures = () => Object.fromEntries(FEATURES.map(f => [f,
   f === 'text' ? { available: true, reason: null } : featureUnavailable('unavailable on device')]));
@@ -15,13 +20,13 @@ export function bindingReason({ binding, plugin, preset, policy = {}, now = Date
   const model = plugin.manifest.models.find(m => m.id === binding.model) ?? plugin.manifest.models.find(m => m.id === '*');
   if (!model) return 'model not supported';
   if (!model.efforts.includes(binding.effort)) return 'effort not supported';
-  if (model.expiresAt && Date.parse(model.expiresAt) <= now) return 'manifest evidence expired';
+  if (model.expiresAt && Date.parse(model.expiresAt) <= now) return BINDING_EVIDENCE_REASONS.manifestExpired;
   const legal = binding.legal, e = legal?.evidence;
-  if (!legal?.approved || !e?.qualified) return 'binding evidence unverified';
+  if (!legal?.approved || !e?.qualified) return BINDING_EVIDENCE_REASONS.unverified;
   if (e.accountRef !== binding.accountRef || e.secretRef !== binding.secretRef || e.model !== binding.model ||
-    e.endpoint !== binding.endpoint || !same(e.routing, binding.routing ?? {})) return 'binding evidence mismatch';
-  if (!Number.isFinite(e.verifiedAt) || e.verifiedAt > now) return 'binding evidence not yet valid';
-  if (!Number.isFinite(e.expiresAt) || e.expiresAt <= now) return 'binding evidence expired';
+    e.endpoint !== binding.endpoint || !same(e.routing, binding.routing ?? {})) return BINDING_EVIDENCE_REASONS.mismatch;
+  if (!Number.isFinite(e.verifiedAt) || e.verifiedAt > now) return BINDING_EVIDENCE_REASONS.notYetValid;
+  if (!Number.isFinite(e.expiresAt) || e.expiresAt <= now) return BINDING_EVIDENCE_REASONS.expired;
   if (!legal.purpose || !legal.recipient || !legal.consentVersion || !Array.isArray(legal.processors) ||
     !Array.isArray(legal.dataCategories) || !legal.dataCategories.length || typeof legal.training !== 'boolean' ||
     typeof legal.retention !== 'string' || !legal.retention) return 'processing scope invalid';

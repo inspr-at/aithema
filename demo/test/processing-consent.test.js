@@ -37,7 +37,7 @@ test('host voice setup errors render in German and English as new conversations 
     await import('../host.js');
     const check = copy => {
       assert.equal(document.querySelector('#error').textContent, '');
-      assert.equal(document.querySelector('#provider').textContent, `${reasonSeparator}${copy.host.visualsOff}${reasonSeparator}${copy.reasons['agent-api'].replace('{status}', '403')}`);
+      assert.equal(document.querySelector('#provider').textContent, `${reasonSeparator}${copy.host.visualsOff}${reasonSeparator}${copy.reasons['voice-host-unavailable']}`);
     };
     check(de);
     const locale = document.querySelector('#locale'); locale.value = 'en'; locale.dispatchEvent(new window.Event('change'));
