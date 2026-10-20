@@ -552,6 +552,8 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
               headerBottom: r.querySelector('.band').getBoundingClientRect().bottom, scrollTop: shell.scrollTop, pageScroll: scrollY };
           });
           check.transcriptClearance = clearance;
+          if (evidence) await writeFile(join(evidence, 'ait400-takeback-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true,
+            files, checks:checks.filter(c => c.transcriptClearance).map(({ width, locale, touch, transcriptClearance }) => ({ width, locale, touch, ...transcriptClearance })) }, null, 2));
           assert.ok(clearance.shellTop >= clearance.headerBottom, `AIT-412: scroll area starts below the sticky header: ${JSON.stringify(clearance)}`);
           assert.ok(clearance.bubbleTop >= clearance.headerBottom, `AIT-412: first bubble is wholly below the sticky header: ${JSON.stringify(clearance)}`);
         } else {

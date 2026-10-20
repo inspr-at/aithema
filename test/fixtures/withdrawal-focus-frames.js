@@ -93,7 +93,9 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
           top: shell.querySelector('.turn').getBoundingClientRect().top, scrollTop: shell.scrollTop,
           headerBottom: r.querySelector('.band').getBoundingClientRect().bottom,
           slotBottom: r.querySelector('.concept-bar').getBoundingClientRect().bottom,
-          notice: r.querySelector('.concept-withdrawn').textContent };
+          notice: r.querySelector('.concept-withdrawn').textContent,
+          firstVisible: [...shell.querySelectorAll('.turn')].filter(n => n.getBoundingClientRect().bottom > shell.getBoundingClientRect().top + 8)
+            .map(n => ({ id:n.dataset.id, top:n.getBoundingClientRect().top, bottom:n.getBoundingClientRect().bottom }))[0] };
       });
       const before = await inspect();
       await page.evaluate(() => withdraw());
@@ -113,6 +115,30 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       for (const state of [withdrawn, expired]) {
         assert.ok(state.shell[1] >= Math.max(state.headerBottom, state.slotBottom), `AIT-400: scroll area follows the last top row: ${JSON.stringify(state)}`);
         assert.ok(state.top >= Math.max(state.shell[1] + 8, state.headerBottom, state.slotBottom), `AIT-400: first bubble is wholly below the last top row and fade: ${JSON.stringify(state)}`);
+      }
+      // Read an interior turn, away from both ends; status changes must retain it.
+      const long = Array.from({ length: 24 }, (_, i) => ({ ...turns[i % turns.length], id: i ? `reading-${i}` : 'source' }));
+      await mount(width, 'light', locale, 't1', false, long);
+      await page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), row = r.querySelector('[data-id="reading-10"]');
+        shell.scrollTop += row.getBoundingClientRect().top - shell.getBoundingClientRect().top - 8;
+      });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const reading = await inspect();
+      assert.ok(reading.scrollTop > 0, 'reading anchor is away from the top');
+      assert.equal(reading.firstVisible.id, 'reading-10', 'fixture starts on an interior row');
+      await page.evaluate(() => withdraw());
+      await capture(width, 'light', locale, 'transcript-reading-withdrawal');
+      const readingWithdrawn = await inspect();
+      await page.evaluate(() => clock.tick(4000));
+      await capture(width, 'light', locale, 'transcript-reading-expired');
+      const readingExpired = await inspect();
+      checks.at(-1).reading = { before:reading, withdrawn:readingWithdrawn, expired:readingExpired };
+      if (evidence) await writeFile(join(evidence, 'ait400-checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+      for (const state of [readingWithdrawn, readingExpired]) {
+        assert.equal(state.scrollTop, reading.scrollTop, 'AIT-400: never jump to either end');
+        assert.deepEqual(state.firstVisible, reading.firstVisible, 'AIT-400: keep the first visible reading row at 0 px');
+        assert.ok(state.firstVisible.top >= Math.max(state.shell[1] + 8, state.headerBottom, state.slotBottom), 'AIT-400: the retained reading row is wholly below the last top row');
       }
     });
     return;
