@@ -1102,9 +1102,14 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
         const measure = selector => {
           const n = root.querySelector(selector), css = getComputedStyle(n), range = document.createRange(); range.selectNodeContents(n);
           const slot = n.querySelector('slot'), assigned = slot?.assignedNodes({ flatten: true });
+          const pane = root.querySelector('.analysis-content'), viewport = pane.getBoundingClientRect();
+          const lines = (assigned?.length ? assigned : [n]).flatMap(node => {
+            range.selectNodeContents(node); return [...range.getClientRects()].filter(r => r.width > 0);
+          });
           return { ...rect(n), text: assigned?.length ? assigned.map(n => n.textContent).join('') : n.textContent, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
             scrollWidth: n.scrollWidth, clientWidth: n.clientWidth, maxHeight: css.maxHeight, clamp: css.webkitLineClamp,
-            textAlign: css.textAlign, lines: new Set([...range.getClientRects()].filter(r => r.width > 0).map(r => r.y)).size };
+            textAlign: css.textAlign, lines: new Set(lines.map(r => r.y)).size,
+            inkInsidePane: lines.every(r => r.left >= viewport.left + pane.clientLeft && r.right <= viewport.left + pane.clientLeft + pane.clientWidth) };
         };
         return { block: rect(root.querySelector('.handover')), row: rect(root.querySelector('.handover__row')),
           heading: rect(root.querySelector('.handover h3')), action: rect(root.querySelector('.handover-request')),
@@ -1116,6 +1121,7 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
       for (const name of ['notice', 'state']) {
         require(metric[name].scrollHeight <= metric[name].clientHeight, `${name} vertically overflows ${metric[name].scrollHeight} > ${metric[name].clientHeight}`);
         require(metric[name].scrollWidth <= metric[name].clientWidth, `${name} horizontally overflows`);
+        require(metric[name].inkInsidePane, `${name} text is clipped by the assessment pane`);
       }
       require(metric.notice.text === expected.notice, 'full demo notice remains present');
       require(metric.state.text === (state === 'idle' ? '' : expected[state]), 'actual handover state text is shown');

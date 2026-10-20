@@ -91,6 +91,8 @@ export const hostStyles = `
 .handover__state-slot > * { grid-area:1/1; margin:0; min-width:0; }
 .handover__state-sizer { visibility:hidden; }
 @media(width < 640px) {
+  /* Preserve the assessment's text inset while letting the full-width band paint inside its scrollport. */
+  .analysis-content:has(.handover:not([hidden])) { margin-inline-start:-.75rem; padding-inline-start:.75rem; }
   .handover { margin-inline:-.75rem; }
   .handover__row { display:grid; grid-template-columns:minmax(0,1fr); gap:.25rem; }
 }
