@@ -18,11 +18,14 @@ const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.que
 // 450 ms after every action in all twelve viewport/theme/language combinations.
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
-  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
-    .filter(animation => animation.playState === 'running' && Number.isFinite(animation.effect.getComputedTiming().endTime))
-    .map(animation => animation.finished.catch(() => {})));
-  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  let quietFrames = 0;
+  while (quietFrames < 2) {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const animations = c.shadowRoot.getAnimations({ subtree: true })
+      .filter(animation => animation.playState === 'running' && Number.isFinite(animation.effect.getComputedTiming().endTime));
+    if (!animations.length) quietFrames++;
+    else { quietFrames = 0; await Promise.all(animations.map(animation => animation.finished.catch(() => {}))); }
+  }
 });
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
@@ -164,7 +167,7 @@ export async function composerCreditReservationMatrix(t) {
         await page.mouse.move(-1, -1);
         if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
         await settle(page);
-        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-one-hour.png`), fullPage: false });
+        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-one-hour.png`), fullPage: false, optimizeForSpeed: true });
         await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
       }
     }
@@ -223,8 +226,8 @@ export async function topUpReservationMatrix(t) {
     });
     await settle(page);
     const before = await boxes(page, selectors), v3Before = await boxes(page, v3Selectors);
-    const recordV3 = async state => {
-      await settle(page);
+    const recordV3 = async (state, settled = false) => {
+      if (!settled) await settle(page);
       const after = await boxes(page, v3Selectors);
       const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.voice-repeat, .voice-read-text')].map(n => {
         const style = getComputedStyle(n);
@@ -297,12 +300,12 @@ export async function topUpReservationMatrix(t) {
       });
       const row = { locale, theme, width, state, before, after, detail,
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) };
-      await recordV3(state);
+      await recordV3(state, true);
       rows.push(row); t.diagnostic(`AIT-406 v2 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
       if (evidence && locale === 'de' && theme === 'light' && (width === 390 || width === 1440 && state === 'running') && state !== 'ready-again') {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
-        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-top-up-retry-${state}.png`), fullPage: false });
+        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-top-up-retry-${state}.png`), fullPage: false, optimizeForSpeed: true });
       }
     }
   }
@@ -381,7 +384,7 @@ export async function visitorCreditMatrix(t, locales) {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
         const file = `ait292-${label}-${state}.png`;
-        await page.screenshot({ path: join(evidence, file), fullPage: false });
+        await page.screenshot({ path: join(evidence, file), fullPage: false, optimizeForSpeed: true });
         captures.push({ locale, theme, width, state, file, capture: 'viewport' });
       };
       const actions = async state => {
@@ -459,7 +462,7 @@ export async function visitorCreditMatrix(t, locales) {
         });
         const capture = async suffix => {
           const file = `a2-${label}-${state}${suffix}.png`;
-          await page.screenshot({ path: join(evidence, file), fullPage: false });
+          await page.screenshot({ path: join(evidence, file), fullPage: false, optimizeForSpeed: true });
           captures.push({ locale, theme, width, state, file, capture: 'viewport',
             ...await page.evaluate(() => ({ height: innerHeight, scrollY })) });
         };
@@ -687,7 +690,7 @@ export async function visitorCreditMatrix(t, locales) {
           return box.top >= c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom && box.bottom <= innerHeight;
         });
         assert.equal(visible, true, `${label}: full-hold placeholder is visible in the viewport`);
-        await page.screenshot({ path: join(evidence, `ait155-full-hold-${label}.png`), fullPage: false });
+        await page.screenshot({ path: join(evidence, `ait155-full-hold-${label}.png`), fullPage: false, optimizeForSpeed: true });
         await page.evaluate(([x, y]) => scrollTo({ left: x, top: y, behavior: 'instant' }), offset);
       }
       await click(page, '.host-credits__button'); await shot('full-hold-credits');
@@ -786,7 +789,7 @@ export async function visitorCreditMatrix(t, locales) {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
         const file = `ait406-one-hour-${label}.png`;
-        await page.screenshot({ path: join(evidence, file), fullPage: false });
+        await page.screenshot({ path: join(evidence, file), fullPage: false, optimizeForSpeed: true });
         await writeFile(join(evidence, `${file}.json`), JSON.stringify({ locale, theme, width, selectors: liveFixed,
           before: hourBefore, after: hourAfter, settled: await boxes(page, liveFixed),
           fonts: await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-shell')).fontFamily) }, null, 2));
@@ -824,7 +827,7 @@ export async function replyRowsMatrix(t) {
     if (!evidence) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
     await page.mouse.move(-1, -1); await settle(page);
-    await page.screenshot({ path: join(evidence, `ait410-${name}.png`), fullPage: false });
+    await page.screenshot({ path: join(evidence, `ait410-${name}.png`), fullPage: false, optimizeForSpeed: true });
   };
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000, isMobile: width === 390, hasTouch: width === 390 });
