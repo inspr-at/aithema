@@ -1461,23 +1461,26 @@ export class AithemaSession extends HTMLElement {
         ...Object.entries(credits.ended).filter(([, value]) => value && typeof value === 'object')
           .map(([key, value]) => [key, value.body]), ['daily-cap', credits.dailyCap],
       ].map(([key, text]) => [key, { text, option: false }]);
-      // Keep v1 and AIT-422's original-offer peer intact. O1/O7 share their grid
-      // cell, including both possible upgrade allowances before a tier changes.
-      // These hidden b elements have inherited typography and no AX presence.
-      bodies.push(...[
+      // Default hosts keep main's exact peers. Opted-in panels add only real
+      // hint/confirmation variants, each painted in its corresponding state.
+      const optionVariants = newConversationEnabled || this.#options.host?.credits?.reconcilingVisible === true ||
+        this.#options.host?.credits?.dailyCapReset === true || noAction || this.#host?.endReason === 'session';
+      if (optionVariants) bodies.push(...[
         ['new-conversation', credits.ended.newConversationHint],
-        ...['emailGiven', 'emailConfirmed'].map(tier => [`session-${tier}`,
-          credits.ended.sessionUpgrade.replace('{next}', allowances?.[tier] === undefined ? ''
-            : formatCredits(allowances[tier], this.#session.locale ?? 'en'))]),
+        ['session-emailConfirmed', credits.ended.sessionUpgrade.replace('{next}', allowances?.emailConfirmed === undefined ? ''
+          : formatCredits(allowances.emailConfirmed, this.#session.locale ?? 'en'))],
       ].map(([key, text]) => [`option-${key}`, { text, option: true }]));
+      const activeKey = !this.#host?.dailyCapped && this.#host?.endReason === 'session'
+        ? next ? 'option-session-emailConfirmed' : 'option-new-conversation'
+        : newAction ? 'option-new-conversation' : 'active';
       reconcile(out.querySelector('.composer-out__body'), bodies, body => node(body.option ? 'b' : 'span'), (span, { text, option }) => {
         const key = span.dataset.key;
         setText(span, text);
         if (option) span.dataset.creditOptionVariant = key;
         else span.dataset.creditVariant = key;
-        span.dataset.active = String(key === 'active');
+        span.dataset.active = String(key === activeKey);
         span.toggleAttribute('data-host-body', option || key.startsWith('host-') || key === 'active' && out.hasAttribute('data-host-limit'));
-        span.setAttribute('aria-hidden', String(!usedUp || key !== 'active'));
+        span.setAttribute('aria-hidden', String(!usedUp || key !== activeKey));
       });
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');

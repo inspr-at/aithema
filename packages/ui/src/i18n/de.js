@@ -490,7 +490,7 @@ export const de = {
         newConversationHint: 'Ein neues Gespräch hat wieder eigene Credits.',
         sessionUpgrade: 'Mit bestätigter E-Mail-Adresse geht es mit {next}\u00a0Credits weiter.',
         'one-hour': { title: 'Die Gesprächszeit ist abgelaufen.', body: 'Ein Gespräch dauert hier höchstens eine Stunde. Ihr Verlauf bleibt gespeichert.', footer: false },
-        'session': { title: 'Die Credits dieses Gesprächs sind aufgebraucht.', body: 'Ein neues Gespräch hat wieder eigene Credits.', footer: true },
+        'session': { title: 'Die Credits dieses Gesprächs sind aufgebraucht.', body: 'Ihr Verlauf bleibt gespeichert.', footer: true },
         'voiceVisitor': { title: 'Die Sprach-Credits sind aufgebraucht.', body: 'Sprechen ist in diesem Gespräch nicht mehr möglich.', footer: true },
         'host-limit': { title: 'Hier sind gerade keine Gespräche möglich.', body: 'Das Budget dieses Angebots ist ausgeschöpft. Ihr Gespräch bleibt gespeichert.', footer: false },
       },

@@ -120,10 +120,15 @@ export async function creditHostOptionsCheck(t) {
       assert.deepEqual(value.reservation.filter(n => !n.option).map(n => n.key),
         ['active', 'default', 'host-give-measure', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
       assert.deepEqual(value.reservation.filter(n => n.option).map(n => n.key),
-        ['option-new-conversation', 'option-session-emailGiven', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every hint and upgrade`);
+        ['option-new-conversation', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every hint and upgrade`);
       assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: v1 and O variants share one cell`);
       assert.ok(value.reservation.every(n => value.bodyHeight >= n.height), `${label}: cell reserves the tallest variant`);
-      assert.ok(value.reservation.filter(n => n.option).every(n => n.hidden && n.ariaHidden === 'true'), `${label}: O measurements stay hidden and outside AX`);
+      const activeOption = state === 'S1' ? 'option-session-emailConfirmed' : ['U2', 'S2', 'S3'].includes(state) ? 'option-new-conversation' : null;
+      for (const variant of value.reservation.filter(n => n.option)) {
+        const painted = variant.key === activeOption;
+        assert.equal(variant.hidden, !painted, `${label}: real option variant paints in its state (${variant.key})`);
+        assert.equal(variant.ariaHidden, String(!painted), `${label}: only painted option text enters AX (${variant.key})`);
+      }
       assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
       if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
       if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ wieder verfügbar$/u : /^Available again from /u); assert.equal(value.panelDeadline, value.deadline); }
