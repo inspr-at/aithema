@@ -11,6 +11,7 @@ import puppeteer from './launch.js';
 import './shared-browser.js';
 import { HTML_PREVIEW_HOST_CSP, htmlPreviewHostPolicy, inspectHTML } from '@inspr/aithema-core';
 import { previewFixture } from '../fixtures/html-preview-route.js';
+import { fullMatrix } from './matrix-coverage.js';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
 // Set AITHEMA_EVIDENCE_DIR to keep screenshots of the sample click-dummy (wide light/dark, phone).
 const root = new URL('../../', import.meta.url).pathname;
@@ -278,7 +279,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
 // in place, and the expensive screenshot matrix only in explicit evidence mode.
 test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN', { timeout: 180_000 }, async t => {
   const { writeFile } = await import('node:fs/promises');
-  const evidence = isCI ? undefined : process.env.AITHEMA_EVIDENCE_DIR;
+  const evidence = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
   const directory = await mkdtemp(join(tmpdir(), 'aithema-backdrop-'));
   const pageHTML = `<!doctype html><html><head><meta charset="utf-8"><style>
     body{margin:0;background:#f7f5ef} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
@@ -328,8 +329,11 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     catch { res.writeHead(404); res.end(); }
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&isCI?['--no-sandbox']:[] });
-  t.after(async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive:true,force:true}); });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally {
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive:true,force:true});
+  } });
+  browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&isCI?['--no-sandbox']:[] });
   const page = await browser.newPage(), errors = [], shots = [], passes = [], guardShots = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
@@ -348,7 +352,7 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
       const r=root.querySelector(s).getBoundingClientRect();return [s,r.x,r.y,r.width,r.height];
     });
   });
-  for (const locale of ['de','en']) for (const width of [1440,1024,390]) for (const theme of evidence?['light','dark']:['light']) {
+  for (const locale of ['de','en']) for (const width of [1440,1024,390]) for (const theme of fullMatrix?['light','dark']:['light']) {
     await page.setViewport({width,height:900});
     await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'no-preference'}]);
     await page.evaluate(async ({locale,theme})=>{await window.seed(locale);document.querySelector('aithema-session').setAttribute('theme',theme);scrollTo(0,0);},{locale,theme});
@@ -721,9 +725,8 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
     });
   });
-  // Reuse the page for Tick's three configurations; CI keeps the full geometry matrix.
-  const scenarios = evidence && !isCI ? [{ width: 1440, theme: 'light', locale: 'de' }, { width: 390, theme: 'dark', locale: 'en' }, { width: 390, theme: 'light', locale: 'de' }]
-    : [1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ width, theme, locale }))));
+  // Every mode retains all geometry cases, including Tick's three configurations.
+  const scenarios = [1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ width, theme, locale }))));
   for (const { width, theme, locale } of scenarios) {
     await page.setViewport({ width, height: 1000 });
     await page.evaluate(async ({ theme, locale }) => {

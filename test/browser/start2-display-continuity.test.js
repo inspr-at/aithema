@@ -123,11 +123,25 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
           const text = document.createRange(); text.selectNodeContents(status); const textBox = text.getBoundingClientRect();
           const footerBoxes = ['.ai-notice', '.host-credits', '.footer-right'].map(s => root.querySelector(s).getBoundingClientRect());
           const compactFooter = statusStyle.display === 'none';
+          // Tick AIT-406 (2026-10-20), approved AIT-302 998861c7:
+          // the phone label occupies the permanent row across the whole rail.
+          const phone = matchMedia('(width < 600px)').matches, centre = phone ? railBox : signalBox;
+          const overlaps = box => labelBox.left < box.right && labelBox.right > box.left && labelBox.top < box.bottom && labelBox.bottom > box.top;
+          const obstacles = [...rail.querySelectorAll('button'), root.querySelector('.transcript-shell')]
+            .filter(n => n.checkVisibility({ visibilityProperty: true })).map(n => n.getBoundingClientRect());
+          if (phone) obstacles.push(signalBox);
+          const noOverlap = obstacles.every(box => !overlaps(box));
+          const noPopoverRole = !label.closest('dialog,[role="dialog"],[role="alertdialog"],[popover]') &&
+            !label.querySelector('dialog,[role="dialog"],[role="alertdialog"],[popover]');
           return {
             label: label.textContent, railState: rail.dataset.state,
-            labelInRailCentre: Math.abs(labelBox.left + labelBox.width / 2 - signalBox.left - signalBox.width / 2) <= 1 &&
-              labelBox.top >= railBox.top && labelBox.bottom <= railBox.bottom && labelStyle.opacity === '1',
-            noPopover: !rail.hasAttribute('data-message') && labelStyle.position !== 'absolute' && labelStyle.boxShadow === 'none',
+            geometry: { label: labelBox.toJSON(), signal: signalBox.toJSON(), rail: railBox.toJSON(),
+              position: labelStyle.position, opacity: labelStyle.opacity, boxShadow: labelStyle.boxShadow,
+              fontFamily: labelStyle.fontFamily, fontSize: labelStyle.fontSize },
+            labelInRailCentre: Math.abs(labelBox.left + labelBox.width / 2 - centre.left - centre.width / 2) <= 1 &&
+              (phone ? labelBox.top === 88 && labelBox.bottom === 124 && labelBox.height === 36 : labelBox.top >= railBox.top && labelBox.bottom <= railBox.bottom) && labelStyle.opacity === '1',
+            noPopover: !rail.hasAttribute('data-message') && (phone || labelStyle.position !== 'absolute') && noPopoverRole && noOverlap && labelStyle.boxShadow === 'none',
+            noPopoverRole, noOverlap, obstacles: obstacles.map(box => box.toJSON()),
             noRailRing: (railStyle.outlineStyle === 'none' || parseFloat(railStyle.outlineWidth) === 0) && railStyle.boxShadow === 'none' &&
               ['Top', 'Right', 'Bottom', 'Left'].every(side => parseFloat(railStyle[`border${side}Width`]) === 0),
             enabledResumeStyle: pauseStyle.opacity === '1' && pauseStyle.backgroundColor === getComputedStyle(root.querySelector('.voice-pause')).backgroundColor &&
@@ -140,6 +154,14 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
             footerLabel: status.textContent, compactFooter,
           };
         });
+        // Retain settled viewport evidence even when a presentation assertion
+        // fails before the normal success capture (AIT-406).
+        if (evidence && ['labelInRailCentre', 'noPopover', 'noRailRing', 'enabledResumeStyle', 'footerUntruncated']
+          .some(key => !presentation[key])) {
+          const file = `ait-406-failure-${name}-${label}.png`;
+          await target.screenshot({ path: join(evidence, file), fullPage: false });
+          await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation }, null, 2));
+        }
         for (const key of ['labelInRailCentre', 'noPopover', 'noRailRing', 'enabledResumeStyle', 'footerUntruncated']) {
           assert.ok(presentation[key], `${label}/${name}: ${key}: ${JSON.stringify(presentation)}`);
         }
@@ -203,6 +225,7 @@ for (let repetition = 0; repetition < repetitions; repetition++) test('AIT-138 d
         composer.captureAttempts = attempts; composer.paintWaitMs = Date.now() - paintStarted;
         if (evidence) {
           await writeFile(join(evidence, file), png);
+          if (name === 'old-tab' && width === 390 && theme === 'light' && locale === 'de') await writeFile(join(evidence, 'ait406-old-tab-after.png'), png);
           await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation, composerPainted }, null, 2));
         }
         assert.ok(composerPainted, `${label}/${name}: composer controls must be painted in the viewport PNG: ${JSON.stringify(composer.paint)}`);

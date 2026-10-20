@@ -11,10 +11,11 @@ import { browserPath } from '../../scripts/install-test-browser.js';
 async function setup(t, settings = {}, server = '../../demo/server.js') {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-start-journey-'));
   const demo = await startChild(new URL(server, import.meta.url), join(directory, 'session.sqlite'), settings);
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); } });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
     env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(); page.setDefaultTimeout(30_000);
   const problems = []; page.on('pageerror', error => problems.push(error.message));
   t.after(() => assert.deepEqual(problems, []));

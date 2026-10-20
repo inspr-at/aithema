@@ -222,9 +222,10 @@ inventory below is also compared by the unit test. Declarations describe intent,
 not environment values. Tests must not silently change coverage because an
 undeclared CI variable happens to exist.
 
-`CI` deliberately selects Linux Chrome's sandbox arguments. AIT-185/192 uses it
-to keep PR artifact directories from enabling the full evidence matrix; nightly
-explicitly unsets CI. `GITHUB_SHA` and `GITHUB_RUN_ID` label evidence/provenance.
+`CI` deliberately selects Linux Chrome's sandbox arguments and CI timing budgets.
+AIT-185/192 uses it to keep PR artifact directories from enabling the full evidence
+matrix; nightly sets `AITHEMA_FULL_MATRIX: '1'` and keeps GitHub's `CI=true`.
+`GITHUB_SHA` and `GITHUB_RUN_ID` label evidence/provenance.
 The soak wrappers forward CI to children deliberately. Whole-environment copies
 in orchestration tests preserve or explicitly override CI while exercising child
 commands. Manual OPS diagnostics outside the test tree also use CI as a refusal
@@ -235,21 +236,21 @@ they are not test coverage switches.
 | --- | --- | --- |
 | `test/browser-launch.test.js` | `process.env` ×1 | Hermetic fake-CDP executable child-process environment forwarding for launcher retry coverage |
 | `test/browser-matrix-coverage.test.js` | `process.env` ×2 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
-| `test/browser/admin-pages.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
+| `test/browser/admin-pages.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection; AIT-406 coverage uses shared fullMatrix |
 | `test/browser/audio-replay.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/compact-footer-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-301/309 footer evidence identifies the PR head from the GitHub event payload |
 | `test/browser/composed-media.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/composed-qualification.test.js` | `CI` ×3 | Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe |
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
-| `test/browser/credit-hold.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
+| `test/browser/credit-hold.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection; AIT-406 coverage uses shared fullMatrix |
 | `test/browser/credits-first-receipt-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-357 receipt evidence identifies the PR head from the GitHub event payload |
 | `test/browser/demo-legal-phone-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-304 footer evidence identifies the PR head from the GitHub event payload |
 | `test/browser/demo.test.js` | `CI` ×9 | Linux headless Chrome sandbox selection |
 | `test/browser/external-plugin.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/host-surface.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
-| `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/matrix-coverage.js` | `CI` ×1, `GITHUB_ACTIONS` ×1 | AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI; AIT-293 manual axe evidence also excludes GITHUB_ACTIONS so PR and nightly CI never run axe |
+| `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection (--no-sandbox); AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix |
+| `test/browser/matrix-coverage.js` | `CI` ×1, `GITHUB_ACTIONS` ×1 | AIT-406 full matrix explicitly selected by AITHEMA_FULL_MATRIX while retaining CI timing; AIT-192 local evidence also selects full coverage outside CI; AIT-293 manual axe excludes GITHUB_ACTIONS |
 | `test/browser/operator-login.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/question-card.test.js` | `CI` ×1, `GITHUB_SHA` ×1 | Linux headless Chrome sandbox selection; Evidence/source provenance; release test matches the run identifier |
 | `test/browser/safeguards.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |

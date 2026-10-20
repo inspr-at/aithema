@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { fullMatrix } from './matrix-coverage.js';
 
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
@@ -14,12 +15,12 @@ const settle = page => shadow(page, async c => {
   await new Promise(requestAnimationFrame);
 });
 
-test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift', { timeout: process.env.AITHEMA_EVIDENCE_DIR && !process.env.CI ? 600_000 : 120_000 }, async t => {
+test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift', { timeout: fullMatrix ? 600_000 : 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-credit-hold-'));
   const fixture = await startChild(new URL('../fixtures/credit-hold.js', import.meta.url), join(directory, 'unused.sqlite'));
   let browser;
   t.after(async () => { await browser?.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, realLongWait = Boolean(evidence && !process.env.CI), passes = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, realLongWait = fullMatrix, passes = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });

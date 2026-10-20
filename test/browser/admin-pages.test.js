@@ -10,13 +10,12 @@ import { listen } from '../../packages/server/src/http.js';
 import { adminFixture } from '../fixtures/admin-host.js';
 import { ADMIN_LAUNCH_TIMEOUT, ADMIN_STEP_TIMEOUT, adminSteps } from './admin-steps.js';
 import { browserPath, evidenceCommit } from './start2-display-helpers.js';
+import { fullMatrix } from './matrix-coverage.js';
 
 const states = ['overview', 'editing', 'saved', 'conflict', 'invalid', 'confirmation-off', 'no-delivery', 'cap-near', 'latched', 'audit-end', 'audit-empty', 'signed-out', 'expired'];
 const widths = [390, 1024, 1440];
-// CI already sets an evidence directory for artifacts. Reserve the complete
-// screenshot matrix for deliberate evidence runs outside CI; otherwise every
-// state still runs in both locales/themes, with widths rotated across states.
-const fullMatrix = Boolean(process.env.AITHEMA_EVIDENCE_DIR) && !process.env.CI;
+// Nightly and deliberate full evidence cover every state at every width.
+// PR CI keeps both locales/themes, with widths rotated across states.
 const geometry = page => page.evaluate(() => {
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y + scrollY, b.width, b.height]; };
   return [...document.querySelectorAll('.ad-sec:not([data-sec=log]),#h-log,.ad-save,.ad-btn,.ad-discard,.ad-status,.ad-tier,.ad-sub')].map(box);
