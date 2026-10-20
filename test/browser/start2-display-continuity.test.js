@@ -420,17 +420,18 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           const boxes = () => selectors.map(selector => {
             const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
           });
-          const run = globalThis.ait404 = { outcome, samples: [], baseline: boxes(), selectors, held: 0, returned: 0, done: false, listeningAt: null };
+          const run = globalThis.ait404 = { outcome, samples: [], allSamples: [], baseline: boxes(), selectors, held: 0, returned: 0, done: false, listeningAt: null };
           const sample = source => {
             if (root.querySelector('.audio-rail').dataset.state === 'listening') run.listeningAt ??= performance.now();
-            if (run.listeningAt === null) return;
             const reason = root.querySelector('.composer-reason'), paused = root.querySelector('.composer-paused');
             const visible = n => n.checkVisibility({ visibilityProperty: true, opacityProperty: true });
             const current = boxes(), session = c.session, text = session.featureMatrix?.[session.processingPreset ?? 'best']?.text;
-            run.samples.push({ source, at: performance.now(), shortcut: reason.hasAttribute('data-shortcut'),
+            const reading = { source, at: performance.now(), listeningSet: run.listeningAt !== null, shortcut: reason.hasAttribute('data-shortcut'),
               pausedVisible: visible(paused) || visible(reason) && reason.textContent.includes(pausedCopy),
               sessionPaused: session.paused, textAvailable: text?.available, textReason: text?.reason, unpausedTextAvailable: text?.unpaused?.available,
-              boxes: current, movementPx: Math.max(...current.flatMap((box, i) => box.map((v, j) => Math.abs(v - run.baseline[i][j])))) });
+              boxes: current, movementPx: Math.max(...current.flatMap((box, i) => box.map((v, j) => Math.abs(v - run.baseline[i][j])))) };
+            run.allSamples.push(reading);
+            if (run.listeningAt !== null) run.samples.push(reading);
           };
           const observer = new MutationObserver(() => sample('mutation'));
           observer.observe(root.querySelector('.audio-rail'), { attributes: true, attributeFilter: ['data-state'] });
@@ -482,6 +483,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
           noPausedBeforeSnapshot: preVerdict.every(s => !s.pausedVisible),
           shortcutInListeningTick: preVerdict.every(s => s.shortcut),
           movementPx0: result.samples.every(s => s.movementPx === 0),
+          wholeTakebackMovementPx0: result.allSamples.every(s => s.movementPx === 0),
           deviceMatches: touch ? device.hoverNone && device.coarse : device.fine,
           noPageErrors: errors.length === 0,
           confirmedOrRestored: outcome === 'success' ? result.samples.every(s => !s.pausedVisible && s.shortcut)
@@ -491,10 +493,11 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         checks.push(check);
         if (Object.values(assertions).some(value => !value)) t.diagnostic(JSON.stringify({ width, touch, locale, outcome, assertions,
           firstBadPending: preVerdict.find(s => s.pausedVisible || !s.shortcut),
-          firstMovement: result.samples.find(s => s.movementPx !== 0), selectors: result.selectors, baseline: result.baseline }));
+          firstMovement: result.allSamples.find(s => s.movementPx !== 0), selectors: result.selectors, baseline: result.baseline }));
         // Persist the red trace too, including the actual frame and its bounds.
         if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
         assert.ok(assertions.deviceMatches, 'the case uses the requested touch or fine-pointer device');
+        assert.equal(Math.max(...result.allSamples.map(s => s.movementPx)), 0, 'geometry stays at 0 px from the click through 1 s after the snapshot');
         assert.equal(Math.max(...result.samples.map(s => s.movementPx)), 0, 'every outcome preserves composer, label slot and transcript geometry');
         assert.ok(preVerdict.some(s => s.source === 'mutation'), 'sample the listening mutation in its own tick');
         assert.ok(preVerdict.filter(s => s.source === 'frame').length >= 10, 'sample every frame while the 800 ms GET is pending');
