@@ -23,7 +23,8 @@ test('AIT-409 START-524: a receipt after midnight dates the correction to today,
   ledger.settle(claim.claimId, { attemptId: 'attempt', outcome: 'uncertain' });
   assert.equal(ledger.get('attempt').settled_micro, 10_000_000);
   clock += 5 * 60_000;
-  ledger.reconcileCost('attempt', { chargedMicro: 10_000, estimated: true, source: 'configured-call-estimate' });
+  ledger.reconcileCost('attempt', { chargedMicro: 10_000, estimated: true, source: 'configured-call-estimate',
+    generationId: 'private-generation' });
   assert.equal(ledger.get('attempt').settled_micro, 10_000);
   // A sibling uses the room released by yesterday's estimate. Its day key can
   // expire: today's charge must be reconstructible from the posted correction.
