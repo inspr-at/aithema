@@ -37,6 +37,8 @@ const unchanged = (before, after, label) => {
 };
 
 export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
+  // Touch viewport changes reload the demo; wait for its owner session seed.
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, async (c, options) => {
     const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
