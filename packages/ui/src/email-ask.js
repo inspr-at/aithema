@@ -93,7 +93,7 @@ export class EmailAsk {
     const turns = activeTurns(this.session()), replied = turns.at(-1)?.role === 'assistant', count = turns.filter(turn => turn.role === 'user').length;
     const low = this.lowCredits && this.credits?.emailAskLowCredits !== false && lowCredit(this.credits), safe = replied && !this.streaming() && !this.callActive && !this.typing;
     if (this.callActive && this.open && !this.desktop) { void this.dismiss(false); return; }
-    if ((this.state.why !== 'low' || low) && this.state.open && !this.open && safe && (this.eligible || this.email.address)) {
+    if ((this.state.why !== 'low' || this.lowCredits && this.credits?.emailAskLowCredits !== false) && this.state.open && !this.open && safe && (this.eligible || this.email.address)) {
       this.open = true; if (this.email.address) { this.step = 'done'; this.sent = this.email.identity?.status === 'verification-pending' && this.email.identity?.delivery !== 'failed'; }
     }
     if (low && !this.announcedLow) { this.announcedLow = true; setText(this.root.querySelector('.email-ask-announcement'), fill(this.copy.hostSurface.emailAsk.announceLow, { available: this.format(this.credits.balance.owner.availableMicro) })); }

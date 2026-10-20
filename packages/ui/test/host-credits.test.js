@@ -593,3 +593,14 @@ for (const copy of [de, en]) test(`AIT-411 O4/O5: one reconciliation announcemen
   t.mock.timers.tick(15001); await tick(12);
   assert.equal(deadline.hidden, true); assert.equal(deadline.textContent, ''); assert.equal(live.textContent, '');
 });
+
+test('AIT-411 defaults: a saved low-credit ask still restores after the balance rises', async t => {
+  const { root } = setup(t, { host: { credits: true, verification: true },
+    session: { transcript: [{ id: 'restore-reply', role: 'assistant', content: 'Ready.' }] }, routes: {
+      'GET /credits': () => Response.json({ balance, lowAtMicro: 500000, exhausted: false, emailAsk: { open: true, why: 'low' },
+        tiers: { current: 'anonymous', next: 'emailGiven', delta: 1000000, canConfirm: false,
+          allowancesMicro: { anonymous: 5000000, emailGiven: 6000000, emailConfirmed: 6000000 } } }),
+    } });
+  await tick(12);
+  assert.equal(root.querySelector('.email-ask').getAttribute('aria-hidden'), 'false', 'the default keeps the prior saved-ask restoration policy');
+});
