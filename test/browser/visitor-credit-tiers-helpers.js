@@ -137,6 +137,7 @@ export async function composerCreditReservationMatrix(t) {
       const after = await boxes(page, selectors);
       const variants = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].map(n => ({
         key: n.dataset.creditVariant, text: n.textContent, visibility: getComputedStyle(n).visibility, ariaHidden: n.getAttribute('aria-hidden'),
+        gridCell: [getComputedStyle(n).gridRowStart, getComputedStyle(n).gridColumnStart],
       })));
       const hiddenAX = [];
       for (let i = 0; i < variants.length; i++) {
@@ -175,7 +176,9 @@ export async function composerCreditReservationMatrix(t) {
   }
   for (const row of rows) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
-    assert.ok(row.variants.length >= 4, `${label}: all credit variants reserve the grid cell`);
+    assert.deepEqual(row.variants.map(n => n.key), ['default', 'host-give', 'host-confirm', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
+    assert.ok(row.variants.every(n => n.gridCell.join('/') === '1/1'), `${label}: variants share grid-area 1/1`);
+    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 8 : 7, `${label}: inactive variants aria-hidden`);
     assert.ok(row.variants.filter(n => n.ariaHidden === 'true').every(n => n.visibility === 'hidden'), `${label}: inactive variants hidden`);
     assert.equal(row.hiddenVariantsAbsent, true, `${label}: hidden variants absent from accessibility tree`);
     assert.equal(row.activeBody.length, row.state === 'default' ? 0 : 1, `${label}: only the active variant is painted`);
