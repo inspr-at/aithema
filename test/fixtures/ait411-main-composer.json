@@ -1,0 +1,95 @@
+{
+  "mainCommit": "60af959f89b534e602cae7b6563943e4f4e6c367",
+  "linux": {
+    "captureCommit": "e8044da05e071b58cc3a155cf510437f6c829c8f",
+    "runId": "39503710843",
+    "artifactId": "12302478348"
+  },
+  "darwin": {
+    "captureCommit": "e6f5922a",
+    "run": "main-scroll-trace on mbp2606"
+  },
+  "normalization": "None. Complete composer-shell outerHTML; exact CSS pixel boxes at the fixture viewport.",
+  "composerHTML": {
+    "de": "<div class=\"composer-shell\"><form class=\"composer\" aria-hidden=\"false\"><label for=\"message\" data-copy=\"composer\">Ihre Nachricht</label><textarea id=\"message\" maxlength=\"8000\" rows=\"2\" aria-describedby=\"composer-reason ai-notice\" placeholder=\"Schreiben Sie hier Ihre nächste Nachricht&nbsp;…\"></textarea><div class=\"composer-paused\" hidden=\"\"><span>Gespräch pausiert.</span> <button class=\"composer-resume\" type=\"button\">Fortsetzen</button></div><div class=\"purpose-pause-copy\" role=\"status\" hidden=\"\">Dieses Gespräch ist pausiert. Hier geht es um Vorhaben, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern.</div>\n          <div class=\"composer-actions\"><button class=\"attach\" type=\"button\" aria-describedby=\"attach-limits ai-notice\" aria-disabled=\"true\" title=\"Dateien können nicht angehängt werden: Nicht eingerichtet\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8\"></path></svg><span class=\"attach__label\">Dateien anhängen</span></button>\n            <span class=\"sr-only\" id=\"attach-limits\">Dateien können nicht angehängt werden: Nicht eingerichtet</span><input class=\"attach-input\" type=\"file\" multiple=\"\" hidden=\"\" tabindex=\"-1\" accept=\".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml\">\n            <span class=\"composer-feedback\"><span class=\"sr-only\" id=\"upload-retry-reason\"></span><small class=\"composer-reason\" role=\"status\" id=\"composer-reason\" data-shortcut=\"\" aria-live=\"polite\" title=\"\"><kbd>⌘</kbd> + <kbd>Enter</kbd> zum Senden</small><small class=\"composer-saved-sizer\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M20 6 9 17l-5-5\"></path></svg><span>Gespeichert</span></small><small class=\"composer-saved\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M20 6 9 17l-5-5\"></path></svg><span></span></small><small class=\"composer-saved-announcement sr-only\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></small></span><button class=\"send\" aria-describedby=\"ai-notice\" aria-label=\"Senden\" title=\"Senden\" data-command=\"send\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg><span class=\"visually-hidden\">Senden</span></button></div></form>\n          <div class=\"composer-out\" aria-hidden=\"true\" inert=\"\" data-next=\"none\" data-delivery=\"false\"><p class=\"composer-out__title\" data-host-title=\"Hier sind gerade keine Gespräche möglich.\"><span>Ihre Credits sind aufgebraucht.</span></p><p class=\"composer-out__body\"><span data-key=\"active\" data-credit-variant=\"active\" data-active=\"true\" aria-hidden=\"true\">Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.</span><span data-key=\"default\" data-credit-variant=\"default\" data-active=\"false\" aria-hidden=\"true\">Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.</span><span data-key=\"host-give-measure\" data-credit-variant=\"host-give-measure\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Mit Ihrer E-Mail-Adresse erhalten Sie + weitere Credits. Ihr Gespräch bleibt gespeichert.</span><span data-key=\"host-give\" data-credit-variant=\"host-give\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Mit Ihrer E-Mail-Adresse erhalten Sie  weitere&nbsp;Credits.</span><span data-key=\"host-confirm\" data-credit-variant=\"host-confirm\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie + weitere Credits.</span><span data-key=\"host-confirm-anonymous\" data-credit-variant=\"host-confirm-anonymous\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie + weitere Credits.</span><span data-key=\"one-hour\" data-credit-variant=\"one-hour\" data-active=\"false\" aria-hidden=\"true\">Ein Gespräch dauert hier höchstens eine Stunde. Ihr Verlauf bleibt gespeichert.</span><span data-key=\"session\" data-credit-variant=\"session\" data-active=\"false\" aria-hidden=\"true\">Ihr Verlauf bleibt gespeichert.</span><span data-key=\"voiceVisitor\" data-credit-variant=\"voiceVisitor\" data-active=\"false\" aria-hidden=\"true\">Sprechen ist in diesem Gespräch nicht mehr möglich.</span><span data-key=\"host-limit\" data-credit-variant=\"host-limit\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Das Budget dieses Angebots ist ausgeschöpft. Ihr Gespräch bleibt gespeichert.</span><span data-key=\"daily-cap\" data-credit-variant=\"daily-cap\" data-active=\"false\" aria-hidden=\"true\">Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.</span></p>\n            <div class=\"composer-out__bar\" data-upgrade-measure=\"E-Mail-Adresse angeben\" data-export-measure=\"Gespräch exportieren\"><span class=\"composer-out__steps\" aria-hidden=\"false\"><span class=\"composer-out__give\" data-next=\"give\" aria-hidden=\"true\" inert=\"\">Mit Ihrer E-Mail-Adresse erhalten Sie  Credits mehr.</span><span class=\"composer-out__confirm\" data-next=\"confirm\" aria-hidden=\"true\" inert=\"\">Mit bestätigter E-Mail-Adresse erhalten Sie  Credits mehr.</span><span class=\"composer-out__none\" data-next=\"none\" aria-hidden=\"false\">Weitere Credits gibt es hier derzeit nicht.</span></span>\n              <span class=\"composer-out__actions\"><button class=\"composer-out__upgrade\" type=\"button\" aria-haspopup=\"dialog\" inert=\"\" aria-hidden=\"true\"><span data-next=\"give\" aria-hidden=\"true\" inert=\"\">E-Mail-Adresse angeben</span><span data-next=\"confirm\" aria-hidden=\"true\" inert=\"\">E-Mail-Adresse bestätigen</span></button>\n                <a class=\"composer-out__export\" href=\"/api/sessions/ait385/export\" data-export=\"\" aria-hidden=\"false\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M12 15V3\"></path><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><path d=\"m7 10 5 5 5-5\"></path></svg><span>Gespräch exportieren</span></a></span></div></div><button class=\"purpose-new\" type=\"button\" hidden=\"\">Neues Gespräch</button></div>",
+    "en": "<div class=\"composer-shell\"><form class=\"composer\" aria-hidden=\"false\"><label for=\"message\" data-copy=\"composer\">Your message</label><textarea id=\"message\" maxlength=\"8000\" rows=\"2\" aria-describedby=\"composer-reason ai-notice\" placeholder=\"Type your next message here&nbsp;…\"></textarea><div class=\"composer-paused\" hidden=\"\"><span>Conversation paused.</span> <button class=\"composer-resume\" type=\"button\">Resume</button></div><div class=\"purpose-pause-copy\" role=\"status\" hidden=\"\">This conversation is paused. It's for projects Augmentoring can support: building a solution or improving how you work.</div>\n          <div class=\"composer-actions\"><button class=\"attach\" type=\"button\" aria-describedby=\"attach-limits ai-notice\" aria-disabled=\"true\" title=\"Files cannot be attached: Not configured\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8\"></path></svg><span class=\"attach__label\">Attach files</span></button>\n            <span class=\"sr-only\" id=\"attach-limits\">Files cannot be attached: Not configured</span><input class=\"attach-input\" type=\"file\" multiple=\"\" hidden=\"\" tabindex=\"-1\" accept=\".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml\">\n            <span class=\"composer-feedback\"><span class=\"sr-only\" id=\"upload-retry-reason\"></span><small class=\"composer-reason\" role=\"status\" id=\"composer-reason\" data-shortcut=\"\" aria-live=\"polite\" title=\"\"><kbd>⌘</kbd> + <kbd>Enter</kbd> to send</small><small class=\"composer-saved-sizer\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M20 6 9 17l-5-5\"></path></svg><span>Saved</span></small><small class=\"composer-saved\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M20 6 9 17l-5-5\"></path></svg><span></span></small><small class=\"composer-saved-announcement sr-only\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></small></span><button class=\"send\" aria-describedby=\"ai-notice\" aria-label=\"Send\" title=\"Send\" data-command=\"send\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg><span class=\"visually-hidden\">Send</span></button></div></form>\n          <div class=\"composer-out\" aria-hidden=\"true\" inert=\"\" data-next=\"none\" data-delivery=\"false\"><p class=\"composer-out__title\" data-host-title=\"Conversations are not available here right now.\"><span>Your credits are used up.</span></p><p class=\"composer-out__body\"><span data-key=\"active\" data-credit-variant=\"active\" data-active=\"true\" aria-hidden=\"true\">Your conversation stays saved. You can read and export it.</span><span data-key=\"default\" data-credit-variant=\"default\" data-active=\"false\" aria-hidden=\"true\">Your conversation stays saved. You can read and export it.</span><span data-key=\"host-give-measure\" data-credit-variant=\"host-give-measure\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Add your email address to get + more Credits. Your conversation stays saved.</span><span data-key=\"host-give\" data-credit-variant=\"host-give\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">With your email address you get  more&nbsp;credits.</span><span data-key=\"host-confirm\" data-credit-variant=\"host-confirm\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Confirm your email address to get + more Credits.</span><span data-key=\"host-confirm-anonymous\" data-credit-variant=\"host-confirm-anonymous\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">Confirm your email address to get + more Credits.</span><span data-key=\"one-hour\" data-credit-variant=\"one-hour\" data-active=\"false\" aria-hidden=\"true\">A conversation here lasts at most one hour. Your transcript stays saved.</span><span data-key=\"session\" data-credit-variant=\"session\" data-active=\"false\" aria-hidden=\"true\">Your transcript stays saved.</span><span data-key=\"voiceVisitor\" data-credit-variant=\"voiceVisitor\" data-active=\"false\" aria-hidden=\"true\">Speaking is no longer possible in this conversation.</span><span data-key=\"host-limit\" data-credit-variant=\"host-limit\" data-active=\"false\" data-host-body=\"\" aria-hidden=\"true\">The budget for this service is used up. Your conversation stays saved.</span><span data-key=\"daily-cap\" data-credit-variant=\"daily-cap\" data-active=\"false\" aria-hidden=\"true\">This email address has reached today's limit. You can continue tomorrow.</span></p>\n            <div class=\"composer-out__bar\" data-upgrade-measure=\"Add your email address\" data-export-measure=\"Export conversation\"><span class=\"composer-out__steps\" aria-hidden=\"false\"><span class=\"composer-out__give\" data-next=\"give\" aria-hidden=\"true\" inert=\"\">Add your email address to get  more Credits.</span><span class=\"composer-out__confirm\" data-next=\"confirm\" aria-hidden=\"true\" inert=\"\">Confirm your email address to get  more Credits.</span><span class=\"composer-out__none\" data-next=\"none\" aria-hidden=\"false\">No further credits are available here at the moment.</span></span>\n              <span class=\"composer-out__actions\"><button class=\"composer-out__upgrade\" type=\"button\" aria-haspopup=\"dialog\" inert=\"\" aria-hidden=\"true\"><span data-next=\"give\" aria-hidden=\"true\" inert=\"\">Add your email address</span><span data-next=\"confirm\" aria-hidden=\"true\" inert=\"\">Confirm your email address</span></button>\n                <a class=\"composer-out__export\" href=\"/api/sessions/ait385/export\" data-export=\"\" aria-hidden=\"false\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M12 15V3\"></path><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><path d=\"m7 10 5 5 5-5\"></path></svg><span>Export conversation</span></a></span></div></div><button class=\"purpose-new\" type=\"button\" hidden=\"\">New conversation</button></div>"
+  },
+  "frames": {
+    "linux": {
+      "390/de": [
+        20,
+        622.71875,
+        350,
+        152.28125
+      ],
+      "390/en": [
+        20,
+        622.71875,
+        350,
+        152.28125
+      ],
+      "1024/de": [
+        40.953125,
+        669.296875,
+        564.5,
+        150.703125
+      ],
+      "1024/en": [
+        40.953125,
+        670,
+        564.5,
+        150
+      ],
+      "1440/de": [
+        56,
+        670,
+        826.65625,
+        150
+      ],
+      "1440/en": [
+        56,
+        670,
+        826.65625,
+        150
+      ]
+    },
+    "darwin": {
+      "390/de": [
+        20,
+        628.46875,
+        350,
+        146.53125
+      ],
+      "390/en": [
+        20,
+        628.46875,
+        350,
+        146.53125
+      ],
+      "1024/de": [
+        40.953125,
+        669.296875,
+        564.5,
+        150.703125
+      ],
+      "1024/en": [
+        40.953125,
+        670,
+        564.5,
+        150
+      ],
+      "1440/de": [
+        56,
+        670,
+        826.65625,
+        150
+      ],
+      "1440/en": [
+        56,
+        670,
+        826.65625,
+        150
+      ]
+    }
+  }
+}

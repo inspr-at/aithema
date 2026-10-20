@@ -37,9 +37,6 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         tileAbsent:!visible(tile),hitTile:!!hit?.closest('.concept-preview'),hit:hit?.className,
         hitTranscriptOrComposer:!!hit?.closest('.conversation,.transcript-shell,.composer-dock'),
         outline:getComputedStyle(notice).outlineStyle,layout:r.querySelector('.workspace').dataset.conceptLayout,boxes:boxes()};};
-    window.scrollWrites=[];
-    const scrollDescriptor=Object.getOwnPropertyDescriptor(Element.prototype,'scrollTop');
-    Object.defineProperty(Element.prototype,'scrollTop',{...scrollDescriptor,set(value){if(this.classList.contains('transcript-shell'))window.scrollWrites.push({value,stack:new Error().stack});scrollDescriptor.set.call(this,value);}});
     window.ready=true;</script></body></html>`;
   const server = createServer(async (req, res) => {
     try {
@@ -83,6 +80,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
   if (transcriptTop) {
     const head = process.env.GITHUB_EVENT_PATH
       ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha : process.env.AITHEMA_COMMIT;
+    const mainLayout = JSON.parse(await readFile(new URL('./ait411-main-composer.json', import.meta.url), 'utf8'));
     for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) await t.test(`${width}/light/${locale}`, async () => {
       const content = locale === 'de'
         ? ['Wir sind eine Bäckerei und wollen Vorbestellungen per App annehmen.', 'Abgeholt wird am nächsten Morgen in der Filiale.', 'Großkunden bestellen jede Woche dasselbe.', 'Danke. Wer holt die Bestellungen am Morgen ab?']
@@ -92,13 +90,14 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       const mounted = await page.evaluate(() => {
         const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = r.querySelector('.composer').getBoundingClientRect();
         return { scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight,
-          composer: [b.x, b.y, b.width, b.height], html: r.querySelector('.composer-shell').outerHTML, writes: window.scrollWrites };
+          composer: [b.x, b.y, b.width, b.height], html: r.querySelector('.composer-shell').outerHTML };
       });
       if(evidence)await writeFile(join(evidence,`initial-${width}-${locale}.json`),JSON.stringify(mounted));
-      console.log('AIT411_BRANCH_INITIAL ' + JSON.stringify({ width, locale, ...mounted }));
-      assert.equal(mounted.scrollTop, 0, 'default composer matches merged main before fixture scroll setup');
+      console.log('AIT411_BRANCH_INITIAL ' + JSON.stringify({ width, locale, ...mounted, html: undefined }));
+      assert.equal(mounted.html, mainLayout.composerHTML[locale], 'default composer DOM equals independently captured main before fixture setup');
+      assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
       // Keep main's explicit first-row setup and every existing assertion; the
-      // independent assertion above prevents it from hiding a default regression.
+      // independent assertions above prevent it from hiding a default regression.
       await page.evaluate(async () => {
         c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0;
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -164,6 +163,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       }
     });
     // Reuse this page for the round-2 geometry checks; no extra browser/call.
+    const mainLayout = JSON.parse(await readFile(new URL('./ait411-main-composer.json', import.meta.url), 'utf8'));
     for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) {
       await t.test(`Latest reserved bottom/${width}/${locale}`, async () => {
         const turns = Array.from({ length: 24 }, (_, i) => ({ id: i ? `bottom-${i}` : 'source', role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine längere Unterhaltung für den unveränderten unteren Platz.' : 'A longer conversation to verify the unchanged bottom slot.' }));
