@@ -354,7 +354,7 @@ export async function topUpReservationMatrix(t) {
       }
     }
     // AIT-422 reuses this page and the reserved cells; no additional browser worker.
-    await fixture(page, locale);
+    await fixture(page, locale, { voiceAdmissionFailure: true });
     const copySelectors = ['.band', '.audio-rail', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', ...selectors];
     const copyBefore = await boxes(page, copySelectors);
     for (const creditReason of ['host-limit', 'session', 'dailyCap']) {
