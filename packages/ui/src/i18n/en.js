@@ -434,6 +434,8 @@ export const en = {
       title: 'Your credits are used up.', body: 'Your conversation stays saved. You can read and export it.',
       give: 'Add your email address to get {delta} more Credits.', confirm: 'Confirm your email address to get {delta} more Credits.',
       none: 'No further credits are available here at the moment.', export: 'Export conversation',
+      // AIT-422: preserve the original copy envelope without painting or announcing it.
+      hostGiveMeasure: 'Add your email address to get +{delta} more Credits. Your conversation stays saved.',
       hostGive: 'With your email address you get {delta} more\u00a0credits.',
       hostConfirm: 'Confirm your email address to get +{delta} more Credits.',
     },

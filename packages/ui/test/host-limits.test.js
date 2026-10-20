@@ -323,6 +323,12 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     const expected = locale === 'de' ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number} weitere\u00a0Credits.`
       : `With your email address you get ${number} more\u00a0credits.`;
     assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, expected);
+    const measure = root.querySelector('[data-credit-variant="host-give-measure"]');
+    assert.equal(measure.textContent, locale === 'de'
+      ? `Mit Ihrer E-Mail-Adresse erhalten Sie +${number} weitere Credits. Ihr Gespräch bleibt gespeichert.`
+      : `Add your email address to get +${number} more Credits. Your conversation stays saved.`);
+    assert.equal(measure.getAttribute('aria-hidden'), 'true');
+    assert.equal(measure.dataset.active, 'false');
     assert.equal(copy.hostSurface.usedUp.give.replace('{delta}', number), locale === 'de'
       ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number} Credits mehr.` : `Add your email address to get ${number} more Credits.`);
   });
