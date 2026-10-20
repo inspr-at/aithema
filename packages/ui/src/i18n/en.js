@@ -110,7 +110,7 @@ export const en = {
   conceptDraftFake: 'Demo only: clickable draft, local demo, no AI provider',
   conceptPreview: { label: 'Draft, generated', title: 'Generated clickable draft', width: 'Preview width', wide: 'Wide', phone: 'Phone',
     loading: 'Loading draft…', failure: 'The draft could not be loaded.', reload: 'Reload', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.', navigated: 'The draft tried to open another page and was stopped.',
-    policy: "Previews aren't enabled on this site.",
+    unavailable: "This preview isn't available.", policy: "Previews aren't enabled on this site.",
     policyOperator: 'For site operators: the exact preview address must be allowed as a frame.' },
   conceptRestarted: 'The server restarted while creating the concept. Select “Retry” to try again.',
   conceptSourceRemoved: 'A message this concept used was withdrawn, so it was stopped.',
@@ -126,7 +126,8 @@ export const en = {
     paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: "Voice paused. Resume when you're ready.", closing: 'Settling call…', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending the call…' },
   voiceStatesNarrow: { microphone: 'Allow mic', cleanup: 'Ending previous…', low: 'Low credit', idle: 'Ready', connecting: 'Connecting …', listening: 'Listening', speaking: 'Replying', paused: 'Paused', recovering: 'Reconnecting …', waiting: 'Paused', closing: 'Ending …', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending …' },
   voiceMessagesNarrow: { voiceMicBusy: 'Mic busy', voiceMicUnavailable: 'No mic access', voiceMicFailed: 'Mic error', voiceNoReply: 'No reply', voiceMicDenied: 'Microphone blocked', voiceMicMissing: 'No microphone', voiceAdmissionDenied: 'Unavailable', voiceConflict: 'Call in another tab', voiceDeadline: 'Time limit reached', voiceConnectionFailed: 'Connection failed', voiceRecoveryFailed: 'Reconnect failed', voiceMoved: 'In another tab', voiceClosureUncertain: 'Reconciling costs …', voiceEnded: 'Call ended', voicePauseFailed: 'Pause unconfirmed', voicePlaybackBlocked: 'Sound blocked' },
-  voiceReasonsNarrow: { hostBudget: 'Budget used up', unavailable: 'Unavailable', consent: 'Consent needed', paused: 'Paused', credits: 'Credits used up', checking: 'Reconciling costs …', off: 'Voice off', setup: 'Not configured', provider: 'Provider unavailable', ended: 'Call ended', permission: 'Permission expired', verification: 'Confirm email', providerLimit: 'Provider limit reached', voiceLimit: 'Voice limit reached', consentWithdrawn: 'Consent withdrawn', consentRevised: 'Consent changed', sessionRevoked: 'Permission withdrawn', cancelled: 'Cancelled', disconnected: 'Connection lost', connectionExpired: 'Connection expired', notSaved: 'Not saved', transcriptFull: 'Transcript full', storageFull: 'Storage full', renderLimit: 'Limit reached', erased: 'Conversation deleted' },
+  voiceCreditStatus: { dailyCap: 'Daily limit reached', session: 'Credits used up', hostLimit: 'Voice unavailable right now' },
+  voiceReasonsNarrow: { unavailable: 'Unavailable', consent: 'Consent needed', paused: 'Paused', credits: 'Credits used up', checking: 'Reconciling costs …', off: 'Voice off', setup: 'Not configured', provider: 'Provider unavailable', ended: 'Call ended', permission: 'Permission expired', verification: 'Confirm email', providerLimit: 'Provider limit reached', voiceLimit: 'Voice limit reached', consentWithdrawn: 'Consent withdrawn', consentRevised: 'Consent changed', sessionRevoked: 'Permission withdrawn', cancelled: 'Cancelled', disconnected: 'Connection lost', connectionExpired: 'Connection expired', notSaved: 'Not saved', transcriptFull: 'Transcript full', storageFull: 'Storage full', renderLimit: 'Limit reached', erased: 'Conversation deleted' },
   voiceCooldown: 'Trying again in {s} s', voiceCooldownNarrow: 'In {s} s',
   voiceMicBusy: 'The microphone is busy or blocked by the system. Close other apps using it or check your system settings, then try again.',
   voiceMicUnavailable: "This browser doesn't allow a microphone here. Keep typing or open the page in another browser.",
@@ -365,6 +366,7 @@ export const en = {
   hostSurface: {
     bar: 'Your conversation',
     verify: {
+      streamWait: 'Available once the reply has finished.',
       entry: 'Confirm your email address', pending: 'Email not yet verified', verified: 'Email verified',
       section: 'Email', unverified: 'Not verified', linkSent: 'Link sent', resendOrChange: 'Resend or change', verifiedShort: 'Verified',
       title: 'Confirm your email address', close: 'Back to the conversation',
@@ -433,7 +435,9 @@ export const en = {
       title: 'Your credits are used up.', body: 'Your conversation stays saved. You can read and export it.',
       give: 'Add your email address to get {delta} more Credits.', confirm: 'Confirm your email address to get {delta} more Credits.',
       none: 'No further credits are available here at the moment.', export: 'Export conversation',
-      hostGive: 'Add your email address to get +{delta} more Credits. Your conversation stays saved.',
+      // AIT-422: preserve the original copy envelope without painting or announcing it.
+      hostGiveMeasure: 'Add your email address to get +{delta} more Credits. Your conversation stays saved.',
+      hostGive: 'With your email address you get {delta} more\u00a0credits.',
       hostConfirm: 'Confirm your email address to get +{delta} more Credits.',
     },
     library: {
@@ -646,7 +650,6 @@ export const en = {
     consentWithdrawn: 'Consent withdrawn.', consentStopped: 'Consent withdrawn. Running work stopped.',
     processingTitle: 'Consent for data processing', processingGrant: 'Grant consent',
     processingWaiting: 'Processing waits for the selected permissions.', processingSaved: 'Your consent has been saved.',
-    voiceUnavailable: 'Voice unavailable: {reason}',
     consentStale: 'Not saved: your consent was changed in another window. The current state is loaded.',
     consentFailed: 'Could not save consent. Try again.', restoreFailed: 'Could not restore the demo. Reload to retry.',
     visualsOff: 'No visual concepts',

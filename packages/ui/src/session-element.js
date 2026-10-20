@@ -535,7 +535,7 @@ export class AithemaSession extends HTMLElement {
     this.#fold = new ConversationFold({ root, copy: this.#copy, canFold: () => this.#concept?.canShowCanvas() ?? false, onChange: folded => {
       if (folded) void this.#concept?.paintCanvas();
       else this.#concept?.suspendCanvas();
-      this.#syncPanes();
+      this.#syncBandScroll(); this.#syncPanes();
     } });
     root.querySelector('.drafts-canvas').setAttribute('aria-label', this.#copy.layout.canvas);
     this.#mountMotion();
@@ -637,7 +637,7 @@ export class AithemaSession extends HTMLElement {
           return turn && { turnId: turn.id, text: turn.content };
         },
         consent: opener => this.#dialog.openConsent('voice', opener),
-        feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, endReason: () => this.#host?.endReason, nextTier: () => this.#host?.nextTier ?? null, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
+        feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, endReason: () => this.#host?.endReason, creditReason: () => this.#host?.creditStatusReason, nextTier: () => this.#host?.nextTier ?? null, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
         ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
         onRender: rail => {
           // Preserve held space from takeover through startup. The internal
@@ -743,6 +743,7 @@ export class AithemaSession extends HTMLElement {
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
       streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
+      replyInFlight: () => this.#sending || this.#partials.size > 0 || this.#session.operations?.running.includes('reaction'),
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
       onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); },
@@ -854,6 +855,17 @@ export class AithemaSession extends HTMLElement {
     // The document can scroll before sticky engages; also cover an embedding scroll container.
     const scrolled = (this.ownerDocument.defaultView?.scrollY ?? 0) > 0 || band.getBoundingClientRect().top > workspace.getBoundingClientRect().top;
     band.toggleAttribute('data-scrolled', scrolled);
+    const shell = this.shadowRoot.querySelector('.transcript-shell');
+    if (!shell?.getClientRects().length || workspace.hasAttribute('data-folded')) {
+      shell?.style.removeProperty('--transcript-top-inset');
+      return;
+    }
+    // Page/embedding scroll can carry the bounded pane behind the sticky band.
+    // Give up only the occluded part of its grid cell; the composer stays put.
+    const inset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
+    const bounds = shell.getBoundingClientRect();
+    const next = Math.max(0, Math.min(bounds.height + inset, band.getBoundingClientRect().bottom - bounds.top + inset));
+    if (next !== inset) shell.style.setProperty('--transcript-top-inset', `${next}px`);
   };
   #watchPage(on) {
     const view = this.ownerDocument.defaultView, listen = on ? 'addEventListener' : 'removeEventListener';
@@ -1424,6 +1436,7 @@ export class AithemaSession extends HTMLElement {
         ? formatCredits(Math.max(0, allowances[to] - allowances[from]), this.#session.locale ?? 'en') : delta;
       const bodies = [
         ['active', limit.body], ['default', u.body],
+        ['host-give-measure', u.hostGiveMeasure.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
         ['host-give', u.hostGive.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
         ['host-confirm', u.hostConfirm.replace('{delta}', tierDelta('emailGiven', 'emailConfirmed'))],
         ['host-confirm-anonymous', u.hostConfirm.replace('{delta}', tierDelta('anonymous', 'emailConfirmed'))],
@@ -1629,7 +1642,12 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
     const itemRetry = this.#clarify?.state === 'retry';
-    const replyRetry = replyFailed && overviewFailed && !itemRetry;
+    const identityReplyFailed = failures.some(f => f.lane === 'reaction' && f.reason === 'identity-changed');
+    const replyRetry = replyFailed && (overviewFailed || identityReplyFailed && (!analysis.available || locked)) && !itemRetry;
+    if (identityReplyFailed && !itemRetry && !this.#host?.usedUp) {
+      root.querySelector('.retry').hidden = Boolean(running);
+      root.querySelector('.retry').disabled = !this.#feature('text').available || Boolean(running);
+    }
     if (itemRetry) root.querySelector('.retry').hidden = true;
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading
@@ -2598,6 +2616,7 @@ export class AithemaSession extends HTMLElement {
     }
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
+    this.#host?.updateStreaming();
   }
   #receiveVoiceState(state) {
     const voice = this.#rail?.session;

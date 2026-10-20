@@ -15,6 +15,22 @@ function qualified() {
 const reason = (b, preset, policy = {}) => bindingReason({ binding: b, plugin, preset, now,
   policy: { endpoints: [b.endpoint], ...policy } });
 
+test('AIT-387: core exports exactly its binding evidence refusal codes', async () => {
+  const { BINDING_REASON_CODES } = await import('../src/presets.js');
+  assert.ok(Array.isArray(BINDING_REASON_CODES));
+  assert.ok(Object.isFrozen(BINDING_REASON_CODES));
+  const mutations = [
+    b => { b.legal.evidence.qualified = false; },
+    b => { b.legal.evidence.endpoint = 'https://other.test'; },
+    b => { b.legal.evidence.verifiedAt = now + 1; },
+    b => { b.legal.evidence.expiresAt = now; },
+  ];
+  const observed = mutations.map(mutate => { const b = qualified(); mutate(b); return reason(b, 'best'); });
+  const expired = structuredClone(plugin); expired.manifest.models[0].expiresAt = new Date(now).toISOString();
+  observed.push(bindingReason({ binding: qualified(), plugin: expired, preset: 'best', now }));
+  assert.deepEqual(observed.sort(), [...BINDING_REASON_CODES].sort());
+});
+
 test('AIT-271 eu requires both EU recipient seats and guaranteed EU processing', () => {
   const b = qualified();
   assert.equal(reason(b, 'eu'), 'processing countries missing', 'EU seats alone do not qualify');

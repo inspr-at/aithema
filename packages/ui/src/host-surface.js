@@ -26,7 +26,7 @@ export class HostSurface {
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming, initialCreditScope }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming, replyInFlight = streaming, initialCreditScope }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#initialCreditScope = initialCreditScope ?? options?.credits?.scope;
     this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
@@ -49,7 +49,7 @@ export class HostSurface {
     }
     if (o.verification) {
       this.#verification = new Verification({ root, copy, request: (path, body, verb) => this.#call(path.startsWith('/api/') ? path : this.#sessionPath(path), body, verb), status, onChange: info => { this.#paintCredits(); onLock?.(info); this.#onCredits?.(); },
-        creditsChanged: () => this.#loadCredits(), demo: this.#session().demo === true, handover: Boolean(o.handover),
+        streaming: replyInFlight, creditsChanged: () => this.#loadCredits(), demo: this.#session().demo === true, handover: Boolean(o.handover),
         ...(typeof o.verification === 'object' ? o.verification : {}), locale: () => this.#session().locale ?? 'en',
         focusAfterUnlock, beforeOpen: beforeVerifyDialog, focusReturn: verificationOpener,
         entry: root.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
@@ -85,6 +85,13 @@ export class HostSurface {
   get endReason() {
     const state = this.#session().credits;
     return this.#ended ?? (['ending', 'ended'].includes(state?.status) ? state.endReason ?? 'session' : null);
+  }
+  get creditStatusReason() {
+    if (this.#credits?.scope === 'session') {
+      if (this.#credits.dailyCapReached) return 'dailyCap';
+      if (this.#credits.exhausted) return 'session';
+    }
+    return this.endReason;
   }
   get limitCopy() {
     const { credits, usedUp } = this.#copy.hostSurface;
@@ -183,7 +190,8 @@ export class HostSurface {
     this.#refreshCredits(); this.update();
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
-  update() { this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
+  updateStreaming() { this.#verification?.update(); }
+  update() { this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
   async #call(path, body, verb = 'POST') {

@@ -1,7 +1,7 @@
 import { neutralBindingReason } from './reason-text.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { featureConsentText, paintConsentLine, paintNarrowText } from './consent-line.js';
-import { narrowVoiceStatus } from './voice-status.js';
+import { creditVoiceStatus, narrowVoiceStatus } from './voice-status.js';
 import { icon } from './icons.js';
 import { setText } from './dom.js';
 import { Waveform } from './waveform.js';
@@ -25,8 +25,8 @@ function startupWait(pending, signal, timeoutMs) {
   return Promise.race([pending === undefined ? new Promise(() => {}) : pending, cancelled, timeout]).finally(() => { clearTimeout(timer); signal.removeEventListener('abort', abort); });
 }
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replies, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replies, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replies, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, creditReason, nextTier, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replies, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, creditReason, nextTier, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -190,7 +190,7 @@ export class AudioRail {
   }
   // Reconcile only after a fresh server feature read. A repaint immediately
   // after an admission refusal still has the preview that preceded that refusal.
-  get allowanceDenied() { return this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'budget denied'].includes(this.errorReason); }
+  get allowanceDenied() { return this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'session', 'budget denied'].includes(this.errorReason); }
   reconcileAdmission() {
     if (this.feature().available && !this.usedUp?.() && this.allowanceDenied) {
       this.errorKey = this.moved ? 'voiceMoved' : null; this.errorReason = null;
@@ -204,7 +204,10 @@ export class AudioRail {
     // the allowance. Only a wallet verdict or an actual admission refusal ends it.
     const usedUp = Boolean(this.usedUp?.()) || this.allowanceDenied;
     const creditEnding = Boolean(this.ending?.());
-    const usedUpLabel = c.voiceStates[this.endReason?.() === 'one-hour' ? 'timeExpired' : 'usedUp'];
+    const reason = this.usedUp?.() ? this.endReason?.() : this.allowanceDenied ? this.errorReason : available.rawReason;
+    const creditLabel = usedUp || !active && !transitional && !this.error
+      ? creditVoiceStatus(c, { reason, creditReason: this.creditReason?.(), exhausted: usedUp }) : null;
+    const usedUpLabel = this.endReason?.() === 'one-hour' ? c.voiceStates.timeExpired : creditLabel;
     this.root.toggleAttribute('data-used-up', usedUp && !creditEnding); this.root.toggleAttribute('data-credit-ending', creditEnding);
     const state = this.retryConnecting ? 'connecting' : this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
@@ -222,7 +225,7 @@ export class AudioRail {
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
     paintConsentLine(this.root.querySelector('.voice-state'), { copy: c, feature: 'voice',
       verdict: active || transitional || usedUp || this.error ? { available: true } : available,
-      text: usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
+      text: usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
       this.startupPhase ? c.voiceStates[this.startupPhase] : active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
@@ -231,8 +234,7 @@ export class AudioRail {
     const status = this.root.querySelector('.voice-state');
     const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
     if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, this.startupPhase === 'cooldown' ? c.voiceCooldownNarrow.replace('{s}', this.countdown) : narrowVoiceStatus(c, sentence, {
-      reason: this.usedUp?.() ? this.endReason?.() : this.allowanceDenied ? this.errorReason : available.rawReason,
-      nextTier: this.nextTier?.(),
+      reason, creditReason: this.creditReason?.(),
     }));
     if (this.startupPhase === 'cooldown') {
       const wide = status.querySelector('.consent-wide'), narrow = status.querySelector('.consent-narrow');

@@ -413,7 +413,8 @@ async function checkPhoneVoiceHeader(t, widths) {
           if (geometry.canShareLine) assert.equal(geometry.lines.length, 1, `${label}: both consent units fit on one line`);
           const approved = approvedNarrowForm(copy, sample);
           if (approved) assert.equal(geometry.short, approved, `${label}: Tick’s approved short form`);
-          assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
+          if (sample.creditCase) assert.equal(geometry.short, sample.short, `${label}: exact AIT-422 status`);
+          else assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
           assert.ok(geometry.lines.length > 0 && geometry.lines.length <= 2, `${label}: at most 2 lines ${JSON.stringify(geometry.lines)}`);
           assert.ok(geometry.lines.every(line => !/^·|·$/u.test(line.trim())), `${label}: no dangling separator`);
           baseline ??= geometry.boxes; assert.deepEqual(geometry.boxes, baseline, `${label}: controls shift 0 px`);
