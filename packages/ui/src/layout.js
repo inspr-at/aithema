@@ -302,7 +302,7 @@ export class PhoneComposerViewport {
       const reservation = () => phoneNotices() ? notices.style.minHeight : list.style.paddingBottom;
       const reserve = value => { if (phoneNotices()) notices.style.minHeight = value; else list.style.paddingBottom = value; };
       const inlineHeight = () => {
-        const actions = this.root.querySelector('.turn > .voice-reply-actions');
+        const actions = this.root.querySelector('.turn:last-child > .reply-actions, .turn > .voice-reply-actions');
         return actions?.getBoundingClientRect().height ?? 0;
       };
       const endHeight = this.endHeight = () => inlineHeight() + (phoneNotices()
@@ -345,7 +345,7 @@ export class PhoneComposerViewport {
           // Transcript uploads and text paints do not own the action row.
           // Observe the list only to see that existing row move in or out.
           const relevant = notices?.contains(record.target) || actions?.contains(record.target) ||
-            record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].includes(actions);
+            record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some(node => node === actions || node.matches?.('.reply-actions'));
           return relevant && (record.type !== 'attributes' ||
             record.oldValue !== record.target.getAttribute(record.attributeName));
         });

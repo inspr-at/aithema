@@ -163,15 +163,15 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 /* Measure the no-upgrade title before it replaces the shorter credit title. */
 .composer-out__title::before { content:attr(data-host-title); visibility:hidden; grid-area:1/1; min-width:0; white-space:nowrap; overflow:hidden; }
 .composer-out__title > span { grid-area:1/1; }
-.composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
-.composer-out__body > span { grid-area:1/1; }
+.composer-out__body { display:grid; grid-template-columns:minmax(0,1fr); min-width:0; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
+/* Tick spec v1 (AIT-406): every variant sizes the same cell, even while hidden. */
+.composer-out__body > span { grid-area:1/1; min-width:0; align-self:start; }
+.composer-out__body > [data-active="false"] { visibility:hidden; }
 /* Match the question card's text inset, accounting for the composer border.
    Only copy moves; the measured surface and action cells retain their padding. */
-.composer-out[data-host-limit] { --host-limit-text-inset:calc(16px - 1px - clamp(.85rem,2vw,1.25rem)); }
+.composer-out { --host-limit-text-inset:calc(16px - 1px - clamp(.85rem,2vw,1.25rem)); }
 .composer-out[data-host-limit] .composer-out__title { margin-inline:var(--host-limit-text-inset); }
-.composer-out[data-host-limit] .composer-out__body { position:relative; }
-.composer-out[data-host-limit] .composer-out__body::before { content:attr(data-default-body); visibility:hidden; grid-area:1/1; }
-.composer-out[data-host-limit] .composer-out__body > span { position:absolute; top:0; inset-inline:var(--host-limit-text-inset); }
+.composer-out__body > [data-host-body] { margin-inline:var(--host-limit-text-inset); }
 .composer-out__bar { display:flex; align-items:center; align-self:end; gap:14px; padding-top:2px; font-size:13.5px; line-height:1.35; }
 .composer-out__steps { flex:1; min-width:0; }
 :is(.composer-out__steps,.composer-out__actions,.composer-out__upgrade) { display:grid; }
@@ -327,9 +327,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
   .composer-out__bar { font-size:13px; gap:10px; }
-  .composer-out[data-host-limit] { --host-limit-text-inset:calc(12px - 1px - clamp(.85rem,2vw,1.25rem)); }
+  .composer-out { --host-limit-text-inset:calc(12px - 1px - clamp(.85rem,2vw,1.25rem)); }
   /* Fit the longer limit body into existing padding; retain the normal composer's line box. */
-  .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
+  .composer-out[data-host-limit] .composer-out__title,.composer-out__body > [data-host-body] { transform:translateY(-10px); }
   .composer-out[data-host-limit] .composer-out__bar { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; transform:translateY(10px); }
   .composer-out[data-host-limit] .composer-out__steps { display:grid; grid-area:1/1; visibility:hidden; opacity:0; }
   /* Preserve the normal action cell's wrapped button and hidden export measurements. */
@@ -356,7 +356,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
      visible title's two lines independently so wrapping cannot grow the shell. */
   .composer-out[data-host-limit] .composer-out__title { position:relative; font-size:11.5px; }
   .composer-out[data-host-limit] .composer-out__title > span { position:absolute; inset:0; height:2lh; line-height:1.35; letter-spacing:-.025em; }
-  .composer-out[data-host-limit] .composer-out__body > span { top:calc(2 * 11.5px * 1.35 - 15.5px * 1.35); font-size:12px; line-height:1.3; }
+  .composer-out__body > [data-host-body] { position:relative; top:calc(2 * 11.5px * 1.35 - 15.5px * 1.35); font-size:12px; line-height:1.3; }
   /* Extend only this surface into the bottom gutter. Equal padding and
      negative margin keep its grid contribution and the normal shell fixed,
      while retaining the stacked export target inside the visible border. */

@@ -31,7 +31,7 @@ import { hostStyles } from './host-styles.js';
 import { entranceStyles } from './entrance-styles.js';
 import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
-import { modelDisplayName, languageFlag } from './display.js';
+import { modelDisplayName, languageFlag, formatCredits } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
@@ -623,6 +623,13 @@ export class AithemaSession extends HTMLElement {
           const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);
           if (!turn || turn.id !== turnId || turn.content !== text) return null;
           return [...root.querySelectorAll('.turn:not(.user):not(.partial)')].find(row => row.dataset.id === turn.id && row.querySelector('.turn-text')?.textContent === text);
+        },
+        replies: () => {
+          const turns = new Map(this.#session.transcript.filter(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content).map(t => [t.id, t]));
+          return [...root.querySelectorAll('.turn:not(.user):not(.partial)')].flatMap(target => {
+            const turn = turns.get(target.dataset.id);
+            return turn && target.querySelector('.turn-text')?.textContent === turn.content ? [{ target, turnId: turn.id, text: turn.content }] : [];
+          });
         },
         lastReply: () => {
           if (this.#session.paused || this.#session.tombstone || this.#session.consentWithdrawn) return null;
@@ -1409,10 +1416,26 @@ export class AithemaSession extends HTMLElement {
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
       out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
       setText(out.querySelector('.composer-out__title span'), limit.title);
-      setText(out.querySelector('.composer-out__body span'), limit.body);
-      // Keep the normal composer's body reservation through host-limit and receipt changes.
-      out.querySelector('.composer-out__body').dataset.defaultBody = u.body;
       const delta = this.#host?.deltaCredits ?? '';
+      // Tick spec v1 (AIT-406, 2026-10-20): the tallest localized variant
+      // reserves the credit line. Hidden grid peers never enter the AX tree.
+      const allowances = this.#host?.tiers?.allowancesMicro;
+      const tierDelta = (from, to) => allowances?.[from] !== undefined && allowances?.[to] !== undefined
+        ? formatCredits(Math.max(0, allowances[to] - allowances[from]), this.#session.locale ?? 'en') : delta;
+      const bodies = [
+        ['active', limit.body], ['default', u.body],
+        ['host-give', u.hostGive.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
+        ['host-confirm', u.hostConfirm.replace('{delta}', tierDelta('emailGiven', 'emailConfirmed'))],
+        ['host-confirm-anonymous', u.hostConfirm.replace('{delta}', tierDelta('anonymous', 'emailConfirmed'))],
+        ...Object.entries(credits.ended).map(([key, value]) => [key, value.body]), ['daily-cap', credits.dailyCap],
+      ];
+      reconcile(out.querySelector('.composer-out__body'), bodies, () => node('span'), (span, body) => {
+        const key = span.dataset.key;
+        setText(span, body); span.dataset.creditVariant = key;
+        span.dataset.active = String(key === 'active');
+        span.toggleAttribute('data-host-body', key.startsWith('host-') || key === 'active' && out.hasAttribute('data-host-limit'));
+        span.setAttribute('aria-hidden', String(!usedUp || key !== 'active'));
+      });
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');
       footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);

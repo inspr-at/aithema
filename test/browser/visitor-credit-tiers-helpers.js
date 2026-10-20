@@ -1,6 +1,7 @@
 // AIT-135 A2 D. The shipped component against deterministic owner-route fixtures.
 // Run exclusively through remote-browser.sh or CI; screenshots never render the design mock.
 import assert from 'node:assert/strict';
+import { after } from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,18 +10,26 @@ import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-covera
 import { startChild } from '../helpers.js';
 import { contrast } from '../contrast.js';
 
+const workflowEvent = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+const head = workflowEvent?.pull_request?.head?.sha ?? process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
+// Headless-shell has no mouse by default. Touch viewport emulation still overrides
+// these defaults at 390; assert the actual media queries, never infer from width.
+const pointerLaunch = { args: ['--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] };
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
-const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 40 });
+const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 'raf' });
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
 // Wait for the rendered fixture and finite UI transitions instead of paying
 // 450 ms after every action in all twelve viewport/theme/language combinations.
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
-  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
-    .filter(animation => animation.playState === 'running' && Number.isFinite(animation.effect.getComputedTiming().endTime))
-    .map(animation => animation.finished.catch(() => {})));
-  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  let quietFrames = 0;
+  while (quietFrames < 2) {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const animations = c.shadowRoot.getAnimations({ subtree: true })
+      .filter(animation => animation.playState === 'running' && Number.isFinite(animation.effect.getComputedTiming().endTime));
+    if (!animations.length) quietFrames++;
+    else { quietFrames = 0; await Promise.all(animations.map(animation => animation.finished.catch(() => {}))); }
+  }
 });
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
@@ -32,6 +41,8 @@ const unchanged = (before, after, label) => {
 };
 
 export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
+  // Touch viewport changes reload the demo; wait for its owner session seed.
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, async (c, options) => {
     const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -59,6 +70,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
         const limitMicro = allowancesMicro[tier];
         return Response.json({ balance: { owner: { limitMicro, committedMicro: state.spent + state.reserved,
           confirmedSpendMicro: state.spent, reservedMicro: state.reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - state.spent - state.reserved) } }, exhausted: state.spent >= limitMicro, limitSlot: null,
+          ...(state.dailyCap ? { scope: 'session', dailyCapReached: true } : {}),
           tiers: { current: tier, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm: delivery && privacy, allowancesMicro } });
       }
       if (path.endsWith('/visitor/email')) {
@@ -88,6 +100,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
       voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native', sendText: 'native' } } },
         async start(request) {
           state.voiceRequests.push(request);
+          while (state.holdVoice) await new Promise(resolve => setTimeout(resolve, 20));
           if (state.denyVoice) throw Object.assign(new Error('fixture admission refused'), { code: 'not-admitted', reason: 'host-limit' });
           const events = voiceEvents();
           return { callId: request.callId, providerSessionId: 'fixture-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {}, async heartbeat() {},
@@ -102,19 +115,286 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
   await settle(page);
 }
 
+// The v1–v4 matrices run serially and configure fresh owner-route state in-page.
+// Keep their server, page and AX session alive until file teardown.
+let reservationHarness;
+after(async () => {
+  if (!reservationHarness) return;
+  const { browser, demo, directory } = await reservationHarness;
+  try { await browser.close(); }
+  finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); }
+});
+const reservationPage = () => reservationHarness ??= (async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-reservation-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(pointerLaunch), page = await browser.newPage();
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session);
+  const accessibility = await page.createCDPSession();
+  await accessibility.send('Accessibility.enable');
+  return { directory, demo, browser, page, accessibility };
+})();
+
+// Tick spec v1, AIT-406 (2026-10-20): always cover all twelve combinations,
+// reuse one page, and compare every state against the same default geometry.
+export async function composerCreditReservationMatrix(t) {
+  const { page, accessibility } = await reservationPage();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const rows = [], selectors = ['.question-card', '.composer-shell'];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1024, 390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.select('#locale', locale); await page.select('#theme', theme);
+    await fixture(page, locale);
+    const before = await boxes(page, selectors);
+    // Retain the container handle, but inspect its current descendants for
+    // every state: changing text can replace a text node inside a stable span.
+    const { result } = await accessibility.send('Runtime.evaluate', { expression: "document.querySelector('aithema-session').shadowRoot.querySelector('.composer-out__body')" });
+    for (const state of ['default', 'host-limit', 'one-hour', 'daily-cap']) {
+      if (state !== 'default') {
+        const reads = await page.evaluate(() => window.a2.creditsReads);
+        await shadow(page, (c, state) => {
+          window.a2.spent = 12_000_000;
+          window.a2.dailyCap = state === 'daily-cap';
+          c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: state === 'one-hour' ? 'one-hour' : 'host-limit' } });
+        }, state);
+        await page.waitForFunction(reads => window.a2.creditsReads > reads, { timeout: 20_000 }, reads);
+      }
+      if (state !== 'default') await settle(page);
+      const { after, variants, activeBody } = await shadow(page, (c, selectors) => ({
+        after: selectors.map(selector => { const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        activeBody: [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].filter(n => getComputedStyle(n).visibility === 'visible').map(n => n.textContent),
+        variants: [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].map(n => ({
+        key: n.dataset.creditVariant, text: n.textContent, visibility: getComputedStyle(n).visibility, ariaHidden: n.getAttribute('aria-hidden'),
+        gridCell: [getComputedStyle(n).gridRowStart, getComputedStyle(n).gridColumnStart],
+      })) }), selectors);
+      // One complete AX snapshot replaces ten separately refreshed partial
+      // trees. Check every hidden span AND its current descendants: none may
+      // be exposed. A nonempty document tree prevents an empty-tree false pass.
+      const [{ node }, { nodes }] = await Promise.all([
+        accessibility.send('DOM.describeNode', { objectId: result.objectId, depth: -1 }),
+        accessibility.send('Accessibility.getFullAXTree'),
+      ]);
+      assert.ok(nodes.some(n => n.role?.value === 'RootWebArea' && n.ignored === false), 'AX snapshot contains the accessible document');
+      const variantNodes = node.children.filter(n => n.nodeName === 'SPAN');
+      assert.equal(variantNodes.length, variants.length, 'every reserved variant has a cached backend node');
+      const exposed = new Set(nodes.filter(n => !n.ignored).map(n => n.backendDOMNodeId));
+      const descendants = n => [n.backendNodeId, ...(n.children ?? []).flatMap(descendants)];
+      const hiddenAX = variants.flatMap((variant, i) => {
+        if (variant.ariaHidden !== 'true') return [];
+        const node = variantNodes[i];
+        const keyIndex = node.attributes.indexOf('data-credit-variant');
+        assert.equal(node.attributes[keyIndex + 1], variant.key, 'cached AX node matches the sampled variant');
+        const checkedBackendNodes = descendants(node);
+        return [{ key: variant.key, ignored: checkedBackendNodes.every(id => !exposed.has(id)), checkedBackendNodes }];
+      });
+      const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
+        movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
+        variants, hiddenAX, hiddenVariantsAbsent: hiddenAX.every(n => n.ignored),
+        activeBody };
+      rows.push(row);
+      t.diagnostic(`AIT-406 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
+      if (evidence && locale === 'de' && theme === 'light' && state === 'one-hour' && [390, 1024].includes(width)) {
+        const scrollBefore = await page.evaluate(() => scrollY);
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1);
+        if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+        await settle(page);
+        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-one-hour.png`), fullPage: false, optimizeForSpeed: true });
+        await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
+      }
+    }
+    await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+  }
+  if (evidence) await writeFile(join(evidence, 'ait406-composer-checks.json'), JSON.stringify({ head, spec: 'Tick spec v1, AIT-406, 2026-10-20', rows }, null, 2));
+  assert.equal(rows.length, 48);
+  // Geometry precedes variant assertions so the unfixed baseline proves the
+  // original regression, rather than failing on the new markup contract first.
+  for (const row of rows) {
+    const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
+    unchanged(row.before, row.after, label);
+    assert.equal(row.composerHeight, row.before[1][3], `${label}: identical composer height`);
+  }
+  for (const row of rows) {
+    const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
+    assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
+    assert.ok(row.variants.every(n => n.gridCell.join('/') === '1/1'), `${label}: variants share grid-area 1/1`);
+    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 10 : 9, `${label}: inactive variants aria-hidden`);
+    assert.ok(row.variants.filter(n => n.ariaHidden === 'true').every(n => n.visibility === 'hidden'), `${label}: inactive variants hidden`);
+    assert.equal(row.hiddenVariantsAbsent, true, `${label}: hidden variants absent from accessibility tree`);
+    assert.equal(row.activeBody.length, row.state === 'default' ? 0 : 1, `${label}: only the active variant is painted`);
+  }
+}
+
+// Tick spec v2: exercise the same admitted-call recovery in both directions.
+// Reuse the page and fixture; only the owner-route admission verdict changes.
+export async function topUpReservationMatrix(t) {
+  const { page, accessibility } = await reservationPage();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const rows = [], selectors = ['.question-card', '.composer-dock', '.composer-shell'];
+  const v3Rows = [], v3Selectors = ['.transcript-shell .turn.user', '.transcript-shell .turn:last-child', '.voice-reply-actions', '.qopts', ...selectors];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.select('#locale', locale); await page.select('#theme', theme);
+    await fixture(page, locale, { spent: 11_990_000, voiceAdmissionFailure: true });
+    await click(page, '.voice-start');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+    await shadow(page, c => {
+      window.a2.denyVoice = false;
+      c.shadowRoot.querySelector('#email-input').value = 'reader@example.test';
+      c.shadowRoot.querySelector('.host-verify .m-form').requestSubmit();
+    });
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('.host-verify').dataset.emailState === 'saved' && !r.querySelector('.audio-rail').hasAttribute('data-used-up');
+    });
+    await settle(page);
+    const before = await boxes(page, selectors), v3Before = await boxes(page, v3Selectors);
+    const recordV3 = async (state, settled = false) => {
+      if (!settled) await settle(page);
+      const { after, controls } = await shadow(page, (c, selectors) => ({
+        after: selectors.map(selector => { const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        controls: [...c.shadowRoot.querySelectorAll('.voice-repeat, .voice-read-text')].map(n => {
+        const style = getComputedStyle(n);
+        n.focus({ preventScroll: true });
+        const focused = c.shadowRoot.activeElement === n;
+        n.blur();
+        return { hidden: n.hidden, visible: style.display !== 'none' && style.visibility === 'visible' && n.getClientRects().length > 0,
+          attached: n.parentElement.parentElement.matches('.turn:last-child'), disabled: n.disabled, ariaDisabled: n.getAttribute('aria-disabled'),
+          title: n.title, description: n.getAttribute('aria-description'), opacity: style.opacity, focused };
+      }) }), v3Selectors);
+      const inCall = ['starting', 'running'].includes(state);
+      const axControls = [];
+      if (inCall) for (const selector of ['.voice-repeat', '.voice-read-text']) {
+        const { result } = await accessibility.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelector('${selector}')` });
+        const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId, fetchRelatives: false });
+        const ax = nodes.find(n => n.backendDOMNodeId === node.backendNodeId);
+        axControls.push({ ignored: ax?.ignored, description: ax?.description?.value, properties: Object.fromEntries((ax?.properties ?? []).map(p => [p.name, p.value.value])) });
+        await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+      }
+      let tabSkipped = null;
+      if (inCall) {
+        await shadow(page, c => {
+          const actions = c.shadowRoot.querySelector('.voice-reply-actions');
+          for (const side of ['before', 'after']) {
+            const sentinel = document.createElement('span'); sentinel.tabIndex = 0; sentinel.dataset.v3Tab = side;
+            sentinel.style.position = 'fixed'; actions[side](sentinel);
+          }
+          c.shadowRoot.querySelector('[data-v3-tab=before]').focus({ preventScroll: true });
+        });
+        await page.keyboard.press('Tab');
+        tabSkipped = await shadow(page, c => {
+          const skipped = c.shadowRoot.activeElement?.dataset.v3Tab === 'after';
+          c.shadowRoot.querySelectorAll('[data-v3-tab]').forEach(n => n.remove()); return skipped;
+        });
+      }
+      v3Rows.push({ locale, theme, width, state, before: v3Before, after, controls, axControls, tabSkipped,
+        movementPx: Math.max(...v3Before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) });
+    };
+    for (const state of ['ready', 'running', 'denied', 'ready-again']) {
+      if (state === 'running') {
+        await shadow(page, () => { window.a2.holdVoice = true; });
+        await click(page, '.voice-retry');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'connecting');
+        await recordV3('starting');
+        await shadow(page, () => { window.a2.holdVoice = false; });
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+      } else if (state === 'denied') {
+        await click(page, '.voice-close');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+        await shadow(page, () => { window.a2.denyVoice = true; });
+        await click(page, '.voice-start');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+      } else if (state === 'ready-again') {
+        const reads = await page.evaluate(() => window.a2.creditsReads);
+        await shadow(page, c => {
+          window.a2.denyVoice = false;
+          c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+        });
+        await page.waitForFunction(reads => window.a2.creditsReads > reads && !document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'), { timeout: 20_000 }, reads);
+      }
+      if (state !== 'ready') await settle(page);
+      const after = await boxes(page, selectors);
+      const detail = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return Object.fromEntries(['.qtext', '.qopts', '.qhint', '.transcript-shell .turn:last-child', '.composer-reason', '.voice-state'].map(selector => {
+          const n = r.querySelector(selector), b = n?.getBoundingClientRect();
+          return [selector, { text: n?.textContent, box: b && [b.x, b.y, b.width, b.height], style: n && { font: getComputedStyle(n).font, grid: getComputedStyle(n).gridTemplateRows } }];
+        }));
+      });
+      const row = { locale, theme, width, state, before, after, detail,
+        movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) };
+      await recordV3(state, true);
+      rows.push(row); t.diagnostic(`AIT-406 v2 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
+      if (evidence && locale === 'de' && theme === 'light' && (width === 390 || width === 1440 && state === 'running') && state !== 'ready-again') {
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-top-up-retry-${state}.png`), fullPage: false, optimizeForSpeed: true });
+      }
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait406-top-up-checks.json'), JSON.stringify({ head, spec: 'Tick spec v2, AIT-406, 2026-10-20', rows }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait406-replay-checks.json'), JSON.stringify({ head, spec: 'Tick spec v3, AIT-406, 2026-10-20', selectors: v3Selectors, rows: v3Rows }, null, 2));
+  assert.equal(rows.length, 48);
+  await t.test('v2: exact zero top-up geometry', () => {
+    for (const row of rows) unchanged(row.before, row.after, `${row.locale}-${row.theme}-${row.width}/top-up-retry-${row.state}`);
+  });
+  await t.test('v3: exact zero transcript and control geometry, disabled accessibility', () => {
+    assert.equal(v3Rows.length, 60);
+    for (const row of v3Rows) {
+      const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
+      unchanged(row.before, row.after, label);
+      assert.equal(row.controls.length, 2, `${label}: both reply controls`);
+      const inCall = ['starting', 'running'].includes(row.state);
+      const description = row.locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call';
+      for (const control of row.controls) {
+        assert.equal(control.hidden, false, `${label}: control remains unhidden`);
+        assert.equal(control.visible, true, `${label}: control remains visible`);
+        assert.equal(control.attached, true, `${label}: control remains on the latest reply`);
+        assert.equal(control.disabled, inCall, `${label}: native disabled state`);
+        if (inCall) {
+          assert.equal(control.ariaDisabled, 'true', `${label}: aria-disabled`);
+          assert.equal(control.title, description, `${label}: tooltip`);
+          assert.equal(control.description, description, `${label}: aria-description`);
+          assert.equal(control.opacity, '0.5', `${label}: existing disabled style`);
+          assert.equal(control.focused, false, `${label}: cannot receive focus`);
+        } else {
+          assert.notEqual(control.ariaDisabled, 'true', `${label}: active aria state restored`);
+          assert.equal(control.description, null, `${label}: call description cleared`);
+          assert.notEqual(control.title, description, `${label}: call tooltip cleared`);
+          assert.equal(control.focused, true, `${label}: focus restored`);
+        }
+      }
+      if (inCall) {
+        assert.equal(row.tabSkipped, true, `${label}: Tab skips both disabled controls`);
+        assert.equal(row.axControls.length, 2, `${label}: both controls in AX`);
+        for (const ax of row.axControls) {
+          assert.equal(ax.ignored, false, `${label}: disabled control remains in AX`);
+          assert.equal(ax.description, description, `${label}: AX description`);
+          assert.equal(ax.properties.disabled, true, `${label}: AX disabled`);
+          assert.notEqual(ax.properties.focusable, true, `${label}: AX not focusable`);
+        }
+      }
+    }
+  });
+}
+
 export async function visitorCreditMatrix(t, locales) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-a2-browser-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   if (evidence) await mkdir(evidence, { recursive: true });
-  const head = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
-  const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+  const event = workflowEvent;
   const branchHead = event?.pull_request?.head?.sha ?? head;
   const passLines = [], states = [], captures = [], uiChecks = [];
   for (const locale of locales) {
-    browser = await browserForFile();
+    browser = await browserForFile(pointerLaunch);
     const page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.session);
@@ -131,7 +411,7 @@ export async function visitorCreditMatrix(t, locales) {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
         const file = `ait292-${label}-${state}.png`;
-        await page.screenshot({ path: join(evidence, file), fullPage: false });
+        await page.screenshot({ path: join(evidence, file), fullPage: false, optimizeForSpeed: true });
         captures.push({ locale, theme, width, state, file, capture: 'viewport' });
       };
       const actions = async state => {
@@ -209,7 +489,7 @@ export async function visitorCreditMatrix(t, locales) {
         });
         const capture = async suffix => {
           const file = `a2-${label}-${state}${suffix}.png`;
-          await page.screenshot({ path: join(evidence, file), fullPage: false });
+          await page.screenshot({ path: join(evidence, file), fullPage: false, optimizeForSpeed: true });
           captures.push({ locale, theme, width, state, file, capture: 'viewport',
             ...await page.evaluate(() => ({ height: innerHeight, scrollY })) });
         };
@@ -437,7 +717,7 @@ export async function visitorCreditMatrix(t, locales) {
           return box.top >= c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom && box.bottom <= innerHeight;
         });
         assert.equal(visible, true, `${label}: full-hold placeholder is visible in the viewport`);
-        await page.screenshot({ path: join(evidence, `ait155-full-hold-${label}.png`), fullPage: false });
+        await page.screenshot({ path: join(evidence, `ait155-full-hold-${label}.png`), fullPage: false, optimizeForSpeed: true });
         await page.evaluate(([x, y]) => scrollTo({ left: x, top: y, behavior: 'instant' }), offset);
       }
       await click(page, '.host-credits__button'); await shot('full-hold-credits');
@@ -476,6 +756,9 @@ export async function visitorCreditMatrix(t, locales) {
         await shot(`top-up-${action}-ready`);
         await click(page, waitingCall ? '.pause' : '.voice-retry');
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+        // Listening is published before the acknowledged feature repaint and
+        // its ResizeObserver reservation. Compare the settled card, as above.
+        await settle(page);
         const requests = await page.evaluate(() => window.a2.voiceRequests);
         assert.equal(requests.length, 2);
         if (waitingCall) assert.deepEqual(requests[1], requests[0], 'Resume keeps the same logical call');
@@ -522,7 +805,7 @@ export async function visitorCreditMatrix(t, locales) {
       }); await settle(page);
       const oneHour = await shadow(page, c => {
         const r = c.shadowRoot;
-        return { title: r.querySelector('.composer-out__title').textContent, body: r.querySelector('.composer-out__body').textContent,
+        return { title: r.querySelector('.composer-out__title').textContent, body: r.querySelector('.composer-out__body > [data-active="true"]').textContent,
           announcement: r.querySelector('.credit-announcement').textContent, polite: r.querySelector('.credit-announcement').getAttribute('aria-live'),
           duplicateToast: Boolean(r.querySelector('.composer-dock > .status__label')) };
       });
@@ -533,7 +816,7 @@ export async function visitorCreditMatrix(t, locales) {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
         const file = `ait406-one-hour-${label}.png`;
-        await page.screenshot({ path: join(evidence, file), fullPage: false });
+        await page.screenshot({ path: join(evidence, file), fullPage: false, optimizeForSpeed: true });
         await writeFile(join(evidence, `${file}.json`), JSON.stringify({ locale, theme, width, selectors: liveFixed,
           before: hourBefore, after: hourAfter, settled: await boxes(page, liveFixed),
           fonts: await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-shell')).fontFamily) }, null, 2));
@@ -553,4 +836,250 @@ export async function visitorCreditMatrix(t, locales) {
     t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state}${row.displacementPx === 0 ? ' 0 px layout shift' : ''} ${JSON.stringify(row)}`);
   }
   t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${new Set(states.map(row => `${row.locale}/${row.theme}/${row.width}`)).size} viewport/theme/language combinations`);
+}
+
+// Tick v4: reuse one page, keeping exact reply identities through every transition.
+export async function replyRowsMatrix(t) {
+  const { browser, demo } = await reservationPage();
+  let page;
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [], captures = [], pointerRest = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const pointerBoxes = () => shadow(page, c => [...c.shadowRoot.querySelectorAll('.reply-actions, .reply-actions button, .reply-actions svg')]
+    .map(n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }));
+  const hoverRow = async () => {
+    const [x, y, w, h] = (await boxes(page, ['.reply-actions']))[0];
+    await page.mouse.move(x + w / 2, y + h / 2);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reply-actions').matches(':hover')), true, 'pointer actually hovers the control row');
+  };
+  const shot = async (name, hover = false) => {
+    if (!evidence) return;
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+    await page.mouse.move(-1, -1);
+    if (hover) await hoverRow();
+    await settle(page);
+    await page.screenshot({ path: join(evidence, `ait410-${name}.png`), fullPage: false, optimizeForSpeed: true });
+    await page.mouse.move(-1, -1);
+  };
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    // Linux headless-shell restores hardware-none defaults when touch emulation
+    // is reconfigured on a reused page. Configure a fresh target before navigation
+    // so Blink's mouse defaults apply consistently; keep every media assertion.
+    page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000, isMobile: width === 390, hasTouch: width === 390 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session);
+    const media = await page.evaluate(() => ({ fine: matchMedia('(hover:hover) and (pointer:fine)').matches,
+      hover: matchMedia('(hover:hover)').matches, pointer: matchMedia('(pointer:fine)').matches,
+      coarse: matchMedia('(pointer:coarse)').matches }));
+    assert.deepEqual(media, { fine: width !== 390, hover: width !== 390, pointer: width !== 390, coarse: width === 390 }, `${width}: asserted mouse/touch media queries`);
+    await page.mouse.move(-1, -1);
+    await page.select('#locale', locale); await page.select('#theme', theme);
+    // Touch emulation can reload the page; install observation afterwards.
+    await page.evaluate(async () => {
+      const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+      if (!AudioRail.prototype.ait410Render) {
+        const render = AudioRail.prototype.render; AudioRail.prototype.ait410Render = render;
+        AudioRail.prototype.render = function () { window.ait410Rail = this; return render.call(this); };
+      }
+    });
+    await fixture(page, locale, { voiceAdmissionFailure: true });
+    await shadow(page, c => {
+      window.a2.denyVoice = false; window.a2.replays = [];
+      window.ait410Rail.client.replayReply = async reply => { window.a2.replays.push(reply); return { kind: 'text', text: reply.text }; };
+      window.ait410First = c.shadowRoot.querySelector('.turn:not(.user)');
+      window.ait410Actions = window.ait410First.querySelector('.reply-actions');
+    });
+    const original = await boxes(page, ['.turn:not(.user)']);
+    for (let i = 2; i <= 3; i++) await shadow(page, (c, { i, width }) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+      id: `ait410-reply-${i}`, role: 'assistant',
+      content: width === 390 ? `Reply ${i}` : `${(c.session.transcript.find(t => t.role === 'assistant').content + ' ').repeat(8)}${i}`,
+    } }), { i, width });
+    await settle(page);
+    // Compare size only: following the growing transcript legitimately scrolls it.
+    const afterReplies = await boxes(page, ['.turn:not(.user)']);
+    assert.deepEqual(afterReplies[0].slice(2), original[0].slice(2), 'new replies preserve the original reply size exactly');
+    assert.equal(await shadow(page, () => window.ait410First.querySelector('.reply-actions') === window.ait410Actions && Boolean(window.ait410Actions)), true, 'each reply keeps the same control row');
+    // Reading an earlier reply retains the reader's position when a notice
+    // arrives. Explicit bottom-follow behavior has its separate AIT-188 checks.
+    await shadow(page, c => {
+      const shell = c.shadowRoot.querySelector('.transcript-shell');
+      shell.scrollTop = 0; shell.dispatchEvent(new Event('scroll'));
+    });
+    await settle(page);
+    assert.equal(await shadow(page, c => { const s = c.shadowRoot.querySelector('.transcript-shell'); return s.scrollHeight - s.clientHeight > 8; }), true, 'earlier-reply fixture exceeds the bottom-follow threshold');
+    const selectors = ['.turn:not(.user)', '.turn:last-child', '.qopts', '.question-card', '.composer-shell'];
+    const before = await boxes(page, selectors);
+    const iconBefore = await pointerBoxes();
+    const presentation = await shadow(page, c => {
+      const r = c.shadowRoot, fine = matchMedia('(hover:hover) and (pointer:fine)').matches;
+      const ink = getComputedStyle(r.querySelector('.voice-reply-dialog')).color;
+      const token = document.createElement('span');
+      token.style.cssText = 'position:fixed;visibility:hidden;color:var(--ink-3,var(--aithema-muted))';
+      r.append(token); const muted = getComputedStyle(token).color; token.remove();
+      // Canvas resolves computed CSS Color 4 bubble fills to sRGB for WCAG contrast.
+      const context = new OffscreenCanvas(1, 1).getContext('2d');
+      const hex = color => {
+        context.clearRect(0, 0, 1, 1); context.fillStyle = color; context.fillRect(0, 0, 1, 1);
+        return '#' + [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(n => n.toString(16).padStart(2, '0')).join('');
+      };
+      const controls = [...r.querySelectorAll('.reply-actions button')].map(button => {
+        const svg = button.querySelector('svg'), style = getComputedStyle(button), iconStyle = getComputedStyle(svg);
+        const rest = iconStyle.visibility, color = style.color;
+        const opacity = style.opacity, iconOpacity = iconStyle.opacity;
+        const transitionDuration = style.transitionDuration, iconTransitionDuration = iconStyle.transitionDuration;
+        const foreground = hex(color), background = hex(getComputedStyle(button.closest('.turn')).backgroundColor);
+        const geometry = () => [button.closest('.reply-actions'), button, svg].map(n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; });
+        const restBoxes = geometry();
+        button.focus({ preventScroll: true });
+        const focus = { visible: getComputedStyle(svg).visibility, color: getComputedStyle(button).color,
+          opacity: getComputedStyle(button).opacity, iconOpacity: getComputedStyle(svg).opacity, boxes: geometry() };
+        button.blur(); return { rest, color, foreground, background, opacity, iconOpacity, transitionDuration, iconTransitionDuration, restBoxes, focus };
+      });
+      return { fine, ink, muted, controls };
+    });
+    assert.equal(presentation.fine, width !== 390, 'presentation uses the asserted pointer media');
+    for (const control of presentation.controls) {
+      assert.equal(control.rest, 'visible', 'Tick v4.1: pointer and touch icons are visible at rest');
+      assert.equal(control.focus.visible, 'visible', 'native focus reveals the icon');
+      unchanged(control.restBoxes, control.focus.boxes, 'focused row, button and icon stay exactly in place');
+      if (width !== 390) {
+        control.contrast = contrast(control.foreground, control.background);
+        assert.ok(control.contrast >= 3, `${locale}/${theme}/${width}: enabled icon contrast ${control.contrast} >= 3:1`);
+        assert.equal(control.color, presentation.muted, 'resting pointer icons use ink-3');
+        assert.notEqual(control.color, presentation.ink, 'resting pointer icons are muted');
+        assert.equal(control.focus.color, presentation.ink, 'pointer focus paints full ink');
+        assert.equal(control.opacity, '1'); assert.equal(control.iconOpacity, '1');
+        assert.equal(control.focus.opacity, '1'); assert.equal(control.focus.iconOpacity, '1');
+        assert.equal(control.transitionDuration, '0s', 'no delayed or faded button reveal');
+        assert.equal(control.iconTransitionDuration, '0s', 'no delayed or faded icon reveal');
+      }
+    }
+    unchanged(iconBefore, await pointerBoxes(), 'focus moves neither rows, buttons nor icons');
+    if (width !== 390) {
+      pointerRest.push({ locale, theme, width, ...media, rest: presentation.controls.map(control => control.rest),
+        contrast: presentation.controls.map(control => control.contrast) });
+      await hoverRow();
+      const hover = await shadow(page, c => [...c.shadowRoot.querySelector('.reply-actions').querySelectorAll('button')].map(n => ({ visibility: getComputedStyle(n.querySelector('svg')).visibility, color: getComputedStyle(n).color,
+        opacity: getComputedStyle(n).opacity, iconOpacity: getComputedStyle(n.querySelector('svg')).opacity })));
+      for (const control of hover) {
+        assert.equal(control.visibility, 'visible'); assert.equal(control.color, presentation.ink, 'row hover paints full ink');
+        assert.equal(control.opacity, '1'); assert.equal(control.iconOpacity, '1');
+      }
+      presentation.hover = hover;
+      unchanged(iconBefore, await pointerBoxes(), 'hover moves neither rows, buttons nor icons');
+      await page.mouse.move(-1, -1);
+    }
+    unchanged(before, await boxes(page, selectors), 'focus and hover reserve exactly the same space');
+    const record = async state => {
+      await settle(page);
+      const { after, controls } = await shadow(page, (c, selectors) => ({
+        after: selectors.map(selector => { const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        controls: [...c.shadowRoot.querySelectorAll('.reply-actions')].map(row => ({
+        id: row.parentElement.dataset.id, height: row.getBoundingClientRect().height,
+        controls: [...row.querySelectorAll('button')].map(n => ({ disabled: n.disabled, ariaDisabled: n.getAttribute('aria-disabled'),
+          description: n.getAttribute('aria-description'), title: n.title, visible: getComputedStyle(n).visibility,
+          icons: n.querySelectorAll('svg').length, iconVisibility: getComputedStyle(n.querySelector('svg')).visibility, label: n.getAttribute('aria-label'), text: n.textContent.trim() }))
+      })) }), selectors);
+      const movementPx = unchanged(before, after, `${locale}/${theme}/${width}/${state}`);
+      assert.equal(controls.length, 3, 'all three replies own a row');
+      for (const row of controls) {
+        assert.equal(row.height, 44); assert.equal(row.controls.length, 2);
+        for (const control of row.controls) {
+          assert.equal(control.icons, 1); assert.equal(control.text, '', 'icon buttons have no visible labels'); assert.ok(control.label);
+          const inCall = state === 'running';
+          assert.equal(control.disabled, inCall); assert.equal(control.ariaDisabled, String(inCall));
+          assert.equal(control.iconVisibility, 'visible', 'Tick v4.1: all icons remain visible in place');
+          if (inCall) assert.equal(control.description, locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call');
+          else assert.equal(control.description, null);
+          assert.equal(control.visible, 'visible');
+        }
+      }
+      rows.push({ locale, theme, width, state, fine: media.fine, media, movementPx, before, after, controls, presentation });
+    };
+    await record('ready');
+    if (locale === 'de' && theme === 'light' && width !== 390) {
+      await shot(`${width}-light-de-pointer-rest`);
+      await shot(`${width}-light-de-pointer-hover`, true);
+    }
+    await click(page, '.voice-start');
+    await until(page, () => window.ait410Rail.state === 'listening');
+    await record('running');
+    if (width !== 390) {
+      const disabledStyles = () => shadow(page, c => [...c.shadowRoot.querySelector('.reply-actions').querySelectorAll('button')]
+        .map(n => ({ disabled: n.disabled, color: getComputedStyle(n).color, opacity: getComputedStyle(n).opacity,
+          visible: getComputedStyle(n.querySelector('svg')).visibility })));
+      const disabledBefore = await disabledStyles(), disabledBoxes = await pointerBoxes();
+      for (const control of disabledBefore) {
+        assert.equal(control.disabled, true); assert.equal(control.opacity, '0.5', 'native disabled styling remains');
+        assert.notEqual(control.color, presentation.ink, 'disabled icon stays muted'); assert.equal(control.visible, 'visible');
+      }
+      await hoverRow();
+      assert.deepEqual(await disabledStyles(), disabledBefore, 'row hover never raises disabled icons to full ink');
+      unchanged(disabledBoxes, await pointerBoxes(), 'disabled hover moves neither rows, buttons nor icons');
+      presentation.disabledHover = disabledBefore;
+      await page.mouse.move(-1, -1);
+      if (locale === 'de' && theme === 'light' && width === 1440) await shot('1440-light-de-pointer-mid-call');
+    }
+    if (evidence && locale === 'de' && theme === 'light' && width === 390) {
+      // This is a real reader scroll, leaving the fixture and dock unchanged.
+      // Restore it before the next geometry sample so all 60 baselines remain.
+      const scrollTop = await shadow(page, c => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), previous = shell.scrollTop;
+        const last = [...r.querySelectorAll('.reply-actions')].at(-1).getBoundingClientRect();
+        const bottom = Math.min(shell.getBoundingClientRect().bottom, r.querySelector('.composer-shell').getBoundingClientRect().top);
+        shell.scrollTop += Math.max(0, last.bottom - bottom + 8);
+        return previous;
+      });
+      await settle(page);
+      const capture = await shadow(page, c => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell').getBoundingClientRect();
+        const top = Math.max(shell.top + 8, r.querySelector('.band').getBoundingClientRect().bottom);
+        const bottom = Math.min(shell.bottom, r.querySelector('.composer-shell').getBoundingClientRect().top, innerHeight);
+        return { top, bottom, rows: [...r.querySelectorAll('.reply-actions')].map(n => {
+          const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height, visible: b.top >= top && b.bottom <= bottom };
+        }) };
+      });
+      assert.equal(capture.rows.length, 3, 'mid-call capture includes all three control rows');
+      assert.ok(capture.rows.every(row => row.visible && row.height === 44), 'all three complete control rows clear the band, transcript clip and dock');
+      captures.push({ name: '390-light-de-three-replies-mid-call', ...capture });
+      await shot('390-light-de-three-replies-mid-call');
+      await shadow(page, (c, top) => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = top; }, scrollTop);
+      await settle(page);
+    }
+    await click(page, '.voice-close');
+    await until(page, () => window.ait410Rail.root.dataset.call === 'none');
+    await record('hangup');
+    await shadow(page, () => window.ait410Rail.notices.recovered({ userUnconfirmed: true }));
+    await record('recovery');
+    await shadow(page, () => window.ait410Rail.notices.clear());
+    await record('cleared');
+    // Read and replay every reply, including earlier replies with different bytes.
+    for (let index = 0; index < 3; index++) {
+      const expected = await shadow(page, (c, index) => c.shadowRoot.querySelectorAll('.reply-actions')[index].parentElement.querySelector('.turn-text').textContent, index);
+      for (const action of ['read', 'replay']) {
+        await shadow(page, (c, { index, action }) => c.shadowRoot.querySelectorAll('.reply-actions')[index].querySelector(`[data-reply-action=${action}]`).click(), { index, action });
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), expected);
+        await click(page, '.voice-reply-close');
+      }
+    }
+    assert.equal(await page.evaluate(() => window.a2.replays.length), 3, 'each replay targets its own reply');
+    if (locale === 'de' && theme === 'light' && width === 390) {
+      await shadow(page, c => {
+        window.a2.spent = 12_000_000;
+        c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+        c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'visitor' } });
+      });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'));
+      assert.equal(await shadow(page, c => c.session.paused && c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up')), true, 'paused budget-denied evidence shows the used-up panel');
+      await shot('390-light-de-paused-budget-denied');
+    }
+    await page.close();
+  }
+  if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4.1', rows, captures }, null, 2));
+  assert.equal(rows.length, 60);
+  if (evidence) await writeFile(join(evidence, 'ait410-pointer-rest-checks.json'), JSON.stringify({ head, pointerRest }, null, 2));
+  assert.ok(pointerRest.every(row => row.rest.every(visibility => visibility === 'visible')),
+    `Tick v4.1: fine-pointer icons must be visible at rest: ${JSON.stringify(pointerRest)}`);
 }

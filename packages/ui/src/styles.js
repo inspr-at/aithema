@@ -170,6 +170,37 @@ svg { display:block; flex:none; }
 .turn > .voice-reply-actions .voice-repeat { padding:8px 0; border:0; border-radius:0; background:none; color:var(--aithema-muted);
   text-decoration:underline; text-underline-offset:3px; }
 .turn > .voice-reply-actions :is(.voice-repeat,.voice-read-text):hover:not(:disabled) { background:none; color:var(--aithema-ink); }
+/* Tick v4.1: every reply permanently reserves its own visible 44px control row.
+   Pointer hover/focus changes colour only; disabled controls keep their styling. */
+.turn > .reply-actions { display:flex; align-items:center; flex:none; height:44px; min-height:44px; margin:0; padding:0; gap:0; }
+.turn > .reply-actions > button { display:inline-flex; align-items:center; justify-content:center; flex:none; width:44px; height:44px; min-height:44px;
+  padding:0; border:0; border-radius:0; background:none; color:var(--aithema-muted); text-decoration:none; }
+.turn > .reply-actions > button svg { width:16px; height:16px; }
+.turn > .reply-actions > button::before, .turn > .reply-actions > button::after { content:none; }
+@media (hover:hover) and (pointer:fine) {
+  .turn > .reply-actions > button:not(:disabled) { color:var(--ink-3,var(--aithema-muted)); }
+  .turn:is(:hover,:focus-within) > .reply-actions > button:not(:disabled) { color:var(--aithema-ink); }
+}
+/* Use the phone transcript's available width and compact bubble insets so
+   the permanent 44px controls fit above the card's existing option minimum. */
+@media (max-width:600px) {
+  .turn:has(> .reply-actions) { --turn-max-width:100%; padding-block:6px; }
+  .turn:has(> .reply-actions) > strong { margin-bottom:0; }
+}
+/* A cleared recovery offer shares the existing reply slot and may retire
+   independently. The permanent row owns keyboard/AX access at all times. */
+.turn > .voice-reply-actions--recovery { position:absolute; inset-inline-start:.8rem; bottom:.65rem; height:44px; gap:0; }
+.turn > .voice-reply-actions--recovery > button { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px;
+  padding:0; font-size:0; text-decoration:none; }
+.turn > .voice-reply-actions--recovery .voice-repeat-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.turn > .voice-reply-actions--recovery > button::before, .turn > .voice-reply-actions--recovery > button::after { content:none; }
+.turn > .voice-reply-actions--recovery > button svg { width:16px; height:16px; }
+@media (max-width:600px) { .turn > .voice-reply-actions--recovery { bottom:6px; } }
+@media (hover:hover) and (pointer:fine) {
+  .turn > .voice-reply-actions--recovery svg { visibility:hidden; }
+  .turn:is(:hover,:focus-within) > .voice-reply-actions--recovery svg { visibility:visible; }
+  .turn:is(:hover,:focus-within) > .voice-reply-actions--recovery > button:not(:disabled) { color:var(--aithema-ink); }
+}
 .voice-reply-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; padding:24px; border:1px solid var(--aithema-line);
   border-radius:16px; background:var(--aithema-paper); color:var(--aithema-ink); box-shadow:var(--aithema-shadow-raised); }
 .voice-reply-dialog::backdrop { background:rgba(0,0,0,.4); }

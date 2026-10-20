@@ -145,6 +145,7 @@ export const en = {
   voiceReplayClose: 'Close',
   voiceReadFullReply: 'Read full reply', voiceReadText: 'Read text',
   voiceReplayStop: 'Stop replay',
+  voiceReplyDuringCall: 'Not available during a call',
   voiceReplyUnavailable: 'The complete reply is not available yet.',
   voiceReplayTextOnly: 'The full text of the last reply, word for word.',
   voiceClosureUncertain: 'Call ended. Costs are still being reconciled.', voiceEnded: 'Call ended.',
