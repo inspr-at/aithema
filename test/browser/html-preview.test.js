@@ -328,8 +328,11 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     catch { res.writeHead(404); res.end(); }
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&isCI?['--no-sandbox']:[] });
-  t.after(async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive:true,force:true}); });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally {
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive:true,force:true});
+  } });
+  browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&isCI?['--no-sandbox']:[] });
   const page = await browser.newPage(), errors = [], shots = [], passes = [], guardShots = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
