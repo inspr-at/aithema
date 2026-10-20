@@ -196,6 +196,7 @@ export async function topUpReservationMatrix(t) {
   browser = await browserForFile();
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-dock', '.composer-shell'];
+  const accessibility = await page.createCDPSession();
   const v3Rows = [], v3Selectors = ['.transcript-shell .turn.user', '.transcript-shell .turn:last-child', '.voice-reply-actions', '.qopts', ...selectors];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -230,6 +231,15 @@ export async function topUpReservationMatrix(t) {
           title: n.title, description: n.getAttribute('aria-description'), opacity: style.opacity, focused };
       }));
       const inCall = ['starting', 'running'].includes(state);
+      const axControls = [];
+      if (inCall) for (const selector of ['.voice-repeat', '.voice-read-text']) {
+        const { result } = await accessibility.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelector('${selector}')` });
+        const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+        const ax = nodes.find(n => n.backendDOMNodeId === node.backendNodeId);
+        axControls.push({ ignored: ax?.ignored, description: ax?.description?.value, properties: Object.fromEntries((ax?.properties ?? []).map(p => [p.name, p.value.value])) });
+        await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+      }
       let tabSkipped = null;
       if (inCall) {
         await shadow(page, c => {
@@ -246,7 +256,7 @@ export async function topUpReservationMatrix(t) {
           c.shadowRoot.querySelectorAll('[data-v3-tab]').forEach(n => n.remove()); return skipped;
         });
       }
-      v3Rows.push({ locale, theme, width, state, before: v3Before, after, controls, tabSkipped,
+      v3Rows.push({ locale, theme, width, state, before: v3Before, after, controls, axControls, tabSkipped,
         movementPx: Math.max(...v3Before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) });
     };
     for (const state of ['ready', 'running', 'denied', 'ready-again']) {
@@ -294,34 +304,47 @@ export async function topUpReservationMatrix(t) {
   if (evidence) await writeFile(join(evidence, 'ait406-top-up-checks.json'), JSON.stringify({ head, spec: 'Tick spec v2, AIT-406, 2026-10-20', rows }, null, 2));
   if (evidence) await writeFile(join(evidence, 'ait406-replay-checks.json'), JSON.stringify({ head, spec: 'Tick spec v3, AIT-406, 2026-10-20', selectors: v3Selectors, rows: v3Rows }, null, 2));
   assert.equal(rows.length, 48);
-  for (const row of rows) unchanged(row.before, row.after, `${row.locale}-${row.theme}-${row.width}/top-up-retry-${row.state}`);
-  assert.equal(v3Rows.length, 60);
-  for (const row of v3Rows) {
-    const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
-    unchanged(row.before, row.after, label);
-    assert.equal(row.controls.length, 2, `${label}: both reply controls`);
-    const inCall = ['starting', 'running'].includes(row.state);
-    const description = row.locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call';
-    for (const control of row.controls) {
-      assert.equal(control.hidden, false, `${label}: control remains unhidden`);
-      assert.equal(control.visible, true, `${label}: control remains visible`);
-      assert.equal(control.attached, true, `${label}: control remains on the latest reply`);
-      assert.equal(control.disabled, inCall, `${label}: native disabled state`);
+  await t.test('v2: exact zero top-up geometry', () => {
+    for (const row of rows) unchanged(row.before, row.after, `${row.locale}-${row.theme}-${row.width}/top-up-retry-${row.state}`);
+  });
+  await t.test('v3: exact zero transcript and control geometry, disabled accessibility', () => {
+    assert.equal(v3Rows.length, 60);
+    for (const row of v3Rows) {
+      const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
+      unchanged(row.before, row.after, label);
+      assert.equal(row.controls.length, 2, `${label}: both reply controls`);
+      const inCall = ['starting', 'running'].includes(row.state);
+      const description = row.locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call';
+      for (const control of row.controls) {
+        assert.equal(control.hidden, false, `${label}: control remains unhidden`);
+        assert.equal(control.visible, true, `${label}: control remains visible`);
+        assert.equal(control.attached, true, `${label}: control remains on the latest reply`);
+        assert.equal(control.disabled, inCall, `${label}: native disabled state`);
+        if (inCall) {
+          assert.equal(control.ariaDisabled, 'true', `${label}: aria-disabled`);
+          assert.equal(control.title, description, `${label}: tooltip`);
+          assert.equal(control.description, description, `${label}: aria-description`);
+          assert.equal(control.opacity, '0.5', `${label}: existing disabled style`);
+          assert.equal(control.focused, false, `${label}: cannot receive focus`);
+        } else {
+          assert.notEqual(control.ariaDisabled, 'true', `${label}: active aria state restored`);
+          assert.equal(control.description, null, `${label}: call description cleared`);
+          assert.notEqual(control.title, description, `${label}: call tooltip cleared`);
+          assert.equal(control.focused, true, `${label}: focus restored`);
+        }
+      }
       if (inCall) {
-        assert.equal(control.ariaDisabled, 'true', `${label}: aria-disabled`);
-        assert.equal(control.title, description, `${label}: tooltip`);
-        assert.equal(control.description, description, `${label}: aria-description`);
-        assert.equal(control.opacity, '0.5', `${label}: existing disabled style`);
-        assert.equal(control.focused, false, `${label}: cannot receive focus`);
-      } else {
-        assert.notEqual(control.ariaDisabled, 'true', `${label}: active aria state restored`);
-        assert.equal(control.description, null, `${label}: call description cleared`);
-        assert.notEqual(control.title, description, `${label}: call tooltip cleared`);
-        assert.equal(control.focused, true, `${label}: focus restored`);
+        assert.equal(row.tabSkipped, true, `${label}: Tab skips both disabled controls`);
+        assert.equal(row.axControls.length, 2, `${label}: both controls in AX`);
+        for (const ax of row.axControls) {
+          assert.equal(ax.ignored, false, `${label}: disabled control remains in AX`);
+          assert.equal(ax.description, description, `${label}: AX description`);
+          assert.equal(ax.properties.disabled, true, `${label}: AX disabled`);
+          assert.notEqual(ax.properties.focusable, true, `${label}: AX not focusable`);
+        }
       }
     }
-    if (inCall) assert.equal(row.tabSkipped, true, `${label}: Tab skips both disabled controls`);
-  }
+  });
 }
 
 export async function visitorCreditMatrix(t, locales) {
