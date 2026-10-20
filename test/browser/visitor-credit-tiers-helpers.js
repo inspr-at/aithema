@@ -842,11 +842,22 @@ export async function visitorCreditMatrix(t, locales) {
 export async function replyRowsMatrix(t) {
   const { page } = await reservationPage();
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [], captures = [], pointerRest = [];
-  const shot = async name => {
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const pointerBoxes = () => shadow(page, c => [...c.shadowRoot.querySelectorAll('.reply-actions, .reply-actions button, .reply-actions svg')]
+    .map(n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }));
+  const hoverRow = async () => {
+    const [x, y, w, h] = (await boxes(page, ['.reply-actions']))[0];
+    await page.mouse.move(x + w / 2, y + h / 2);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reply-actions').matches(':hover')), true, 'pointer actually hovers the control row');
+  };
+  const shot = async (name, hover = false) => {
     if (!evidence) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-    await page.mouse.move(-1, -1); await settle(page);
+    await page.mouse.move(-1, -1);
+    if (hover) await hoverRow();
+    await settle(page);
     await page.screenshot({ path: join(evidence, `ait410-${name}.png`), fullPage: false, optimizeForSpeed: true });
+    await page.mouse.move(-1, -1);
   };
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000, isMobile: width === 390, hasTouch: width === 390 });
@@ -891,32 +902,64 @@ export async function replyRowsMatrix(t) {
     assert.equal(await shadow(page, c => { const s = c.shadowRoot.querySelector('.transcript-shell'); return s.scrollHeight - s.clientHeight > 8; }), true, 'earlier-reply fixture exceeds the bottom-follow threshold');
     const selectors = ['.turn:not(.user)', '.turn:last-child', '.qopts', '.question-card', '.composer-shell'];
     const before = await boxes(page, selectors);
+    const iconBefore = await pointerBoxes();
     const presentation = await shadow(page, c => {
       const r = c.shadowRoot, fine = matchMedia('(hover:hover) and (pointer:fine)').matches;
       const ink = getComputedStyle(r.querySelector('.voice-reply-dialog')).color;
+      const token = document.createElement('span');
+      token.style.cssText = 'position:fixed;visibility:hidden;color:var(--ink-3,var(--aithema-muted))';
+      r.append(token); const muted = getComputedStyle(token).color; token.remove();
+      // Canvas resolves computed CSS Color 4 bubble fills to sRGB for WCAG contrast.
+      const context = new OffscreenCanvas(1, 1).getContext('2d');
+      const hex = color => {
+        context.clearRect(0, 0, 1, 1); context.fillStyle = color; context.fillRect(0, 0, 1, 1);
+        return '#' + [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(n => n.toString(16).padStart(2, '0')).join('');
+      };
       const controls = [...r.querySelectorAll('.reply-actions button')].map(button => {
-        const rest = getComputedStyle(button.querySelector('svg')).visibility;
+        const svg = button.querySelector('svg'), style = getComputedStyle(button), iconStyle = getComputedStyle(svg);
+        const rest = iconStyle.visibility, color = style.color;
+        const opacity = style.opacity, iconOpacity = iconStyle.opacity;
+        const transitionDuration = style.transitionDuration, iconTransitionDuration = iconStyle.transitionDuration;
+        const foreground = hex(color), background = hex(getComputedStyle(button.closest('.turn')).backgroundColor);
+        const geometry = () => [button.closest('.reply-actions'), button, svg].map(n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; });
+        const restBoxes = geometry();
         button.focus({ preventScroll: true });
-        const focus = { visible: getComputedStyle(button.querySelector('svg')).visibility, color: getComputedStyle(button).color };
-        button.blur(); return { rest, focus };
+        const focus = { visible: getComputedStyle(svg).visibility, color: getComputedStyle(button).color,
+          opacity: getComputedStyle(button).opacity, iconOpacity: getComputedStyle(svg).opacity, boxes: geometry() };
+        button.blur(); return { rest, color, foreground, background, opacity, iconOpacity, transitionDuration, iconTransitionDuration, restBoxes, focus };
       });
-      return { fine, ink, controls };
+      return { fine, ink, muted, controls };
     });
-    if (width !== 390) {
-      pointerRest.push({ locale, theme, width, ...media, rest: presentation.controls.map(control => control.rest) });
-      t.diagnostic(`AIT-410 fine-pointer red-before: ${JSON.stringify(pointerRest.at(-1))}`);
-    }
+    assert.equal(presentation.fine, width !== 390, 'presentation uses the asserted pointer media');
     for (const control of presentation.controls) {
-      assert.equal(control.rest, presentation.fine ? 'hidden' : 'visible', 'resting pointer icons reserve space; touch icons stay visible');
+      assert.equal(control.rest, 'visible', 'Tick v4.1: pointer and touch icons are visible at rest');
       assert.equal(control.focus.visible, 'visible', 'native focus reveals the icon');
-      if (presentation.fine) assert.equal(control.focus.color, presentation.ink, 'pointer focus paints full ink');
+      unchanged(control.restBoxes, control.focus.boxes, 'focused row, button and icon stay exactly in place');
+      if (width !== 390) {
+        control.contrast = contrast(control.foreground, control.background);
+        assert.ok(control.contrast >= 3, `${locale}/${theme}/${width}: enabled icon contrast ${control.contrast} >= 3:1`);
+        assert.equal(control.color, presentation.muted, 'resting pointer icons use ink-3');
+        assert.notEqual(control.color, presentation.ink, 'resting pointer icons are muted');
+        assert.equal(control.focus.color, presentation.ink, 'pointer focus paints full ink');
+        assert.equal(control.opacity, '1'); assert.equal(control.iconOpacity, '1');
+        assert.equal(control.focus.opacity, '1'); assert.equal(control.focus.iconOpacity, '1');
+        assert.equal(control.transitionDuration, '0s', 'no delayed or faded button reveal');
+        assert.equal(control.iconTransitionDuration, '0s', 'no delayed or faded icon reveal');
+      }
     }
-    if (presentation.fine) {
-      const [x, y, , h] = (await boxes(page, ['.turn:not(.user)']))[0];
-      await page.mouse.move(x + 20, y + h / 2);
-      const hover = await shadow(page, c => [...c.shadowRoot.querySelector('.reply-actions').querySelectorAll('button')].map(n => ({ visibility: getComputedStyle(n.querySelector('svg')).visibility, color: getComputedStyle(n).color })));
-      for (const control of hover) { assert.equal(control.visibility, 'visible'); assert.equal(control.color, presentation.ink, 'row hover paints full ink'); }
+    unchanged(iconBefore, await pointerBoxes(), 'focus moves neither rows, buttons nor icons');
+    if (width !== 390) {
+      pointerRest.push({ locale, theme, width, ...media, rest: presentation.controls.map(control => control.rest),
+        contrast: presentation.controls.map(control => control.contrast) });
+      await hoverRow();
+      const hover = await shadow(page, c => [...c.shadowRoot.querySelector('.reply-actions').querySelectorAll('button')].map(n => ({ visibility: getComputedStyle(n.querySelector('svg')).visibility, color: getComputedStyle(n).color,
+        opacity: getComputedStyle(n).opacity, iconOpacity: getComputedStyle(n.querySelector('svg')).opacity })));
+      for (const control of hover) {
+        assert.equal(control.visibility, 'visible'); assert.equal(control.color, presentation.ink, 'row hover paints full ink');
+        assert.equal(control.opacity, '1'); assert.equal(control.iconOpacity, '1');
+      }
       presentation.hover = hover;
+      unchanged(iconBefore, await pointerBoxes(), 'hover moves neither rows, buttons nor icons');
       await page.mouse.move(-1, -1);
     }
     unchanged(before, await boxes(page, selectors), 'focus and hover reserve exactly the same space');
@@ -938,18 +981,38 @@ export async function replyRowsMatrix(t) {
           assert.equal(control.icons, 1); assert.equal(control.text, '', 'icon buttons have no visible labels'); assert.ok(control.label);
           const inCall = state === 'running';
           assert.equal(control.disabled, inCall); assert.equal(control.ariaDisabled, String(inCall));
-          assert.equal(control.iconVisibility, inCall || !presentation.fine ? 'visible' : 'hidden', 'call-disabled and touch icons remain visible in place');
+          assert.equal(control.iconVisibility, 'visible', 'Tick v4.1: all icons remain visible in place');
           if (inCall) assert.equal(control.description, locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call');
           else assert.equal(control.description, null);
           assert.equal(control.visible, 'visible');
         }
       }
-      rows.push({ locale, theme, width, state, movementPx, before, after, controls, presentation });
+      rows.push({ locale, theme, width, state, fine: media.fine, media, movementPx, before, after, controls, presentation });
     };
     await record('ready');
+    if (locale === 'de' && theme === 'light' && width !== 390) {
+      await shot(`${width}-light-de-pointer-rest`);
+      await shot(`${width}-light-de-pointer-hover`, true);
+    }
     await click(page, '.voice-start');
     await until(page, () => window.ait410Rail.state === 'listening');
     await record('running');
+    if (width !== 390) {
+      const disabledStyles = () => shadow(page, c => [...c.shadowRoot.querySelector('.reply-actions').querySelectorAll('button')]
+        .map(n => ({ disabled: n.disabled, color: getComputedStyle(n).color, opacity: getComputedStyle(n).opacity,
+          visible: getComputedStyle(n.querySelector('svg')).visibility })));
+      const disabledBefore = await disabledStyles(), disabledBoxes = await pointerBoxes();
+      for (const control of disabledBefore) {
+        assert.equal(control.disabled, true); assert.equal(control.opacity, '0.5', 'native disabled styling remains');
+        assert.notEqual(control.color, presentation.ink, 'disabled icon stays muted'); assert.equal(control.visible, 'visible');
+      }
+      await hoverRow();
+      assert.deepEqual(await disabledStyles(), disabledBefore, 'row hover never raises disabled icons to full ink');
+      unchanged(disabledBoxes, await pointerBoxes(), 'disabled hover moves neither rows, buttons nor icons');
+      presentation.disabledHover = disabledBefore;
+      await page.mouse.move(-1, -1);
+      if (locale === 'de' && theme === 'light' && width === 1440) await shot('1440-light-de-pointer-mid-call');
+    }
     if (evidence && locale === 'de' && theme === 'light' && width === 390) {
       // This is a real reader scroll, leaving the fixture and dock unchanged.
       // Restore it before the next geometry sample so all 60 baselines remain.
@@ -1005,7 +1068,7 @@ export async function replyRowsMatrix(t) {
       await shot('390-light-de-paused-budget-denied');
     }
   }
-  if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4', rows, captures }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4.1', rows, captures }, null, 2));
   assert.equal(rows.length, 60);
   if (evidence) await writeFile(join(evidence, 'ait410-pointer-rest-checks.json'), JSON.stringify({ head, pointerRest }, null, 2));
   assert.ok(pointerRest.every(row => row.rest.every(visibility => visibility === 'visible')),

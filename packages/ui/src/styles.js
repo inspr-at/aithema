@@ -170,16 +170,15 @@ svg { display:block; flex:none; }
 .turn > .voice-reply-actions .voice-repeat { padding:8px 0; border:0; border-radius:0; background:none; color:var(--aithema-muted);
   text-decoration:underline; text-underline-offset:3px; }
 .turn > .voice-reply-actions :is(.voice-repeat,.voice-read-text):hover:not(:disabled) { background:none; color:var(--aithema-ink); }
-/* Tick v4: every reply permanently reserves its own 44px control row.
-   Pointer reveal changes ink only. Touch and call-disabled controls stay visible. */
+/* Tick v4.1: every reply permanently reserves its own visible 44px control row.
+   Pointer hover/focus changes colour only; disabled controls keep their styling. */
 .turn > .reply-actions { display:flex; align-items:center; flex:none; height:44px; min-height:44px; margin:0; padding:0; gap:0; }
 .turn > .reply-actions > button { display:inline-flex; align-items:center; justify-content:center; flex:none; width:44px; height:44px; min-height:44px;
   padding:0; border:0; border-radius:0; background:none; color:var(--aithema-muted); text-decoration:none; }
 .turn > .reply-actions > button svg { width:16px; height:16px; }
 .turn > .reply-actions > button::before, .turn > .reply-actions > button::after { content:none; }
 @media (hover:hover) and (pointer:fine) {
-  .turn > .reply-actions > button:not(:disabled) svg { visibility:hidden; }
-  .turn:is(:hover,:focus-within) > .reply-actions > button svg { visibility:visible; }
+  .turn > .reply-actions > button:not(:disabled) { color:var(--ink-3,var(--aithema-muted)); }
   .turn:is(:hover,:focus-within) > .reply-actions > button:not(:disabled) { color:var(--aithema-ink); }
 }
 /* Use the phone transcript's available width and compact bubble insets so
