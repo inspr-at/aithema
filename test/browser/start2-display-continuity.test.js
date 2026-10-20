@@ -416,7 +416,7 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         await page.evaluate(({ outcome, pausedCopy }) => {
           const c = document.querySelector('aithema-session'), root = c.shadowRoot, path = `/api/sessions/${c.session.id}`;
           const original = window.fetch.bind(window);
-          const selectors = ['.composer', '.composer-actions', '.composer-feedback', '.transcript-shell', ...[...root.querySelectorAll('.turn')].map(n => `.turn[data-id="${CSS.escape(n.dataset.id)}"]`)];
+          const selectors = ['.composer', '.composer-actions', '.composer-feedback', '.composer-reason', '.transcript-shell', ...[...root.querySelectorAll('.turn')].map(n => `.turn[data-id="${CSS.escape(n.dataset.id)}"]`)];
           const boxes = () => selectors.map(selector => {
             const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
           });
@@ -426,9 +426,10 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
             if (run.listeningAt === null) return;
             const reason = root.querySelector('.composer-reason'), paused = root.querySelector('.composer-paused');
             const visible = n => n.checkVisibility({ visibilityProperty: true, opacityProperty: true });
-            const current = boxes();
+            const current = boxes(), session = c.session, text = session.featureMatrix?.[session.processingPreset ?? 'best']?.text;
             run.samples.push({ source, at: performance.now(), shortcut: reason.hasAttribute('data-shortcut'),
               pausedVisible: visible(paused) || visible(reason) && reason.textContent.includes(pausedCopy),
+              sessionPaused: session.paused, textAvailable: text?.available, textReason: text?.reason, unpausedTextAvailable: text?.unpaused?.available,
               boxes: current, movementPx: Math.max(...current.flatMap((box, i) => box.map((v, j) => Math.abs(v - run.baseline[i][j])))) });
           };
           const observer = new MutationObserver(() => sample('mutation'));
@@ -488,6 +489,9 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         };
         const check = { width, theme: 'light', locale, touch, outcome, device, assertions, ...result, errors };
         checks.push(check);
+        if (Object.values(assertions).some(value => !value)) t.diagnostic(JSON.stringify({ width, touch, locale, outcome, assertions,
+          firstBadPending: preVerdict.find(s => s.pausedVisible || !s.shortcut),
+          firstMovement: result.samples.find(s => s.movementPx !== 0), selectors: result.selectors, baseline: result.baseline }));
         // Persist the red trace too, including the actual frame and its bounds.
         if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
         assert.ok(assertions.deviceMatches, 'the case uses the requested touch or fine-pointer device');

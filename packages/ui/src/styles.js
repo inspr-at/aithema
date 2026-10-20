@@ -401,7 +401,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-saved { opacity:0; pointer-events:none; transition:opacity 120ms ease; }
 .composer-feedback[data-saved] .composer-reason { opacity:0; pointer-events:none; }
 .composer-feedback[data-saved] .composer-saved { opacity:1; }
-@media(hover:none), (pointer:coarse) { .composer-reason[data-shortcut] { position:absolute; visibility:hidden; width:0; overflow:hidden; } }
+@media(hover:none), (pointer:coarse) {
+  .composer-reason[data-shortcut] { position:absolute; visibility:hidden; width:0; overflow:hidden; }
+  .composer-feedback[data-voice-space] .composer-reason[data-shortcut] { position:static; width:auto; }
+}
 @media(prefers-reduced-motion:reduce) { .composer-reason, .composer-saved { transition:none; } }
 /* Leave paint room for the shared action's 3px underline offset inside the scroll port. */
 .composer-reason:has(.upload-discard) { display:flex; flex-direction:column; max-height:44px; line-height:1.25; padding-bottom:3px; overflow:visible; }
