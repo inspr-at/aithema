@@ -35,18 +35,6 @@ const settle = page => shadow(page, async c => {
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
 }), selectors);
-const runOutGeometry = page => shadow(page, c => Object.fromEntries([
-  '.question-card', '.qtext', '.qopts', '.qhint', '.transcript-shell', '.turn:last-child',
-  '.composer-shell', '.composer', '.composer-out', '.composer-out__title', '.composer-out__body', '.composer-out__bar',
-  ...[...c.shadowRoot.querySelectorAll('[data-credit-variant]')].map(n => `[data-credit-variant="${n.dataset.creditVariant}"]`),
-].map(selector => {
-  const n = c.shadowRoot.querySelector(selector), b = n.getBoundingClientRect(), s = getComputedStyle(n);
-  return [selector, { box: [b.x, b.y, b.width, b.height], text: n.textContent, style: n.getAttribute('style'),
-    font: s.font, rows: s.gridTemplateRows, visibility: s.visibility, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
-    ...(selector === '.turn:last-child' ? { html: n.outerHTML, children: [...n.children].map(child => {
-      const b = child.getBoundingClientRect(); return { class: child.className, height: b.height, font: getComputedStyle(child).font };
-    }) } : {}) }];
-})));
 const unchanged = (before, after, label) => {
   const displacement = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
   assert.equal(displacement, 0, `${label}: surrounding controls displaced ${displacement} px; ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
@@ -93,7 +81,6 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy });
       }
       if (path.endsWith('/identity')) return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: privacy });
-      if (handover && path.endsWith('/handover') && method === 'GET') return Response.json({ offer: { available: true }, handover: null });
       if (/\/identity\/(request|change|resend)$/u.test(path)) { state.address = JSON.parse(init.body).address ?? state.address; state.confirmed = false; return Response.json({ identity: identity() }); }
       return window.a2OriginalFetch(url, init);
     };
@@ -107,7 +94,6 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     const question = locale === 'de' ? 'Welche Anforderungen möchten Sie besprechen?' : 'Which requirements would you like to discuss?';
     session.transcript.push({ id: 'visitor-fixture-question', role: 'assistant', content: question, inputRevision: inputRevision(session),
       question_short: question, options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', likely: true }, { text: locale === 'de' ? 'Ressourcen' : 'Resources' }] });
-    if (handover) session.transcript = session.transcript.filter(turn => turn.role === 'user');
     session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
     c.setAttribute('motion', 'off');
     let voiceClient;
@@ -555,7 +541,7 @@ export async function visitorCreditMatrix(t, locales) {
       && document.documentElement.lang === locale && document.querySelector('#language-value').textContent === locale.toUpperCase(), { timeout: 20_000 }, locale);
     for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 2, 'visitor-credit')) {
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
       const ait292Capture = async state => {
         if (!evidence || locale !== 'de' || ![1440, 390].includes(width)) return;
@@ -770,32 +756,8 @@ export async function visitorCreditMatrix(t, locales) {
       await shot('privacy-gate'); await click(page, 'dialog.settings .done'); await shot('privacy-gate-used-up');
       await fixture(page, locale, { handover: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page); await shot('handover-notice');
       await click(page, 'dialog.settings .done');
-      if (locale === 'de' && theme === 'light' && width === 390) {
-        await shadow(page, c => c.shadowRoot.querySelector('.handover').scrollIntoView({ block: 'center', behavior: 'instant' }));
-        await settleEvidenceFrame(page);
-        const targets = ['.handover', '.handover-request', '.handover__state'];
-        const before = await boxes(page, targets);
-        await shadow(page, async c => {
-          const { inputRevision } = await import('/packages/core/src/session.js');
-          c.receive({ seq: c.session.seq + 1, type: 'handover.state', data: { status: 'sent', revision: inputRevision(c.session) } });
-        });
-        await settleEvidenceFrame(page);
-        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.handover__state').textContent), 'Ihre Anfrage wurde gesendet. Sie erhalten eine persönliche Rückmeldung.');
-        const shiftPx = unchanged(before, await boxes(page, targets), 'AIT-426 handover sent');
-        assert.equal(await shadow(page, c => {
-          const r = c.shadowRoot, state = r.querySelector('.handover__state').getBoundingClientRect();
-          return state.top >= r.querySelector('.band').getBoundingClientRect().bottom &&
-            state.bottom <= r.querySelector('.composer-shell').getBoundingClientRect().top;
-        }), true, 'AIT-426 handover sent text clears the sticky band and composer');
-        uiChecks.push({ locale, theme, width, state: 'ait-426-handover-sent', pass: true, shiftPx });
-        if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-handover-sent.png'), fullPage: false });
-      }
       await fixture(page, locale, { delivery: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page); await shot('mail-no-email');
       await click(page, '.verify-entry'); await settle(page); await shot('mail-confirm-dialog');
-      if (evidence && locale === 'de' && theme === 'light' && width === 390) {
-        await settleEvidenceFrame(page);
-        await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-email-dialog-notice.png'), fullPage: false });
-      }
       const order = await shadow(page, c => {
         const form = c.shadowRoot.querySelector('dialog.verify-dialog form');
         return ['.verify__field', '.verify__note', '.m-notice', '.verify__actions'].map(selector => form.querySelector(selector).getBoundingClientRect().top);
@@ -944,7 +906,6 @@ export async function visitorCreditMatrix(t, locales) {
       await fixture(page, locale, { spent: 11_990_000, voiceRunning: true });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
       const liveBefore = await boxes(page, liveFixed);
-      const runOutBefore = await runOutGeometry(page);
       const creditsBefore = await page.evaluate(() => window.a2.creditsReads);
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
@@ -970,9 +931,6 @@ export async function visitorCreditMatrix(t, locales) {
       assert.deepEqual(calm, { questionReadable: true, answersRest: true, pauseDisabled: true, neutral: true });
       assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).color), theme === 'dark' ? 'rgb(79, 189, 181)' : 'rgb(14, 111, 108)', 'the host-limit upgrade link keeps the approved START teal');
       assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).backgroundColor), 'rgba(0, 0, 0, 0)', 'the host-limit primary stays a text link in both themes');
-      const runOutAfter = await runOutGeometry(page);
-      if (evidence) await writeFile(join(evidence, `ait426-${label}-run-out.json`), JSON.stringify({ head, branchHead, before: runOutBefore, after: runOutAfter }, null, 2));
-      t.diagnostic(`AIT-426 ${label}/run-out: ${JSON.stringify({ before: runOutBefore, after: runOutAfter })}`);
       passLines.push({ locale, theme, width, state: 'run-out', displacementPx: unchanged(liveBefore, await boxes(page, liveFixed), `${label}/run-out`), pass: true }); await shot('run-out');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'no horizontal overflow');
       await fixture(page, locale);
@@ -1262,4 +1220,73 @@ export async function replyRowsMatrix(t) {
   if (evidence) await writeFile(join(evidence, 'ait410-pointer-rest-checks.json'), JSON.stringify({ head, pointerRest }, null, 2));
   assert.ok(pointerRest.every(row => row.rest.every(visibility => visibility === 'visible')),
     `Tick v4.1: fine-pointer icons must be visible at rest: ${JSON.stringify(pointerRest)}`);
+}
+
+// AIT-426 evidence owns fresh pages and its handover-only conversation fixture.
+// Never run these scroll/state steps inside the shared credit-state matrix.
+export async function impersonalGermanEvidence(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait426-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(pointerLaunch), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  t.after(async () => { try { await browser.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const checks = [];
+  const evidencePage = async ({ handover = false } = {}) => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 390, height: 844 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session);
+    await page.select('#locale', 'de'); await page.select('#theme', 'light');
+    await fixture(page, 'de', { delivery: !handover });
+    if (handover) {
+      await shadow(page, c => {
+        const creditFetch = window.fetch;
+        window.fetch = (url, init = {}) => {
+          if (new URL(url, location.href).pathname.endsWith('/handover') && (init.method ?? 'GET') === 'GET') {
+            return Promise.resolve(Response.json({ offer: { available: true }, handover: null }));
+          }
+          return creditFetch(url, init);
+        };
+        const session = structuredClone(c.session);
+        session.transcript = session.transcript.filter(turn => turn.role === 'user');
+        c.configure({ session, host: { credits: true, verification: { delivery: false, privacyDocumentConfigured: true }, handover: true } });
+      });
+    }
+    await settleEvidenceFrame(page);
+    return page;
+  };
+  await t.test('handover sent copy on an isolated page', async () => {
+    const page = await evidencePage({ handover: true });
+    await shadow(page, c => c.shadowRoot.querySelector('.handover').scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await settleEvidenceFrame(page);
+    const targets = ['.handover', '.handover-request', '.handover__state'];
+    const before = await boxes(page, targets);
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      c.receive({ seq: c.session.seq + 1, type: 'handover.state', data: { status: 'sent', revision: inputRevision(c.session) } });
+    });
+    await settleEvidenceFrame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.handover__state').textContent), 'Ihre Anfrage wurde gesendet. Sie erhalten eine persönliche Rückmeldung.');
+    const shiftPx = unchanged(before, await boxes(page, targets), 'AIT-426 handover sent');
+    assert.equal(await shadow(page, c => {
+      const r = c.shadowRoot, state = r.querySelector('.handover__state').getBoundingClientRect();
+      return state.top >= r.querySelector('.band').getBoundingClientRect().bottom &&
+        state.bottom <= r.querySelector('.composer-shell').getBoundingClientRect().top;
+    }), true, 'AIT-426 handover sent text clears the sticky band and composer');
+    checks.push({ locale: 'de', theme: 'light', width: 390, state: 'ait-426-handover-sent', pass: true, shiftPx });
+    if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-handover-sent.png'), fullPage: false });
+    await page.close();
+  });
+  await t.test('email notice evidence on an isolated page', async () => {
+    const page = await evidencePage();
+    await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+    await settle(page); await click(page, '.verify-entry'); await settleEvidenceFrame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog[open] .m-notice').textContent),
+      'Ihre E-Mail-Adresse wird nur für Ihr Guthaben und später für eine Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.');
+    checks.push({ locale: 'de', theme: 'light', width: 390, state: 'ait-426-email-dialog-notice', pass: true });
+    if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-email-dialog-notice.png'), fullPage: false });
+    await page.close();
+  });
+  if (evidence) await writeFile(join(evidence, 'ait426-evidence-checks.json'), JSON.stringify({ head, checks }, null, 2));
 }
