@@ -45,8 +45,9 @@ jobs:
           ulimit -a
           ps -eo comm= | sort | uniq -c | sort -nr | head -20
       - name: Full browser matrix with evidence
-        run: env -u CI npm run test:browser -- --shard ${{ matrix.shard }}/7
+        run: npm run test:browser -- --shard ${{ matrix.shard }}/7
         env:
+          AITHEMA_FULL_MATRIX: '1'
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
       - name: Browser runner resources after matrix
         if: always()
