@@ -390,7 +390,7 @@ export class SQLiteStorage {
       const session = this.get(id);
       if (session.tombstone || inputRevision(session) !== failure.inputRevision) return false;
       // Do not persist provider diagnostics or request content.
-      const reason = ['budget reconciling', 'focused-question-removed', 'reply-in-flight'].includes(failure.reason) ? failure.reason : null;
+      const reason = ['budget reconciling', 'focused-question-removed', 'reply-in-flight', 'identity-changed'].includes(failure.reason) ? failure.reason : null;
       const record = { inputRevision: failure.inputRevision, lane: failure.lane,
         error: 'reasoning-unavailable', retryable: reason !== 'focused-question-removed',
         ...(reason ? { reason } : {}) };

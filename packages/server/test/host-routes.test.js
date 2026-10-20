@@ -1008,3 +1008,41 @@ for (const missing of [null, 'visitor', 'saveEmail', 'deleteEmail', 'eraseVisito
     assert.deepEqual((await pending.json()).visitorEmail, { canSave: missing === null });
   });
 }
+
+for (const fails of [false, true]) test(`AIT-418: identity/change during an admitted reply ${fails ? 'keeps failure and explicit retry' : 'publishes once'}`, async t => {
+  const f = fixture(t), s = await f.create(), base = `/api/sessions/${s.id}`;
+  await f.call(`${base}/identity/request`, { address: 'before@example.test' });
+  await f.call(`${base}/identity/confirm`, { token: (await f.message(s.id)).token });
+  const entered = deferred(), held = deferred(), admit = f.runtime.admit.bind(f.runtime); let calls = 0;
+  t.mock.method(f.runtime, 'admit', async args => {
+    const admission = await admit(args);
+    if (args.lane !== 'reaction') return admission;
+    const plugin = admission.plugin, first = ++calls === 1;
+    return { ...admission, plugin: { ...plugin, async *stream(request, options) {
+      for await (const delta of plugin.stream(request, options)) {
+        yield delta;
+        if (first) { entered.resolve(); await held.promise; if (fails) throw new Error('controlled reply failure'); }
+      }
+    } } };
+  });
+  await f.call(`${base}/turns`, { clientEventId: 'identity-race', content: 'systems: API' });
+  await entered.promise;
+  const revision = inputRevision(f.storage.get(s.id));
+  f.at(1_100); // The injected host clock passes the request's resend cooldown.
+  assert.equal((await f.call(`${base}/identity/change`, { address: 'after@example.test' })).status, 200);
+  assert.notEqual(inputRevision(f.storage.get(s.id)), revision);
+  held.resolve(); await f.handlers.idle();
+  let snapshot = await (await f.call(base)).json();
+  assert.equal(calls, 1, 'identity does not silently schedule another paid reply');
+  assert.equal(snapshot.transcript.filter(turn => turn.role === 'assistant').length, fails ? 0 : 1);
+  if (fails) {
+    assert.equal(snapshot.operations.lastFailure.lane, 'reaction');
+    assert.equal(snapshot.operations.lastFailure.reason, 'identity-changed');
+    assert.equal(snapshot.operations.lastFailure.inputRevision, inputRevision(snapshot));
+    assert.equal(snapshot.operations.lastFailure.retryable, true);
+    assert.equal((await f.call(`${base}/retry`, {})).status, 202);
+    await f.handlers.idle(); snapshot = await (await f.call(base)).json();
+    assert.equal(calls, 2); assert.equal(snapshot.transcript.filter(turn => turn.role === 'assistant').length, 1);
+    assert.equal(snapshot.operations.lastFailure, null);
+  }
+});

@@ -743,6 +743,7 @@ export class AithemaSession extends HTMLElement {
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
       streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
+      replyInFlight: () => this.#sending || this.#partials.size > 0 || this.#session.operations?.running.includes('reaction'),
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
       onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); },
@@ -1629,7 +1630,12 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
     const itemRetry = this.#clarify?.state === 'retry';
-    const replyRetry = replyFailed && overviewFailed && !itemRetry;
+    const identityReplyFailed = failures.some(f => f.lane === 'reaction' && f.reason === 'identity-changed');
+    const replyRetry = replyFailed && (overviewFailed || identityReplyFailed && (!analysis.available || locked)) && !itemRetry;
+    if (identityReplyFailed && !itemRetry && !this.#host?.usedUp) {
+      root.querySelector('.retry').hidden = Boolean(running);
+      root.querySelector('.retry').disabled = !this.#feature('text').available || Boolean(running);
+    }
     if (itemRetry) root.querySelector('.retry').hidden = true;
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading
@@ -2598,6 +2604,7 @@ export class AithemaSession extends HTMLElement {
     }
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
+    this.#host?.updateStreaming();
   }
   #receiveVoiceState(state) {
     const voice = this.#rail?.session;

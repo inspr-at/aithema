@@ -440,6 +440,9 @@ export class SQLiteBudgetLedger {
   releaseUnderstandingCredits(attemptId) {
     this.db.prepare("UPDATE budget_attempts SET visitor_credit_released=1 WHERE attempt_id=? AND lane='understanding' AND state='settled'").run(attemptId);
   }
+  releaseReplyCredits(attemptId) {
+    this.db.prepare("UPDATE budget_attempts SET visitor_credit_released=1 WHERE attempt_id=? AND lane='reaction' AND state='settled'").run(attemptId);
+  }
   settleVoice(claimId, terminal) {
     const known = terminal?.closureConfirmed === true && ['completed', 'cancelled'].includes(terminal.outcome) &&
       ['providerSeconds', 'providerMinutes', 'pausedSeconds', 'visitorSeconds'].every(k => Number.isFinite(terminal.usage?.[k]) && terminal.usage[k] >= 0) &&

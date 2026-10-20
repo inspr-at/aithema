@@ -365,6 +365,7 @@ export const de = {
   hostSurface: {
     bar: 'Ihr Gespräch',
     verify: {
+      streamWait: 'Möglich, sobald die Antwort fertig ist.',
       entry: 'E-Mail-Adresse bestätigen', pending: 'E-Mail noch nicht bestätigt', verified: 'E-Mail bestätigt',
       section: 'E-Mail', unverified: 'Nicht bestätigt', linkSent: 'Link gesendet', resendOrChange: 'Erneut senden oder ändern', verifiedShort: 'Bestätigt',
       title: 'E-Mail-Adresse bestätigen', close: 'Zum Gespräch',
