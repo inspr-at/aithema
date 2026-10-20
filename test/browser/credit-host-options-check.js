@@ -41,8 +41,8 @@ export async function creditHostOptionsCheck(t) {
     };
   });
   const states = ['B1', 'U1', 'U2', 'U3', 'offer', 'confirmed', 'reconciling', 'reconciled', 'low-off', 'low-on', 'S1', 'S2', 'S3', 'delete-false', 'delete-true'];
-  const scene = async (state, locale, theme) => {
-    await shadow(page, async (c, { state, locale, theme }) => {
+  const scene = async (state, locale, theme, profile = 'all') => {
+    await shadow(page, async (c, { state, locale, theme, profile }) => {
       const f = window.ait411, { [locale]: source } = await import(`/packages/ui/src/i18n/${locale}.js`), copy = structuredClone(source);
       const confirmed = ['U2', 'S2', 'S3', 'confirmed', 'delete-false', 'delete-true'].includes(state);
       const ended = ['U1', 'U2', 'U3', 'S1', 'S2', 'S3'].includes(state);
@@ -70,13 +70,12 @@ export async function creditHostOptionsCheck(t) {
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
-      copy.hostSurface.credits.afterConfirm = locale === 'de' ? 'Nach der Bestätigung: {tier}\u00a0Credits' : 'After confirmation: {tier} credits';
-      c.configure({ copy, session, host: { verification: true, credits: { scope: 'session', reconcilingVisible: true, dailyCapReset: true },
-        usedUp: { newConversation: { enabled: state !== 'S3' }, dailyCapActions: 'none' }, emailAsk: { lowCredits: f.lowCredits } } });
+      c.configure({ copy, session, host: { verification: true, credits: { scope: 'session', reconcilingVisible: profile === 'all' || profile === 'O4', dailyCapReset: profile === 'all' || profile === 'O5' },
+        usedUp: { newConversation: { enabled: profile === 'all' && state !== 'S3' }, dailyCapActions: profile === 'all' || profile === 'O2-none' ? 'none' : 'export' }, emailAsk: { lowCredits: f.lowCredits } } });
       let legal = c.querySelector('[slot="legal"][data-aithema-privacy]');
       if (!legal) { legal = document.createElement('a'); legal.slot = 'legal'; legal.setAttribute('data-aithema-privacy', ''); legal.href = '/privacy'; legal.textContent = 'Privacy'; c.append(legal); }
       await document.fonts.ready;
-    }, { state, locale, theme });
+    }, { state, locale, theme, profile });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent !== '…');
     if (state.startsWith('delete-')) await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     // Settle once after all mutations, then read every box in the same frame.
@@ -85,7 +84,7 @@ export async function creditHostOptionsCheck(t) {
       await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const r = c.shadowRoot, rect = selector => { const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
-      const footerLabel = r.querySelector('.host-credits__reconciling').getBoundingClientRect(), footer = r.querySelector('.display-foot').getBoundingClientRect();
+      const footerLabel = (r.querySelector('.host-credits__reconciling') ?? r.querySelector('.host-credits__stack')).getBoundingClientRect(), footer = r.querySelector('.display-foot').getBoundingClientRect();
       const footerNeighbors = ['.footer-left', '.host-legal', '.engine-info'].map(selector => ({ selector, box: r.querySelector(selector).getBoundingClientRect() }));
       const footerTextFits = footerLabel.left >= footer.left && footerLabel.right <= footer.right && footerNeighbors.every(({ box }) =>
         box.width === 0 || box.height === 0 || footerLabel.right <= box.left || footerLabel.left >= box.right || footerLabel.bottom <= box.top || footerLabel.top >= box.bottom);
@@ -109,6 +108,35 @@ export async function creditHostOptionsCheck(t) {
         deleteCopy: r.querySelector('.m-delete-normal').textContent, deletes: window.ait411.deletes };
     });
   };
+  // Exercise the formerly masked option sets without O1. Track the complete
+  // inserted/painted union through host-limit, daily-cap and session states.
+  for (const profile of ['O4', 'O5', 'O2-none']) await t.test(`${profile} without O1: every option peer can paint`, async () => {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+      await page.setViewport({ width, height: 1000 });
+      let baseline;
+      const inserted = new Set(), painted = new Set();
+      for (const state of ['B1', 'U1', 'U2', 'U3', 'reconciling', 'reconciled', 'S1', 'S2', 'S3']) {
+        const value = await scene(state, locale, theme, profile), label = `${profile}/${locale}/${theme}/${width}/${state}`;
+        if (!baseline) baseline = value.boxes;
+        assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
+        const peers = value.reservation.filter(n => n.option);
+        assert.deepEqual(peers.map(n => n.key), state.startsWith('S')
+          ? ['option-new-conversation', 'option-session-emailConfirmed'] : [], `${label}: no never-painted option peers`);
+        const active = state === 'S1' ? 'option-session-emailConfirmed' : state.startsWith('S') ? 'option-new-conversation' : null;
+        for (const peer of peers) {
+          inserted.add(peer.key);
+          assert.equal(peer.hidden, peer.key !== active, `${label}: reachable option paint (${peer.key})`);
+          assert.equal(peer.ariaHidden, String(peer.key !== active), `${label}: reachable option AX (${peer.key})`);
+          if (!peer.hidden) painted.add(peer.key);
+        }
+        assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: one composer reservation`);
+        assert.ok(value.reservation.every(n => value.bodyHeight >= n.height), `${label}: tallest real variant fits`);
+        assert.equal(value.reservation.some(n => n.key === 'host-give-measure'), false, `${label}: no AIT-434 spacer`);
+        checks.push({ profile, width, locale, theme, state, displacementPx: 0, pass: true, ...value });
+      }
+      assert.deepEqual([...inserted].sort(), [...painted].sort(), `${profile}/${locale}/${theme}/${width}: every inserted option peer paints in a reachable state`);
+    }
+  });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: 1000 });
     let baseline, deleteBaseline, lowBaseline;
@@ -118,7 +146,7 @@ export async function creditHostOptionsCheck(t) {
       assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
       assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
       assert.deepEqual(value.reservation.filter(n => !n.option).map(n => n.key),
-        ['active', 'default', 'host-give-measure', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
+        ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
       assert.deepEqual(value.reservation.filter(n => n.option).map(n => n.key),
         ['option-new-conversation', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every hint and upgrade`);
       assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: v1 and O variants share one cell`);
@@ -134,7 +162,10 @@ export async function creditHostOptionsCheck(t) {
       if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ wieder verfügbar$/u : /^Available again from /u); assert.equal(value.panelDeadline, value.deadline); }
       if (state === 'S1') { assert.equal(value.upgrade, true); assert.equal(value.export, true); assert.match(value.body, /1[.,]000/u); }
       if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
-      if (state === 'offer') assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
+      if (state === 'offer') {
+        assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
+        assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits', `${label}: shipped O3 catalog copy and NBSP`);
+      }
       if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse:/u : /With confirmed email address:/u);
       if (state === 'reconciling') { assert.equal(value.footerTextFits, true, `${label}: visible reconciliation never overlaps legal or footer controls ${JSON.stringify(value.footerTextRects)}`); assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
       if (state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }

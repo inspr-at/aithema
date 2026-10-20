@@ -577,6 +577,39 @@ for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, sess
   assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.ended.session.title, 'session takes precedence over a later host-limit event');
 });
 
+test('AIT-411 round 6 O3: shipped EN catalog and rendered offer match Tick including NBSP', async t => {
+  assert.equal(en.hostSurface.credits.afterConfirm, 'After confirmation: {n}\u00a0credits');
+  const { root } = setup(t, { copy: structuredClone(en), host: { verification: true, credits: true }, session: { locale: 'en' }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+      allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__next').textContent, 'After confirmation: 1,000\u00a0credits');
+});
+
+test('AIT-411 round 6 O3: lowercase custom credits receives NBSP', async t => {
+  const copy = structuredClone(en);
+  copy.hostSurface.credits.afterConfirm = 'After confirmation: {n} credits';
+  const { root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: 'en' }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+      allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__next').textContent, 'After confirmation: 1,000\u00a0credits');
+});
+
+for (const [option, host] of [
+  ['O4', { credits: { reconcilingVisible: true } }],
+  ['O5', { credits: { dailyCapReset: true } }],
+  ['O2-none', { usedUp: { dailyCapActions: 'none' } }],
+]) test(`AIT-411 round 6 ${option} without O1: no never-painted panel peers`, async t => {
+  const { root } = setup(t, { host: { credits: true, ...host }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, exhausted: true, dailyCapReached: true, dailyCapResetAt: Date.now() + 3600000 }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelectorAll('[data-credit-option-variant]').length, 0, `${option}: panel reservation contains no unreachable option variants`);
+});
+
 for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and custom offer uses the separate key (${copy.display.locale})`, async t => {
   for (const hasKey of [false, true]) {
     const custom = structuredClone(copy);
