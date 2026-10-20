@@ -73,6 +73,13 @@ export class ConceptView {
       ...['draftsPreset', 'draftsDevice', 'draftsQuote', 'draftsTimeout'].map(key =>
         `${copy.display[key]}${reasonSeparator}${copy.display[key === 'draftsPreset' || key === 'draftsDevice' ? 'draftsChoose' : 'draftsRetry']}`),
     ].map(words => { const line = document.createElement('span'); line.textContent = words; return line; }));
+    // Consent recovery is another status in the same permanent rail cell.
+    for (const feature of ['html', 'images']) {
+      const line = document.createElement('span'), action = document.createElement('span');
+      line.textContent = `${copy.featureConsent[feature]}${reasonSeparator}`;
+      action.className = 'consent-action'; action.textContent = copy.featureConsent.action;
+      line.append(action); root.querySelector('.drafts-reason-reserve').append(line);
+    }
     // Withdrawal and expiry share the existing status grid, including wrapped DE copy.
     root.querySelector('.concept-withdrawn-reserve').replaceChildren();
     for (const key of ['conceptWithdrawn', 'conceptDraftWithdrawn', 'conceptImageWithdrawn']) {
@@ -92,8 +99,8 @@ export class ConceptView {
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
     this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      <div class="concept-activity"><span class="concept-activity-text" role="status"></span><span class="drafts-reason-reserve" aria-hidden="true"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
-      <button class="concept-request" type="button"></button>`;
+      <div class="concept-activity"><span class="concept-activity-text" role="status"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
+      <span class="drafts-reason-reserve" aria-hidden="true"></span><button class="concept-request" type="button"></button>`;
     // The label shares one cell with both possible labels, so the thumbnail keeps its width when an image or a draft arrives.
     root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><span class="concept-preview-thumbs"><img alt="" aria-hidden="true" decoding="async"><img alt="" aria-hidden="true" decoding="async"></span><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-label"></span><span class="concept-preview-sizer" aria-hidden="true"></span><span class="concept-preview-sizer" aria-hidden="true"></span></span></button>`;
     // An inert text/glyph sizer preserves AIT-364's rail geometry when the
