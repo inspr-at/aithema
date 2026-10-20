@@ -201,7 +201,7 @@ function voiceClockFixture(t, { evidenceMs = 300_000, explicitRuntimeClock = fal
   const port = consent(now), cap = createVoiceCap({ storage, now, capMilliseconds: 300_000 });
   const runtime = createPluginRuntime({ storage, consent: port, presets, voiceCap: cap,
     registry: new PluginRegistry().register(createMockReasoning()).register(plugin), ...(explicitRuntimeClock ? { now } : {}) });
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, consent: port, host: { now: explicitRuntimeClock ? () => wall : now },
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, consent: port, host: voiceClock ? undefined : { now: explicitRuntimeClock ? () => wall : now },
     voice: voiceClock ? { now } : {}, log() {} });
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ ownerToken: testToken, demo: true });
@@ -252,4 +252,16 @@ test('AIT-403 voice binding evidence is valid on the deadline clock and refuses 
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, before);
   assert.equal(h.starts.length, 1);
   assert.equal(h.cap.snapshot().reservedMilliseconds, 0);
+});
+
+test('AIT-403 legacy voice.now configures the shared runtime admission clock without a host', async t => {
+  const h = voiceClockFixture(t, { voiceClock: true });
+  const response = await h.route('', { callId: 'voice-clock' });
+  assert.equal(response.status, 201, await response.clone().text());
+  const call = await response.json();
+  assert.equal(call.spendDeadlineAt, h.now() + 60_000);
+  assert.equal(h.runtime.now(), h.now());
+  assert.equal(h.starts[0].now(), h.now());
+  assert.equal(h.runtime.budget.now(), h.now());
+  assert.equal(h.storage.now(), h.now());
 });

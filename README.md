@@ -1028,8 +1028,10 @@ Runtime admission, publication checks and admitted reasoning options carry the
 deadline's `now` or the runtime clock; handlers install `host.now` as the default
 runtime clock, preserving an explicitly configured runtime clock. `operationScope`
 uses the deadline's clock for expiry and converts its remaining budget into an elapsed timer.
-HTTP text deadlines use `voice.now`, then `host.now`, then `Date.now`; voice
-requests use their configured clock. Concept lanes forward their own clock.
+HTTP text and voice deadlines, continuation spend reservations, binding evidence
+and callback operations use the runtime's clock. An explicit runtime `now` wins;
+otherwise handlers install `voice.now`, then `host.now`, then `Date.now`.
+Evidence expires at the exact boundary on that clock. Concept lanes forward their own clock.
 Upload request budgets remain elapsed wall-clock budgets and identify that clock
 explicitly when calling runtime admission.
 The ElevenLabs completions facade uses its injected `now` for callback, call,

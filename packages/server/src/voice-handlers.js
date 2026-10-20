@@ -80,7 +80,7 @@ export function buildVoiceReplyRequest({ session, messages, call, purposePolicy,
 export { createFacadeSecrets } from '../elevenlabs-compat.js';
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
-  publish, onTurn, onClose, onActivity, onAssessment, onScopeRecorded, purposePolicy, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
+  publish, onTurn, onClose, onActivity, onAssessment, onScopeRecorded, purposePolicy, hostPrompt = '', now = runtime?.now ?? Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, callbackAdapter, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
   reconcileLookupTimeoutMs = 5000, log,
   turnReplayWindowMs, turnTimeoutMs = 6500, authorizeTurnReplacement } = {}) {
@@ -120,8 +120,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       // Replay that value rather than fetching a potentially changed provider duration.
       const row = runtime.budget.get(record.attemptId);
       const savedReconciliation = row?.voice_reconciliation_json ? JSON.parse(row.voice_reconciliation_json) : null;
+      // Reconciliation lookup timeouts bound elapsed transport work, not call
+      // admission, binding evidence or the persisted spend/browser deadlines.
       const result = savedReconciliation && !savedReconciliation.usage?.costEstimated ? savedReconciliation
-        : closeOrphan ? await voiceOperation({ deadlineAt: Date.now() + reconcileLookupTimeoutMs }, opts => closeOrphan(record, opts)) : null;
+        : closeOrphan ? await voiceOperation({ now: Date.now, deadlineAt: Date.now() + reconcileLookupTimeoutMs }, opts => closeOrphan(record, opts)) : null;
       if (result?.closureConfirmed === true && result.providerSessionId === record.providerSessionId) {
         storage.transitionVoiceLifecycle(record.sessionId, record.callId,
           { type: 'segment-closed', providerSessionId: record.providerSessionId, closureConfirmed: true });
@@ -321,7 +323,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   const buildVoiceRequest = (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, purposePolicy, hostPrompt,
     offTopicTurns: storage.safeguards(session.id).offTopicTurns });
-  const callbackOperations = { secrets, staticSecretRef, presentation, timeoutMs: turnTimeoutMs, log,
+  const callbackOperations = { secrets, staticSecretRef, presentation, timeoutMs: turnTimeoutMs, log, now,
     async admitComponent(request) {
       if (!await callbackOperations.authorizeComposition(request, request)) throw new PluginError('not-admitted');
       const entry = calls.get(request.callId);
@@ -826,6 +828,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
       if (pendingReconciliations().length) reconcileLater();
     },
+    // The admin repair batch and each receipt lookup share an elapsed wall-clock
+    // transport budget; neither compares this deadline with admission evidence.
     async reconcileUncertain({ dryRun = true, limit = reconcileBatchSize, deadlineAt = Date.now() + 60_000 } = {}) {
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair batch');
       const pending = pendingReconciliations(), count = Math.min(pending.length, limit);
@@ -837,7 +841,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         summary.beforeMicro += row?.settled_micro ?? 0;
         if (dryRun) {
           let result;
-          try { if (closeOrphan) result = await voiceOperation({ deadlineAt: Math.min(deadlineAt, Date.now() + reconcileLookupTimeoutMs) }, opts => closeOrphan(record, opts)); } catch { /* Counts only. */ }
+          try { if (closeOrphan) result = await voiceOperation({ now: Date.now, deadlineAt: Math.min(deadlineAt, Date.now() + reconcileLookupTimeoutMs) }, opts => closeOrphan(record, opts)); } catch { /* Counts only. */ }
           summary.afterMicro += result?.closureConfirmed ? result.usage.upstreamMicro : row?.settled_micro ?? 0;
           if (!result?.closureConfirmed) summary.pending++;
         } else {

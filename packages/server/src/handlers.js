@@ -65,8 +65,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   if (!Number.isSafeInteger(retiredHookTimeoutMs) || retiredHookTimeoutMs < 1) throw new TypeError('Invalid retired hook timeout');
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
-  if (typeof host?.now === 'function') pluginRuntime.setHostClock?.(() => host.now());
-  const now = voice?.now ?? (typeof host?.now === 'function' ? () => host.now() : () => Date.now());
+  const handlerClock = voice?.now ?? (typeof host?.now === 'function' ? () => host.now() : () => Date.now());
+  if (voice?.now || typeof host?.now === 'function') pluginRuntime.setHostClock?.(handlerClock);
+  const now = pluginRuntime.now ?? handlerClock;
   pluginRuntime.setLaneDiagnostic?.(log);
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -226,7 +227,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
+    ...voice, now, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         touchVisitor(storage.get(id));
@@ -242,7 +243,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
   const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot, log,
-    budget: pluginRuntime.budget, conversationLimits: pluginRuntime.conversationLimits, signal: stop.signal, now: host?.now, deadlineMs,
+    budget: pluginRuntime.budget, conversationLimits: pluginRuntime.conversationLimits, signal: stop.signal, now, deadlineMs,
     async createConversation(ownerToken, options = {}) {
       const initial = await initialSettings(ownerToken, options);
       if (initial.error) throw new TypeError(initial.error);
@@ -257,7 +258,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
   });
-  pluginRuntime.conversationLimits.configure({ publish: broadcast, now: voice?.now ?? host?.now,
+  pluginRuntime.conversationLimits.configure({ publish: broadcast, now,
     durationMs: host?.credits?.durationMs });
   async function eraseConversation(id, guard, ownerToken) {
     const release = guard.retire ? null : storage.holdErasedRetirement(id);

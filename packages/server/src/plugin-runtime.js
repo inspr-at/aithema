@@ -516,6 +516,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       ...(reason ? { reason } : {}), ...(['4xx', '5xx'].includes(providerErrorClass) ? { providerErrorClass } : {}) })).catch(() => {}); } catch { /* Diagnostics cannot interrupt paid work. */ }
   };
   const runtime = {
+    now: () => now(),
     setLaneDiagnostic(callback) { laneDiagnostic = callback; },
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor, conversationLimits,
     admitVoiceComponent: request => componentAccounting.admit(request),
@@ -524,7 +525,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return adapter ? [adapter] : [];
     }),
     setOwnerWallet(provider) { ownerWallet = provider; },
-    setHostClock(clock) { now = configuredNow ?? clock; budget.now = clock; storage.setHostClock?.(clock); },
+    setHostClock(clock) { now = configuredNow ?? clock; budget.now = now; storage.setHostClock?.(now); },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       // OPS and the background worker share one writer. A dry-run performs only
@@ -534,6 +535,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const rows = [...budget.pendingCosts(), ...budget.deferredCosts(now())], limit = options.limit ?? 10;
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid reconciliation batch');
         const count = Math.min(limit, rows.length), summary = { candidates: 0, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
+        // Receipt lookups have an elapsed transport budget, independent of the
+        // policy clock used for retry eligibility and evidence age above/below.
         for (let i = 0; i < count && !options.signal?.aborted && Date.now() < (options.deadlineAt ?? Infinity); i++) {
           const row = rows[(costRetryOffset + i) % rows.length];
           let record = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;
@@ -580,7 +583,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           else if (row.outcome !== 'uncertain') evidence = { chargedMicro: row.settled_micro, ...(record.generationId ? { generationId: record.generationId } : {}) };
           else {
             if ((record.retryAttempts ?? 0) < COST_ESTIMATE_ATTEMPTS) {
-              try { evidence = await plugin.reconcileCost(record, { ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, Date.now() + 5000) }); }
+              try { evidence = await plugin.reconcileCost(record, { ...options, now: Date.now, deadlineAt: Math.min(options.deadlineAt ?? Infinity, Date.now() + 5000) }); }
               catch { /* Timeouts and unavailable generations reach the same bounded fallback. */ }
             }
             if (!evidence && now() - (record.settledAt ?? 0) >= costReconciliationWindowMs) {
