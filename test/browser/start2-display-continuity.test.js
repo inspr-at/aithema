@@ -381,9 +381,13 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
       await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
-      await shadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
+      await shadow(page, c => c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click());
+      await shadow(page, c => c.shadowRoot.querySelector('.ready__start').click());
+      await until(page, () => ['speaking', 'listening'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
       await finishWorkspaceEntry(page);
-      other = await browser.newPage(); await other.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      other = await browser.newPage();
+      await other.setViewport({ width, height: width === 390 ? 844 : 900 });
+      await other.goto(demo.url, { waitUntil: 'domcontentloaded' });
       await until(other, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail').dataset.state === 'waiting');
       const retire = async () => {
         await other.bringToFront();
@@ -501,6 +505,11 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
         t.diagnostic(`AIT-404 ${width}/light/${locale}/${touch ? 'touch' : 'pointer'}/${outcome}: ${result.samples.length} samples, ${result.held} delayed GETs`);
       }
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
+    } catch (error) {
+      for (const [name, target] of [['original', page], ['newcomer', other]]) if (target && !target.isClosed()) {
+        t.diagnostic(JSON.stringify({ name, width, touch, locale, state: await shadow(target, c => ({ id: c.session?.id, paused: c.session?.paused, voice: c.session?.voiceLifecycle, rail: c.shadowRoot.querySelector('.audio-rail')?.dataset.state, stage: c.shadowRoot.querySelector('.workspace')?.dataset.stage, error: document.querySelector('#error')?.textContent })) }));
+      }
+      throw error;
     } finally { await browser.close(); }
   }
   if (evidence) await writeFile(join(evidence, 'ait404-checks.json'), JSON.stringify({ ticket: 'AIT-404', head, commit: evidenceCommit, capture: 'viewport', files, checks }, null, 2));
