@@ -14,7 +14,12 @@ export class ReplyControls {
     this.readText.addEventListener('click', () => this.showText());
     target.append(this.row);
   }
-  current() { return this.row.isConnected && this.owner.replyVisible(this.reply.text, this.reply.turnId); }
+  current() {
+    // The owner already indexes only current, unwithdrawn exact replies. Reuse
+    // that projection instead of scanning the whole transcript for every row.
+    return this.row.isConnected && this.owner.replyRows.get(this.reply.turnId) === this &&
+      this.row.parentElement.querySelector('.turn-text')?.textContent === this.reply.text;
+  }
   render(latest) {
     const owner = this.owner, c = owner.copy, duringCall = owner.inCall();
     if (duringCall) this.playing = false;
