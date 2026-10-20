@@ -2,6 +2,7 @@ import { ACTOR_ROLES, createIdentity, identityView, reduceIdentity, createHandov
   assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
   operationScope, untilCancelled, activeTurns } from '@inspr/aithema-core';
 import { NotFoundError } from './storage.js';
+import { createTouchVisitor } from './host-activity.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
@@ -33,11 +34,12 @@ export class PrivacyDocumentRequiredError extends Error {
  * library(ownerToken,hooks), handover(ownerToken), wallet(ownerToken, {sessionId}) are owner-authorized.
  * All asynchronous replies recheck ownership before publication. */
 export function createHostHandlers({ storage, host, ownership, readBody, publish, snapshot, createConversation,
-  eraseConversation, unlocked, budget, conversationLimits, now = () => Date.now(), signal, deadlineMs = 30_000 }) {
+  eraseConversation, unlocked, budget, conversationLimits, now = () => Date.now(), signal, deadlineMs = 30_000, log }) {
   if (host?.policy?.verificationRequired === true && (host.identity?.deliversVerification !== true ||
       typeof host.identity.requestVerification !== 'function' || typeof host.identity.verify !== 'function')) {
     throw new TypeError('Verification lock requires a delivering identity port');
   }
+  const touchVisitor = createTouchVisitor({ host, log });
   const deliveries = new Map();
   const clock = state => Math.max(now(), state?.lastNow ?? 0);
   function assertAddressCollectionAllowed() {
@@ -67,7 +69,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   function initialize(id, ownerToken, { newSession = false } = {}) {
     if (!host) return;
-    if (newSession && ownerToken) host.touchVisitor?.(storage.get(id));
+    if (newSession && ownerToken) touchVisitor(storage.get(id));
     const state = storage.hostState(id);
     if (state) {
       if (state.identity && host.identity?.project) {
@@ -291,7 +293,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         }
         if (id && !action && request.method === 'GET') {
           const entry = await port.open(id); storage.authorize(id, ownerToken);
-          host.touchVisitor?.(storage.get(id));
+          touchVisitor(storage.get(id));
           return json({ ...entry, session: await snapshot(id) });
         }
         if (action === 'rename' && request.method === 'POST') {
