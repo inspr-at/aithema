@@ -854,6 +854,14 @@ export class AithemaSession extends HTMLElement {
     // The document can scroll before sticky engages; also cover an embedding scroll container.
     const scrolled = (this.ownerDocument.defaultView?.scrollY ?? 0) > 0 || band.getBoundingClientRect().top > workspace.getBoundingClientRect().top;
     band.toggleAttribute('data-scrolled', scrolled);
+    const shell = this.shadowRoot.querySelector('.transcript-shell');
+    if (!shell?.getClientRects().length || workspace.hasAttribute('data-folded')) return;
+    // Page/embedding scroll can carry the bounded pane behind the sticky band.
+    // Give up only the occluded part of its grid cell; the composer stays put.
+    const inset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
+    const bounds = shell.getBoundingClientRect();
+    const next = Math.max(0, Math.min(bounds.height + inset, band.getBoundingClientRect().bottom - bounds.top + inset));
+    if (next !== inset) shell.style.setProperty('--transcript-top-inset', `${next}px`);
   };
   #watchPage(on) {
     const view = this.ownerDocument.defaultView, listen = on ? 'addEventListener' : 'removeEventListener';

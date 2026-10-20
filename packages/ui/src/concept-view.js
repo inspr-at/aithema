@@ -73,6 +73,15 @@ export class ConceptView {
       ...['draftsPreset', 'draftsDevice', 'draftsQuote', 'draftsTimeout'].map(key =>
         `${copy.display[key]}${reasonSeparator}${copy.display[key === 'draftsPreset' || key === 'draftsDevice' ? 'draftsChoose' : 'draftsRetry']}`),
     ].map(words => { const line = document.createElement('span'); line.textContent = words; return line; }));
+    // Withdrawal and expiry share the existing status grid, including wrapped DE copy.
+    for (const key of ['conceptWithdrawn', 'conceptDraftWithdrawn', 'conceptImageWithdrawn']) {
+      for (const narrow of [false, true]) {
+        const line = document.createElement('span');
+        line.className = `drafts-withdrawn-reserve ${narrow ? 'narrow' : 'wide'}`;
+        line.textContent = copy[key + (narrow && key !== 'conceptWithdrawn' ? 'Narrow' : '')];
+        root.querySelector('.drafts-reason-reserve').append(line);
+      }
+    }
     root.querySelector('.concept-image').alt = copy.conceptImageAlt;
     if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
     root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });

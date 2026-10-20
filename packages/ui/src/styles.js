@@ -232,6 +232,12 @@ svg { display:block; flex:none; }
 .concept-activity-text, .drafts-reason-reserve { grid-area:1/1; font-size:.8125rem; color:var(--aithema-muted); line-height:1.4; }
 .drafts-reason-reserve { display:grid; visibility:hidden; pointer-events:none; }
 .drafts-reason-reserve > span { grid-area:1/1; }
+.drafts-reason-reserve .drafts-withdrawn-reserve { font-size:14px; line-height:1.6; }
+.drafts-withdrawn-reserve.narrow { display:none; }
+@media(max-width:600px) {
+  .drafts-withdrawn-reserve.wide { display:none; }
+  .drafts-withdrawn-reserve.narrow { display:block; }
+}
 .concept-progress, .concept-countdown { display:none; }
 .concept-rail[data-phase="pending"] :is(.concept-progress,.concept-countdown) { display:block; }
 .concept-request { grid-area:1/2; justify-self:start; min-height:44px; padding:.4rem 0; font-size:.8125rem; line-height:1.4; text-align:left; }
@@ -347,7 +353,7 @@ svg { display:block; flex:none; }
 @media(prefers-reduced-motion:reduce) { :is(.concept-backdrop,.concept-preview) img { transition:none; } }
 
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
-.transcript-shell { position:relative; min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
+.transcript-shell { position:relative; margin-top:var(--transcript-top-inset,0px); min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   /* Fade only the real top edge; retain just enough inset for the first row. */
   mask-image:linear-gradient(to bottom,transparent 0,#000 8px);

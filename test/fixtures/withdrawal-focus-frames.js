@@ -121,12 +121,14 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       await mount(width, 'light', locale, 't1', false, long);
       await page.evaluate(() => {
         const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), row = r.querySelector('[data-id="reading-10"]');
-        shell.scrollTop += row.getBoundingClientRect().top - shell.getBoundingClientRect().top - 8;
+        // Scroll offsets are integer CSS pixels; round toward a fully visible row.
+        shell.scrollTop = Math.floor(shell.scrollTop + row.getBoundingClientRect().top - shell.getBoundingClientRect().top - 8);
       });
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const reading = await inspect();
       assert.ok(reading.scrollTop > 0, 'reading anchor is away from the top');
       assert.equal(reading.firstVisible.id, 'reading-10', 'fixture starts on an interior row');
+      assert.ok(reading.firstVisible.top >= reading.shell[1] + 8, 'fixture starts with the reading row fully visible');
       await page.evaluate(() => withdraw());
       await capture(width, 'light', locale, 'transcript-reading-withdrawal');
       const readingWithdrawn = await inspect();
