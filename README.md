@@ -291,12 +291,16 @@ Host adapter contract:
   `offer({sessionId,session}) -> {available,...}`. Delivery receives only the
   server-generated session/revision/key/attempt; the host owns all mail/content
   and must persist delivery receipts in production. No CRM is implemented here.
-- `wallet(ownerToken)` supplies the Part A owner wallet. The view includes
+- `wallet(ownerToken, context)` supplies the Part A owner wallet, with
+  `context: { sessionId }`. The view includes
   existing ledger holds and settlements. Production hosts must use
   `admitCredits` for authoritative owner reservations and own settlement/recovery;
   the demo wallet and handover sink are local fakes. An optional synchronous
   `wallet.displayBalance()` supplies the read-only owner balance for `GET S/credits`
   and low-credit email asks. Admission always uses `wallet.balance()`.
+  During turn credit preflight, `wallet(ownerToken, context)` and its `balance()`
+  run inside the turn's database transaction. Both must be synchronous and
+  side-effect free, and must not re-enter storage.
 
 AIT-173's START display subtracts settled plus expected spend. Open voice duration
 uses the rate captured at admission, capped by its funded reservation, and freezes

@@ -559,7 +559,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
           { ...guard, ...voiceContext, revision: body.inputRevision ?? guard.revision,
             ...(body.inputRevision === undefined && authorized.transcript.length === 0 ? { initialLocaleSeq: authorized.seq } : {}) },
-          () => { initialBalance = hostHandlers.initialCreditBalance(id, ownerToken); });
+          () => {
+            try { initialBalance = hostHandlers.initialCreditBalance(id, ownerToken); }
+            // Host failures must not inherit request-validation or plugin status codes.
+            catch (cause) { throw new Error('Host credit preflight failed', { cause }); }
+          });
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
