@@ -101,7 +101,7 @@ export async function sessionCreditsCheck(t) {
       nextVisibility: getComputedStyle(r.querySelector('.host-credits__next')).visibility };
   });
   const shot = async (width, theme, locale, state) => {
-    if (!evidence) return;
+    if (!evidence || !['390/light/de/k1', '1440/light/en/k1', '1440/light/en/k3-b'].includes(`${width}/${theme}/${locale}/${state}`)) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0); });
     await page.mouse.move(-1, -1); await settle();
     const name = `ait395-${width}-${theme}-${locale}-${state}.png`;
@@ -115,7 +115,7 @@ export async function sessionCreditsCheck(t) {
       const value = await measure(), label = `${width}/light/${locale}/${state}`;
       assert.equal(value.popupVisible, 'visible', label);
       assert.doesNotMatch(value.scope, /all your conversations|alle Ihre Gespräche/u, label);
-      if (state === 'k1') { assert.equal(value.value, '250'); assert.equal(value.offer, true); assert.equal(value.next, ''); }
+      if (state === 'k1') { assert.equal(value.value, '250'); assert.equal(value.offer, true); assert.equal(value.next, locale === 'de' ? 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits' : 'With confirmed email address: 1,000\u00a0Credits'); }
       if (state === 'k2') { assert.equal(value.value, locale === 'de' ? '1.000' : '1,000'); assert.equal(value.offer, false); assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse: 1\.000\u00a0Credits/u : /With confirmed email address: 1,000\u00a0Credits/u); }
       if (state === 'k4') { assert.equal(value.offer, true); assert.equal(value.action, locale === 'de' ? 'E-Mail-Adresse bestätigen' : 'Confirm your email address'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0Credits'); }
       if (state === 'k5') { assert.equal(value.value, '0'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0Credits'); assert.equal(value.offer, true); assert.equal(value.demo, locale === 'de' ? 'Nur Demo: Hier gibt es kein Aufladen.' : 'Demo only: no top-ups here.'); }
@@ -148,22 +148,41 @@ export async function sessionCreditsCheck(t) {
       for (const sample of samples) {
         for (const [selector, rect] of Object.entries(sample.rects)) assert.deepEqual(rect, baseline[selector], 'sibling loading frames move 0px');
         assert.ok(['…', sample.id === 'ait395-a' ? '1.000' : '250'].includes(sample.value), JSON.stringify(sample));
-        if (sample.id === 'ait395-b') { assert.doesNotMatch(sample.current + sample.next, /bestätigter|1\.000/u); }
+        if (sample.id === 'ait395-b') {
+          assert.doesNotMatch(sample.current, /bestätigter|1\.000/u, 'B never inherits A current tier');
+          assert.ok(['', 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits'].includes(sample.next), 'B only offers its own confirmed tier');
+        }
         else assert.equal(sample.offer, false, 'confirmed A never shows B offer');
       }
       checks.push({ width, locale, state: 'k3', samples, movementPx: 0 });
     }
   }
-  await page.setViewport({ width: 1440, height: 1000 }); await scene('k5', 'de', 'dark'); await shot(1440, 'dark', 'de', 'k5');
+  await page.setViewport({ width: 1440, height: 1000 });
+  await scene('k2', 'en', 'light', { switchTo: 'ait395-a' });
+  const siblingBaseline = (await measure()).rects;
+  await scene('k1', 'en', 'light', { switchTo: 'ait395-b' });
+  const sibling = await measure();
+  assert.equal(sibling.next, 'With confirmed email address: 1,000\u00a0Credits');
+  assert.deepEqual(sibling.rects, siblingBaseline, 'EN sibling K3-b moves 0px');
+  checks.push({ width: 1440, locale: 'en', theme: 'light', state: 'k3-b', ...sibling, movementPx: 0 });
+  await shot(1440, 'light', 'en', 'k3-b');
+  await scene('k5', 'de', 'dark'); await shot(1440, 'dark', 'de', 'k5');
   await scene('k5', 'de', 'light', { upgrade: false });
   let value = await measure(); assert.equal(value.offer, false); assert.equal(value.next, 'Weitere Credits gibt es hier derzeit nicht.');
   checks.push({ state: 'k5-no-upgrade', ...value });
-  await scene('k1', 'de', 'light', { canCollect: false }); assert.equal((await measure()).offer, false);
+  await scene('k1', 'de', 'light');
+  const filled = await measure();
+  await scene('k1', 'de', 'light', { canCollect: false });
+  const unavailable = await measure();
+  assert.equal(unavailable.offer, false); assert.equal(unavailable.next, '');
+  assert.deepEqual(unavailable.rects, filled.rects, 'empty next slot keeps the same box as K1');
+  checks.push({ width: 1440, locale: 'de', theme: 'light', state: 'k1-no-offer', ...unavailable, movementPx: 0 });
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__next').children.length), 0, 'next slot has no check mark');
   await scene('k1', 'de', 'light', { equal: false }); value = await measure();
   assert.equal(value.action, 'E-Mail-Adresse angeben'); assert.equal(value.next, 'Mit E-Mail-Adresse: 500\u00a0Credits');
   assert.deepEqual(errors, []);
   if (evidence) {
-    assert.equal(shots.length, 20, 'complete Tick evidence matrix');
+    assert.equal(shots.length, 3, 'Tick fix1 reshoot matrix');
     await writeFile(join(evidence, 'ait395-checks.json'), JSON.stringify({ head, workflowSHA: evidenceCommit, runId: process.env.GITHUB_RUN_ID ?? null, checks, shots, errors }, null, 2));
   }
 }
