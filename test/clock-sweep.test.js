@@ -191,7 +191,7 @@ test('AIT-430 documented standalone coordinator forwards clock into component op
 
 test('AIT-430 reconciliation evidence age uses the accounting clock that stamped settledAt', async t => {
   const h = fixture(t, { explicit: true }), binding = localVoiceBinding;
-  const plugin = { manifest: { ...createMockReasoning().manifest, id: 'cost-clock' }, reconcileCost: async () => null,
+  const plugin = { ...createMockReasoning(), manifest: { ...createMockReasoning().manifest, id: 'cost-clock' }, reconcileCost: async () => null,
     uncertainEstimateMicro: 25 };
   // A separate runtime policy epoch is supported; host accounting remains wall.
   const runtime = createPluginRuntime({ storage: h.storage, now: h.now,
