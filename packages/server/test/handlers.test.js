@@ -14,6 +14,43 @@ const request = (path, body) => ownedRequest(`http://localhost/api/sessions/${pa
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const turn = (handlers, id, clientEventId, content) => handlers.handle(request(`${id}/turns`, { clientEventId, content }));
+
+for (const ErrorType of [TypeError, Error, RangeError]) test(`AIT-416: throwing touchVisitor (${ErrorType.name}) cannot strand a text turn`, async t => {
+  const storage = new SQLiteStorage(), log = t.mock.fn();
+  const touchVisitor = t.mock.fn(() => { throw new ErrorType('private host activity diagnostic'); });
+  const handlers = createHandlers({ storage, consent: mockConsent, host: { touchVisitor }, log });
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    const response = await turn(handlers, session.id, 'activity-failure', 'systems: API');
+    await handlers.idle();
+    const saved = storage.get(session.id), body = await response.json();
+    assert.equal(saved.transcript.filter(turn => turn.id === 'activity-failure').length, 1);
+    assert.equal(saved.transcript.some(turn => turn.role === 'assistant'), true, `saved text turn must receive a reply (HTTP ${response.status})`);
+    assert.equal(saved.understanding.inputRevision, inputRevision(saved));
+    assert.equal(storage.creditState(session.id).status, 'active', 'startCredits still starts the conversation clock');
+    assert.equal(response.status, 200);
+    assert.equal(body.id, 'activity-failure');
+    assert.equal(touchVisitor.mock.callCount(), 1);
+    assert.equal(log.mock.calls.some(call => call.arguments[0].event === 'host.touch-visitor.failed'), true);
+    assert.equal(JSON.stringify({ body, events: storage.read(session.id) }).includes('private host activity diagnostic'), false);
+    assert.equal((await turn(handlers, session.id, 'activity-failure', 'systems: API')).status, 200);
+    assert.equal(touchVisitor.mock.callCount(), 1, 'replayed turns do not renew activity');
+  } finally { await handlers.close(); storage.close(); }
+});
+
+for (const asyncLog of [false, true]) test(`AIT-416: ${asyncLog ? 'rejecting' : 'throwing'} activity diagnostics cannot interrupt a reply`, async () => {
+  const storage = new SQLiteStorage();
+  const handlers = createHandlers({ storage, consent: mockConsent,
+    host: { touchVisitor() { throw new Error('private host activity diagnostic'); } },
+    log() { if (asyncLog) return Promise.reject(new Error('logger unavailable')); throw new Error('logger unavailable'); } });
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    assert.equal((await turn(handlers, session.id, 'log-failure', 'systems: API')).status, 200);
+    await handlers.idle();
+    assert.equal(storage.get(session.id).transcript.some(turn => turn.role === 'assistant'), true);
+  } finally { await handlers.close(); storage.close(); }
+});
+
 async function waitFor(predicate) {
   for (let i = 0; i < 100; i++) {
     if (predicate()) return;

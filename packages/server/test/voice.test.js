@@ -262,7 +262,7 @@ test('AIT-138 fix 3: exhaustion reports are owner authenticated, validated, and 
   assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'ended', 'exhaustion cannot undo explicit hang-up');
 });
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost, purposePolicy } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost, purposePolicy, log } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -314,7 +314,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
   } };
   const host = createHost?.({ storage, now });
-  let handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, purposePolicy, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
+  let handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, purposePolicy, log, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
@@ -330,6 +330,39 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     authChecks: () => ({ secretReads, coverageReads, healthReads }),
     advance: ms => { clock += ms; }, coverage: value => { covered = value; }, beforeCoverage: fn => { beforeCoverage = fn; } };
 }
+
+for (const ErrorType of [TypeError, Error, RangeError]) test(`AIT-416: throwing touchVisitor (${ErrorType.name}) cannot strand a voice turn`, async t => {
+  const log = t.mock.fn();
+  const h = voiceFixture(t, { log, host: () => ({ touchVisitor(session) {
+    if (session.transcript.some(turn => turn.role === 'user')) throw new ErrorType('private host activity diagnostic');
+  } }) });
+  const grant = await h.start(), turnId = `${grant.providerSessionId}:user:activity-failure`;
+  const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+    event: { type: 'final', callId: grant.callId, turnId, role: 'user', text: 'systems: API' } });
+  await h.handlers.idle();
+  const saved = h.storage.get(h.session.id), body = await response.json();
+  assert.equal(saved.transcript.filter(turn => turn.id === turnId).length, 1);
+  assert.equal(saved.understanding.inputRevision, inputRevision(saved), `saved voice turn must reach scheduled work (HTTP ${response.status})`);
+  assert.equal(response.status, 200);
+  assert.equal(body.data.id, turnId);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'active', 'the accepted turn advances the call lifecycle');
+  assert.equal(log.mock.calls.some(call => call.arguments[0].event === 'host.touch-visitor.failed'), true);
+  assert.equal(JSON.stringify({ body, events: h.storage.read(h.session.id) }).includes('private host activity diagnostic'), false);
+});
+
+for (const ErrorType of [TypeError, Error, RangeError]) test(`AIT-416: throwing onActivity (${ErrorType.name}) cannot break voice start or Resume`, async t => {
+  const log = t.mock.fn();
+  const h = voiceFixture(t, { log, host: () => ({ touchVisitor() { throw new ErrorType('private host activity diagnostic'); } }) });
+  const grant = await h.start(), identity = { providerSessionId: grant.providerSessionId };
+  assert.equal((await h.route(`/voice/${grant.callId}/pause`, identity)).status, 200);
+  const response = await h.route(`/voice/${grant.callId}/resume`, identity), body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.acknowledged, true);
+  assert.equal(h.storage.get(h.session.id).paused, false);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'active');
+  assert.equal(log.mock.calls.filter(call => call.arguments[0].event === 'host.touch-visitor.failed').length, 2);
+  assert.equal(JSON.stringify({ grant, body, events: h.storage.read(h.session.id) }).includes('private host activity diagnostic'), false);
+});
 
 function assertUnbillableStart(h) {
   const row = h.storage.db.prepare('SELECT * FROM budget_attempts WHERE lane=\'voice\' ORDER BY rowid DESC LIMIT 1').get();
