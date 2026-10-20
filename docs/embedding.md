@@ -2515,7 +2515,8 @@ sessionElement.configure({
 - **O7:** Wallet `canAdmit(request)` keeps its boolean contract and may refuse
   with `{ ok: false, reason: 'session' }`; `admit(request)` may return that
   refusal too. Only boolean `true` authorizes a preview or voice extension;
-  every other return value refuses. Unknown or absent reasons remain host-limit. Daily cap wins
+  every other return value refuses. Unknown or absent reasons remain host-limit.
+  Daily cap wins
   over session, and session wins over host-limit. Session end uses the
   number-free title and either confirmation at the higher tier, the O1 new
   conversation action, or export when O1 is off. O2 and O5 affect daily cap only.

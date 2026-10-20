@@ -545,6 +545,13 @@ for (const copy of [de, en]) test(`AIT-411: defaults equal independently capture
   const fixture = setup(t, { copy, host: { credits: true, verification: true } });
   await tick(10);
   const actual = ['.host-credits', '.composer-out', '.transcript-shell'].map(selector => fixture.root.querySelector(selector).outerHTML.replaceAll(fixture.c.session.id, '<session>'));
+  const original = baseline.rc13Snapshots[copy.display.locale], main = baseline.snapshots[copy.display.locale];
+  // AIT-410/AIT-422 on main changed only this body between RC13 and the merge.
+  // Apply that independently captured exact hunk to RC13; never strip PR nodes.
+  const body = html => html.match(/<p class="composer-out__body"[^>]*>[\s\S]*?<\/p>/u)[0];
+  const expected = [original[0], original[1].replace(body(original[1]), body(main[1])), original[2]];
+  assert.deepEqual(main, expected, 'only the inherited AIT-410/AIT-422 body hunk differs from original RC13');
+  assert.deepEqual(actual, expected, 'no AIT-411 DOM delta from RC13 plus the approved main hunk');
   assert.deepEqual(actual, baseline.snapshots[copy.display.locale], 'no AIT-411 DOM delta from main without this feature');
   assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');
 });

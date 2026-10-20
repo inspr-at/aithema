@@ -50,7 +50,8 @@ for (const reason of [null, 'budget denied', 'current processing consent require
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 0, 'presentation evaluation reserves no work');
 });
 for (const preview of [false, { ok: false, reason: 'session' }, { ok: false, reason: 'host-limit' },
-  { ok: false, reason: 'dailyCap' }, { ok: false, reason: 'unknown' }, { ok: false }, {}, null, undefined, 1, 'true', { ok: true }]) {
+  { ok: false, reason: 'dailyCap' }, { ok: false, reason: 'daily-cap' }, { ok: false, reason: 'unknown' },
+  { ok: false }, { reason: 'session' }, {}, null, undefined, 1, 'true', { ok: true }]) {
   test(`AIT-411: feature admission requires explicit wallet yes (${JSON.stringify(preview)})`, async t => {
     const h = setup(t);
     h.runtime.setOwnerWallet(() => ({ canAdmit: () => preview }));
@@ -62,6 +63,11 @@ for (const preview of [false, { ok: false, reason: 'session' }, { ok: false, rea
     assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 0);
   });
 }
+test('AIT-411: a configured wallet resolver cannot fail open when the wallet is missing', async t => {
+  const h = setup(t);
+  h.runtime.setOwnerWallet(() => undefined);
+  assert.equal((await h.runtime.matrix(h.session)).best.text.available, false);
+});
 test('AIT-411: explicit boolean wallet yes keeps feature admission available', async t => {
   const h = setup(t);
   h.runtime.setOwnerWallet(() => ({ canAdmit: () => true }));
