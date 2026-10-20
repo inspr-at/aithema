@@ -468,7 +468,7 @@ export const de = {
       balance: 'Ihre Credits: {available} von {limit} übrig, für alle Ihre Gespräche.',
       sessionBalance: 'Guthaben dieses Gesprächs: {available} von {limit}\u00a0Credits übrig.',
       sessionBalanceOut: 'Die {limit}\u00a0Credits dieses Gesprächs sind aufgebraucht.',
-      dailyCap: 'Für heute ist das Tageslimit dieser E-Mail-Adresse erreicht. Morgen geht es weiter.',
+      dailyCap: 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.',
       dailyCapShort: 'Tageslimit erreicht',
       sessionCreditsLimit: 'Nur Demo: Hier gibt es kein Aufladen.',
       balanceOut: 'Ihre {limit} Credits sind aufgebraucht, für alle Ihre Gespräche.',
