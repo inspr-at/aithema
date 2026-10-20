@@ -276,6 +276,10 @@ export class QuestionCard {
       setText(button.querySelector('.t'), option.text); setText(button.querySelector('.tag'), option.likely ? c.suggestion : '');
       button.title = option.likely ? c.likely : '';
     });
+    // A replacement set starts at its first answer. Native scroll anchoring
+    // can otherwise retain an old offset after the permanent reply row makes
+    // the phone option viewport shorter.
+    if (optionsChanged) this.card.querySelector('.qopts').scrollTop = 0;
     this.reserve();
     this.positionOptions(optionsChanged && !optionsFocused);
     this.fadeOptions();

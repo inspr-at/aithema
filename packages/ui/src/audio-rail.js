@@ -281,7 +281,6 @@ export class AudioRail {
     const pageReply = !this.notices.recovery ? this.lastReply?.() : null;
     if (this.notices.pageReply?.turnId !== pageReply?.turnId || this.notices.pageReply?.text !== pageReply?.text) {
       this.client?.stopReplay?.(); this.notices.playing = false;
-      if (!this.notices.recovery) this.notices.recoveryContext = false;
     }
     this.notices.pageReply = pageReply;
     this.notices.copy = c; this.notices.render();
