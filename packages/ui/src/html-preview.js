@@ -54,9 +54,10 @@ export const previewCopy = Object.freeze({ label: 'Draft, generated', title: 'Ge
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
   navigated: 'The draft tried to open another page and was stopped.',
   loading: 'Loading draft…', failure: 'The draft could not be loaded.', reload: 'Reload',
+  unavailable: "This preview isn't available.",
   policy: "Previews aren't enabled on this site.",
   policyOperator: 'For site operators: the exact preview address must be allowed as a frame.' });
-const MESSAGE_STATES = ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy'];
+const MESSAGE_STATES = ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy', 'unavailable'];
 const FRAME_READY = 'aithema-html-preview-ready';
 // A private reply port distinguishes a served draft from an error document.
 // It proves display readiness; the response and host CSP enforce containment.
@@ -99,7 +100,7 @@ iframe:focus-visible { outline:2px solid var(--aithema-accent,#1d6e6a); outline-
 .reload:hover:not(:disabled) { text-decoration:underline; text-underline-offset:.2em; }
 .reload:disabled { color:var(--aithema-muted,#566669); cursor:default; }
 :host([state="ready"]) .state { visibility:hidden; pointer-events:none; }
-:host([state="failure"]) .state-icon, :host([state="policy"]) .state-operator { visibility:visible; }
+:host([state="failure"]) .state-icon, :host([state="unavailable"]) .state-icon, :host([state="policy"]) .state-operator { visibility:visible; }
 /* fill: the stage takes whatever height the host gives the element, e.g. a viewer row. */
 :host([fill]) { display:grid; grid-template-rows:auto minmax(0,1fr); height:100%; min-height:0; }
 :host([fill]) .stage { height:auto; min-height:0; }
@@ -109,7 +110,7 @@ const DRAFT_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l1
 const ALERT_ICON = '<svg class="state-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 18 17H2z M10 7v4.5 M10 14v.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 export class AithemaHTMLPreview extends HTMLElement {
   #copy = previewCopy; #artifact = null; #width = 'wide'; #frame = null; #frameFocused = false; #renderId = 0; #refocus = false;
-  #frameCleanup = null; #mintAbort = null;
+  #frameCleanup = null; #mintAbort = null; #unavailable = false;
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open', delegatesFocus: true });
@@ -142,6 +143,8 @@ export class AithemaHTMLPreview extends HTMLElement {
   /** Wide or phone; the stage keeps its size, only the frame's width changes. */
   set width(value) { if (!['wide', 'phone'].includes(value)) return; this.#width = value; this.#text(); }
   get artifact() { return this.#artifact; }
+  get unavailable() { return this.#unavailable; }
+  set unavailable(value) { if (this.#unavailable === Boolean(value)) return; this.#unavailable = Boolean(value); this.#render(); }
   /** `{mediaType, previewURL, mint(signal)}`; mint returns a fresh {url, expiresInMs}. No raw HTML fallback. */
   set artifact(value) { this.#artifact = value ?? null; this.#render(); }
   get state() { return this.getAttribute('state'); }
@@ -164,6 +167,10 @@ export class AithemaHTMLPreview extends HTMLElement {
   #show(state) {
     this.setAttribute('state', state);
     const message = this.shadowRoot.querySelector('.state');
+    message.tabIndex = state === 'unavailable' ? 0 : -1;
+    if (state === 'unavailable') message.setAttribute('aria-label', this.#copy.unavailable);
+    else message.removeAttribute('aria-label');
+    for (const button of this.shadowRoot.querySelectorAll('.seg button')) button.tabIndex = state === 'unavailable' ? -1 : button.dataset.width === this.#width ? 0 : -1;
     message.setAttribute('aria-hidden', String(state === 'ready'));
     message.querySelector('.state-message').textContent = state === 'ready' ? '' : this.#copy[state];
     message.querySelector('.operator-message').textContent = state === 'policy' ? this.#copy.policyOperator : '';
@@ -187,6 +194,7 @@ export class AithemaHTMLPreview extends HTMLElement {
       else if (this.#refocus) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
       this.#refocus = false;
     };
+    if (this.#unavailable) return reject('unavailable');
     if (!value) return reject('empty');
     let previewURL;
     try {
