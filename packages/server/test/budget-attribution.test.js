@@ -197,6 +197,7 @@ test('AIT-401: handlers supply host.now to a prebuilt runtime ledger', async t =
 
 
 test('AIT-401: voice runtime forwards extension context to the host wallet and uses its clock', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: yesterday });
   let clock = yesterday;
   const storage = new SQLiteStorage();
   const endpoint = 'https://voice.example.test', base = publicReasoningManifest('attribution-voice', 'Fixture', endpoint);
