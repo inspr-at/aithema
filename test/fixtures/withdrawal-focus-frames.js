@@ -87,9 +87,9 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
       console.log('AIT411_MAIN_INITIAL ' + JSON.stringify(await page.evaluate(({width, locale}) => {
-        const shell = c.shadowRoot.querySelector('.transcript-shell');
+        const shell = c.shadowRoot.querySelector('.transcript-shell'), b = c.shadowRoot.querySelector('.composer').getBoundingClientRect();
         return { base: '60af959f89b534e602cae7b6563943e4f4e6c367', width, locale,
-          scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight };
+          scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight, composer: [b.x,b.y,b.width,b.height] };
       }, {width, locale})));
       // This case reads the first row; the phone may initially follow the
       // last reply once the four fixture turns overflow the bounded pane.
