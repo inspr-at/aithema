@@ -1178,9 +1178,16 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
         };
         // Before AIT-433 the divider stretched across this same overview grid track.
         // Measure the content column, not the padded scrollport that can hide an outset.
+        const stateSlot = root.querySelector('.handover__state-slot');
+        const reservedStates = [...stateSlot.querySelectorAll('.handover__state-sizer')].map(n => {
+          const range = document.createRange(); range.selectNodeContents(n);
+          return { state: n.dataset.state, lines: new Set([...range.getClientRects()].filter(r => r.width > 0).map(r => r.y)).size };
+        });
         return { overview: rect(root.querySelector('.analysis-content > .notice')),
           block: rect(root.querySelector('.handover')), row: rect(root.querySelector('.handover__row')),
           heading: rect(root.querySelector('.handover h3')), action: rect(root.querySelector('.handover-request')),
+          reservation: { ...rect(stateSlot), lineHeight: parseFloat(getComputedStyle(stateSlot).lineHeight),
+            longestLines: Math.max(...reservedStates.map(s => s.lines)), states: reservedStates },
           notice: measure('.handover__offer'), state: measure('.handover__state') };
       });
       baseline ??= metric;
@@ -1208,7 +1215,10 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
         require(metric.action.width === metric.row.width && metric.action.height === 44, 'stacked action is full width and 44px');
         require(metric.state.x === metric.row.x && ['start', 'left'].includes(metric.state.textAlign), 'stacked state is left-aligned');
       }
-      if (width === 390 && locale === 'de') require(metric.state.lines <= 2, `state uses ${metric.state.lines} lines > 2`);
+      if (width < 640) require(metric.state.lines <= 3 && metric.reservation.longestLines <= 3 &&
+        Math.abs(metric.reservation.height - metric.reservation.longestLines * metric.reservation.lineHeight) <= .5 &&
+        metric.state.height === metric.reservation.height,
+      `≤ 3 lines below 640 px, reserved to the longest state: ${metric.state.lines} visible; ${JSON.stringify(metric.reservation)}`);
       const displacement = Math.max(...['block', 'action', 'state'].flatMap(name => ['x', 'y', 'width', 'height'].map(key => Math.abs(metric[name][key] - baseline[name][key]))));
       require(displacement === 0, `block/action/state displacement is ${displacement}px`);
       checks.push({ locale, width, phase: state, beside, displacement, ...metric });
