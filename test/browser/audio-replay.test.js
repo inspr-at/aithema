@@ -12,9 +12,10 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); } });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), files = [], passLines = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
