@@ -86,6 +86,12 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
+      // This case reads the first row; the phone may initially follow the
+      // last reply once the four fixture turns overflow the bounded pane.
+      await page.evaluate(async () => {
+        c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
       await page.mouse.move(-10, -10);
       const inspect = () => page.evaluate(() => {
         const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
@@ -98,6 +104,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
             .map(n => ({ id:n.dataset.id, top:n.getBoundingClientRect().top, bottom:n.getBoundingClientRect().bottom }))[0] };
       });
       const before = await inspect();
+      assert.equal(before.scrollTop, 0, 'first-row clearance starts at the top of the transcript');
       await page.evaluate(() => withdraw());
       await capture(width, 'light', locale, 'transcript-withdrawal');
       const withdrawn = await inspect();
@@ -153,43 +160,60 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
           const measure = () => ({ lastBottom: shell.querySelector('.turn:last-child').getBoundingClientRect().bottom,
             latestTop: latest.getBoundingClientRect().top, latestBottom: latest.getBoundingClientRect().bottom,
             shellBottom: shell.getBoundingClientRect().bottom, scrollHeight: shell.scrollHeight, scrollTop: shell.scrollTop });
+          // Visibility alone also stays identical when a negative margin cancels
+          // Latest's slot. Measure the scroll room without that slot as well.
+          latest.style.display = 'none'; const withoutLatest = measure(); latest.style.display = '';
           shell.scrollTop = shell.scrollHeight; latest.style.visibility = 'hidden'; const hidden = measure();
           latest.style.visibility = 'visible'; const shown = measure();
-          latest.style.visibility = 'hidden'; return { hidden, shown, hiddenAgain: measure() };
+          latest.style.visibility = 'hidden'; return { withoutLatest, hidden, shown, hiddenAgain: measure() };
         });
         checks.push({ width, locale, bottom });
         if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
+        assert.ok(bottom.hidden.scrollHeight > bottom.withoutLatest.scrollHeight, 'AIT-400 v1.1: hidden Latest reserves real scroll room below the last row');
         assert.deepEqual(bottom.shown, bottom.hidden, 'AIT-400 v1.1: Latest shown/hidden moves the last-row bottom and scroll geometry 0 px');
         assert.deepEqual(bottom.hiddenAgain, bottom.hidden, 'AIT-400 v1.1: hiding Latest again moves the last-row bottom 0 px');
         assert.ok(bottom.shown.lastBottom <= bottom.shown.latestTop, `AIT-400 v1.1: Latest occupies its reserved slot below the last message: ${JSON.stringify(bottom)}`);
         assert.ok(bottom.shown.latestBottom <= bottom.shown.shellBottom, 'Latest is wholly inside the scroll area');
       });
       for (const mode of ['fold', 'hide']) await t.test(`inset reset/${mode}/${width}/${locale}`, async () => {
-        await mount(width, 'light', locale, 't1');
-        await page.evaluate(async () => {
+        await mount(width, 'light', locale, 't1', false, mode === 'hide' ? [] : undefined);
+        await page.evaluate(async mode => {
           // Attach the production page watchers to this otherwise offline mount.
           const { [c.session.locale]: copy } = await import('/packages/ui/src/i18n/' + c.session.locale + '.js');
           c.configure({ session:c.session, copy, sessionToken:'fixture-owner', concepts:{ previewURL:location.origin+'/_aithema/html-preview' } });
+          // A partial can enter live before any durable input exists. A failed
+          // lane clears it and returns to ready through the production renderer.
+          const { inputRevision } = await import('/packages/core/src/session.js');
+          window.stagePartial = () => c.receive({ type:'turn.partial', data:{ id:'stage-partial', delta:'Stage transition', inputRevision:inputRevision(c.session) } });
           document.body.style.paddingBottom = '1600px'; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
-        });
+        }, mode);
         const result = await page.evaluate(mode => {
+          // Keep both transitions and the measurements in one task, before
+          // the offline fixture's failed event stream can clear the partial.
+          if (mode === 'hide') stagePartial();
           const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), workspace = r.querySelector('.workspace');
           const measure = () => ({ inset:parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0,
             shellTop:shell.getBoundingClientRect().top, bubbleTop:shell.querySelector('.turn').getBoundingClientRect().top,
             lastTopRowBottom:Math.max(r.querySelector('.band').getBoundingClientRect().bottom, r.querySelector('.concept-bar').getBoundingClientRect().bottom) });
           const before = measure(); scrollTo(0, 400); dispatchEvent(new Event('scroll')); const scrolled = measure();
-          if (mode === 'fold') r.querySelector('.fold').click(); else workspace.dataset.stage = 'ready';
-          dispatchEvent(new Event('resize')); const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
-          scrollTo(0, 0); dispatchEvent(new Event('scroll'));
-          if (mode === 'fold') r.querySelector('.fold-strip').click(); else workspace.dataset.stage = 'live';
+          if (mode === 'fold') r.querySelector('.fold').click();
+          else c.receive({ type:'lane.failed', data:{ lane:'reaction' } });
+          const hiddenStage = workspace.dataset.stage;
+          const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
+          // Do not repair the hidden inset with a synthetic scroll or resize.
+          scrollTo(0, 0);
+          if (mode === 'fold') r.querySelector('.fold-strip').click();
+          else stagePartial();
           // Inspect synchronously on return, before another scroll can repair it.
           const returned = measure();
           document.body.style.paddingBottom = ''; scrollTo(0, 0); dispatchEvent(new Event('scroll'));
-          return { before, scrolled, hiddenInset, returned };
+          return { before, scrolled, hiddenStage, returnedStage:workspace.dataset.stage, hiddenInset, returned };
         }, mode);
         checks.push({ width, locale, mode, insetReset:result });
         if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
         assert.ok(result.scrolled.inset > 0, 'fixture first creates a real sticky-header inset');
+        assert.equal(result.hiddenStage, mode === 'hide' ? 'ready' : 'live', 'fixture exercises the requested production stage');
+        assert.equal(result.returnedStage, 'live', 'fixture returns to the live stage');
         assert.equal(result.hiddenInset, 0, 'AIT-400: fold/hide clears the stale top inset');
         assert.deepEqual(result.returned, result.before, 'AIT-400: fold/hide → live has 0 px empty top gap before the next scroll');
         assert.ok(result.returned.bubbleTop >= result.returned.lastTopRowBottom, 'returned first bubble is fully below the last top row');
