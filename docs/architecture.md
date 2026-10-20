@@ -222,9 +222,10 @@ inventory below is also compared by the unit test. Declarations describe intent,
 not environment values. Tests must not silently change coverage because an
 undeclared CI variable happens to exist.
 
-`CI` deliberately selects Linux Chrome's sandbox arguments. AIT-185/192 uses it
-to keep PR artifact directories from enabling the full evidence matrix; nightly
-explicitly unsets CI. `GITHUB_SHA` and `GITHUB_RUN_ID` label evidence/provenance.
+`CI` deliberately selects Linux Chrome's sandbox arguments and CI timing budgets.
+AIT-185/192 uses it to keep PR artifact directories from enabling the full evidence
+matrix; nightly sets `AITHEMA_FULL_MATRIX: '1'` and keeps GitHub's `CI=true`.
+`GITHUB_SHA` and `GITHUB_RUN_ID` label evidence/provenance.
 The soak wrappers forward CI to children deliberately. Whole-environment copies
 in orchestration tests preserve or explicitly override CI while exercising child
 commands. Manual OPS diagnostics outside the test tree also use CI as a refusal
@@ -248,7 +249,7 @@ they are not test coverage switches.
 | `test/browser/external-plugin.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/host-surface.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
-| `test/browser/html-preview.test.js` | `CI` ×1 | AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix |
+| `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection (--no-sandbox); AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix |
 | `test/browser/matrix-coverage.js` | `CI` ×1, `GITHUB_ACTIONS` ×1 | AIT-406 full matrix explicitly selected by AITHEMA_FULL_MATRIX while retaining CI timing; AIT-192 local evidence also selects full coverage outside CI; AIT-293 manual axe excludes GITHUB_ACTIONS |
 | `test/browser/operator-login.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/question-card.test.js` | `CI` ×1, `GITHUB_SHA` ×1 | Linux headless Chrome sandbox selection; Evidence/source provenance; release test matches the run identifier |

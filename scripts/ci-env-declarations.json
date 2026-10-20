@@ -93,7 +93,7 @@
     "reads": [
       "CI"
     ],
-    "reason": "AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix"
+    "reason": "Linux headless Chrome sandbox selection (--no-sandbox); AIT-364 scoped-consent CI timing budget; AIT-406 coverage uses shared fullMatrix"
   },
   "test/browser/matrix-coverage.js": {
     "reads": [
