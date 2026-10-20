@@ -91,7 +91,7 @@ export const hostStyles = `
 .handover__state-slot > * { grid-area:1/1; margin:0; min-width:0; }
 .handover__state-sizer { visibility:hidden; }
 @media(width < 640px) {
-  .handover { margin-inline-end:-.75rem; }
+  .handover { margin-inline:-.75rem; }
   .handover__row { display:grid; grid-template-columns:minmax(0,1fr); gap:.25rem; }
 }
 
