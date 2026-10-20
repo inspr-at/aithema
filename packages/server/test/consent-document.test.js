@@ -11,7 +11,8 @@ async function artifactCoverageFixture(t) {
   const { PluginRegistry, processingScope } = await import('@inspr/aithema-core');
   const { createLocalHTML, localHTMLBinding } = await import('../src/index.js');
   const storage = new SQLiteStorage(), producer = createLocalHTML(), now = Date.now();
-  const registry = new PluginRegistry().register({ ...producer, generate() { throw new Error('No provider calls'); } });
+  const registry = new PluginRegistry().register({ ...producer, generate() { throw new Error('No provider calls'); },
+    bind(raw) { return { ...this, binding: raw }; } });
   const binding = purpose => ({ ...localHTMLBinding, maxMicro: 1000, rates: { inputMicro: 1, outputMicro: 1 },
     legal: { approved: true, countries: ['FR'], training: false, retention: 'fixture', purpose, recipient: 'offline',
       processors: [], dataCategories: ['conversation'], consentVersion: 1,
@@ -21,7 +22,7 @@ async function artifactCoverageFixture(t) {
   const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, scope, ...scope, consentRevision,
     checkedAt: now, expiresAt: now + 60000 }), describe: () => ({ contract: 'ait374', selected: ['drafts', 'old-drafts'],
     items: ['drafts', 'old-drafts'].map(id => ({ id, version: 1, title: id, recipients: 'Offline', text: 'Fixture' })) }) };
-  const config = { plugins: ['fake-html'], bindings: { html: good }, choices: { models: [], visuals: [
+  const config = { plugins: ['fake-html'], policy: { endpoints: [good.endpoint] }, bindings: { html: good }, choices: { models: [], visuals: [
     { id: 'good', kind: 'html', binding: good }, { id: 'bad', kind: 'html', binding: bad },
   ] } };
   const runtime = createPluginRuntime({ storage, registry, consent, presets: { best: config } });

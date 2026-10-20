@@ -40,6 +40,26 @@ for (const copy of [en, de]) test(`AIT-374 ${copy === en ? 'en' : 'de'}: unavail
   // A missing consent choice for one producer also cannot hide another producer.
   view.update(c.session, { ...coverage, selected: ['drafts'] });
   assert.deepEqual(view.items.map(i => i.id), ['first', 'last']);
+  view.update(c.session, { ...coverage, selected: ['drafts'], artifacts: { ...coverage.artifacts, bad: { purposes: ['old-drafts'], unavailable: false } } });
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last'], 'a resolvable sibling with withdrawn consent is independent too');
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'last'], 'actual consent withdrawal removes its slot');
+});
+
+test('AIT-374: image availability is per artifact and its unavailable slot cannot fetch bytes', async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, calls, downloads } = setup(t, { concepts: [item('first'), item('bad'), item('last')] });
+  view.open('bad'); await tick();
+  view.update(c.session, { consentRevision: c.session.consentRevision, selected: ['images'], features: { images: ['images'] },
+    artifacts: Object.fromEntries(['first', 'bad', 'last'].map(id => [id, { purposes: ['images'], unavailable: id === 'bad' }])) });
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last']);
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'bad', 'last']);
+  assert.equal(root.querySelector('.concept-image').hasAttribute('src'), false);
+  const status = root.querySelector('.concept-image-status');
+  assert.equal(status.textContent, en.conceptPreview.unavailable); assert.equal(status.tabIndex, 0);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  const before = calls.length; assert.equal(await view.load('bad'), null); await view.download();
+  assert.equal(calls.length, before); assert.equal(downloads.length, 0);
 });
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } }, ...extra }; }

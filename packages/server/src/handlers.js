@@ -305,7 +305,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     for (const feature of ['html', 'images']) {
       const kind = delivered.filter(item => (item.mediaType === 'text/html' ? 'html' : 'images') === feature);
       if (!kind.length) continue;
-      features[feature] = [...new Set(kind.flatMap(item => artifacts[item.id].purposes))];
       if (kind.every(item => artifacts[item.id].unavailable)) unavailableFeatures.push(feature);
     }
     return { ...document, features, artifacts, unavailableFeatures, consentRevision: session.consentRevision };

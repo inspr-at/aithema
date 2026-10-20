@@ -156,7 +156,7 @@ export class ConceptView {
         // A failed preview has two shadow controls: the selected width and Reload.
         // Include both in the trap so backwards entry reaches Reload too.
         const failedDraft = draft.state === 'failure', unavailableDraft = draft.state === 'unavailable';
-        const stops = [...dialog.querySelectorAll('button, aithema-html-preview')].filter(b => !b.disabled && !b.hidden)
+        const stops = [...dialog.querySelectorAll('button, aithema-html-preview, .concept-image-status[tabindex="0"]')].filter(b => !b.disabled && !b.hidden)
           .flatMap(b => b === draft && unavailableDraft ? [draft.shadowRoot.querySelector('.state')]
             : b === draft && failedDraft ? [...draft.shadowRoot.querySelectorAll('button')].filter(b => !b.disabled && b.tabIndex >= 0) : [b]);
         const active = root.activeElement === draft && (failedDraft || unavailableDraft) ? draft.shadowRoot.activeElement : root.activeElement;
@@ -272,7 +272,10 @@ export class ConceptView {
     if (this.#canvasWithdrawnKind && this.covered(this.#canvasWithdrawnKind)) this.#canvasWithdrawnKind = undefined;
     const partial = !changedOwner && !session.consentWithdrawn && !session.tombstone && (this.#consentRefreshFailed ? this.#visible.at(-1) : this.#visible.find(item => !this.covered(conceptKind(item), item)));
     if (partial) {
-      for (const kind of ['html', 'image']) if (this.#visible.some(item => conceptKind(item) === kind && !this.covered(kind))) this.#scopeEpoch[kind]++;
+      for (const kind of ['html', 'image']) {
+        const siblings = this.#visible.filter(item => conceptKind(item) === kind);
+        if (siblings.length && siblings.every(item => !this.covered(kind, item))) this.#scopeEpoch[kind]++;
+      }
       for (const id of this.#loads.keys()) if (!this.items.some(item => item.id === id)) this.#loads.delete(id);
     }
     const selectedRemoved = this.dialog.open && this.#selected && !this.displayItems.some(item => item.id === this.#selected);
@@ -514,12 +517,14 @@ export class ConceptView {
     draft.artifact = this.previewSource(current.id);
   }
   paintUnavailable(status) {
-    status.replaceChildren();
     status.innerHTML = WARNING_ICON;
+    const icon = status.querySelector('svg'); icon.setAttribute('width', '20'); icon.setAttribute('height', '20');
+    status.style.color = 'var(--aithema-muted)';
     status.append(document.createTextNode(this.copy.conceptPreview.unavailable));
     status.tabIndex = 0; status.setAttribute('aria-label', this.copy.conceptPreview.unavailable);
   }
   clearUnavailable(status) {
+    status.style.removeProperty('color');
     status.removeAttribute('tabindex'); status.removeAttribute('aria-label');
   }
   previewSource(id) {

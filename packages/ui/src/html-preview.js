@@ -156,7 +156,7 @@ export class AithemaHTMLPreview extends HTMLElement {
     seg.setAttribute('aria-label', this.#copy.width);
     for (const button of seg.querySelectorAll('button')) {
       const on = button.dataset.width === this.#width;
-      button.textContent = this.#copy[button.dataset.width]; button.setAttribute('aria-checked', String(on)); button.tabIndex = on ? 0 : -1;
+      button.textContent = this.#copy[button.dataset.width]; button.setAttribute('aria-checked', String(on)); button.tabIndex = on && !this.#unavailable ? 0 : -1;
     }
     root.querySelector('.stage').dataset.width = this.#width;
     for (const sizer of root.querySelectorAll('.state-text .state-sizer')) sizer.dataset.reserve = this.#copy[sizer.dataset.state];
@@ -191,7 +191,7 @@ export class AithemaHTMLPreview extends HTMLElement {
     const reject = state => {
       this.#show(state);
       if (reload) this.shadowRoot.querySelector(state === 'failure' ? '.reload' : '.state').focus();
-      else if (this.#refocus) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
+      else if (this.#refocus) this.shadowRoot.querySelector(state === 'unavailable' ? '.state' : '.seg [aria-checked="true"]').focus();
       this.#refocus = false;
     };
     if (this.#unavailable) return reject('unavailable');
