@@ -51,7 +51,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   spendDeadlineAt = Math.min(spendDeadlineAt ?? Infinity, startedAt + callDurationSeconds({ maxDurationSeconds }) * 1000);
   if (!Number.isFinite(browserLivenessDeadlineAt) || Math.min(spendDeadlineAt, browserLivenessDeadlineAt) <= now()) throw new PluginError('deadline');
   let state = { ...createVoiceLifecycle(callId), epoch }, input = true, output = true, utterance,
-    sequence = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve(), typedPending = 0;
+    sequence = 0, acceptedTurns = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve(), typedPending = 0;
   const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), playbacks = new Set(), commits = new Map(), textDeliveries = new Map();
   let history = [], historyBytes = 0, commitTail = Promise.resolve();
   const replies = new Set();
@@ -179,6 +179,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       const accepted = () => {
         event({ type: 'final', role: 'user', turnId: turn.id, text, ...(turn.speechEndAt === undefined ? {} : { speechEndAt: turn.speechEndAt }) });
         dispatch({ type: 'accepted', turnId: turn.id });
+        acceptedTurns++;
         delivery?.accept();
         committed.resolve();
       };
@@ -367,6 +368,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       // Hand-off is the executor accepting the trusted envelope and returning
       // its stream. Waiting for its first event can wait for the entire reply.
       onAccepted?.();
+      const replyTurn = acceptedTurns;
       for await (const item of boundedEvents(source, options(signal))) {
         if (complete) throw new PluginError('invalid-output');
         if (item.type === 'operation') {
@@ -394,10 +396,11 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           // aborts this reply signal and prevents any later final publication.
           if (!signal.aborted) {
             appendHistory('assistant', full);
-            // Keep completed reasoning, but an interrupted reply cannot answer
-            // the visitor's next turn through the browser's live reply signal.
+            // Playback silence also covers output-off and empty STT. Only an
+            // accepted replacement makes this final stale for the live rail;
+            // delivery.interrupted retains its separate transcript provenance.
             event({ type: 'final', role: 'assistant', turnId: replyId, text: full,
-              ...(delivery.interrupted || revision !== playbackRevision ? { interrupted: true } : {}) });
+              ...(acceptedTurns > replyTurn ? { interrupted: true } : {}) });
           }
           await speak(pending, revision, signal, playback);
         } else throw new PluginError('invalid-output');
