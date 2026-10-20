@@ -13,7 +13,7 @@ import { contrast } from '../contrast.js';
 const workflowEvent = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
 const head = workflowEvent?.pull_request?.head?.sha ?? process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
-const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 40 });
+const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 'raf' });
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
 // Wait for the rendered fixture and finite UI transitions instead of paying
 // 450 ms after every action in all twelve viewport/theme/language combinations.
@@ -145,13 +145,9 @@ export async function composerCreditReservationMatrix(t) {
     await page.select('#locale', locale); await page.select('#theme', theme);
     await fixture(page, locale);
     const before = await boxes(page, selectors);
-    // Reconciliation retains these spans through all four credit states.
-    // Discover their backend IDs once; still read each hidden node's AX state
-    // independently for every sample, including the all-hidden default state.
+    // Retain the container handle, but inspect its current descendants for
+    // every state: changing text can replace a text node inside a stable span.
     const { result } = await accessibility.send('Runtime.evaluate', { expression: "document.querySelector('aithema-session').shadowRoot.querySelector('.composer-out__body')" });
-    const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId, depth: 1 });
-    await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
-    const variantNodes = node.children.filter(n => n.nodeName === 'SPAN');
     for (const state of ['default', 'host-limit', 'one-hour', 'daily-cap']) {
       if (state !== 'default') {
         const reads = await page.evaluate(() => window.a2.creditsReads);
@@ -170,16 +166,26 @@ export async function composerCreditReservationMatrix(t) {
         key: n.dataset.creditVariant, text: n.textContent, visibility: getComputedStyle(n).visibility, ariaHidden: n.getAttribute('aria-hidden'),
         gridCell: [getComputedStyle(n).gridRowStart, getComputedStyle(n).gridColumnStart],
       })) }), selectors);
+      // One complete AX snapshot replaces ten separately refreshed partial
+      // trees. Check every hidden span AND its current descendants: none may
+      // be exposed. A nonempty document tree prevents an empty-tree false pass.
+      const [{ node }, { nodes }] = await Promise.all([
+        accessibility.send('DOM.describeNode', { objectId: result.objectId, depth: -1 }),
+        accessibility.send('Accessibility.getFullAXTree'),
+      ]);
+      assert.ok(nodes.some(n => n.role?.value === 'RootWebArea' && n.ignored === false), 'AX snapshot contains the accessible document');
+      const variantNodes = node.children.filter(n => n.nodeName === 'SPAN');
       assert.equal(variantNodes.length, variants.length, 'every reserved variant has a cached backend node');
-      // The hidden variants are independent reads of the same settled tree.
-      const hiddenAX = (await Promise.all(variants.map(async (variant, i) => {
-        if (variant.ariaHidden !== 'true') return null;
+      const exposed = new Set(nodes.filter(n => !n.ignored).map(n => n.backendDOMNodeId));
+      const descendants = n => [n.backendNodeId, ...(n.children ?? []).flatMap(descendants)];
+      const hiddenAX = variants.flatMap((variant, i) => {
+        if (variant.ariaHidden !== 'true') return [];
         const node = variantNodes[i];
         const keyIndex = node.attributes.indexOf('data-credit-variant');
         assert.equal(node.attributes[keyIndex + 1], variant.key, 'cached AX node matches the sampled variant');
-        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId, fetchRelatives: false });
-        return { key: variant.key, ignored: nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored === true };
-      }))).filter(Boolean);
+        const checkedBackendNodes = descendants(node);
+        return [{ key: variant.key, ignored: checkedBackendNodes.every(id => !exposed.has(id)), checkedBackendNodes }];
+      });
       const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
         variants, hiddenAX, hiddenVariantsAbsent: hiddenAX.every(n => n.ignored),
@@ -196,6 +202,7 @@ export async function composerCreditReservationMatrix(t) {
         await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
       }
     }
+    await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
   }
   if (evidence) await writeFile(join(evidence, 'ait406-composer-checks.json'), JSON.stringify({ head, spec: 'Tick spec v1, AIT-406, 2026-10-20', rows }, null, 2));
   assert.equal(rows.length, 48);
@@ -244,8 +251,9 @@ export async function topUpReservationMatrix(t) {
     const before = await boxes(page, selectors), v3Before = await boxes(page, v3Selectors);
     const recordV3 = async (state, settled = false) => {
       if (!settled) await settle(page);
-      const after = await boxes(page, v3Selectors);
-      const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.voice-repeat, .voice-read-text')].map(n => {
+      const { after, controls } = await shadow(page, (c, selectors) => ({
+        after: selectors.map(selector => { const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        controls: [...c.shadowRoot.querySelectorAll('.voice-repeat, .voice-read-text')].map(n => {
         const style = getComputedStyle(n);
         n.focus({ preventScroll: true });
         const focused = c.shadowRoot.activeElement === n;
@@ -253,7 +261,7 @@ export async function topUpReservationMatrix(t) {
         return { hidden: n.hidden, visible: style.display !== 'none' && style.visibility === 'visible' && n.getClientRects().length > 0,
           attached: n.parentElement.parentElement.matches('.turn:last-child'), disabled: n.disabled, ariaDisabled: n.getAttribute('aria-disabled'),
           title: n.title, description: n.getAttribute('aria-description'), opacity: style.opacity, focused };
-      }));
+      }) }), v3Selectors);
       const inCall = ['starting', 'running'].includes(state);
       const axControls = [];
       if (inCall) for (const selector of ['.voice-repeat', '.voice-read-text']) {
@@ -305,7 +313,7 @@ export async function topUpReservationMatrix(t) {
         });
         await page.waitForFunction(reads => window.a2.creditsReads > reads && !document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up'), { timeout: 20_000 }, reads);
       }
-      await settle(page);
+      if (state !== 'ready') await settle(page);
       const after = await boxes(page, selectors);
       const detail = await shadow(page, c => {
         const r = c.shadowRoot;
@@ -902,13 +910,14 @@ export async function replyRowsMatrix(t) {
     unchanged(before, await boxes(page, selectors), 'focus and hover reserve exactly the same space');
     const record = async state => {
       await settle(page);
-      const after = await boxes(page, selectors);
-      const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.reply-actions')].map(row => ({
+      const { after, controls } = await shadow(page, (c, selectors) => ({
+        after: selectors.map(selector => { const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        controls: [...c.shadowRoot.querySelectorAll('.reply-actions')].map(row => ({
         id: row.parentElement.dataset.id, height: row.getBoundingClientRect().height,
         controls: [...row.querySelectorAll('button')].map(n => ({ disabled: n.disabled, ariaDisabled: n.getAttribute('aria-disabled'),
           description: n.getAttribute('aria-description'), title: n.title, visible: getComputedStyle(n).visibility,
           icons: n.querySelectorAll('svg').length, iconVisibility: getComputedStyle(n.querySelector('svg')).visibility, label: n.getAttribute('aria-label'), text: n.textContent.trim() }))
-      })));
+      })) }), selectors);
       const movementPx = unchanged(before, after, `${locale}/${theme}/${width}/${state}`);
       assert.equal(controls.length, 3, 'all three replies own a row');
       for (const row of controls) {
