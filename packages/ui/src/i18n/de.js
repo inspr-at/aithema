@@ -437,9 +437,7 @@ export const de = {
       title: 'Ihre Credits sind aufgebraucht.', body: 'Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.',
       give: 'Mit Ihrer E-Mail-Adresse erhalten Sie {delta} Credits mehr.', confirm: 'Mit bestätigter E-Mail-Adresse erhalten Sie {delta} Credits mehr.',
       none: 'Weitere Credits gibt es hier derzeit nicht.', export: 'Gespräch exportieren',
-      // AIT-422: preserve the original copy envelope without painting or announcing it.
-      hostGiveMeasure: 'Mit Ihrer E-Mail-Adresse erhalten Sie +{delta} weitere Credits. Ihr Gespräch bleibt gespeichert.',
-      hostGive: 'Mit Ihrer E-Mail-Adresse erhalten Sie {delta} weitere\u00a0Credits.',
+      hostGive: 'Mit E-Mail-Adresse: {delta} weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.',
       hostConfirm: 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +{delta} weitere Credits.',
     },
     library: {
@@ -599,7 +597,7 @@ export const de = {
     'public-origin-invalid': 'Adresse des Sprachhosts ungültig',
     'api-base-invalid': 'Adresse des Sprachanbieters ungültig',
     'voice-secret-unavailable': 'Zugang zum Sprachanbieter nicht verfügbar',
-    'agent-api-unavailable': 'Sprachanbieter antwortet nicht',
+    'agent-api-unavailable': 'Sprache gerade nicht verfügbar',
     'agent-api': 'Anfrage an den Sprachanbieter fehlgeschlagen (HTTP {status})',
     'agent-list-incomplete': 'Liste des Sprachanbieters unvollständig',
     'agent-list-invalid': 'Liste des Sprachanbieters ungültig',

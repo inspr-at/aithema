@@ -204,7 +204,7 @@ export class AudioRail {
     // the allowance. Only a wallet verdict or an actual admission refusal ends it.
     const usedUp = Boolean(this.usedUp?.()) || this.allowanceDenied;
     const creditEnding = Boolean(this.ending?.());
-    const reason = this.usedUp?.() ? this.endReason?.() : this.allowanceDenied ? this.errorReason : available.rawReason;
+    const reason = this.usedUp?.() ? this.endReason?.() : this.errorKey === 'voiceAdmissionDenied' ? this.errorReason : available.rawReason;
     const creditLabel = usedUp || !active && !transitional && !this.error
       ? creditVoiceStatus(c, { reason, creditReason: this.creditReason?.(), exhausted: usedUp }) : null;
     const usedUpLabel = this.endReason?.() === 'one-hour' ? c.voiceStates.timeExpired : creditLabel;

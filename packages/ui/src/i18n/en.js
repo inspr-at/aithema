@@ -437,9 +437,7 @@ export const en = {
       title: 'Your credits are used up.', body: 'Your conversation stays saved. You can read and export it.',
       give: 'Add your email address to get {delta} more Credits.', confirm: 'Confirm your email address to get {delta} more Credits.',
       none: 'No further credits are available here at the moment.', export: 'Export conversation',
-      // AIT-422: preserve the original copy envelope without painting or announcing it.
-      hostGiveMeasure: 'Add your email address to get +{delta} more Credits. Your conversation stays saved.',
-      hostGive: 'With your email address you get {delta} more\u00a0credits.',
+      hostGive: 'With your email address you get {delta} more\u00a0credits. Your conversation stays saved.',
       hostConfirm: 'Confirm your email address to get +{delta} more Credits.',
     },
     library: {
@@ -601,7 +599,7 @@ export const en = {
     'public-origin-invalid': 'Voice host address invalid',
     'api-base-invalid': 'Voice provider address invalid',
     'voice-secret-unavailable': 'Voice provider access unavailable',
-    'agent-api-unavailable': 'Voice provider not responding',
+    'agent-api-unavailable': 'Voice unavailable right now',
     'agent-api': 'Voice provider request failed (HTTP {status})',
     'agent-list-incomplete': 'Voice provider list incomplete',
     'agent-list-invalid': 'Voice provider list invalid',
