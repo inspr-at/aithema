@@ -177,6 +177,8 @@ test('failed host cleanup survives restart, is retried and only then acknowledge
 });
 
 test('retirement removes accounting links while preserving deployment spend and daily caps', async t => {
+  const midnight = Date.parse('2028-10-21T00:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now: midnight - 1 });
   const { storage, handlers } = fixture(t), s = storage.create();
   const ledger = new SQLiteBudgetLedger(storage);
   const spend = createSpendCap({ storage, account: 'test-account', capMicro: 100 });
@@ -191,6 +193,7 @@ test('retirement removes accounting links while preserving deployment spend and 
   const spentBefore = spend.snapshot({ includeBreachReason: true }), voiceBefore = voice.snapshot();
   age(storage, s.id);
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
+  t.mock.timers.setTime(midnight);
   assert.deepEqual(spend.snapshot({ includeBreachReason: true }), spentBefore);
   assert.deepEqual(voice.snapshot(), voiceBefore);
   assert.equal(renders.reason('new-session'), 'UI render limit reached for this UTC day');
