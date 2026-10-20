@@ -218,6 +218,8 @@ test('AIT-331: independently qualified other-provider reasoning is non-EU under 
 });
 
 for (const euOnly of [true, false]) test(`AIT-331: ordinary feature matrix uses complete-chain authority (EU undertaking ${euOnly})`, async t => {
+  // Keep the account certificate current at the fixture's declared instant.
+  t.mock.timers.enable({ apis: ['Date'], now: at });
   const f = fixture(), storage = new SQLiteStorage(); t.after(() => storage.close());
   const session = storage.create({ ownerToken: 'synthetic-owner' }), clock = Date.now();
   f.setClock(clock); f.args.getSession = id => storage.get(id);
@@ -288,6 +290,8 @@ test('AIT-331: admission requires the actual reasoning selection', async () => {
 });
 
 for (const mismatch of ['provider', 'endpoint', 'account', 'DPA']) test(`AIT-331: session-selected EU-qualified ${mismatch} mismatch denies voice at the matrix and admission`, async t => {
+  // Keep the account certificate current at the fixture's declared instant.
+  t.mock.timers.enable({ apis: ['Date'], now: at });
   const f = fixture(), storage = new SQLiteStorage(); t.after(() => storage.close());
   const session = storage.create({ ownerToken: 'synthetic-owner', processingPreset: 'eu',
     settings: { model: 'selected', voice: 'voice', visuals: 'off' } });
