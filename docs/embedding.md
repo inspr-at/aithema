@@ -614,8 +614,8 @@ pending with a durable attempt count and exponential backoff (1 second up to
 1 hour); the batch continues. Deferred retries do not set `more`: call again
 on the maintenance schedule even when `more` is false. Monitor `failed`;
 host failures and pending reconciliation for erased sessions can delay deletion
-beyond the intended retention window. Live-session retirement keeps its existing
-accounting behavior and does not wait for billing reconciliation.
+beyond the intended retention window. AIT-421 applies the same bounded billing
+wait and final accounting handoff to idle and visitor-erased sessions.
 
 Last activity is the latest **server timestamp** of person- or host-initiated
 activity: session creation, turns and other committed session changes, authorized
@@ -638,7 +638,8 @@ initializes activity (unknown timestamps conservatively start at migration).
 
 Retirement uses the erase route's `session.erased` invalidation: it broadcasts
 and closes live streams and cancels lanes, concepts, uploads and voice. It then
-withdraws consent, awaits `host.retired({ sessionId, ownerHash })`, and physically
+seals billing, withdraws consent, awaits
+`host.retired({ sessionId, ownerHash, attempts })`, and physically
 deletes core rows in child-before-parent FK order, then the session. The owner
 hash is captured inside the tombstone transaction. No owner token is invented;
 the user erase route continues to use `host.erased({ sessionId, ownerToken })`.
@@ -663,21 +664,38 @@ for sessions already purged even if another session's hook fails.
 | Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
 
 SQLite uses `secure_delete` and truncates its WAL before acknowledging the
-full erase. Visitor-erased sessions defer retirement while a budget attempt is open,
-while an associated spend reservation remains reserved or dispatched without an
-actual amount, or while a provider cost receipt has a non-null `retryAt`. Session
-and accounting metadata remain available during that pending work; content stays
-erased. Retirement checks before host cleanup and again in the core purge
-transaction, using durable backoff until those conditions clear. Terminal estimates
-with no scheduled retry, uncertain receipts with no future settlement, and voice
-`costEstimated` receipts alone do not block retirement. Their spend reservations
-are aggregated into `retired_spend` using the existing spent/reserved/uncertain
-categories, preserving conservative estimated amounts. Live-session retirement
-uses the same aggregation without the billing deferral. If a plugin is removed
-while a cost retry is scheduled, the next due cost reconciliation clears that
-retry for an erased session, preserving the existing conservative charge and
-receipt; no provider settlement is inferred. Live-session receipts remain
-retryable if the plugin returns. Retained totals
+full erase. Both idle and visitor-erased sessions defer while budget work or an
+associated spend reservation is active, or while an uncertain/estimated receipt
+can still reconcile. Deferral ends no later than one hour after the first
+retirement check; settled receipts also stop waiting one hour after their first
+settlement. Deadlines persist across retries and restart. Acknowledged estimates
+without a scheduled retry may seal immediately; unknown legacy settlement dates
+add no extra receipt window. Content remains erased while session/accounting
+metadata await receipts. After the bound, retain the recorded uncertain liability,
+seal it and proceed; never fabricate a final provider receipt or free capacity.
+The existing spend/reserved/uncertain aggregation into `retired_spend` is unchanged.
+A removed plugin clears its scheduled retry for erased sessions on its next due
+reconciliation; live receipts remain retryable until retirement seals them.
+
+The seal and `attempts` snapshot commit atomically before any async retirement
+hook. SQLite rejects all subsequent budget-attempt inserts and updates with
+`Retirement billing sealed`; rejected reconciliation also rolls back its correction.
+The seal survives hook failure, timeout and restart. Recovery/receipt scans skip
+sealed attempts. Hosts must provide equivalent fencing for custom budget stores.
+Each snapshot entry contains `attemptId`, `lane`, `state`, `outcome`, `settledAtMs`,
+`settledMicro`, `settledVisitorMicro`, `maxMicro`, `maxVisitorMicro`, `final`,
+`corrections`, and `voiceExposures`. The two histories use AIT-409's dated amount
+shape and posting order; evidence, provider IDs and private usage are excluded.
+`final: false` marks an unresolved liability, including an open attempt with null
+settled amounts: keep the corresponding host cap closed under host policy until
+that liability is resolved. Neither a lower estimate nor its reservation bounds a
+possible late charge. Persist needed cap history idempotently before returning
+from `retired`; the following purge removes attempts, histories and the seal.
+`host.erased` remains the immediate resource-cleanup hook. A receipt committed
+during it is included in the later `retired` snapshot, which is the final accounting
+handoff for every erase path. No extra per-attempt records survive purge.
+
+Retained totals
 are deployment spend/reserved/uncertain amounts and breach flags per account,
 render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
 On low-volume days, a daily total may reveal one session's usage. Daily buckets
