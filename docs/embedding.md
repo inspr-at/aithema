@@ -421,6 +421,14 @@ The backing `budget.get(attemptId).voice_exposures_json` defaults to `[]` for
 pre-upgrade attempts; earlier exposure dates are unknown and are never assigned
 the migration time. Preserve the host's historical accounting for those attempts.
 
+These reads are provided by `SQLiteBudgetLedger`; a custom host-supplied
+`budget` object does not gain `corrections()` or `voiceExposures()` automatically.
+The host must supply equivalent dated records for its cap policy. Session
+retirement purges `budget_corrections` rows and the attempt's exposure history.
+Keep a host-owned copy of corrections and exposures needed for cap history
+before retirement; rebuilding totals requires that retained copy, not just the
+remaining core ledger rows.
+
 Time comes from `host.now()` when supplied to `createHandlers`, including with
 a prebuilt runtime. Otherwise the runtime-created ledger uses the runtime's
 `now`; a separately supplied ledger uses its own `now` constructor option.

@@ -2279,6 +2279,13 @@ secrets and return `[]` for missing attempts or empty histories. Use
 `{attemptId, stream, id}` as the stable deduplication key, where `stream` is
 `corrections` or `voiceExposures`. Replayed receipts/exposure raises append nothing.
 
+These reads belong to `SQLiteBudgetLedger`; a custom host-supplied `budget`
+object does not gain `corrections()` or `voiceExposures()` automatically. Its host
+must provide equivalent dated records. Session retirement purges correction rows
+and attempt exposure history. Before retirement, keep a host-owned copy of the
+corrections/exposures needed for cap history; rebuilding a projection requires
+that retained copy.
+
 These records complement AIT-401's dated `budget.get(attemptId).voice_extensions_json`
 and first `settled_at_ms`; reconciliation never changes that first settlement time.
 For a daily cap, date each positive correction delta (`newMicro - oldMicro`, or
