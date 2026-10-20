@@ -1176,13 +1176,23 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
             textAlign: css.textAlign, lines: new Set(lines.map(r => r.y)).size,
             inkInsidePane: lines.every(r => r.left >= viewport.left + pane.clientLeft && r.right <= viewport.left + pane.clientLeft + pane.clientWidth) };
         };
-        return { block: rect(root.querySelector('.handover')), row: rect(root.querySelector('.handover__row')),
+        // Before AIT-433 the divider stretched across this same overview grid track.
+        // Measure the content column, not the padded scrollport that can hide an outset.
+        return { overview: rect(root.querySelector('.analysis-content > .notice')),
+          block: rect(root.querySelector('.handover')), row: rect(root.querySelector('.handover__row')),
           heading: rect(root.querySelector('.handover h3')), action: rect(root.querySelector('.handover-request')),
           notice: measure('.handover__offer'), state: measure('.handover__state') };
       });
       baseline ??= metric;
       const label = `${locale}/${width}/${state}`, require = (ok, message) => { if (!ok) failures.push(`${label}: ${message}`); };
       const beside = metric.state.x >= metric.action.x + metric.action.width;
+      for (const name of ['heading', 'notice', 'action', ...(!beside ? ['state'] : [])]) {
+        require(Math.abs(metric[name].x - metric.overview.x) <= .5,
+          `${name} starts at ${metric[name].x}px, overview column starts at ${metric.overview.x}px`);
+      }
+      require(Math.abs(metric.block.x - metric.overview.x) <= .5 &&
+        Math.abs(metric.block.x + metric.block.width - metric.overview.x - metric.overview.width) <= .5,
+      `divider must span the original overview column: ${JSON.stringify(metric.block)} vs ${JSON.stringify(metric.overview)}`);
       for (const name of ['notice', 'state']) {
         require(metric[name].scrollHeight <= metric[name].clientHeight, `${name} vertically overflows ${metric[name].scrollHeight} > ${metric[name].clientHeight}`);
         require(metric[name].scrollWidth <= metric[name].clientWidth, `${name} horizontally overflows`);
