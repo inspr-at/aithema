@@ -830,13 +830,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
-          storage.assertRetirementSettled(id);
+          const attempts = storage.sealRetirement(id, host?.now?.() ?? Date.now());
           await consent?.withdraw?.({ sessionId: id });
           if (host?.retired) {
             let timer;
             try {
               await Promise.race([
-                Promise.resolve().then(() => host.retired({ sessionId: id, ownerHash: storage.retirementOwnerHash(id) })),
+                Promise.resolve().then(() => host.retired({ sessionId: id, ownerHash: storage.retirementOwnerHash(id), attempts })),
                 new Promise((_, reject) => { timer = setTimeout(() => {
                   reject(new RetirementHookTimeoutError('Retirement hook deadline'));
                 }, retiredHookTimeoutMs); }),

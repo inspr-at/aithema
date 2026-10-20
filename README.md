@@ -2301,9 +2301,33 @@ secrets and return `[]` for missing attempts or empty histories. Use
 These reads belong to `SQLiteBudgetLedger`; a custom host-supplied `budget`
 object does not gain `corrections()` or `voiceExposures()` automatically. Its host
 must provide equivalent dated records. Session retirement purges correction rows
-and attempt exposure history. Before retirement, keep a host-owned copy of the
-corrections/exposures needed for cap history; rebuilding a projection requires
-that retained copy.
+and attempt exposure history. AIT-421 makes
+`host.retired({ sessionId, ownerHash, attempts })` the final accounting handoff,
+including after user or operator erasure. Each attempt carries `attemptId`, `lane`,
+`state`, `outcome`, `settledAtMs`, `settledMicro`, `settledVisitorMicro`, `maxMicro`,
+`maxVisitorMicro`, `final`, and `corrections`/`voiceExposures` in the dated shape
+above. No provider identity, usage payload or evidence JSON is included. Persist
+needed cap history idempotently in that hook before returning; purge deletes it.
+The snapshot and a durable billing seal commit before the hook starts. Reconciliation
+and all budget-attempt writes are refused after sealing, including during failed
+or timed-out hooks and after restart; budget recovery and reasoning cost scans
+skip sealed attempts.
+Receipts committed before sealing are included, even if they arrive during
+`host.erased`. That earlier hook releases session resources; it is not the final
+cost snapshot. Custom host budgets must provide equivalent finality themselves.
+
+Both idle and erased sessions defer for open attempts, active spend reservations,
+and pending receipts for at most one hour (from the first retirement check;
+settled receipts also expire one hour after settlement). An acknowledged estimate
+with no scheduled retry can seal immediately. Unknown legacy settlement dates
+add no new receipt window. On exhaustion the recorded amounts are sealed without
+inventing provider evidence: `final: false` means unresolved liability. Keep the
+associated host cap closed until its liability is resolved under host policy;
+do not treat that estimate, reservation, or missing amount as a final charge.
+Admission arithmetic and deployment spend aggregation are unchanged. Content is
+erased immediately; session/accounting metadata wait only for this bounded
+receipt window and the existing host-cleanup retries. No per-attempt records
+survive successful purge. See [host retention](docs/embedding.md#host-retention-contract).
 
 These records complement AIT-401's dated `budget.get(attemptId).voice_extensions_json`
 and first `settled_at_ms`; reconciliation never changes that first settlement time.
