@@ -249,14 +249,14 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 151);
 
-// AIT-404: PR #357 CI 39428973841, head 3d8be524, shard 3/7:
-// diagnostic partial-file work 46.498606894 + 2.419910119 + 21.715561748
-// = 70.634078761s; ceil(*1.25)=89s. The new touch cases passed; the
-// matrix stopped at the first native-pointer capability assertion. Reserve
-// this measured lower-bound floor while the complete matrix is remeasured.
-// Keep it outside trusted rolling-main history; no bin limits/counts change.
+// AIT-404: green PR #357 CI 39430635672, head e1756456, shard 3/7:
+// complete continuity file 3/3 PASS, including all eight touch/fine-pointer
+// takeback cases with exact-zero whole-click geometry and failed GET recovery.
+// CI job log top-level work: 36.486251292 + 3.550244393 + 34.645645869
+// = 74.682141554s; ceil(*1.25)=94s replaces the partial 89s diagnostic floor.
+// Preserve trusted rolling-main history; shard counts, limits and names stay put.
 browserTestWeights['test/browser/start2-display-continuity.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display-continuity.test.js'], 89);
+  browserTestWeights['test/browser/start2-display-continuity.test.js'], 94);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
