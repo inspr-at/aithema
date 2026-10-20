@@ -125,6 +125,10 @@
     ],
     "reason": "Linux headless Chrome sandbox selection"
   },
+  "test/browser/session-credits-check.js": {
+    "reads": ["GITHUB_EVENT_PATH", "GITHUB_EVENT_PATH", "GITHUB_RUN_ID"],
+    "reason": "AIT-395 evidence binds the PR head and CI run from GitHub provenance"
+  },
   "test/browser/start-journey.test.js": {
     "reads": [
       "CI"

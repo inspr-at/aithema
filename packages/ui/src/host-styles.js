@@ -197,6 +197,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
 /* Footer labels share a cell. The track and the neighboring controls never move. */
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
+.host-credits__measure-cap { visibility:hidden; white-space:nowrap; font-weight:600; }
 .host-credits__stack { display:grid; justify-items:center; }
 .host-credits__stack > * { grid-area:1/1; }
 /* Keep both numeric slots and the unit at the reserved start. */
@@ -221,6 +222,20 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits .credits-popup { width:268px; white-space:normal; overflow:visible; }
 .credits-popup::after { content:""; position:absolute; left:0; right:0; bottom:-10px; height:10px; }
 .credits-popup .host-credits__current { display:flex; align-items:center; gap:7px; border-top:1px solid color-mix(in srgb,var(--aithema-paper) 16%,transparent); padding-top:8px; }
+/* Session projections change text inside reserved rows, including empty offers.
+   Keep hidden rows in the layout so sibling/tier updates cannot move the action. */
+.host-credits[data-session-credits] .credits-popup { display:grid; grid-template-rows:72px 48px 36px 28px 36px 18px; grid-template-columns:1fr; gap:8px; }
+.host-credits[data-session-credits] .credits-popup > :is(p,a,span) { margin:0; }
+.host-credits[data-session-credits] .credits-popup > [hidden] { display:block !important; visibility:hidden; pointer-events:none; }
+.host-credits[data-session-credits] .host-credits__deadline { display:none !important; }
+.host-credits[data-session-credits] :is(.host-credits__scope,.host-credits__daily-cap) { grid-area:1/1; }
+.host-credits[data-session-credits] .host-credits__scope { visibility:visible; }
+.host-credits[data-session-credits][data-daily-cap] .host-credits__scope { visibility:hidden; }
+.host-credits[data-session-credits] .host-credits__current { grid-area:2/1; align-items:start; }
+.host-credits[data-session-credits] .host-credits__next { grid-area:3/1; }
+.host-credits[data-session-credits] .credits-email { grid-area:4/1; }
+.host-credits[data-session-credits] .host-credits__limit { grid-area:5/1; }
+.host-credits[data-session-credits] .host-credits__equivalence { grid-area:6/1; }
 .credits-check { display:grid; flex:none; } .credits-check svg { width:14px; height:14px; }
 .credits-email { display:inline-flex; align-items:center; min-height:28px; position:relative; font-weight:600; color:var(--aithema-paper); text-decoration:underline; text-underline-offset:3px; }
 .credits-email::after { content:""; position:absolute; inset:-8px -4px; }

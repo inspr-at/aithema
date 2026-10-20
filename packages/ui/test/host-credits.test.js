@@ -467,3 +467,63 @@ for (const copy of [de, en]) test(`AIT-138 d merge: ${copy.display.locale} exhau
   assert.equal(requests[1].callId, callId); assert.equal(requests[1].epoch, 3);
   assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
 });
+
+for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'emailConfirmed', 'exhausted', 'dailyCap']) {
+  test(`AIT-395: conversation projection ${state} (${copy.display.locale})`, async t => {
+    const current = ['exhausted', 'dailyCap'].includes(state) ? 'anonymous' : state;
+    const limitMicro = current === 'emailConfirmed' ? 10_000_000 : 2_500_000;
+    const { root } = setup(t, { copy, host: { credits: true, verification: true }, routes: {
+      'GET /credits': () => Response.json({ scope: 'session', exhausted: state === 'exhausted', dailyCapReached: state === 'dailyCap',
+        balance: { owner: { limitMicro, availableMicro: state === 'exhausted' ? 0 : limitMicro } },
+        tiers: { current, next: current === 'emailConfirmed' ? null : current === 'anonymous' ? 'emailGiven' : 'emailConfirmed', delta: current === 'emailConfirmed' ? 0 : 7_500_000,
+          canConfirm: true, allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: 10_000_000 } } }),
+    } }); await tick(10);
+    const next = root.querySelector('.host-credits__next'), action = root.querySelector('.credits-email');
+    assert.doesNotMatch(root.querySelector('.host-credits__scope').textContent, /all your conversations|alle Ihre Gespräche/u);
+    assert.equal(root.querySelector('.host-credits__unit').textContent, '\u00a0Credits');
+    assert.equal(action.hidden, ['emailConfirmed', 'dailyCap'].includes(state));
+    if (!action.hidden) assert.equal(action.textContent, copy.hostSurface.credits.confirm);
+    if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'), 'Tick fix1: equal allowances name the confirmed tier without an email-given promise');
+    if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
+    if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250\u00a0Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250\u00a0credits are used up.");
+    if (state === 'dailyCap') {
+      assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow.");
+      assert.equal(next.textContent, '');
+    }
+  });
+}
+
+for (const copy of [de, en]) test(`AIT-395: owner-wide exhausted copy snapshot (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance, exhausted: true }),
+  } }); await tick(8);
+  assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500 Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500 Credits are used up, for all your conversations.');
+});
+
+for (const copy of [de, en]) test(`AIT-395: exhaustion offers exactly the conversation's +750 confirmation delta (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { credits: true, verification: true }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', exhausted: true,
+      balance: { owner: { limitMicro: 2_500_000, availableMicro: 0 } },
+      tiers: { current: 'emailGiven', next: 'emailConfirmed', delta: 7_500_000, canConfirm: true,
+        allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: 10_000_000 } } }),
+  } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out').dataset.next, 'confirm');
+  assert.match(root.querySelector('.composer-out__confirm').textContent, /750/u);
+  assert.equal(root.querySelector('.host-credits__next').textContent,
+    copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
+});
+
+for (const copy of [de, en]) for (const [variant, canCollect, confirmedMicro] of [
+  ['eligible', true, 10_000_000], ['collection unavailable', false, 10_000_000],
+  ['equal confirmed allowance', true, 2_500_000], ['lower confirmed allowance', true, 1_000_000],
+]) test(`AIT-395 fix1: K1 next slot ${variant} (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { credits: true, verification: canCollect }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance: { owner: { limitMicro: 2_500_000, availableMicro: 2_500_000 } },
+      tiers: { current: 'anonymous', next: 'emailGiven', canConfirm: true,
+        allowancesMicro: { anonymous: 2_500_000, emailGiven: 2_500_000, emailConfirmed: confirmedMicro } } }),
+  } }); await tick(10);
+  const next = root.querySelector('.host-credits__next'), eligible = canCollect && confirmedMicro > 2_500_000;
+  assert.equal(root.querySelector('.credits-email').hidden, !eligible);
+  assert.equal(next.textContent, eligible ? copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits') : '');
+  assert.equal(next.children.length, 0, 'the next line has no check mark');
+});

@@ -238,6 +238,17 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
   browserTestWeights['test/browser/voice-presentation.test.js'], 212);
 
+// AIT-395: green PR #348 CI 39326464995 at 5c95a38e, shard 6/7:
+// complete host-surface file 6/6 PASS, including 20 settled Tick captures,
+// frame-sampled sibling loading, and exact 0px geometry assertions.
+// Summed top-level work: 9.080507531 + 6.791323145 + 72.640099242
+// + 11.190102439 + 3.810468169 + 16.943752928 = 120.456253454s.
+// ceil(observed * 1.25)=151s supersedes the 122s remote-derived floor.
+// Source: browser-timings-6-of-7/batch-0.jsonl. PR diagnostics remain
+// outside trusted rolling-main history; no shard/count/limit changes.
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 151);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
