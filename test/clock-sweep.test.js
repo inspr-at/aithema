@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createLocalHTML,
-  localHTMLBinding, createSpendCap } from '@inspr/aithema-server';
+  localHTMLBinding, createSpendCap, createLocalImages } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
 import { createConceptHandlers } from '../packages/server/src/concept-handlers.js';
 import { createMockConsent } from '../demo/mock-consent.js';
@@ -159,6 +159,14 @@ test('AIT-403 sweep local HTML provenance uses admitted runtime clock', async t 
   const h = fixture(t), options = { now: h.runtime.now, deadlineAt: h.now() + 1000,
     attempt: { attemptId: 'artifact-clock', claimId: 'fixture', consume() {} }, report() {} };
   const artifact = await h.html.generate({ prompt: 'fixture', understanding: { summary: 'fixture' } }, '', options);
+  assert.equal(artifact.provenance.generatedAt, new Date(h.now()).toISOString());
+});
+
+test('AIT-403 sweep local image provenance uses admitted runtime clock', async t => {
+  const h = fixture(t), plugin = createLocalImages({ delayMs: 0 });
+  const artifact = await plugin.generate({ prompt: 'fixture' }, '', {
+    now: h.runtime.now, deadlineAt: h.now() + 1000,
+    attempt: { attemptId: 'image-clock', claimId: 'fixture', consume() {} }, report() {} });
   assert.equal(artifact.provenance.generatedAt, new Date(h.now()).toISOString());
 });
 

@@ -8,6 +8,18 @@ import { voiceOverrides } from '../src/options.js';
 import { PluginError } from '../../../packages/core/src/invocation.js';
 import { fixture, binding, invocationOptions, flush } from './fixtures.js';
 
+test('AIT-430 standalone ElevenLabs adapter uses the admitted runtime clock without a constructor override', async t => {
+  const wall = Date.parse('2030-06-15T00:00:30Z');
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  const now = () => wall - 60_000, local = fixture();
+  const options = invocationOptions({ now, deadlineAt: now() + 1000,
+    spendDeadlineAt: now() + 60_000, browserLivenessDeadlineAt: now() + 30_000 });
+  const session = await local.server.start({ callId: 'runtime_clock', facadeSecretRef: 'fixture-ref' }, options);
+  t.after(() => session.close());
+  assert.equal(session.snapshot().startedAt, now());
+  assert.equal(session.snapshot().spendDeadlineAt, options.spendDeadlineAt);
+});
+
 test('bounded JSON reader coalesces tiny chunks and preserves split UTF-8 across slab boundaries', async () => {
   const expected = { text: `${'x'.repeat(65_526)}ä🙂` }, bytes = new TextEncoder().encode(JSON.stringify(expected));
   let offset = 0, observed = 0;
