@@ -577,6 +577,34 @@ for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, sess
   assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.ended.session.title, 'session takes precedence over a later host-limit event');
 });
 
+for (const [copy, template, body] of [
+  [de, 'Mit bestätigter E-Mail-Adresse geht es mit {next}\u00a0Credits weiter.', 'Mit bestätigter E-Mail-Adresse geht es mit 1.000\u00a0Credits weiter.'],
+  [en, 'With a confirmed email address, this continues with {next}\u00a0credits.', 'With a confirmed email address, this continues with 1,000\u00a0credits.'],
+]) test(`AIT-411 round 7 S1: catalog and complete panel body match Tick (${copy.display.locale})`, async t => {
+  assert.equal(copy.hostSurface.credits.ended.sessionUpgrade, template);
+  const { c, root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, exhausted: true,
+      tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+        allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10); userTurn(c);
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'session' } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out__body span').textContent, body);
+  assert.equal(root.querySelector('.composer-out__confirm').hidden, false);
+});
+
+for (const [copy, expected] of [
+  [de, 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits'],
+  [en, 'With a confirmed email address: 1,000\u00a0credits'],
+]) test(`AIT-411 round 7 O3: confirmed current tier matches Tick (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance,
+      tiers: { current: 'emailConfirmed', next: null, canConfirm: true, allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__current span:last-child').textContent, expected);
+});
+
 test('AIT-411 round 6 O3: shipped EN catalog and rendered offer match Tick including NBSP', async t => {
   assert.equal(en.hostSurface.credits.afterConfirm, 'After confirmation: {n}\u00a0credits');
   const { root } = setup(t, { copy: structuredClone(en), host: { verification: true, credits: true }, session: { locale: 'en' }, routes: {
