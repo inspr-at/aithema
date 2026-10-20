@@ -158,10 +158,9 @@ for (const [id, interruption, turnTaking, expected] of [
   ['elevenlabs', undefined, 'provider', 403], ['elevenlabs', 'unavailable', 'provider', 403],
   ['other-native', 'native', 'provider', 200], ['other-native', 'native', 'server', 403],
 ]) test(`AIT-384: interruption authority uses declaration ${id}/${interruption}/${turnTaking}`, async t => {
-  const h = voiceFixture(t), admit = h.runtime.admit;
-  h.runtime.admit = async args => {
-    const admission = await admit(args);
-    if (args.lane !== 'voice') return admission;
+  const h = voiceFixture(t), admitVoice = h.runtime.admitVoice;
+  h.runtime.admitVoice = async args => {
+    const admission = await admitVoice(args);
     const manifest = structuredClone(admission.plugin.manifest);
     manifest.id = id; manifest.liveVoice.ownership.turnTaking = turnTaking;
     delete manifest.liveVoice.capabilities.interruption;
