@@ -17,8 +17,7 @@ export class ReplyControls {
   current() {
     // The owner already indexes only current, unwithdrawn exact replies. Reuse
     // that projection instead of scanning the whole transcript for every row.
-    return this.row.isConnected && this.owner.replyRows.get(this.reply.turnId) === this &&
-      this.row.parentElement.querySelector('.turn-text')?.textContent === this.reply.text;
+    return this.row.isConnected && this.owner.replyRows.get(this.reply.turnId) === this;
   }
   render(latest) {
     const owner = this.owner, c = owner.copy, duringCall = owner.inCall();
