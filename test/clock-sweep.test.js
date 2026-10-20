@@ -4,13 +4,15 @@ import { readFile } from 'node:fs/promises';
 import { PluginRegistry, createMockReasoning, consentCoverage, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
 import { createComposedVoiceAuthority } from '../packages/server/src/composed/authority.js';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createLocalHTML,
-  localHTMLBinding, createSpendCap, createLocalImages } from '@inspr/aithema-server';
+  localHTMLBinding, createSpendCap, createLocalImages, createFacadeSecrets } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
 import { createConceptHandlers } from '../packages/server/src/concept-handlers.js';
 import { createMockConsent } from '../demo/mock-consent.js';
 import { createProcessingConsent } from '../demo/processing-consent.js';
 import { createDemoHost } from '../demo/host-ports.js';
 import { startExpiry } from '../demo/session-lifecycle.js';
+import { createVoiceHost } from '../demo/start2-voice-host.js';
+import { stubAgentApi } from './fixtures/voice-self-heal-host.js';
 import { createComposedVoiceCoordinator } from '../packages/server/src/voice-coordinator.js';
 import { ownedRequest, testToken } from './helpers.js';
 
@@ -226,6 +228,18 @@ test('AIT-403 sweep component consent refuses host-expired evidence even when wa
   const port = { coverage: () => ({ ...scope, covered: true, consentRevision: h.session.consentRevision,
     expiresAt: h.runtime.now() - 1 }) };
   assert.equal(await consentCoverage(port, h.session, scope, { now: h.runtime.now }), false);
+});
+
+test('AIT-403 sweep demo voice host qualifies binding evidence on its forwarding clock', async t => {
+  const h = fixture(t), api = stubAgentApi();
+  const host = await createVoiceHost({ storage: h.storage, now: h.runtime.now, facadeSecrets: createFacadeSecrets(),
+    templateAgentId: 'template-agent', publicOrigin: 'https://fixture.test', apiBaseUrl: api.endpoint, values: {},
+    resolveSecret: () => 'synthetic-offline-fixture', fetchImpl: api.fetchImpl, log() {} });
+  try {
+    assert.ok(host.binding);
+    assert.equal(host.binding.legal.evidence.verifiedAt, h.now());
+    assert.equal(host.binding.legal.evidence.expiresAt, h.now() + 90 * 86_400_000);
+  } finally { await host.close(); }
 });
 
 test('AIT-403 sweep composed reply creation evidence uses the admitted runtime clock', async t => {
