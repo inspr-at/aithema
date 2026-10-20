@@ -14,7 +14,7 @@ function fixture(t, options = {}) {
     identityPolicy: { resendCooldownMs: 100, verificationTtlMs: 500 }, ...options });
   const runtime = createPluginRuntime({ storage, consent: mockConsent, presets: options.presets });
   const handlers = createHandlers({ storage, consent: mockConsent, pluginRuntime: runtime, host, ownership: options.ownership,
-    deadlineMs: options.deadlineMs ?? 30_000 });
+    deadlineMs: options.deadlineMs ?? 30_000, log: options.log });
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await handlers.close(); storage.close(); };
   t.after(close);
@@ -25,6 +25,37 @@ function fixture(t, options = {}) {
   const create = async () => (await call('/api/sessions', {})).json();
   const message = async id => (await (await call(`/api/sessions/${id}/demo/outbox`)).json()).messages.at(-1);
   return { storage, host, runtime, handlers, call, create, message, close, at: value => { time = value; } };
+}
+
+for (const route of ['create', 'snapshot', 'library-open']) {
+  for (const failure of [TypeError, Error, RangeError, 'rejection']) {
+    test(`AIT-417: ${route} survives touchVisitor ${failure.name ?? failure}`, async t => {
+      const log = t.mock.fn(), f = fixture(t, { log });
+      const session = route === 'create' ? null : await f.create();
+      const touch = t.mock.method(f.host, 'touchVisitor', () => {
+        if (failure === 'rejection') return Promise.reject(new Error('private host activity diagnostic'));
+        throw new failure('private host activity diagnostic');
+      });
+      const path = route === 'create' ? '/api/sessions'
+        : route === 'snapshot' ? `/api/sessions/${session.id}` : `/api/library/${session.id}`;
+      const response = await f.call(path, route === 'create' ? {} : undefined);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(response.status, route === 'create' ? 201 : 200);
+      const body = await response.json(), id = body.id;
+      assert.equal(f.storage.authorize(id, owner).id, id);
+      if (session) assert.equal(id, session.id);
+      if (route === 'library-open') assert.equal(body.session.id, id);
+      assert.ok(f.storage.hostState(id).handover, 'host initialization must complete');
+      assert.deepEqual(f.storage.get(id).transcript, []);
+      assert.equal(touch.mock.callCount(), 1);
+      assert.equal(touch.mock.calls[0].arguments[0].id, id);
+      assert.deepEqual(log.mock.calls.map(call => call.arguments), [
+        [{ event: 'host.touch-visitor.failed', sessionId: id }],
+      ]);
+      assert.equal(JSON.stringify({ body, events: f.storage.read(id), diagnostics: log.mock.calls.map(call => call.arguments) })
+        .includes('private host activity diagnostic'), false);
+    });
+  }
 }
 
 for (const route of ['sessions', 'library', 'reset']) test(`AIT-217: ${route} creation renews ownership once on the 201 response`, async t => {
