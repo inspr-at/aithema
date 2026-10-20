@@ -232,7 +232,8 @@ svg { display:block; flex:none; }
 .concept-activity-text, .drafts-reason-reserve { grid-area:1/1; font-size:.8125rem; color:var(--aithema-muted); line-height:1.4; }
 .drafts-reason-reserve { display:grid; visibility:hidden; pointer-events:none; }
 .drafts-reason-reserve > span { grid-area:1/1; }
-.drafts-reason-reserve .drafts-withdrawn-reserve { font-size:14px; line-height:1.6; }
+.concept-withdrawn-reserve { display:grid; grid-area:1/1; align-self:center; min-width:0; visibility:hidden; pointer-events:none; font-size:14px; }
+.concept-withdrawn-reserve > span { grid-area:1/1; }
 .drafts-withdrawn-reserve.narrow { display:none; }
 @media(max-width:600px) {
   .drafts-withdrawn-reserve.wide { display:none; }
@@ -358,7 +359,7 @@ svg { display:block; flex:none; }
   /* Fade only the real top edge; retain just enough inset for the first row. */
   mask-image:linear-gradient(to bottom,transparent 0,#000 8px);
   padding:calc(8px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
-.transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
+.transcript-latest { position:sticky; bottom:0; display:block; height:44px; margin:-44px auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
 .turn { --turn-max-width:78%; position:relative; max-width:var(--turn-max-width); align-self:flex-start; padding:.65rem .8rem; line-height:1.45; overflow-wrap:anywhere;

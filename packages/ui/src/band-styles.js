@@ -176,7 +176,7 @@ export const bandStyles = `
   .concept-rail { grid-area:1/1; }
   .concept-bar .concept-preview-slot { grid-area:2/1; display:grid; justify-items:start; }
   /* AIT-385: use the reserved second row, below the chevron’s 44px target. */
-  .workspace:not([data-concept-layout="image"]) .concept-bar .concept-withdrawn { grid-area:2/1; }
+  .workspace:not([data-concept-layout="image"]) .concept-bar :is(.concept-withdrawn,.concept-withdrawn-reserve) { grid-area:2/1; }
   .concept-activity[hidden] { display:grid !important; visibility:hidden; }
   .concept-activity-text { align-self:center; }
   :is(.concept-preview,.concept-preview-reserve) { padding-inline:0; gap:.5rem; white-space:nowrap; }

@@ -74,12 +74,13 @@ export class ConceptView {
         `${copy.display[key]}${reasonSeparator}${copy.display[key === 'draftsPreset' || key === 'draftsDevice' ? 'draftsChoose' : 'draftsRetry']}`),
     ].map(words => { const line = document.createElement('span'); line.textContent = words; return line; }));
     // Withdrawal and expiry share the existing status grid, including wrapped DE copy.
+    root.querySelector('.concept-withdrawn-reserve').replaceChildren();
     for (const key of ['conceptWithdrawn', 'conceptDraftWithdrawn', 'conceptImageWithdrawn']) {
       for (const narrow of [false, true]) {
         const line = document.createElement('span');
         line.className = `drafts-withdrawn-reserve ${narrow ? 'narrow' : 'wide'}`;
         line.textContent = copy[key + (narrow && key !== 'conceptWithdrawn' ? 'Narrow' : '')];
-        root.querySelector('.drafts-reason-reserve').append(line);
+        root.querySelector('.concept-withdrawn-reserve').append(line);
       }
     }
     root.querySelector('.concept-image').alt = copy.conceptImageAlt;
@@ -100,6 +101,8 @@ export class ConceptView {
     const reserve = document.createElement('span'); reserve.className = 'concept-preview-reserve'; reserve.setAttribute('aria-hidden', 'true');
     reserve.innerHTML = `<span class="concept-preview-glyph">${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-sizer"></span><span class="concept-preview-sizer"></span></span>`;
     root.querySelector('.concept-preview-slot').append(reserve);
+    const statusReserve = document.createElement('span'); statusReserve.className = 'concept-withdrawn-reserve'; statusReserve.setAttribute('aria-hidden', 'true');
+    root.querySelector('.concept-access').append(statusReserve);
     const dialog = document.createElement('dialog'); dialog.className = 'concept-viewer'; dialog.setAttribute('aria-labelledby', 'concept-title');
     dialog.innerHTML = `<header class="concept-viewer-head"><h2 id="concept-title"></h2><span class="concept-count" aria-live="polite"></span><button class="concept-close" type="button"></button></header>
       <div class="concept-stage"><img class="concept-image" decoding="async"><aithema-html-preview class="concept-html" fill hidden></aithema-html-preview><p class="concept-image-status" role="status"></p></div>
