@@ -1,6 +1,7 @@
 // AIT-135 A2 D. The shipped component against deterministic owner-route fixtures.
 // Run exclusively through remote-browser.sh or CI; screenshots never render the design mock.
 import assert from 'node:assert/strict';
+import { after } from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -111,28 +112,46 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
   await settle(page);
 }
 
-// Tick spec v1, AIT-406 (2026-10-20): always cover all twelve combinations,
-// reuse one page, and compare every state against the same default geometry.
-export async function composerCreditReservationMatrix(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait406-'));
+// The v1–v4 matrices run serially and configure fresh owner-route state in-page.
+// Keep their server, page and AX session alive until file teardown.
+let reservationHarness;
+after(async () => {
+  if (!reservationHarness) return;
+  const { browser, demo, directory } = await reservationHarness;
+  try { await browser.close(); }
+  finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); }
+});
+const reservationPage = () => reservationHarness ??= (async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-reservation-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
-  let browser;
-  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
-  browser = await browserForFile();
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
-  const rows = [], selectors = ['.question-card', '.composer-shell'];
-  if (evidence) await mkdir(evidence, { recursive: true });
-  // Settled geometry and evidence use the supported reduced-motion surface.
+  const browser = await browserForFile(), page = await browser.newPage();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
   const accessibility = await page.createCDPSession();
   await accessibility.send('Accessibility.enable');
+  return { directory, demo, browser, page, accessibility };
+})();
+
+// Tick spec v1, AIT-406 (2026-10-20): always cover all twelve combinations,
+// reuse one page, and compare every state against the same default geometry.
+export async function composerCreditReservationMatrix(t) {
+  const { page, accessibility } = await reservationPage();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const rows = [], selectors = ['.question-card', '.composer-shell'];
+  if (evidence) await mkdir(evidence, { recursive: true });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1024, 390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.select('#locale', locale); await page.select('#theme', theme);
     await fixture(page, locale);
     const before = await boxes(page, selectors);
+    // Reconciliation retains these spans through all four credit states.
+    // Discover their backend IDs once; still read each hidden node's AX state
+    // independently for every sample, including the all-hidden default state.
+    const { result } = await accessibility.send('Runtime.evaluate', { expression: "document.querySelector('aithema-session').shadowRoot.querySelector('.composer-out__body')" });
+    const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId, depth: 1 });
+    await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+    const variantNodes = node.children.filter(n => n.nodeName === 'SPAN');
     for (const state of ['default', 'host-limit', 'one-hour', 'daily-cap']) {
       if (state !== 'default') {
         const reads = await page.evaluate(() => window.a2.creditsReads);
@@ -143,25 +162,28 @@ export async function composerCreditReservationMatrix(t) {
         }, state);
         await page.waitForFunction(reads => window.a2.creditsReads > reads, { timeout: 20_000 }, reads);
       }
-      await settle(page);
-      const after = await boxes(page, selectors);
-      const variants = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].map(n => ({
+      if (state !== 'default') await settle(page);
+      const { after, variants, activeBody } = await shadow(page, (c, selectors) => ({
+        after: selectors.map(selector => { const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        activeBody: [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].filter(n => getComputedStyle(n).visibility === 'visible').map(n => n.textContent),
+        variants: [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].map(n => ({
         key: n.dataset.creditVariant, text: n.textContent, visibility: getComputedStyle(n).visibility, ariaHidden: n.getAttribute('aria-hidden'),
         gridCell: [getComputedStyle(n).gridRowStart, getComputedStyle(n).gridColumnStart],
-      })));
+      })) }), selectors);
+      assert.equal(variantNodes.length, variants.length, 'every reserved variant has a cached backend node');
       // The hidden variants are independent reads of the same settled tree.
       const hiddenAX = (await Promise.all(variants.map(async (variant, i) => {
         if (variant.ariaHidden !== 'true') return null;
-        const { result } = await accessibility.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelectorAll('.composer-out__body > span')[${i}]` });
-        const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+        const node = variantNodes[i];
+        const keyIndex = node.attributes.indexOf('data-credit-variant');
+        assert.equal(node.attributes[keyIndex + 1], variant.key, 'cached AX node matches the sampled variant');
         const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId, fetchRelatives: false });
-        await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
         return { key: variant.key, ignored: nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored === true };
       }))).filter(Boolean);
       const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
         variants, hiddenAX, hiddenVariantsAbsent: hiddenAX.every(n => n.ignored),
-        activeBody: await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].filter(n => getComputedStyle(n).visibility === 'visible').map(n => n.textContent)) };
+        activeBody };
       rows.push(row);
       t.diagnostic(`AIT-406 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
       if (evidence && locale === 'de' && theme === 'light' && state === 'one-hour' && [390, 1024].includes(width)) {
@@ -198,21 +220,11 @@ export async function composerCreditReservationMatrix(t) {
 // Tick spec v2: exercise the same admitted-call recovery in both directions.
 // Reuse the page and fixture; only the owner-route admission verdict changes.
 export async function topUpReservationMatrix(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait406-v2-'));
-  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
-  let browser;
-  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
-  browser = await browserForFile();
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const { page, accessibility } = await reservationPage();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-dock', '.composer-shell'];
-  const accessibility = await page.createCDPSession();
-  await accessibility.send('Accessibility.enable');
   const v3Rows = [], v3Selectors = ['.transcript-shell .turn.user', '.transcript-shell .turn:last-child', '.voice-reply-actions', '.qopts', ...selectors];
   if (evidence) await mkdir(evidence, { recursive: true });
-  // Settled geometry and evidence use the supported reduced-motion surface.
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-  await until(page, () => document.querySelector('aithema-session')?.session);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.select('#locale', locale); await page.select('#theme', theme);
@@ -817,16 +829,8 @@ export async function visitorCreditMatrix(t, locales) {
 
 // Tick v4: reuse one page, keeping exact reply identities through every transition.
 export async function replyRowsMatrix(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait410-'));
-  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
-  let browser;
-  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
-  browser = await browserForFile();
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [];
-  // Settled geometry and evidence use the supported reduced-motion surface.
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-  await until(page, () => document.querySelector('aithema-session')?.session);
+  const { page } = await reservationPage();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, rows = [], captures = [];
   const shot = async name => {
     if (!evidence) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
@@ -925,7 +929,32 @@ export async function replyRowsMatrix(t) {
     await click(page, '.voice-start');
     await until(page, () => window.ait410Rail.state === 'listening');
     await record('running');
-    if (locale === 'de' && theme === 'light' && width === 390) await shot('390-light-de-three-replies-mid-call');
+    if (evidence && locale === 'de' && theme === 'light' && width === 390) {
+      // This is a real reader scroll, leaving the fixture and dock unchanged.
+      // Restore it before the next geometry sample so all 60 baselines remain.
+      const scrollTop = await shadow(page, c => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), previous = shell.scrollTop;
+        const last = [...r.querySelectorAll('.reply-actions')].at(-1).getBoundingClientRect();
+        const bottom = Math.min(shell.getBoundingClientRect().bottom, r.querySelector('.composer-shell').getBoundingClientRect().top);
+        shell.scrollTop += Math.max(0, last.bottom - bottom + 8);
+        return previous;
+      });
+      await settle(page);
+      const capture = await shadow(page, c => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell').getBoundingClientRect();
+        const top = Math.max(shell.top + 8, r.querySelector('.band').getBoundingClientRect().bottom);
+        const bottom = Math.min(shell.bottom, r.querySelector('.composer-shell').getBoundingClientRect().top, innerHeight);
+        return { top, bottom, rows: [...r.querySelectorAll('.reply-actions')].map(n => {
+          const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height, visible: b.top >= top && b.bottom <= bottom };
+        }) };
+      });
+      assert.equal(capture.rows.length, 3, 'mid-call capture includes all three control rows');
+      assert.ok(capture.rows.every(row => row.visible && row.height === 44), 'all three complete control rows clear the band, transcript clip and dock');
+      captures.push({ name: '390-light-de-three-replies-mid-call', ...capture });
+      await shot('390-light-de-three-replies-mid-call');
+      await shadow(page, (c, top) => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = top; }, scrollTop);
+      await settle(page);
+    }
     await click(page, '.voice-close');
     await until(page, () => window.ait410Rail.root.dataset.call === 'none');
     await record('hangup');
@@ -955,6 +984,6 @@ export async function replyRowsMatrix(t) {
       await shot('390-light-de-paused-budget-denied');
     }
   }
-  if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4', rows }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait410-reply-rows-checks.json'), JSON.stringify({ head, spec: 'Tick v4', rows, captures }, null, 2));
   assert.equal(rows.length, 60);
 }
