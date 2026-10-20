@@ -127,6 +127,7 @@ export async function creditHostOptionsCheck(t) {
       const capture = theme === 'light' && ((mobile && ['U2', 'U3', 'S1', 'S2', 'S3', 'delete-false'].includes(state)) ||
         mobile && locale === 'de' && ['offer', 'confirmed', 'reconciling', 'low-off', 'delete-true'].includes(state) || wideDE && ['U2', 'U3', 'S2'].includes(state));
       if (evidence && capture) {
+        if (['offer', 'confirmed'].includes(state)) await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1);
         await shadow(page, async c => { await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
