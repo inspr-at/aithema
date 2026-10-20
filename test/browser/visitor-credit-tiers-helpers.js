@@ -9,6 +9,7 @@ import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-covera
 import { startChild } from '../helpers.js';
 import { contrast } from '../contrast.js';
 
+const head = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 40 });
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
@@ -163,7 +164,7 @@ export async function composerCreditReservationMatrix(t) {
       }
     }
   }
-  if (evidence) await writeFile(join(evidence, 'ait406-composer-checks.json'), JSON.stringify({ head: process.env.GITHUB_SHA, spec: 'Tick spec v1, AIT-406, 2026-10-20', rows }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait406-composer-checks.json'), JSON.stringify({ head, spec: 'Tick spec v1, AIT-406, 2026-10-20', rows }, null, 2));
   assert.equal(rows.length, 48);
   // Geometry precedes variant assertions so the unfixed baseline proves the
   // original regression, rather than failing on the new markup contract first.
@@ -187,7 +188,6 @@ export async function visitorCreditMatrix(t, locales) {
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   if (evidence) await mkdir(evidence, { recursive: true });
-  const head = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   const branchHead = event?.pull_request?.head?.sha ?? head;
   const passLines = [], states = [], captures = [], uiChecks = [];
