@@ -272,8 +272,19 @@ the reference file; the remaining configured ports come from the earlier mount
 example. Supply the **same ledger** to runtime and wallet. `createHandlers` binds
 `walletForSession` into runtime owner admission; `wallet(ownerToken)` serves
 owned credit reads. During turn credit preflight, `wallet(ownerToken, context)`
-and its `balance()` run inside the turn's database transaction. Both must be
-synchronous and side-effect free, and must not re-enter storage.
+and its `balance()` run inside the turn's database transaction. On the host
+credit read path, `wallet()`, `balance()`, `canAdmit()` and `creditTiers()` must be
+synchronous and side-effect free. `canAdmit()` and `creditTiers()` are not called
+for initial turn admission.
+
+- Allowed: synchronous read-only Aithema getters such as `storage.get(id)` and
+  `storage.hostState(id)`, and SELECT-only statements on the host's own tables
+  through the same SQLite handle.
+- Forbidden: any write (INSERT/UPDATE/DELETE or DDL), any Aithema storage mutator,
+  async or network work, and any `storage.transaction()`.
+  `storage.transaction()` issues a plain `BEGIN IMMEDIATE` without savepoints;
+  a nested transaction fails the turn with HTTP 500 and nothing saved.
+
 In the reference, `balance()` and every `canAdmit`/atomic
 `admit` read current SQLite settings, even on a previously obtained wallet.
 There is no startup allowance cache. USD 10 changed to USD 5 changes the limit,
