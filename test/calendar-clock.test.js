@@ -13,6 +13,8 @@ const cases = [
     'expiry during wallet admission|admitted but undispatched', ['packages/server/test/conversation-limits.test.js']],
   ['daily snapshots across a future UTC midnight', '2028-10-20T23:59:59Z',
     'retirement removes accounting|reservations, actual usage', ['packages/server/test/retention.test.js', 'packages/server/test/voice-cap.test.js']],
+  ['SQLite retention on the same future clock', '2028-10-20T12:00:00Z',
+    'last activity uses server events', ['packages/server/test/retention.test.js']],
   ['OIDC future iat at its former literal instant', '2096-10-02T07:06:40Z',
     'refuses future iat', ['demo/test/operator-login.test.js']],
   ['observability before its fixed wire epoch', '2020-01-01T12:00:00Z',
