@@ -126,7 +126,8 @@ export const en = {
     paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: "Voice paused. Resume when you're ready.", closing: 'Settling call…', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending the call…' },
   voiceStatesNarrow: { microphone: 'Allow mic', cleanup: 'Ending previous…', low: 'Low credit', idle: 'Ready', connecting: 'Connecting …', listening: 'Listening', speaking: 'Replying', paused: 'Paused', recovering: 'Reconnecting …', waiting: 'Paused', closing: 'Ending …', failed: 'Call ended', usedUp: 'Credits used up', timeExpired: 'Time up', creditEnding: 'Ending …' },
   voiceMessagesNarrow: { voiceMicBusy: 'Mic busy', voiceMicUnavailable: 'No mic access', voiceMicFailed: 'Mic error', voiceNoReply: 'No reply', voiceMicDenied: 'Microphone blocked', voiceMicMissing: 'No microphone', voiceAdmissionDenied: 'Unavailable', voiceConflict: 'Call in another tab', voiceDeadline: 'Time limit reached', voiceConnectionFailed: 'Connection failed', voiceRecoveryFailed: 'Reconnect failed', voiceMoved: 'In another tab', voiceClosureUncertain: 'Reconciling costs …', voiceEnded: 'Call ended', voicePauseFailed: 'Pause unconfirmed', voicePlaybackBlocked: 'Sound blocked' },
-  voiceReasonsNarrow: { hostBudget: 'Budget used up', unavailable: 'Unavailable', consent: 'Consent needed', paused: 'Paused', credits: 'Credits used up', checking: 'Reconciling costs …', off: 'Voice off', setup: 'Not configured', provider: 'Provider unavailable', ended: 'Call ended', permission: 'Permission expired', verification: 'Confirm email', providerLimit: 'Provider limit reached', voiceLimit: 'Voice limit reached', consentWithdrawn: 'Consent withdrawn', consentRevised: 'Consent changed', sessionRevoked: 'Permission withdrawn', cancelled: 'Cancelled', disconnected: 'Connection lost', connectionExpired: 'Connection expired', notSaved: 'Not saved', transcriptFull: 'Transcript full', storageFull: 'Storage full', renderLimit: 'Limit reached', erased: 'Conversation deleted' },
+  voiceCreditStatus: { dailyCap: 'Daily limit reached', session: 'Credits used up', hostLimit: 'Voice unavailable right now' },
+  voiceReasonsNarrow: { unavailable: 'Unavailable', consent: 'Consent needed', paused: 'Paused', credits: 'Credits used up', checking: 'Reconciling costs …', off: 'Voice off', setup: 'Not configured', provider: 'Provider unavailable', ended: 'Call ended', permission: 'Permission expired', verification: 'Confirm email', providerLimit: 'Provider limit reached', voiceLimit: 'Voice limit reached', consentWithdrawn: 'Consent withdrawn', consentRevised: 'Consent changed', sessionRevoked: 'Permission withdrawn', cancelled: 'Cancelled', disconnected: 'Connection lost', connectionExpired: 'Connection expired', notSaved: 'Not saved', transcriptFull: 'Transcript full', storageFull: 'Storage full', renderLimit: 'Limit reached', erased: 'Conversation deleted' },
   voiceCooldown: 'Trying again in {s} s', voiceCooldownNarrow: 'In {s} s',
   voiceMicBusy: 'The microphone is busy or blocked by the system. Close other apps using it or check your system settings, then try again.',
   voiceMicUnavailable: "This browser doesn't allow a microphone here. Keep typing or open the page in another browser.",
@@ -434,7 +435,9 @@ export const en = {
       title: 'Your credits are used up.', body: 'Your conversation stays saved. You can read and export it.',
       give: 'Add your email address to get {delta} more Credits.', confirm: 'Confirm your email address to get {delta} more Credits.',
       none: 'No further credits are available here at the moment.', export: 'Export conversation',
-      hostGive: 'Add your email address to get +{delta} more Credits. Your conversation stays saved.',
+      // AIT-422: preserve the original copy envelope without painting or announcing it.
+      hostGiveMeasure: 'Add your email address to get +{delta} more Credits. Your conversation stays saved.',
+      hostGive: 'With your email address you get {delta} more\u00a0credits.',
       hostConfirm: 'Confirm your email address to get +{delta} more Credits.',
     },
     library: {

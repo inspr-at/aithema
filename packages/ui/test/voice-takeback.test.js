@@ -207,7 +207,7 @@ for (const transport of ['webrtc', 'websocket']) {
     if (refusal === 'full-hold') f.a.rail.feature = () => ({ available: false, rawReason: 'budget denied', reason: 'budget denied' });
     f.a.rail.render();
     assert.equal(f.a.rail.button('pause').disabled, true);
-    if (refusal !== 'full-hold') assert.equal(f.a.root.querySelector('.voice-state').textContent, en.voiceStates.usedUp);
+    if (refusal !== 'full-hold') assert.equal(f.a.root.querySelector('.voice-state').textContent, en.voiceCreditStatus.hostLimit);
     await f.a.rail.start(); await f.a.rail.pause(false); await flush();
     assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B');
     assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)), []);
