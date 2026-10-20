@@ -845,7 +845,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
   const demo = await startDemo(directory); let browser;
   t.after(async () => { try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); } });
   browser = await launch(directory, 'consent-deadlines');
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], primaryChecks = [];
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -868,6 +868,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
         import('/demo/consent-page.js'), import('/demo/consent-copy.js'), import(`/packages/ui/src/i18n/${locale}.js`),
       ]);
       let now = 0, sequence = 0;
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
       const timers = new Map(), flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
       const f = window.consentDeadline = { stallGet: true, posts: [], gets: [], returns: [], lateGets: [], selected: ['voice-elevenlabs'],
         copy: withDemoConsentCopy(language[locale]).host.consentPage, announcements: [], contract, flush };
@@ -926,13 +927,43 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       assert.deepEqual(after.boxes, before.boxes, `${label}/${journey}: movementPx 0`);
       checks.push({ ...variant, journey, movementPx: 0 });
     };
+    const disabledPrimary = async state => {
+      const result = await page.evaluate(() => {
+        const grants = [...document.querySelectorAll('[data-grant]')];
+        const geometry = () => [...document.querySelectorAll('.consent-page, .consent-page *')].map(n => {
+          const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+        });
+        const current = geometry();
+        // Remove only the new paint rule to compare with the unchanged base layout.
+        const sheet = [...document.styleSheets].find(s => s.href?.endsWith('/demo/host.css'));
+        const index = [...sheet.cssRules].findIndex(r => r.selectorText === '.consent-actions [data-grant]:disabled');
+        const rule = index < 0 ? null : sheet.cssRules[index].cssText;
+        if (rule) sheet.deleteRule(index);
+        const base = geometry();
+        if (rule) sheet.insertRule(rule, index);
+        const secondary = getComputedStyle(document.querySelector('[data-select-all]'));
+        return { current, base, secondarySurface: secondary.backgroundColor, labels: grants.map(n => n.textContent),
+          buttons: grants.map(n => { const s = getComputedStyle(n); return { disabled: n.disabled,
+            image: s.backgroundImage, surface: s.backgroundColor, text: s.color }; }) };
+      });
+      assert.deepEqual(result.current, result.base, `${label}/${state}: AIT-387 changes paint by 0 px`);
+      for (const button of result.buttons) {
+        assert.equal(button.disabled, true);
+        assert.equal(button.image, 'none', `${label}/${state}: disabled primary drops the brand fill`);
+        assert.equal(button.surface, result.secondarySurface);
+        assert.equal(button.text, theme === 'light' ? 'rgb(73, 100, 119)' : 'rgb(157, 180, 196)');
+      }
+      primaryChecks.push({ ...variant, state, ...result, movementPx: 0 });
+    };
     await page.evaluate(() => document.fonts.ready);
     const loading = await validate('loading', 'loading'); await shot('C1');
+    await disabledPrimary('loading');
     await page.evaluate(() => consentDeadline.advance(7999)); assert.equal((await snapshot()).state, 'loading');
     await page.evaluate(() => consentDeadline.advance(1));
     const timedOut = await validate('load-timeout', 'loadTimeout', true);
     assert.equal(timedOut.checked, 0); assert.equal(timedOut.fieldsDisabled, true); assert.equal(timedOut.revokeDisabled, true);
     stable(loading, timedOut, 'C1-C3'); await shot('C3');
+    await disabledPrimary('load-timeout');
     await page.evaluate(async () => { const f = consentDeadline; f.lateGets[0].resolve(Response.json({ ...f.contract, selected: f.contract.items.map(i => i.id) })); await f.flush(); });
     const lateLoad = await snapshot(); assert.equal(lateLoad.state, timedOut.state); assert.equal(lateLoad.text, timedOut.text); assert.equal(lateLoad.checked, 0);
     await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
@@ -947,6 +978,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     const unknown = await validate('save-unconfirmed', 'saveUnconfirmed', true);
     assert.equal(unknown.action, unknown.copy.loadCurrent); assert.equal(unknown.posts[0].aborted, true); assert.equal(unknown.grantDisabled, true);
     stable(saving, unknown, 'C2-C4'); await shot('C4');
+    await disabledPrimary('save-unconfirmed');
     await page.evaluate(async () => { consentDeadline.posts[0].resolve(Response.json({ granted: true })); await consentDeadline.flush(); });
     const late = await snapshot(); assert.equal(late.state, unknown.state); assert.equal(late.text, unknown.text); assert.deepEqual(late.returns, []);
     await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
@@ -963,6 +995,7 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
     const withdrawal = await snapshot(); stable(saving, withdrawal, 'C2-C5'); assert.equal(withdrawal.posts[2].aborted, true); assert.equal(withdrawal.posts[3].body.granted, false); assert.deepEqual(withdrawal.posts[3].body.processing.items, []);
     await page.evaluate(() => consentDeadline.advance(10000));
     const withdrawn = await validate('withdraw-unconfirmed', 'withdrawUnconfirmed', true); stable(saving, withdrawn, 'C5-timeout'); await shot('C5-timeout');
+    await disabledPrimary('withdraw-unconfirmed');
     await page.evaluate(async () => { document.querySelector('#retry').click(); await consentDeadline.flush(); });
     const repeated = await snapshot(); assert.deepEqual(repeated.posts[4].body, repeated.posts[3].body);
     // One DOM text mutation per state entry, including repeated entries.
@@ -976,8 +1009,38 @@ test('AIT-376: consent deadline viewport matrix, focus, announcements and zero m
       withdrawalAbortsSave: true, withdrawalReceived: true, withdrawalRetryIdempotent: true, noCheckedBoxesAfterLoadTimeout: true,
       targets44px: [...timedOut.boxes.slice(2), ...unknown.boxes.slice(2)].every(r => r[2] >= 44 && r[3] >= 44), movementPx: 0 });
     assert.equal(checks.at(-1).targets44px, true);
+    if (theme === 'light' && (width === 390 || locale === 'de')) {
+      // Paired evidence fixture: actual primary controls, same label and host CSS.
+      const pair = await page.evaluate(async label => {
+        const row = document.createElement('div'); row.className = 'consent-actions';
+        for (const disabled of [true, false]) {
+          const button = document.querySelector('[data-grant]').cloneNode(true);
+          button.textContent = label; button.disabled = disabled; row.append(button);
+        }
+        document.querySelector('.consent-page article').replaceChildren(row);
+        document.activeElement?.blur(); scrollTo(0, 0); await document.fonts.ready;
+        await Promise.all(document.getAnimations().map(a => a.finished));
+        return [...row.children].map(n => { const r = n.getBoundingClientRect(), s = getComputedStyle(n);
+          return { label: n.textContent, disabled: n.disabled, image: s.backgroundImage, surface: s.backgroundColor,
+            text: s.color, box: [r.x, r.y, r.width, r.height], visible: r.top >= 0 && r.bottom <= innerHeight }; });
+      }, primaryChecks.find(c => c.width === width && c.locale === locale && c.theme === theme && c.state === 'loading').labels[0]);
+      assert.deepEqual(pair.map(p => p.disabled), [true, false]);
+      assert.ok(pair.every(p => p.visible));
+      assert.equal(pair[0].label, pair[1].label);
+      assert.equal(pair[0].image, 'none'); assert.match(pair[1].image, /^linear-gradient/u);
+      await page.mouse.move(-10, -10); await settleEvidenceFrame(page);
+      const blurred = await page.evaluate(() => !document.activeElement?.matches('button, input, select, textarea, a[href]'));
+      assert.equal(blurred, true);
+      const filename = `ait387-${width}-light-${locale}-disabled-enabled.png`;
+      if (evidence) await page.screenshot({ path: join(evidence, filename), fullPage: false, captureBeyondViewport: false });
+      primaryChecks.push({ ...variant, state: 'paired comparison fixture', filename, pair, blurred, settled: true, viewportOnly: true });
+    }
   }
   if (evidence) await writeFile(join(evidence, 'ait375a-checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-376 Tick v1', checks }, null, 2));
+  if (evidence) {
+    const dir = join(evidence, 'ait387'); await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'checks.json'), JSON.stringify({ commit: evidenceCommit, spec: 'AIT-387 Tick v1', checks: primaryChecks }, null, 2));
+  }
 });
 
 
