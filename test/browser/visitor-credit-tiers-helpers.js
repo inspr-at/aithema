@@ -90,6 +90,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
       voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native', sendText: 'native' } } },
         async start(request) {
           state.voiceRequests.push(request);
+          while (state.holdVoice) await new Promise(resolve => setTimeout(resolve, 20));
           if (state.denyVoice) throw Object.assign(new Error('fixture admission refused'), { code: 'not-admitted', reason: 'host-limit' });
           const events = voiceEvents();
           return { callId: request.callId, providerSessionId: 'fixture-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {}, async heartbeat() {},
@@ -195,6 +196,7 @@ export async function topUpReservationMatrix(t) {
   browser = await browserForFile();
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-dock', '.composer-shell'];
+  const v3Rows = [], v3Selectors = ['.transcript-shell .turn.user', '.transcript-shell .turn:last-child', '.voice-reply-actions', '.qopts', ...selectors];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session);
@@ -214,10 +216,46 @@ export async function topUpReservationMatrix(t) {
       return r.querySelector('.host-verify').dataset.emailState === 'saved' && !r.querySelector('.audio-rail').hasAttribute('data-used-up');
     });
     await settle(page);
-    const before = await boxes(page, selectors);
+    const before = await boxes(page, selectors), v3Before = await boxes(page, v3Selectors);
+    const recordV3 = async state => {
+      await settle(page);
+      const after = await boxes(page, v3Selectors);
+      const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.voice-repeat, .voice-read-text')].map(n => {
+        const style = getComputedStyle(n);
+        n.focus({ preventScroll: true });
+        const focused = c.shadowRoot.activeElement === n;
+        n.blur();
+        return { hidden: n.hidden, visible: style.display !== 'none' && style.visibility === 'visible' && n.getClientRects().length > 0,
+          attached: n.parentElement.parentElement.matches('.turn:last-child'), disabled: n.disabled, ariaDisabled: n.getAttribute('aria-disabled'),
+          title: n.title, description: n.getAttribute('aria-description'), opacity: style.opacity, focused };
+      }));
+      const inCall = ['starting', 'running'].includes(state);
+      let tabSkipped = null;
+      if (inCall) {
+        await shadow(page, c => {
+          const actions = c.shadowRoot.querySelector('.voice-reply-actions');
+          for (const side of ['before', 'after']) {
+            const sentinel = document.createElement('span'); sentinel.tabIndex = 0; sentinel.dataset.v3Tab = side;
+            sentinel.style.position = 'fixed'; actions[side](sentinel);
+          }
+          c.shadowRoot.querySelector('[data-v3-tab=before]').focus({ preventScroll: true });
+        });
+        await page.keyboard.press('Tab');
+        tabSkipped = await shadow(page, c => {
+          const skipped = c.shadowRoot.activeElement?.dataset.v3Tab === 'after';
+          c.shadowRoot.querySelectorAll('[data-v3-tab]').forEach(n => n.remove()); return skipped;
+        });
+      }
+      v3Rows.push({ locale, theme, width, state, before: v3Before, after, controls, tabSkipped,
+        movementPx: Math.max(...v3Before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) });
+    };
     for (const state of ['ready', 'running', 'denied', 'ready-again']) {
       if (state === 'running') {
+        await shadow(page, () => { window.a2.holdVoice = true; });
         await click(page, '.voice-retry');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'connecting');
+        await recordV3('starting');
+        await shadow(page, () => { window.a2.holdVoice = false; });
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
       } else if (state === 'denied') {
         await click(page, '.voice-close');
@@ -244,17 +282,46 @@ export async function topUpReservationMatrix(t) {
       });
       const row = { locale, theme, width, state, before, after, detail,
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))) };
+      await recordV3(state);
       rows.push(row); t.diagnostic(`AIT-406 v2 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
-      if (evidence && locale === 'de' && theme === 'light' && width === 390 && state !== 'ready-again') {
+      if (evidence && locale === 'de' && theme === 'light' && (width === 390 || width === 1440 && state === 'running') && state !== 'ready-again') {
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
-        await page.screenshot({ path: join(evidence, `ait406-390-light-de-top-up-retry-${state}.png`), fullPage: false });
+        await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-top-up-retry-${state}.png`), fullPage: false });
       }
     }
   }
   if (evidence) await writeFile(join(evidence, 'ait406-top-up-checks.json'), JSON.stringify({ head, spec: 'Tick spec v2, AIT-406, 2026-10-20', rows }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait406-replay-checks.json'), JSON.stringify({ head, spec: 'Tick spec v3, AIT-406, 2026-10-20', selectors: v3Selectors, rows: v3Rows }, null, 2));
   assert.equal(rows.length, 48);
   for (const row of rows) unchanged(row.before, row.after, `${row.locale}-${row.theme}-${row.width}/top-up-retry-${row.state}`);
+  assert.equal(v3Rows.length, 60);
+  for (const row of v3Rows) {
+    const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
+    unchanged(row.before, row.after, label);
+    assert.equal(row.controls.length, 2, `${label}: both reply controls`);
+    const inCall = ['starting', 'running'].includes(row.state);
+    const description = row.locale === 'de' ? 'Während des Anrufs nicht verfügbar' : 'Not available during a call';
+    for (const control of row.controls) {
+      assert.equal(control.hidden, false, `${label}: control remains unhidden`);
+      assert.equal(control.visible, true, `${label}: control remains visible`);
+      assert.equal(control.attached, true, `${label}: control remains on the latest reply`);
+      assert.equal(control.disabled, inCall, `${label}: native disabled state`);
+      if (inCall) {
+        assert.equal(control.ariaDisabled, 'true', `${label}: aria-disabled`);
+        assert.equal(control.title, description, `${label}: tooltip`);
+        assert.equal(control.description, description, `${label}: aria-description`);
+        assert.equal(control.opacity, '0.5', `${label}: existing disabled style`);
+        assert.equal(control.focused, false, `${label}: cannot receive focus`);
+      } else {
+        assert.notEqual(control.ariaDisabled, 'true', `${label}: active aria state restored`);
+        assert.equal(control.description, null, `${label}: call description cleared`);
+        assert.notEqual(control.title, description, `${label}: call tooltip cleared`);
+        assert.equal(control.focused, true, `${label}: focus restored`);
+      }
+    }
+    if (inCall) assert.equal(row.tabSkipped, true, `${label}: Tab skips both disabled controls`);
+  }
 }
 
 export async function visitorCreditMatrix(t, locales) {
