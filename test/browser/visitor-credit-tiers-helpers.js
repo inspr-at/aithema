@@ -42,7 +42,10 @@ const runOutGeometry = page => shadow(page, c => Object.fromEntries([
 ].map(selector => {
   const n = c.shadowRoot.querySelector(selector), b = n.getBoundingClientRect(), s = getComputedStyle(n);
   return [selector, { box: [b.x, b.y, b.width, b.height], text: n.textContent, style: n.getAttribute('style'),
-    font: s.font, rows: s.gridTemplateRows, visibility: s.visibility, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight }];
+    font: s.font, rows: s.gridTemplateRows, visibility: s.visibility, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
+    ...(selector === '.turn:last-child' ? { html: n.outerHTML, children: [...n.children].map(child => {
+      const b = child.getBoundingClientRect(); return { class: child.className, height: b.height, font: getComputedStyle(child).font };
+    }) } : {}) }];
 })));
 const unchanged = (before, after, label) => {
   const displacement = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
