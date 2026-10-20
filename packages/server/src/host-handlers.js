@@ -48,8 +48,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     return true;
   }
   async function callHost(fn) {
-    const deadlineAt = Date.now() + deadlineMs, scope = operationScope({ signal, deadlineAt });
-    try { return await untilCancelled(Promise.resolve().then(() => fn({ signal: scope.signal, deadlineAt })), scope.signal); }
+    const deadlineAt = now() + deadlineMs, scope = operationScope({ signal, deadlineAt, now });
+    try { return await untilCancelled(Promise.resolve().then(() => fn({ signal: scope.signal, deadlineAt, now })), scope.signal); }
     finally { scope.dispose(); }
   }
   const body = async (request, keys) => {

@@ -65,9 +65,9 @@ export function fixtureBinding(role) {
       dataCategories: ['speech-input', 'transcription', 'spoken-answers'] } };
 }
 export const session = { id: 'fixture-session', consentRevision: 1 };
-export function fixtureConsent(binding, covered = true) {
+export function fixtureConsent(binding, covered = true, now = Date.now) {
   return { session, binding, port: { async coverage({ scope, consentRevision }) {
-    return { ...scope, scope, covered, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    return { ...scope, scope, covered, consentRevision, checkedAt: now(), expiresAt: now() + 60_000 };
   } } };
 }
 export const fixtureConfig = { secretRef: 'synthetic-only', voiceId: 'fixture-voice', sttMicroPerSecond: 10, ttsMicroPerCharacter: 2 };

@@ -6,6 +6,8 @@ export type Terminal = { attemptId: string; servedModel?: string; chargedMicro?:
 export interface OperationOptions {
   signal: AbortSignal;
   deadlineAt: number;
+  /** Clock used to create and check deadlineAt; defaults to Date.now. */
+  now?: () => number;
   attempt: { attemptId: string; claimId: string; consume(): Promise<void> | void };
   report(terminal: Terminal): Promise<void> | void;
 }
@@ -20,7 +22,7 @@ export interface ConsentGrant extends ProcessingScope {
 }
 export interface ConsentPort {
   coverage(query: { sessionId: string; scope: ProcessingScope; consentRevision: number },
-    options?: Pick<OperationOptions, 'signal' | 'deadlineAt'>): Promise<ConsentGrant | { covered: false }> | ConsentGrant | { covered: false };
+    options?: Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>): Promise<ConsentGrant | { covered: false }> | ConsentGrant | { covered: false };
   grant?(query: { sessionId: string; consentRevision: number;
     decision?: { contract?: string; items?: string[]; revision?: number };
     scopes?: ProcessingScope[] }): Promise<boolean | void> | boolean | void;
@@ -30,7 +32,7 @@ export interface Health { available: boolean; reason?: string }
 export interface Reasoning {
   stream(request: { system: string; messages: { role: string; content: string }[] }, options: OperationOptions): AsyncIterable<string>;
   structured(request: { system: string; messages: { role: string; content: string }[]; schema: object }, options: OperationOptions): Promise<unknown>;
-  health(options: Pick<OperationOptions, 'signal' | 'deadlineAt'>): Promise<Health>;
+  health(options: Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>): Promise<Health>;
 }
 export interface STT extends Partial<AudioFormatPort> {
   transcribe(request: { audio: Uint8Array; format: string; language: string }, options: OperationOptions): Promise<{ text: string }>;
@@ -72,7 +74,7 @@ export interface VoiceTerminal {
   outcome: 'completed' | 'cancelled' | 'uncertain'; closureConfirmed: boolean;
   chargedMicro: number; usage: VoiceUsage | null; overrun?: boolean;
 }
-export type VoiceCommandOptions = Pick<OperationOptions, 'signal' | 'deadlineAt'>;
+export type VoiceCommandOptions = Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>;
 export interface VoiceStartOptions extends VoiceCommandOptions {
   /** Only actual device acquisition may report these phases. */
   onMicrophoneState?(phase: 'requesting' | 'granted'): void;

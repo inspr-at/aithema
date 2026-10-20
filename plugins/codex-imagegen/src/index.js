@@ -25,7 +25,7 @@ function configuration(binding) {
   }
   return config;
 }
-function artifactFor(bytes, brief, model, operation, spec) {
+function artifactFor(bytes, brief, model, operation, spec, now) {
   const { mediaType, width, height } = imageInfo(bytes), edited = operation === 'edit';
   const [requestedWidth, requestedHeight] = (spec.size ?? '1536x1024').split('x').map(Number);
   // Header-derived dimensions have a 5% per-axis tolerance, never above 4096.
@@ -36,7 +36,7 @@ function artifactFor(bytes, brief, model, operation, spec) {
   const promptDigest = `sha256:${createHash('sha256').update(brief).digest('hex')}`;
   return { bytes, mediaType, width, height, promptDigest,
     provenance: { version: 1, origin: edited ? 'ai-manipulated' : 'ai-generated', modality: 'image',
-      digitalSourceType: IPTC_DIGITAL_SOURCE[edited ? 'manipulated' : 'generated'], generatedAt: new Date().toISOString(),
+      digitalSourceType: IPTC_DIGITAL_SOURCE[edited ? 'manipulated' : 'generated'], generatedAt: new Date(now()).toISOString(),
       generator: { provider: 'codex-imagegen', model }, promptDigest, techniques: ['response-field', 'sidecar'],
       credentials: imageCredentials(bytes),
       assurances: { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null },
@@ -65,10 +65,11 @@ export function createCodexImagegen({ binding, spawnImpl } = {}) {
     checkedBinary = signature;
   }
   async function run(operation, spec, feedback, options, source) {
-    const started = performance.now(), deadlineAt = Math.min(options?.deadlineAt ?? Infinity, Date.now() + config.timeoutMs);
-    const scope = operationScope({ signal: options?.signal, deadlineAt });
+    const now = options?.now ?? Date.now;
+    const started = performance.now(), deadlineAt = Math.min(options?.deadlineAt ?? Infinity, now() + config.timeoutMs);
+    const scope = operationScope({ signal: options?.signal, deadlineAt, now });
     let invocation, directory, release, completed = false, dispatched = false;
-    const check = () => { scope.signal.throwIfAborted(); if (Date.now() >= deadlineAt) throw new PluginError('deadline'); };
+    const check = () => { scope.signal.throwIfAborted(); if (now() >= deadlineAt) throw new PluginError('deadline'); };
     try {
       if (typeof options?.report !== 'function') throw new PluginError('not-admitted');
       // Settlement waits for group reaping and filesystem cleanup, rather than the abort event.
@@ -94,7 +95,7 @@ export function createCodexImagegen({ binding, spawnImpl } = {}) {
         signal: scope.signal, spawnImpl, onSpawn: () => { invocation.dispatch(); dispatched = true; } });
       check();
       const bytes = await producedImage(directory, new Set(files.map(file => file.path)), scope.signal);
-      const artifact = artifactFor(bytes, brief, binding.model, operation, spec);
+      const artifact = artifactFor(bytes, brief, binding.model, operation, spec, now);
       check(); completed = true; return artifact;
     } catch (error) { throw normalizedError(error, scope.signal); }
     finally {

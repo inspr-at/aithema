@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { assertSTTComponent, assertTTSComponent, voiceCompositionCapabilities, componentInvocation,
-  assertComponentUsage, boundedEvents, audioQueue, TTS_SPEAK_BYTES, TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS } from '@inspr/aithema-core/voice-components';
+  assertComponentUsage, boundedEvents, audioQueue, preflightVoiceComposition, TTS_SPEAK_BYTES, TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS } from '@inspr/aithema-core/voice-components';
 
 const descriptor = { role: 'stt', unit: 'seconds', model: 'fake-stt' };
 const fixture = (overrides = {}) => {
@@ -21,6 +21,19 @@ const ports = () => ({
     async *stream() { yield { text: 'Hal', final: false }; yield { text: 'Hallo', final: true }; } },
   tts: { capabilities: { streaming: false, languages: ['DE', 'fr'], heardPrefix: 'unavailable' },
     async negotiateAudioFormat(offered) { return offered[0]; }, async *speak() { yield new Uint8Array([0, 0]); } },
+});
+
+test('AIT-403 component preflight default deadline uses its supplied clock', async t => {
+  const wall = Date.parse('2030-06-15T00:00:30Z');
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  const now = () => wall - 60_000, components = ports(), observed = [];
+  for (const component of Object.values(components)) component.negotiateAudioFormat = async (offered, options) => {
+    observed.push(options); return offered[0];
+  };
+  const format = { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 };
+  await preflightVoiceComposition({ ...components, capture: format, playback: format, languages: ['de'], voice: 'fixture' }, { now });
+  assert.equal(observed.length, 2);
+  for (const options of observed) assert.equal(options.deadlineAt, now() + 1000);
 });
 
 test('AIT-316: public component declarations and legacy type re-exports typecheck', { timeout: 30_000 }, async () => {

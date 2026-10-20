@@ -720,3 +720,126 @@ test('AIT-421: active billing has a durable bounded wait and the seal survives a
   assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
   assert.throws(() => storage.get(session.id), /not found/i);
 });
+
+test('AIT-427: removing wait_for_billing preserves pending seals, deadlines and retries across restart', async t => {
+  const path = await temporaryDb();
+  let storage = new SQLiteStorage(path);
+  t.after(() => storage.close());
+  if (!storage.db.prepare('PRAGMA table_info(retirement_pending)').all().some(c => c.name === 'wait_for_billing')) {
+    storage.db.exec('ALTER TABLE retirement_pending ADD COLUMN wait_for_billing INTEGER NOT NULL DEFAULT 0');
+  }
+  // Reproduce AIT-421's trigger as well as its populated legacy column.
+  storage.db.exec(`DROP TRIGGER retirement_erase;
+    CREATE TRIGGER retirement_erase AFTER UPDATE ON sessions
+      WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL AND retirement_ready(NEW.id)=1 BEGIN
+      INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash,wait_for_billing)
+        VALUES (NEW.id,json_extract(NEW.snapshot,'$.ownerHash'),1); END;`);
+  const expected = [];
+  for (const sealed of [0, 1]) {
+    const session = storage.create(); storage.erase(session.id);
+    const deadline = Date.now() + 3_600_000, retryAt = Date.now() + 60_000;
+    storage.db.prepare(`UPDATE retirement_pending SET wait_for_billing=?,attempts=3,retry_at=?,billing_sealed=?,billing_deadline_ms=?
+      WHERE session_id=?`).run(sealed, retryAt, sealed, deadline, session.id);
+    expected.push({ session_id: session.id, owner_hash: session.ownerHash, attempts: 3, retry_at: retryAt,
+      billing_sealed: sealed, billing_deadline_ms: deadline });
+  }
+  for (let restart = 0; restart < 2; restart++) {
+    storage.close(); storage = new SQLiteStorage(path);
+    assert.equal(storage.db.prepare('PRAGMA table_info(retirement_pending)').all().some(c => c.name === 'wait_for_billing'), false);
+    for (const row of expected) assert.deepEqual({ ...storage.db.prepare('SELECT * FROM retirement_pending WHERE session_id=?').get(row.session_id) }, row);
+  }
+  const fresh = storage.create(); storage.erase(fresh.id);
+  assert.equal(storage.retirementOwnerHash(fresh.id), fresh.ownerHash, 'the migrated erase trigger still queues retirement');
+});
+
+test('AIT-427: a failed reservation write preserves the seal error and the spend hold', t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const storage = bindSQLiteClock(new SQLiteStorage()), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => storage.close());
+  const session = storage.create();
+  const spend = createSpendCap({ storage, account: 'sealed-account', capMicro: 100 });
+  ledger.admit({ attemptId: 'refused', sessionId: session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+    providerCost: { generationId: 'gen-private-generation' } });
+  const claim = ledger.claim('refused'); claim.consume();
+  const reservation = spend.reserve(100, { attemptId: 'refused' });
+  spend.dispatch(reservation); spend.uncertain(reservation);
+  ledger.settle(claim.claimId, { attemptId: 'refused', outcome: 'uncertain' });
+  storage.erase(session.id);
+  assert.throws(() => storage.sealRetirement(session.id), /unsettled/);
+  t.mock.timers.setTime(Date.now() + 3_600_001);
+  const snapshot = storage.sealRetirement(session.id), frozen = ledger.get('refused');
+  storage.db.exec(`CREATE TRIGGER fail_reservation_write BEFORE UPDATE ON spend_reservations
+    BEGIN SELECT RAISE(ABORT,'reservation write failed'); END;`);
+  assert.throws(() => ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation' }), error => {
+    assert.equal(error.message, 'Retirement billing sealed');
+    assert.equal(error.cause?.message, 'reservation write failed');
+    return true;
+  });
+  assert.deepEqual(ledger.get('refused'), frozen);
+  assert.deepEqual(ledger.corrections('refused'), []);
+  assert.deepEqual(storage.sealRetirement(session.id), snapshot);
+  assert.deepEqual(spend.snapshot(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 100, capMicro: 100, breached: false });
+  assert.throws(() => spend.reserve(1), /spend cap exhausted/);
+});
+
+for (const receipt of ['observation', 'cost reconciliation', 'terminal', 'priced terminal', 'voice reconciliation', 'voice terminal']) {
+  test(`AIT-427: seal-refused ${receipt} reaches retained spend without reopening the attempt`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const path = await temporaryDb();
+    let storage = bindSQLiteClock(new SQLiteStorage(path)), ledger = new SQLiteBudgetLedger(storage), handlers;
+    t.after(async () => { await handlers?.close(); storage.close(); });
+    const session = storage.create(), voice = receipt.startsWith('voice');
+    let spend = createSpendCap({ storage, account: 'sealed-account', capMicro: 1000 });
+    storage.db.prepare('INSERT INTO retired_spend VALUES (?,?,?,?,?)').run('sealed-account', 20, 10, 5, 0);
+    ledger.admit({ attemptId: 'refused', sessionId: session.id, lane: voice ? 'voice' : 'reaction', maxMicro: 100,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+      ...(!voice ? { providerCost: { generationId: 'gen-private-generation' } } : {}) });
+    const claim = ledger.claim('refused'); claim.consume();
+    const reservation = spend.reserve(100, { attemptId: 'refused', provider: 'private-provider' });
+    spend.dispatch(reservation); spend.uncertain(reservation);
+    if (receipt === 'voice reconciliation') ledger.settleVoice(claim.claimId, { attemptId: 'refused', outcome: 'uncertain' });
+    else if (['observation', 'cost reconciliation'].includes(receipt)) ledger.settle(claim.claimId, { attemptId: 'refused', outcome: 'uncertain' });
+    storage.erase(session.id);
+    assert.throws(() => storage.sealRetirement(session.id), /unsettled/);
+    t.mock.timers.setTime(Date.now() + 3_600_001);
+    const snapshot = storage.sealRetirement(session.id), frozen = ledger.get('refused');
+    const voiceReceipt = { attemptId: 'refused', outcome: 'completed', closureConfirmed: true, providerSessionId: 'private-voice', usage: {
+      providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 250, visitorMicro: 125 } };
+    const apply = () => {
+      if (receipt === 'observation') return ledger.observeCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation' });
+      if (receipt === 'cost reconciliation') return ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation' });
+      if (receipt === 'voice reconciliation') return ledger.reconcileVoice('refused', voiceReceipt);
+      if (receipt === 'voice terminal') return ledger.settleVoice(claim.claimId, voiceReceipt);
+      return ledger.settle(claim.claimId, { attemptId: 'refused', outcome: 'completed', usage: { inputTokens: 1, outputTokens: 1 },
+        ...(receipt === 'terminal' ? { chargedMicro: 250 } : {}) }, { inputMicro: 100, outputMicro: 150 });
+    };
+    // Invalid identity and estimates cannot turn a hold into confirmed spend.
+    if (receipt === 'cost reconciliation') {
+      assert.throws(() => ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'wrong-generation' }), /not-admitted/);
+      assert.throws(() => ledger.reconcileCost('refused', { chargedMicro: 250, generationId: 'gen-private-generation', estimated: true }), /sealed/);
+      assert.equal(spend.snapshot().spentMicro, 20);
+      assert.equal(spend.snapshot().uncertainMicro, 105);
+    }
+    assert.throws(apply, /sealed/);
+    assert.deepEqual(ledger.get('refused'), frozen);
+    assert.deepEqual(ledger.corrections('refused'), []);
+    const total = { spentMicro: 270, reservedMicro: 10, uncertainMicro: 5, capMicro: 1000, breached: true };
+    assert.deepEqual(spend.snapshot(), total, 'host accounting records the charge despite the frozen attempt');
+    assert.throws(apply, /sealed/);
+    assert.deepEqual(spend.snapshot(), total, 'receipt replay never adds the same charge twice');
+    storage.close(); storage = bindSQLiteClock(new SQLiteStorage(path)); ledger = new SQLiteBudgetLedger(storage);
+    spend = createSpendCap({ storage, account: 'sealed-account', capMicro: 1000 });
+    assert.deepEqual(storage.sealRetirement(session.id), snapshot);
+    assert.deepEqual(spend.snapshot(), total, 'the host charge survives restart before purge');
+    handlers = createHandlers({ storage, consent: mockConsent, host: { retired({ attempts }) { assert.deepEqual(attempts, snapshot); } } });
+    assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+    assert.deepEqual({ ...storage.db.prepare('SELECT * FROM retired_spend WHERE account=?').get('sealed-account') },
+      { account: 'sealed-account', spent_micro: 270, reserved_micro: 10, uncertain_micro: 5, breached: 1 });
+    assert.deepEqual(spend.snapshot(), total);
+    assert.equal(ledger.get('refused'), undefined);
+    assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM spend_reservations').get().n, 0);
+    assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections').get().n, 0);
+    assert.throws(() => storage.get(session.id), /not found/i);
+  });
+}

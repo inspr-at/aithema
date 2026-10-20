@@ -49,6 +49,10 @@ export function createVoiceCap({ storage, capMilliseconds, perDayMilliseconds, n
     return null;
   };
   return { snapshot, reason,
+    setClock(clock) {
+      if (typeof clock !== 'function') throw new TypeError('Invalid voice cap clock');
+      now = clock;
+    },
     reserve({ attemptId, sessionId, callId, maxMilliseconds }) {
       if (![attemptId, sessionId, callId].every(identifier) || !amount(maxMilliseconds)) throw new TypeError('Invalid voice reservation');
       return storage.transaction(() => {

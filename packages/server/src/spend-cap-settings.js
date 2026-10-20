@@ -70,7 +70,7 @@ export function createSpendCapSettings({ storage, account, configuredCapMicro, t
       const message = reason === 'committed-spend' ? 'cap cannot go below spend already committed; current cap unchanged'
         : reason === 'large-cap' ? `cap exceeds the typo limit of $${usd(largeLimit)}; use --allow-large to override; current cap unchanged` : null;
       const clamp = !reason && requested > BigInt(maximumMicro) ? { reason: 'maximum', minimumMicro: before.minimumMicro, maximumMicro } : null;
-      const at = new Date().toISOString();
+      const at = new Date(storage.now()).toISOString();
       if (!reason) {
         if (!amount(before.revision + 1)) throw new Error('Provider cap revision overflow');
         const capMicro = reset ? null : clamp ? maximumMicro : Number(requested);

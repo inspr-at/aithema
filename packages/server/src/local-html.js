@@ -47,7 +47,7 @@ export function createLocalHTML({ now = () => 0 } = {}) {
 <script>const button=document.getElementById('toggle'),panel=document.getElementById('questions');button.addEventListener('click',()=>{panel.hidden=!panel.hidden;button.setAttribute('aria-expanded',String(!panel.hidden))});document.getElementById('reset').addEventListener('click',()=>{panel.hidden=true;button.setAttribute('aria-expanded','false')});</script>
 </main></body></html>`;
       invocation.dispatch();
-      const artifact = htmlArtifact(html, { prompt: JSON.stringify(messages), model: 'deterministic-html', provider: 'local-demo-fake', operation, now: now() });
+      const artifact = htmlArtifact(html, { prompt: JSON.stringify(messages), model: 'deterministic-html', provider: 'local-demo-fake', operation, now: (options.now ?? now)() });
       invocation.usage({ inputTokens: 0, outputTokens: 0 }); completed = true; return artifact;
     } finally { try { await invocation?.finish(completed); } finally { scope.dispose(); } }
   }
