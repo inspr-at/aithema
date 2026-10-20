@@ -753,7 +753,57 @@ test('verified identity erasure keeps replay revisions stable while removing add
   const persistent = JSON.stringify(f.storage.read(s.id)); assert.equal(persistent.includes('erased@example.test'), false); assert.equal(persistent.includes('changed@example.test'), false);
 });
 
-for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance' : 'credits read'} passes the authorized conversation to both projections`, async t => {
+test('AIT-405: a throwing tier display callback cannot strand a saved and broadcast turn', async t => {
+  const f = fixture(t, { demoBypass: true }), session = await f.create();
+  const tiers = t.mock.method(f.host, 'creditTiers', () => { throw new Error('tier display unavailable'); });
+  const abort = new AbortController();
+  const stream = await f.handlers.handle(new Request(`http://local/api/sessions/${session.id}/events?after=${f.storage.get(session.id).seq}`, {
+    headers: { 'x-aithema-session-token': owner }, signal: abort.signal,
+  }));
+  const response = await f.call(`/api/sessions/${session.id}/turns`, { clientEventId: 'tier-failure', content: 'systems: API' });
+  await f.handlers.idle();
+  abort.abort();
+  const events = await readEvents(stream, Infinity);
+  assert.equal(events.some(event => event.type === 'turn.final' && event.data.id === 'tier-failure'), true);
+  assert.equal(response.status, 200);
+  assert.equal(tiers.mock.callCount(), 0, 'tier display has no role in initial admission');
+  assert.equal(f.storage.get(session.id).transcript.some(turn => turn.role === 'assistant'), true, 'the saved turn reaches the reply lane');
+  assert.equal(f.storage.get(session.id).understanding.inputRevision, inputRevision(f.storage.get(session.id)));
+});
+
+for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} fails closed before saving or broadcasting a turn`, async t => {
+  const f = fixture(t, { demoBypass: true }), session = await f.create();
+  const before = f.storage.get(session.id), journal = f.storage.read(session.id);
+  const abort = new AbortController();
+  const stream = await f.handlers.handle(new Request(`http://local/api/sessions/${session.id}/events?after=${before.seq}`, {
+    headers: { 'x-aithema-session-token': owner }, signal: abort.signal,
+  }));
+  const wallet = f.host.wallet;
+  const broken = t.mock.method(f.host, 'wallet', (token, context) => {
+    if (failure === 'wallet') throw new Error('wallet unavailable');
+    return Object.create(wallet(token, context), { balance: { value: () => { throw new Error('balance unavailable'); } } });
+  });
+  const body = { clientEventId: 'wallet-failure', content: 'systems: API' };
+  const response = await f.call(`/api/sessions/${session.id}/turns`, body);
+  await f.handlers.idle();
+  abort.abort();
+  const events = await readEvents(stream, Infinity);
+  assert.equal(response.status, 500);
+  assert.deepEqual(f.storage.get(session.id), before, 'failed credit reads leave no saved turn or partial credit state');
+  assert.deepEqual(f.storage.read(session.id), journal);
+  assert.equal(events.some(event => event.type === 'turn.final'), false, 'failed credit reads never broadcast a turn');
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0, 'no paid attempt without credit limits');
+  broken.mock.restore();
+  assert.equal((await f.call(`/api/sessions/${session.id}/turns`, body)).status, 200, 'the same client event can be retried after recovery');
+  await f.handlers.idle();
+  assert.equal(f.storage.get(session.id).transcript.filter(turn => turn.id === body.clientEventId).length, 1);
+  assert.equal(f.storage.get(session.id).transcript.some(turn => turn.role === 'assistant'), true);
+  const replayWallet = t.mock.method(f.host, 'wallet', () => { throw new Error('wallet unavailable again'); });
+  assert.equal((await f.call(`/api/sessions/${session.id}/turns`, body)).status, 200, 'receipted retries bypass credit preflight');
+  assert.equal(replayWallet.mock.callCount(), 0);
+});
+
+for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance' : 'credits read'} passes the authorized conversation to each required projection`, async t => {
   const f = fixture(t, { demoBypass: true }), a = await f.create(), b = await f.create();
   const wallet = f.host.wallet(owner), seen = { wallet: [], tiers: [] };
   t.mock.method(f.host, 'wallet', (token, context) => {
@@ -775,7 +825,9 @@ for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance
       assert.equal(view.tiers.current, session === a ? 'emailConfirmed' : 'anonymous');
     }
   }
-  for (const calls of Object.values(seen)) assert.deepEqual(calls, [[owner, { sessionId: a.id }], [owner, { sessionId: b.id }]]);
+  const expected = [[owner, { sessionId: a.id }], [owner, { sessionId: b.id }]];
+  assert.deepEqual(seen.wallet, expected);
+  assert.deepEqual(seen.tiers, initial ? [] : expected, 'tiers receive context on credits reads and are never called for initial admission');
   for (const calls of Object.values(seen)) calls.length = 0;
   assert.equal((await f.call(`/api/sessions/${b.id}/credits`, undefined, foreign)).status, 404);
   assert.deepEqual(seen, { wallet: [], tiers: [] }, 'foreign owner never reaches projection callbacks');

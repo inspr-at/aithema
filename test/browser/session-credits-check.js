@@ -137,7 +137,13 @@ export async function sessionCreditsCheck(t) {
     assert.deepEqual((await measure()).rects, before.rects, 'hovered balance update moves 0px');
     checks.push({ width, locale, state: 'hover-update', movementPx: 0 });
     if (locale === 'de') {
+      // The hover case deliberately left B at 125. Restore B and wait for its
+      // K1 receipt before sampling the separate sibling-switch matrix.
+      await scene('k1', locale, 'light', { switchTo: 'ait395-b' });
       await shadow(page, () => { window.ait395.sample = true; });
+      // Force a sampler frame before the next protocol command, rather than
+      // relying on whether Chrome happens to paint between sibling scenes.
+      await until(page, () => window.ait395.samples.length > 0);
       for (let cycle = 0; cycle < 3; cycle++) for (const [id, state] of [['ait395-a', 'k2'], ['ait395-b', 'k1']]) {
         await scene(state, locale, 'light', { switchTo: id });
         assert.deepEqual((await measure()).rects, baseline, 'sibling switch moves 0px');

@@ -555,14 +555,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         pluginRuntime.conversationLimits.assertOpen(id);
         const voiceContext = body.voiceCallId === undefined ? {} : voiceHandlers?.typedContext(id, ownerToken, body.voiceCallId, body.providerSessionId);
         if (body.voiceCallId !== undefined && !voiceContext) return json({ error: 'voice-unavailable' }, 403);
+        let initialBalance;
         const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
           { ...guard, ...voiceContext, revision: body.inputRevision ?? guard.revision,
-            ...(body.inputRevision === undefined && authorized.transcript.length === 0 ? { initialLocaleSeq: authorized.seq } : {}) });
+            ...(body.inputRevision === undefined && authorized.transcript.length === 0 ? { initialLocaleSeq: authorized.seq } : {}) },
+          () => { initialBalance = hostHandlers.initialCreditBalance(id, ownerToken); });
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
         if (!replayed) host?.touchVisitor?.(storage.get(id));
-        if (!replayed) hostHandlers.startCredits(id, ownerToken);
+        if (!replayed) hostHandlers.startCredits(id, ownerToken, initialBalance);
         schedule(id);
         return json(event, 200);
       }
