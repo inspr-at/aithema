@@ -41,6 +41,9 @@ export class SQLiteBudgetLedger {
     for (const name of ['owner_hash', 'provider_cost_json', 'cost_reconciliation_json', 'component_json']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
     }
+    // Historical times are unknown: never backfill them with migration time.
+    if (!columns.some(c => c.name === 'settled_at_ms')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN settled_at_ms INTEGER CHECK(settled_at_ms >= 0)');
+    if (!columns.some(c => c.name === 'voice_extensions_json')) this.db.exec("ALTER TABLE budget_attempts ADD COLUMN voice_extensions_json TEXT NOT NULL DEFAULT '[]'");
     this.components = createVoiceComponentStore(storage);
     for (const name of ['diagnostic_lane', 'diagnostic_outcome']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
@@ -220,6 +223,7 @@ export class SQLiteBudgetLedger {
       // A terminal cannot erase usage already observed before a failed report.
       if (dispatched && terminal.outcome !== 'uncertain' && actual < component.observedMicro) throw new PluginError('invalid-output');
       this.components.observe(row.attempt_id, observed);
+      this.recordSettlementTime(row.attempt_id);
       this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=? WHERE claim_id=?")
         .run(!dispatched ? 'cancelled' : terminal.outcome, terminal.usage ? JSON.stringify(terminal.usage) : null,
           actual, bytes, actual > row.max_micro ? 1 : 0, claimId);
@@ -276,10 +280,23 @@ export class SQLiteBudgetLedger {
       return this.get(attemptId);
     });
   }
+  timestamp() {
+    const at = this.now();
+    if (!integer(at)) throw new TypeError('Invalid budget clock');
+    return at;
+  }
+  // Called only inside the first settlement transaction, after replay checks.
+  // The timestamp and the receipt either both commit or both roll back.
+  recordSettlementTime(attemptId) {
+    const at = this.timestamp();
+    this.db.prepare(`UPDATE budget_attempts SET settled_at_ms=?,
+      provider_cost_json=CASE WHEN provider_cost_json IS NULL THEN NULL
+        ELSE json_set(provider_cost_json,'$.settledAt',?) END WHERE attempt_id=?`).run(at, at, attemptId);
+  }
   auditCorrection(row, newMicro, newVisitorMicro, evidence) {
     this.db.prepare(`INSERT INTO budget_corrections(attempt_id,lane,at_ms,old_micro,new_micro,
       old_visitor_micro,new_visitor_micro,previous_json,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)`)
-      .run(row.attempt_id, row.lane, Date.now(), row.settled_micro, newMicro, row.settled_visitor_micro,
+      .run(row.attempt_id, row.lane, this.timestamp(), row.settled_micro, newMicro, row.settled_visitor_micro,
         newVisitorMicro, JSON.stringify({ terminal: row.terminal_json, usage: row.usage,
           cost: row.cost_reconciliation_json, voice: row.voice_reconciliation_json }), JSON.stringify(evidence));
   }
@@ -314,8 +331,17 @@ export class SQLiteBudgetLedger {
       if (!row || row.lane !== 'voice' || row.state !== 'dispatched') throw new PluginError('not-admitted');
       maxMicro = Math.max(maxMicro, row.max_micro); maxVisitorMicro = Math.max(maxVisitorMicro, row.max_visitor_micro);
       const extra = { maxMicro: maxMicro - row.max_micro, maxVisitorMicro: maxVisitorMicro - row.max_visitor_micro };
-      if (!this.canAdmit(row.session_id, extra.maxMicro, extra.maxVisitorMicro) || ownerCanAdmit?.(extra) === false) throw new PluginError('not-admitted', 'Budget denied');
-      this.db.prepare("UPDATE budget_attempts SET max_micro=?,max_visitor_micro=?,voice_estimate_json=json_set(voice_estimate_json,'$.maxMicro',?) WHERE attempt_id=?").run(maxMicro, maxVisitorMicro, maxMicro, attemptId);
+      if (!this.canAdmit(row.session_id, extra.maxMicro, extra.maxVisitorMicro)) throw new PluginError('not-admitted', 'Budget denied');
+      const history = JSON.parse(row.voice_extensions_json), increased = extra.maxMicro > 0 || extra.maxVisitorMicro > 0;
+      const at = increased ? this.timestamp() : history.at(-1)?.at ?? this.timestamp();
+      const context = Object.freeze({ attemptId, sessionId: row.session_id, extraMicro: extra.maxMicro, at });
+      if (ownerCanAdmit?.(extra, context) === false) throw new PluginError('not-admitted', 'Budget denied');
+      // Cumulative maxima are the replay key. A duplicate still calls legacy
+      // admission with zero extras, but cannot append or re-date an increase.
+      if (increased) history.push({ maxMicro, maxVisitorMicro, extraMicro: context.extraMicro,
+        extraVisitorMicro: maxVisitorMicro - row.max_visitor_micro, at });
+      this.db.prepare("UPDATE budget_attempts SET max_micro=?,max_visitor_micro=?,voice_estimate_json=json_set(voice_estimate_json,'$.maxMicro',?),voice_extensions_json=? WHERE attempt_id=?")
+        .run(maxMicro, maxVisitorMicro, maxMicro, JSON.stringify(history), attemptId);
       return { maxMicro, maxVisitorMicro };
     });
   }
@@ -369,8 +395,7 @@ export class SQLiteBudgetLedger {
         return this.get(row.attempt_id); // exact terminal retries are idempotent
       }
       const dispatched = row.state === 'dispatched';
-      if (row.provider_cost_json) this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.settledAt',?) WHERE attempt_id=?")
-        .run(Date.now(), row.attempt_id);
+      this.recordSettlementTime(row.attempt_id);
       const actual = !dispatched ? 0 : terminal.chargedMicro ?? (terminal.outcome === 'uncertain' ? row.max_micro
         : terminal.usage.inputTokens * rates.inputMicro + terminal.usage.outputTokens * rates.outputMicro);
       // Unknown dispatched usage retains the maximum; known overruns remain visible as actual spend.
@@ -403,6 +428,7 @@ export class SQLiteBudgetLedger {
         return this.get(row.attempt_id);
       }
       this.freezeVoiceEstimate(row.attempt_id);
+      this.recordSettlementTime(row.attempt_id);
       const dispatched = row.state === 'dispatched', uncertain = dispatched && !known;
       const actual = !dispatched ? 0 : uncertain ? Math.max(row.max_micro, row.voice_exposure_micro,
         integer(terminal.chargedMicro) ? terminal.chargedMicro : 0) : terminal.usage.upstreamMicro;
@@ -456,8 +482,7 @@ export class SQLiteBudgetLedger {
         const dispatched = row.state === 'dispatched' && (!providerRecord || providerRecord.dispatchStarted === 1);
         const evidence = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;
         const actual = dispatched && integer(evidence?.chargedMicro) ? evidence.chargedMicro : null;
-        if (providerRecord) this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.settledAt',?) WHERE attempt_id=?")
-          .run(Date.now(), row.attempt_id);
+        this.recordSettlementTime(row.attempt_id);
         const exposure = dispatched && row.lane === 'voice' ? Math.max(row.max_micro, row.voice_exposure_micro)
           : Math.max(row.max_micro, JSON.parse(row.component_json ?? 'null')?.observedMicro ?? 0);
         const visitorExposure = dispatched && row.lane === 'voice' ? Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro) : row.max_visitor_micro;
