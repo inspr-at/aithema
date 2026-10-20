@@ -571,3 +571,23 @@ for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and 
     assert.match(root.querySelector('.host-credits__next').textContent, hasKey ? copy === de ? /^Nach der Bestätigung:/u : /^After confirmation:/u : copy === de ? /^Mit bestätigter E-Mail-Adresse:/u : /^With confirmed email address:/u);
   }
 });
+
+for (const copy of [de, en]) test(`AIT-411 O4/O5: one reconciliation announcement and reset retained until cap clears (${copy.display.locale})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const receipt = { scope: 'session', balance, dailyCapReached: true, dailyCapResetAt: 123456789, reconciling: false };
+  const { root } = setup(t, { copy, host: { credits: { reconcilingVisible: true, dailyCapReset: true } },
+    routes: { 'GET /credits': () => Response.json(receipt) } });
+  await tick(10);
+  const deadline = root.querySelector('.host-credits__deadline'), resetText = deadline.textContent;
+  assert.ok(resetText.length > 0); delete receipt.dailyCapResetAt;
+  receipt.reconciling = true; t.mock.timers.tick(15001); await tick(12);
+  assert.equal(deadline.textContent, resetText);
+  const live = root.querySelector('.host-credits__reconcile-live'), originalNode = live.firstChild;
+  assert.equal(live.textContent, copy.hostSurface.credits.reconciling);
+  assert.equal(root.querySelector('.host-credits__button').getAttribute('aria-label'), copy.hostSurface.credits.reconciling);
+  t.mock.timers.tick(15001); await tick(12);
+  assert.equal(live.firstChild, originalNode, 'same reconciliation never re-announces');
+  receipt.dailyCapReached = false; receipt.reconciling = false;
+  t.mock.timers.tick(15001); await tick(12);
+  assert.equal(deadline.hidden, true); assert.equal(deadline.textContent, ''); assert.equal(live.textContent, '');
+});

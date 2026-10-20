@@ -69,7 +69,7 @@ export async function creditHostOptionsCheck(t) {
       copy.hostSurface.credits.afterConfirm = locale === 'de' ? 'Nach der Bestätigung: {tier}\u00a0Credits' : 'After confirmation: {tier} credits';
       c.configure({ copy, session, host: { verification: true, credits: { scope: 'session', reconcilingVisible: true, dailyCapReset: true },
         usedUp: { newConversation: { enabled: state !== 'S3' }, dailyCapActions: 'none' }, emailAsk: { lowCredits: state !== 'low-off' } } });
-      let legal = c.querySelector('[slot="legal"]');
+      let legal = c.querySelector('[slot="legal"][data-aithema-privacy]');
       if (!legal) { legal = document.createElement('a'); legal.slot = 'legal'; legal.setAttribute('data-aithema-privacy', ''); legal.href = '/privacy'; legal.textContent = 'Privacy'; c.append(legal); }
       await document.fonts.ready;
     }, { state, locale, theme });

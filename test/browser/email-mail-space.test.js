@@ -82,7 +82,7 @@ async function fixture(page, locale, delivery, canConfirm = delivery, credits = 
         }
         return Response.json({ visitor: { address: state.address }, notice: { version: 'ait-171-fixture', deliveryEnabled: delivery }, privacyDocumentConfigured: true });
       }
-      if (path.endsWith('/identity')) return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true });
+      if (path.endsWith('/identity')) return Response.json({ identity: identity(), visitorEmail: { canSave: true, canDelete: true }, delivery, privacyDocumentConfigured: true });
       if (/\/identity\/(request|change|resend)$/u.test(path)) {
         state.linkRequests++;
         while (state.hold) await new Promise(resolve => setTimeout(resolve, 10));

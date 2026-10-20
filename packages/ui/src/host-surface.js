@@ -97,9 +97,10 @@ export class HostSurface {
     if (this.#credits?.scope === 'session' && this.#credits.dailyCapReached) return {
       title: credits.dailyCapShort, body: credits.dailyCap, footer: false, announce: credits.dailyCap,
     };
-    if (this.endReason === 'session') return { title: credits.ended.session.title,
-      body: next ? fill(credits.ended.sessionUpgrade, { next: defaultCreditFormat(this.tiers.allowancesMicro[next], this.#session().locale ?? 'en') }) : credits.ended.newConversationHint, footer: credits.ended.session.footer,
-      announce: `${credits.ended.session.title} ${next ? fill(credits.ended.sessionUpgrade, { next: defaultCreditFormat(this.tiers.allowancesMicro[next], this.#session().locale ?? 'en') }) : credits.ended.newConversationHint}` };
+    if (this.endReason === 'session') {
+      const body = next ? fill(credits.ended.sessionUpgrade, { next: defaultCreditFormat(this.tiers.allowancesMicro[next], this.#session().locale ?? 'en') }) : credits.ended.newConversationHint;
+      return { title: credits.ended.session.title, body, footer: credits.ended.session.footer, announce: `${credits.ended.session.title} ${body}` };
+    }
     if (this.newConversationAction) return { ...(credits.ended[this.endReason] ?? usedUp), body: credits.ended.newConversationHint, footer: false };
     const state = this.endReason === 'host-limit' && next
       ? { title: usedUp.title, body: fill(usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: this.deltaCredits }), footer: false }
@@ -369,6 +370,7 @@ export class HostSurface {
     const balance = owner ? fill(scoped ? exhausted ? c.sessionBalanceOut : c.sessionBalance : exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : c.loading;
     setText(scope, balance); button.setAttribute('aria-label', capped ? c.dailyCap : balance);
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
+    if (reconciling) button.setAttribute('aria-label', c.reconciling);
     current.hidden = !tiers || tiers.current === 'anonymous';
     if (tiers) setText(current.querySelector('span:last-child'), tierText(fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) })));
     // Built-in RC13 dictionaries retain their historic anonymous offer. A host
@@ -395,6 +397,7 @@ export class HostSurface {
     const resetEnabled = this.#options.credits?.dailyCapReset === true;
     line.toggleAttribute('data-reset-time', resetEnabled);
     deadline.hidden = !resetEnabled || !capped;
+    if (this.dailyResetSession !== this.#session().id) { this.dailyResetAt = null; this.dailyResetSession = this.#session().id; }
     const resetAt = this.#credits?.dailyCapResetAt;
     if (resetEnabled && capped && Number.isSafeInteger(resetAt)) {
       this.dailyResetAt = resetAt;
