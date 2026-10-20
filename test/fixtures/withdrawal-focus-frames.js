@@ -86,9 +86,15 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
-      // Mount follows the latest reply when this conversation overflows. This
-      // case reads the first row; establish that reading position explicitly,
-      // as the interior-row case below does for its own starting position.
+      const mounted = await page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = r.querySelector('.composer').getBoundingClientRect();
+        return { scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight,
+          composer: [b.x, b.y, b.width, b.height] };
+      });
+      console.log('AIT411_BRANCH_INITIAL ' + JSON.stringify({ width, locale, ...mounted }));
+      assert.equal(mounted.scrollTop, 0, 'default composer matches merged main before fixture scroll setup');
+      // Keep main's explicit first-row setup and every existing assertion; the
+      // independent assertion above prevents it from hiding a default regression.
       await page.evaluate(async () => {
         c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0;
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -114,7 +120,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       await page.evaluate(() => clock.tick(4000));
       await capture(width, 'light', locale, 'transcript-expired');
       const expired = await inspect();
-      checks.push({ width, locale, before, withdrawn, expired });
+      checks.push({ width, locale, mounted, before, withdrawn, expired });
       if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
       assert.deepEqual(withdrawn.slot, before.slot, 'AIT-400: status occupies the reserved slot at 0 px');
       assert.deepEqual(expired.slot, before.slot, 'AIT-400: status expiry preserves the reserved slot at 0 px');
