@@ -365,6 +365,7 @@ export const en = {
   hostSurface: {
     bar: 'Your conversation',
     verify: {
+      streamWait: 'Available once the reply has finished.',
       entry: 'Confirm your email address', pending: 'Email not yet verified', verified: 'Email verified',
       section: 'Email', unverified: 'Not verified', linkSent: 'Link sent', resendOrChange: 'Resend or change', verifiedShort: 'Verified',
       title: 'Confirm your email address', close: 'Back to the conversation',

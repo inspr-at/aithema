@@ -20,8 +20,8 @@ export function setTierText(container, template, values) {
 export class VisitorEmail {
   #delivery = true;
   #settings = null;
-  constructor({ root, entry, copy, request, openDialog, changed, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale }) {
-    Object.assign(this, { root, entry, copy, request, openDialog, changed, demo, delivery, privacyDocumentConfigured, handover, locale });
+  constructor({ root, entry, copy, request, openDialog, changed, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale, streaming = () => false }) {
+    Object.assign(this, { root, entry, copy, request, openDialog, changed, demo, delivery, privacyDocumentConfigured, handover, locale, streaming });
     this.alive = true; this.ui = { editing: false, deleting: false, busy: false, message: '', invalid: false, failed: false };
     entry.id = 'email'; entry.classList.add('host-mail');
     entry.innerHTML = `<h3 class="verify-entry-title" id="email-heading" tabindex="-1"></h3><div class="m-stack">
@@ -129,6 +129,7 @@ export class VisitorEmail {
     // The guarded text writer preserves the live region across repeated paints.
     setTierText(lead, status ? this.creditsState === 'failed' ? failure : this.e.creditLoading : template, values);
   }
+  get changeBlocked() { return Boolean(this.address && this.streaming()); }
   paint() {
     const e = this.e, v = this.copy.hostSurface.verify, state = this.state, n = this.numbers;
     this.entry.dataset.emailState = state === 'mail' ? this.identity?.status === 'verified' ? 'confirmed' : this.address ? 'pending' : 'mailnone' : state;
@@ -144,7 +145,7 @@ export class VisitorEmail {
     setText(this.q('.m-label'), v.label); this.q('#email-input').placeholder = v.placeholder;
     this.q('#email-input').setAttribute('aria-invalid', String(this.ui.invalid));
     for (const [selector, key] of [['.m-save', 'save'], ['.m-cancel', 'cancel'], ['.m-change', 'change'], ['.m-delete', 'delete'], ['.m-q', 'deleteQuestion'], ['.m-del', 'deleteConfirm'], ['.m-keep', 'cancel'], ['.m-change-mail', 'change'], ['.m-delete-mail', 'delete'], ['.m-unavailable', 'unavailable']]) setText(this.q(selector), e[key]);
-    for (const selector of ['.m-save', '.m-del']) this.q(selector).setAttribute('aria-disabled', String(this.ui.busy));
+    for (const selector of ['.m-save', '.m-del']) this.q(selector).setAttribute('aria-disabled', String(this.ui.busy || selector === '.m-save' && this.changeBlocked));
     setText(this.q('.m-addr'), this.address);
     setText(this.q('.m-tier > span'), this.tiers ? fill(e.tier, { tier: n.email }) : '');
     const base = this.tiers?.allowancesMicro?.anonymous, spent = this.balance?.committedMicro;
@@ -157,7 +158,8 @@ export class VisitorEmail {
       consequence.setAttribute('data-delete-normal', fill(e.deleteDrop, { ...n, available: this.format(Math.max(0, base - spent)) }));
       consequence.setAttribute('data-delete-over', fill(e.deleteOver, { spent: this.format(spent) }));
     } else { consequence.removeAttribute('data-delete-normal'); consequence.removeAttribute('data-delete-over'); }
-    setText(this.q('.m-msg-text'), this.ui.message); this.q('.m-ico').innerHTML = this.ui.message && !this.ui.busy ? this.ui.invalid || this.ui.failed ? INFO : CHECK : '';
+    setText(this.q('.m-msg-text'), this.changeBlocked ? v.streamWait : this.ui.message);
+    this.q('.m-msg').classList.toggle('identity-stream-wait', this.changeBlocked); this.q('.m-ico').innerHTML = this.ui.message && !this.ui.busy ? this.ui.invalid || this.ui.failed ? INFO : CHECK : '';
     setText(this.q('.m-delete-message'), this.ui.deleting ? this.ui.message : '');
     setText(this.q('.m-unavailable-message'), state === 'unavailable' ? this.ui.message : '');
     this.paintNotice(this.q('#email-notice')); this.paintNotice(this.q('.m-mail-notice'));
@@ -202,7 +204,7 @@ export class VisitorEmail {
   }
   focus() { const target = this.state === 'capture' ? '#email-input' : this.state === 'saved' ? '.m-change' : this.state === 'mail' ? this.identity?.status === 'verified' ? '.m-change-mail' : '.verify-entry' : 'h3'; this.q(target)?.focus({ preventScroll: true }); }
   async save() {
-    if (this.ui.busy || !this.canCollect) return;
+    if (this.ui.busy || !this.canCollect || this.changeBlocked) return;
     const input = this.q('#email-input'), address = input.value.trim();
     if (!valid(address)) { this.ui.invalid = true; this.ui.message = this.copy.hostSurface.verify.invalid; this.paint(); input.focus({ preventScroll: true }); return; }
     this.ui.busy = true; this.ui.failed = false; this.ui.invalid = false; this.ui.message = this.e.saving; this.paint();
