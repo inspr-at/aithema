@@ -249,14 +249,14 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 151);
 
-// AIT-411: PR #365 CI 39467097581, head 7dbf4cb7, shard 6/7:
-// complete host-surface file 7/7 PASS, including the unchanged 180-case
-// exact-zero matrix and 20 viewport shots. Top-level work 161.722440730s;
-// ceil(*1.25) = 203s. Matrix work fell from 52.789977227s to 46.461047410s
-// by combining duplicate settle waits with batched geometry reads.
+// AIT-411: PR #365 CI 39468957734, head aca252f4, shard 4/7:
+// complete host-surface file 7/7 PASS, including all 180 exact-zero cases
+// and the 20 requested viewport shots. Top-level work 163.714101536s;
+// ceil(*1.25) = 205s; round this temporary floor up to 210s for CI variance.
+// Optimized matrix work: 47.519304536s (before batching: 52.789977227s).
 // PR diagnostic floor only; keep trusted main history and all capacity settings.
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
-  browserTestWeights['test/browser/host-surface.test.js'], 203);
+  browserTestWeights['test/browser/host-surface.test.js'], 210);
 
 // AIT-404: green PR #357 CI 39430635672, head e1756456, shard 3/7:
 // complete continuity file 3/3 PASS, including all eight touch/fine-pointer
