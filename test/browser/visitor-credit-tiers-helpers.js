@@ -354,7 +354,7 @@ export async function visitorCreditMatrix(t, locales) {
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   if (evidence) await mkdir(evidence, { recursive: true });
-  const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+  const event = workflowEvent;
   const branchHead = event?.pull_request?.head?.sha ?? head;
   const passLines = [], states = [], captures = [], uiChecks = [];
   for (const locale of locales) {
@@ -844,6 +844,13 @@ export async function replyRowsMatrix(t) {
     const afterReplies = await boxes(page, ['.turn:not(.user)']);
     assert.deepEqual(afterReplies[0].slice(2), original[0].slice(2), 'new replies preserve the original reply size exactly');
     assert.equal(await shadow(page, () => window.ait410First.querySelector('.reply-actions') === window.ait410Actions && Boolean(window.ait410Actions)), true, 'each reply keeps the same control row');
+    // Reading an earlier reply retains the reader's position when a notice
+    // arrives. Explicit bottom-follow behavior has its separate AIT-188 checks.
+    await shadow(page, c => {
+      const shell = c.shadowRoot.querySelector('.transcript-shell');
+      shell.scrollTop = 0; shell.dispatchEvent(new Event('scroll'));
+    });
+    await settle(page);
     const selectors = ['.turn:not(.user)', '.turn:last-child', '.qopts', '.question-card', '.composer-shell'];
     const before = await boxes(page, selectors);
     const record = async state => {
