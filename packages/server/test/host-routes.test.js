@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { mockConsent, temporaryDb, readEvents, unzip } from '../../../test/helpers.js';
-import { createSession, applyEvent, inputRevision, createHandover, reduceHandover } from '@inspr/aithema-core';
+import { createSession, applyEvent, inputRevision, createHandover, reduceHandover, PluginError } from '@inspr/aithema-core';
 
 const owner = 'host-owner', foreign = 'another-owner';
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
@@ -771,7 +771,10 @@ test('AIT-405: a throwing tier display callback cannot strand a saved and broadc
   assert.equal(f.storage.get(session.id).understanding.inputRevision, inputRevision(f.storage.get(session.id)));
 });
 
-for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} fails closed before saving or broadcasting a turn`, async t => {
+const creditCallbackErrors = [Error, TypeError, RangeError, SyntaxError].map(ErrorType => [ErrorType.name, () => new ErrorType('private host diagnostic')]);
+for (const code of ['not-admitted', 'rate-limit', 'provider-error']) creditCallbackErrors.push([`PluginError ${code}`, () => new PluginError(code, 'host-limit')]);
+for (const [label, makeError] of creditCallbackErrors)
+for (const failure of ['wallet', 'balance']) test(`AIT-405/AIT-407: throwing ${failure} (${label}) fails closed before saving or broadcasting a turn`, async t => {
   const f = fixture(t, { demoBypass: true }), session = await f.create();
   const before = f.storage.get(session.id), journal = f.storage.read(session.id);
   const abort = new AbortController();
@@ -780,8 +783,8 @@ for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} 
   }));
   const wallet = f.host.wallet;
   const broken = t.mock.method(f.host, 'wallet', (token, context) => {
-    if (failure === 'wallet') throw new Error('wallet unavailable');
-    return Object.create(wallet(token, context), { balance: { value: () => { throw new Error('balance unavailable'); } } });
+    if (failure === 'wallet') throw makeError();
+    return Object.create(wallet(token, context), { balance: { value: () => { throw makeError(); } } });
   });
   const body = { clientEventId: 'wallet-failure', content: 'systems: API' };
   const response = await f.call(`/api/sessions/${session.id}/turns`, body);
@@ -789,6 +792,7 @@ for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} 
   abort.abort();
   const events = await readEvents(stream, Infinity);
   assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: 'server-error' }, 'host diagnostics never blame the request or leak to the visitor');
   assert.deepEqual(f.storage.get(session.id), before, 'failed credit reads leave no saved turn or partial credit state');
   assert.deepEqual(f.storage.read(session.id), journal);
   assert.equal(events.some(event => event.type === 'turn.final'), false, 'failed credit reads never broadcast a turn');
@@ -801,6 +805,27 @@ for (const failure of ['wallet', 'balance']) test(`AIT-405: throwing ${failure} 
   const replayWallet = t.mock.method(f.host, 'wallet', () => { throw new Error('wallet unavailable again'); });
   assert.equal((await f.call(`/api/sessions/${session.id}/turns`, body)).status, 200, 'receipted retries bypass credit preflight');
   assert.equal(replayWallet.mock.callCount(), 0);
+});
+
+test('AIT-407: invalid turn requests retain 400/413 before host credit callbacks', async t => {
+  const f = fixture(t, { demoBypass: true }), session = await f.create();
+  const before = f.storage.get(session.id), journal = f.storage.read(session.id);
+  const wallet = t.mock.method(f.host, 'wallet', () => { throw new TypeError('host must not be called'); });
+  for (const [body, status, error] of [
+    ['{', 400, 'invalid-request'],
+    [JSON.stringify({ clientEventId: 'invalid', content: '' }), 400, 'invalid-turn'],
+    [JSON.stringify({ clientEventId: 'metadata', content: 'valid', padding: 'p'.repeat(32_768) }), 413, 'size-limit'],
+    [' '.repeat(65_537), 413, 'size-limit'],
+  ]) {
+    const response = await f.handlers.handle(new Request(`http://local/api/sessions/${session.id}/turns`, {
+      method: 'POST', headers: { 'x-aithema-session-token': owner, 'content-type': 'application/json' }, body,
+    }));
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), { error });
+  }
+  assert.equal(wallet.mock.callCount(), 0);
+  assert.deepEqual(f.storage.get(session.id), before);
+  assert.deepEqual(f.storage.read(session.id), journal);
 });
 
 for (const initial of [false, true]) test(`AIT-395: ${initial ? 'initial balance' : 'credits read'} passes the authorized conversation to each required projection`, async t => {
