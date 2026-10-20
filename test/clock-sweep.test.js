@@ -122,6 +122,14 @@ test('AIT-403 sweep storage event and content evidence timestamps follow install
     new Date(h.now()).toISOString());
 });
 
+test('AIT-403 owner export evidence uses the installed runtime clock', async t => {
+  const h = fixture(t);
+  const response = await h.handlers.handle(ownedRequest(`https://fixture.invalid/api/sessions/${h.session.id}/export`));
+  assert.equal(response.status, 200);
+  const zip = Buffer.from(await response.arrayBuffer());
+  assert.equal(zip.includes(Buffer.from(`"exportedAt": "${new Date(h.now()).toISOString()}"`)), true);
+});
+
 test('AIT-403 explicit runtime policy clock also owns storage retention and evidence', async t => {
   const h = fixture(t, { explicit: true });
   assert.equal(h.storage.now(), h.runtime.now());
