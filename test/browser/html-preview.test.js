@@ -896,6 +896,11 @@ test('AIT-369: delivered coverage survives visual choices and revokes per kind',
   await deliveredConsentFrames(t);
 });
 
+test('AIT-374: unavailable revision keeps its preview slot between good siblings', { timeout: 45_000 }, async t => {
+  const { artifactConsentFrames } = await import('../fixtures/artifact-consent-frames.js');
+  await artifactConsentFrames(t);
+});
+
 // AIT-386 stays in the existing preview shard: reuse one page for the request
 // matrix and two viewport pairs, without another browser file or shard bin.
 test('AIT-386: delivered artifacts never turn draft bytes into image requests', { timeout: 45_000 }, async t => {

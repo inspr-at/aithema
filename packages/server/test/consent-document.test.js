@@ -6,6 +6,62 @@ import { ownedRequest, testToken } from '../../../test/helpers.js';
 const document = () => ({ contract: 'host-v1', selected: [], items: [
   { id: 'mock-processing', version: 1, title: 'Host processing', recipients: 'Host processor', text: 'Host purpose' },
 ] });
+
+async function artifactCoverageFixture(t) {
+  const { PluginRegistry, processingScope } = await import('@inspr/aithema-core');
+  const { createLocalHTML, localHTMLBinding } = await import('../src/index.js');
+  const storage = new SQLiteStorage(), producer = createLocalHTML(), now = Date.now();
+  const registry = new PluginRegistry().register({ ...producer, generate() { throw new Error('No provider calls'); } });
+  const binding = purpose => ({ ...localHTMLBinding, maxMicro: 1000, rates: { inputMicro: 1, outputMicro: 1 },
+    legal: { approved: true, countries: ['FR'], training: false, retention: 'fixture', purpose, recipient: 'offline',
+      processors: [], dataCategories: ['conversation'], consentVersion: 1,
+      evidence: { qualified: true, accountRef: localHTMLBinding.accountRef, secretRef: localHTMLBinding.secretRef,
+        model: localHTMLBinding.model, endpoint: localHTMLBinding.endpoint, routing: {}, verifiedAt: now - 1000, expiresAt: now + 60000 } } });
+  const good = binding('drafts'), bad = binding('old-drafts');
+  const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, scope, ...scope, consentRevision,
+    checkedAt: now, expiresAt: now + 60000 }), describe: () => ({ contract: 'ait374', selected: ['drafts', 'old-drafts'],
+    items: ['drafts', 'old-drafts'].map(id => ({ id, version: 1, title: id, recipients: 'Offline', text: 'Fixture' })) }) };
+  const config = { plugins: ['fake-html'], bindings: { html: good }, choices: { models: [], visuals: [
+    { id: 'good', kind: 'html', binding: good }, { id: 'bad', kind: 'html', binding: bad },
+  ] } };
+  const runtime = createPluginRuntime({ storage, registry, consent, presets: { best: config } });
+  const handlers = createHandlers({ storage, consent, pluginRuntime: runtime });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken });
+  const artifact = await producer.generate({ prompt: 'Offline draft' }, '', { attempt: { attemptId: 'fixture', claimId: 'fixture', consume() {} }, report() {} });
+  for (const [id, raw, visuals] of [['first', good, 'good'], ['bad', bad, 'bad'], ['last', good, 'good']]) {
+    storage.append(session.id, 'concept.state', { intent: { pending: { id } } });
+    const scope = processingScope(raw, 'generate');
+    storage.completeConcept(session.id, artifact, { id, requestId: id, visuals, turnIds: [], referenceIds: [],
+      consentPurpose: scope.purpose, consentScope: scope }, { status: { phase: 'ready' } });
+  }
+  return { runtime, storage, session, bad, config, read: () => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`)) };
+}
+
+test('AIT-374: one revoked producer keeps its good siblings available per artifact', async t => {
+  const h = await artifactCoverageFixture(t);
+  h.bad.legal.approved = false;
+  const response = await h.read(); assert.equal(response.status, 200);
+  const doc = await response.json();
+  assert.deepEqual(doc.artifacts, {
+    first: { purposes: ['drafts'], unavailable: false }, bad: { purposes: ['old-drafts'], unavailable: true },
+    last: { purposes: ['drafts'], unavailable: false },
+  });
+  assert.deepEqual(doc.unavailableFeatures, [], 'a bad producer cannot mark its good siblings unavailable');
+  for (const id of ['first', 'last']) assert.equal(await h.runtime.publicationAllowed(h.storage.get(h.session.id), { artifactId: id, visualKind: 'html' }), true);
+  assert.equal(await h.runtime.publicationAllowed(h.storage.get(h.session.id), { artifactId: 'bad', visualKind: 'html' }), false);
+});
+
+test('AIT-374: GET consent starts distinct artifact evaluations concurrently', async t => {
+  const h = await artifactCoverageFixture(t), release = Promise.withResolvers(), entered = [];
+  const publicationStatus = h.runtime.publicationStatus;
+  t.mock.method(h.runtime, 'publicationStatus', async (...args) => { entered.push(args[1].artifactId); await release.promise; return publicationStatus(...args); });
+  const pending = h.read();
+  // Flush the read/describe microtasks without a timing threshold or wall-clock fixture.
+  await new Promise(resolve => setImmediate(resolve));
+  const started = [...entered]; release.resolve(); await pending;
+  assert.deepEqual(started, ['first', 'bad', 'last'], 'a slow full binding evaluation does not serialize its siblings');
+});
 async function fixture(t, describe, scopes) {
   const storage = new SQLiteStorage(), logs = [];
   const consent = { coverage: () => ({ covered: false }), describe };

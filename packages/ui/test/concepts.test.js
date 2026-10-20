@@ -14,6 +14,33 @@ await import('../src/session-element.js');
 test.after(() => window.happyDOM.close());
 const warningFixture = document.createElement('span'); warningFixture.innerHTML = WARNING_ICON;
 const tick = () => new Promise(r => setImmediate(r));
+
+for (const copy of [en, de]) test(`AIT-374 ${copy === en ? 'en' : 'de'}: unavailable draft keeps its slot and siblings`, async t => {
+  let view; const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const { c, root, calls, downloads } = setup(t, { copy, concepts: [draft('first'), draft('bad'), draft('last')] });
+  const coverage = { consentRevision: c.session.consentRevision, selected: ['drafts', 'old-drafts'], features: { html: ['drafts', 'old-drafts'] },
+    artifacts: { first: { purposes: ['drafts'], unavailable: false }, bad: { purposes: ['old-drafts'], unavailable: true }, last: { purposes: ['drafts'], unavailable: false } } };
+  view.open('bad'); view.update(c.session, coverage); await tick();
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last'], 'only readable siblings can load bytes');
+  assert.deepEqual(view.displayItems.map(i => i.id), ['first', 'bad', 'last'], 'unavailable placeholder keeps its original order');
+  assert.equal(view.dialog.open, true, 'the bad revision stays in the fixed viewer');
+  const preview = root.querySelector('.concept-html');
+  assert.equal(preview.state, 'unavailable'); assert.equal(preview.artifact, null);
+  assert.equal(preview.shadowRoot.querySelector('.state-message').textContent, copy === en ? "This preview isn't available." : 'Diese Vorschau ist nicht verfügbar.');
+  assert.equal(preview.shadowRoot.querySelector('.state').tabIndex, 0);
+  assert.equal(preview.shadowRoot.querySelector('.state').getAttribute('aria-label'), copy.conceptPreview.unavailable);
+  assert.equal(preview.shadowRoot.querySelector('.reload').disabled, true);
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+  const before = calls.length; assert.equal(await view.load('bad'), null); await view.download();
+  assert.equal(calls.length, before); assert.equal(downloads.length, 0, 'unavailable artifact cannot load or download');
+  view.navigate(-1); assert.equal(view.current().id, 'first');
+  view.navigate(1); assert.equal(view.current().id, 'bad');
+  view.navigate(1); assert.equal(view.current().id, 'last');
+  // A missing consent choice for one producer also cannot hide another producer.
+  view.update(c.session, { ...coverage, selected: ['drafts'] });
+  assert.deepEqual(view.items.map(i => i.id), ['first', 'last']);
+});
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } }, ...extra }; }
 // A clickable draft as the server publishes it (AIT-113): text/html, no pixel size.
