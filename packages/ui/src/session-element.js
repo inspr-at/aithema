@@ -1387,10 +1387,21 @@ export class AithemaSession extends HTMLElement {
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
       out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
       setText(out.querySelector('.composer-out__title span'), limit.title);
-      setText(out.querySelector('.composer-out__body span'), limit.body);
-      // Keep the normal composer's body reservation through host-limit and receipt changes.
-      out.querySelector('.composer-out__body').dataset.defaultBody = u.body;
       const delta = this.#host?.deltaCredits ?? '';
+      // Tick spec v1 (AIT-406, 2026-10-20): the tallest localized variant
+      // reserves the credit line. Hidden grid peers never enter the AX tree.
+      const bodies = [
+        ['default', u.body], ['host-give', u.hostGive.replace('{delta}', delta)], ['host-confirm', u.hostConfirm.replace('{delta}', delta)],
+        ...Object.entries(credits.ended).map(([key, value]) => [key, value.body]), ['daily-cap', credits.dailyCap],
+      ];
+      const activeBody = bodies.find(([, body]) => body === limit.body)?.[0] ?? 'default';
+      reconcile(out.querySelector('.composer-out__body'), bodies, () => node('span'), (span, body) => {
+        const key = span.dataset.key;
+        setText(span, body); span.dataset.creditVariant = key;
+        span.dataset.active = String(key === activeBody);
+        span.toggleAttribute('data-host-body', ['host-give', 'host-confirm', 'host-limit'].includes(key));
+        span.setAttribute('aria-hidden', String(!usedUp || key !== activeBody));
+      });
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');
       footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);

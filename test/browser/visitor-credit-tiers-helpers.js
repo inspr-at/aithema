@@ -137,20 +137,29 @@ export async function composerCreditReservationMatrix(t) {
       const variants = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].map(n => ({
         key: n.dataset.creditVariant, text: n.textContent, visibility: getComputedStyle(n).visibility, ariaHidden: n.getAttribute('aria-hidden'),
       })));
-      const { nodes } = await accessibility.send('Accessibility.getFullAXTree');
-      const axNames = nodes.filter(n => !n.ignored && n.role?.value === 'StaticText').map(n => n.name?.value);
+      const hiddenAX = [];
+      for (let i = 0; i < variants.length; i++) {
+        if (variants[i].ariaHidden !== 'true') continue;
+        const { result } = await accessibility.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelectorAll('.composer-out__body > span')[${i}]` });
+        const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+        await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+        hiddenAX.push({ key: variants[i].key, ignored: nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored === true });
+      }
       const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
-        variants, hiddenVariantsAbsent: variants.filter(n => n.ariaHidden === 'true').every(n => !axNames.includes(n.text)),
+        variants, hiddenAX, hiddenVariantsAbsent: hiddenAX.every(n => n.ignored),
         activeBody: await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-out__body > span')].filter(n => getComputedStyle(n).visibility === 'visible').map(n => n.textContent)) };
       rows.push(row);
       t.diagnostic(`AIT-406 ${locale}-${theme}-${width}/${state}: ${JSON.stringify(row)}`);
       if (evidence && locale === 'de' && theme === 'light' && state === 'one-hour' && [390, 1024].includes(width)) {
+        const scrollBefore = await page.evaluate(() => scrollY);
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1);
         if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
         await settle(page);
         await page.screenshot({ path: join(evidence, `ait406-${width}-light-de-one-hour.png`), fullPage: false });
+        await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
       }
     }
   }
@@ -589,7 +598,7 @@ export async function visitorCreditMatrix(t, locales) {
       }); await settle(page);
       const oneHour = await shadow(page, c => {
         const r = c.shadowRoot;
-        return { title: r.querySelector('.composer-out__title').textContent, body: r.querySelector('.composer-out__body').textContent,
+        return { title: r.querySelector('.composer-out__title').textContent, body: r.querySelector('.composer-out__body > [data-active="true"]').textContent,
           announcement: r.querySelector('.credit-announcement').textContent, polite: r.querySelector('.credit-announcement').getAttribute('aria-live'),
           duplicateToast: Boolean(r.querySelector('.composer-dock > .status__label')) };
       });
