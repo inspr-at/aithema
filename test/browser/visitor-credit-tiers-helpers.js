@@ -171,6 +171,9 @@ export async function composerCreditReservationMatrix(t) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
     unchanged(row.before, row.after, label);
     assert.equal(row.composerHeight, row.before[1][3], `${label}: identical composer height`);
+  }
+  for (const row of rows) {
+    const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
     assert.ok(row.variants.length >= 4, `${label}: all credit variants reserve the grid cell`);
     assert.ok(row.variants.filter(n => n.ariaHidden === 'true').every(n => n.visibility === 'hidden'), `${label}: inactive variants hidden`);
     assert.equal(row.hiddenVariantsAbsent, true, `${label}: hidden variants absent from accessibility tree`);
