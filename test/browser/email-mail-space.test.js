@@ -488,3 +488,86 @@ test('AIT-414: credit tiers with identity only confirm and change without visito
   assert.equal(f.calls.filter(call => call.path === '/api/visitor/email' && call.body).length, 0);
   await page.evaluate(() => window.confirmation.destroy());
 });
+
+test('AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry', { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-identity-stream-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), page = await browser.newPage(), checks = [], errors = [];
+  t.after(async () => { await browser.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewport({ width: 390, height: 1000 });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
+  await page.goto(server.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session);
+  const settle = () => shadow(page, async c => {
+    await document.fonts.ready;
+    await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  const measure = () => shadow(page, c => ['dialog.verify-dialog', '.verify-dialog .verify__input', '.verify-dialog .verify-send', '.verify-dialog .verify__message'].map(s => {
+    const b = c.shadowRoot.querySelector(s).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+  }));
+  const shot = async name => {
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+    await page.mouse.move(-1, -1); await settle();
+    if (evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
+  };
+  for (const locale of ['de', 'en']) {
+    await fixture(page, locale, true);
+    await shadow(page, c => {
+      c.setAttribute('theme', 'light'); c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      window.emailBoot.address = 'before@example.test'; window.emailBoot.status = 'verified';
+      c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, identified: true, status: 'verified', address: 'before@example.test' } });
+    });
+    await click(page, '.m-change-mail');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
+    await settle(); const baseline = await measure();
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'o9-user', role: 'user', content: c.session.locale === 'de' ? 'Welche Möglichkeiten gibt es?' : 'What are the options?' } });
+      c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: ['reaction'], failures: [], lastFailure: null } });
+      c.receive({ type: 'turn.partial', data: { id: 'o9-reply', inputRevision: inputRevision(c.session), delta: c.session.locale === 'de' ? 'Wir sehen uns die Möglichkeiten an.' : 'Let us look at the options.' } });
+      const input = c.shadowRoot.querySelector('.verify-dialog input'); input.value = 'after@example.test';
+    });
+    await settle(); assert.deepEqual(await measure(), baseline, `${locale}: 0 px streaming shift`);
+    const state = await shadow(page, c => {
+      const form = c.shadowRoot.querySelector('.verify-dialog .verify-form');
+      const result = { disabled: form.querySelector('.verify-send').getAttribute('aria-disabled'), editable: !form.querySelector('input').disabled && !form.querySelector('input').readOnly,
+        reason: form.querySelector('.verify__message').textContent, links: window.emailBoot.linkRequests };
+      form.requestSubmit(); return result;
+    });
+    assert.equal(state.disabled, 'true'); assert.equal(state.editable, true);
+    assert.equal(state.reason, locale === 'de' ? 'Möglich, sobald die Antwort fertig ist.' : 'Available once the reply has finished.');
+    await shot(`ait418-390-light-${locale}-streaming-disabled.png`);
+    assert.equal(await page.evaluate(() => window.emailBoot.linkRequests), state.links);
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'o9-reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
+      c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
+    });
+    await settle(); assert.deepEqual(await measure(), baseline, `${locale}: 0 px re-enable shift`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.verify-dialog .verify-send').getAttribute('aria-disabled')), 'false');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.verify-dialog input').value), 'after@example.test');
+    if (locale === 'de') {
+      await click(page, '.verify-dialog-close');
+      await shadow(page, async c => {
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'o9-race-user', role: 'user', content: 'Bitte weiter.' } });
+        c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, identified: false, status: 'verification-pending', address: 'race@example.test' } });
+        const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', retryable: true };
+        c.receive({ type: 'lane.failed', data: failure });
+        c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [failure], lastFailure: failure } });
+        c.shadowRoot.querySelector('.reaction-failure').scrollIntoView({ block: 'center' });
+      });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure').hidden), false);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), false);
+      await shot('ait418-390-light-de-race-reply-failed.png');
+    }
+    checks.push({ locale, width: 390, theme: 'light', shiftPx: 0, ...state });
+  }
+  assert.deepEqual(errors, []);
+  if (evidence) await writeFile(join(evidence, 'ait418-checks.json'), JSON.stringify({ head: evidenceCommit, checks, errors }, null, 2));
+});
