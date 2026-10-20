@@ -163,7 +163,6 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       }
     });
     // Reuse this page for the round-2 geometry checks; no extra browser/call.
-    const mainLayout = JSON.parse(await readFile(new URL('./ait411-main-composer.json', import.meta.url), 'utf8'));
     for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) {
       await t.test(`Latest reserved bottom/${width}/${locale}`, async () => {
         const turns = Array.from({ length: 24 }, (_, i) => ({ id: i ? `bottom-${i}` : 'source', role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine längere Unterhaltung für den unveränderten unteren Platz.' : 'A longer conversation to verify the unchanged bottom slot.' }));
