@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import ts from 'typescript';
+import { bindSQLiteClock } from './fixtures/sqlite-clock.js';
 import { ownerWalletConformance } from '@inspr/aithema-core';
 import { createVisitorTierHost, ceilingMicro } from './host-fixtures/visitor-tier-host.js';
 
@@ -30,6 +31,7 @@ function localProvider() {
 }
 function fixture(t, options = {}) {
   const provider = localProvider(), host = createVisitorTierHost({ operatorProvider: provider, ...options });
+  bindSQLiteClock(host.storage, options.now);
   t.after(() => host.close()); return { host, provider };
 }
 async function login(host) {

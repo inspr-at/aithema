@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { bindSQLiteClock } from '../../../test/fixtures/sqlite-clock.js';
 import { CORE_RETIREMENT_TABLES } from '../src/storage.js';
 import assert from 'node:assert/strict';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
@@ -9,7 +10,7 @@ import { testToken, ownedRequest, mockConsent, temporaryDb } from '../../../test
 
 const request = (path, init) => ownedRequest(`http://localhost/api/sessions/${path}`, init);
 function fixture(t) {
-  const storage = new SQLiteStorage(), erased = [];
+  const storage = bindSQLiteClock(new SQLiteStorage()), erased = [];
   const handlers = createHandlers({ storage, consent: mockConsent, host: { retired: info => erased.push(info) } });
   t.after(async () => { await handlers.close(); storage.close(); });
   return { storage, handlers, erased };
