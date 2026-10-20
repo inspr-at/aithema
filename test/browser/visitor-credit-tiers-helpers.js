@@ -144,7 +144,7 @@ export async function composerCreditReservationMatrix(t) {
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-shell'];
   if (evidence) await mkdir(evidence, { recursive: true });
-  // Collect v1.1 evidence even if the retained pre-AIT-422 baseline gate fails.
+  // Keep the v1.1 copy, line-count and DE/EN evidence checks intact.
   await t.test('AIT-434 v1.1: four-digit DE offer fits two lines; DE/EN composer heights match', async () => {
     const checks = [];
     for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
@@ -213,21 +213,6 @@ export async function composerCreditReservationMatrix(t) {
     await page.select('#locale', locale); await page.select('#theme', theme);
     await fixture(page, locale);
     const before = await boxes(page, selectors);
-    // AIT-434: pre-AIT-422 (00adb72c) had the reassurance and no spacer.
-    const currentOffer = await shadow(page, (c, locale) => {
-      const peer = c.shadowRoot.querySelector('[data-credit-variant="host-give"]'), text = peer.textContent;
-      const spacer = c.shadowRoot.querySelector('[data-credit-variant="host-give-measure"]');
-      if (spacer) spacer.style.display = 'none';
-      peer.textContent = locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.'
-        : 'Add your email address to get +600 more Credits. Your conversation stays saved.';
-      return text;
-    }, locale);
-    const originalCopyBoxes = await boxes(page, selectors);
-    await shadow(page, (c, text) => {
-      c.shadowRoot.querySelector('[data-credit-variant="host-give"]').textContent = text;
-      c.shadowRoot.querySelector('[data-credit-variant="host-give-measure"]')?.style.removeProperty('display');
-    }, currentOffer);
-    unchanged(originalCopyBoxes, before, `AIT-422 ${locale}/${theme}/${width}: original-copy reservation`);
     // Retain the container handle, but inspect its current descendants for
     // every state: changing text can replace a text node inside a stable span.
     const { result } = await accessibility.send('Runtime.evaluate', { expression: "document.querySelector('aithema-session').shadowRoot.querySelector('.composer-out__body')" });
@@ -269,7 +254,7 @@ export async function composerCreditReservationMatrix(t) {
         const checkedBackendNodes = descendants(node);
         return [{ key: variant.key, ignored: checkedBackendNodes.every(id => !exposed.has(id)), checkedBackendNodes }];
       });
-      const row = { locale, theme, width, state, originalCopyBoxes, before, after, composerHeight: after[1][3],
+      const row = { locale, theme, width, state, before, after, composerHeight: after[1][3],
         movementPx: Math.max(...before.flatMap((box, i) => box.map((value, j) => Math.abs(value - after[i][j])))),
         variants, hiddenAX, hiddenVariantsAbsent: hiddenAX.every(n => n.ignored),
         activeBody };
@@ -295,6 +280,11 @@ export async function composerCreditReservationMatrix(t) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
     unchanged(row.before, row.after, label);
     assert.equal(row.composerHeight, row.before[1][3], `${label}: identical composer height`);
+  }
+  // Tick spec v1.2 (2026-10-20): DE == EN replaces the retired long-copy baseline.
+  for (const de of rows.filter(row => row.locale === 'de')) {
+    const en = rows.find(row => row.locale === 'en' && row.theme === de.theme && row.width === de.width && row.state === de.state);
+    assert.equal(de.composerHeight, en.composerHeight, `AIT-434 v1.2 ${de.theme}/${de.width}/${de.state}: DE == EN composer height`);
   }
   for (const row of rows) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
