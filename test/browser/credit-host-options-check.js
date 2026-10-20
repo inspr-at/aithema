@@ -35,6 +35,12 @@ export async function creditHostOptionsCheck(t) {
         return Response.json({ visitor: { address: c.session.identity.address }, notice: { version: 'ait411', deliveryEnabled: true }, privacyDocumentConfigured: true });
       }
       if (path.endsWith('/email-ask')) { f.lineRequests++; return Response.json({ accepted: false, emailAsk: {} }); }
+      // This synthetic session owns its event journal. Keep the stream quiet
+      // instead of reconnecting to the unrelated demo session between scenes.
+      if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        if (options.signal?.aborted) controller.close();
+        else options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
       if (path.endsWith('/features')) return Response.json({});
       if (/\/api\/sessions\/[^/]+$/u.test(path)) return Response.json(c.session);
       return nativeFetch(url, options);
@@ -77,12 +83,17 @@ export async function creditHostOptionsCheck(t) {
       if (!legal) { legal = document.createElement('a'); legal.slot = 'legal'; legal.setAttribute('data-aithema-privacy', ''); legal.href = '/privacy'; legal.textContent = 'Privacy'; c.append(legal); }
       await document.fonts.ready;
     }, { state, locale, theme, profile });
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent !== '…');
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent !== '…', { polling: 'raf', timeout: 30_000 });
     if (state.startsWith('delete-')) await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     // Settle once after all mutations, then read every box in the same frame.
     return shadow(page, async c => {
       await document.fonts.ready;
-      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      // Measure the settled endpoint of incidental mount transitions. Finishing
+      // them avoids paying their wall-clock duration in every matrix scene;
+      // the rendered final styles, two paint frames and all asserts stay intact.
+      const animations = c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime));
+      for (const animation of animations) animation.finish();
+      await Promise.all(animations.map(a => a.finished.catch(() => {})));
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const r = c.shadowRoot, rect = selector => { const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
       const footerLabel = (r.querySelector('.host-credits__reconciling') ?? r.querySelector('.host-credits__stack')).getBoundingClientRect(), footer = r.querySelector('.display-foot').getBoundingClientRect();
