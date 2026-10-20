@@ -46,7 +46,7 @@ export interface LiveVoiceDeclaration {
   reasoning: 'delegated' | 'native';
   transcript: { finality: 'fragments' | 'turns'; persistence: 'durable' | 'memory-only' };
   capabilities: Record<'sendText' | 'updateContext' | 'setInput' | 'setOutput' | 'pause' | 'resume' | 'interrupt' | 'heard', VoiceCapability> & {
-    onMicrophoneState?: VoiceCapability; replyStarted?: VoiceCapability; opener?: boolean;
+    onMicrophoneState?: VoiceCapability; replyStarted?: VoiceCapability; interruption?: VoiceCapability; opener?: boolean;
   };
   billing: { visitor: string; upstream: string };
   ownership?: Record<'stt' | 'tts' | 'turnTaking', 'provider' | 'server' | 'browser'>;

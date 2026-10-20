@@ -41,6 +41,11 @@ Registration keeps an already deeply frozen manifest by identity; otherwise it
 deep-clones and deep-freezes a copy. Later edits to an unfrozen original cannot
 change the registered manifest.
 
+`liveVoice.capabilities.interruption` is optional. Only `'native'` together
+with `liveVoice.ownership.turnTaking: 'provider'` permits browser SDK
+interruption evidence on the session voice-events route. Missing, emulated or
+unavailable declarations retain coordinator authority; no provider ID grants it.
+
 Required fields are `id`, `version`, `apiVersion` (currently `^1.0.0`), `kinds`,
 `placement` (`server` or `browser`), `entrypoints`, `configSchema`, `vendor` and
 `models`. The selected placement must have an entrypoint. A model declares `id`
