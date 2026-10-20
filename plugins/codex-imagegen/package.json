@@ -9,12 +9,12 @@
     }
   },
   "dependencies": {
-    "@inspr/aithema-core": "261020150723.0.0"
+    "@inspr/aithema-core": "261020161837.0.0"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "261020150723.0.0",
+  "version": "261020161837.0.0",
   "license": "AGPL-3.0-only",
   "files": [
     "src/"
