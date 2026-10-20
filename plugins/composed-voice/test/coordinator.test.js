@@ -6,6 +6,10 @@ import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
 import { createComposedRelay } from '@inspr/aithema-server/composed-voice/relay';
 import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
+import { createGrokVoiceClient } from '../../grok-voice/src/client.js';
+import { Window } from 'happy-dom';
+import { AudioRail } from '../../../packages/ui/src/audio-rail.js';
+import { de } from '../../../packages/ui/src/i18n/de.js';
 
 const pcm = (ms, amplitude = 8000) => {
   const bytes = Buffer.alloc(ms * 32);
@@ -137,6 +141,76 @@ test('AIT-383 round 3: a browser typed turn stops server TTS and records the pre
   await session.sendText('Second', { deliveryId: 'second' });
   assert.equal(saved.filter(value => value.role === 'interrupted').length, 1, 'a delivery retry is not a new interruption');
 });
+
+for (const turn of ['typed', 'spoken']) for (const late of [false, true]) {
+  test(`AIT-383 round 4: ${turn} turn fences an interrupted final ${late ? 'after' : 'before'} S5 appears`, { timeout: 10_000 }, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+    const flush = async () => { for (let n = 0; n < 8; n++) await new Promise(resolve => setImmediate(resolve)); };
+    const advance = async ms => {
+      while (ms > 0) { const step = Math.min(ms, 1000); t.mock.timers.tick(step); await flush(); ms -= step; }
+    };
+    const releaseA = Promise.withResolvers(), releaseB = Promise.withResolvers(), heard = Promise.withResolvers();
+    const saved = [], serverFinals = [], clientFinals = [];
+    const at = Date.now(), relay = createComposedRelay({ callId: 'call-offline', providerSessionId: 'composed-generation-1', epoch: 0,
+      expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
+    const h = fixture(t, { interruptionAwareness: true,
+      commitUtterance: async (envelope, opts) => { saved.push({ envelope, ...opts }); },
+      relay: { audio: frame => relay.audio(frame), silence: frame => relay.silence(frame), event: value => {
+        if (value.type === 'final' && value.role === 'assistant') serverFinals.push(value);
+        relay.event(value);
+      } },
+      replyExecutor: { async *execute(envelope) {
+        const first = envelope.payload.callbackBody.messages.at(-1).content === 'First';
+        const replyId = first ? 'reply-A' : 'reply-B', text = first ? 'First answer. ' : 'Second answer.';
+        yield { type: 'operation', replyId };
+        // A is audible but reasoning has not completed when B interrupts it.
+        if (first) { yield { type: 'delta', text }; await releaseA.promise; }
+        else { await releaseB.promise; yield { type: 'delta', text }; }
+        yield { type: 'completion', replyId, text };
+      } },
+      tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(4); } } });
+    relay.attach(h.coordinator);
+    let capture;
+    const client = createGrokVoiceClient({
+      control: { async start() { return { ...relay.grant, epoch: 0, mediaGrant: relay.grant }; },
+        close: () => h.coordinator.close(), heartbeat: () => h.coordinator.heartbeat(),
+        async pause() {}, async resume() {}, async recover() { assert.fail('No recovery expected'); } },
+      openRelay: grant => relay.connect(grant), capture: async opts => { capture = opts; return { stop() {} }; },
+      // No device-start callback for B: its final alone must clear S5.
+      player: { stop() {}, play() { heard.resolve(); } } });
+    const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+    const rail = new AudioRail({ root, copy: de, client, context: () => ({}), feature: () => ({ available: true }),
+      onFinal: event => clientFinals.push(event) });
+    t.after(async () => {
+      releaseA.resolve(); releaseB.resolve(); await rail.close(); rail.destroy(); await window.happyDOM.abort();
+    });
+    await rail.start();
+    await rail.sendText('First'); await heard.promise;
+    if (turn === 'typed') await rail.sendText('Second');
+    else { await capture.onAudio(pcm(100)); await capture.onAudio(pcm(500, 0)); }
+    await flush();
+    assert.equal(clientFinals.filter(event => event.role === 'user').length, 2, 'both visitor turns reached the real rail');
+    const watch = rail.replyTimer;
+    assert.ok(watch, 'B arms a new S5 watch');
+    await advance(late ? 15_000 : 14_999);
+    assert.equal(rail.errorKey, late ? 'voiceNoReply' : null);
+    const state = rail.state;
+    releaseA.resolve(); await flush();
+    assert.equal(serverFinals.find(event => event.turnId === 'reply-A')?.text, 'First answer. ', 'interrupted reasoning still completes');
+    assert.deepEqual(saved.filter(value => value.role === 'interrupted').map(value => [value.replyId, value.heardLength]),
+      [['reply-A', 'unknown']], 'retain the AIT-349 interruption record');
+    assert.equal(rail.replyTimer, watch, 'A\'s late final must not clear B\'s watch');
+    assert.equal(rail.errorKey, late ? 'voiceNoReply' : null, 'A\'s late final must not dismiss visible S5');
+    assert.equal(rail.state, state, 'A\'s late final must not flip S5 to speaking');
+    assert.equal(clientFinals.some(event => event.turnId === 'reply-A'), false, 'the interrupted final stays out of the live rail');
+    if (!late) { await advance(1); assert.equal(rail.errorKey, 'voiceNoReply', 'B still times out at 15 s'); }
+    releaseB.resolve(); await h.coordinator.idle(); await flush();
+    assert.equal(clientFinals.filter(event => event.turnId === 'reply-B').length, 1);
+    assert.equal(rail.replyTimer, null, 'B\'s own final clears its watch');
+    assert.equal(rail.errorKey, null, 'B\'s own final clears S5');
+    assert.equal(rail.state, 'speaking');
+  });
+}
 
 test('AIT-160: pause holds capture until an authorized acknowledgement; explicit duration preserves the ceiling', async t => {
   let allowed = true;
