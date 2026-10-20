@@ -1,94 +1,105 @@
 # Aithema 2026.10
 
-Version **261020105634.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261020150723.0.0**. Licensed under **AGPL-3.0-only**.
 
-Eleventh October release: honest voice waits, the fast voice route for every host, and per-conversation credits.
+Twelfth October release: steadier takeback, safer credits for hosts, and dated cost corrections.
 
 ## What START and visitors notice
 
-- **Voice says what it is waiting for (AIT-383):** ElevenLabs and Grok calls
-  distinguish the microphone prompt, ending the previous call, the visible retry
-  countdown and connecting. The 30-second connection deadline starts only after
-  microphone permission is granted. Each microphone failure has its own guidance
-  next to the mic. “No reply yet” appears only after 15 seconds of real agent
-  silence and clears when the reply arrives. End cancels startup immediately.
-  These notices appear only when they are true. Voice shows failure messages next
-  to the control they concern; Retry waits for the stated delay.
-- **Every host's voice answers on the fast route (AIT-397):** voice requires the
-  fast reaction route on custom hosts as well as the demo configuration. Calls
-  never fall back to the slow analysis model.
-- **Credits belong to each conversation (AIT-395, AIT-401 / START-524):** each
-  conversation can show its own balance and confirmation offer, even when a
-  visitor has several conversations. Daily-cap receipts show the daily limit
-  without offering an unavailable upgrade. Voice extensions and settlement now
-  retain the timing hosts need to enforce daily caps when a call crosses midnight.
-- **Existing conversations survive confirmation changes (AIT-392):** hosts can
-  turn email confirmation off or roll back without breaking conversation resume.
-- **Closing mail stops pending sends (AIT-393):** closing the mail plugin also
-  cancels sends still waiting for address lookup.
+- **Taking a conversation back shows “Listening” at once (AIT-404):** the
+  composer no longer flashes “Conversation paused” while the server confirms.
+  If takeback fails, the paused state returns. A paused conversation whose budget
+  is denied shows the used-up panel.
+- **A host credit failure cannot leave a message waiting without a reply
+  (AIT-405):** the turn fails cleanly before the message is saved, without spend.
+- **Daily caps can stay exact across midnight (AIT-409 / START-524):** hosts can
+  read dated cost corrections and voice exposures for each attempt, so a final
+  cost arriving tomorrow counts on the right day. Hosts must integrate these
+  records into their cap policy; this release alone does not deploy that policy
+  to START.
+- Voice keeps failure messages next to the control they concern.
+  Retry waits for the stated delay.
 
 ## For hosts
 
-A qualified fast reaction (speech) route is now required for voice on **every
-host**, including custom hosts (AIT-397). For each ElevenLabs, Grok or composed
-voice option, configure a `reaction` binding with effort `none`, using a model
-separate from `understanding` (analysis). Both `choices.models[].bindings` and
-legacy `bindings` are supported. Allowlist the reaction plugin and endpoint,
-supply current matching account evidence, and use a reasoning plugin that
-supports streaming with effort `none`. The OpenRouter demo configuration,
-including start2, requires `OPENROUTER_SPEECH_MODEL`. A generic effort selection
-cannot raise the configured reaction effort. Missing or invalid configuration
-refuses voice and logs an operator configuration error; visitors see neutral
-voice-unavailable wording. Aithema recommends checking every voice option before
-enabling it. See the
-[fast reaction route contract](https://github.com/inspr-at/aithema/blob/v261020105634.0.0/docs/embedding.md#required-fast-reaction-route-for-voice-ait-380-ait-397).
+**Credits are read before saving a turn (AIT-405).** The owner-authorized wallet
+projection is read inside the turn's storage transaction, before the visitor's
+message is persisted. If the wallet callback throws, that transaction rolls back
+and the request returns a server error, with no saved turn or spend. The separate
+credit-tier projection remains on owned credits reads; it is not a turn preflight
+callback. This replaces a stuck turn with an immediate failure.
 
-The owner-authorized `wallet(ownerToken, context)` and
-`creditTiers(ownerToken, context)` ports receive `{ sessionId }` (AIT-395).
-For conversation balances, return `creditScope: 'session'` from the wallet and
-project both wallet amounts and tiers for that conversation. Admission must
-still enforce owner, address and daily limits. Return `dailyCapReached: true`
-from the tier projection when the daily cap prevents confirmation; the UI then
-suppresses the upgrade offer. Existing one-argument callbacks can ignore the
-context and keep their owner-wide display and behavior.
+**Read dated corrections and exposures (AIT-409).** `SQLiteBudgetLedger` exposes
+`corrections(attemptId)` and `voiceExposures(attemptId)`, also available through
+`runtime.budget` when it uses that ledger. Both synchronous reads return arrays
+in posting order with this event shape:
 
-Voice extension's `wallet.canAdmit(extra, context)` receives the additive frozen
-context `{ attemptId, sessionId, extraMicro, at }` (AIT-401); `at` is epoch
-milliseconds. The first argument and return value are unchanged. The callback
-runs synchronously inside the ledger transaction: do not await, open a nested
-transaction or make external side effects. Durable `voice_extensions_json`
-records accepted increases and their times; the receipt for each attempt gains
-`settled_at_ms`, also returned by settlement methods. Replays preserve those
-times. There is no new settlement hook. Hosts enforcing UTC-day caps keep the
-original hold on its admission day, attribute extension extras to their event
-day and settlement above the reservation to its settlement day. Reconcile
-idempotently before admission. Old rows have empty extension history and a
-nullable settlement time; retain historical host records rather than guessing
-a date. Existing callbacks that ignore the new context remain compatible, but
-hosts must consume these records to enforce their midnight cap policy. See the
-[credit and accounting contract](https://github.com/inspr-at/aithema/blob/v261020105634.0.0/docs/embedding.md#current-policy-owner-admission-and-nexttier).
+```js
+{ id, attemptId, lane, atMs, oldMicro, newMicro, oldVisitorMicro, newVisitorMicro }
+```
 
-Resume also works when a host has no identity port (AIT-392). Removing a
-verification requirement lifts the saved lock without requiring a removed
-identity or email-persistence port. Closing the mail plugin aborts pending sends
-and address lookups (AIT-393).
+Amounts are integer micro-USD (1 USD = 1,000,000 micro). `atMs` is the posted epoch
+millisecond. For corrections it is `budget_corrections.at_ms`, not the admission
+or first settlement time. Corrections include reasoning/provider-cost and voice
+reconciliations; their old/new amounts are settlements. For voice exposures,
+`lane` is `voice` and old/new amounts are the retained maxima. Exposure increases
+record existing provider liability even above a cap; they are separate from
+admitted extensions and invoke no wallet callback. Missing attempts and empty
+histories return `[]`. Reads expose no internal evidence JSON or secret references.
+
+Deduplicate by `{ attemptId, stream, id }`, where `stream` is `corrections` or
+`voiceExposures`. Corrections use persisted row IDs; voice exposures use a durable
+per-attempt sequence starting at 1. Replayed receipts and unchanged maxima add
+nothing. Date a positive correction delta (`newMicro - oldMicro`, or its visitor
+equivalent) on the UTC day of `atMs`. For example, a $10 uncertain settlement
+reduced to $0.01 before midnight, then corrected to $8 after midnight, adds $7.99
+to the new day's cap. Allocate refunds against the earlier dated charges they
+refund; an old-day refund must not reopen today's headroom.
+
+Keep original holds on admission day, extension extras on their recorded event
+day, and exposure deltas on the UTC day of `atMs`. Count settlement above those
+reservations on its `settled_at_ms` day without counting the same liability twice.
+Reconcile the host projection idempotently before admission. Earlier rows have
+no reconstructed exposure dates; preserve host history rather than inventing
+them. Session retirement purges `budget_corrections` and the attempt's exposure
+history: **keep a host-owned copy of corrections and exposures needed for cap
+history before retirement**. Rebuilding a projection requires that retained copy.
+A custom host-supplied `budget` object does not gain these reads automatically;
+its host must implement or supply equivalent dated records. See the
+[dated accounting contract](https://github.com/inspr-at/aithema/blob/v261020150723.0.0/docs/embedding.md#dated-budget-attribution-ait-401-ait-409).
+
+**Paused and budget-denied (AIT-404)** now displays the used-up panel, so the
+composer reflects the actual credit state while another tab holds the conversation.
+
+Continuing host requirements from RC11:
+
+- Production voice hosts require a qualified fast `reaction` binding with effort
+  `none`, separate from `understanding`, with the allowlist, streaming support and
+  current matching account evidence. The local voice simulator and free canonical
+  mock are exempt. The OpenRouter demo configuration requires
+  `OPENROUTER_SPEECH_MODEL`. Aithema recommends checking each production voice
+  option before enabling it.
+- Daily-limit receipt wording requires session-scoped credits
+  (`creditScope: 'session'`) and a tier projection returning
+  `dailyCapReached: true`; the upgrade offer is then suppressed.
+- Mail `close()` closes the transport and cancels pending sends. A running DNS
+  lookup finishes and its result is discarded; the lookup itself is not aborted.
+
+AIT-406 repairs the nightly full-browser evidence run. It changes test coverage
+and harness selection only, with no product behavior change.
 
 ## Breaking for hosts
 
-**Yes for voice on custom hosts relative to RC10 (`v261019195810.0.0`).** RC10
-only capped custom hosts' reaction effort; RC11 refuses voice unless every voice
-option has a qualified fast `reaction` binding with effort `none`, separate from
-the analysis model, plus the allowlist, streaming support and current matching
-account evidence described above. Configure that route before enabling voice.
-The OpenRouter demo configuration already required it in RC10; set
-`OPENROUTER_SPEECH_MODEL` there.
+**No new breaking change relative to RC11 (`v261020105634.0.0`) for hosts that
+follow the documented port.** AIT-405 changes when a throwing wallet surfaces:
+an immediate server error replaces a saved, stuck turn. AIT-409's dated reads
+are additive; existing wallet arguments and results remain valid. Daily-cap
+accuracy still requires the host integration and retained history described
+above. A custom `budget` implementation must supply its own equivalent reads.
 
-**The AIT-395 and AIT-401 port additions are backward compatible:** JavaScript
-callbacks may ignore the new second argument, and existing first arguments and
-results remain valid. The durable accounting fields are additive; using them
-for daily caps requires host integration. Text-only hosts and identity-free
-resume need no new port. Hosts upgrading from before RC7 must still apply RC7's
-preview embedding requirements.
+RC11's production voice route requirement still applies, with the simulator and
+free canonical mock exemptions above. Hosts upgrading from before RC7 must still
+apply RC7's preview embedding requirements.
 
 ## What is included
 
@@ -111,10 +122,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261020105634.0.0` into a clean directory:
+Download the assets for `v261020150723.0.0` into a clean directory:
 
 ```sh
-gh release download v261020105634.0.0 --repo inspr-at/aithema
+gh release download v261020150723.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -137,7 +148,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261020105634.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261020150723.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -164,9 +175,9 @@ the product version.
 - A 60-minute German/English live voice soak has not been measured.
 - Browser consumers need a bundler or import map and module JSON support.
   Consumer smoke checks do not establish host-specific layout or CSP enforcement.
-- Further legal formalisation remains follow-up work; this release grants no
-  rights beyond its included licence and rights/provenance notices.
+- Further legal formalization remains follow-up work; this release grants no
+  rights beyond its included license and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261020105634.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261020150723.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.

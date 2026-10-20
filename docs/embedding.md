@@ -259,7 +259,7 @@ Use the same current settings/evidence reader in the wallet and credit projectio
 const host = {
   wallet: ownerToken => walletForHash(hash(ownerToken)),
   walletForSession: session => walletForHash(session.ownerHash),
-  creditTiers: ownerToken => creditTiers(ownerToken),
+  creditTiers: (ownerToken, context) => creditTiers(ownerToken, context),
   credits: { ownerGuard: true },
   privacyDocumentConfigured: () => hostHasValidatedPrivacyDocument,
 };
@@ -271,7 +271,10 @@ Here `hash`, `walletForHash` and `creditTiers` are host functions implemented in
 the reference file; the remaining configured ports come from the earlier mount
 example. Supply the **same ledger** to runtime and wallet. `createHandlers` binds
 `walletForSession` into runtime owner admission; `wallet(ownerToken)` serves
-owned credit reads. In the reference, `balance()` and every `canAdmit`/atomic
+owned credit reads. During turn credit preflight, `wallet(ownerToken, context)`
+and its `balance()` run inside the turn's database transaction. Both must be
+synchronous and side-effect free, and must not re-enter storage.
+In the reference, `balance()` and every `canAdmit`/atomic
 `admit` read current SQLite settings, even on a previously obtained wallet.
 There is no startup allowance cache. USD 10 changed to USD 5 changes the limit,
 not the already committed amount. `committedMicro` includes ledger reservations,
@@ -420,6 +423,14 @@ callback. The event, raised maxima and closing state commit or roll back togethe
 The backing `budget.get(attemptId).voice_exposures_json` defaults to `[]` for
 pre-upgrade attempts; earlier exposure dates are unknown and are never assigned
 the migration time. Preserve the host's historical accounting for those attempts.
+
+These reads are provided by `SQLiteBudgetLedger`; a custom host-supplied
+`budget` object does not gain `corrections()` or `voiceExposures()` automatically.
+The host must supply equivalent dated records for its cap policy. Session
+retirement purges `budget_corrections` rows and the attempt's exposure history.
+Keep a host-owned copy of corrections and exposures needed for cap history
+before retirement; rebuilding totals requires that retained copy, not just the
+remaining core ledger rows.
 
 Time comes from `host.now()` when supplied to `createHandlers`, including with
 a prebuilt runtime. Otherwise the runtime-created ledger uses the runtime's

@@ -13,6 +13,7 @@ const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" strok
 export const POLL_MS = 4000;
 
 export class Verification {
+  #visitorEmail = null;
   #email; #creditsChanged; #dialogDelivery = true; #identityGeneration = 0;
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
@@ -57,6 +58,7 @@ export class Verification {
     try {
       const response = await this.#request('identity');
       if (this.#alive && response.ok && response.body?.identity) {
+        this.#visitorEmail = response.body.visitorEmail ?? null;
         this.#email.set({ ...(typeof response.body.delivery === 'boolean' ? { delivery: response.body.delivery } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
         if (generation === this.#identityGeneration) this.set(response.body.identity);
@@ -219,8 +221,16 @@ export class Verification {
     if (!address || !entry.input.checkValidity?.() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(address)) {
       this.#ui = { ...this.#ui, message: v.invalid, error: true }; this.#paint(); entry.input.focus(); return;
     }
-    // Hosts with visitor tiers must never skip saving while the notice loads.
-    if (this.#email.tiers || this.#email.notice?.version) {
+    const visitorTiers = this.#email.tiers || this.#email.notice?.version;
+    // Resolve the explicit capability before tiers choose the persistence path.
+    if (visitorTiers && this.#visitorEmail === null) {
+      this.#ui.busy = true;
+      await this.load();
+      if (!this.#alive) return;
+      this.#ui.busy = false;
+    }
+    // Visitor hosts keep save-before-confirm, including while the notice loads.
+    if (visitorTiers && this.#visitorEmail?.canSave !== false) {
       this.#ui = { ...this.#ui, busy: true, message: this.#copy.hostSurface.email.saving, error: false }; this.#paint();
       const response = await this.saveAndConfirm(address, { delivery: entry.root.closest('dialog') ? this.#dialogDelivery : undefined });
       if (!this.#alive) return;

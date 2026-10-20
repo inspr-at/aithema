@@ -291,12 +291,16 @@ Host adapter contract:
   `offer({sessionId,session}) -> {available,...}`. Delivery receives only the
   server-generated session/revision/key/attempt; the host owns all mail/content
   and must persist delivery receipts in production. No CRM is implemented here.
-- `wallet(ownerToken)` supplies the Part A owner wallet. The view includes
+- `wallet(ownerToken, context)` supplies the Part A owner wallet, with
+  `context: { sessionId }`. The view includes
   existing ledger holds and settlements. Production hosts must use
   `admitCredits` for authoritative owner reservations and own settlement/recovery;
   the demo wallet and handover sink are local fakes. An optional synchronous
   `wallet.displayBalance()` supplies the read-only owner balance for `GET S/credits`
   and low-credit email asks. Admission always uses `wallet.balance()`.
+  During turn credit preflight, `wallet(ownerToken, context)` and its `balance()`
+  run inside the turn's database transaction. Both must be synchronous and
+  side-effect free, and must not re-enter storage.
 
 AIT-173's START display subtracts settled plus expected spend. Open voice duration
 uses the rate captured at admission, capped by its funded reservation, and freezes
@@ -2279,6 +2283,13 @@ secrets and return `[]` for missing attempts or empty histories. Use
 `{attemptId, stream, id}` as the stable deduplication key, where `stream` is
 `corrections` or `voiceExposures`. Replayed receipts/exposure raises append nothing.
 
+These reads belong to `SQLiteBudgetLedger`; a custom host-supplied `budget`
+object does not gain `corrections()` or `voiceExposures()` automatically. Its host
+must provide equivalent dated records. Session retirement purges correction rows
+and attempt exposure history. Before retirement, keep a host-owned copy of the
+corrections/exposures needed for cap history; rebuilding a projection requires
+that retained copy.
+
 These records complement AIT-401's dated `budget.get(attemptId).voice_extensions_json`
 and first `settled_at_ms`; reconciliation never changes that first settlement time.
 For a daily cap, date each positive correction delta (`newMicro - oldMicro`, or
@@ -2582,6 +2593,16 @@ it excludes voice, which has separate optional `AITHEMA_VOICE_CAP_MINUTES` and
 `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` ceilings in addition to each visitor wallet.
 Replacing the visitor cookie can still obtain a fresh anonymous allowance.
 Abuse tracking is deferred.
+
+`GET /api/sessions/:id/identity` (and identity command responses) includes
+`visitorEmail: { canSave: boolean }`. `canSave` is true when the host supplies
+all four visitor-email functions: `visitor`, `saveEmail`, `deleteEmail`, and
+`eraseVisitor`, matching the visitor routes' availability check. This describes
+port availability; privacy and collection policy still apply. With `canSave: false`,
+email confirmation goes directly through the conversation's identity request/change
+command, even with credit tiers loaded, without a visitor-email write. With the
+port available, confirmation retains the save-before-confirm flow. The capability
+object can carry further visitor-email capabilities independently of identity.
 
 The visitor API uses the existing ownership cookie/token:
 

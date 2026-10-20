@@ -7,12 +7,12 @@
   },
   "dependencies": {
     "nodemailer": "10.1.0",
-    "@inspr/aithema-ui": "261020105634.0.0"
+    "@inspr/aithema-ui": "261020150723.0.0"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "261020105634.0.0",
+  "version": "261020150723.0.0",
   "license": "AGPL-3.0-only",
   "files": [
     "src/"
