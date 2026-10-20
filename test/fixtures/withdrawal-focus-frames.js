@@ -193,7 +193,8 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
           else c.receive({ type:'lane.failed', data:{ lane:'reaction' } });
           const hiddenStage = workspace.dataset.stage;
           const hiddenInset = parseFloat(shell.style.getPropertyValue('--transcript-top-inset')) || 0;
-          scrollTo(0, 0); dispatchEvent(new Event('scroll'));
+          // Do not repair the hidden inset with a synthetic scroll or resize.
+          scrollTo(0, 0);
           if (mode === 'fold') r.querySelector('.fold-strip').click();
           else stagePartial();
           // Inspect synchronously on return, before another scroll can repair it.
