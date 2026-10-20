@@ -300,6 +300,16 @@ browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
 browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
   browserTestWeights['test/browser/pause-phone.test.js'], 214);
 
+// AIT-411 final packing observation: green PR CI 39494521010 at fcd9dc44
+// measures host-surface 185.751821015s on shard 5/8 after whole-file repacking
+// (ceil(*1.25)=233s), and pause-phone 171.517982595s on shard 4/8
+// (ceil(*1.25)=215s). Round the diagnostic floors up to 240s/220s to retain
+// the required margin through placement/runner variance. No history is lowered.
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 240);
+browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
+  browserTestWeights['test/browser/pause-phone.test.js'], 220);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 export const browserShardCount = 8;
