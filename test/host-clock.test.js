@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { operationScope } from '../packages/core/src/reasoning.js';
-import { createHandlers, createPluginRuntime, SQLiteStorage } from '../packages/server/src/index.js';
+import { PluginRegistry, createMockReasoning, publicReasoningManifest, bindingReason } from '@inspr/aithema-core';
+import { createHandlers, createPluginRuntime, SQLiteStorage, mockPresets, createVoiceCap } from '../packages/server/src/index.js';
 import { createCompletionsHandler } from '../plugins/elevenlabs/src/facade.js';
 import { temporaryDb, ownedRequest, testToken } from './helpers.js';
 import { bindSQLiteClock } from './fixtures/sqlite-clock.js';
@@ -154,4 +155,101 @@ for (const epoch of epochs) for (const stream of [false, true]) test(`AIT-403 fa
     assert.equal(options.deadlineAt, now() + 2000, 'callback budget and call deadlines share one epoch');
     assert.equal(options.now(), now());
   }
+});
+
+// A noncanonical, priced offline adapter exercises binding evidence, budget and
+// aggregate duration admission. It cannot gain the canonical mock exemption.
+function voiceClockFixture(t, { evidenceMs = 300_000, explicitRuntimeClock = false, voiceClock = false } = {}) {
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  let clock = wall - 120_000;
+  const now = () => clock, storage = new SQLiteStorage(), starts = [];
+  const binding = { plugin: 'clock-voice', model: 'fixture', effort: 'none', endpoint: 'https://voice.example.test',
+    accountRef: 'fixture', secretRef: 'fixture', maxMicro: 600, maxTokens: 1,
+    rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60, minRunwaySeconds: 1,
+    upstreamMicroPerMinute: 600, visitorMicroPerMinute: 300 };
+  binding.legal = { approved: true, countries: ['AT'], training: false, retention: 'fixture',
+    purpose: 'conversation', recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
+    evidence: { qualified: true, accountRef: binding.accountRef, secretRef: binding.secretRef, model: binding.model,
+      endpoint: binding.endpoint, routing: {}, verifiedAt: now() - 1000, expiresAt: now() + evidenceMs } };
+  const base = publicReasoningManifest(binding.plugin, 'Clock voice fixture', binding.endpoint);
+  const plugin = { binding,
+    manifest: { ...base, kinds: ['live-voice'], entrypoints: { server: './server.js', browser: './browser.js' },
+      models: [{ ...base.models[0], operations: ['start'], structured: false, cost: { ...base.models[0].cost, unit: 'minute' } }],
+      liveVoice: { reasoning: 'native', transcript: { finality: 'turns', persistence: 'durable' },
+        capabilities: Object.fromEntries(['sendText', 'updateContext', 'setInput', 'setOutput', 'pause', 'resume', 'interrupt', 'heard'].map(k => [k, 'unavailable'])),
+        billing: { visitor: 'duration', upstream: 'duration' } } },
+    health: async () => ({ available: true }),
+    async start(request, options) {
+      await options.attempt.consume();
+      starts.push(options);
+      const record = { callId: request.callId, providerSessionId: `clock-provider-${starts.length}`,
+        attemptId: options.attempt.attemptId, claimId: options.attempt.claimId, startedAt: now(),
+        spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt };
+      storage.saveVoiceCall(request.sessionId, record);
+      return { ...record, signal: new AbortController().signal, snapshot: () => record,
+        async close(reason) {
+          const terminal = { outcome: 'completed', closureConfirmed: true, chargedMicro: 0,
+            usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } };
+          options.report({ ...terminal, attemptId: record.attemptId });
+          storage.saveVoiceCall(request.sessionId, { ...record, endedAt: now(), reason, terminal });
+          return terminal;
+        } };
+    } };
+  const presets = mockPresets();
+  presets.best.plugins.push(binding.plugin); presets.best.bindings.voice = binding;
+  presets.best.policy = { endpoints: [binding.endpoint] };
+  const port = consent(now), cap = createVoiceCap({ storage, now, capMilliseconds: 300_000 });
+  const runtime = createPluginRuntime({ storage, consent: port, presets, voiceCap: cap,
+    registry: new PluginRegistry().register(createMockReasoning()).register(plugin), ...(explicitRuntimeClock ? { now } : {}) });
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, consent: port, host: { now: explicitRuntimeClock ? () => wall : now },
+    voice: voiceClock ? { now } : {}, log() {} });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken, demo: true });
+  const route = (suffix, body) => handlers.handle(ownedRequest(`https://fixture.invalid/api/sessions/${session.id}/voice${suffix}`, {
+    method: 'POST', body: JSON.stringify(body),
+  }));
+  return { now, advance: ms => { clock += ms; }, storage, session, binding, plugin, presets, runtime, starts, cap, route };
+}
+
+for (const explicitRuntimeClock of [false, true]) test(`AIT-403 voice continuation reserves only host-clock remainder (explicit runtime: ${explicitRuntimeClock})`, async t => {
+  const h = voiceClockFixture(t, { explicitRuntimeClock }), startedAt = h.now();
+  const firstResponse = await h.route('', { callId: 'clock-call' });
+  assert.equal(firstResponse.status, 201, await firstResponse.clone().text());
+  const first = await firstResponse.json();
+  h.advance(45_000);
+  assert.equal((await h.route('/clock-call/close', { providerSessionId: first.providerSessionId, reason: 'transport-lost' })).status, 200);
+  const nextResponse = await h.route('/clock-call/recover', { providerSessionId: first.providerSessionId });
+  assert.equal(nextResponse.status, 200, await nextResponse.clone().text());
+  const next = await nextResponse.json(), attempt = h.starts[1].attempt;
+  assert.equal(attempt.fundedSeconds, 15, 'lagging host must not inflate continuation to maxDuration');
+  assert.equal(attempt.maxMicro, 150);
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_visitor_micro, 75);
+  assert.equal(h.cap.snapshot().reservedMilliseconds, 15_000);
+  assert.equal(first.spendDeadlineAt, startedAt + 60_000);
+  assert.equal(first.browserLivenessDeadlineAt, startedAt + 30_000);
+  assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(h.starts[1].now(), h.now());
+  h.advance(15_000);
+  assert.equal((await h.route('/clock-call/close', { providerSessionId: next.providerSessionId, reason: 'transport-lost' })).status, 200);
+  assert.equal((await h.route('/clock-call/recover', { providerSessionId: next.providerSessionId })).status, 403, 'exact spend expiry cannot reserve or dispatch');
+  assert.equal(h.starts.length, 2);
+  assert.equal(h.cap.snapshot().reservedMilliseconds, 0);
+});
+
+test('AIT-403 voice binding evidence is valid on the deadline clock and refuses exact expiry before spend', async t => {
+  const h = voiceClockFixture(t, { evidenceMs: 30_000 });
+  const response = await h.route('', { callId: 'evidence-call' });
+  assert.equal(response.status, 201, await response.clone().text());
+  assert.equal(bindingReason({ binding: h.binding, plugin: h.plugin, preset: 'best', policy: h.presets.best.policy,
+    now: h.starts[0].now() }), null, 'an admitted binding cannot already be expired on the voice deadline clock');
+  const first = await response.json();
+  await h.route('/evidence-call/close', { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+  h.advance(30_000);
+  const before = h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
+  const expired = await h.route('/evidence-call/recover', { providerSessionId: first.providerSessionId });
+  assert.equal(expired.status, 403);
+  assert.match(await expired.text(), /binding evidence expired/u);
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, before);
+  assert.equal(h.starts.length, 1);
+  assert.equal(h.cap.snapshot().reservedMilliseconds, 0);
 });
