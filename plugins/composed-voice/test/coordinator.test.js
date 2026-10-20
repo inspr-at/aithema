@@ -151,9 +151,12 @@ for (const turn of ['typed', 'spoken']) for (const late of [false, true]) {
     };
     const releaseA = Promise.withResolvers(), releaseB = Promise.withResolvers(), heard = Promise.withResolvers();
     const saved = [], serverFinals = [], clientFinals = [];
-    const at = Date.now(), relay = createComposedRelay({ callId: 'call-offline', providerSessionId: 'composed-generation-1', epoch: 0,
-      expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
-    const h = fixture(t, { interruptionAwareness: true,
+    let h, relay, capture;
+    const start = async request => {
+      const at = Date.now();
+      relay = createComposedRelay({ callId: request.callId, providerSessionId: 'composed-generation-1', epoch: 0,
+        expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000 });
+      h = fixture(t, { callId: request.callId, interruptionAwareness: true,
       commitUtterance: async (envelope, opts) => { saved.push({ envelope, ...opts }); },
       relay: { audio: frame => relay.audio(frame), silence: frame => relay.silence(frame), event: value => {
         if (value.type === 'final' && value.role === 'assistant') serverFinals.push(value);
@@ -169,10 +172,11 @@ for (const turn of ['typed', 'spoken']) for (const late of [false, true]) {
         yield { type: 'completion', replyId, text };
       } },
       tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(4); } } });
-    relay.attach(h.coordinator);
-    let capture;
+      relay.attach(h.coordinator);
+      return { ...relay.grant, epoch: 0, mediaGrant: relay.grant };
+    };
     const client = createGrokVoiceClient({
-      control: { async start() { return { ...relay.grant, epoch: 0, mediaGrant: relay.grant }; },
+      control: { start,
         close: () => h.coordinator.close(), heartbeat: () => h.coordinator.heartbeat(),
         async pause() {}, async resume() {}, async recover() { assert.fail('No recovery expected'); } },
       openRelay: grant => relay.connect(grant), capture: async opts => { capture = opts; return { stop() {} }; },
@@ -185,6 +189,7 @@ for (const turn of ['typed', 'spoken']) for (const late of [false, true]) {
       releaseA.resolve(); releaseB.resolve(); await rail.close(); rail.destroy(); await window.happyDOM.abort();
     });
     await rail.start();
+    assert.equal(rail.state, 'listening', 'the real Grok client connects');
     await rail.sendText('First'); await heard.promise;
     if (turn === 'typed') await rail.sendText('Second');
     else { await capture.onAudio(pcm(100)); await capture.onAudio(pcm(500, 0)); }
