@@ -263,6 +263,7 @@ test('AIT-401: voice runtime forwards extension context to the host wallet and u
   await admitted.options.attempt.consume(); clock = today;
   const attemptId = admitted.options.attempt.attemptId;
   const before = runtime.budget.get(attemptId), funded = admitted.options.attempt.fundedSeconds;
+  assert.equal(funded, 120, 'initial runtime uses the minimum runway rather than the full 3600-second money reservation');
   for (const refusal of [false, { ok: false, reason: 'session' }, { ok: false, reason: 'host-limit' }, { ok: false }, undefined]) {
     preview = refusal;
     assert.throws(() => admitted.options.attempt.extend(150), { code: 'not-admitted' });
@@ -271,9 +272,15 @@ test('AIT-401: voice runtime forwards extension context to the host wallet and u
   }
   preview = true;
   admitted.options.attempt.extend(150);
-  assert.deepEqual(calls.at(-1), { extra: { maxMicro: 300, maxVisitorMicro: 150 },
-    context: { attemptId, sessionId: session.id, extraMicro: 300, at: today } });
-  assert.equal(extensions(runtime.budget, attemptId)[0].at, today);
+  assert.equal(admitted.options.attempt.fundedSeconds, 150, 'explicit approval advances the runtime runway');
+  assert.deepEqual(calls.at(-1), { extra: { maxMicro: 0, maxVisitorMicro: 0 },
+    context: { attemptId, sessionId: session.id, extraMicro: 0, at: today } });
+  assert.deepEqual(extensions(runtime.budget, attemptId), []);
+  assert.equal(runtime.budget.get(attemptId).max_micro, 36_000);
+  assert.equal(runtime.budget.get(attemptId).max_visitor_micro, 18_000);
+  preview = false;
+  assert.throws(() => admitted.options.attempt.extend(180), { code: 'not-admitted' });
+  assert.equal(admitted.options.attempt.fundedSeconds, 150, 'refusal after approval preserves the last authorized runway');
   admitted.options.report(terminal(attemptId, 1500));
   assert.equal(runtime.budget.get(attemptId).settled_at_ms, today);
 });

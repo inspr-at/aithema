@@ -260,7 +260,7 @@ for (const explicitRuntimeClock of [false, true]) {
   });
 }
 
-for (const explicitRuntimeClock of [false, true]) test(`AIT-403 voice continuation reserves only host-clock remainder (explicit runtime: ${explicitRuntimeClock})`, async t => {
+for (const explicitRuntimeClock of [false, true]) test(`AIT-447 / AIT-403 voice continuation funds host-clock remainder and reserves full liability (explicit runtime: ${explicitRuntimeClock})`, async t => {
   const h = voiceClockFixture(t, { explicitRuntimeClock }), startedAt = h.now();
   const firstResponse = await h.route('', { callId: 'clock-call' });
   assert.equal(firstResponse.status, 201, await firstResponse.clone().text());
@@ -271,8 +271,8 @@ for (const explicitRuntimeClock of [false, true]) test(`AIT-403 voice continuati
   assert.equal(nextResponse.status, 200, await nextResponse.clone().text());
   const next = await nextResponse.json(), attempt = h.starts[1].attempt;
   assert.equal(attempt.fundedSeconds, 15, 'lagging host must not inflate continuation to maxDuration');
-  assert.equal(attempt.maxMicro, 150);
-  assert.equal(h.runtime.budget.get(attempt.attemptId).max_visitor_micro, 75);
+  assert.equal(attempt.maxMicro, 600);
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_visitor_micro, 300);
   assert.equal(h.cap.snapshot().reservedMilliseconds, 15_000);
   assert.equal(first.spendDeadlineAt, startedAt + 60_000);
   assert.equal(first.browserLivenessDeadlineAt, startedAt + 30_000);

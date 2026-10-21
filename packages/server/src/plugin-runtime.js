@@ -266,15 +266,16 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const voiceAmounts = (binding, options) => {
     const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
       : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
-    // Only a brand-new logical call needs the runway. Re-admission funds the
-    // next segment (or the shorter remaining duration) under its original end.
+    // Every credential exposes the provider's full call ceiling, even when a
+    // rolling timer or recovery deadline asks the browser to stop sooner.
     const runwayMs = options.voiceContinuation ? 0 : Math.min(binding.minRunwaySeconds * 1000, binding.maxDurationSeconds * 1000);
     if (milliseconds <= 0 || milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
-    const reservedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
-    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: reservedMs / 1000, maxMicro: binding.reservationSeconds
-      ? Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)
-      : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
-      maxVisitorMicro: Math.ceil(reservedMs / 60_000 * binding.visitorMicroPerMinute) };
+    // Runtime authority rolls by segment independently of the money held for
+    // the full credential. A refused renewal must stop at the last funded end.
+    const fundedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
+    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: fundedMs / 1000,
+      maxMicro: Math.max(binding.maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
+      maxVisitorMicro: Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute) };
   };
   // Resolve once, synchronously. Every exempt dispatch uses only this private,
   // frozen implementation through health, consent awaits, admission and replay.
@@ -1041,8 +1042,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         retainExposure: () => budget.retainVoiceExposure(attemptId),
         ...(binding.reservationSeconds ? { extend(seconds) {
           conversationLimits.assertOpen(session.id);
-          // The runway is funded once at admission. Healthy extensions reserve
-          // only elapsed + one segment, bounded by the technical end.
+          // Full credential liability is already reserved. Rolling renewals
+          // retain the admission checks and cannot lower that reservation.
           const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
           const extended = budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
             maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, ownerWallet ? (extra, context) => ownerWallet(session)?.canAdmit(extra, context) : undefined);
