@@ -45,6 +45,7 @@ async function bootAndAdmit(seconds, rate, visitorRate) {
     const plugin = createVoiceProvider({ storage, now: () => now, binding: { agentId: factory.agentId,
       apiBaseUrl: factory.endpoint, secretRef: factory.secretRef, reservationSeconds: seconds,
       upstreamMicroPerMinute: rate, visitorMicroPerMinute: visitorRate },
+      resolveSecret: () => 'fixture-secret',
       provisionFacade() { assert.fail('admission must not provision a facade'); },
       revokeFacade() { assert.fail('admission must not revoke a facade'); },
       fetchImpl() { assert.fail('admission must not contact the provider'); } });
@@ -62,6 +63,7 @@ async function bootAndAdmit(seconds, rate, visitorRate) {
     assert.equal(row.voice_exposure_micro, factory.maxMicro);
     assert.equal(row.max_visitor_micro, ceiling(seconds, visitorRate));
     assert.equal(row.voice_visitor_exposure_micro, ceiling(seconds, visitorRate));
+    await admitted.options.attempt.consume();
     if (seconds > 1) {
       const extended = admitted.options.attempt.extend(seconds - 0.001);
       assert.equal(extended.maxMicro, factory.maxMicro, 'fractional runway never changes the full credential hold');

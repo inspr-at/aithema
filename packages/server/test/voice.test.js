@@ -656,10 +656,13 @@ test('AIT-450: full credential minutes never extend the remaining logical rollin
     options: { spendDeadlineAt: h.now() + 10_001, voiceContinuation: true } });
   const attempt = admitted.options.attempt;
   assert.equal(attempt.fundedSeconds, 10.001);
+  await attempt.consume();
   attempt.extend(600);
   assert.equal(attempt.fundedSeconds, 10.001, 'full minute reservation does not grant more runtime authority');
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000);
   assert.equal(attempt.maxMicro, 600_000);
+  admitted.options.report({ attemptId: attempt.attemptId, outcome: 'completed', closureConfirmed: true, chargedMicro: 0,
+    usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
   admitted.finish();
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
 });
