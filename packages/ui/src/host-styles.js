@@ -198,24 +198,14 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
 .composer-out__actions { position:relative; }
 .composer-out[data-reset-slot] { position:relative; }
-.composer-out__deadline { position:absolute; inset-inline:clamp(.85rem,2vw,1.25rem); bottom:54px; font-size:12px; line-height:1.4; color:var(--aithema-muted); }
-.composer-out__new { position:absolute; inset-inline-start:0; bottom:0; min-height:44px; max-width:55%; padding:0 8px; border-radius:12px; background:var(--aithema-accent); color:var(--aithema-on-accent); font-size:13px; font-weight:600; }
+.composer-out__deadline { position:absolute; inset-inline:calc(clamp(.85rem,2vw,1.25rem) + var(--host-limit-text-inset)); bottom:54px; font-size:12px; line-height:1.4; color:var(--aithema-muted); }
+.composer-out__new { position:absolute; inset-inline-start:0; bottom:0; min-height:44px; white-space:nowrap; padding:0 8px; border-radius:12px; background:var(--aithema-accent); color:var(--aithema-on-accent); font-size:13px; font-weight:600; }
 .composer-out[data-credit-actions="new"] .composer-out__actions { width:100%; }
 .composer-out[data-credit-actions="new"] .composer-out__steps { visibility:hidden; }
 .composer-out[data-credit-actions="none"] :is(.composer-out__actions,.composer-out__steps) { visibility:hidden; }
 .host-credits__reconciling { visibility:hidden; white-space:nowrap; color:var(--aithema-muted); font-weight:400; }
 .host-credits[data-reconciling] .host-credits__reconciling { visibility:visible; }
 .host-credits[data-reconciling] :is(.host-credits__text,.host-credits__used-up) { visibility:hidden; }
-/* Opt-in visible reconciliation reserves its phone row before any receipt.
-   Host legal links keep their full targets in the standing row beneath it. */
-@media(width < 600px) {
-  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px 44px; }
-  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
-  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .host-credits { grid-area:1/2; }
-  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .footer-right { display:contents; }
-  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .preset-panel { grid-area:1/3; }
-  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .host-legal { grid-area:2/1/3/-1; justify-content:center; margin-left:0; }
-}
 
 .m-delete-reason { color:var(--aithema-muted); }
 .m-mail-notice[data-delete-reservation] { display:grid; }
@@ -395,8 +385,14 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out[data-host-limit] { padding-block-end:calc(clamp(.85rem,2vw,1.25rem) + 8px); margin-block-end:-8px; }
   .composer-out[data-host-limit] .composer-out__bar { transform:translateY(22px); }
 }
-@media(389px <= width <= 600px) {
-  .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }
+/* AIT-435 Tick v1: reserve both real action rows in every phone state.
+   The primary and export occupy independent 44 px targets with a 12 px gap. */
+@media(width < 600px) {
+  .composer-out__bar { min-height:102px; }
+  .composer-out .composer-out__actions { width:100%; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:12px; justify-items:start; }
+  .composer-out .composer-out__actions > :is(.composer-out__upgrade,.composer-out__new) { grid-area:1/1; }
+  .composer-out .composer-out__actions > .composer-out__export { grid-area:2/1; }
+  .composer-out__new { position:static; max-width:none; }
   .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:11.5px; }
 }
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }

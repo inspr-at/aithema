@@ -389,4 +389,15 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }
+/* AIT-435 Tick v1.1: legal gets its own row on every phone host,
+   before the first receipt, so neither credits nor its target reaches the flag. */
+@media(width < 600px) {
+  .display-foot:has(.host-legal:not([hidden])) .display-foot__row,
+  .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px 44px; }
+  .display-foot:has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
+  .display-foot:has(.host-legal:not([hidden])) .host-credits { grid-area:1/2; }
+  .display-foot:has(.host-legal:not([hidden])) .footer-right { display:contents; }
+  .display-foot:has(.host-legal:not([hidden])) .preset-panel { grid-area:1/3; }
+  .display-foot:has(.host-legal:not([hidden])) .host-legal { grid-area:2/1/3/-1; justify-content:center; margin-left:0; }
+}
 `;

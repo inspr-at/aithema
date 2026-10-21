@@ -1464,14 +1464,13 @@ export class AithemaSession extends HTMLElement {
       // hint/confirmation variants, each painted in its corresponding state.
       // Footer reconciliation, reset labels and empty cap actions cannot paint
       // these hints and therefore must not add composer reservation peers.
-      const optionVariants = newConversationEnabled || this.#host?.endReason === 'session';
-      if (optionVariants) bodies.push(...[
-        ['new-conversation', credits.ended.newConversationHint],
-        ['session-emailConfirmed', credits.ended.sessionUpgrade.replace('{next}', allowances?.emailConfirmed === undefined ? ''
-          : formatCredits(allowances.emailConfirmed, this.#session.locale ?? 'en'))],
-      ].map(([key, text]) => [`option-${key}`, { text, option: true }]));
+      if (newConversationEnabled) bodies.push(['option-new-conversation', { text: credits.ended.newConversationHint, option: true }]);
+      if (newConversationEnabled || this.#host?.endReason === 'session') bodies.push(['option-session-emailConfirmed', {
+        text: credits.ended.sessionUpgrade.replace('{next}', allowances?.emailConfirmed === undefined ? ''
+          : formatCredits(allowances.emailConfirmed, this.#session.locale ?? 'en')), option: true,
+      }]);
       const activeKey = !this.#host?.dailyCapped && this.#host?.endReason === 'session'
-        ? next ? 'option-session-emailConfirmed' : 'option-new-conversation'
+        ? next ? 'option-session-emailConfirmed' : newConversationEnabled ? 'option-new-conversation' : 'session'
         : newAction ? 'option-new-conversation' : 'active';
       reconcile(out.querySelector('.composer-out__body'), bodies, body => node(body.option ? 'b' : 'span'), (span, { text, option }) => {
         const key = span.dataset.key;

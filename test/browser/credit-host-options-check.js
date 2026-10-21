@@ -191,8 +191,8 @@ export async function creditHostOptionsCheck(t) {
         if (profile === 'O2-none' && state === 'U3') { assert.equal(value.actionRowHidden, 'true'); assert.equal(value.export, false); }
         const peers = value.reservation.filter(n => n.option);
         assert.deepEqual(peers.map(n => n.key), state.startsWith('S')
-          ? ['option-new-conversation', 'option-session-emailConfirmed'] : [], `${label}: no never-painted option peers`);
-        const active = state === 'S1' ? 'option-session-emailConfirmed' : state.startsWith('S') ? 'option-new-conversation' : null;
+          ? ['option-session-emailConfirmed'] : [], `${label}: no never-painted option peers`);
+        const active = state === 'S1' ? 'option-session-emailConfirmed' : null;
         for (const peer of peers) {
           inserted.add(peer.key);
           assert.equal(peer.hidden, peer.key !== active, `${label}: reachable option paint (${peer.key})`);
@@ -219,10 +219,10 @@ export async function creditHostOptionsCheck(t) {
       assert.deepEqual(value.reservation.filter(n => !n.option).map(n => n.key),
         ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
       assert.deepEqual(value.reservation.filter(n => n.option).map(n => n.key),
-        ['option-new-conversation', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every hint and upgrade`);
+        state === 'S3' ? ['option-session-emailConfirmed'] : ['option-new-conversation', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every enabled hint and upgrade`);
       assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: v1 and O variants share one cell`);
       assert.ok(value.reservation.every(n => value.bodyHeight >= n.height), `${label}: cell reserves the tallest variant`);
-      const activeOption = state === 'S1' ? 'option-session-emailConfirmed' : ['U2', 'S2', 'S3'].includes(state) ? 'option-new-conversation' : null;
+      const activeOption = state === 'S1' ? 'option-session-emailConfirmed' : ['U2', 'S2'].includes(state) ? 'option-new-conversation' : null;
       for (const variant of value.reservation.filter(n => n.option)) {
         const painted = variant.key === activeOption;
         assert.equal(variant.hidden, !painted, `${label}: real option variant paints in its state (${variant.key})`);

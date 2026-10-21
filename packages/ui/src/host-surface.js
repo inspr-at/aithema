@@ -106,7 +106,7 @@ export class HostSurface {
       title: credits.dailyCapShort, body: credits.dailyCap, footer: false, announce: credits.dailyCap,
     };
     if (this.endReason === 'session') {
-      const body = next ? fill(credits.ended.sessionUpgrade, { next: defaultCreditFormat(this.tiers.allowancesMicro[next], this.#session().locale ?? 'en') }) : credits.ended.newConversationHint;
+      const body = next ? fill(credits.ended.sessionUpgrade, { next: defaultCreditFormat(this.tiers.allowancesMicro[next], this.#session().locale ?? 'en') }) : this.newConversationAction ? credits.ended.newConversationHint : credits.ended.sessionDefaultBody;
       return { title: credits.ended.session.title, body, footer: credits.ended.session.footer, announce: `${credits.ended.session.title} ${body}` };
     }
     if (this.newConversationAction) {
