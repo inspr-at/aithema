@@ -54,6 +54,104 @@ and retention evidence for that CI source commit. A tag build from the same C
 must have the same normalized member digest; exact archive hashes remain specific
 to the candidate or published set.
 
+## Fourteenth October candidate (AIT-431 / START-524)
+
+The reserved coordinate is `261021043938.0.0` (UTC reservation time), stable sequence
+25, status `reserved`. Marketing name: **Aithema 2026.10**, with the exact version
+below the notes title. Authority is Markus's standing release go, Desk
+**4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19, and LEAD's night policy,
+2026-10-20 22:0x. The coordinator holds `release-lock/seq-25`, pushed at base
+`7b0bf14ec475475e6d0f35f34a8b1725d5ef348b` before preparation.
+
+This is the **sixth release on the active fixed-candidate route (AIT-363 B)**.
+Order: lock tag (done), prep, coordinator gates, true merge preserving C,
+candidate marker, OPS cut, verification. There is **no merge freeze**: main
+keeps moving; the final committed RC head C is the candidate. Builders prepare
+only and invoke no review gates, tags, tag pushes, GitHub releases or publication.
+The coordinator owns release gates and merge; OPS owns the cut. This preparation
+has no UI change. START-524 pins the resulting release through its own delivery.
+
+Every requested Content item is on main at the lock. The complete first-parent
+range since `v261020161837.0.0` contains 32 PR merges: #362, #363 (RC13
+preparation), #364, #366 (AIT-419 CI), #356, #368, #376, #371, #374, #381,
+#372, #369, #367, #373, #382, #370, #377, #380, #378, #379, #386, #389,
+#385, #375, #387, #390, #388, #365, #383, #384, #392 and #391. These cover
+AIT-407, AIT-416, AIT-410, AIT-417, AIT-399, AIT-391, AIT-396/368, AIT-371,
+AIT-384, AIT-420, AIT-423, AIT-421, AIT-425, AIT-418, AIT-374, AIT-387,
+AIT-422, AIT-400/412, AIT-424, AIT-432, AIT-427, AIT-403/430, AIT-428,
+AIT-429, AIT-434, AIT-411, AIT-426, AIT-433, AIT-436 and AIT-435. Stop and
+report if any expected item is missing; do not extend the lock's content range.
+Voxtral and the second Grok voice pipeline (AIT-317/342) remain parked, private
+and outside the release closure. The previous release `v261020161837.0.0`,
+sequence 24, AIT-415, published by OPS on 2026-10-20, is recorded in
+`history.json` at source `2d560914b408d36d0ccc2c9a9a944d9e10a9be3e`.
+
+Notes lead with visitors' credit choices, steady conversations, email changes,
+readable drafts and phone handover. Host text covers all O1–O8 opt-ins (including
+the existing true default for lowCredits: suppression is the opt-in), callback
+500 responses, permitted wallet reads, clock installation and retirement billing.
+**Breaking for hosts relative to RC13: yes**, because AIT-407 reclassifies
+throwing callbacks from 400/413 to 500, affecting adapter/monitoring/error handling;
+injected clocks also reject custom caps/limiters without setClock (AIT-403/430).
+RC14 newly requires explicit-true wallet admission. Host integration is required;
+this release does not deploy START. Grok Voice is **not yet qualified in live
+use**; “Aithema recommends” is preserved; German defaults are impersonal.
+
+RC13 carried notes applied: Opus Low 1 uses one linked sentence for RC12/RC13
+requirements rather than repeating the old host checklist; Low 2 keeps visitor
+bullets in visitor words; Low 3 distinguishes the UI's identity request/change
+hold during a reply from server acceptance and a retryable `identity-changed`
+failure if the reply then fails. Tick's O8 note places canDelete beside canSave in the same visitorEmail
+object. Grok Low restores the visitor failure-message/Retry-delay line and the
+host HTTP 429/Retry-After requirement, relevant to AIT-384. `next-notes.md`
+contained only its empty stub and remains reset to it. All manifests, lock
+entries and internal dependency pins mirror the reservation, including private
+source-only workspaces. Migration and presentation pins stay fixed.
+`release/evidence.json` remains historical checkpoint evidence; the retained
+final-head evidence below is authoritative for this preparation.
+
+Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
+
+1. Fetch `origin --tags`; check every Content merge against main at
+   `release-lock/seq-25`. Commit the reservation, all mirrors/pins, history,
+   notes and this runbook with `--signoff`. Worktree:
+   `/Users/markus/Code/aithema-worktrees/ait-431`; branch:
+   `release/ait-431-fourteenth-release`; recorded builder: `AIT-431-b1`.
+2. Run the remote lane on the **final committed C**. The candidate test invokes
+   `npm run release:candidate -- <retained dir>`: two identical packs,
+   verification, isolated consumer smoke from all sixteen shipped module
+   tarballs, locked reinstall, dependency replacement and exact rollback.
+   Release tests cover `release/gate.mjs` tag matching and synthetic candidate
+   admission without creating any operational tag. WAIT means wait and retry
+   (five minutes for OPS-300 policy refusal); LOCAL-FALLBACK means stop with tests
+   pending, never run locally. No browser files change here; the full browser
+   suite runs in PR CI.
+
+   ```sh
+   EVIDENCE_OUT="$PWD/dist/ait431-final" \
+     /private/tmp/claude-501/-Users-markus-Code-aithema/c3acf551-65c1-4283-a0f5-bea8a7cfc6f7/scratchpad/remote-browser.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-431/dist/ait431-final/candidate/`,
+   including `first/`, `candidate-evidence.json` and the isolated consumer
+   deployment. Confirm `source_commit` equals C and that `manifest_sha256` and
+   `normalized_digest` bind `first/`. Make **no evidence-only commit after this
+   final build**. A subsequent source change requires a new final-head build.
+4. Push only the assigned branch, open a PR to main and wait for green CI:
+   eight browser shards, four browser aliases, test, preview-security and DCO.
+   Hand the coordinator the PR, C, X, sequence 25 (previous: 24), retained absolute
+   directory, manifest SHA-256 and normalized digest exactly as in the evidence.
+   After gates and true merge, the coordinator records the candidate marker and
+   hands it to OPS. Retain the directory in durable owner storage before
+   publication; CI retains `reset-candidate` for 90 days.
+
 ## Thirteenth October candidate (AIT-415 / START-524)
 
 The reserved coordinate is `261020161837.0.0` (UTC reservation time), stable sequence
