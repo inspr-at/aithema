@@ -517,7 +517,7 @@ test('AIT-414: credit tiers with identity only confirm and change without visito
   await page.evaluate(() => window.confirmation.destroy());
 });
 
-test('AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry', { timeout: 60_000 }, async t => {
+test('AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry', { timeout: process.env.AITHEMA_O9_REPRO === '50' ? 480_000 : 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-identity-stream-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   const browser = await browserForFile(), page = await browser.newPage(), checks = [], errors = [];
@@ -541,7 +541,19 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
     await page.mouse.move(-1, -1); await settle();
     if (evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
   };
-  for (const locale of ['de', 'en']) {
+  const repeats = process.env.AITHEMA_O9_REPRO === '50' ? 50 : 1;
+  const trace = async phase => shadow(page, (c, phase) => {
+    const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+    const dialog = r.querySelector('dialog.verify-dialog'), form = dialog.querySelector('.verify-form');
+    return { phase, time: performance.now(), fonts: { status: document.fonts.status,
+      faces: [...document.fonts].map(f => ({ family: f.family, status: f.status })) },
+      boxes: ['dialog.verify-dialog', '.verify-dialog .verify__input', '.verify-dialog .verify-send', '.verify-dialog .verify__message'].map(s => box(r.querySelector(s))),
+      children: [...form.children].map(n => ({ className: n.className, box: box(n), text: n.textContent,
+        font: getComputedStyle(n).font, minHeight: getComputedStyle(n).minHeight, display: getComputedStyle(n).display })) };
+  }, phase);
+  t.after(async () => { if (evidence) await writeFile(join(evidence, 'ait454-frames.json'), JSON.stringify({ head: evidenceCommit, checks, errors }, null, 2)); });
+  for (const locale of ['de', 'en']) for (let run = 1; run <= repeats; run++) {
+    const exercise = async () => {
     await fixture(page, locale, true, true, { replyAvailable: true });
     await shadow(page, c => {
       c.setAttribute('theme', 'light'); c.setAttribute('motion', 'off');
@@ -553,6 +565,7 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
     await click(page, '.m-change-mail');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
     await settle(); const baseline = await measure();
+    const frames = [await trace('enabled-baseline')];
     await shadow(page, async c => {
       const { inputRevision } = await import('/packages/core/src/session.js');
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'o9-user', role: 'user', content: c.session.locale === 'de' ? 'Welche Möglichkeiten gibt es?' : 'What are the options?' } });
@@ -560,7 +573,8 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
       c.receive({ type: 'turn.partial', data: { id: 'o9-reply', inputRevision: inputRevision(c.session), delta: c.session.locale === 'de' ? 'Wir sehen uns die Möglichkeiten an.' : 'Let us look at the options.' } });
       const input = c.shadowRoot.querySelector('.verify-dialog input'); input.value = 'after@example.test';
     });
-    await settle(); assert.deepEqual(await measure(), baseline, `${locale}: 0 px streaming shift`);
+    await settle(); frames.push(await trace('streaming'));
+    assert.deepEqual(await measure(), baseline, `${locale}: 0 px streaming shift`);
     const state = await shadow(page, c => {
       const form = c.shadowRoot.querySelector('.verify-dialog .verify-form');
       const result = { disabled: form.querySelector('.verify-send').getAttribute('aria-disabled'), editable: !form.querySelector('input').disabled && !form.querySelector('input').readOnly,
@@ -569,17 +583,31 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
     });
     assert.equal(state.disabled, 'true'); assert.equal(state.editable, true);
     assert.equal(state.reason, locale === 'de' ? 'Möglich, sobald die Antwort fertig ist.' : 'Available once the reply has finished.');
-    await shot(`ait418-390-light-${locale}-streaming-disabled.png`);
+    if (run === 1) await shot(`ait418-390-light-${locale}-streaming-disabled.png`);
     assert.equal(await page.evaluate(() => window.emailBoot.linkRequests), state.links);
     await shadow(page, async c => {
       const { inputRevision } = await import('/packages/core/src/session.js');
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'o9-reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
       c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
     });
-    await settle(); assert.deepEqual(await measure(), baseline, `${locale}: 0 px re-enable shift`);
+    frames.push(await trace('reenable-protocol-return'));
+    for (let frame = 1; frame <= 3; frame++) {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      frames.push(await trace(`reenable-frame-${frame}`));
+    }
+    await settle(); frames.push(await trace('reenable-settled'));
+    const shifted = frames.filter(f => JSON.stringify(f.boxes) !== JSON.stringify(baseline));
+    const row = { locale, width: 390, run, frames, shiftPx: Math.max(...frames.flatMap(f => f.boxes.flatMap((b, i) => b.map((v, j) => Math.abs(v - baseline[i][j]))))) };
+    checks.push(row);
+    if (shifted.length) {
+      t.diagnostic(`AIT-454 failing frames: ${JSON.stringify(row)}`);
+      await shot(`ait454-390-${locale}-run-${run}-reenable-failed.png`);
+    } else if (run === 1) await shot(`ait454-390-${locale}-reenabled.png`);
+    assert.deepEqual(await measure(), baseline, `${locale}: 0 px re-enable shift`);
+    assert.deepEqual(shifted, [], `${locale}: 0 px in every re-enable frame`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.verify-dialog .verify-send').getAttribute('aria-disabled')), 'false');
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.verify-dialog input').value), 'after@example.test');
-    if (locale === 'de') {
+    if (locale === 'de' && run === 1) {
       await click(page, '.verify-dialog-close');
       await shadow(page, async c => {
         const { inputRevision } = await import('/packages/core/src/session.js');
@@ -594,7 +622,11 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), false);
       await shot('ait418-390-light-de-race-reply-failed.png');
     }
-    checks.push({ locale, width: 390, theme: 'light', shiftPx: 0, ...state });
+    Object.assign(row, { theme: 'light', ...state });
+    await click(page, '.verify-dialog-close');
+    };
+    if (repeats === 50) await t.test(`${locale} 390 run ${run}/50`, exercise);
+    else await exercise();
   }
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait418-checks.json'), JSON.stringify({ head: evidenceCommit, checks, errors }, null, 2));
