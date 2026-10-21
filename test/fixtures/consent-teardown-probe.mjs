@@ -18,5 +18,5 @@ test('AIT-364: cross-tab single-item consent withdrawal removes HTML and images'
   t.after(() => closeConsentFixture({ browser, server, streams: new Set() }, { timeout: 25 }));
   // Leave an accepted TCP connection with no HTTP headers, as Chrome can do
   // while the shared browser remains alive after this fixture's pages close.
-  t.diagnostic('forced teardown probe reached');
+  console.log('forced teardown probe reached');
 });
