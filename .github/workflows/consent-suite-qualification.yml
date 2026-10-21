@@ -1,0 +1,49 @@
+name: consent suite qualification
+
+on:
+  # Qualify changes to the explicit harness; normal PR shards stay unchanged.
+  pull_request:
+    paths:
+      - .github/workflows/consent-suite-qualification.yml
+      - test/measurements/consent-suite-repeat.test.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: consent-qualification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consent-suite-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run setup:browser
+      - name: Prove teardown deadlines and 20 consecutive suite passes
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/consent-qualification"
+          node --test --test-concurrency=1 test/consent-teardown.test.js test/measurements/consent-suite-repeat.test.js 2>&1 | tee "$RUNNER_TEMP/consent-qualification/results.log"
+        env:
+          AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/consent-qualification/evidence
+          AITHEMA_BROWSER_TRACE: ${{ runner.temp }}/consent-qualification/teardown.jsonl
+      - name: Retain qualification log, teardown steps and fixture reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: consent-suite-qualification
+          path: ${{ runner.temp }}/consent-qualification
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

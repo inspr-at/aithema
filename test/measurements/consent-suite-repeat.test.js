@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 
-test('AIT-455: 20 consecutive AIT-364/365 consent suite runs', { timeout: 840_000 }, async t => {
+test('AIT-455: 20 consecutive AIT-364/365 consent suite runs', { timeout: 480_000 }, async t => {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   for (let repeat = 1; repeat <= 20; repeat++) {
