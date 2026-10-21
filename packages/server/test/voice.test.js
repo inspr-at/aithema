@@ -1462,7 +1462,7 @@ test('slow closure: recovery admits immediately while the old provider needs mor
   assert.deepEqual(h.closeRequests, [first.providerSessionId]);
   const claims = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").all();
   assert.equal(claims.length, 2); assert.ok(claims.every(row => row.state === 'dispatched'));
-  assert.equal(claims[1].max_visitor_micro, 110_000, 'reserve only the remaining 55 seconds');
+  assert.equal(claims[1].max_visitor_micro, 120_000, 'reserve the full replacement credential liability');
   await h.waitForClosure(first.providerSessionId);
   h.advance(10_001); h.endClient(first.providerSessionId); await work; await h.handlers.idle();
   assert.equal(h.storage.db.prepare("SELECT state FROM budget_attempts WHERE attempt_id=?").get(claims[0].attempt_id).state, 'settled');
@@ -1598,15 +1598,15 @@ test('assistant voice finals retain facade-produced or browser-asserted provenan
   for (const key of ['origin', 'model', 'provider', 'engine']) assert.equal(Object.hasOwn(original, key), false);
 });
 
-test('slow closure: recovery reserves remaining visitor duration after previously settled usage', async t => {
+test('slow closure: recovery reserves full visitor liability after previously settled usage', async t => {
   const h = voiceFixture(t, { slowClosure: true }), first = await h.start();
-  h.runtime.budget.visitorCapMicro = 121_000;
+  h.runtime.budget.visitorCapMicro = 151_000;
   const closing = h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
   await h.waitForClosure(first.providerSessionId); h.advance(15_000); h.endClient(first.providerSessionId); await closing;
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
-  assert.equal(response.status, 200, '30k spent plus 90k remaining fits the visitor cap');
+  assert.equal(response.status, 200, '30k spent plus full 120k replacement liability fits the visitor cap');
   const claims = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").all();
-  assert.equal(claims[1].max_visitor_micro, 90_000);
+  assert.equal(claims[1].max_visitor_micro, 120_000);
 });
 
 test('slow closure: engine pause records a new event even when the provider acknowledges without an event', async t => {
@@ -3033,7 +3033,7 @@ for (const funding of ['session', 'voiceVisitor', 'owner']) test(`AIT-163 fix3: 
   assert.equal(h.provisioned.length, credentials, 'denied recovery never provisions a replacement');
 });
 
-test('AIT-163 fix3: recovery can fund one segment without the 120-second new-call runway', async t => {
+test('AIT-447 / AIT-163: one rolling segment cannot fund a full replacement credential', async t => {
   const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
     host: args => createDemoHost({ ...args, ownerGuard: false }) });
   const first = await h.start();
@@ -3045,13 +3045,14 @@ test('AIT-163 fix3: recovery can fund one segment without the 120-second new-cal
   assert.equal(wallet.canAdmit({ maxMicro: 30_000 }), true);
   assert.equal(wallet.canAdmit({ maxMicro: 120_000 }), false);
   const healthReads = h.authChecks().healthReads;
+  const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+  const credentials = h.provisioned.length;
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
-  const recovered = await response.json(); assert.equal(response.status, 200, JSON.stringify(recovered));
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'host-limit' });
   assert.equal(h.authChecks().healthReads, healthReads + 1);
-  assert.equal(recovered.callId, first.callId); assert.equal(recovered.spendDeadlineAt, first.spendDeadlineAt);
-  assert.notEqual(recovered.providerSessionId, first.providerSessionId);
-  const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get();
-  assert.equal(row.max_micro, 30_000); assert.equal(row.max_visitor_micro, 60_000);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+  assert.equal(h.provisioned.length, credentials);
 });
 
 test('AIT-163 fix3: an unhealthy provider refuses recovery before provisioning a replacement', async t => {
@@ -3067,7 +3068,7 @@ test('AIT-163 fix3: an unhealthy provider refuses recovery before provisioning a
   assert.equal(h.provisioned.length, credentials);
 });
 
-test('AIT-163 fix2: recovery with less than 120 seconds remaining reserves one segment and preserves the deadline', async t => {
+test('AIT-447 / AIT-163: late rolling recovery reserves full liability and preserves the deadline', async t => {
   const h = voiceFixture(t, { leaseMs: 300_000, durationBinding: {
     maxDurationSeconds: 180, reservationSeconds: 30, minRunwaySeconds: 120,
   } });
@@ -3078,12 +3079,12 @@ test('AIT-163 fix2: recovery with less than 120 seconds remaining reserves one s
   assert.equal(recovered.callId, first.callId); assert.equal(recovered.spendDeadlineAt, first.spendDeadlineAt);
   assert.notEqual(recovered.providerSessionId, first.providerSessionId);
   const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get();
-  assert.equal(row.max_micro, 30_000); assert.equal(row.max_visitor_micro, 60_000);
+  assert.equal(row.max_micro, 180_000); assert.equal(row.max_visitor_micro, 360_000);
   h.advance(70_000);
   const last = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: recovered.providerSessionId });
   const tail = await last.json(); assert.equal(last.status, 200, JSON.stringify(tail));
   assert.equal(tail.spendDeadlineAt, first.spendDeadlineAt);
-  assert.equal(h.storage.db.prepare("SELECT max_micro FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get().max_micro, 20_000);
+  assert.equal(h.storage.db.prepare("SELECT max_micro FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get().max_micro, 180_000);
 });
 
 for (const reservationSeconds of [undefined, 30]) test(`AIT-447: recovery at 590/600 seconds reserves full credential exposure (${reservationSeconds ?? 'nonrolling'})`, async t => {
@@ -3108,6 +3109,16 @@ for (const reservationSeconds of [undefined, 30]) test(`AIT-447: recovery at 590
   assert.equal(h.traffic.filter(url => url.includes('/token?')).length, 2);
 });
 
+test('AIT-447: recovery preserves a binding ceiling above the duration estimate', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxMicro: 200_000, upstreamMicroPerMinute: 100_000 } });
+  const first = await h.start(); h.advance(5000);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(response.status, 200);
+  const row = h.runtime.budget.get(h.storage.voiceCalls(h.session.id).at(-1).attemptId);
+  assert.equal(row.max_micro, 200_000);
+  assert.equal(row.voice_exposure_micro, 200_000);
+});
+
 for (const phase of ['initial', 'recovery', 'rolling-recovery']) for (const funding of ['session', 'voiceVisitor', 'owner']) {
   test(`AIT-447: ${phase} fails closed with 0.10 USD ${funding} headroom`, async t => {
     const h = voiceFixture(t, { leaseMs: 700_000, durationBinding: {
@@ -3126,7 +3137,12 @@ for (const phase of ['initial', 'recovery', 'rolling-recovery']) for (const fund
     }
     if (funding === 'session') h.runtime.budget.sessionCapMicro = h.runtime.budget.used(h.session.id) + 100_000;
     else if (funding === 'voiceVisitor') h.runtime.budget.visitorCapMicro = h.runtime.budget.visitorUsed(h.session.id) + 100_000;
-    else allowance('0.1');
+    else {
+      const wallet = h.host.wallet('voice-owner');
+      allowance(((wallet.balance().committedMicro + 100_000) / 1_000_000).toFixed(6));
+      const balance = wallet.balance();
+      assert.equal(balance.limitMicro - balance.committedMicro, 100_000);
+    }
     const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
     const credentials = h.traffic.filter(url => url.includes('/token?')).length, facades = h.provisioned.length;
     const response = first

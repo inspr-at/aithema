@@ -266,12 +266,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const voiceAmounts = (binding, options) => {
     const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
       : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
-    // Only a brand-new logical call needs the runway. Re-admission funds the
-    // next segment (or the shorter remaining duration) under its original end.
+    // Recovery keeps the logical deadline, but a replacement credential can
+    // expose the provider's full call ceiling. Reserve that liability up front.
     const runwayMs = options.voiceContinuation ? 0 : Math.min(binding.minRunwaySeconds * 1000, binding.maxDurationSeconds * 1000);
     if (milliseconds <= 0 || milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
-    const reservedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
-    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: reservedMs / 1000, maxMicro: binding.reservationSeconds
+    const reservedMs = options.voiceContinuation ? binding.maxDurationSeconds * 1000
+      : binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
+    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: reservedMs / 1000, maxMicro: options.voiceContinuation
+      ? Math.max(binding.maxMicro, Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)) : binding.reservationSeconds
       ? Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)
       : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
       maxVisitorMicro: Math.ceil(reservedMs / 60_000 * binding.visitorMicroPerMinute) };

@@ -1978,6 +1978,16 @@ including the mandatory AI notice), `costConfig` (an object or a function of
 `random` and `values` support host configuration and deterministic tests.
 The costs contain `maxDurationSeconds`, `reservationSeconds`,
 `minRunwaySeconds`, `upstreamMicroPerMinute` and optional `usdPerCredit`.
+Every recovery reserves the full replacement credential liability before facade
+provisioning or credential issuance: upstream is the greater of `maxMicro` and
+`ceil(maxDurationSeconds / 60 * upstreamMicroPerMinute)`, and visitor liability is
+`ceil(maxDurationSeconds / 60 * visitorMicroPerMinute)`. This applies to rolling
+bindings too. The original logical deadline still bounds the admitted call;
+its remaining time cannot reduce the replacement credential's reservation.
+Admission fails closed when any ledger or owner limit cannot fund that liability,
+or when the logical deadline is exhausted. A shorter reservation requires a
+provider-enforced credential duration bound before issuance; a host timer alone
+does not establish that bound.
 The returned host exposes `binding`, `runtime`, `disabledReason`, `transient`,
 `presentation`, `onAvailable`, `closeOrphan`, and `close`. Qualify the legacy
 binding in the callback, then normalize it before creating a duration binding.
