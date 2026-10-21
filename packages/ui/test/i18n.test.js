@@ -11,6 +11,14 @@ import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manif
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
+for (const [locale, copy, dailyCap, dailyCapReset] of [
+  ['de', de, 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.', 'Ab {time} ist ein neues Gespräch möglich.'],
+  ['en', en, "This email address has reached today's limit.", 'A new conversation is possible from {time}.'],
+]) test(`AIT-443: ${locale} daily cap and reset match Tick v1 exactly`, () => {
+  assert.equal(copy.hostSurface.credits.dailyCap, dailyCap);
+  assert.equal(copy.hostSurface.credits.dailyCapReset, dailyCapReset);
+});
+
 for (const [locale, copy] of [['de', de], ['en', en]]) for (const key of ['withConfirmed', 'afterConfirm']) {
   test(`AIT-435: ${locale}.hostSurface.credits.${key} keeps the number and credits together in the catalog`, () => {
     const amounts = [...copy.hostSurface.credits[key].matchAll(/\{\w+\}(\s*)credits\b/giu)];
