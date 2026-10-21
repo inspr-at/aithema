@@ -480,8 +480,8 @@ export const de = {
       sessionCreditsLimit: 'Nur Demo: Hier gibt es kein Aufladen.',
       balanceOut: 'Ihre {limit} Credits sind aufgebraucht, für alle Ihre Gespräche.',
       usedUp: 'Credits aufgebraucht', usedUpShort: 'Aufgebraucht', timeExpired: 'Zeit abgelaufen', anonymous: 'Guthaben: {tier} Credits',
-      withEmail: 'Mit E-Mail-Adresse: {tier} Credits', withConfirmed: 'Mit bestätigter E-Mail-Adresse: {tier} Credits',
-      afterConfirm: 'Nach der Bestätigung: {tier} Credits', give: 'E-Mail-Adresse angeben', confirm: 'E-Mail-Adresse bestätigen',
+      withEmail: 'Mit E-Mail-Adresse: {tier} Credits', withConfirmed: 'Mit bestätigter E-Mail-Adresse: {tier}\u00a0Credits',
+      afterConfirm: 'Nach der Bestätigung: {tier}\u00a0Credits', give: 'E-Mail-Adresse angeben', confirm: 'E-Mail-Adresse bestätigen',
       noMore: 'Weitere Credits gibt es hier derzeit nicht.', unit: '1 Credit = 1 US-Cent',
       ended: {
         newConversationAction: 'Neues Gespräch beginnen',

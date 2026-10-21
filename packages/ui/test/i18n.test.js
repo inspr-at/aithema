@@ -19,9 +19,9 @@ for (const [locale, copy] of [['de', de], ['en', en]]) for (const key of ['withC
   });
 }
 
-test('AIT-411 round 7: EN confirmed tier matches Tick O3 exactly; DE stays unchanged', () => {
+test('AIT-411 round 7 and AIT-435: confirmed tier copy matches Tick exactly', () => {
   assert.equal(en.hostSurface.credits.withConfirmed, 'With a confirmed email address: {n}\u00a0credits');
-  assert.equal(de.hostSurface.credits.withConfirmed, 'Mit bestätigter E-Mail-Adresse: {tier} Credits');
+  assert.equal(de.hostSurface.credits.withConfirmed, 'Mit bestätigter E-Mail-Adresse: {tier}\u00a0Credits');
 });
 
 test('AIT-411 round 7: every added or changed numeric credits catalog string uses NBSP', () => {
