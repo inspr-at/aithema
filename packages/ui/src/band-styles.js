@@ -393,7 +393,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
    before the first receipt, so neither credits nor its target reaches the flag. */
 @media(width < 600px) {
   .display-foot:has(.host-legal:not([hidden])) .display-foot__row,
-  .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px 44px; }
+  .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px minmax(44px,max-content); }
   .display-foot:has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
   .display-foot:has(.host-legal:not([hidden])) .host-credits { grid-area:1/2; }
   .display-foot:has(.host-legal:not([hidden])) .footer-right { display:contents; }

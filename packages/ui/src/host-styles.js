@@ -385,13 +385,17 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out[data-host-limit] { padding-block-end:calc(clamp(.85rem,2vw,1.25rem) + 8px); margin-block-end:-8px; }
   .composer-out[data-host-limit] .composer-out__bar { transform:translateY(22px); }
 }
-/* AIT-435 Tick v1: reserve both real action rows in every phone state.
-   The primary and export occupy independent 44 px targets with a 12 px gap. */
+/* AIT-435 Tick v1: the absolute action layer reserves both phone rows.
+   Extend the used-up surface into the question card's empty lower edge:
+   the two real content gaps offset the margin, preserving grid contribution
+   and the active composer's measured height. No spacer copy is involved. */
 @media(width < 600px) {
-  .composer-out__bar { min-height:102px; }
-  .composer-out .composer-out__bar .composer-out__actions { grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:12px; justify-items:start; }
-  .composer-out .composer-out__actions > :is(.composer-out__upgrade,.composer-out__new) { grid-area:1/1; }
-  .composer-out .composer-out__actions > .composer-out__export { grid-area:2/1; }
+  .composer-out { margin-block-start:-24px; row-gap:14px; }
+  .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px 44px; gap:12px 14px; }
+  .composer-out[data-host-limit] .composer-out__actions > .composer-out__upgrade { grid-area:2/1; }
+  .composer-out[data-host-limit] .composer-out__actions > .composer-out__export { grid-area:2/2; }
+  .composer-out[data-credit-actions="new"] .composer-out__actions { grid-template-columns:minmax(0,1fr); }
+  .composer-out[data-credit-actions="new"] .composer-out__actions > .composer-out__export { grid-area:2/1; }
   .composer-out__new { top:0; bottom:auto; max-width:none; }
   .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:11.5px; }
 }

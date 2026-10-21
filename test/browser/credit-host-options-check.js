@@ -130,7 +130,7 @@ export async function creditHostOptionsCheck(t) {
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight };
       const actionGeometry = { primary: primaryBox, export: exportBox, rows: [...new Set(primaryInk.map(b => b.top))].length,
         gap: primaryBox ? exportBox.top >= primaryBox.bottom ? exportBox.top - primaryBox.bottom : exportBox.left - primaryBox.right : null,
-        actions: box(r.querySelector('.composer-out__actions')), deadlineOffset: deadline && !deadline.hidden ? box(deadline).left - box(activeBody).left : null };
+        bodyBounds: box(activeBody), actions: box(r.querySelector('.composer-out__actions')), deadlineOffset: deadline && !deadline.hidden ? box(deadline).left - box(activeBody).left : null };
 
       const reservation = [...body.children].map(n => ({ key: n.dataset.creditVariant ?? n.dataset.creditOptionVariant,
         option: n.hasAttribute('data-credit-option-variant'), text: n.textContent,
@@ -303,6 +303,7 @@ export async function creditHostOptionsCheck(t) {
     for (const value of cases) {
       const label = JSON.stringify(value);
       assert.equal(value.rows, 1, label);
+      assert.ok(value.primary.top >= value.bodyBounds.bottom, `${label}: body clears the primary target`);
       assert.ok(value.gap >= 12, label);
       if (value.width < 600) assert.ok(value.export.top >= value.primary.bottom + 12, label);
     }

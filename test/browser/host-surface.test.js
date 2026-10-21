@@ -555,7 +555,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       assert.deepEqual(geometry.boxes, reserved, `${locale}/${width}/${variant}: 0 px between host-limit variants`);
       assert.equal(geometry.primary, variant !== 'no-upgrade');
       assert.equal(geometry.export, 'visible');
-      assert.equal(geometry.sameRow, width >= 600, 'AIT-435 Tick v1: phone export occupies its reserved second row');
+      assert.equal(geometry.sameRow, true);
       assert.equal(geometry.overlap, false);
       assert.equal(geometry.bodyClear, true, 'body clears both 44 px action targets');
       assert.equal(geometry.textContained, true, 'title and action targets remain inside the surface');

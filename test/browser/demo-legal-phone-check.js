@@ -163,7 +163,9 @@ export async function demoLegalPhoneCheck(t) {
       await page.mouse.move(-1, -1); await settle(page);
       const state = await measure(page), label = `${width}/${theme}/${locale}`;
       if ([320, 360, 390].includes(width) || width === 1440 && theme === 'light' && locale === 'de') await capture(width, theme, locale);
-      assert.ok(state.flagBounds.x + state.flagBounds.width + 8 <= state.links[0].bounds.x,
+      if (width < 600) for (const link of state.links) assert.ok(link.bounds.y >= state.flagBounds.y + state.flagBounds.height + 8,
+        `${label}: legal row is at least 8 px below the flag`);
+      else assert.ok(state.flagBounds.x + state.flagBounds.width + 8 <= state.links[0].bounds.x,
         `${label}: flag right edge + 8px <= first legal link left edge (gap ${state.flagLegalGap}px)`);
       if (width < 600) for (const [i, link] of state.links.entries()) {
         assert.equal(link.lines, 1, `${label} ${i}: legal link has exactly one line box (got ${link.lines})`);
