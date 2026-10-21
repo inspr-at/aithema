@@ -964,7 +964,7 @@ export class AithemaSession extends HTMLElement {
           button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
         }
         shell.scrollTop += latest.getBoundingClientRect().top - top;
-      } else {
+      } else if (this.ownerDocument.defaultView.matchMedia('(width < 600px)').matches && !this.shadowRoot.querySelector('.host-legal').hidden) {
         // scrollHeight/clientHeight round to integers. At a fractional card
         // limit that can leave extra space below a reply that fits; align its
         // actual painted bottom to the existing turn gap without resizing it.
