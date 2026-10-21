@@ -451,7 +451,7 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
   if (evidence) await writeFile(join(evidence, 'ait-172-settings-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, baseline: baseline.sourceHead, rows, shots }, null, 2));
 });
 
-// Real host routes, including the unavailable visitor-email route; no provider or mail calls.
+// Real host handlers served through Chromium's network stack; no provider or mail calls.
 test('AIT-414: credit tiers with identity only confirm and change without visitor persistence', { timeout: 30_000 }, async t => {
   const { confirmationHost } = await import('../fixtures/confirmation-host.js');
   const f = await confirmationHost(t), dir = await mkdtemp(join(tmpdir(), 'aithema-confirm-identity-'));
@@ -459,17 +459,44 @@ test('AIT-414: credit tiers with identity only confirm and change without visito
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
   const page = await browser.newPage();
-  await page.exposeFunction('confirmationRequest', f.call);
-  await page.goto(server.url, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(async ({ identity, tiers }) => {
+  const failures = [], errors = [];
+  page.on('response', response => { if (response.status() >= 500) failures.push({ url: response.url(), status: response.status() }); });
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setRequestInterception(true);
+  page.on('request', async request => {
+    const path = new URL(request.url()).pathname;
+    if (path === '/confirmation') return request.respond({ status: 200, contentType: 'text/html', body: `<!doctype html><div></div><script type="module">
     const { Verification } = await import('/packages/ui/src/verification.js');
     const { en: copy } = await import('/packages/ui/src/i18n/en.js');
-    const host = document.createElement('div'); document.body.replaceChildren(host);
+    const identity = ${JSON.stringify(f.session.identity)}, tiers = ${JSON.stringify(f.tiers())};
+    const host = document.body.firstElementChild;
     const root = host.attachShadow({ mode: 'open' }), entry = document.createElement('section'), lock = document.createElement('section'), dialog = document.createElement('dialog');
     root.append(entry, lock, dialog);
-    const v = window.confirmation = new Verification({ root, entry, lock, dialog, copy, request: window.confirmationRequest, identity, demo: true });
+    const request = async (path, body) => {
+      const response = await fetch(path.startsWith('/api/') ? path : '/api/sessions/${f.session.id}/' + path, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      return { ok: response.ok, status: response.status, body: await response.json() };
+    };
+    const v = window.confirmation = new Verification({ root, entry, lock, dialog, copy, request, identity, demo: true });
     await v.load(); v.setCredits({ tiers });
-  }, { identity: f.session.identity, tiers: f.tiers() });
+    window.confirmationLoaded = true;
+    </script>` });
+    if (path === '/api/visitor/email' || path.startsWith(`/api/sessions/${f.session.id}/identity`)) {
+      const response = await f.call(path.replace(`/api/sessions/${f.session.id}/`, ''), request.postData() ? JSON.parse(request.postData()) : undefined);
+      return request.respond({ status: response.status, contentType: 'application/json', body: JSON.stringify(response.body) });
+    }
+    return request.continue();
+  });
+  await page.goto(`${server.url}/confirmation`, { waitUntil: 'networkidle0' });
+  await page.waitForFunction(() => window.confirmationLoaded);
+  t.diagnostic(`AIT-442 page load: ${JSON.stringify({ failures, errors, calls: f.calls })}`);
+  assert.deepEqual(failures, [], 'AIT-442: identity-only page load has no 5xx response');
+  assert.deepEqual(errors, [], 'AIT-442: identity-only page load has no console or page error');
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email').length, 0, 'AIT-442: the absent visitor-email port is never requested');
   for (const [command, address] of [['request', 'first@example.test'], ['change', 'changed@example.test']]) {
     await page.evaluate(({ command, address }) => {
       const root = document.body.firstElementChild.shadowRoot;
