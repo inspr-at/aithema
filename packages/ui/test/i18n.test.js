@@ -38,6 +38,13 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [key, text] 
   });
 }
 
+
+test('AIT-445 Tick v1.1: every DE catalog string keeps E‑Mail together with U+2011', () => {
+  for (const [key, text] of catalogLeaves(de)) {
+    assert.doesNotMatch(text, /E-Mail/u, `de.${key}: use E‑Mail with U+2011, including compounds`);
+  }
+});
+
 for (const [locale, copy, expected] of [
   ['de', de, 'Mit E-Mail-Adresse: {n}\u00a0Credits'],
   ['en', en, 'With an email address: {n}\u00a0credits'],
