@@ -389,7 +389,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
    The primary and export occupy independent 44 px targets with a 12 px gap. */
 @media(width < 600px) {
   .composer-out__bar { min-height:102px; }
-  .composer-out .composer-out__actions { grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:12px; justify-items:start; }
+  .composer-out .composer-out__bar .composer-out__actions { grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:12px; justify-items:start; }
   .composer-out .composer-out__actions > :is(.composer-out__upgrade,.composer-out__new) { grid-area:1/1; }
   .composer-out .composer-out__actions > .composer-out__export { grid-area:2/1; }
   .composer-out__new { top:0; bottom:auto; max-width:none; }
