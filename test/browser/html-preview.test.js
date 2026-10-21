@@ -909,7 +909,7 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
   const source = '<!doctype html><html><head><title>Offline draft</title></head><body><h1>Offline draft</h1></body></html>';
   const bytesPath = '/' + [...new TextEncoder().encode(source)].join(',');
   const preview = previewFixture(), requests = [], socketRequests = [], checks = [], keptImages = [], shots = [];
-  let phase = 'bootstrap';
+  let phase = 'bootstrap', pendingEligibility;
   const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
     body{margin:0} aithema-session,ait386-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
     </style></head><body><script type="module">
@@ -941,7 +941,12 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
       if (path.endsWith('/html')) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end(source); }
       if (path.endsWith('/image')) { res.writeHead(200, { 'content-type': 'image/png' }); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')); }
       if (path.endsWith('/events')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); return res.end(); }
-      if (path.endsWith('/eligibility')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{}'); }
+      // AIT-440: keep an unrelated concept request pending until teardown.
+      // Artifact readiness must not depend on whole-page network idleness.
+      if (path.endsWith('/eligibility')) {
+        if (!pendingEligibility) { pendingEligibility = res; t.diagnostic(`pending eligibility request: ${phase}`); return; }
+        res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{}');
+      }
       if (path === '/') { res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': htmlPreviewHostPolicy(`http://${req.headers.host}/_aithema/html-preview`) }); return res.end(html); }
       if (/^\/packages\/(?:ui|core)\/src\/[\w/-]+\.(?:js|json)$/u.test(path)) {
         res.writeHead(200, { 'content-type': path.endsWith('.json') ? 'application/json' : 'text/javascript' }); return res.end(await readFile(join(root, path)));
@@ -965,6 +970,15 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
   });
+  // Await the artifact work itself: unrelated fetches and replaced frame
+  // requests need not become idle before the current artifacts are ready.
+  const artifactsReady = async () => {
+    await page.evaluate(async () => {
+      await Promise.all(view.items.filter(item => item.mediaType !== 'text/html').map(item => view.loadImageURL(item.id)));
+    });
+    await page.waitForFunction(() => [...c.shadowRoot.querySelectorAll('img[src]')].every(image => image.complete) &&
+      [...c.shadowRoot.querySelectorAll('aithema-html-preview')].every(preview => !preview.artifact || preview.state === 'ready'));
+  };
   const shoot = async label => {
     await settle(); await page.mouse.move(-10, -10);
     const name = `ait386-${label}-light-de.png`; shots.push(name);
@@ -988,12 +1002,13 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
     for (const width of [1440, 390]) {
       phase = `before-replay/${width}`; await page.evaluate(() => baseline(true)); await page.setViewport({ width, height: 900 });
       await page.evaluate(session => mount(session), sessionFor('off', 'html'));
+      if (width === 1440) await page.evaluate(() => { void view.endEligibility(); });
       await page.evaluate(async () => {
         const response = await fetch('/api/sessions/ait386/concepts/html/html', { headers: { 'x-aithema-session-token': 'fixture-owner' }, cache: 'no-store' });
         const image=c.shadowRoot.querySelector('.concept-backdrop img');
         image.src = new Uint8Array(await response.arrayBuffer()); image.dataset.id='html'; image.setAttribute('data-on','');
       });
-      await page.waitForNetworkIdle({ idleTime: 100 }); await shoot(`before-replay-${width}`);
+      await artifactsReady(); await shoot(`before-replay-${width}`);
       assert.ok(socketRequests.some(r => r.phase === phase && r.path === bytesPath), 'positive control observes the original bytes-as-path leak at the host');
     }
     await page.evaluate(() => baseline(false));
@@ -1003,13 +1018,13 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
       await page.evaluate(session => mount(session), sessionFor(visuals, kind));
       await settle();
       if (visuals === 'off' && kind === 'html') {
-        await page.waitForNetworkIdle({ idleTime: 100 }); await shoot('after-1440');
+        await artifactsReady(); await shoot('after-1440');
         await page.setViewport({ width: 390, height: 900 }); await shoot('after-390');
       }
       if (visuals === 'off' && kind === 'image') {
         for (const width of [1440, 390]) {
           await page.setViewport({ width, height: 900 });
-          await page.waitForNetworkIdle({ idleTime: 100 }); await settle();
+          await artifactsReady(); await settle();
           const kept = await page.evaluate(async () => {
             const thumbnail = c.shadowRoot.querySelector('.concept-preview img[src]');
             return { src: thumbnail?.getAttribute('src'), id: thumbnail?.dataset.id,
@@ -1038,7 +1053,7 @@ test('AIT-386: delivered artifacts never turn draft bytes into image requests', 
         }
         c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas();
       });
-      await page.waitForNetworkIdle({ idleTime: 100 }); await settle();
+      await artifactsReady(); await settle();
       const images = await page.evaluate(() => [...c.shadowRoot.querySelectorAll('img[src]')].map(image => ({ src: image.getAttribute('src'), id: image.dataset.id })));
       const ids = await page.evaluate(() => view.items.map(i => i.id));
       assert.deepEqual(ids, kind === 'mixed' ? ['image', 'html'] : [kind], 'kept consent preserves each delivery');
