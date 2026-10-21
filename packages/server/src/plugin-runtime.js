@@ -272,7 +272,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     if (milliseconds <= 0 || milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
     const reservedMs = options.voiceContinuation ? binding.maxDurationSeconds * 1000
       : binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
-    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: reservedMs / 1000, maxMicro: options.voiceContinuation
+    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: Math.min(milliseconds, reservedMs) / 1000, maxMicro: options.voiceContinuation
       ? Math.max(binding.maxMicro, Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)) : binding.reservationSeconds
       ? Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)
       : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
