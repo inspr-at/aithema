@@ -65,6 +65,7 @@ export class Verification {
         if (generation === this.#identityGeneration) this.set(response.body.identity);
       }
     } catch { /* No identity port: the entry stays away. */ }
+    if (this.#visitorEmail?.canSave === false && this.#visitorEmail.canDelete === false) return;
     const visitorGeneration = this.#identityGeneration;
     try {
       const response = await this.#request('/api/visitor/email');

@@ -271,7 +271,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       const ownerToken = ownership.token(request);
       if (visitorPath) {
         if (!ownerToken) return json({ error: 'owner-required' }, 401);
-        if (!visitorEmailAvailable()) return json({ error: 'visitor-unavailable' }, 503);
+        if (!visitorEmailAvailable()) return json({ error: 'visitor-unavailable' }, 404);
         if (url.pathname === '/api/visitor/email') {
           if (request.method === 'GET') return json({ visitor: host.visitor(ownerToken), notice: host.emailNotice ?? null,
             privacyDocumentConfigured: privacyDocumentConfigured(host) });
