@@ -333,3 +333,23 @@ test('AIT-422: ink-3 aliases the existing muted token without a new colour', asy
   const { styles } = await import('../src/styles.js');
   assert.match(styles, /--ink-3:var\(--aithema-muted\);/u);
 });
+
+// AIT-435 item 2: independently exercise HostSurface.limitCopy as well as
+// the final panel so neither projection can promise a disabled O1 action.
+for (const [locale, copy] of Object.entries({ de, en })) for (const enabled of [false, true]) {
+  test(`AIT-435 item 2: ${locale} S3, O1 ${enabled}`, async t => {
+    const host = { credits: true, verification: true, usedUp: { newConversation: { enabled } } };
+    const { c, root } = setup(t, { copy, host, session: { credits: { status: 'ended', endReason: 'session' } }, routes: {
+      'GET /credits': () => Response.json({ scope: 'session', exhausted: true, balance,
+        tiers: { current: 'emailConfirmed', next: null, canConfirm: true, allowancesMicro: { emailConfirmed: 10000000 } } }),
+    } });
+    await tick(10); userTurn(c);
+    const body = enabled ? copy.hostSurface.credits.ended.newConversationHint : copy.hostSurface.credits.ended.sessionDefaultBody;
+    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, body);
+    assert.equal(root.querySelector('.composer-out__new')?.hidden ?? true, !enabled);
+    const session = c.session;
+    const surface = new HostSurface({ root, copy, options: host, baseUrl: '', session: () => session });
+    t.after(() => surface.destroy());
+    assert.equal(surface.limitCopy.body, body, 'limitCopy uses the same O1 decision without a next tier');
+  });
+}

@@ -15,6 +15,10 @@ export async function creditHostOptionsCheck(t) {
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], errors = [];
+  const round2 = [], footer80 = [], round2Shots = [];
+  t.after(async () => {
+    if (evidence) await writeFile(join(evidence, 'ait435-round2-checks.json'), JSON.stringify({ head, footer80, checks: round2, shots: round2Shots, errors }, null, 2));
+  });
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   const head = event?.pull_request?.head?.sha ?? evidenceCommit;
   if (evidence) await mkdir(evidence, { recursive: true });
@@ -77,7 +81,7 @@ export async function creditHostOptionsCheck(t) {
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
-      c.configure({ copy, session, host: { verification: true, credits: { scope: 'session', reconcilingVisible: profile === 'all' || profile === 'O4', dailyCapReset: profile === 'all' || profile === 'O5' },
+      c.configure({ copy, session, host: profile === 'none' ? { verification: true, credits: true } : { verification: true, credits: { scope: 'session', reconcilingVisible: profile === 'all' || profile === 'O4', dailyCapReset: profile === 'all' || profile === 'O5' },
         usedUp: { newConversation: { enabled: profile === 'all' && state !== 'S3' }, dailyCapActions: profile === 'all' || profile === 'O2-none' ? 'none' : 'export' }, emailAsk: { lowCredits: f.lowCredits } } });
       let legal = c.querySelector('[slot="legal"][data-aithema-privacy]');
       if (!legal) { legal = document.createElement('a'); legal.slot = 'legal'; legal.setAttribute('data-aithema-privacy', ''); legal.href = '/privacy'; legal.textContent = 'Privacy'; c.append(legal); }
@@ -102,12 +106,39 @@ export async function creditHostOptionsCheck(t) {
         box.width === 0 || box.height === 0 || footerLabel.right <= box.left || footerLabel.left >= box.right || footerLabel.bottom <= box.top || footerLabel.top >= box.bottom);
       const visible = selector => { const n = r.querySelector(selector); return !!n && !n.hidden && !n.inert && getComputedStyle(n).visibility === 'visible'; };
       const body = r.querySelector('.composer-out__body');
+      const box = node => { const b = node.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height }; };
+      const ink = node => {
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT), rects = [];
+        while (walker.nextNode()) {
+          const text = walker.currentNode, style = getComputedStyle(text.parentElement);
+          if (style.visibility !== 'visible' || Number(style.opacity) === 0) continue;
+          const range = document.createRange(); range.selectNodeContents(text);
+          rects.push(...[...range.getClientRects()].filter(b => b.width > 0 && b.height > 0));
+        }
+        return rects;
+      };
+      const primary = r.querySelector('.composer-out__new'), exportLink = r.querySelector('.composer-out__export');
+      const primaryBox = primary && !primary.hidden ? box(primary) : null, exportBox = box(exportLink);
+      const primaryInk = primaryBox ? ink(primary) : [];
+      const activeBody = body.querySelector('[data-active="true"]'), deadline = r.querySelector('.composer-out__deadline');
+      const stack = r.querySelector('.host-credits__stack'), flag = box(r.querySelector('.engine__flag'));
+      const creditsTarget = box(r.querySelector('.host-credits__button')), engineTarget = box(r.querySelector('.engine-info'));
+      const textRight = Math.max(...ink(stack).map(b => b.right));
+      const overlapWidth = Math.max(0, Math.min(creditsTarget.right, engineTarget.right) - Math.max(creditsTarget.left, engineTarget.left));
+      const overlapHeight = Math.max(0, Math.min(creditsTarget.bottom, engineTarget.bottom) - Math.max(creditsTarget.top, engineTarget.top));
+      const footerGeometry = { stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
+        textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight };
+      const actionGeometry = { primary: primaryBox, export: exportBox, rows: [...new Set(primaryInk.map(b => b.top))].length,
+        gap: primaryBox ? exportBox.top >= primaryBox.bottom ? exportBox.top - primaryBox.bottom : exportBox.left - primaryBox.right : null,
+        actions: box(r.querySelector('.composer-out__actions')), deadlineOffset: deadline && !deadline.hidden ? box(deadline).left - box(activeBody).left : null };
+
       const reservation = [...body.children].map(n => ({ key: n.dataset.creditVariant ?? n.dataset.creditOptionVariant,
         option: n.hasAttribute('data-credit-option-variant'), text: n.textContent,
         cell: [getComputedStyle(n).gridRowStart, getComputedStyle(n).gridColumnStart].join('/'),
         hidden: getComputedStyle(n).visibility === 'hidden', ariaHidden: n.getAttribute('aria-hidden'),
         height: n.getBoundingClientRect().height }));
       return { boxes: Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot'].map(s => [s, rect(s)])),
+        footerGeometry, actionGeometry, legalLinks: c.querySelectorAll('[slot="legal"]').length,
         reservation, bodyHeight: body.getBoundingClientRect().height,
         footerTextFits, footerTextRects: { label: [footerLabel.x, footerLabel.y, footerLabel.width, footerLabel.height], neighbors: footerNeighbors.map(({ selector, box }) => ({ selector, rect: [box.x, box.y, box.width, box.height] })) },
         lowCredits: window.ait411.lowCredits, overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth), emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
@@ -120,6 +151,22 @@ export async function creditHostOptionsCheck(t) {
         deleteCopy: r.querySelector('.m-delete-normal').textContent, deletes: window.ait411.deletes };
     });
   };
+  const recordRound2 = (profile, width, locale, theme, state, value) => {
+    const entry = { profile, width, locale, theme, state, body: value.body, ...value.footerGeometry, ...value.actionGeometry };
+    round2.push(entry);
+    if (['O5', 'O2-none'].includes(profile) && [390, 1440].includes(width) && ['B1', 'U1', 'U2', 'U3', 'S3'].includes(state)) footer80.push(entry);
+  };
+  const round2Shot = async (profile, state) => {
+    if (!evidence) return;
+    await shadow(page, async c => {
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0);
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+    });
+    await page.mouse.move(-1, -1);
+    const file = `ait435-390-light-de-${profile}-${state}.png`;
+    await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); round2Shots.push(file);
+  };
   // Exercise the formerly masked option sets without O1. Track the complete
   // inserted/painted union through host-limit, daily-cap and session states.
   for (const profile of ['O4', 'O5', 'O2-none']) await t.test(`${profile} without O1: every option peer can paint`, async () => {
@@ -129,6 +176,8 @@ export async function creditHostOptionsCheck(t) {
       const inserted = new Set(), painted = new Set();
       for (const state of ['B1', 'U1', 'U2', 'U3', 'reconciling', 'reconciled', 'host-limit', 'S1', 'S2', 'S3']) {
         const value = await scene(state, locale, theme, profile), label = `${profile}/${locale}/${theme}/${width}/${state}`;
+        recordRound2(profile, width, locale, theme, state, value);
+        if (profile === 'O5' && width === 390 && locale === 'de' && theme === 'light' && state === 'U3') await round2Shot(profile, state);
         if (!baseline) baseline = value.boxes;
         assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
         assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
@@ -163,6 +212,7 @@ export async function creditHostOptionsCheck(t) {
     let baseline, deleteBaseline, lowBaseline;
     for (const state of states) {
       const value = await scene(state, locale, theme), label = `${locale}/${theme}/${width}/${state}`;
+      recordRound2('all', width, locale, theme, state, value);
       if (!baseline) baseline = value.boxes;
       assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
       assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
@@ -243,5 +293,35 @@ export async function creditHostOptionsCheck(t) {
     await writeFile(join(evidence, 'ait411-checks.json'), JSON.stringify({ head, workflowSHA: evidenceCommit, runId: process.env.GITHUB_RUN_ID ?? null, checks, shots,
       sharedCellShot: 'ait411-390-light-de-shared-cell.png', errors }, null, 2));
   }
+  await page.setViewport({ width: 390, height: 1000 });
+  const noOptions = await scene('B1', 'de', 'light', 'none');
+  recordRound2('none', 390, 'de', 'light', 'B1', noOptions);
+  assert.equal(noOptions.legalLinks, 3, 'no-options evidence host has three legal links');
+  await round2Shot('none', 'B1');
+  await t.test('AIT-435 item 1: single-line primary, 12 px gap and reserved phone export row', () => {
+    const cases = round2.filter(v => v.profile === 'all' && ['S2', 'U2'].includes(v.state));
+    for (const value of cases) {
+      const label = JSON.stringify(value);
+      assert.equal(value.rows, 1, label);
+      assert.ok(value.gap >= 12, label);
+      if (value.width < 600) assert.ok(value.export.top >= value.primary.bottom + 12, label);
+    }
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+      const usedUp = round2.filter(v => v.profile === 'all' && v.locale === locale && v.theme === theme && v.width === width && ['U1', 'U2', 'U3', 'S1', 'S2', 'S3'].includes(v.state));
+      for (const value of usedUp) assert.deepEqual(value.actions, usedUp[0].actions, `${locale}/${theme}/${width}/${value.state}: actions reserve 0 px`);
+    }
+  });
+  await t.test('AIT-435 item 2: S3 without O1 paints sessionDefaultBody', () => {
+    for (const value of round2.filter(v => v.state === 'S3')) assert.equal(value.body,
+      value.locale === 'de' ? 'Ihr Verlauf bleibt gespeichert.' : 'Your transcript stays saved.', JSON.stringify(value));
+  });
+  await t.test('AIT-435 item 4: U3 deadline aligns with body within 0.5 px', () => {
+    for (const value of round2.filter(v => v.deadlineOffset !== null)) assert.ok(Math.abs(value.deadlineOffset) <= .5, JSON.stringify(value));
+  });
+  await t.test('AIT-435 item 5: 80 measurements, text/flag gap >= 8 px and no target overlap at every width', () => {
+    assert.equal(footer80.length, 80);
+    const failures = round2.filter(v => v.textFlagGap < 8 || v.overlapPx2 !== 0);
+    assert.deepEqual(failures, [], JSON.stringify(failures));
+  });
   t.diagnostic(`${checks.length} state checks; 20 viewport shots; one reused page`);
 }

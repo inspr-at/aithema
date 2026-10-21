@@ -19,6 +19,24 @@ for (const [locale, copy] of [['de', de], ['en', en]]) for (const key of ['withC
   });
 }
 
+// AIT-435 r2 item 0: inspect every leaf; only strings without a numeric
+// amount immediately before Credits/credits are outside this copy rule.
+const catalogLeaves = (value, path = []) => typeof value === 'string' ? [[path.join('.'), value]]
+  : Object.entries(value).flatMap(([key, child]) => catalogLeaves(child, [...path, key]));
+for (const [locale, copy] of Object.entries({ de, en })) for (const [key, text] of catalogLeaves(copy)) {
+  const amounts = [...text.matchAll(/(?:\{\w+\}|\d[\d.,]*)(\s*)credits\b/giu)];
+  if (amounts.length) test(`AIT-435 universal NBSP: ${locale}.${key}`, () => {
+    for (const [, space] of amounts) assert.equal(space, '\u00a0', `${locale}.${key}: exactly one NBSP between number and credits`);
+  });
+}
+
+for (const [locale, copy, expected] of [
+  ['de', de, 'Mit E-Mail-Adresse: {n}\u00a0Credits'],
+  ['en', en, 'With an email address: {n}\u00a0credits'],
+]) test(`AIT-435 item 3: ${locale} withEmail matches Tick exactly`, () => {
+  assert.equal(copy.hostSurface.credits.withEmail, expected);
+});
+
 test('AIT-411 round 7 and AIT-435: confirmed tier copy matches Tick exactly', () => {
   assert.equal(en.hostSurface.credits.withConfirmed, 'With a confirmed email address: {n}\u00a0credits');
   assert.equal(de.hostSurface.credits.withConfirmed, 'Mit bestätigter E-Mail-Adresse: {tier}\u00a0Credits');
