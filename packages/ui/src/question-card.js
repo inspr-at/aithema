@@ -192,12 +192,14 @@ export class QuestionCard {
     const expandedGap = phone && workspace
       ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) : 0;
     const conceptHeight = phone && workspace ? this.root.querySelector('.concept-bar').getBoundingClientRect().height : 0;
+    const footerGap = phone && workspace
+      ? parseFloat(this.view.getComputedStyle(workspace).getPropertyValue('--phone-footer-gap')) || 12 : 12;
     const available = phone && workspace
       ? viewport + (visual?.scale === 1 ? visual.offsetTop : 0)
         - this.root.querySelector('.band').getBoundingClientRect().height
         - this.root.querySelector('.display-foot').getBoundingClientRect().height
         - this.root.querySelector('.composer-dock').getBoundingClientRect().height
-        - conceptHeight - expandedGap - 32
+        - conceptHeight - expandedGap - 20 - footerGap
       : shell.getBoundingClientRect().height + (this.height ?? 0);
     const wasCompact = this.card.hasAttribute('data-compact');
     let compact = phone && short && !this.card.hidden;
