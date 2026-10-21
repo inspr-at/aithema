@@ -218,7 +218,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
 .host-credits__measure-cap { visibility:hidden; white-space:nowrap; font-weight:600; }
 .host-credits__stack { display:grid; justify-items:center; }
-.host-credits__stack > * { grid-area:1/1; }
+.host-credits__stack > * { grid-area:1/1; align-self:center; }
 /* Keep both numeric slots and the unit at the reserved start. */
 .host-credits__text { justify-self:start; }
 .host-credits__amount { display:inline-grid; min-width:max-content; font-variant-numeric:tabular-nums; }
