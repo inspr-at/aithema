@@ -94,7 +94,11 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       });
       if(evidence)await writeFile(join(evidence,`initial-${width}-${locale}.json`),JSON.stringify(mounted));
       console.log('AIT411_BRANCH_INITIAL ' + JSON.stringify({ width, locale, ...mounted, html: undefined }));
-      assert.equal(mounted.html, mainLayout.composerHTML[process.platform][locale], 'default composer DOM equals independently captured main before fixture setup');
+      // AIT-435 item 0: keep the capture immutable; change only the two
+      // approved empty-delta DE catalog separators in the exact comparison.
+      const expectedHTML = mainLayout.composerHTML[process.platform][locale]
+        .replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits');
+      assert.equal(mounted.html, expectedHTML, 'default composer DOM differs from captured main only by approved AIT-435 NBSP');
       assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
       assert.equal(mounted.scrollTop, 0, 'default mount ignores queued no-op viewport resize before fixture setup');
       // Keep main's explicit first-row setup and every existing assertion; the

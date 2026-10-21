@@ -1195,9 +1195,26 @@ the phone frame follows the approved voice-specific rows.
 
 The host's `<h1 slot="brand">` is visible beside the orb and remains the page's
 heading; without it the default brand keeps its previous hidden presentation.
-Legal links in `slot="legal"` stand at the right of the footer bar on the entrance
-and in conversation. `slot="footer"` stays in the info popup. On phones (under
-600 px), the connection timer moves into that popup to leave room for legal links.
+At 600 px and above, legal links in `slot="legal"` stand at the right of the footer
+bar on the entrance and in conversation. Below 600 px, an always-visible
+**Rechtliches** / **Legal** button at the 12 px right gutter opens those links
+directly in a non-modal popover above the footer. No legal anchor appears in the
+phone footer row. `slot="footer"` stays in the info popup; the phone connection
+timer also moves into that info popup.
+
+The phone popover reads the assigned legal elements each time it opens and
+creates shallow clones of their `a[href]` anchors, including anchors inside
+wrappers, in host order. Each visible label uses the original anchor's
+`aria-label` when present, otherwise its `textContent`; hosts should provide an
+`aria-label` suitable for display as link text. The `href`, `target` and `rel` attribute values stay
+byte-identical. Non-link slot content is omitted, and anchor child markup is
+flattened to text. Host IDs, slot, class, style, `aria-labelledby` and
+`aria-describedby` attributes are removed from the clones. Listeners registered
+with `addEventListener` on the original anchors or their host wrappers are not
+transferred to the shadow-root popover. Inline `on*` attributes are copied;
+hosts must provide working `href` navigation rather than depend on those
+listeners. The original wide-screen slot remains in place.
+
 The approved full AI label and connection status remain visible at 1024 px.
 The connection label reserves the widest short label in the current language,
 with the full description in its tooltip and a polite live region. The status dot
@@ -1206,8 +1223,10 @@ with visible credits hide the label; the named status dot stays visible.
 Credit-enabled hosts retain compact balance details below 1100 px; phone footers
 use the short AI label, retain its marker and omit the decorative credit track.
 Use quiet underlined legal links. Slot anchors directly (`<a slot="legal" ...>`)
-to receive the module's 44 px targets. If you slot a wrapper such as `<nav>`,
-its nested anchors remain host-owned: `::slotted(a)` cannot style descendants.
+to receive the module's 44 px targets at 600 px and above. If you slot a wrapper
+such as `<nav>`, its wide-screen nested anchors remain host-owned:
+`::slotted(a)` cannot style descendants. The phone popover supplies full-width,
+44 px link rows independently of those host styles.
 Give each nested anchor at least a 24×24 CSS px target (WCAG 2.2, 2.5.8),
 and 44×44 px on touch, matching the module. For example:
 
@@ -2500,8 +2519,9 @@ sessionElement.configure({
 - **O4:** `credits.reconcilingVisible` defaults to false. When true, the visible
   balance stack reserves both number and muted reconciling text. The text has
   one polite announcement per reconciliation; the tooltip remains available.
-  Phone hosts with legal links reserve a separate standing legal row, so the
-  visible status cannot overlap those links.
+  Below 600 px, the footer stays one 44 px row: host legal links open through
+  the **Rechtliches** / **Legal** control, and the reconciling text wraps inside
+  the credits cell.
 - **O5:** `credits.dailyCapReset` defaults to false. On the server,
   `creditTiers(ownerToken, { sessionId })` supplies `dailyCapReached` and
   `dailyCapResetAt` (safe-integer Unix milliseconds) for a session-scoped wallet.

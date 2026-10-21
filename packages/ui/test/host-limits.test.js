@@ -33,7 +33,7 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     const { root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ending', endReason: reason } } });
     await tick(8);
     assert.equal(root.querySelector('form.composer').inert, true);
-    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, copy.hostSurface.credits.ended[reason].body);
+    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, reason === 'session' ? copy.hostSurface.credits.ended.sessionDefaultBody : copy.hostSurface.credits.ended[reason].body);
     assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
   });
 }
@@ -41,13 +41,13 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
 const releaseLimits = {
   de: {
     'one-hour': ['Die Gesprächszeit ist abgelaufen.', 'Ein Gespräch dauert hier höchstens eine Stunde. Ihr Verlauf bleibt gespeichert.', false],
-    session: ['Die Credits dieses Gesprächs sind aufgebraucht.', 'Ein neues Gespräch hat wieder eigene Credits.', true],
+    session: ['Die Credits dieses Gesprächs sind aufgebraucht.', 'Ihr Verlauf bleibt gespeichert.', true],
     voiceVisitor: ['Die Sprach-Credits sind aufgebraucht.', 'Sprechen ist in diesem Gespräch nicht mehr möglich.', true],
     'host-limit': ['Hier sind gerade keine Gespräche möglich.', 'Das Budget dieses Angebots ist ausgeschöpft. Ihr Gespräch bleibt gespeichert.', false],
   },
   en: {
     'one-hour': ['The conversation time has run out.', 'A conversation here lasts at most one hour. Your transcript stays saved.', false],
-    session: ["This conversation's credits are used up.", 'A new conversation has its own credits again.', true],
+    session: ["This conversation's credits are used up.", 'Your transcript stays saved.', true],
     voiceVisitor: ['The voice credits are used up.', 'Speaking is no longer possible in this conversation.', true],
     'host-limit': ['Conversations are not available here right now.', 'The budget for this service is used up. Your conversation stays saved.', false],
   },
@@ -326,10 +326,30 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     assert.equal(root.querySelector('[data-credit-variant="host-give-measure"]'), null, 'AIT-434: no invisible layout spacer');
     assert.equal(Object.hasOwn(copy.hostSurface.usedUp, 'hostGiveMeasure'), false, 'AIT-434: no spacer copy');
     assert.equal(copy.hostSurface.usedUp.give.replace('{delta}', number), locale === 'de'
-      ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number} Credits mehr.` : `Add your email address to get ${number} more Credits.`);
+      ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number}\u00a0Credits mehr.` : `Add your email address to get ${number} more Credits.`);
   });
 }
 test('AIT-422: ink-3 aliases the existing muted token without a new colour', async () => {
   const { styles } = await import('../src/styles.js');
   assert.match(styles, /--ink-3:var\(--aithema-muted\);/u);
 });
+
+// AIT-435 item 2: independently exercise HostSurface.limitCopy as well as
+// the final panel so neither projection can promise a disabled O1 action.
+for (const [locale, copy] of Object.entries({ de, en })) for (const enabled of [false, true]) {
+  test(`AIT-435 item 2: ${locale} S3, O1 ${enabled}`, async t => {
+    const host = { credits: true, verification: true, usedUp: { newConversation: { enabled } } };
+    const { c, root } = setup(t, { copy, host, session: { credits: { status: 'ended', endReason: 'session' } }, routes: {
+      'GET /credits': () => Response.json({ scope: 'session', exhausted: true, balance,
+        tiers: { current: 'emailConfirmed', next: null, canConfirm: true, allowancesMicro: { emailConfirmed: 10000000 } } }),
+    } });
+    await tick(10); userTurn(c);
+    const body = enabled ? copy.hostSurface.credits.ended.newConversationHint : copy.hostSurface.credits.ended.sessionDefaultBody;
+    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, body);
+    assert.equal(root.querySelector('.composer-out__new')?.hidden ?? true, !enabled);
+    const session = c.session;
+    const surface = new HostSurface({ root, copy, options: host, baseUrl: '', session: () => session });
+    t.after(() => surface.destroy());
+    assert.equal(surface.limitCopy.body, body, 'limitCopy uses the same O1 decision without a next tier');
+  });
+}

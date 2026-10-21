@@ -222,9 +222,17 @@ export class QuestionCard {
     const latest = shell.querySelector('.turn:last-child');
     const replyFloor = phone ? Math.max(84, 128 - Math.max(0, conceptHeight - 44)) : 128;
     const replyRoom = Math.max(replyFloor, Math.min((latest?.getBoundingClientRect().height ?? 0) + 28, available - minimum));
-    const limit = Math.max(0, available - replyRoom);
+    const remaining = Math.max(0, available - replyRoom);
+    // Native scroll extents use whole CSS pixels. Keep the affected phone
+    // footer's bounded card in that same coordinate system, so reaching the
+    // real scroll end also preserves the painted reply/card gap.
+    // Measured dock, concept-bar and reply heights include fractional font line boxes.
+    const limit = this.view?.matchMedia('(width < 600px)').matches && this.root.querySelector('.host-legal')?.hidden === false
+      ? Math.floor(remaining) : remaining;
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
-    if (phone && !this.card.hidden && !short) compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
+    // Preserve the existing expanded/compact decision; pixel rounding applies
+    // only to the painted cap, within the minimum's existing 2px allowance.
+    if (phone && !this.card.hidden && !short) compact = Math.min(remaining, .35 * viewport, viewport - 220) < minimum;
     this.card.toggleAttribute('data-compact', compact);
     workspace?.toggleAttribute('data-question-compact', compact);
     this.positionOptions(!wasCompact);

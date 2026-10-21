@@ -806,7 +806,7 @@ export async function visitorCreditMatrix(t, locales) {
           tierText: r.querySelector('.host-verify .m-mail-tier').textContent, gapPx: parseFloat(getComputedStyle(r.querySelector('.host-verify .m-mail-tier')).gap) };
       });
       assert.equal(alignment.indentPx, 0); assert.equal(alignment.gapPx, 0);
-      assert.match(alignment.tierText, locale === 'de' ? /Bestätigt\u00a0· Guthaben: 2\.400 Credits/u : /Confirmed\u00a0· Credit: 2,400 Credits/u);
+      assert.match(alignment.tierText, locale === 'de' ? /Bestätigt\u00a0· Guthaben: 2\.400\u00a0Credits/u : /Confirmed\u00a0· Credit: 2,400\u00a0Credits/u);
       uiChecks.push({ locale, theme, width, state: 'mail-confirmed', pass: true, ...alignment });
       await shot('mail-confirmed'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-confirmed');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-confirm');

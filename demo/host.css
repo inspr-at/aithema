@@ -95,22 +95,12 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
 #demo-legal a { display:inline-flex; align-items:center; min-width:44px; min-height:44px; line-height:1.15; white-space:normal; overflow-wrap:anywhere; color:var(--accent); }
 #demo-license > span { min-width:0; }
 .demo-license-id { white-space:nowrap; }
-/* The prefix can wrap above the atomic identifier; both targets keep one row. */
-@media(max-width:600px) {
+/* At the desktop boundary the original links remain visible. */
+@media(width:600px) {
   #demo-legal { gap:8px; }
   #demo-license { flex-shrink:0; width:min-content; }
   #demo-legal a { min-height:max(44px,4lh); }
 }
-@media(width < 360px) { #demo-legal a { min-height:max(44px,5lh); } }
-/* AIT-304: reserve each short label's natural width across platform fonts.
-   Replacing the short span with full copy restores the original host geometry. */
-@media(width < 600px) {
-  /* Complete the slot wrapper's 4px margin to an 8px flag-to-link gap. */
-  #demo-legal { margin-inline-start:4px; }
-  #demo-legal a:has(> .demo-legal-short) { flex:none; width:max-content; white-space:nowrap; overflow-wrap:normal; }
-}
-/* The component removes its slot margin below 360px; reserve the full gap here. */
-@media(width < 360px) { #demo-legal { margin-inline-start:8px; } }
 #demo-footer { margin:0; color:var(--muted); }
 #outbox { width:min(34rem,calc(100vw - 1rem)); border:1px solid var(--line); border-radius:1rem; background:var(--surface); color:var(--ink); padding:1rem 1.25rem; }
 #outbox::backdrop { background:rgb(12 28 39 / .36); } #outbox h2 { font-size:1.05rem; margin:0 0 .3rem; } #outbox ul { list-style:none; padding:0; margin:.5rem 0; }

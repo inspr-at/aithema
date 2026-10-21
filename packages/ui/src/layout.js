@@ -147,31 +147,84 @@ export class ConversationFold {
   }
 }
 
-/** Viewport-clamped tooltips, shared by notice/build, wallet and preset; hover changes only opacity. */
+/** Viewport-clamped footer popups; the phone legal dialog opens only on activation. */
 export class FooterPopups {
   constructor(root) {
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.entries = [...root.querySelectorAll('[data-footer-popup]')];
     for (const entry of this.entries) {
-      entry.addEventListener('pointerenter', () => { entry.removeAttribute('data-dismissed'); this.position(entry); this.expanded(entry, true); });
-      entry.addEventListener('focusin', () => { if (!this.returningFocus) entry.removeAttribute('data-dismissed'); this.position(entry); this.expanded(entry, !entry.hasAttribute('data-dismissed')); });
-      entry.addEventListener('pointerleave', () => { if (!entry.matches(':focus-within')) entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned') || entry.matches(':focus-within')); });
-      entry.addEventListener('focusout', event => { if (!entry.contains(event.relatedTarget)) { entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned')); } });
-      const button = entry.querySelector('.host-credits__button, .ai-notice');
-      button?.addEventListener('click', () => { const pinned = !entry.hasAttribute('data-pinned'); entry.toggleAttribute('data-pinned', pinned); entry.removeAttribute('data-dismissed'); this.expanded(entry, pinned); this.position(entry); });
+      const legal = entry.classList.contains('host-legal');
+      if (!legal) {
+        entry.addEventListener('pointerenter', () => { entry.removeAttribute('data-dismissed'); this.position(entry); this.expanded(entry, true); });
+        entry.addEventListener('focusin', () => { if (!this.returningFocus) entry.removeAttribute('data-dismissed'); this.position(entry); this.expanded(entry, !entry.hasAttribute('data-dismissed')); });
+        entry.addEventListener('pointerleave', () => { if (!entry.matches(':focus-within')) entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned') || entry.matches(':focus-within')); });
+      }
+      entry.addEventListener('focusout', event => {
+        if (!entry.contains(event.relatedTarget)) {
+          if (legal) { if (event.relatedTarget) this.close(entry); }
+          else { entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned')); }
+        }
+      });
+      const button = this.button(entry);
+      button?.addEventListener('click', () => {
+        const pinned = !entry.hasAttribute('data-pinned');
+        if (!legal) {
+          entry.toggleAttribute('data-pinned', pinned); entry.removeAttribute('data-dismissed'); this.expanded(entry, pinned); this.position(entry); return;
+        }
+        if (!pinned) { this.close(entry); return; }
+        if (legal) this.legalLinks(entry);
+        entry.setAttribute('data-pinned', ''); entry.removeAttribute('data-dismissed');
+        this.expanded(entry, true); this.position(entry);
+        if (legal) entry.querySelector('.legal-popup a')?.focus({ preventScroll: true });
+      });
     }
     this.key = event => {
+      if (event.key === 'Tab') {
+        clearTimeout(this.tabClose);
+        this.tabClose = setTimeout(() => {
+          for (const entry of this.entries) if (entry.classList.contains('host-legal') && !entry.contains(this.root.activeElement)) this.close(entry);
+        }, 0);
+      }
       if (event.key === 'Escape') for (const entry of this.entries) {
-        entry.removeAttribute('data-pinned'); entry.setAttribute('data-dismissed', ''); this.expanded(entry, false);
-        const button = entry.querySelector('.host-credits__button, .ai-notice');
-        if (button && entry.contains(this.root.activeElement)) { this.returningFocus = true; button.focus(); this.returningFocus = false; }
+        const focused = entry.contains(this.root.activeElement);
+        this.close(entry);
+        const button = this.button(entry);
+        if (button && focused) { this.returningFocus = true; button.focus({ preventScroll: true }); this.returningFocus = false; }
       }
     };
-    this.outside = event => { for (const entry of this.entries) if (!event.composedPath().includes(entry)) { entry.removeAttribute('data-pinned'); this.expanded(entry, false); } };
-    this.resize = () => { for (const entry of this.entries) this.position(entry); };
+    this.outside = event => { for (const entry of this.entries) if (!event.composedPath().includes(entry)) {
+      if (entry.classList.contains('host-legal')) this.close(entry);
+      else { entry.removeAttribute('data-pinned'); this.expanded(entry, false); }
+    } };
+    this.resize = () => {
+      for (const entry of this.entries) {
+        if (entry.classList.contains('host-legal') && !this.view?.matchMedia('(width < 600px)').matches) this.close(entry);
+        else this.position(entry);
+      }
+    };
     this.connect();
   }
-  expanded(entry, value) { entry.querySelector('.host-credits__button, .ai-notice')?.setAttribute('aria-expanded', String(value)); }
+  button(entry) { return entry.querySelector('.host-credits__button, .ai-notice, .legal-toggle'); }
+  // Read the original anchors at activation, so host order, labels and URL bytes
+  // stay current. The desktop slot is never rewritten or moved.
+  legalLinks(entry) {
+    const source = entry.querySelector('slot').assignedElements().flatMap(n => n.matches('a[href]') ? [n] : [...n.querySelectorAll('a[href]')]);
+    const links = source.map(source => {
+      const link = source.cloneNode(false);
+      for (const name of ['id', 'slot', 'class', 'style', 'aria-labelledby', 'aria-describedby']) link.removeAttribute(name);
+      link.textContent = source.getAttribute('aria-label') ?? source.textContent;
+      return link;
+    });
+    entry.querySelector('.legal-popup').replaceChildren(...links);
+  }
+  close(entry) {
+    entry.removeAttribute('data-pinned'); entry.setAttribute('data-dismissed', ''); this.expanded(entry, false);
+  }
+  expanded(entry, value) {
+    if (value && this.view?.matchMedia('(width < 600px)').matches) for (const other of this.entries) if (other !== entry) this.close(other);
+    this.button(entry)?.setAttribute('aria-expanded', String(value));
+    if (entry.classList.contains('host-legal')) entry.querySelector('.legal-popup').hidden = !value;
+  }
   connect() {
     if (this.entries.some(entry => !entry.hidden)) this.root.ownerDocument.addEventListener('click', this.outside);
     this.root.addEventListener('keydown', this.key); this.view?.addEventListener('resize', this.resize);
@@ -180,12 +233,14 @@ export class FooterPopups {
   position(entry) {
     const popup = entry.querySelector('.footer-popup'); if (!popup) return;
     const anchor = entry.getBoundingClientRect(), box = popup.getBoundingClientRect(), width = this.view?.innerWidth ?? 320;
-    const origin = entry.classList.contains('footer-info') ? anchor.left : anchor.left + anchor.width / 2 - box.width / 2;
+    const origin = entry.classList.contains('host-legal') ? width - box.width - 12
+      : entry.classList.contains('footer-info') ? anchor.left : anchor.left + anchor.width / 2 - box.width / 2;
     const left = Math.min(Math.max(12, origin), Math.max(12, width - box.width - 12));
     popup.style.left = `${left}px`;
     popup.style.bottom = `${Math.max(12, (this.view?.innerHeight ?? 900) - anchor.top + (entry.classList.contains('footer-info') ? 8 : 6))}px`;
   }
   destroy() {
+    clearTimeout(this.tabClose);
     this.root.ownerDocument.removeEventListener('click', this.outside);
     this.root.removeEventListener('keydown', this.key); this.view?.removeEventListener('resize', this.resize);
     this.view?.removeEventListener('scroll', this.resize);

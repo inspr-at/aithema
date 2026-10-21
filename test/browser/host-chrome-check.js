@@ -357,7 +357,8 @@ export async function hostChromeCheck(t) {
               product: r.querySelector('.display-version').textContent, noVoice: !r.querySelector(absent),
               voice: Boolean(r.querySelector('.voice-start') && r.querySelector('.pause')),
               claim: /synthetische Stimme|synthetic voice|Text lesen|Read text/u.test(content.textContent),
-              legal: links.every(n => { const b = n.getBoundingClientRect(); return visible(n) && b.left >= 0 && b.right <= innerWidth && b.top >= footer.top && b.bottom <= footer.bottom; }),
+              legal: (innerWidth < 600 ? [r.querySelector('.legal-toggle')] : links).every(n => { const b = n.getBoundingClientRect(); return visible(n) && b.left >= 0 && b.right <= innerWidth && b.top >= footer.top && b.bottom <= footer.bottom; }) &&
+                (innerWidth >= 600 || links.every(n => !visible(n))),
               timerPopup: Boolean(timer.closest('.footer-info .footer-popup')),
               footerOverflow: r.querySelector('.display-foot__row').scrollWidth > r.querySelector('.display-foot__row').clientWidth,
               overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth),
@@ -375,17 +376,19 @@ export async function hostChromeCheck(t) {
           assert.equal(metrics.footerOverflow, false, `${label}/${stage}: footer fits`);
           assert.equal(metrics.timerPopup, width < 600);
           if (voice) assert.equal(metrics.voice, true); else { assert.equal(metrics.noVoice, true); assert.equal(metrics.claim, false); }
-          // One activation/tab from the conversation or entrance; no popup prerequisite.
-          await shadow(page, c => c.querySelector('[slot="legal"] a').focus());
-          assert.equal(await shadow(page, c => document.activeElement === c.querySelector('[slot="legal"] a')), true);
+          // Tick v1.7: the labelled phone control opens the configured links directly.
+          await shadow(page, c => { if (innerWidth < 600) c.shadowRoot.querySelector('.legal-toggle').click(); else c.querySelector('[slot="legal"] a').focus(); });
+          assert.equal(await shadow(page, c => innerWidth < 600 ? c.shadowRoot.activeElement === c.shadowRoot.querySelector('.legal-popup a') : document.activeElement === c.querySelector('[slot="legal"] a')), true);
           await page.keyboard.press('Tab');
-          assert.equal(await shadow(page, c => document.activeElement === c.querySelectorAll('[slot="legal"] a')[1]), true);
+          assert.equal(await shadow(page, c => innerWidth < 600 ? c.shadowRoot.activeElement === c.shadowRoot.querySelectorAll('.legal-popup a')[1] : document.activeElement === c.querySelectorAll('[slot="legal"] a')[1]), true);
           await page.evaluate(() => {
             window.legalClicked = null;
-            document.querySelector('[slot="legal"]').addEventListener('click', e => { e.preventDefault(); window.legalClicked = e.target.getAttribute('href'); }, { once: true });
+            (innerWidth < 600 ? document.querySelector('aithema-session').shadowRoot.querySelector('.legal-popup') : document.querySelector('[slot="legal"]')).addEventListener('click', e => { e.preventDefault(); window.legalClicked = e.target.getAttribute('href'); }, { once: true });
           });
-          await page.click('[slot="legal"] a');
+          if (width < 600) await shadow(page, c => c.shadowRoot.querySelector('.legal-popup a').click());
+          else await page.click('[slot="legal"] a');
           assert.equal(await page.evaluate(() => window.legalClicked), '/imprint');
+          if (width < 600) await page.keyboard.press('Escape');
           checks.push({ label, stage, ...metrics });
           if (stage !== 'ready') await shot(`${label}-${stage}`);
         }
