@@ -326,7 +326,7 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     assert.equal(root.querySelector('[data-credit-variant="host-give-measure"]'), null, 'AIT-434: no invisible layout spacer');
     assert.equal(Object.hasOwn(copy.hostSurface.usedUp, 'hostGiveMeasure'), false, 'AIT-434: no spacer copy');
     assert.equal(copy.hostSurface.usedUp.give.replace('{delta}', number), locale === 'de'
-      ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number} Credits mehr.` : `Add your email address to get ${number} more Credits.`);
+      ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number}\u00a0Credits mehr.` : `Add your email address to get ${number} more Credits.`);
   });
 }
 test('AIT-422: ink-3 aliases the existing muted token without a new colour', async () => {

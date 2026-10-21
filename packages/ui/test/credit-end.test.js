@@ -48,7 +48,9 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
   test(`AIT-292 r2 ${copy.display.locale}/${reason}: real end events use only the composer announcement`, async t => {
     const { c, root } = setup(t, { copy, host: { credits: true } });
     await tick(8); userTurn(c);
-    const limit = copy.hostSurface.credits.ended[reason], message = `${limit.title} ${limit.body}`, announcements = [];
+    const limit = copy.hostSurface.credits.ended[reason];
+    const body = reason === 'session' ? copy.hostSurface.credits.ended.sessionDefaultBody : limit.body;
+    const message = `${limit.title} ${body}`, announcements = [];
     const observer = new window.MutationObserver(records => {
       for (const record of records) for (const node of record.addedNodes) {
         if (node.textContent === message) announcements.push(record.target.className);
@@ -58,7 +60,7 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     t.after(() => observer.disconnect());
     for (const type of ['credits.limit-reached', 'conversation.end-requested', 'credits.limit-reached']) {
       c.receive({ seq: c.session.seq + 1, type, data: { reason } }); await tick(8);
-      assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, limit.body);
+      assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, body);
       assert.equal(root.querySelector('.status__label').closest('.composer-dock'), null, 'no end-reason toast');
     }
     assert.deepEqual(announcements, ['credit-announcement sr-only'], 'exactly one polite block announcement');
@@ -135,13 +137,14 @@ for (const copy of [de, en]) for (const failure of ['http', 'network']) {
   });
 }
 
-// This assertion also runs unchanged at Tick's recorded capture head 21e06f34.
-// The capture used string copy; current copy separates title and body.
+// Keep the no-toast check from Tick's recorded capture head 21e06f34.
+// AIT-435 Tick item 2 updates the O1-off session body; announcements stay exact.
 for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
   test(`AIT-292 QA-base ${copy.display.locale}/${reason}: end event must not duplicate the composer as a toast`, async t => {
     const { c, root } = setup(t, { copy, host: { credits: true } }); await tick(8); userTurn(c);
     c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } }); await tick(8);
-    const ended = copy.hostSurface.credits.ended[reason], body = typeof ended === 'string' ? ended : ended.body;
+    const ended = copy.hostSurface.credits.ended[reason], body = reason === 'session'
+      ? copy.hostSurface.credits.ended.sessionDefaultBody : typeof ended === 'string' ? ended : ended.body;
     assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
     assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, body, 'the composer shows the actual ended reason');
     const toast = root.querySelector('.composer-dock > .status__label');
