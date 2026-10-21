@@ -3086,6 +3086,73 @@ test('AIT-163 fix2: recovery with less than 120 seconds remaining reserves one s
   assert.equal(h.storage.db.prepare("SELECT max_micro FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get().max_micro, 20_000);
 });
 
+for (const reservationSeconds of [undefined, 30]) test(`AIT-447: recovery at 590/600 seconds reserves full credential exposure (${reservationSeconds ?? 'nonrolling'})`, async t => {
+  const h = voiceFixture(t, { leaseMs: 700_000, durationBinding: {
+    maxDurationSeconds: 600, maxMicro: 1_000_000, upstreamMicroPerMinute: 100_000,
+    visitorMicroPerMinute: 200_000, reservationSeconds,
+  } });
+  h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 700_000;
+  const first = await h.start();
+  const initial = h.runtime.budget.get(h.storage.voiceCalls(h.session.id)[0].attemptId);
+  assert.equal(initial.max_micro, reservationSeconds ? 50_000 : 1_000_000);
+  h.advance(590_000);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  const recovered = await response.json(); assert.equal(response.status, 200, JSON.stringify(recovered));
+  assert.notEqual(recovered.providerSessionId, first.providerSessionId);
+  assert.equal(recovered.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(recovered.spendDeadlineAt - h.now(), 10_000);
+  const row = h.runtime.budget.get(h.storage.voiceCalls(h.session.id).at(-1).attemptId);
+  assert.equal(row.voice_exposure_micro, 1_000_000);
+  assert.equal(row.max_micro, row.voice_exposure_micro, `reserved ${row.max_micro} vs full 600-second credential liability ${row.voice_exposure_micro}`);
+  assert.equal(row.max_visitor_micro, 2_000_000);
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, 2);
+});
+
+for (const phase of ['initial', 'recovery', 'rolling-recovery']) for (const funding of ['session', 'voiceVisitor', 'owner']) {
+  test(`AIT-447: ${phase} fails closed with 0.10 USD ${funding} headroom`, async t => {
+    const h = voiceFixture(t, { leaseMs: 700_000, durationBinding: {
+      maxDurationSeconds: 600, maxMicro: 1_000_000, upstreamMicroPerMinute: 100_000,
+      visitorMicroPerMinute: 200_000, ...(phase === 'rolling-recovery' ? { reservationSeconds: 30 } : {}),
+    }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
+    const allowance = value => h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+      allowancesUsd: { anonymous: value, emailGiven: value, emailConfirmed: value } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+    allowance('5');
+    h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 700_000;
+    let first;
+    if (phase !== 'initial') {
+      first = await h.start(); h.advance(590_000);
+      await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+      await h.handlers.idle();
+    }
+    if (funding === 'session') h.runtime.budget.sessionCapMicro = h.runtime.budget.used(h.session.id) + 100_000;
+    else if (funding === 'voiceVisitor') h.runtime.budget.visitorCapMicro = h.runtime.budget.visitorUsed(h.session.id) + 100_000;
+    else allowance('0.1');
+    const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+    const credentials = h.traffic.filter(url => url.includes('/token?')).length, facades = h.provisioned.length;
+    const response = first
+      ? await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true })
+      : await h.route('/voice', { callId: 'unfunded' });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'host-limit' });
+    assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+    assert.equal(h.traffic.filter(url => url.includes('/token?')).length, credentials);
+    assert.equal(h.provisioned.length, facades);
+  });
+}
+
+for (const elapsed of [600_000, 600_001]) test(`AIT-447: exhausted recovery at ${elapsed}ms cannot mint a credential`, async t => {
+  const h = voiceFixture(t, { leaseMs: 700_000, durationBinding: { maxDurationSeconds: 600, maxMicro: 1_000_000,
+    upstreamMicroPerMinute: 100_000 } });
+  h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 700_000;
+  const first = await h.start(); h.advance(elapsed);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, 'not-admitted');
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, 1);
+  assert.equal(h.provisioned.length, 1);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 1);
+});
+
 test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile on schedule', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { voiceOptions: { reconcileIntervalMs: 10,
