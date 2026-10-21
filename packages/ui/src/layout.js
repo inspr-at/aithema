@@ -212,7 +212,7 @@ export class FooterPopups {
     const links = source.map(source => {
       const link = source.cloneNode(false);
       for (const name of ['id', 'slot', 'class', 'style', 'aria-labelledby', 'aria-describedby']) link.removeAttribute(name);
-      link.textContent = source.textContent;
+      link.textContent = source.getAttribute('aria-label') ?? source.textContent;
       return link;
     });
     entry.querySelector('.legal-popup').replaceChildren(...links);

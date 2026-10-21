@@ -159,7 +159,7 @@ export async function creditHostOptionsCheck(t) {
         const modal = r.querySelector('dialog[open]');
         if (modal) modal.close();
         const closed = positions(), sources = [...c.querySelectorAll('[slot="legal"] a, a[slot="legal"]')];
-        const attrs = n => ({ label:n.getAttribute('aria-label') ?? n.textContent, text:n.textContent, href:n.getAttribute('href'), target:n.getAttribute('target'), rel:n.getAttribute('rel') });
+        const attrs = n => ({ label:n.getAttribute('aria-label') ?? n.textContent, href:n.getAttribute('href'), target:n.getAttribute('target'), rel:n.getAttribute('rel') });
         toggle.click();
         for (const animation of r.querySelector('.legal-popup').getAnimations()) if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
         const popup = r.querySelector('.legal-popup'), links = [...popup.querySelectorAll('a')];
@@ -500,8 +500,8 @@ export async function creditHostOptionsCheck(t) {
         assert.equal(state.controlRight, width - 12, `${width}px host control at gutter`);
         assert.equal(state.popupRight, width - 12, `${width}px host popup at same gutter`);
         assert.equal(state.chevronTransition, '0s', 'system reduced motion disables the chevron transition');
-        assert.deepEqual(state.labels, ['Legal information and contact details', 'Privacy'], 'visible host labels survive cloning');
-        assert.equal(state.ariaLabel, 'Open legal information', 'accessible name stays separate from visible label');
+        assert.deepEqual(state.labels, ['Open legal information', 'Privacy'], 'documented aria-label display with textContent fallback');
+        assert.equal(state.ariaLabel, 'Open legal information', 'configured accessible name is retained');
       }
       legalChecks.push({ width, ...state });
     }

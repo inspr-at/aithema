@@ -1205,8 +1205,8 @@ timer also moves into that info popup.
 The phone popover reads the assigned legal elements each time it opens and
 creates shallow clones of their `a[href]` anchors, including anchors inside
 wrappers, in host order. Each visible label uses the original anchor's
-`textContent`; an `aria-label` is retained for accessibility without replacing
-the visible text. The `href`, `target` and `rel` attribute values stay
+`aria-label` when present, otherwise its `textContent`; hosts should provide an
+`aria-label` suitable for display as link text. The `href`, `target` and `rel` attribute values stay
 byte-identical. Non-link slot content is omitted, and anchor child markup is
 flattened to text. Host IDs, slot, class, style, `aria-labelledby` and
 `aria-describedby` attributes are removed from the clones. JavaScript listeners
