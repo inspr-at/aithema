@@ -2,7 +2,7 @@
   "name": "@inspr/aithema-plugin-elevenlabs",
   "private": false,
   "type": "module",
-  "version": "261021073740.0.0",
+  "version": "261021194038.0.0",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=24"
@@ -18,9 +18,9 @@
     "./agent-health": "./src/agent-health.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261021073740.0.0",
+    "@inspr/aithema-core": "261021194038.0.0",
     "@elevenlabs/client": "1.17.0",
-    "@inspr/aithema-ui": "261021073740.0.0"
+    "@inspr/aithema-ui": "261021194038.0.0"
   },
   "files": [
     "src/"

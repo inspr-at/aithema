@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261021073740.0.0",
+  "version": "261021194038.0.0",
   "release_channel": "stable",
-  "release_sequence": 27,
+  "release_sequence": 28,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-444 sixteenth October candidate, eighth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and LEAD 2026-10-21 08:31: START adopts RC16 for its Thursday ship; publish today before approximately 16:00; sequence 27 under coordinator-held release-lock/seq-27 at 94eff868ba525f696e4856547955ebc4e7e7b9b7; prepare only, final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder tag, tag push, GitHub release or publication"
+  "reservation_purpose": "AIT-449 seventeenth October candidate, ninth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and LEAD 2026-10-21: ship RC17 today if ready; START's voice waits on AIT-447, START-523; sequence 28 under coordinator-held release-lock/seq-28 at eab3da4ab3d57a3dbf655f4dbd1811026660c596; prepare only, final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder tag, tag push, GitHub release or publication"
 }
