@@ -320,6 +320,7 @@ export async function creditHostOptionsCheck(t) {
   });
   await t.test('AIT-435 item 5: 80 measurements, text/flag gap >= 8 px and no target overlap at every width', () => {
     assert.equal(footer80.length, 80);
+    assert.ok(round2.every(v => Number.isFinite(v.textRight) && Number.isFinite(v.textFlagGap) && Number.isFinite(v.overlapPx2)), 'every case measures visible credits ink and both tap targets');
     const failures = round2.filter(v => v.textFlagGap < 8 || v.overlapPx2 !== 0);
     assert.deepEqual(failures, [], JSON.stringify(failures));
   });
