@@ -136,7 +136,12 @@ export async function creditHostOptionsCheck(t) {
         composerGap: footer.top - box(r.querySelector('.composer-dock')).bottom,
         row1Targets: ['.ai-notice', '.host-credits__button', '.engine-info'].map(selector => box(r.querySelector(selector)).height),
         legalLinks, legalGaps };
-      const footerGeometry = { stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
+      const footerTargets = ['.ai-notice', '.host-credits__button', '.engine-info', '.legal-toggle']
+        .map(selector => { const n = r.querySelector(selector); return n?.checkVisibility({ visibilityProperty: true }) ? { selector, ...box(n) } : null; }).filter(Boolean);
+      const targetOverlaps = footerTargets.flatMap((a, i) => footerTargets.slice(i + 1).map(b => ({
+        controls: [a.selector, b.selector], area: Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+          Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)) })));
+      const footerGeometry = { footerTargets, targetOverlaps, stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight, footerSizing };
       const titleNode = r.querySelector('.composer-out__title span'), titleBox = box(titleNode);
       const titleHit = r.elementFromPoint(titleBox.left + titleBox.width / 2, titleBox.top + titleBox.height / 2);
@@ -339,6 +344,10 @@ export async function creditHostOptionsCheck(t) {
     assert.ok(round2.every(v => Number.isFinite(v.textRight) && Number.isFinite(v.textFlagGap) && Number.isFinite(v.overlapPx2)), 'every case measures visible credits ink and both tap targets');
     const failures = round2.filter(v => v.textFlagGap < 8 || v.overlapPx2 !== 0);
     assert.deepEqual(failures, [], JSON.stringify(failures));
+    for (const value of footer80) {
+      if (value.width < 600) assert.equal(value.footerTargets.length, 4, `${JSON.stringify(value)}: four phone controls including legal`);
+      assert.ok(value.targetOverlaps.every(pair => pair.area === 0), `${JSON.stringify(value)}: no footer tap targets overlap`);
+    }
   });
   await t.test('AIT-435 Tick v1.6: two-row phone minimums and unchanged 44 px first row', () => {
     for (const value of round2.filter(v => v.width < 600)) {
