@@ -86,6 +86,12 @@ export async function creditHostOptionsCheck(t) {
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       c.configure({ copy, session, host: profile === 'none' ? { verification: true, credits: true } : { verification: true, credits: { scope: 'session', reconcilingVisible: profile === 'all' || profile === 'O4', dailyCapReset: profile === 'all' || profile === 'O5' },
         usedUp: { newConversation: { enabled: profile === 'all' && state !== 'S3' }, dailyCapActions: profile === 'all' || profile === 'O2-none' ? 'none' : 'export' }, emailAsk: { lowCredits: f.lowCredits } } });
+      // This fixture changes the conversation locale directly; configure the
+      // demo-owned legal labels too, as the real host's locale painter does.
+      for (const [id, label] of [['demo-license', copy.host.slots.license], ['demo-legal-source', copy.host.slots.legalSource]]) {
+        const link = c.querySelector(`#${id}`);
+        link.setAttribute('aria-label', label); link.title = label; link.textContent = label;
+      }
       let legal = c.querySelector('[slot="legal"][data-aithema-privacy]');
       if (!legal) { legal = document.createElement('a'); legal.slot = 'legal'; legal.setAttribute('data-aithema-privacy', ''); legal.href = '/privacy'; legal.textContent = 'Privacy'; c.append(legal); }
       await document.fonts.ready;
@@ -415,7 +421,7 @@ export async function creditHostOptionsCheck(t) {
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const r = c.shadowRoot, button = r.querySelector('.legal-toggle'), popup = r.querySelector('.legal-popup');
         return { expanded:button.getAttribute('aria-expanded'), visible:popup.checkVisibility({ visibilityProperty:true, opacityProperty:true }),
-          active:r.activeElement?.className ?? null, pinned:r.querySelector('.host-legal').hasAttribute('data-pinned'), dismissed:r.querySelector('.host-legal').hasAttribute('data-dismissed') };
+          labels:[...popup.querySelectorAll('a')].map(n => n.textContent), active:r.activeElement?.className ?? null, pinned:r.querySelector('.host-legal').hasAttribute('data-pinned'), dismissed:r.querySelector('.host-legal').hasAttribute('data-dismissed') };
       });
       assert.equal(state.expanded, String(name.endsWith('-open.png')), `${name}: capture expansion ${JSON.stringify(state)}`);
       assert.equal(state.visible, name.endsWith('-open.png'), `${name}: capture visibility ${JSON.stringify(state)}`);
