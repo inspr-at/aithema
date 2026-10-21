@@ -81,6 +81,16 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
     const head = process.env.GITHUB_EVENT_PATH
       ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha : process.env.AITHEMA_COMMIT;
     const mainLayout = JSON.parse(await readFile(new URL('./ait411-main-composer.json', import.meta.url), 'utf8'));
+    // Tick AIT-445 round 3 grows only the phone offer reservation to four
+    // lines. Keep the independent main captures immutable and apply the exact
+    // approved phone frame; desktop frames and all zero-movement checks stay.
+    for (const [platform, before] of Object.entries({
+      linux: [20, 622.71875, 350, 152.28125],
+      darwin: [20, 628.46875, 350, 146.53125],
+    })) for (const locale of ['de', 'en']) {
+      assert.deepEqual(mainLayout.frames[platform][`390/${locale}`], before, 'AIT-445 reservation overlay starts from the immutable main frame');
+      mainLayout.frames[platform][`390/${locale}`] = [20, 610.921875, 350, 164.078125];
+    }
     for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) await t.test(`${width}/light/${locale}`, async () => {
       const content = locale === 'de'
         ? ['Wir sind eine Bäckerei und wollen Vorbestellungen per App annehmen.', 'Abgeholt wird am nächsten Morgen in der Filiale.', 'Großkunden bestellen jede Woche dasselbe.', 'Danke. Wer holt die Bestellungen am Morgen ab?']

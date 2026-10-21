@@ -361,7 +361,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out[data-host-limit] .composer-out__bar::after { content:attr(data-export-measure); grid-area:1/2; visibility:hidden; box-sizing:border-box; width:max-content; min-height:44px; padding-inline-start:22px; font-size:13.5px; line-height:1.25; white-space:nowrap; }
   .composer-out[data-host-limit] .composer-out__actions { position:absolute; inset-inline:0; bottom:0; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:0; }
   /* The real give/confirm variants share a grid cell. Reserve their four-line
-     E‑Mail wrap even after a top-up shortens the currently measured offer. */
+     address wrap even after a top-up shortens the currently measured offer. */
   .composer-out__steps { min-height:4lh; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }
   .composer-out__export { line-height:1.25; }
