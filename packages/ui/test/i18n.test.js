@@ -11,6 +11,14 @@ import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manif
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
+for (const [locale, copy] of [['de', de], ['en', en]]) for (const key of ['withConfirmed', 'afterConfirm']) {
+  test(`AIT-435: ${locale}.hostSurface.credits.${key} keeps the number and credits together in the catalog`, () => {
+    const amounts = [...copy.hostSurface.credits[key].matchAll(/\{\w+\}(\s*)credits\b/giu)];
+    assert.ok(amounts.length > 0, 'the catalog string contains numeric credits copy');
+    for (const [, space] of amounts) assert.equal(space, '\u00a0', 'number and credits use exactly one NBSP');
+  });
+}
+
 test('AIT-411 round 7: EN confirmed tier matches Tick O3 exactly; DE stays unchanged', () => {
   assert.equal(en.hostSurface.credits.withConfirmed, 'With a confirmed email address: {n}\u00a0credits');
   assert.equal(de.hostSurface.credits.withConfirmed, 'Mit bestätigter E-Mail-Adresse: {tier} Credits');
