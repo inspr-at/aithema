@@ -175,8 +175,8 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       assert.equal(clearance.clear, true, `${label}: ${JSON.stringify(clearance)}`); assert.equal(clearance.target, true); assert.equal(clearance.hit, true);
       assert.ok(clearance.padding >= clearance.footerHeight);
       const legal = await shadow(page, c => {
-        const links = [...c.querySelectorAll('[slot="legal"] a')], rects = links.map(a => a.getBoundingClientRect());
-        return { oneLine: rects.length === 2 && rects[0].top === rects[1].top && links.every(a => a.getClientRects().length === 1),
+        const links = [...(innerWidth < 600 ? c.shadowRoot.querySelectorAll('.legal-toggle') : c.querySelectorAll('[slot="legal"] a'))], rects = links.map(a => a.getBoundingClientRect());
+        return { oneLine: rects.length === (innerWidth < 600 ? 1 : 2) && rects.every(r => r.top === rects[0].top) && links.every(a => a.getClientRects().length === 1),
           withinViewport: rects.every(r => r.left >= 0 && r.right <= innerWidth) };
       });
       assert.equal(legal.oneLine, true, `${label}: short legal links stay on one line`);

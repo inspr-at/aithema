@@ -49,6 +49,7 @@ const settle = page => shadow(page, async c => {
 const measure = page => shadow(page, c => {
   const root = c.shadowRoot;
   if (innerWidth < 600 && root.querySelector('.legal-toggle').getAttribute('aria-expanded') !== 'true') root.querySelector('.legal-toggle').click();
+  for (const animation of root.querySelector('.legal-popup').getAnimations()) if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
   const links = [...(innerWidth < 600 ? root.querySelectorAll('.legal-popup a') : c.querySelectorAll('#demo-legal a'))];
   const box = node => { const b = node.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
   const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height;
@@ -202,7 +203,9 @@ export async function demoLegalPhoneCheck(t) {
       for (const [i, link] of state.links.entries()) {
         await page.mouse.move(link.bounds.x + link.bounds.width / 2, link.bounds.y + link.bounds.height / 2);
         await page.select('#theme', theme === 'light' ? 'dark' : 'light');
-        await page.focus(i === 0 ? '#demo-license' : '#demo-legal-source'); await settle(page);
+        if (width < 600) await shadow(page, (c, i) => c.shadowRoot.querySelectorAll('.legal-popup a')[i].focus(), i);
+        else await page.focus(i === 0 ? '#demo-license' : '#demo-legal-source');
+        await settle(page);
         const held = await measure(page);
         const sample = { label, link: i, baseline: state.readiness, held: held.readiness };
         samples.push(sample);
@@ -212,7 +215,7 @@ export async function demoLegalPhoneCheck(t) {
         assert.equal(held.links[i].unobscured, true);
         await page.select('#theme', theme); await settle(page);
       }
-      const line = `PASS ${label}: legal one line below 600; >=44px wide/>=${width < 600 ? 24 : 44}px high; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; flag/legal gap ${state.flagLegalGap}px >=8px; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
+      const line = `PASS ${label}: legal <=2 lines in phone dialog; >=44px wide/>=44px high; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; flag/legal gap ${state.flagLegalGap}px >=8px; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
       pass.push(line); checks.push({ width, theme, locale, ...state }); t.diagnostic(line);
     }
   }

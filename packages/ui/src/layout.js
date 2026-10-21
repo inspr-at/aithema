@@ -168,6 +168,9 @@ export class FooterPopups {
       const button = this.button(entry);
       button?.addEventListener('click', () => {
         const pinned = !entry.hasAttribute('data-pinned');
+        if (!legal) {
+          entry.toggleAttribute('data-pinned', pinned); entry.removeAttribute('data-dismissed'); this.expanded(entry, pinned); this.position(entry); return;
+        }
         if (!pinned) { this.close(entry); return; }
         if (legal) this.legalLinks(entry);
         entry.setAttribute('data-pinned', ''); entry.removeAttribute('data-dismissed');
@@ -189,7 +192,10 @@ export class FooterPopups {
         if (button && focused) { this.returningFocus = true; button.focus({ preventScroll: true }); this.returningFocus = false; }
       }
     };
-    this.outside = event => { for (const entry of this.entries) if (!event.composedPath().includes(entry)) this.close(entry); };
+    this.outside = event => { for (const entry of this.entries) if (!event.composedPath().includes(entry)) {
+      if (entry.classList.contains('host-legal')) this.close(entry);
+      else { entry.removeAttribute('data-pinned'); this.expanded(entry, false); }
+    } };
     this.resize = () => {
       for (const entry of this.entries) {
         if (entry.classList.contains('host-legal') && !this.view?.matchMedia('(width < 600px)').matches) this.close(entry);
@@ -215,7 +221,7 @@ export class FooterPopups {
     entry.removeAttribute('data-pinned'); entry.setAttribute('data-dismissed', ''); this.expanded(entry, false);
   }
   expanded(entry, value) {
-    if (value) for (const other of this.entries) if (other !== entry) this.close(other);
+    if (value && this.view?.matchMedia('(width < 600px)').matches) for (const other of this.entries) if (other !== entry) this.close(other);
     this.button(entry)?.setAttribute('aria-expanded', String(value));
     if (entry.classList.contains('host-legal')) entry.querySelector('.legal-popup').hidden = !value;
   }

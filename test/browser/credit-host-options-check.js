@@ -148,6 +148,8 @@ export async function creditHostOptionsCheck(t) {
       const toggle = r.querySelector('.legal-toggle');
       if (innerWidth < 600 && toggle) {
         const positions = () => ['.display-foot', '.display-foot__row', '.composer-dock', '.ai-notice', '.host-credits__button', '.engine-info', '.legal-toggle'].map(selector => box(r.querySelector(selector)));
+        const modal = r.querySelector('dialog[open]');
+        if (modal) modal.close();
         const closed = positions(), sources = [...c.querySelectorAll('[slot="legal"] a, a[slot="legal"]')];
         const attrs = n => ({ label:n.getAttribute('aria-label') ?? n.textContent, href:n.getAttribute('href'), target:n.getAttribute('target'), rel:n.getAttribute('rel') });
         toggle.click();
@@ -164,6 +166,7 @@ export async function creditHostOptionsCheck(t) {
         legalState.escaped = positions(); legalState.escapeFocused = r.activeElement === toggle;
         legalState.closedExpanded = toggle.getAttribute('aria-expanded');
         toggle.blur();
+        if (modal) modal.showModal();
       }
       const footerGeometry = { legalState, footerTargets, targetOverlaps, stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight, footerSizing };
@@ -440,11 +443,11 @@ export async function creditHostOptionsCheck(t) {
     }
     // Boundary and host independence: no credit ports, nested links, exact URL bytes,
     // a two-line label, and live edits before activation all use the same dialog.
-    await shadow(page, c => {
+    await shadow(page, async c => {
       for (const n of c.querySelectorAll('[slot="legal"]')) n.remove();
       const nav = document.createElement('nav'); nav.slot = 'legal';
       nav.innerHTML = '<a href="/imprint?x=%2f&amp;y=1#top" target="_blank" rel="noopener external">Legal information and contact details</a><a href="/privacy">Privacy</a>';
-      c.append(nav); c.configure({ host:{}, session:c.session });
+      c.append(nav); const { en:copy } = await import('/packages/ui/src/i18n/en.js'); c.configure({ copy, host:{}, session:c.session });
     });
     for (const width of [320, 599, 600, 1024]) {
       await page.setViewport({ width, height:844 });
