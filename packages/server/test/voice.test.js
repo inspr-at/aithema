@@ -3119,18 +3119,18 @@ test('AIT-447: recovery preserves a binding ceiling above the duration estimate'
   assert.equal(row.voice_exposure_micro, 200_000);
 });
 
-for (const phase of ['initial', 'recovery', 'rolling-recovery']) for (const funding of ['session', 'voiceVisitor', 'owner']) {
+for (const phase of ['initial', 'rolling-initial', 'recovery', 'rolling-recovery']) for (const funding of ['session', 'voiceVisitor', 'owner']) {
   test(`AIT-447: ${phase} fails closed with 0.10 USD ${funding} headroom`, async t => {
     const h = voiceFixture(t, { leaseMs: 700_000, durationBinding: {
       maxDurationSeconds: 600, maxMicro: 1_000_000, upstreamMicroPerMinute: 100_000,
-      visitorMicroPerMinute: 200_000, ...(phase === 'rolling-recovery' ? { reservationSeconds: 30 } : {}),
+      visitorMicroPerMinute: 200_000, ...(phase.startsWith('rolling-') ? { reservationSeconds: 30 } : {}),
     }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
     const allowance = value => h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
       allowancesUsd: { anonymous: value, emailGiven: value, emailConfirmed: value } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
     allowance('5');
     h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 700_000;
     let first;
-    if (phase !== 'initial') {
+    if (phase.endsWith('recovery')) {
       first = await h.start(); h.advance(590_000);
       await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
       await h.handlers.idle();
@@ -3155,6 +3155,58 @@ for (const phase of ['initial', 'recovery', 'rolling-recovery']) for (const fund
     assert.equal(h.provisioned.length, facades);
   });
 }
+
+for (const phase of ['initial', 'recovery']) test(`AIT-447: browser ignores stop on ${phase} rolling segment; reservation caps provider cost`, async t => {
+  const h = voiceFixture(t, { slowClosure: true, leaseMs: 700_000, durationBinding: {
+    maxDurationSeconds: 600, maxMicro: 1_000_000, upstreamMicroPerMinute: 100_000,
+    visitorMicroPerMinute: 200_000, reservationSeconds: 30,
+  }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 1_300_000;
+  let grant = await h.start();
+  if (phase === 'recovery') {
+    h.advance(590_000); h.endClient(grant.providerSessionId);
+    const response = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId });
+    assert.equal(response.status, 200); grant = await response.json();
+    assert.equal(grant.spendDeadlineAt - h.now(), 10_000);
+  }
+  const record = h.storage.voiceCalls(h.session.id).at(-1), before = h.runtime.budget.get(record.attemptId);
+  const providerLiability = Math.ceil(600 / 60 * 100_000);
+  assert.equal(before.voice_exposure_micro, providerLiability);
+  assert.ok(providerLiability <= before.max_micro,
+    `browser ignores stop: reserved ${before.max_micro} vs full credential liability ${providerLiability}`);
+  assert.equal(before.max_visitor_micro, 2_000_000);
+  const wallet = h.host.wallet('voice-owner'), committed = wallet.balance().committedMicro;
+  h.runtime.budget.sessionCapMicro = h.runtime.budget.used(h.session.id);
+  h.runtime.budget.visitorCapMicro = h.runtime.budget.visitorUsed(h.session.id);
+  const allowance = (committed / 1_000_000).toFixed(6);
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: allowance, emailGiven: allowance, emailConfirmed: allowance } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  h.advance(1000);
+  const closing = h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
+  await h.waitForClosure(grant.providerSessionId);
+  assert.ok(h.closeRequests.includes(grant.providerSessionId), 'host requested stop, but the fake browser leaves its SDK session running');
+  const retained = h.runtime.budget.get(record.attemptId);
+  assert.equal(retained.state, 'dispatched', 'provider billing is still unconfirmed');
+  assert.equal(retained.voice_closing, 1);
+  assert.equal(retained.max_micro, before.max_micro, 'retainExposure never books beyond the admission');
+  assert.equal(retained.max_visitor_micro, before.max_visitor_micro);
+  assert.deepEqual(h.runtime.budget.voiceExposures(record.attemptId), []);
+  assert.equal(wallet.balance().committedMicro, committed);
+  // No browser acknowledgement: billing runs to the credential's full 600s
+  // provider ceiling, including past the recovery's logical 10s remainder.
+  h.advance(599_000); h.endClient(grant.providerSessionId);
+  const terminal = await closing.then(r => r.json());
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.providerSeconds, 600);
+  assert.equal(terminal.usage.upstreamMicro, providerLiability);
+  assert.equal(terminal.usage.visitorMicro, 2_000_000);
+  const settled = h.runtime.budget.get(record.attemptId);
+  assert.equal(settled.settled_micro, providerLiability);
+  assert.ok(settled.settled_micro <= before.max_micro);
+  assert.ok(settled.settled_visitor_micro <= before.max_visitor_micro);
+  assert.equal(settled.overrun, 0);
+  assert.equal(wallet.balance().committedMicro, committed);
+});
 
 for (const elapsed of [600_000, 600_001]) test(`AIT-447: exhausted recovery at ${elapsed}ms cannot mint a credential`, async t => {
   const h = voiceFixture(t, { leaseMs: 700_000, durationBinding: { maxDurationSeconds: 600, maxMicro: 1_000_000,
