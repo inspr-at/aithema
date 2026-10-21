@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { de } from '../src/i18n/de.js';
 
 // Tick AIT-426 v1: Aithema's own UI voice is impersonal: no wir/uns/unser
-// or ich/mich/mein. Exempt voices are the assistant speaking as itself
+// or ich/mich/mir/mein. Exempt voices are the assistant speaking as itself
 // (including demo dialogue) and the visitor's own option labels.
 // Allow by i18n key only, never by matching the text.
 const personalVoice = new Set([
@@ -12,15 +12,18 @@ const personalVoice = new Set([
   'purposeRedirects.0', // Assistant voice: off-topic reply.
   'purposeRedirects.1', // Assistant voice: off-topic reply.
   'purposeRedirects.2', // Assistant voice: off-topic reply.
+  'fakeVoiceGreeting', // Assistant voice: demo dialogue greeting.
   'fakeVoiceReply', // Assistant voice: demo dialogue reply.
   'fakeVoiceStatement', // Visitor voice: demo dialogue statement.
+  'conceptUp', // Visitor voice: like option label.
+  'conceptDown', // Visitor voice: dislike option label.
   'presets.device', // Visitor voice: own device option label.
   'settings.toDevice', // Visitor voice: own device option label quoted in guidance.
   'help.device', // Visitor voice: own device option label in help.
   'local.useForConversation', // Visitor voice: own device option label quoted in guidance.
   'deviceConversation', // Visitor voice: own device option label in conversation status.
 ]);
-const firstPerson = /\b(wir|uns|unser\w*|ich|mich|mein\w*)\b/iu;
+const firstPerson = /\b(wir|uns|unser\w*|ich|mich|mir|mein\w*)\b/iu;
 const leaves = (value, path = []) => typeof value === 'string'
   ? [[path.join('.'), value]]
   : value && typeof value === 'object'
