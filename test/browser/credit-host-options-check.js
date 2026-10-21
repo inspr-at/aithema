@@ -15,9 +15,10 @@ export async function creditHostOptionsCheck(t) {
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], errors = [];
-  const round2 = [], footer80 = [], round2Shots = [], legalChecks = [], legalShots = [];
+  const round2 = [], footer80 = [], round2Shots = [], legalChecks = [], legalShots = [], emailCopyChecks = [];
   t.after(async () => {
     if (evidence) {
+      await writeFile(join(evidence, 'ait445-v1.1-checks.json'), JSON.stringify({ head, width:390, locale:'de', capture:'viewport', reducedMotion:true, blurred:true, checks:emailCopyChecks, errors }, null, 2));
       await writeFile(join(evidence, 'ait435-round2-checks.json'), JSON.stringify({ head, footer80, checks: round2, shots: round2Shots, errors }, null, 2));
       await writeFile(join(evidence, 'ait435-r4-checks.json'), JSON.stringify({ head, spec:'Tick v1.7', footer80, legalChecks, shots:legalShots, errors }, null, 2));
       await writeFile(join(evidence, 'ait439-checks.json'), JSON.stringify({ head, spec:'Tick v1',
@@ -324,6 +325,41 @@ export async function creditHostOptionsCheck(t) {
           await page.screenshot({ path: join(evidence, 'ait411-390-light-de-shared-cell.png'), fullPage: false });
           await page.evaluate(() => scrollTo(0, 0));
         }
+      }
+      // Tick AIT-445 v1.1: reuse this scene for the reset popover and upgrade.
+      if (mobile && locale === 'de' && theme === 'light' && ['U3', 'S1'].includes(state)) {
+        if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
+        await shadow(page, async c => {
+          c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+          const animations = c.shadowRoot.getAnimations({ subtree:true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime));
+          for (const animation of animations) animation.finish();
+          await Promise.all(animations.map(a => a.finished.catch(() => {})));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        await page.mouse.move(-1, -1);
+        const copyCheck = await shadow(page, c => {
+          const r = c.shadowRoot, nodes = [], walker = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) if (walker.currentNode.data.includes('E‑Mail') && walker.currentNode.data !== 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.') nodes.push(walker.currentNode);
+          const boxes = () => Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot', '.credits-popup'].map(selector => {
+            const b = r.querySelector(selector).getBoundingClientRect(); return [selector, [b.x, b.y, b.width, b.height]];
+          }));
+          const current = boxes(), text = nodes.map(n => n.data), tokens = [];
+          for (const node of nodes) if (node.parentElement.checkVisibility({ visibilityProperty:true })) for (const match of node.data.matchAll(/E‑Mail/gu)) {
+            const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+            tokens.push({ text:node.data, rows:new Set([...range.getClientRects()].map(b => b.y)).size });
+          }
+          nodes.forEach(node => { node.data = node.data.replaceAll('E‑Mail', 'E-Mail'); });
+          const legacy = boxes(); nodes.forEach((node, i) => { node.data = text[i]; });
+          return { current, legacy, tokens, overflowPx:Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+        });
+        assert.deepEqual(copyCheck.current, copyCheck.legacy, `${state}: Tick v1.1 copy moves composer, question, footer and popover exactly 0 px`);
+        assert.equal(copyCheck.overflowPx, 0, `${state}: Tick v1.1 copy has no horizontal overflow`);
+        assert.ok(copyCheck.tokens.length > 0, `${state}: changed E‑Mail copy is visible`);
+        for (const token of copyCheck.tokens) assert.equal(token.rows, 1, `${state}: E‑Mail never breaks after E‑`);
+        const shot = `ait445-v1.1-390-light-de-${state}.png`;
+        emailCopyChecks.push({ state, movementPx:0, shot, ...copyCheck });
+        if (evidence) await page.screenshot({ path:join(evidence, shot), fullPage:false, captureBeyondViewport:false });
+        if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
       }
     }
   }
