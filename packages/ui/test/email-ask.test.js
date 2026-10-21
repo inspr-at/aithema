@@ -99,7 +99,7 @@ test('AIT-164: a mail host with confirmation disabled never promises its unavail
   const f = fixture(t); f.email.delivery = true; f.email.address = 'visitor@example.test'; f.ask.sent = true; f.ask.step = 'done';
   f.ask.credits = { ...credits, tiers: { ...credits.tiers, canConfirm: false, allowancesMicro: { emailGiven: 15_000_000, emailConfirmed: 20_000_000 } } };
   f.ask.paint();
-  assert.equal(f.ask.q('.m-tier').textContent, 'Credit: 1,500 Credits');
+  assert.equal(f.ask.q('.m-tier').textContent, 'Credit: 1,500\u00a0Credits');
   assert.doesNotMatch(f.ask.q('.email-ask__benefit').textContent, /2,000|confirmed/u);
 });
 test('AIT-164: footer digits are tabular and reserve the server limit at every breakpoint', () => {

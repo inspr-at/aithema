@@ -464,7 +464,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   // Reuse a single page/browser for this state-only matrix. The server's actual
   // deadline and spend paths are covered with fake clocks in the unit suite.
   for (const locale of ['de', 'en']) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
-    const expected = (locale === 'de' ? de : en).hostSurface.credits.ended[reason].body;
+    const ended = (locale === 'de' ? de : en).hostSurface.credits.ended;
+    const expected = reason === 'session' ? ended.sessionDefaultBody : ended[reason].body;
     await page.setViewport({ width: 390, height: 844 });
     await inShadow(page, (c, { original, locale, reason, copy }) => {
       const session = { ...original, locale, credits: null, transcript: [],
@@ -554,7 +555,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       assert.deepEqual(geometry.boxes, reserved, `${locale}/${width}/${variant}: 0 px between host-limit variants`);
       assert.equal(geometry.primary, variant !== 'no-upgrade');
       assert.equal(geometry.export, 'visible');
-      assert.equal(geometry.sameRow, true);
+      assert.equal(geometry.sameRow, width >= 600, 'AIT-435 Tick v1: phone export occupies its reserved second row');
       assert.equal(geometry.overlap, false);
       assert.equal(geometry.bodyClear, true, 'body clears both 44 px action targets');
       assert.equal(geometry.textContained, true, 'title and action targets remain inside the surface');

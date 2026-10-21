@@ -69,7 +69,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one un
   const popup = root.querySelector('.host-credits .footer-popup');
   assert.equal(popup.getAttribute('role'), 'group');
   assert.equal(popup.querySelector('.host-credits__current').hidden, true, 'the anonymous balance already names its tier');
-  assert.match(popup.querySelector('.host-credits__next').textContent, copy === de ? /1\.800 Credits/u : /1,800 Credits/u);
+  assert.match(popup.querySelector('.host-credits__next').textContent, copy === de ? /1\.800\u00a0Credits/u : /1,800\u00a0credits/u);
   assert.equal(popup.querySelector('.credits-email').textContent, copy === de ? 'E-Mail-Adresse angeben' : 'Add your email address');
   assert.equal(popup.querySelector('.host-credits__equivalence').textContent, copy === de ? '1 Credit = 1 US-Cent' : '1 Credit = 1 US cent');
   assert.equal(root.querySelector('.host-credits__deadline')?.textContent ?? '', '');
@@ -123,7 +123,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
   assert.ok(savedReads > 0, 'saving a higher tier refreshes features below the ceiling');
   assert.deepEqual(calls.find(call => call.method === 'PUT').body, { address: 'reader@example.test', noticeVersion: 'ait-135-v1' });
   assert.equal(section.dataset.emailState, 'saved');
-  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800 Credits/u : /Credit: 1,800 Credits/u);
+  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800\u00a0Credits/u : /Credit: 1,800\u00a0Credits/u);
   assert.doesNotMatch(section.querySelector('.m-tier').textContent, /1[.,]455/u, 'Settings shows the tier only');
   assert.equal(root.activeElement, section.querySelector('.m-change'));
   const select = t.mock.method(input, 'select'); section.querySelector('.m-change').click();
@@ -153,7 +153,7 @@ test('AIT-135 A2 C: validation is calm, clears while typing, and saving keeps th
 test('AIT-135 A2 C: deleting an over-spent address works and restores the used-up state', async t => {
   const { root, calls } = a2Setup(t, { address: 'reader@example.test', spent: 15_000_000 }); await tick(8);
   root.querySelector('.host-verify .m-delete').click();
-  assert.match(root.querySelector('.host-verify .m-delete-over').textContent, /1,500 Credits.*used up/u);
+  assert.match(root.querySelector('.host-verify .m-delete-over').textContent, /1,500\u00a0Credits.*used up/u);
   root.querySelector('.host-verify .m-del').click(); await tick(10);
   assert.equal(calls.filter(c => c.method === 'DELETE').length, 1);
   assert.match(root.querySelector('.host-verify .m-msg').textContent, /deleted.*used up/u);
@@ -222,10 +222,10 @@ test('AIT-135 A2 C: equal allowances and disabled confirmation never promise an 
     'GET /credits': () => Response.json({ balance, limitSlot: null, tiers: { current: 'anonymous', next: null, delta: 0, canConfirm: false,
       allowancesMicro: { anonymous: 5_000_000, emailGiven: 5_000_000, emailConfirmed: 8_000_000 } } }),
   } }); await tick(8);
-  assert.equal(root.querySelector('.host-verify .m-lead-mail').textContent, 'Credit: 500 Credits');
+  assert.equal(root.querySelector('.host-verify .m-lead-mail').textContent, 'Credit: 500\u00a0Credits');
   assert.equal(root.querySelector('.credits-email').hidden, true);
   root.querySelector('.verify-entry').click(); await tick();
-  assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500 Credits');
+  assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500\u00a0Credits');
 });
 
 
@@ -498,7 +498,7 @@ for (const copy of [de, en]) test(`AIT-395: owner-wide exhausted copy snapshot (
   const { root } = setup(t, { copy, host: { credits: true }, routes: {
     'GET /credits': () => Response.json({ balance, exhausted: true }),
   } }); await tick(8);
-  assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500 Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500 Credits are used up, for all your conversations.');
+  assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500\u00a0Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500\u00a0Credits are used up, for all your conversations.');
 });
 
 for (const copy of [de, en]) test(`AIT-395: exhaustion offers exactly the conversation's +750 confirmation delta (${copy.display.locale})`, async t => {
@@ -551,8 +551,10 @@ for (const copy of [de, en]) test(`AIT-411: defaults equal independently capture
   const body = html => html.match(/<p class="composer-out__body"[^>]*>[\s\S]*?<\/p>/u)[0];
   const expected = [original[0], original[1].replace(body(original[1]), body(main[1])), original[2]];
   assert.deepEqual(main, expected, 'only the inherited AIT-410/AIT-422 body hunk differs from original RC13');
-  assert.deepEqual(actual, expected, 'no AIT-411 DOM delta from RC13 plus the approved main hunk');
-  assert.deepEqual(actual, baseline.snapshots[copy.display.locale], 'no AIT-411 DOM delta from main without this feature');
+  // Tick AIT-435 r2 item 0: exact byte substitutions in the preserved captures.
+  const nbsp = html => html.replaceAll('>Noch 0 Credits<', '>Noch 0&nbsp;Credits<').replaceAll('>0 Credits left<', '>0&nbsp;Credits left<').replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits');
+  assert.deepEqual(actual, expected.map(nbsp), 'only approved AIT-435 catalog spaces differ from RC13 plus the main hunk');
+  assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(nbsp), 'only approved AIT-435 catalog spaces differ from the main capture');
   assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');
 });
 

@@ -33,7 +33,7 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     const { root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ending', endReason: reason } } });
     await tick(8);
     assert.equal(root.querySelector('form.composer').inert, true);
-    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, copy.hostSurface.credits.ended[reason].body);
+    assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, reason === 'session' ? copy.hostSurface.credits.ended.sessionDefaultBody : copy.hostSurface.credits.ended[reason].body);
     assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
   });
 }
@@ -41,13 +41,13 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
 const releaseLimits = {
   de: {
     'one-hour': ['Die Gesprächszeit ist abgelaufen.', 'Ein Gespräch dauert hier höchstens eine Stunde. Ihr Verlauf bleibt gespeichert.', false],
-    session: ['Die Credits dieses Gesprächs sind aufgebraucht.', 'Ein neues Gespräch hat wieder eigene Credits.', true],
+    session: ['Die Credits dieses Gesprächs sind aufgebraucht.', 'Ihr Verlauf bleibt gespeichert.', true],
     voiceVisitor: ['Die Sprach-Credits sind aufgebraucht.', 'Sprechen ist in diesem Gespräch nicht mehr möglich.', true],
     'host-limit': ['Hier sind gerade keine Gespräche möglich.', 'Das Budget dieses Angebots ist ausgeschöpft. Ihr Gespräch bleibt gespeichert.', false],
   },
   en: {
     'one-hour': ['The conversation time has run out.', 'A conversation here lasts at most one hour. Your transcript stays saved.', false],
-    session: ["This conversation's credits are used up.", 'A new conversation has its own credits again.', true],
+    session: ["This conversation's credits are used up.", 'Your transcript stays saved.', true],
     voiceVisitor: ['The voice credits are used up.', 'Speaking is no longer possible in this conversation.', true],
     'host-limit': ['Conversations are not available here right now.', 'The budget for this service is used up. Your conversation stays saved.', false],
   },
