@@ -161,6 +161,7 @@ export async function creditHostOptionsCheck(t) {
           haspopup:toggle.getAttribute('aria-haspopup'), expanded:toggle.getAttribute('aria-expanded'), controls:toggle.getAttribute('aria-controls'),
           role:popup.getAttribute('role'), name:popup.getAttribute('aria-label'), modal:popup.getAttribute('aria-modal'),
           firstFocused:r.activeElement === links[0], source:sources.map(attrs), links:links.map(attrs),
+          linkHits:links.map(n => { const b = n.getBoundingClientRect(); return [[b.left+1,b.top+1],[b.right-1,b.top+1],[b.left+1,b.bottom-1],[b.right-1,b.bottom-1],[(b.left+b.right)/2,(b.top+b.bottom)/2]].every(([x,y]) => n.contains(r.elementFromPoint(x,y))); }),
           linkBoxes:links.map(box), lines:links.map(n => { const range = document.createRange(); range.selectNodeContents(n); return new Set([...range.getClientRects()].map(b => b.y)).size; }),
           originalLinksVisible:sources.some(n => n.checkVisibility({ visibilityProperty:true })),
           visiblePopups:[...r.querySelectorAll('.footer-popup')].filter(n => n.checkVisibility({ visibilityProperty:true, opacityProperty:true })).map(n => n.className) };
@@ -402,6 +403,7 @@ export async function creditHostOptionsCheck(t) {
       assert.equal(state.popup.right, value.width - 12, `${label}: popup at gutter`);
       assert.ok(state.popup.bottom < state.control.top, `${label}: popup opens upward`);
       for (const link of state.linkBoxes) { assert.equal(link.height, 44, label); assert.equal(link.width, state.linkBoxes[0].width, label); }
+      assert.ok(state.linkHits.every(Boolean), `${label}: every link corner and centre is clickable`);
       assert.ok(state.lines.every(lines => lines >= 1 && lines <= 2), `${label}: labels never truncate`);
     }
     const capture = async name => {
