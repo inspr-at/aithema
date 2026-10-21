@@ -568,7 +568,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.footerSeed = c.session; });
   const expected = {
-    de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
+    de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E‑Mail-Adresse bestätigen.',
     en: 'General\u00a0· Start a new conversation, review consent and your defaults, and confirm your email address.',
   };
   const general = {
@@ -673,7 +673,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
         extras: Boolean(root.querySelector('.host-extras')), visible: section.contains(hit), lock: !root.querySelector('.verify-lock').hidden };
     });
     const words = { de, en }[locale].hostSurface.verify, context = `${width}/${theme}/${locale}/${state}: ${JSON.stringify(entry)}`;
-    assert.equal(entry.title, locale === 'en' ? 'Email' : 'E-Mail'); assert.equal(entry.panel, 'general'); assert.equal(entry.last, true);
+    assert.equal(entry.title, locale === 'en' ? 'Email' : 'E‑Mail'); assert.equal(entry.panel, 'general'); assert.equal(entry.last, true);
     assert.equal(entry.extras, false); assert.equal(entry.visible, true, context); assert.equal(entry.lock, false);
     assert.equal(entry.address, state === 'unverified' ? '' : 'visitor@example.com');
     assert.equal(entry.hasButton, state !== 'verified'); assert.equal(entry.verified, state === 'verified');

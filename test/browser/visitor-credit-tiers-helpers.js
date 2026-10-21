@@ -198,7 +198,7 @@ export async function composerCreditReservationMatrix(t) {
         assert.ok(row.lineCount > 0, `${label}: offer has rendered line boxes`);
         if (locale === 'de' && width === 390) assert.ok(row.lineCount <= 2, `${label}: 1.000 delta must fit in at most two lines; got ${row.lineCount}: ${JSON.stringify(row.lines)}`);
         if (locale === 'de' && width === 390) assert.ok(row.lines.every(line => !/(?:^|\s)Ihr$/u.test(line)), `${label}: 1.000 delta must not leave Ihr at a line end: ${JSON.stringify(row.lines)}`);
-        assert.equal(measured.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 1.000 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.'
+        assert.equal(measured.offer, locale === 'de' ? 'Mit E‑Mail-Adresse: 1.000 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.'
           : 'With your email address you get 1,000 more\u00a0credits. Your conversation stays saved.', `${label}: exact Tick copy and formatted delta`);
         assert.equal(measured.font, 'ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif');
         assert.equal(measured.reducedMotion, true); assert.equal(measured.focused, false);
@@ -449,7 +449,7 @@ export async function topUpReservationMatrix(t) {
         : locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now';
       assert.equal(presentation.full, expected); assert.equal(presentation.short, expected); assert.equal(presentation.label, expected);
       assert.equal(presentation.footer, '0');
-      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.');
+      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit E‑Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.');
       assert.equal(presentation.ink3, presentation.muted);
       assert.equal(presentation.muted, theme === 'light' ? '#496477' : '#9db4c4');
       assert.equal(presentation.reducedMotion, true); assert.equal(presentation.focused, false);
@@ -612,12 +612,12 @@ export async function visitorCreditMatrix(t, locales) {
           limitNote: document.querySelector('#demo-credits-limit').textContent,
           heading: document.querySelector('aithema-session').shadowRoot.querySelector('#email-heading').textContent }));
         assert.equal(language.picker, locale); assert.equal(language.language, locale);
-        assert.equal(language.heading, locale === 'en' ? 'Email' : 'E-Mail');
+        assert.equal(language.heading, locale === 'en' ? 'Email' : 'E‑Mail');
         assert.equal(language.accounts, 0, 'email identity never adds a person icon');
         assert.match(language.limitNote, locale === 'en' ? /^Demo only/u : /^Nur Demo/u);
         if (locale === 'en') assert.doesNotMatch(await page.evaluate(() => {
           const c = document.querySelector('aithema-session'); return c.shadowRoot.textContent + c.textContent;
-        }), /E-Mail|Konto|Nur Demo|Als Nutzung zählt/u, `${label}/${state}: no German in English captures`);
+        }), /E[-‑]Mail|Konto|Nur Demo|Als Nutzung zählt/u, `${label}/${state}: no German in English captures`);
         if (!evidence) return;
         // Capture actual viewports: full-page painting moves sticky band/dock content over the page.
         await shadow(page, c => {
@@ -1284,7 +1284,7 @@ export async function impersonalGermanEvidence(t) {
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     await settle(page); await click(page, '.verify-entry'); await settleEvidenceFrame(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog[open] .m-notice-text').textContent),
-      'Ihre E-Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.');
+      'Ihre E‑Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.');
     checks.push({ locale: 'de', theme: 'light', width: 390, state: 'ait-426-email-dialog-notice', pass: true });
     if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-email-dialog-notice.png'), fullPage: false });
     await page.close();

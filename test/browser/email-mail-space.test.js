@@ -385,7 +385,7 @@ test('AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440;
       await settleSettings(page);
       const text = await shadow(page, (c, s) => c.shadowRoot.querySelector(s).textContent, leadSelector);
       if (failed) { assert.equal(text, failure); await capture(page, label, 'failed'); }
-      else assert.match(text, locale === 'de' ? /Mit Ihrer E-Mail-Adresse/u : /With your email address/u);
+      else assert.match(text, locale === 'de' ? /Mit Ihrer E‑Mail-Adresse/u : /With your email address/u);
       const after = await geometry(page);
       const shiftPx = Math.max(...before.boxes.flatMap((box, i) => box.map((v, j) => Math.abs(v - after.boxes[i][j]))),
         ...before.mailAction.map((v, i) => Math.abs(v - after.mailAction[i])));
@@ -427,7 +427,7 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
         await fixture(p, locale, delivery, confirm);
         await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(p);
       }
-      const expected = locale === 'de' ? mode === 'mail' ? 'Ihre E-Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : 'Ihre E-Mail-Adresse wird nur für Ihr Guthaben verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
+      const expected = locale === 'de' ? mode === 'mail' ? 'Ihre E‑Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : 'Ihre E‑Mail-Adresse wird nur für Ihr Guthaben verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
       const selectors = ['#email', '.m-stack', mode === 'mail' ? '.m-mail-notice' : '#email-notice', mode === 'mail' ? '.verify-entry' : '.m-save', '.operator-section', '.settings__footer'];
       const metrics = p => shadow(p, (c, selectors) => selectors.map(s => { const b = c.shadowRoot.querySelector(s).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }), selectors);
       let passed = false;

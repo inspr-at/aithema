@@ -570,7 +570,10 @@ export class AithemaSession extends HTMLElement {
       retry: () => this.#refreshFeatures(),
       settings: opener => this.#dialog.openAt('model', this.#session.processingPreset === 'device'
         ? '.presets' : '[data-select="visuals"]', opener),
-      receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
+      receive: event => this.receive(event), feature: options => ({
+        ...this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options),
+        ...(this.#host?.dailyCapped ? { available: false, dailyCapped: true } : {}),
+      }) });
     this.#concept.update(this.#session);
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
@@ -1059,6 +1062,7 @@ export class AithemaSession extends HTMLElement {
     }
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
+    this.#concept?.render();
     const announcement = this.#host.limitCopy.announce;
     if (usedUp && !this.#creditEnding && announcement && this.#creditAnnounced !== announcement) {
       this.#creditAnnounced = announcement; setText(this.shadowRoot.querySelector('.credit-announcement'), announcement);

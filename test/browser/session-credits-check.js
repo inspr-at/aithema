@@ -115,9 +115,9 @@ export async function sessionCreditsCheck(t) {
       const value = await measure(), label = `${width}/light/${locale}/${state}`;
       assert.equal(value.popupVisible, 'visible', label);
       assert.doesNotMatch(value.scope, /all your conversations|alle Ihre Gespräche/u, label);
-      if (state === 'k1') { assert.equal(value.value, '250'); assert.equal(value.offer, true); assert.equal(value.next, locale === 'de' ? 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits' : 'With a confirmed email address: 1,000\u00a0credits'); }
-      if (state === 'k2') { assert.equal(value.value, locale === 'de' ? '1.000' : '1,000'); assert.equal(value.offer, false); assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse: 1\.000\u00a0Credits/u : /With a confirmed email address: 1,000\u00a0credits/u); }
-      if (state === 'k4') { assert.equal(value.offer, true); assert.equal(value.action, locale === 'de' ? 'E-Mail-Adresse bestätigen' : 'Confirm your email address'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); }
+      if (state === 'k1') { assert.equal(value.value, '250'); assert.equal(value.offer, true); assert.equal(value.next, locale === 'de' ? 'Mit bestätigter E‑Mail-Adresse: 1.000\u00a0Credits' : 'With a confirmed email address: 1,000\u00a0credits'); }
+      if (state === 'k2') { assert.equal(value.value, locale === 'de' ? '1.000' : '1,000'); assert.equal(value.offer, false); assert.match(value.current, locale === 'de' ? /Mit bestätigter E‑Mail-Adresse: 1\.000\u00a0Credits/u : /With a confirmed email address: 1,000\u00a0credits/u); }
+      if (state === 'k4') { assert.equal(value.offer, true); assert.equal(value.action, locale === 'de' ? 'E‑Mail-Adresse bestätigen' : 'Confirm your email address'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); }
       if (state === 'k5') { assert.equal(value.value, '0'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); assert.equal(value.offer, true); assert.equal(value.demo, locale === 'de' ? 'Nur Demo: Hier gibt es kein Aufladen.' : 'Demo only: no top-ups here.'); }
       if (state === 'k6') { assert.equal(value.offer, false); assert.equal(value.next, ''); assert.equal(value.dailyCap, locale === 'de' ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit."); }
       baseline ??= value.rects;
@@ -156,7 +156,7 @@ export async function sessionCreditsCheck(t) {
         assert.ok(['…', sample.id === 'ait395-a' ? '1.000' : '250'].includes(sample.value), JSON.stringify(sample));
         if (sample.id === 'ait395-b') {
           assert.doesNotMatch(sample.current, /bestätigter|1\.000/u, 'B never inherits A current tier');
-          assert.ok(['', 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits'].includes(sample.next), 'B only offers its own confirmed tier');
+          assert.ok(['', 'Mit bestätigter E‑Mail-Adresse: 1.000\u00a0Credits'].includes(sample.next), 'B only offers its own confirmed tier');
         }
         else assert.equal(sample.offer, false, 'confirmed A never shows B offer');
       }
@@ -185,7 +185,47 @@ export async function sessionCreditsCheck(t) {
   checks.push({ width: 1440, locale: 'de', theme: 'light', state: 'k1-no-offer', ...unavailable, movementPx: 0 });
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__next').children.length), 0, 'next slot has no check mark');
   await scene('k1', 'de', 'light', { equal: false }); value = await measure();
-  assert.equal(value.action, 'E-Mail-Adresse angeben'); assert.equal(value.next, 'Mit E-Mail-Adresse: 500\u00a0Credits');
+  assert.equal(value.action, 'E‑Mail-Adresse angeben'); assert.equal(value.next, 'Mit E‑Mail-Adresse: 500\u00a0Credits');
+  // AIT-445: reuse this page for the RC17 U3 copy and geometry evidence.
+  await page.setViewport({ width: 390, height: 1000 });
+  await scene('k1', 'de', 'light');
+  await shadow(page, async c => {
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+    const session = structuredClone(c.session), f = window.ait395;
+    f.receipt.dailyCapReached = true;
+    f.receipt.balance.owner = { limitMicro: 10_000_000, availableMicro: 8_000_000, committedMicro: 2_000_000, reservedMicro: 0 };
+    session.demo = false; session.conceptVisualKind = 'html'; session.visualsBound = true;
+    session.conceptCost = { maxMicro: 400_000 };
+    session.featureMatrix.best.html = { available: false, reason: 'budget denied' };
+    session.transcript = [{ id: 'ait445-visitor', role: 'user', content: 'Ich möchte meine Anforderungen besprechen.' }];
+    c.configure({ copy, session, host: { credits: true, verification: true } });
+  });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent === '800');
+  await settle();
+  const drafts = await shadow(page, c => {
+    const r = c.shadowRoot, status = r.querySelector('.concept-activity-text');
+    const rects = () => Object.fromEntries(['.concept-bar', '.concept-rail', '.concept-activity-text', '.composer-shell', '.display-foot']
+      .map(selector => { const b = r.querySelector(selector).getBoundingClientRect(); return [selector, [b.x, b.y, b.width, b.height]]; }));
+    const text = status.textContent, current = rects();
+    status.textContent = 'Für einen weiteren Entwurf sind gerade nicht genug Credits verfügbar.';
+    const legacy = rects(); status.textContent = text;
+    const b = status.getBoundingClientRect();
+    return { text, current, legacy, amount: r.querySelector('.host-credits__amount').textContent,
+      visible: b.width > 0 && b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && getComputedStyle(status).visibility === 'visible',
+      requestHidden: r.querySelector('.concept-request').hidden, font: getComputedStyle(status).fontFamily };
+  });
+  assert.equal(drafts.text, 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.');
+  assert.equal(drafts.amount, '800'); assert.equal(drafts.visible, true); assert.equal(drafts.requestHidden, true);
+  assert.deepEqual(drafts.current, drafts.legacy, 'AIT-445: replacing the low-balance sentence moves the drafts rail, composer and footer 0 px');
+  await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+  await page.mouse.move(-1, -1); await settle();
+  if (evidence) {
+    const name = 'ait445-390-light-de-U3.png';
+    await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
+    await writeFile(join(evidence, 'ait445-checks.json'), JSON.stringify({ head, workflowSHA: evidenceCommit,
+      spec: 'Tick spec v1 · AIT-445', capture: 'viewport',
+      reducedMotion: true, blurredControls: true, pointerOutside: true, movementPx: 0, drafts, shots: [name] }, null, 2));
+  }
   assert.deepEqual(errors, []);
   if (evidence) {
     assert.equal(shots.length, 3, 'Tick fix1 reshoot matrix');

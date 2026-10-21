@@ -15,9 +15,10 @@ export async function creditHostOptionsCheck(t) {
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], errors = [];
-  const round2 = [], footer80 = [], round2Shots = [], legalChecks = [], legalShots = [];
+  const round2 = [], footer80 = [], round2Shots = [], legalChecks = [], legalShots = [], emailCopyChecks = [];
   t.after(async () => {
     if (evidence) {
+      await writeFile(join(evidence, 'ait445-v1.1-checks.json'), JSON.stringify({ head, width:390, locale:'de', capture:'viewport', reducedMotion:true, blurred:true, checks:emailCopyChecks, errors }, null, 2));
       await writeFile(join(evidence, 'ait435-round2-checks.json'), JSON.stringify({ head, footer80, checks: round2, shots: round2Shots, errors }, null, 2));
       await writeFile(join(evidence, 'ait435-r4-checks.json'), JSON.stringify({ head, spec:'Tick v1.7', footer80, legalChecks, shots:legalShots, errors }, null, 2));
       await writeFile(join(evidence, 'ait439-checks.json'), JSON.stringify({ head, spec:'Tick v1',
@@ -289,15 +290,15 @@ export async function creditHostOptionsCheck(t) {
       }
       assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
       if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
-      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ gilt für diese E-Mail-Adresse ein neues Tageslimit\.$/u : /^This email address gets a new daily limit from .+\.$/u); assert.equal(value.panelDeadline, value.deadline); }
+      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ gilt für diese E‑Mail-Adresse ein neues Tageslimit\.$/u : /^This email address gets a new daily limit from .+\.$/u); assert.equal(value.panelDeadline, value.deadline); }
       if (state === 'S1') { assert.equal(value.upgrade, true); assert.equal(value.export, true); assert.match(value.body, /1[.,]000/u); }
-      if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E-Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.' : 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
+      if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E‑Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.' : 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
       if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
       if (state === 'offer') {
         assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
         assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits', `${label}: shipped O3 catalog copy and NBSP`);
       }
-      if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse:/u : /With a confirmed email address: 1,000\u00a0credits/u);
+      if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E‑Mail-Adresse:/u : /With a confirmed email address: 1,000\u00a0credits/u);
       if (state === 'reconciling') { assert.equal(value.footerTextFits, true, `${label}: visible reconciliation never overlaps legal or footer controls ${JSON.stringify(value.footerTextRects)}`); assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
       if (state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }
       if (state === 'low-off') { assert.equal(value.lowLines, 0); lowBaseline = { transcript: value.transcript, reply: value.reply }; }
@@ -324,6 +325,46 @@ export async function creditHostOptionsCheck(t) {
           await page.screenshot({ path: join(evidence, 'ait411-390-light-de-shared-cell.png'), fullPage: false });
           await page.evaluate(() => scrollTo(0, 0));
         }
+      }
+      // Tick AIT-445 v1.1: reuse this scene for the reset popover and upgrade.
+      if (mobile && locale === 'de' && theme === 'light' && ['U3', 'S1'].includes(state)) {
+        if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
+        await shadow(page, async c => {
+          c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+          const animations = c.shadowRoot.getAnimations({ subtree:true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime));
+          for (const animation of animations) animation.finish();
+          await Promise.all(animations.map(a => a.finished.catch(() => {})));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        await page.mouse.move(-1, -1);
+        const copyCheck = await shadow(page, c => {
+          const r = c.shadowRoot, nodes = [], walker = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) if (walker.currentNode.data.includes('E‑Mail') && walker.currentNode.data !== 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.') nodes.push(walker.currentNode);
+          const boxes = () => Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot', '.credits-popup'].map(selector => {
+            const b = r.querySelector(selector).getBoundingClientRect(); return [selector, [b.x, b.y, b.width, b.height]];
+          }));
+          const details = () => Object.fromEntries(['.composer-out__title', '.composer-out__body', '.composer-out__bar', '.composer-out__steps', '.composer-out__actions', '.composer-out__upgrade', ...[...r.querySelectorAll('.composer-out__body > *, .composer-out__steps > *, .composer-out__upgrade > *')].map(n => '.' + n.className).filter(s => s !== '.')].map(selector => {
+            const n = r.querySelector(selector), b = n.getBoundingClientRect(), css = getComputedStyle(n);
+            return [selector, { text:n.textContent, rect:[b.x,b.y,b.width,b.height], font:css.font, lineHeight:css.lineHeight, minHeight:css.minHeight, visibility:css.visibility }];
+          }));
+          const current = boxes(), currentDetails = details(), text = nodes.map(n => n.data), tokens = [];
+          for (const node of nodes) if (node.parentElement.checkVisibility({ visibilityProperty:true })) for (const match of node.data.matchAll(/E‑Mail/gu)) {
+            const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+            tokens.push({ text:node.data, rows:new Set([...range.getClientRects()].map(b => b.y)).size });
+          }
+          nodes.forEach(node => { node.data = node.data.replaceAll('E‑Mail', 'E-Mail'); });
+          const legacy = boxes(), legacyDetails = details(); nodes.forEach((node, i) => { node.data = text[i]; });
+          return { current, legacy, currentDetails, legacyDetails, tokens, overflowPx:Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+        });
+        const shot = `ait445-v1.1-390-light-de-${state}.png`;
+        emailCopyChecks.push({ state, shot, ...copyCheck });
+        if (evidence) await page.screenshot({ path:join(evidence, shot), fullPage:false, captureBeyondViewport:false });
+        t.diagnostic('AIT445_COPY_RESERVATION ' + JSON.stringify({ state, ...copyCheck }));
+        assert.deepEqual(copyCheck.current, copyCheck.legacy, `${state}: Tick v1.1 copy moves composer, question, footer and popover exactly 0 px`);
+        assert.equal(copyCheck.overflowPx, 0, `${state}: Tick v1.1 copy has no horizontal overflow`);
+        assert.ok(copyCheck.tokens.length > 0, `${state}: changed E‑Mail copy is visible`);
+        for (const token of copyCheck.tokens) assert.equal(token.rows, 1, `${state}: E‑Mail never breaks after E‑`);
+        if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
       }
     }
   }
