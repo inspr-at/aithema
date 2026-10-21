@@ -1478,7 +1478,7 @@ export class AithemaSession extends HTMLElement {
         if (option) span.dataset.creditOptionVariant = key;
         else span.dataset.creditVariant = key;
         span.dataset.active = String(key === activeKey);
-        span.toggleAttribute('data-host-body', option || key.startsWith('host-') || key === 'active' && out.hasAttribute('data-host-limit'));
+        span.toggleAttribute('data-host-body', option || key.startsWith('host-') || ['active', 'session'].includes(key) && out.hasAttribute('data-host-limit'));
         span.setAttribute('aria-hidden', String(!usedUp || key !== activeKey));
       });
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));

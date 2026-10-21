@@ -399,6 +399,12 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out__new { top:0; bottom:auto; max-width:none; }
   .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:11.5px; }
 }
+/* Keep the existing stacked upgrade/export contract on narrow embeddings. */
+@media(width < 389px) {
+  .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr); }
+  .composer-out[data-host-limit] .composer-out__actions > .composer-out__upgrade { grid-area:1/1; }
+  .composer-out[data-host-limit] .composer-out__actions > .composer-out__export { grid-area:2/1; }
+}
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); } }
 @media(prefers-reduced-motion:reduce) { .composer-shell *, .host-credits *, .audio-rail[data-used-up] * { transition:none; } }
