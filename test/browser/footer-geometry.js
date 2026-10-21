@@ -26,25 +26,32 @@ export const measureFooterGeometry = (c, { visibleZonesOnly = false, zoneSelecto
   const container = rect(row), footprints = new Map(), violations = [];
   let maxOverflowPx = 0, maxOverlapPx = 0;
   for (const selector of zoneSelectors) {
-    const zone = root.querySelector(selector);
-    if (visibleZonesOnly && !visible(zone)) continue;
-    const bounds = rect(zone), painted = { ...bounds };
-    const record = (box, limit, item) => {
-      const overflow = Math.max(outside(box, limit), outside(box, container));
-      maxOverflowPx = Math.max(maxOverflowPx, overflow);
-      if (overflow > 0) violations.push({ item, overflowPx: overflow });
-      painted.left = Math.min(painted.left, box.left); painted.right = Math.max(painted.right, box.right);
-      painted.top = Math.min(painted.top, box.top); painted.bottom = Math.max(painted.bottom, box.bottom);
-    };
-    record(bounds, container, selector);
-    for (const node of zone.querySelectorAll('*')) if (visible(node)) record(rect(node), bounds, node.className);
-    const walker = document.createTreeWalker(zone, NodeFilter.SHOW_TEXT);
-    for (let text; (text = walker.nextNode());) {
-      if (!text.textContent.trim() || !visible(text.parentElement)) continue;
-      const range = document.createRange(); range.selectNodeContents(text);
-      for (const box of range.getClientRects()) record(box, rect(text.parentElement), `${text.parentElement.className}: ${text.textContent}`);
+    const zone = root.querySelector(selector), contents = getComputedStyle(zone).display === 'contents';
+    if (visibleZonesOnly && !contents && !visible(zone)) continue;
+    // AIT-435 item 5 deliberately reuses O4's two-row display:contents footer.
+    // It has no parent box: measure each painted child against its own box and
+    // the row, preserving both clipping checks and actual spaces between rows.
+    const fragments = contents ? [...zone.children].filter(visible) : [zone], paintedFragments = [];
+    for (const fragment of fragments) {
+      const bounds = rect(fragment), painted = { ...bounds };
+      const record = (box, limit, item) => {
+        const overflow = Math.max(outside(box, limit), outside(box, container));
+        maxOverflowPx = Math.max(maxOverflowPx, overflow);
+        if (overflow > 0) violations.push({ item, overflowPx: overflow });
+        painted.left = Math.min(painted.left, box.left); painted.right = Math.max(painted.right, box.right);
+        painted.top = Math.min(painted.top, box.top); painted.bottom = Math.max(painted.bottom, box.bottom);
+      };
+      record(bounds, container, fragment.className);
+      for (const node of fragment.querySelectorAll('*')) if (visible(node)) record(rect(node), bounds, node.className);
+      const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
+      for (let text; (text = walker.nextNode());) {
+        if (!text.textContent.trim() || !visible(text.parentElement)) continue;
+        const range = document.createRange(); range.selectNodeContents(text);
+        for (const box of range.getClientRects()) record(box, rect(text.parentElement), `${text.parentElement.className}: ${text.textContent}`);
+      }
+      paintedFragments.push(painted);
     }
-    footprints.set(selector, painted);
+    footprints.set(selector, paintedFragments);
   }
   const groups = [
     ['.footer-info', '.host-credits', '.footer-right'],
@@ -56,8 +63,11 @@ export const measureFooterGeometry = (c, { visibleZonesOnly = false, zoneSelecto
     ...extraGroups,
   ];
   for (const selectors of groups) {
-    const items = selectors.filter(selector => visible(root.querySelector(selector)))
-      .map(selector => ({ selector, box: footprints.get(selector) ?? rect(root.querySelector(selector)) }));
+    const items = selectors.flatMap(selector => {
+      const node = root.querySelector(selector), contents = node && getComputedStyle(node).display === 'contents';
+      if (!contents && !visible(node)) return [];
+      return (footprints.get(selector) ?? [rect(node)]).map(box => ({ selector, box }));
+    });
     for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
       const a = items[i], b = items[j];
       const overlap = Math.max(0, Math.min(Math.min(a.box.right, b.box.right) - Math.max(a.box.left, b.box.left),
