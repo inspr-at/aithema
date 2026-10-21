@@ -398,7 +398,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:has(.host-legal:not([hidden])) .host-credits { justify-self:center; min-width:0; }
   .display-foot:has(.host-legal:not([hidden])) .host-legal { margin-left:0; font-size:12.5px; }
   .host-legal > slot { display:none; }
-  .legal-toggle { display:inline-flex; align-items:center; justify-content:center; gap:4px; height:44px; min-width:44px; padding:0; border-radius:0; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:3px; }
+  .legal-toggle { display:inline-flex; align-items:center; justify-content:center; gap:4px; height:44px; min-width:44px; padding:0; border-radius:0; background:none; color:inherit; font:inherit; font-size:12.5px; text-decoration:underline; text-underline-offset:3px; }
   .legal-toggle svg { width:12px; height:12px; transform:rotate(180deg); transition:transform .12s; }
   .legal-toggle[aria-expanded="true"] svg { transform:rotate(360deg); }
   .legal-popup.footer-popup { min-width:200px; max-width:calc(100vw - 24px); background:var(--aithema-paper); color:var(--aithema-ink);

@@ -46,9 +46,12 @@ const settle = page => shadow(page, async c => {
     previous = geometry;
   }
 });
-const measure = page => shadow(page, c => {
+const measure = page => shadow(page, async c => {
   const root = c.shadowRoot;
-  if (innerWidth < 600 && root.querySelector('.legal-toggle').getAttribute('aria-expanded') !== 'true') root.querySelector('.legal-toggle').click();
+  if (innerWidth < 600 && root.querySelector('.legal-toggle').getAttribute('aria-expanded') !== 'true') {
+    root.querySelector('.legal-toggle').click();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
   for (const animation of root.querySelector('.legal-popup').getAnimations()) if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
   const links = [...(innerWidth < 600 ? root.querySelectorAll('.legal-popup a') : c.querySelectorAll('#demo-legal a'))];
   const box = node => { const b = node.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
@@ -95,6 +98,7 @@ const measure = page => shadow(page, c => {
         visible: link.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
         inside: [...(innerWidth < 600 ? [box(root.querySelector('.legal-popup'))] : [row, footer]), { x: 0, y: 0, width: innerWidth, height: innerHeight }].every(b => inside(bounds, b)),
         overlap: zones.some(b => overlap(bounds, b)) || links.some(other => other !== link && overlap(bounds, box(other))),
+        hits:points.map(([x,y]) => { const n = (innerWidth < 600 ? root : document).elementFromPoint(bounds.x+x,bounds.y+y); return { tag:n?.localName, class:n?.className, text:n?.textContent?.slice(0,80) }; }),
         unobscured: points.every(([x, y]) => link.contains((innerWidth < 600 ? root : document).elementFromPoint(bounds.x + x, bounds.y + y))) };
     }),
   };

@@ -141,6 +141,8 @@ export async function creditHostOptionsCheck(t) {
         legalLinks, legalGaps };
       const footerTargets = ['.ai-notice', '.host-credits__button', '.engine-info', '.legal-toggle']
         .map(selector => { const n = r.querySelector(selector); return n?.checkVisibility({ visibilityProperty: true }) ? { selector, ...box(n) } : null; }).filter(Boolean);
+      if (innerWidth >= 600) footerTargets.push(...[...c.querySelectorAll('[slot="legal"] a, a[slot="legal"]')]
+        .filter(n => n.checkVisibility({ visibilityProperty:true })).map((n, i) => ({ selector:`legal[${i}]`, ...box(n) })));
       const targetOverlaps = footerTargets.flatMap((a, i) => footerTargets.slice(i + 1).map(b => ({
         controls: [a.selector, b.selector], area: Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
           Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)) })));
@@ -155,7 +157,7 @@ export async function creditHostOptionsCheck(t) {
         toggle.click();
         for (const animation of r.querySelector('.legal-popup').getAnimations()) if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
         const popup = r.querySelector('.legal-popup'), links = [...popup.querySelectorAll('a')];
-        legalState = { closed, open:positions(), popup:box(popup), control:box(toggle), label:toggle.textContent,
+        legalState = { closed, open:positions(), popup:box(popup), control:box(toggle), fontSize:getComputedStyle(toggle).fontSize, label:toggle.textContent,
           haspopup:toggle.getAttribute('aria-haspopup'), expanded:toggle.getAttribute('aria-expanded'), controls:toggle.getAttribute('aria-controls'),
           role:popup.getAttribute('role'), name:popup.getAttribute('aria-label'), modal:popup.getAttribute('aria-modal'),
           firstFocused:r.activeElement === links[0], source:sources.map(attrs), links:links.map(attrs),
@@ -385,6 +387,7 @@ export async function creditHostOptionsCheck(t) {
       assert.ok(sizing.paddingTop >= 6 && sizing.paddingBottom >= 6, `${label}: footer padding >=6 px`);
       assert.equal(sizing.composerGap, 12, `${label}: original composer gap`);
       assert.ok(state.control.width >= 44 && state.control.height === 44, label);
+      assert.equal(state.fontSize, '12.5px', label);
       assert.equal(state.control.right, value.width - 12, `${label}: control at gutter`);
       assert.equal(state.label, value.locale === 'de' ? 'Rechtliches' : 'Legal');
       assert.equal(state.haspopup, 'dialog'); assert.equal(state.expanded, 'true'); assert.equal(state.controls, 'legal-popup');
@@ -441,6 +444,12 @@ export async function creditHostOptionsCheck(t) {
       await capture(`ait435-r4-390-${theme}-${locale}-O5-U3-open.png`);
       legalChecks.push({ locale, theme, keyboard:true, outside:true, tabContinues:true, exclusive:true });
     }
+    await page.setViewport({ width:320, height:844 });
+    const narrow = await scene('U3', 'de', 'light', 'O5');
+    assert.equal(narrow.footerGeometry.legalState.fontSize, '12.5px', '320px credit host keeps specified control type');
+    assert.ok(narrow.footerGeometry.textFlagGap >= 8);
+    assert.ok(narrow.footerGeometry.targetOverlaps.every(pair => pair.area === 0));
+    legalChecks.push({ width:320, profile:'O5', ...narrow.footerGeometry });
     // Boundary and host independence: no credit ports, nested links, exact URL bytes,
     // a two-line label, and live edits before activation all use the same dialog.
     await shadow(page, async c => {
@@ -458,14 +467,14 @@ export async function creditHostOptionsCheck(t) {
         const before = r.querySelector('.display-foot').getBoundingClientRect().height;
         if (innerWidth < 600) button.click();
         const links = [...r.querySelectorAll('.legal-popup a')];
-        const result = { control:shown(button), source:shown(source), height:before,
+        const result = { control:shown(button), fontSize:getComputedStyle(button).fontSize, source:shown(source), height:before,
           href:links[0]?.getAttribute('href'), target:links[0]?.getAttribute('target'), rel:links[0]?.getAttribute('rel'),
           rows:links.map(n => n.getBoundingClientRect().height), clipped:links.some(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth) };
         if (innerWidth < 600) button.click(); return result;
       });
       assert.equal(state.control, width < 600); assert.equal(state.source, width >= 600);
       assert.equal(state.height, 57);
-      if (width < 600) { assert.equal(state.href, '/imprint?x=%2f&y=1#top'); assert.equal(state.target, '_blank'); assert.equal(state.rel, 'noopener external'); assert.deepEqual(state.rows, [44, 44]); assert.equal(state.clipped, false); }
+      if (width < 600) { assert.equal(state.fontSize, '12.5px'); assert.equal(state.href, '/imprint?x=%2f&y=1#top'); assert.equal(state.target, '_blank'); assert.equal(state.rel, 'noopener external'); assert.deepEqual(state.rows, [44, 44]); assert.equal(state.clipped, false); }
       legalChecks.push({ width, ...state });
     }
   });
