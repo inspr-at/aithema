@@ -33,6 +33,8 @@ async function bootAndAdmit(seconds, rate, visitorRate) {
     const plugin = createVoiceProvider({ storage, now: () => now, binding: { agentId: factory.agentId,
       apiBaseUrl: factory.endpoint, secretRef: factory.secretRef, reservationSeconds: seconds,
       upstreamMicroPerMinute: rate, visitorMicroPerMinute: visitorRate },
+      provisionFacade() { assert.fail('admission must not provision a facade'); },
+      revokeFacade() { assert.fail('admission must not revoke a facade'); },
       fetchImpl() { assert.fail('admission must not contact the provider'); } });
     const presets = mockPresets();
     presets.best.plugins.push('elevenlabs'); presets.best.bindings.voice = host.binding;
