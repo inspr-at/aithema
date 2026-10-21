@@ -97,8 +97,11 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       // AIT-435 item 0: keep the capture immutable; change only the two
       // approved empty-delta DE catalog separators in the exact comparison.
       const expectedHTML = mainLayout.composerHTML[process.platform][locale]
-        .replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits');
-      assert.equal(mounted.html, expectedHTML, 'default composer DOM differs from captured main only by approved AIT-435 NBSP');
+        .replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits')
+        // Tick AIT-443 v1 supersedes only this copy in the immutable capture.
+        .replaceAll('Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.', 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.')
+        .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.");
+      assert.equal(mounted.html, expectedHTML, 'default composer DOM differs from captured main only by approved AIT-435 NBSP and AIT-443 daily-cap copy');
       assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
       assert.equal(mounted.scrollTop, 0, 'default mount ignores queued no-op viewport resize before fixture setup');
       // Keep main's explicit first-row setup and every existing assertion; the
