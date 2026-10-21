@@ -1062,6 +1062,7 @@ export class AithemaSession extends HTMLElement {
     }
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
+    this.#concept?.render();
     const announcement = this.#host.limitCopy.announce;
     if (usedUp && !this.#creditEnding && announcement && this.#creditAnnounced !== announcement) {
       this.#creditAnnounced = announcement; setText(this.shadowRoot.querySelector('.credit-announcement'), announcement);
