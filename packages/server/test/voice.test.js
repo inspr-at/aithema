@@ -3095,7 +3095,7 @@ for (const reservationSeconds of [undefined, 30]) test(`AIT-447: recovery at 590
   h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 700_000;
   const first = await h.start();
   const initial = h.runtime.budget.get(h.storage.voiceCalls(h.session.id)[0].attemptId);
-  assert.equal(initial.max_micro, reservationSeconds ? 50_000 : 1_000_000);
+  assert.equal(initial.max_micro, 1_000_000);
   h.advance(590_000);
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   const recovered = await response.json(); assert.equal(response.status, 200, JSON.stringify(recovered));
@@ -3234,45 +3234,36 @@ test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile 
   assert.equal(h.runtime.budget.get(record.attemptId).settled_micro, 1000);
 });
 
-test('AIT-163 fix1: rolling extensions reserve elapsed plus segment without another runway', async t => {
+test('AIT-447 / AIT-163: rolling renewals stay within the full admitted liability', async t => {
   const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
     host: args => createDemoHost({ ...args, ownerGuard: false }) });
   h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
-    allowancesUsd: { anonymous: '0.13', emailGiven: '0.13', emailConfirmed: '0.13' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+    allowancesUsd: { anonymous: '3.6', emailGiven: '3.6', emailConfirmed: '3.6' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
   const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'extend-runway' } });
   const attempt = admitted.options.attempt;
-  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 3_600_000);
   await attempt.consume();
   assert.doesNotThrow(() => attempt.extend(120));
-  assert.throws(() => attempt.extend(135), { code: 'not-admitted' });
-  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
+  assert.doesNotThrow(() => attempt.extend(135));
+  assert.deepEqual(JSON.parse(h.runtime.budget.get(attempt.attemptId).voice_extensions_json), []);
+  assert.equal(h.host.wallet('voice-owner').balance().committedMicro, 3_600_000);
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 3_600_000);
   admitted.finish();
 });
 
-for (const allowance of ['0.12', '0.134']) test(`AIT-163 fix1: ${allowance} funded voice runs 120 seconds before budget-limit`, async t => {
-  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.now() });
+for (const allowance of ['0.12', '0.134']) test(`AIT-447 / AIT-163: ${allowance} runway funds cannot start a full-liability call`, async t => {
   const h = voiceFixture(t, { leaseMs: 300_000,
     durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
     host: args => createDemoHost({ ...args, ownerGuard: false }) });
   h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
     allowancesUsd: { anonymous: allowance, emailGiven: allowance, emailConfirmed: allowance } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
-  const grant = await h.start();
-  for (let elapsed = 15; elapsed <= 105; elapsed += 15) {
-    h.advance(15_000); t.mock.timers.tick(15_000);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(h.storage.voiceCalls()[0].closing, undefined, `call still funded at ${elapsed}s`);
-  }
-  h.advance(14_999); t.mock.timers.tick(14_999);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(h.storage.voiceCalls()[0].closing, undefined);
-  h.advance(1); t.mock.timers.tick(1);
-  await h.waitForClosure(grant.providerSessionId);
-  await new Promise(resolve => setImmediate(resolve));
-  const record = h.storage.voiceCalls()[0];
-  assert.equal(record.reason, 'budget-limit');
-  assert.equal(record.endedAt - record.startedAt, 120_000);
-  assert.equal(record.terminal.closureConfirmed, true);
-  assert.equal(record.terminal.usage.providerSeconds, 120);
+  const response = await h.route('/voice', { callId: 'unfunded-full-call' });
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'host-limit' });
+  assert.deepEqual(h.traffic, []);
+  assert.deepEqual(h.provisioned, []);
+  assert.equal(h.storage.voiceCalls(h.session.id).length, 0);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 0);
 });
 
 for (const dryRun of [true, false]) test(`AIT-163 fix1: limited voice repairs rotate past permanently pending heads and hash diagnostics (dryRun=${dryRun})`, async t => {
