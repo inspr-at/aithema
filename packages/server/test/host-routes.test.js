@@ -1002,7 +1002,8 @@ for (const missing of [null, 'visitor', 'saveEmail', 'deleteEmail', 'eraseVisito
     assert.equal(identity.status, 200);
     assert.deepEqual((await identity.json()).visitorEmail, { canSave: missing === null, canDelete: missing === null });
     const visitor = await f.call('/api/visitor/email');
-    assert.equal(visitor.status, missing ? 503 : 200);
+    assert.equal(visitor.status, missing ? 404 : 200);
+    if (missing) assert.deepEqual(await visitor.json(), { error: 'visitor-unavailable' });
     const pending = await f.call(`/api/sessions/${session.id}/identity/request`, { address: 'port@example.test' });
     assert.equal(pending.status, 200);
     assert.deepEqual((await pending.json()).visitorEmail, { canSave: missing === null, canDelete: missing === null });

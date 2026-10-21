@@ -16,6 +16,7 @@ test('AIT-414: tiers and conversation identity confirm and change without a visi
   const verification = new Verification({ root, entry, lock, dialog, copy: en, request: f.call, identity: f.session.identity, demo: true });
   t.after(async () => { verification.destroy(); await window.happyDOM.close(); });
   await verification.load(); verification.setCredits({ tiers: f.tiers() });
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email').length, 0, 'AIT-442: no read without the visitor-email port');
   for (const [command, address] of [['request', 'first@example.test'], ['change', 'changed@example.test']]) {
     if (command === 'change') lock.querySelector('.verify-change').click();
     lock.querySelector('input').value = address;
