@@ -570,7 +570,10 @@ export class AithemaSession extends HTMLElement {
       retry: () => this.#refreshFeatures(),
       settings: opener => this.#dialog.openAt('model', this.#session.processingPreset === 'device'
         ? '.presets' : '[data-select="visuals"]', opener),
-      receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
+      receive: event => this.receive(event), feature: options => ({
+        ...this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options),
+        ...(this.#host?.dailyCapped ? { available: false, dailyCapped: true } : {}),
+      }) });
     this.#concept.update(this.#session);
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];

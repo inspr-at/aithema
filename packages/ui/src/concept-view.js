@@ -69,6 +69,7 @@ export class ConceptView {
     for (const [selector, key] of Object.entries(labels)) root.querySelector(selector).textContent = copy[key];
     root.querySelector('.drafts-reason-reserve').replaceChildren(...[
       copy.display.draftsUnoffered, copy.display.draftsOff, copy.display.draftsUnavailable, copy.display.draftsLow,
+      copy.hostSurface.credits.dailyCap,
       `${copy.display.draftsDisabled}${reasonSeparator}${copy.display.draftsEnable}`,
       ...['draftsPreset', 'draftsDevice', 'draftsQuote', 'draftsTimeout'].map(key =>
         `${copy.display[key]}${reasonSeparator}${copy.display[key === 'draftsPreset' || key === 'draftsDevice' ? 'draftsChoose' : 'draftsRetry']}`),

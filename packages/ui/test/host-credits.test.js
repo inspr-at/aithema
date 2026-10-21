@@ -19,7 +19,7 @@ for (const copy of [de, en]) for (const exhausted of [false, true]) {
         balance: { owner: { limitMicro: 10_000_000, committedMicro: 2_000_000, availableMicro: 8_000_000, reservedMicro: 0 } } }),
     } });
     await tick(10);
-    assert.equal(root.querySelector('.host-credits__amount').textContent, '800');
+    assert.equal(root.querySelector('.host-credits__amount').textContent, exhausted ? '0' : '800');
     const status = root.querySelector('.concept-activity-text');
     assert.equal(status.textContent, copy.hostSurface.credits.dailyCap);
     assert.equal(status.textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit.");
