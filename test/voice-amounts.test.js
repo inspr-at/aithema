@@ -5,10 +5,108 @@ import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { perMinuteCostMicro } from '@inspr/aithema-core/cost';
 import { createElevenLabsVoiceHost, normalizeElevenLabsDurationBinding } from '@inspr/aithema-plugin-elevenlabs/voice-host';
 import { createDurationBinding } from '../packages/server/src/voice-binding.js';
+import { createComposedVoice } from '../packages/server/src/composed/server.js';
+import { createElevenLabsServer, reconcileUsage } from '../plugins/elevenlabs/src/server.js';
 import { qualifyStartBinding } from '../demo/processing-consent.js';
 import { stubAgentApi } from './fixtures/voice-self-heal-host.js';
 
 const ceiling = (seconds, rate) => Number((BigInt(seconds) * BigInt(rate) + 59n) / 60n);
+
+function settle(seconds, rate, visitorRate) {
+  const providerSessionId = 'amounts-conversation';
+  return reconcileUsage({ call: { providerSessionId, startedAt: Date.now(), pauses: [] },
+    details: { conversation_id: providerSessionId, status: 'done', metadata: { call_duration_secs: seconds } },
+    binding: { upstreamMicroPerMinute: rate, visitorMicroPerMinute: visitorRate },
+    maxMicro: Math.min(Number.MAX_SAFE_INTEGER, ceiling(seconds, rate)) });
+}
+
+async function settleComposed(seconds, visitorRate) {
+  let at = Date.now();
+  const now = () => at, reports = [];
+  const plugin = createComposedVoice({ enabled: true, config: { maxDurationSeconds: seconds },
+    binding: { visitorMicroPerMinute: visitorRate }, storage: { saveVoiceCall() {} },
+    stt: { stream() {} }, tts: { speak() {} }, replyExecutor: { execute() {} },
+    authorize: () => true, commitUtterance() {}, admitComponent() {}, now });
+  const call = await plugin.start({ callId: 'amounts-call', sessionId: 'amounts-session' }, {
+    now, deadlineAt: at + 1000, spendDeadlineAt: at + seconds * 1000, browserLivenessDeadlineAt: at + seconds * 1000,
+    attempt: { attemptId: 'amounts-attempt', claimId: 'amounts-claim', maxMicro: 0, consume() {} },
+    report: terminal => reports.push(terminal) });
+  at += seconds * 1000;
+  const terminal = await call.close();
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].closureConfirmed, terminal.closureConfirmed);
+  return terminal;
+}
+
+async function mintAtMaximum(seconds, rate, visitorRate, maxMicro = ceiling(seconds, rate)) {
+  const at = Date.now(), now = () => at;
+  let mints = 0, prepared = 0;
+  const server = createElevenLabsServer({ binding: { agentId: 'amounts-agent', secretRef: 'fixture-secret-ref',
+    upstreamMicroPerMinute: rate, visitorMicroPerMinute: visitorRate }, now,
+    resolveSecret: () => 'fixture-secret', prepareCall() { prepared++; }, saveCall() {},
+    fetchImpl: async url => {
+      if (url.includes('/token?')) {
+        mints++;
+        return Response.json({ token: 'fixture-token', conversation_id: 'amounts-conversation' });
+      }
+      return Response.json({ conversation_id: 'amounts-conversation', status: 'done', metadata: { call_duration_secs: seconds } });
+    } });
+  const options = admittedMax => ({ now, deadlineAt: at + 1000,
+    spendDeadlineAt: at + seconds * 1000, browserLivenessDeadlineAt: at + seconds * 1000,
+    attempt: { attemptId: 'amounts-attempt', claimId: 'amounts-claim', maxMicro: admittedMax, consume() {} }, report() {} });
+  const request = { callId: 'amounts-call', facadeSecretRef: 'fixture-facade-ref' };
+  const call = await server.start(request, options(maxMicro));
+  try {
+    assert.equal(call.snapshot().exposureMicro, maxMicro, 'mint spend bound must equal the admitted maximum');
+    assert.equal(mints, 1);
+    assert.equal(prepared, 1);
+  } finally { await call.close(); }
+  if (maxMicro > 0) {
+    await assert.rejects(server.start(request, options(maxMicro - 1)), { code: 'not-admitted' });
+    assert.equal(mints, 1, 'one microUSD below the spend bound must refuse before minting');
+    assert.equal(prepared, 1, 'an insufficient claim must refuse before preparation');
+  }
+}
+
+test('AIT-451 round 2: 33-second visitor settlement equals the held 55000 microUSD', () => {
+  const terminal = settle(33, 100_000, 100_000);
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.visitorMicro, ceiling(33, 100_000));
+});
+
+test('AIT-451 round 2: duration-estimate upstream settlement equals the safe integer reservation', () => {
+  const rate = Number.MAX_SAFE_INTEGER - 31, terminal = settle(33, rate, 0);
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.costSource, 'duration-estimate');
+  assert.equal(terminal.usage.upstreamMicro, ceiling(33, rate));
+  assert.equal(terminal.overrun, false);
+});
+
+test('AIT-451 round 2: composed visitor settlement equals the held 55000 microUSD', async () => {
+  const terminal = await settleComposed(33, 100_000);
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.visitorMicro, ceiling(33, 100_000));
+});
+
+test('AIT-451 round 2: non-rolling mint accepts an exactly funded 33-second spend deadline', async () => {
+  await mintAtMaximum(33, 100_000, 100_000);
+});
+
+test('AIT-451 round 2: invalid settlement amounts retain uncertainty and mint overflow refuses before provider access', async () => {
+  for (const [seconds, rate, visitorRate] of [[61, Number.MAX_SAFE_INTEGER, 0], [61, 0, Number.MAX_SAFE_INTEGER], [33, 0, undefined]]) {
+    const terminal = settle(seconds, rate, visitorRate);
+    assert.equal(terminal.closureConfirmed, false);
+    assert.equal(terminal.outcome, 'uncertain');
+    assert.equal(terminal.usage, null);
+  }
+  for (const visitorRate of [Number.MAX_SAFE_INTEGER, -1, 1.1, Infinity]) {
+    const terminal = await settleComposed(61, visitorRate);
+    assert.equal(terminal.closureConfirmed, false);
+    assert.equal(terminal.outcome, 'uncertain');
+    assert.equal(terminal.usage, null);
+  }
+  await assert.rejects(mintAtMaximum(61, Number.MAX_SAFE_INTEGER, 0, Number.MAX_SAFE_INTEGER), { code: 'not-admitted' });
+});
 
 test('AIT-451: integer ceiling preserves fractional runway, safe large products and fail-closed overflow', () => {
   assert.equal(perMinuteCostMicro(33, 100_000), 55_000);
@@ -63,6 +161,15 @@ async function bootAndAdmit(seconds, rate, visitorRate) {
     assert.equal(row.voice_exposure_micro, factory.maxMicro);
     assert.equal(row.max_visitor_micro, ceiling(seconds, visitorRate));
     assert.equal(row.voice_visitor_exposure_micro, ceiling(seconds, visitorRate));
+    const terminal = settle(seconds, rate, visitorRate);
+    assert.equal(terminal.closureConfirmed, true);
+    assert.equal(terminal.usage.costSource, 'duration-estimate');
+    assert.equal(terminal.usage.upstreamMicro, row.max_micro, 'maximum upstream settlement must equal its reservation');
+    assert.equal(terminal.usage.visitorMicro, row.max_visitor_micro, 'maximum visitor settlement must equal its reservation');
+    const composed = await settleComposed(seconds, visitorRate);
+    assert.equal(composed.closureConfirmed, true);
+    assert.equal(composed.usage.visitorMicro, row.max_visitor_micro, 'maximum composed visitor settlement must equal its reservation');
+    await mintAtMaximum(seconds, rate, visitorRate, row.max_micro);
     await admitted.options.attempt.consume();
     if (seconds > 1) {
       const extended = admitted.options.attempt.extend(seconds - 0.001);
