@@ -9,6 +9,39 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
+for (const copy of [de, en]) for (const exhausted of [false, true]) {
+  test(`AIT-445: drafts name the address day cap with 800 credits left (${copy.display.locale}, exhausted=${exhausted})`, async t => {
+    const { root } = setup(t, { copy, host: { credits: true }, session: {
+      conceptVisualKind: 'html', visualsBound: true, conceptCost: { maxMicro: 400_000 },
+      featureMatrix: { best: { html: { available: false, reason: 'budget denied' } } },
+    }, routes: {
+      'GET /credits': () => Response.json({ scope: 'session', dailyCapReached: true, exhausted,
+        balance: { owner: { limitMicro: 10_000_000, committedMicro: 2_000_000, availableMicro: 8_000_000, reservedMicro: 0 } } }),
+    } });
+    await tick(10);
+    assert.equal(root.querySelector('.host-credits__amount').textContent, '800');
+    const status = root.querySelector('.concept-activity-text');
+    assert.equal(status.textContent, copy.hostSurface.credits.dailyCap);
+    assert.equal(status.textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit.");
+    assert.notEqual(status.textContent, copy.display.draftsLow);
+    assert.equal(root.querySelector('.concept-request').hidden, true);
+  });
+}
+
+for (const copy of [de, en]) test(`AIT-445: a real low balance keeps the drafts credit message (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { credits: true }, session: {
+    conceptVisualKind: 'html', visualsBound: true, conceptCost: { maxMicro: 400_000 },
+    featureMatrix: { best: { html: { available: false, reason: 'budget denied' } } },
+  }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', dailyCapReached: false, exhausted: false,
+      balance: { owner: { limitMicro: 10_000_000, committedMicro: 9_990_000, availableMicro: 10_000, reservedMicro: 0 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__amount').textContent, '1');
+  assert.equal(root.querySelector('.concept-activity-text').textContent, copy.display.draftsLow);
+  assert.equal(root.querySelector('.concept-request').hidden, true);
+});
+
 for (const [copy, loadingName] of [[de, 'Credits werden geladen'], [en, 'Loading credits']]) {
   test(`AIT-357: one placeholder and the loading accessible name until the first receipt (${copy.display.locale})`, async t => {
     let release;
