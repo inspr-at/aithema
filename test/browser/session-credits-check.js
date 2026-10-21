@@ -223,7 +223,7 @@ export async function sessionCreditsCheck(t) {
     const name = 'ait445-390-light-de-U3.png';
     await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
     await writeFile(join(evidence, 'ait445-checks.json'), JSON.stringify({ head, workflowSHA: evidenceCommit,
-      runId: process.env.GITHUB_RUN_ID ?? null, spec: 'Tick spec v1 · AIT-445', capture: 'viewport',
+      spec: 'Tick spec v1 · AIT-445', capture: 'viewport',
       reducedMotion: true, blurredControls: true, pointerOutside: true, movementPx: 0, drafts, shots: [name] }, null, 2));
   }
   assert.deepEqual(errors, []);
