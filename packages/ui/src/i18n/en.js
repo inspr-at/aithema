@@ -468,7 +468,7 @@ export const en = {
       limit: 'This conversation cannot be sent again. Start a new conversation to send more.',
     },
     credits: {
-      dailyCapReset: 'A new conversation is possible from {time}.',
+      dailyCapReset: 'This email address gets a new daily limit from {time}.',
       reconcilingVisible: 'Updating credits …',
       reconciling: 'Costs are still being reconciled',
       low: '{available}\u00a0Credits left', lowShort: '{available} left',

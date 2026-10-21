@@ -468,7 +468,7 @@ export const de = {
       limit: 'Dieses Gespräch kann nicht erneut gesendet werden. Beginnen Sie ein neues Gespräch, um mehr zu senden.',
     },
     credits: {
-      dailyCapReset: 'Ab {time} ist ein neues Gespräch möglich.',
+      dailyCapReset: 'Ab {time} gilt für diese E-Mail-Adresse ein neues Tageslimit.',
       reconcilingVisible: 'Credits werden abgeglichen …',
       reconciling: 'Kosten werden noch abgeglichen',
       low: 'Noch {available}\u00a0Credits', lowShort: 'Noch {available}',
