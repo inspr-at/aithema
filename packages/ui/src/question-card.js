@@ -229,7 +229,9 @@ export class QuestionCard {
     const limit = this.view?.matchMedia('(width < 600px)').matches && this.root.querySelector('.host-legal')?.hidden === false
       ? Math.floor(remaining) : remaining;
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
-    if (phone && !this.card.hidden && !short) compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
+    // Preserve the existing expanded/compact decision; pixel rounding applies
+    // only to the painted cap, within the minimum's existing 2px allowance.
+    if (phone && !this.card.hidden && !short) compact = Math.min(remaining, .35 * viewport, viewport - 220) < minimum;
     this.card.toggleAttribute('data-compact', compact);
     workspace?.toggleAttribute('data-question-compact', compact);
     this.positionOptions(!wasCompact);
