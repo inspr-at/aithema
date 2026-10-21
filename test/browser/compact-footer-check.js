@@ -82,6 +82,9 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
       const context = `${name}: ${link.text} ${JSON.stringify(link)}`;
       assert.equal(link.visible, true, `${context}: checkVisibility() is true`);
       assert.deepEqual(link.hidden, [], `${context}: link and composed ancestors are not hidden`);
+      // AIT-435 Tick v1.6: only the separate phone legal row uses 24px.
+      if (width < 600) assert.ok(link.rect.width > 0 && link.rect.height >= 24, `${context}: legal target is at least 24px high`);
+      else
       assert.ok(link.rect.width > 0 && link.rect.height >= 44, `${context}: legal target is at least 44px high`);
       assert.equal(link.insideRow, true, `${context}: fully inside footer row`);
       assert.equal(link.insideFooter, true, `${context}: fully inside footer`);
@@ -89,7 +92,7 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
       assert.deepEqual(link.clipping, [], `${context}: no ancestor clips the legal target`);
       assert.equal(link.unobscured, true, `${context}: all legal target corners are visible`);
     }
-    const line = `${name}: PASS both legal links visible, unclipped, inside row/viewport, targets >=44px`;
+    const line = `${name}: PASS both legal links visible, unclipped, inside row/viewport, targets >=${width < 600 ? 24 : 44}px high`;
     console.log(line);
     legalChecks.push({ head: legalHead, width, theme, locale, state, ...result, pass: true, line });
   };

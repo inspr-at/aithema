@@ -172,6 +172,9 @@ export async function demoLegalPhoneCheck(t) {
         assert.equal(link.text, i === 0 ? 'AGPL-3.0' : locale === 'de' ? 'Quellcode' : 'Source', `${label}: short visible wording`);
       }
       for (const [i, link] of state.links.entries()) {
+        // AIT-435 Tick v1.6 explicitly replaces the phone legal target height.
+        if (width < 600) assert.ok(link.bounds.width >= 44 && link.bounds.height >= 24, `${label}: >=44px wide and >=24px high legal target`);
+        else
         assert.ok(link.bounds.width >= 44 && link.bounds.height >= 44, `${label}: >=44px target`);
         assert.equal(link.visible && link.inside && link.unobscured && !link.overlap, true, `${label}: legal visible/unobscured/no overlap ${JSON.stringify(link)}`);
         if (width < 600) assert.equal(link.textInside, true, `${label}: phone text stays inside its target`);
@@ -210,7 +213,7 @@ export async function demoLegalPhoneCheck(t) {
         assert.equal(held.links[i].unobscured, true);
         await page.select('#theme', theme); await settle(page);
       }
-      const line = `PASS ${label}: legal one line below 600; >=44px; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; flag/legal gap ${state.flagLegalGap}px >=8px; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
+      const line = `PASS ${label}: legal one line below 600; >=44px wide/>=${width < 600 ? 24 : 44}px high; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; flag/legal gap ${state.flagLegalGap}px >=8px; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
       pass.push(line); checks.push({ width, theme, locale, ...state }); t.diagnostic(line);
     }
   }

@@ -392,12 +392,16 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 /* AIT-435 Tick v1.1: legal gets its own row on every phone host,
    before the first receipt, so neither credits nor its target reaches the flag. */
 @media(width < 600px) {
+  /* Tick v1.6: padding is already at its 6px floor. The shorter legal row
+     still needs the final permitted 4px from the composer/footer gap. */
+  .workspace:has(.host-legal:not([hidden])) { --phone-footer-gap:8px; }
   .display-foot:has(.host-legal:not([hidden])) .display-foot__row,
-  .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px minmax(44px,max-content); }
+  .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px minmax(28px,max-content); }
   .display-foot:has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
   .display-foot:has(.host-legal:not([hidden])) .host-credits { grid-area:1/2; }
   .display-foot:has(.host-legal:not([hidden])) .footer-right { display:contents; }
   .display-foot:has(.host-legal:not([hidden])) .preset-panel { grid-area:1/3; }
-  .display-foot:has(.host-legal:not([hidden])) .host-legal { grid-area:2/1/3/-1; justify-content:center; margin-left:0; }
+  .display-foot:has(.host-legal:not([hidden])) .host-legal { grid-area:2/1/3/-1; justify-content:center; margin-left:0; gap:12px; }
+  .display-foot:has(.host-legal:not([hidden])) slot[name="legal"]::slotted(a) { min-height:28px; }
 }
 `;
