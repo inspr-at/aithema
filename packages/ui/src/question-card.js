@@ -139,9 +139,19 @@ export class QuestionCard {
         if (!this.card.hidden && this.followsTranscript()) this.onResize?.({ following: true });
       });
     };
+    const viewportSize = () => {
+      const visual = this.view.visualViewport;
+      return [this.view.innerWidth, this.view.innerHeight, visual?.width ?? this.view.innerWidth,
+        visual?.height ?? this.view.innerHeight, visual?.offsetTop ?? 0, visual?.offsetLeft ?? 0].join('/');
+    };
+    this.viewportSize = viewportSize();
     this.viewportResize = () => {
       if ((this.view.visualViewport?.scale ?? 1) !== 1) return;
-      this.followOnResize ??= this.followsTranscript();
+      const size = viewportSize();
+      // A resize queued before mount can arrive after its final dimensions are
+      // already in use. Remeasure, but do not scroll a hidden card's transcript.
+      if (size !== this.viewportSize) this.followOnResize ??= this.followsTranscript();
+      this.viewportSize = size;
       this.scheduleReserve();
     };
     this.optionsScroll = () => this.fadeOptions();

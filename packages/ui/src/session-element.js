@@ -1421,7 +1421,25 @@ export class AithemaSession extends HTMLElement {
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
       const limit = this.#host?.limitCopy ?? u;
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
-      out.toggleAttribute('data-host-limit', this.#host?.endReason === 'host-limit');
+      const newAction = this.#host?.newConversationAction, noAction = this.#host?.noDailyAction;
+      const newConversationEnabled = this.#options.host?.usedUp?.newConversation?.enabled === true;
+      out.toggleAttribute('data-host-limit', ['host-limit', 'session'].includes(this.#host?.endReason) || usedUp && newConversationEnabled ||
+        this.#host?.dailyCapped === true && (noAction || this.#options.host?.credits?.dailyCapReset === true));
+      if (this.#options.host?.credits?.dailyCapReset) {
+        let deadline = out.querySelector('.composer-out__deadline');
+        if (!deadline) { deadline = node('span', 'composer-out__deadline'); out.append(deadline); out.setAttribute('data-reset-slot', ''); }
+        setText(deadline, this.#host?.dailyCapResetLabel ?? '');
+        deadline.hidden = !this.#host?.dailyCapped;
+      }
+      let start = out.querySelector('.composer-out__new');
+      if (this.#options.host?.usedUp?.newConversation?.enabled && !start) {
+        start = node('button', 'composer-out__new'); start.type = 'button';
+        start.addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
+        out.querySelector('.composer-out__actions').append(start);
+      }
+      if (start) { start.hidden = !newAction; start.inert = !newAction; setText(start, credits.ended.newConversationAction); }
+      if (newAction || noAction) out.setAttribute('data-credit-actions', newAction ? 'new' : 'none');
+      else out.removeAttribute('data-credit-actions');
       out.querySelector('.composer-out__steps').setAttribute('aria-hidden', String(out.hasAttribute('data-host-limit')));
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
       out.querySelector('.composer-out__bar').dataset.upgradeMeasure = out.dataset.delivery === 'true' ? credits.confirm : credits.give;
@@ -1439,14 +1457,30 @@ export class AithemaSession extends HTMLElement {
         ['host-give', u.hostGive.replace('{delta}', tierDelta('anonymous', 'emailGiven'))],
         ['host-confirm', u.hostConfirm.replace('{delta}', tierDelta('emailGiven', 'emailConfirmed'))],
         ['host-confirm-anonymous', u.hostConfirm.replace('{delta}', tierDelta('anonymous', 'emailConfirmed'))],
-        ...Object.entries(credits.ended).map(([key, value]) => [key, value.body]), ['daily-cap', credits.dailyCap],
-      ];
-      reconcile(out.querySelector('.composer-out__body'), bodies, () => node('span'), (span, body) => {
+        ...Object.entries(credits.ended).filter(([, value]) => value && typeof value === 'object')
+          .map(([key, value]) => [key, key === 'session' ? credits.ended.sessionDefaultBody ?? value.body : value.body]), ['daily-cap', credits.dailyCap],
+      ].map(([key, text]) => [key, { text, option: false }]);
+      // Default hosts keep main's exact peers. Opted-in panels add only real
+      // hint/confirmation variants, each painted in its corresponding state.
+      // Footer reconciliation, reset labels and empty cap actions cannot paint
+      // these hints and therefore must not add composer reservation peers.
+      const optionVariants = newConversationEnabled || this.#host?.endReason === 'session';
+      if (optionVariants) bodies.push(...[
+        ['new-conversation', credits.ended.newConversationHint],
+        ['session-emailConfirmed', credits.ended.sessionUpgrade.replace('{next}', allowances?.emailConfirmed === undefined ? ''
+          : formatCredits(allowances.emailConfirmed, this.#session.locale ?? 'en'))],
+      ].map(([key, text]) => [`option-${key}`, { text, option: true }]));
+      const activeKey = !this.#host?.dailyCapped && this.#host?.endReason === 'session'
+        ? next ? 'option-session-emailConfirmed' : 'option-new-conversation'
+        : newAction ? 'option-new-conversation' : 'active';
+      reconcile(out.querySelector('.composer-out__body'), bodies, body => node(body.option ? 'b' : 'span'), (span, { text, option }) => {
         const key = span.dataset.key;
-        setText(span, body); span.dataset.creditVariant = key;
-        span.dataset.active = String(key === 'active');
-        span.toggleAttribute('data-host-body', key.startsWith('host-') || key === 'active' && out.hasAttribute('data-host-limit'));
-        span.setAttribute('aria-hidden', String(!usedUp || key !== 'active'));
+        setText(span, text);
+        if (option) span.dataset.creditOptionVariant = key;
+        else span.dataset.creditVariant = key;
+        span.dataset.active = String(key === activeKey);
+        span.toggleAttribute('data-host-body', option || key.startsWith('host-') || key === 'active' && out.hasAttribute('data-host-limit'));
+        span.setAttribute('aria-hidden', String(!usedUp || key !== activeKey));
       });
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');
@@ -1455,9 +1489,11 @@ export class AithemaSession extends HTMLElement {
       setText(out.querySelector('.composer-out__export span'), u.export);
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
-      const exportLink = out.querySelector('.composer-out__export'), exportShown = kind === 'none' || this.#host?.endReason === 'host-limit';
+      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
-      const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
+      const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none' || noAction; upgrade.setAttribute('aria-hidden', String(kind === 'none' || noAction));
+      if (noAction) out.querySelector('.composer-out__actions').setAttribute('aria-hidden', 'true');
+      else out.querySelector('.composer-out__actions').removeAttribute('aria-hidden');
       const card = root.querySelector('.qcard'); card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp);
       this.#host?.emailAsk?.paint();
       this.#paintStatus();
@@ -1489,8 +1525,11 @@ export class AithemaSession extends HTMLElement {
       for (const { key, turn: t, upload, lowLine } of entries) {
         let row = rows.get(key); rows.delete(key);
         if (lowLine) {
-          if (!row) { row = node('li', 'email-low-line'); row.dataset.id = key; }
+          if (!row) { row = node('li', lowLine.reserved ? 'email-low-reserve' : 'email-low-line'); row.dataset.id = key; }
           this.#host.emailAsk.paintLine(row, lowLine);
+          row.className = lowLine.reserved ? 'email-low-reserve' : 'email-low-line';
+          row.inert = Boolean(lowLine.reserved);
+          if (lowLine.reserved) row.setAttribute('aria-hidden', 'true'); else row.removeAttribute('aria-hidden');
           if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
           continue;
         }
@@ -2194,7 +2233,7 @@ export class AithemaSession extends HTMLElement {
     for (const turn of turns) {
       if (turn.at) while (next < uploads.length && uploads[next].at < turn.at) entries.push(uploads[next++]);
       entries.push({ key: turn.id, turn });
-      const lowLine = this.#host?.emailAsk?.state.lowLine;
+      const lowLine = this.#host?.emailAsk?.lowLine ?? this.#host?.emailAsk?.reservedLowLine;
       if (lowLine?.at === turn.id) entries.push({ key: `email-low:${turn.id}`, lowLine });
     }
     entries.push(...uploads.slice(next));

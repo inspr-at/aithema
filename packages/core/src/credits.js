@@ -58,8 +58,9 @@ export function budgetCreditView(ledger, sessionId, ownerWallet) {
 export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0, ownerWallet) {
   if (!integer(maxMicro) || !integer(maxVisitorMicro) || typeof ledger?.canAdmit !== 'function') throw new TypeError('Invalid credit request');
   const balance = budgetCreditView(ledger, sessionId, ownerWallet);
-  if (ownerWallet.canAdmit({ sessionId, maxMicro, maxVisitorMicro }) !== true) {
-    return { ok: false, reason: 'host-limit', balance };
+  const preview = ownerWallet.canAdmit({ sessionId, maxMicro, maxVisitorMicro });
+  if (preview !== true) {
+    return { ok: false, reason: preview?.reason === 'session' || admissionReason(balance, maxMicro, maxVisitorMicro) === 'session' ? 'session' : 'host-limit', balance };
   }
   const ok = ledger.canAdmit(sessionId, maxMicro, maxVisitorMicro) === true;
   return { ok, reason: ok ? null : admissionReason(balance, maxMicro, maxVisitorMicro), balance };
@@ -99,7 +100,8 @@ export async function admitCredits(ledger, request, ownerWallet, { beforeReserve
     if (typeof result?.ok !== 'boolean') throw new TypeError('Invalid owner wallet admission');
     if (!result.ok) {
       if (result.reason === 'attempt-conflict') return { ok: false, reason: 'attempt-conflict', attemptId: snapshot.attemptId };
-      return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
+      const balance = budgetCreditView(ledger, snapshot.sessionId, ownerWallet);
+      return { ok: false, reason: result.reason === 'session' || admissionReason(balance, snapshot.maxMicro, snapshot.maxVisitorMicro ?? 0) === 'session' ? 'session' : 'host-limit', balance };
     }
     // A refusal here precedes ledger admission and cannot have dispatched work.
     try { beforeReserve(); } catch (error) {

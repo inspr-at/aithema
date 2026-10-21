@@ -2469,3 +2469,64 @@ network retry retains its client event id. Arrow keys move focus without writing
 Space, Enter or a pointer selection commits, including confirmation of the checked
 inferred role. Escape returns focus to the trigger; outside clicks and Tab-out
 close the desktop popover. A phone save keeps the sheet open with its saved notice.
+
+### Credit host options (O1–O8, RC13)
+
+The client settings below belong to `host` in `configure`. Omitted settings
+preserve the default presentation; the built-in dictionaries preserve the
+historic anonymous offer. Server settings belong to the trusted server host.
+
+```js
+sessionElement.configure({
+  session, copy,
+  host: {
+    verification: true,
+    credits: { reconcilingVisible: true, dailyCapReset: true },
+    usedUp: { newConversation: { enabled: true }, dailyCapActions: 'none' },
+    emailAsk: { lowCredits: false },
+  },
+});
+```
+
+- **O1:** `usedUp.newConversation.enabled` defaults to false. With no upgrade,
+  the single primary action starts a conversation using the existing path;
+  export remains a secondary link. The hint and action keep their slots.
+- **O2:** `usedUp.dailyCapActions` accepts `'export'` (default) or `'none'`.
+  The latter leaves an empty, reserved, `aria-hidden` row only for daily cap.
+- **O3:** A host-supplied `copy.hostSurface.credits.afterConfirm` supplies the
+  unconfirmed offer (`{n}` or legacy `{tier}`); `withConfirmed` remains the
+  current confirmed tier. Without `afterConfirm`, the offer falls back to
+  `withConfirmed`. Passing the unchanged built-in dictionary keeps RC13 copy.
+- **O4:** `credits.reconcilingVisible` defaults to false. When true, the visible
+  balance stack reserves both number and muted reconciling text. The text has
+  one polite announcement per reconciliation; the tooltip remains available.
+  Phone hosts with legal links reserve a separate standing legal row, so the
+  visible status cannot overlap those links.
+- **O5:** `credits.dailyCapReset` defaults to false. On the server,
+  `creditTiers(ownerToken, { sessionId })` supplies `dailyCapReached` and
+  `dailyCapResetAt` (safe-integer Unix milliseconds) for a session-scoped wallet.
+  The daily-cap receipt carries the instant only while capped. Local formatting
+  uses DE 24-hour time and the EN locale's time format. An acknowledged reset
+  stays visible until the cap clears, even if a subsequent receipt omits it.
+- **O6:** `emailAsk.lowCredits` defaults to true. Set false on both client and
+  server to suppress the inline low-credit ask and automatic low ask. The
+  server does not claim or await that ask. Confirmation from the tier and
+  used-up panel still works; other email flows retain their existing policy.
+- **O7:** Wallet `canAdmit(request)` keeps its boolean contract and may refuse
+  with `{ ok: false, reason: 'session' }`; `admit(request)` may return that
+  refusal too. Only boolean `true` authorizes a preview or voice extension;
+  every other return value refuses. Unknown or absent reasons remain host-limit.
+  Daily cap wins
+  over session, and session wins over host-limit. Session end uses the
+  number-free title and either confirmation at the higher tier, the O1 new
+  conversation action, or export when O1 is off. O2 and O5 affect daily cap only.
+- **O8:** `/identity` explicitly reports `visitorEmail.canDelete` beside
+  `canSave`. Both reflect the complete `visitor`, `saveEmail`, `deleteEmail`,
+  `eraseVisitor` port required by visitor routes. The client permits deletion
+  only for explicit true. Otherwise the button has the existing disabled style,
+  `aria-disabled`, and no tab stop. Its reserved reason points to the host's
+  legal-slot privacy link, or uses plain text if none is configured. No delete
+  request or credit-drop confirmation can be triggered without the capability.
+
+All state rows reserve their geometry. Host copy uses German grouping (`1.000`)
+and NBSP before `Credits`; copy is inserted as text, never HTML.

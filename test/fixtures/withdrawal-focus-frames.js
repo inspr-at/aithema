@@ -80,14 +80,25 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
   if (transcriptTop) {
     const head = process.env.GITHUB_EVENT_PATH
       ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha : process.env.AITHEMA_COMMIT;
+    const mainLayout = JSON.parse(await readFile(new URL('./ait411-main-composer.json', import.meta.url), 'utf8'));
     for (const width of [390, 1024, 1440]) for (const locale of ['de', 'en']) await t.test(`${width}/light/${locale}`, async () => {
       const content = locale === 'de'
         ? ['Wir sind eine Bäckerei und wollen Vorbestellungen per App annehmen.', 'Abgeholt wird am nächsten Morgen in der Filiale.', 'Großkunden bestellen jede Woche dasselbe.', 'Danke. Wer holt die Bestellungen am Morgen ab?']
         : ['We are a bakery and want to accept preorders through an app.', 'Orders are collected the next morning at the shop.', 'Wholesale customers order the same items every week.', 'Thanks. Who collects the orders in the morning?'];
       const turns = content.map((content, i) => ({ id: i ? `turn-${i}` : 'source', role: i === 3 ? 'assistant' : 'user', content }));
       await mount(width, 'light', locale, 't1', false, turns);
-      // This case reads the first row; the phone may initially follow the
-      // last reply once the four fixture turns overflow the bounded pane.
+      const mounted = await page.evaluate(() => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = r.querySelector('.composer').getBoundingClientRect();
+        return { scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight,
+          composer: [b.x, b.y, b.width, b.height], html: r.querySelector('.composer-shell').outerHTML };
+      });
+      if(evidence)await writeFile(join(evidence,`initial-${width}-${locale}.json`),JSON.stringify(mounted));
+      console.log('AIT411_BRANCH_INITIAL ' + JSON.stringify({ width, locale, ...mounted, html: undefined }));
+      assert.equal(mounted.html, mainLayout.composerHTML[process.platform][locale], 'default composer DOM equals independently captured main before fixture setup');
+      assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
+      assert.equal(mounted.scrollTop, 0, 'default mount ignores queued no-op viewport resize before fixture setup');
+      // Keep main's explicit first-row setup and every existing assertion; the
+      // independent assertions above prevent it from hiding a default regression.
       await page.evaluate(async () => {
         c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0;
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -104,6 +115,8 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
             .map(n => ({ id:n.dataset.id, top:n.getBoundingClientRect().top, bottom:n.getBoundingClientRect().bottom }))[0] };
       });
       const before = await inspect();
+      assert.equal(before.scrollTop, 0, 'fixture starts at the first transcript row');
+      assert.ok(before.top >= Math.max(before.shell[1] + 8, before.headerBottom, before.slotBottom), 'fixture starts with the first row wholly below the last top row and fade');
       assert.equal(before.scrollTop, 0, 'first-row clearance starts at the top of the transcript');
       await page.evaluate(() => withdraw());
       await capture(width, 'light', locale, 'transcript-withdrawal');
@@ -111,7 +124,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       await page.evaluate(() => clock.tick(4000));
       await capture(width, 'light', locale, 'transcript-expired');
       const expired = await inspect();
-      checks.push({ width, locale, before, withdrawn, expired });
+      checks.push({ width, locale, mounted, before, withdrawn, expired });
       if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, capture:'viewport', blurred:true, reducedMotion:true, shots, checks }, null, 2));
       assert.deepEqual(withdrawn.slot, before.slot, 'AIT-400: status occupies the reserved slot at 0 px');
       assert.deepEqual(expired.slot, before.slot, 'AIT-400: status expiry preserves the reserved slot at 0 px');

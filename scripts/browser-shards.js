@@ -249,6 +249,15 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 151);
 
+// AIT-411: PR #365 CI 39468957734, head aca252f4, shard 4/7:
+// complete host-surface file 7/7 PASS, including all 180 exact-zero cases
+// and the 20 requested viewport shots. Top-level work 163.714101536s;
+// ceil(*1.25) = 205s; round this temporary floor up to 210s for CI variance.
+// Optimized matrix work: 47.519304536s (before batching: 52.789977227s).
+// PR diagnostic floor only; keep trusted main history and all capacity settings.
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 210);
+
 // AIT-404: green PR #357 CI 39430635672, head e1756456, shard 3/7:
 // complete continuity file 3/3 PASS, including all eight touch/fine-pointer
 // takeback cases with exact-zero whole-click geometry and failed GET recovery.
@@ -268,6 +277,64 @@ browserTestWeights['test/browser/start2-display-continuity.test.js'] = Math.max(
 // this recalibration changes no capacity setting, method, margin or name.
 browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
   browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 159);
+
+// AIT-411 combined-head CI 39492236313, e791da30, shard 7/8:
+// visitor file 6/6 PASS; top-level work 128.294181508s, ceil(*1.25)=161s.
+// Host file 7/7 PASS on shard 4/8: 163.000446575s, ceil(*1.25)=204s;
+// retain its conservative 210s floor. The unrelated frozen-email comparison
+// failed because its approved grid overlay lacked the new measurement peers.
+// Successful file diagnostics only; trusted rolling-main history is unchanged.
+browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
+  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 161);
+
+// AIT-411 final-main integration (AIT-418): green browser shard 7/8 in
+// PR CI 39493499517 at 3f7e68e1 measures the expanded email-space file at
+// 69.358467245s; ceil(*1.25)=87s. Retain the mature main series unchanged
+// and add this diagnostic floor for the newly merged stream-wait coverage.
+browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-mail-space.test.js'], 87);
+
+// The same CI's green shard 5/8 measures AIT-425's expanded pause-phone
+// workload at 170.669575097s; ceil(*1.25)=214s. This is also a diagnostic
+// floor, without rewriting the trusted main samples or changing capacity.
+browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
+  browserTestWeights['test/browser/pause-phone.test.js'], 214);
+
+// AIT-411 final packing observation: green PR CI 39494521010 at fcd9dc44
+// measures host-surface 185.751821015s on shard 5/8 after whole-file repacking
+// (ceil(*1.25)=233s), and pause-phone 171.517982595s on shard 4/8
+// (ceil(*1.25)=215s). Round the diagnostic floors up to 240s/220s to retain
+// the required margin through placement/runner variance. No history is lowered.
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 240);
+browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
+  browserTestWeights['test/browser/pause-phone.test.js'], 220);
+
+// AIT-411 integration of main 9b6629b0: its successful AIT-400/AIT-412 PR
+// CI 39489180770 measures display 212.477007298s (ceil(*1.25)=266s),
+// continuity 88.053112613s (111s), voice-presentation 194.444552242s (244s),
+// and demo 57.047005682s (72s). AIT-422's successful PR CI 39487274007
+// measures the expanded visitor file at 136.347s (171s). Our green browser
+// CI 39494521010 measures voice-presentation 206.656730502s (259s) and
+// tick-followups 81.616895931s (103s). Retain the larger samples and round
+// diagnostic floors conservatively; all original zero-pixel coverage stays.
+for (const [file, seconds] of Object.entries({
+  'test/browser/start2-display.test.js': 270,
+  'test/browser/start2-display-continuity.test.js': 120,
+  'test/browser/voice-presentation.test.js': 270,
+  'test/browser/demo.test.js': 80,
+  'test/browser/visitor-credit-tiers.test.js': 180,
+  'test/browser/tick-followups.test.js': 110,
+})) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
+
+// AIT-411 final-head CI 39497793398, 2503e01d: email-mail-space work
+// 71.171632711s requires ceil(*1.25)=89s; visitor work 143.560138164s
+// requires 180s. Round these diagnostic floors to 100s/200s for placement
+// variance rather than consuming the exact boundary. All prior samples stay.
+browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-mail-space.test.js'], 100);
+browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
+  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 200);
 
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.

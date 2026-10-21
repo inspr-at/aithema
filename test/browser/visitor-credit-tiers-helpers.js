@@ -79,7 +79,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
         if (method === 'DELETE') { state.address = null; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy });
       }
-      if (path.endsWith('/identity')) return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: privacy });
+      if (path.endsWith('/identity')) return Response.json({ identity: identity(), visitorEmail: { canSave: true, canDelete: true }, delivery, privacyDocumentConfigured: privacy });
       if (/\/identity\/(request|change|resend)$/u.test(path)) { state.address = JSON.parse(init.body).address ?? state.address; state.confirmed = false; return Response.json({ identity: identity() }); }
       return window.a2OriginalFetch(url, init);
     };

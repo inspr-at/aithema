@@ -1000,14 +1000,60 @@ for (const missing of [null, 'visitor', 'saveEmail', 'deleteEmail', 'eraseVisito
     if (missing) delete f.host[missing];
     const identity = await f.call(`/api/sessions/${session.id}/identity`);
     assert.equal(identity.status, 200);
-    assert.deepEqual((await identity.json()).visitorEmail, { canSave: missing === null });
+    assert.deepEqual((await identity.json()).visitorEmail, { canSave: missing === null, canDelete: missing === null });
     const visitor = await f.call('/api/visitor/email');
     assert.equal(visitor.status, missing ? 503 : 200);
     const pending = await f.call(`/api/sessions/${session.id}/identity/request`, { address: 'port@example.test' });
     assert.equal(pending.status, 200);
-    assert.deepEqual((await pending.json()).visitorEmail, { canSave: missing === null });
+    assert.deepEqual((await pending.json()).visitorEmail, { canSave: missing === null, canDelete: missing === null });
   });
 }
+
+test('AIT-411 O5: daily-cap receipt carries only a valid host reset instant while capped', async t => {
+  const f = fixture(t), s = await f.create(), wallet = f.host.wallet(owner);
+  t.mock.method(f.host, 'wallet', () => Object.create(wallet, { creditScope: { value: 'session' } }));
+  let dailyCapReached = true, dailyCapResetAt = 123456789;
+  t.mock.method(f.host, 'creditTiers', () => ({ dailyCapReached, dailyCapResetAt }));
+  const receipt = async () => (await f.call(`/api/sessions/${s.id}/credits`)).json();
+  assert.equal((await receipt()).dailyCapResetAt, dailyCapResetAt);
+  dailyCapReached = false; assert.equal(Object.hasOwn(await receipt(), 'dailyCapResetAt'), false);
+  dailyCapReached = true; dailyCapResetAt = 'invalid'; assert.equal(Object.hasOwn(await receipt(), 'dailyCapResetAt'), false);
+});
+
+test('AIT-411 O8: delete capability follows every required visitor port', async t => {
+  const f = fixture(t), s = await f.create();
+  assert.equal((await (await f.call(`/api/sessions/${s.id}/identity`)).json()).visitorEmail.canDelete, true);
+  for (const key of ['visitor', 'saveEmail', 'deleteEmail', 'eraseVisitor']) {
+    const saved = f.host[key]; delete f.host[key];
+    assert.equal((await (await f.call(`/api/sessions/${s.id}/identity`)).json()).visitorEmail.canDelete, false, key);
+    f.host[key] = saved;
+  }
+});
+
+test('AIT-411 O6: disabled low ask cannot create a line or consume the low latch', async t => {
+  const f = fixture(t), s = await f.create();
+  f.host.emailAsk = { lowCredits: false };
+  const wallet = f.host.wallet(owner);
+  t.mock.method(f.host, 'wallet', () => ({ ...wallet, balance: () => ({ limitMicro: 10000000, committedMicro: 9900000 }), canAdmit: () => true }));
+  f.storage.append(s.id, 'turn.final', { id: 'ait411-reply', role: 'assistant', content: 'Ready.' });
+  const response = await (await f.call(`/api/sessions/${s.id}/email-ask`, { action: 'line' })).json();
+  assert.equal(response.accepted, false); assert.equal(response.emailAsk.lowLine, undefined);
+  assert.equal((await (await f.call(`/api/sessions/${s.id}/credits`)).json()).emailAskLowCredits, false);
+});
+
+test('AIT-411 O7: wallet session reason reaches the credit receipt and a funded tier reopens it', async t => {
+  const f = fixture(t), s = await f.create(), wallet = f.host.wallet(owner);
+  let refusal = { ok: false, reason: 'session' };
+  t.mock.method(f.host, 'wallet', () => ({ ...wallet, canAdmit: () => refusal }));
+  const receipt = async () => (await f.call(`/api/sessions/${s.id}/credits`)).json();
+  assert.equal((await receipt()).limitSlot.endReason, 'session');
+  assert.equal((await receipt()).limitSlot.status, 'ended');
+  for (const reason of [undefined, 'unknown', 'host-limit']) {
+    refusal = { ok: false, reason };
+    assert.equal((await receipt()).limitSlot.endReason, null, 'unknown wallet reasons retain the prior receipt projection');
+  }
+  refusal = true; assert.equal((await receipt()).limitSlot.endReason, null);
+});
 
 for (const fails of [false, true]) test(`AIT-418: identity/change during an admitted reply ${fails ? 'keeps failure and explicit retry' : 'publishes once'}`, async t => {
   const f = fixture(t), s = await f.create(), base = `/api/sessions/${s.id}`;

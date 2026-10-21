@@ -1,3 +1,5 @@
+import { de } from './i18n/de.js';
+import { en } from './i18n/en.js';
 import { ActorRole } from './actor-role.js';
 import { reasonSeparator } from './consent-line.js';
 // The host surface inside <aithema-session> (AIT-104 B2): the host bar (conversation library,
@@ -55,7 +57,7 @@ export class HostSurface {
         entry: root.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
         identity: this.#session().identity, pollMs: o.pollMs, notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
     }
-    if (o.credits && this.#verification) this.#emailAsk = new EmailAsk({ root, copy, verification: this.#verification,
+    if (o.credits && this.#verification) this.#emailAsk = new EmailAsk({ root, copy, verification: this.#verification, lowCredits: o.emailAsk?.lowCredits !== false,
       request: (path, body) => this.#call(this.#sessionPath(path), body), session, streaming,
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     this.#mountHandover(); this.#mountFoot();
@@ -86,6 +88,10 @@ export class HostSurface {
     const state = this.#session().credits;
     return this.#ended ?? (['ending', 'ended'].includes(state?.status) ? state.endReason ?? 'session' : null);
   }
+  get dailyCapped() { return this.#credits?.scope === 'session' && this.#credits.dailyCapReached === true; }
+  get newConversationAction() { return this.usedUp && !this.dailyCapped && (!this.endReason || ['host-limit', 'session'].includes(this.endReason)) && !this.nextTier && this.#options.usedUp?.newConversation?.enabled === true; }
+  get dailyCapResetLabel() { return this.dailyCapped && this.#options.credits?.dailyCapReset ? this.#root.querySelector('.host-credits__deadline').textContent : ''; }
+  get noDailyAction() { return this.dailyCapped && this.#options.usedUp?.dailyCapActions === 'none'; }
   get creditStatusReason() {
     if (this.#credits?.scope === 'session') {
       if (this.#credits.dailyCapReached) return 'dailyCap';
@@ -99,6 +105,14 @@ export class HostSurface {
     if (this.#credits?.scope === 'session' && this.#credits.dailyCapReached) return {
       title: credits.dailyCapShort, body: credits.dailyCap, footer: false, announce: credits.dailyCap,
     };
+    if (this.endReason === 'session') {
+      const body = next ? fill(credits.ended.sessionUpgrade, { next: defaultCreditFormat(this.tiers.allowancesMicro[next], this.#session().locale ?? 'en') }) : credits.ended.newConversationHint;
+      return { title: credits.ended.session.title, body, footer: credits.ended.session.footer, announce: `${credits.ended.session.title} ${body}` };
+    }
+    if (this.newConversationAction) {
+      const title = (credits.ended[this.endReason] ?? usedUp).title, body = credits.ended.newConversationHint;
+      return { title, body, footer: false, announce: `${title} ${body}` };
+    }
     const state = this.endReason === 'host-limit' && next
       ? { title: usedUp.title, body: fill(usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: this.deltaCredits }), footer: false }
       : credits.ended[this.endReason] ?? usedUp;
@@ -111,11 +125,14 @@ export class HostSurface {
     return !this.usedUp && (this.#credits?.fullHold === true || owner?.availableMicro === 0 && owner.reservedMicro > 0);
   }
   get nextTier() {
-    if (this.endReason && this.endReason !== 'host-limit' || !this.#verification?.enabled || !this.#verification.canCollect) return null;
+    if (this.endReason && !['host-limit', 'session'].includes(this.endReason) || !this.#verification?.enabled || !this.#verification.canCollect) return null;
     const tiers = this.tiers;
-    if (this.#credits?.scope !== 'session') return tiers?.next ?? null;
-    if (this.#credits.dailyCapReached || tiers?.current === 'emailConfirmed') return null;
+    if (this.dailyCapped) return null;
     const allowances = tiers?.allowancesMicro;
+    if (this.endReason === 'session') return tiers?.current !== 'emailConfirmed' && tiers?.canConfirm &&
+      allowances?.emailConfirmed > allowances?.[tiers.current] ? 'emailConfirmed' : null;
+    if (this.#credits?.scope !== 'session') return tiers?.next ?? null;
+    if (tiers?.current === 'emailConfirmed') return null;
     // Equal anonymous/email-given allowances go straight to confirmation.
     if (tiers?.current === 'anonymous' && allowances && allowances.anonymous === allowances.emailGiven) {
       return tiers.canConfirm && allowances.emailConfirmed > allowances.anonymous ? 'emailConfirmed' : null;
@@ -164,7 +181,7 @@ export class HostSurface {
     if (event.type === 'credits.limit-reached' || event.type === 'conversation.end-requested') {
       const reason = event.data?.reason;
       this.#limitGeneration++;
-      this.#ended = reason ?? this.#ended ?? 'session';
+      this.#ended = this.#ended === 'session' && reason === 'host-limit' ? 'session' : reason ?? this.#ended ?? 'session';
       // The composer's limit block owns the reason and its polite announcement.
       // Never send ended copy through the action-status/toast channel.
     }
@@ -288,10 +305,11 @@ export class HostSurface {
           ['ending', 'ended'].includes(previous.limitSlot.status) && slot?.status === 'active');
       // An earlier receipt cannot recover a limit announced after its request.
       const currentLimit = limitGeneration === this.#limitGeneration;
-      if (currentLimit && this.#ended === 'host-limit' && recovered) this.#ended = null;
-      if (currentLimit && ['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
-      this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
+      if (currentLimit && recovered && (this.#ended === 'host-limit' || this.#ended === 'session' && allowanceRaised && slot?.status === 'active')) this.#ended = null;
+      if (currentLimit && ['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = this.#ended === 'session' && slot.endReason === 'host-limit' ? 'session' : slot.endReason ?? this.#ended ?? 'session';
+      this.#verification?.setCredits(this.#credits); this.#paintCredits();
       this.#emailAsk?.setCredits(this.#credits);
+      await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
     } catch {
       // Keep acknowledged tiers; only an unresolved lead needs a failure status.
       if (this.#alive && load === this.#creditsLoad) {
@@ -305,12 +323,27 @@ export class HostSurface {
     if (!this.#options.credits) return;
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
+    // RC13's reconciling key is also the legacy tooltip contract. Keep it
+    // unchanged by default; an explicit host override supplies visible copy too.
+    const reconcilingText = [de.hostSurface.credits.reconciling, en.hostSurface.credits.reconciling].includes(c.reconciling)
+      ? c.reconcilingVisible ?? c.reconciling : c.reconciling;
+    if (this.#options.credits?.reconcilingVisible && !line.querySelector('.host-credits__reconciling')) {
+      const stack = line.querySelector('.host-credits__stack');
+      const label = node('span', 'host-credits__reconciling', reconcilingText); label.setAttribute('aria-hidden', 'true'); stack.append(label);
+      const live = node('span', 'host-credits__reconcile-live sr-only'); live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite'); line.append(live);
+    }
+    const reconciling = this.#options.credits?.reconcilingVisible && this.#credits?.reconciling === true;
+    if (this.#options.credits?.reconcilingVisible) {
+      line.toggleAttribute('data-reconciling', reconciling);
+      setText(line.querySelector('.host-credits__reconciling'), reconcilingText);
+      setText(line.querySelector('.host-credits__reconcile-live'), reconciling ? reconcilingText : '');
+    }
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
     const scoped = this.#credits?.scope === 'session', capped = scoped && this.#credits.dailyCapReached;
     const sessionLayout = scoped || !this.#credits && this.#initialCreditScope === 'session';
     line.toggleAttribute('data-session-credits', sessionLayout); line.toggleAttribute('data-daily-cap', capped);
     setText(line.querySelector('.host-credits__measure-cap'), sessionLayout ? c.dailyCapShort : '');
-    const tierText = text => scoped ? text.replace(/ Credits/gu, '\u00a0Credits') : text;
+    const tierText = text => scoped ? text.replace(/ (credits)/giu, '\u00a0$1') : text;
     const reservedLimit = owner ? Math.max(owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger)) : null;
     const warningLimit = this.#credits?.lowAtMaxMicro ?? this.#credits?.lowAtMicro;
     const warningAvailable = owner && Number.isSafeInteger(warningLimit) ? Math.min(owner.availableMicro, warningLimit) : 0;
@@ -353,10 +386,14 @@ export class HostSurface {
     const balance = owner ? fill(scoped ? exhausted ? c.sessionBalanceOut : c.sessionBalance : exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : c.loading;
     setText(scope, balance); button.setAttribute('aria-label', capped ? c.dailyCap : balance);
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
+    if (reconciling) button.setAttribute('aria-label', reconcilingText);
     current.hidden = !tiers || tiers.current === 'anonymous';
-    if (tiers) setText(current.querySelector('span:last-child'), tierText(fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) })));
+    if (tiers) setText(current.querySelector('span:last-child'), tierText(fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale), n: format(tiers.allowancesMicro?.[tiers.current], locale) })));
+    // Built-in RC13 dictionaries retain their historic anonymous offer. A host
+    // supplies afterConfirm by providing its own credits dictionary; absence falls back.
+    const hasOfferCopy = Object.hasOwn(c, 'afterConfirm') && c !== de.hostSurface.credits && c !== en.hostSurface.credits;
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
-    setText(nextLine, next ? tierText(fill(c[next === 'emailGiven' ? 'withEmail' : scoped && tiers.current === 'anonymous' ? 'withConfirmed' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) })) : !capped && out && (scoped || this.limitCopy.footer !== false) ? c.noMore : '');
+    setText(nextLine, next ? tierText(fill(c[next === 'emailGiven' ? 'withEmail' : scoped && tiers.current === 'anonymous' && !hasOfferCopy ? 'withConfirmed' : Object.hasOwn(c, 'afterConfirm') ? 'afterConfirm' : 'withConfirmed'], { tier: format(tiers.allowancesMicro?.[next], locale), n: format(tiers.allowancesMicro?.[next], locale) })) : !capped && out && (scoped || this.limitCopy.footer !== false) ? c.noMore : '');
     nextLine.hidden = capped || !next && (!out || !scoped && this.limitCopy.footer === false); link.hidden = !next;
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
     // Reserve the track without overriding narrow/legal-host display rules.
@@ -372,7 +409,16 @@ export class HostSurface {
     limit.querySelector('slot').hidden = scoped && this.#session().demo === true;
     setText(limit.querySelector('.host-credits__demo'), scoped && this.#session().demo === true ? c.sessionCreditsLimit : '');
     // Retained slot for the demo's host-owned end notice; never a minute countdown.
-    const deadline = line.querySelector('.host-credits__deadline'); deadline.hidden = true; setText(deadline, '');
+    const deadline = line.querySelector('.host-credits__deadline');
+    const resetEnabled = this.#options.credits?.dailyCapReset === true;
+    line.toggleAttribute('data-reset-time', resetEnabled);
+    deadline.hidden = !resetEnabled || !capped;
+    if (this.dailyResetSession !== this.#session().id) { this.dailyResetAt = null; this.dailyResetSession = this.#session().id; }
+    const resetAt = this.#credits?.dailyCapResetAt;
+    if (resetEnabled && capped && Number.isSafeInteger(resetAt)) {
+      this.dailyResetAt = resetAt;
+    } else if (!capped) this.dailyResetAt = null;
+    setText(deadline, resetEnabled && capped && Number.isSafeInteger(this.dailyResetAt) ? fill(c.dailyCapReset, { time: new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(locale.startsWith('de') ? { hour12: false } : {}) }).format(this.dailyResetAt) }) : '');
   }
   // Host footer content stays in the info popup; legal links have their own standing bar slot.
   #mountFoot() {

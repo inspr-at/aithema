@@ -1108,3 +1108,6 @@ test('AIT-376 round 2: every DE/EN status fits at 390, including stale failed an
 // Reuse this existing shard/file and one page for the complete AIT-395 matrix.
 import { sessionCreditsCheck } from './session-credits-check.js';
 test('AIT-395: session credit matrix, sibling frame sampling and zero movement', { timeout: 90_000 }, sessionCreditsCheck);
+
+import { creditHostOptionsCheck } from './credit-host-options-check.js';
+test('AIT-411: credit host options, exact zero geometry and Tick evidence', { timeout: 120_000 }, creditHostOptionsCheck);
