@@ -1,0 +1,77 @@
+name: AIT-440 complete-file soak
+
+on:
+  push:
+    branches: [test/ait-440-html-preview-soak]
+
+permissions:
+  contents: read
+
+jobs:
+  html-preview-soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e0797123309b040f34b54747a1fd437cc86c4568
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run setup:browser
+      - name: Record tested head
+        run: |
+          mkdir -p "$RUNNER_TEMP/ait-440-soak"
+          git rev-parse HEAD | tee "$RUNNER_TEMP/ait-440-soak/head.txt"
+          sha256sum test/browser/html-preview.test.js | tee "$RUNNER_TEMP/ait-440-soak/file.sha256"
+      - name: Complete file 01/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-01.log"
+      - name: Complete file 02/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-02.log"
+      - name: Complete file 03/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-03.log"
+      - name: Complete file 04/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-04.log"
+      - name: Complete file 05/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-05.log"
+      - name: Complete file 06/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-06.log"
+      - name: Complete file 07/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-07.log"
+      - name: Complete file 08/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-08.log"
+      - name: Complete file 09/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-09.log"
+      - name: Complete file 10/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-10.log"
+      - name: Complete file 11/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-11.log"
+      - name: Complete file 12/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-12.log"
+      - name: Complete file 13/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-13.log"
+      - name: Complete file 14/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-14.log"
+      - name: Complete file 15/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-15.log"
+      - name: Complete file 16/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-16.log"
+      - name: Complete file 17/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-17.log"
+      - name: Complete file 18/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-18.log"
+      - name: Complete file 19/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-19.log"
+      - name: Complete file 20/20
+        run: node --test --test-concurrency=1 test/browser/html-preview.test.js 2>&1 | tee "$RUNNER_TEMP/ait-440-soak/run-20.log"
+      - name: Retain complete-file run logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ait-440-complete-file-soak
+          path: ${{ runner.temp }}/ait-440-soak
+          if-no-files-found: error
+          retention-days: 14
