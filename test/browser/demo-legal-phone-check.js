@@ -219,7 +219,7 @@ export async function demoLegalPhoneCheck(t) {
         assert.equal(held.links[i].unobscured, true);
         await page.select('#theme', theme); await settle(page);
       }
-      const line = `PASS ${label}: legal <=2 lines in phone dialog; >=44px wide/>=44px high; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; flag/legal gap ${state.flagLegalGap}px >=8px; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
+      const line = `PASS ${label}: legal <=2 lines in phone dialog; >=44px wide/>=44px high; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; ${width < 600 ? 'popover above footer' : `flag/legal gap ${state.flagLegalGap}px >=8px`}; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
       pass.push(line); checks.push({ width, theme, locale, ...state }); t.diagnostic(line);
     }
   }
