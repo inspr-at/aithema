@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261021043938.0.0",
+  "version": "261021060306.0.0",
   "release_channel": "stable",
-  "release_sequence": 25,
+  "release_sequence": 26,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-431 fourteenth October candidate for START-524, sixth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and LEAD night policy 2026-10-20 22:0x; sequence 25 under coordinator-held release-lock/seq-25 at 7b0bf14ec475475e6d0f35f34a8b1725d5ef348b; prepare only, final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder tag, tag push, GitHub release or publication"
+  "reservation_purpose": "AIT-441 fifteenth October candidate, seventh release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and LEAD 2026-10-21 06:47 for the follow-ups after the RC14 lock; sequence 26 under coordinator-held release-lock/seq-26 at a044d560846105f8c1bcc289cfb4c50f9d10e487; prepare only, final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder tag, tag push, GitHub release or publication"
 }
