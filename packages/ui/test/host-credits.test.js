@@ -488,7 +488,7 @@ for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'em
     if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
     if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250\u00a0Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250\u00a0credits are used up.");
     if (state === 'dailyCap') {
-      assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow.");
+      assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit.");
       assert.equal(next.textContent, '');
     }
   });
