@@ -343,22 +343,27 @@ export async function creditHostOptionsCheck(t) {
           const boxes = () => Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot', '.credits-popup'].map(selector => {
             const b = r.querySelector(selector).getBoundingClientRect(); return [selector, [b.x, b.y, b.width, b.height]];
           }));
-          const current = boxes(), text = nodes.map(n => n.data), tokens = [];
+          const details = () => Object.fromEntries(['.composer-out__title', '.composer-out__body', '.composer-out__bar', '.composer-out__steps', '.composer-out__actions', '.composer-out__upgrade', ...[...r.querySelectorAll('.composer-out__body > *, .composer-out__steps > *, .composer-out__upgrade > *')].map(n => '.' + n.className).filter(s => s !== '.')].map(selector => {
+            const n = r.querySelector(selector), b = n.getBoundingClientRect(), css = getComputedStyle(n);
+            return [selector, { text:n.textContent, rect:[b.x,b.y,b.width,b.height], font:css.font, lineHeight:css.lineHeight, minHeight:css.minHeight, visibility:css.visibility }];
+          }));
+          const current = boxes(), currentDetails = details(), text = nodes.map(n => n.data), tokens = [];
           for (const node of nodes) if (node.parentElement.checkVisibility({ visibilityProperty:true })) for (const match of node.data.matchAll(/E‑Mail/gu)) {
             const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
             tokens.push({ text:node.data, rows:new Set([...range.getClientRects()].map(b => b.y)).size });
           }
           nodes.forEach(node => { node.data = node.data.replaceAll('E‑Mail', 'E-Mail'); });
-          const legacy = boxes(); nodes.forEach((node, i) => { node.data = text[i]; });
-          return { current, legacy, tokens, overflowPx:Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+          const legacy = boxes(), legacyDetails = details(); nodes.forEach((node, i) => { node.data = text[i]; });
+          return { current, legacy, currentDetails, legacyDetails, tokens, overflowPx:Math.max(0, document.documentElement.scrollWidth - innerWidth) };
         });
+        const shot = `ait445-v1.1-390-light-de-${state}.png`;
+        emailCopyChecks.push({ state, shot, ...copyCheck });
+        if (evidence) await page.screenshot({ path:join(evidence, shot), fullPage:false, captureBeyondViewport:false });
+        t.diagnostic('AIT445_COPY_RESERVATION ' + JSON.stringify({ state, ...copyCheck }));
         assert.deepEqual(copyCheck.current, copyCheck.legacy, `${state}: Tick v1.1 copy moves composer, question, footer and popover exactly 0 px`);
         assert.equal(copyCheck.overflowPx, 0, `${state}: Tick v1.1 copy has no horizontal overflow`);
         assert.ok(copyCheck.tokens.length > 0, `${state}: changed E‑Mail copy is visible`);
         for (const token of copyCheck.tokens) assert.equal(token.rows, 1, `${state}: E‑Mail never breaks after E‑`);
-        const shot = `ait445-v1.1-390-light-de-${state}.png`;
-        emailCopyChecks.push({ state, movementPx:0, shot, ...copyCheck });
-        if (evidence) await page.screenshot({ path:join(evidence, shot), fullPage:false, captureBeyondViewport:false });
         if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
       }
     }
