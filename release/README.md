@@ -93,7 +93,7 @@ the existing true default for lowCredits: suppression is the opt-in), callback
 **Breaking for hosts relative to RC13: yes**, because AIT-407 reclassifies
 throwing callbacks from 400/413 to 500, affecting adapter/monitoring/error handling;
 injected clocks also reject custom caps/limiters without setClock (AIT-403/430).
-Explicit-true wallet admission remains mandatory. Host integration is required;
+RC14 newly requires explicit-true wallet admission. Host integration is required;
 this release does not deploy START. Grok Voice is **not yet qualified in live
 use**; “Aithema recommends” is preserved; German defaults are impersonal.
 

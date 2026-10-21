@@ -122,16 +122,21 @@ Update adapters, monitoring and retry/error handling that depended on the old
 status, and repair callbacks to the synchronous read contract above. AIT-403/430
 also rejects custom caps/limiters without `setClock` when installing a clock;
 add that method before opting into an injected clock. AIT-411 also changes
-`canAdmit` at two sites: the host wallet check before starting a voice call and
-the host authorizer for extending a voice credit reservation. At
-`v261020161837.0.0`, both sites admitted every result other than `false`; now a
-missing return or a non-boolean/object result fails closed. Hosts returning
-`true`/`false` are unchanged. The eight credit options
+`canAdmit` in every feature's admission and availability (text, analysis, visuals
+and voice), and in the host authorizer for extending a voice credit reservation.
+At `v261020161837.0.0`, both checks accepted every result except `false`.
+Hosts without `walletForSession` are unaffected. With it, a missing wallet or any
+`canAdmit` result other than `true` (including a missing return or an object) now
+denies every feature; the voice extension authorizer likewise fails closed.
+Return a wallet for every session that should be served, with `canAdmit`
+returning `true` to admit and `false` to refuse. Existing boolean `true`/`false`
+results keep their meaning. The eight credit options
 are opt-in; they do not require enabling new UI.
 
 Voxtral and the second Grok voice pipeline (AIT-317/342) remain parked, private
-and outside this release's sixteen-module closure. AIT-419/423 change CI only
-(eight browser shards); AIT-425/436 strengthen tests without changing behavior.
+and outside this release's sixteen-module closure. CI-only changes: AIT-419 sets
+the 405 s planning target; AIT-423 adds the eighth browser shard.
+AIT-425/436 strengthen tests without changing behavior.
 
 ## What is included
 
