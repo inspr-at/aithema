@@ -569,19 +569,19 @@ test('unknown closure keeps aggregate duration until authenticated reconciliatio
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 2000);
 });
 
-test('recovery and stale reconnect replay use remaining aggregate duration under one call identity', async t => {
-  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000, perDayMilliseconds: 60_000 } }), first = await h.start();
+test('AIT-450: recovery and stale reconnect replay reserve the full credential under one call identity', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 70_000, perDayMilliseconds: 70_000 } }), first = await h.start();
   h.advance(10_000);
   assert.equal((await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' })).status, 200);
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(response.status, 200); const next = await response.json();
   assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
-  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 10_000); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 50_000);
+  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 10_000); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
   const replay = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(replay.status, 200); assert.equal((await replay.json()).providerSessionId, next.providerSessionId);
-  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 50_000);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
   const rows = h.storage.db.prepare('SELECT call_id, reserved_ms FROM voice_cap_reservations').all();
-  assert.deepEqual(rows.map(r => r.reserved_ms), [60_000, 50_000]); assert.ok(rows.every(r => r.call_id === first.callId));
+  assert.deepEqual(rows.map(r => r.reserved_ms), [60_000, 60_000]); assert.ok(rows.every(r => r.call_id === first.callId));
 });
 
 test('overlapping recovery extends the call conservatively and an old settlement cannot release the successor hold', async t => {
@@ -589,14 +589,14 @@ test('overlapping recovery extends the call conservatively and an old settlement
   h.advance(5000);
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(response.status, 200); const next = await response.json();
-  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 115_000);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 120_000);
   await h.waitForClosure(first.providerSessionId); h.endClient(first.providerSessionId); await h.handlers.idle();
-  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 55_000); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000);
   assert.equal((await h.route(`/voice/${next.callId}/heartbeat`, { providerSessionId: next.providerSessionId })).status, 200);
 });
 
-test('recovery refuses before minting while the predecessor is unconfirmed, then reuses its released headroom', async t => {
-  const h = voiceFixture(t, { slowClosure: true, cap: { capMilliseconds: 60_000 } }), first = await h.start();
+test('AIT-450: recovery refuses before minting while the predecessor is unconfirmed, then reuses sufficient released headroom', async t => {
+  const h = voiceFixture(t, { slowClosure: true, cap: { capMilliseconds: 65_000 } }), first = await h.start();
   h.advance(5000);
   const denied = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(denied.status, 403); assert.equal((await denied.json()).reason, VOICE_CAP_REASON);
@@ -606,7 +606,72 @@ test('recovery refuses before minting while the predecessor is unconfirmed, then
   const retry = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(retry.status, 200); const next = await retry.json();
   assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
-  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 55_000);
+  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+});
+
+for (const reservationSeconds of [undefined, 30]) for (const [key, reason] of [
+  ['capMilliseconds', VOICE_CAP_REASON], ['perDayMilliseconds', VOICE_DAY_CAP_REASON],
+]) {
+  for (const settled of [false, true]) test(`AIT-450: 11-minute ${key} refuses recovery at 9 minutes (${reservationSeconds ?? 'nonrolling'}, ${settled ? 'settled' : 'open'})`, async t => {
+    const h = voiceFixture(t, { slowClosure: true, leaseMs: 700_000, cap: { [key]: 660_000 },
+      durationBinding: { maxDurationSeconds: 600, maxMicro: 600_000, reservationSeconds } });
+    h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 1_300_000;
+    const first = await h.start();
+    assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000);
+    h.advance(540_000);
+    if (settled) {
+      h.endClient(first.providerSessionId);
+      assert.equal((await h.route(`/voice/${first.callId}/close`, {
+        providerSessionId: first.providerSessionId, reason: 'transport-lost',
+      })).status, 200);
+      assert.equal(h.voiceCap.snapshot().spentMilliseconds, 540_000);
+      assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+    }
+    const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'not-admitted', reason });
+    assert.equal(h.traffic.filter(url => url.includes('/token?')).length, 1, 'unfunded credential never issued');
+    assert.equal(h.provisioned.length, 1, 'no replacement facade provisioned');
+    const open = h.storage.db.prepare('SELECT SUM(reserved_ms) ms FROM voice_cap_reservations WHERE actual_ms IS NULL').get().ms ?? 0;
+    assert.equal(open, settled ? 0 : 600_000);
+    assert.ok(open + h.voiceCap.snapshot().spentMilliseconds <= 660_000);
+  });
+
+  test(`AIT-450: shortened initial deadline cannot under-reserve ${key} (${reservationSeconds ?? 'nonrolling'})`, async t => {
+    const h = voiceFixture(t, { cap: { [key]: 599_999 }, durationBinding: {
+      maxDurationSeconds: 600, maxMicro: 600_000, reservationSeconds,
+    } });
+    await assert.rejects(h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'short' },
+      options: { spendDeadlineAt: h.now() + 60_000 } }), { code: 'not-admitted', message: reason });
+    assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+    assert.deepEqual(h.traffic, []); assert.deepEqual(h.provisioned, []);
+  });
+}
+
+for (const reservationSeconds of [undefined, 30]) test(`AIT-450: open credentials retain full minutes through recovery and settle provider seconds (${reservationSeconds ?? 'nonrolling'})`, async t => {
+  const h = voiceFixture(t, { slowClosure: true, providerCeiling: true, leaseMs: 700_000,
+    cap: { capMilliseconds: 1_200_000, perDayMilliseconds: 1_200_000 }, durationBinding: {
+      maxDurationSeconds: 600, maxMicro: 600_000, reservationSeconds,
+    } });
+  h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 1_300_000;
+  const first = await h.start(); h.advance(540_000);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(response.status, 200); const next = await response.json();
+  assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(next.spendDeadlineAt - h.now(), 60_000);
+  assert.equal(h.provisioned.length, 2);
+  const holds = h.storage.db.prepare('SELECT reserved_ms FROM voice_cap_reservations WHERE actual_ms IS NULL').all();
+  assert.deepEqual(holds.map(row => row.reserved_ms), [600_000, 600_000]);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 1_200_000, 'two open credentials fit the 20-minute cap exactly');
+  await h.waitForClosure(first.providerSessionId); h.endClient(first.providerSessionId); await h.handlers.idle();
+  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 540_000);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000, 'old closure cannot release the replacement credential');
+  h.advance(600_000);
+  const terminal = await h.route(`/voice/${next.callId}/close`, { providerSessionId: next.providerSessionId }).then(r => r.json());
+  assert.equal(terminal.usage.providerSeconds, 600, 'provider runs past the logical deadline');
+  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 1_140_000);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+  assert.equal(h.voiceCap.snapshot().perDay.spentMilliseconds, 1_140_000);
 });
 
 test('an undispatched admission releases its aggregate hold after the consent check fails', async t => {
