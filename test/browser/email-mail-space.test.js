@@ -546,7 +546,7 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
     const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
     const dialog = r.querySelector('dialog.verify-dialog'), form = dialog.querySelector('.verify-form');
     return { phase, time: performance.now(), fonts: { status: document.fonts.status,
-      faces: [...document.fonts].map(f => ({ family: f.family, status: f.status })) },
+      faces: [...document.fonts].map(f => ({ family: f.family, status: f.status })) }, mode: form.dataset.mode,
       boxes: ['dialog.verify-dialog', '.verify-dialog .verify__input', '.verify-dialog .verify-send', '.verify-dialog .verify__message'].map(s => box(r.querySelector(s))),
       children: [...form.children].map(n => ({ className: n.className, box: box(n), text: n.textContent,
         font: getComputedStyle(n).font, minHeight: getComputedStyle(n).minHeight, display: getComputedStyle(n).display })) };
@@ -554,6 +554,10 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
   t.after(async () => { if (evidence) await writeFile(join(evidence, 'ait454-frames.json'), JSON.stringify({ head: evidenceCommit, checks, errors }, null, 2)); });
   for (const locale of ['de', 'en']) for (let run = 1; run <= repeats; run++) {
     const exercise = async () => {
+    if (repeats === 50) {
+      await page.goto(server.url, { waitUntil: 'domcontentloaded' });
+      await until(page, () => document.querySelector('aithema-session')?.session);
+    }
     await fixture(page, locale, true, true, { replyAvailable: true });
     await shadow(page, c => {
       c.setAttribute('theme', 'light'); c.setAttribute('motion', 'off');
@@ -589,6 +593,9 @@ test('AIT-418 O9: address change waits in place during reply; race keeps failed 
       const { inputRevision } = await import('/packages/core/src/session.js');
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'o9-reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
       c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
+      // A reply refreshes credits, which can reload the same verified identity.
+      // Replay that acknowledgement at re-enable, independent of network timing.
+      c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity } });
     });
     frames.push(await trace('reenable-protocol-return'));
     for (let frame = 1; frame <= 3; frame++) {
