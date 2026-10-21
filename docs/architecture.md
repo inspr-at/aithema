@@ -244,6 +244,7 @@ they are not test coverage switches.
 | `test/browser/composed-qualification.test.js` | `CI` ×3 | Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe |
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/credit-hold.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection; AIT-406 coverage uses shared fullMatrix |
+| `test/browser/credit-host-options-check.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_RUN_ID` ×1 | AIT-411 evidence binds the PR head and CI run from GitHub provenance |
 | `test/browser/credits-first-receipt-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-357 receipt evidence identifies the PR head from the GitHub event payload |
 | `test/browser/demo-legal-phone-check.js` | `GITHUB_EVENT_PATH` ×2 | AIT-304 footer evidence identifies the PR head from the GitHub event payload |
 | `test/browser/demo.test.js` | `CI` ×9 | Linux headless Chrome sandbox selection |

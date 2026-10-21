@@ -49,7 +49,7 @@ export function qualifyStartBinding(binding, now = Date.now()) {
 /** Durable authoritative state + value-free evidence, as in START src/lib/consent-ledger.ts.
  * A mock grant has no item selection/contract and can never authorize these scopes.
  */
-export function createProcessingConsent({ storage, bindings, voiceConfigured = false, grokConfigured = false, voiceBinding, operationsForBinding, now = Date.now }) {
+export function createProcessingConsent({ storage, bindings, voiceConfigured = false, grokConfigured = false, voiceBinding, operationsForBinding, now = () => storage.now() }) {
   // HTML requires its own purpose; reasoning grants never authorize drafts.
   const coveredBindings = bindings.filter(binding => binding.plugin !== 'claude-html' || binding.legal?.purpose === 'drafts-anthropic');
   const operations = binding => operationsForBinding?.(binding) ?? (binding.plugin === 'grok-voice'

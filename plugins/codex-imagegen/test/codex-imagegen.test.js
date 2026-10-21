@@ -14,6 +14,14 @@ import { jumbf, pngChunk, webpChunk, webp } from '../../../test/image-fixtures.j
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII=', 'base64');
 const spec = { prompt: 'Host policy: visitor wants a quiet library. Visual language: cream and ink.' };
+test('AIT-403 CLI image deadline and provenance use the admitted runtime clock', async t => {
+  const wall = Date.parse('2030-06-15T00:00:30Z');
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  const now = () => wall - 60_000, f = await fake(t);
+  const result = await f.plugin.generate(spec, '', options({ now, deadlineAt: now() + 5000 }));
+  assert.equal(result.provenance.generatedAt, new Date(now()).toISOString());
+  assert.equal(f.records.length, 1);
+});
 function options(extra = {}) {
   const reports = []; let consumed = false;
   return { signal: new AbortController().signal, deadlineAt: Date.now() + 5000, reports,

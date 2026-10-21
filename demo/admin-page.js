@@ -9,11 +9,11 @@ const usd = credits => new Intl.NumberFormat(C.locale, { style: 'currency', curr
 const parseWhole = s => { const t = s.replace(/[\s.,'  ]/gu, ''); return /^\d{1,7}$/u.test(t) ? Number(t) : null; };
 const exactUsd = micro => `${Math.floor(micro / 1_000_000)}.${String(micro % 1_000_000).padStart(6, '0')}`;
 const time = at => {
-  const d = new Date(at), today = new Date();
+  const d = new Date(at), today = new Date(hostNow);
   const sameDay = d.toDateString() === today.toDateString();
   return new Intl.DateTimeFormat(C.locale, { ...(sameDay ? {} : { day: 'numeric', month: 'short' }), hour: '2-digit', minute: '2-digit' }).format(d);
 };
-let state, audit, busy = false;
+let state, audit, hostNow, busy = false;
 const statusIcon = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.6v.2"/></svg>';
 function section(id) {
   const el = document.querySelector(`.ad-sec[data-sec="${id}"]`); if (!el) return null;
@@ -74,7 +74,8 @@ function signedOut() {
 async function read(path, options) {
   const r = await fetch('/api/operator/admin/' + path, { cache: 'no-store', ...options });
   if (r.status === 401) { signedOut(); throw Object.assign(new Error('expired'), { expired: true }); }
-  const data = await r.json(); if (!r.ok) throw Object.assign(new Error('admin-request'), { status: r.status, data });
+  const data = await r.json(); hostNow = Number(r.headers.get('x-aithema-now'));
+  if (!r.ok) throw Object.assign(new Error('admin-request'), { status: r.status, data });
   return data;
 }
 async function reload() {

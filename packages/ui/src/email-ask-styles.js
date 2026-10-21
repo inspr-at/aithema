@@ -53,7 +53,8 @@ export const emailAskStyles = `
 .workspace[data-email-ask="dock"] :is(.transcript-shell,.concept-bar,.qcard) { filter:blur(2.5px); opacity:.5; }
 .workspace[data-email-ask="dock"] .composer-shell { visibility:hidden; }
 :is(.transcript-shell,.concept-bar,.qcard) { transition:filter .32s,opacity .32s; }
-.email-low-line { display:grid; grid-template-columns:16px minmax(0,1fr); gap:9px; align-items:start; padding:4px .8rem 2px; font-size:13.5px; line-height:1.5; color:var(--aithema-ink); }
+.email-low-reserve { visibility:hidden; pointer-events:none; }
+.email-low-line,.email-low-reserve { display:grid; grid-template-columns:16px minmax(0,1fr); gap:9px; align-items:start; padding:4px .8rem 2px; font-size:13.5px; line-height:1.5; color:var(--aithema-ink); }
 .email-low-line__icon { display:grid; height:20px; color:var(--aithema-warning); }
 .email-low-line__icon svg { width:16px; height:16px; }
 .email-low-line__action { position:relative; padding:0; color:var(--aithema-accent); font:600 13.5px/1.5 var(--aithema-font); text-decoration:underline; text-underline-offset:3px; }

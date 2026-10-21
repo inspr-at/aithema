@@ -237,3 +237,21 @@ test('AIT-225: desktop reservations do not inspect phone layout styles', t => {
   assert.equal(root.querySelector('.conversation').style.getPropertyValue('--question-card-height'), '290px');
   card.destroy();
 });
+
+test('AIT-411: queued unchanged viewport resize cannot scroll a default conversation to the latest reply', t => {
+  const view = new Window(), host = view.document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}`;
+  const frames = [], followed = [];
+  t.mock.method(view, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  t.mock.method(view, 'cancelAnimationFrame', () => {});
+  const card = new QuestionCard({ root, send() {}, followsTranscript: () => true, onResize: value => followed.push(value) });
+  t.after(() => card.destroy());
+  card.reserve(); followed.length = 0;
+  // A viewport resize queued before mounting arrives after the component exists.
+  // The viewport already has its final size, and the hidden card stays hidden.
+  view.dispatchEvent(new view.Event('resize')); frames.shift()();
+  assert.deepEqual(followed, [], 'a queued no-op resize preserves the initial reading position');
+  Object.defineProperty(view, 'innerWidth', { configurable: true, value: view.innerWidth + 100 });
+  view.dispatchEvent(new view.Event('resize')); frames.shift()();
+  assert.deepEqual(followed, [{ following: true }], 'a real viewport resize retains the existing follow behavior');
+});

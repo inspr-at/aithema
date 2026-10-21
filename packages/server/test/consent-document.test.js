@@ -7,7 +7,7 @@ const document = () => ({ contract: 'host-v1', selected: [], items: [
   { id: 'mock-processing', version: 1, title: 'Host processing', recipients: 'Host processor', text: 'Host purpose' },
 ] });
 
-async function artifactCoverageFixture(t) {
+async function artifactCoverageFixture(t, { extra = 0 } = {}) {
   const { PluginRegistry, processingScope } = await import('@inspr/aithema-core');
   const { createLocalHTML, localHTMLBinding } = await import('../src/index.js');
   const storage = new SQLiteStorage(), producer = createLocalHTML(), now = Date.now();
@@ -30,14 +30,44 @@ async function artifactCoverageFixture(t) {
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ ownerToken: testToken });
   const artifact = await producer.generate({ prompt: 'Offline draft' }, '', { attempt: { attemptId: 'fixture', claimId: 'fixture', consume() {} }, report() {} });
-  for (const [id, raw, visuals] of [['first', good, 'good'], ['bad', bad, 'bad'], ['last', good, 'good']]) {
+  for (const [id, raw, visuals] of [['first', good, 'good'], ['bad', bad, 'bad'], ['last', good, 'good'],
+    ...Array.from({ length: extra }, (_, i) => [`extra-${i}`, good, 'good'])]) {
     storage.append(session.id, 'concept.state', { intent: { pending: { id } } });
     const scope = processingScope(raw, 'generate');
     storage.completeConcept(session.id, artifact, { id, requestId: id, visuals, turnIds: [], referenceIds: [],
       consentPurpose: scope.purpose, consentScope: scope }, { status: { phase: 'ready' } });
   }
-  return { runtime, storage, session, bad, config, read: () => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`)) };
+  return { runtime, storage, session, bad, config, consent, read: () => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`)) };
 }
+
+test('AIT-428: identical stored scopes evaluate once per consent read with unchanged results', async t => {
+  const h = await artifactCoverageFixture(t), evaluated = [], coverage = h.consent.coverage;
+  t.mock.method(h.consent, 'coverage', input => { evaluated.push(input.scope.purpose); return coverage(input); });
+  const expected = { first: { purposes: ['drafts'], unavailable: false }, bad: { purposes: ['old-drafts'], unavailable: false },
+    last: { purposes: ['drafts'], unavailable: false } };
+  assert.deepEqual((await (await h.read()).json()).artifacts, expected);
+  assert.deepEqual(evaluated.sort(), ['drafts', 'old-drafts'], 'identical first/last scopes share one full evaluation');
+  evaluated.length = 0;
+  h.bad.legal.approved = false;
+  assert.deepEqual((await (await h.read()).json()).artifacts, { ...expected, bad: { purposes: ['old-drafts'], unavailable: true } });
+  assert.deepEqual(evaluated, ['drafts'], 'the next request re-evaluates and sees changed binding evidence');
+});
+
+test('AIT-428: GET consent caps concurrent artifact evaluations at four', async t => {
+  const h = await artifactCoverageFixture(t, { extra: 9 }), release = Promise.withResolvers();
+  let active = 0, peak = 0, entered = 0;
+  t.mock.method(h.runtime, 'publicationStatus', async () => {
+    entered++; active++; peak = Math.max(peak, active);
+    await release.promise; active--; return 'allowed';
+  });
+  const pending = h.read();
+  await new Promise(setImmediate);
+  const started = entered; release.resolve();
+  const response = await pending;
+  assert.equal(started, 4, 'only four checks start while their evaluations are held');
+  assert.equal(peak, 4); assert.equal(entered, 12);
+  assert.equal(Object.keys((await response.json()).artifacts).length, 12);
+});
 
 test('AIT-374: one revoked producer keeps its good siblings available per artifact', async t => {
   const h = await artifactCoverageFixture(t);

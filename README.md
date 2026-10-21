@@ -574,6 +574,12 @@ restart and export. SQLite secure deletion and WAL checkpointing run before
 erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation;
 hosts await `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
 The demo retires whole sessions after twelve months of inactivity, checking each minute.
+Retention creation, activity, lease release and cleanup retries use the storage
+clock, including SQLite triggers. `new SQLiteStorage(path, { now })` sets it at
+startup; handlers with `host.now` install that clock through the plugin runtime.
+An explicit runtime `now` retains precedence for storage policy and evidence too;
+ledger settlement attribution remains on the host clock.
+Existing retention timestamps remain intact, and activity never moves backwards.
 
 Assistant replies, including assistant voice transcripts, and generated
 understanding objects carry `origin: "ai-generated"` in API snapshots, durable
@@ -976,6 +982,9 @@ so recovery can require additional headroom. Replayed commands do not reserve tw
 Library hosts pass `createVoiceCap({storage, ...voiceCapConfig(values)})` as
 `voiceCap` to `createPluginRuntime`, await `handlers.resume()` at startup, and use
 `runtime.reconcileVoice(attemptId, confirmedTerminal)` for later authenticated usage.
+The runtime installs its forwarding clock on the cap: UTC-day checks, snapshots and
+reservations follow later `host.now` installation, preserving an explicit runtime
+`now`. Existing reservations retain their original admission day and duration hold.
 `budget.used(sessionId)` tracks upstream spend;
 `budget.visitorUsed(sessionId)` tracks voice visitor credits. Terminal usage
 retains full `providerSeconds`/`providerMinutes`, `pausedSeconds`, `visitorSeconds`,
@@ -1033,7 +1042,24 @@ Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
 `stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
 (`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning,
 the ElevenLabs live-voice integration, standalone UI generation and extractors are
-implemented here. Every operation takes `{signal, deadlineAt}`;
+implemented here. Every operation takes `{signal, deadlineAt, now?}`. `now` is
+the clock that produced the absolute deadline and defaults to `Date.now`.
+Runtime admission, publication checks and admitted reasoning options carry the
+deadline's `now` or the runtime clock; handlers install `host.now` as the default
+runtime clock, preserving an explicitly configured runtime clock. `operationScope`
+uses the deadline's clock for expiry and converts its remaining budget into an elapsed timer.
+HTTP text and voice deadlines, continuation spend reservations, binding evidence
+and callback operations use the runtime's clock. An explicit runtime `now` wins;
+otherwise handlers install `host.now`, then legacy `voice.now`, then `Date.now`.
+Evidence expires at the exact boundary on that clock. Ledger settlement timestamps
+retain the host clock for accounting attribution; reconciliation age and retry
+dates use that same accounting epoch. Render admission/UTC days, concept lanes,
+storage evidence and retention use the runtime forwarding clock. Custom voice
+caps and render limiters require `setClock(clock)` when a host clock is installed.
+Upload request budgets remain elapsed wall-clock budgets and identify that clock
+explicitly when calling runtime admission.
+The ElevenLabs completions facade uses its injected `now` for callback, call,
+reasoning and cleanup deadlines, and forwards it to bounded ports.
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
 ports, including independent voice input/output, acknowledged pause/resume,
 turn ids, transcript policy and delegated/native reasoning. The [ElevenLabs README](plugins/elevenlabs/README.md) documents duration bindings,
@@ -2312,6 +2338,7 @@ The snapshot and a durable billing seal commit before the hook starts. Reconcili
 and all budget-attempt writes are refused after sealing, including during failed
 or timed-out hooks and after restart; budget recovery and reasoning cost scans
 skip sealed attempts.
+A validated, seal-refused charge is recorded on the existing host spend reservation and counts in `retired_spend` when purged; attempts stay frozen.
 Receipts committed before sealing are included, even if they arrive during
 `host.erased`. That earlier hook releases session resources; it is not the final
 cost snapshot. Custom host budgets must provide equivalent finality themselves.
@@ -3519,3 +3546,27 @@ Rejected model output and fallback use are reported as a model failure, even whe
 the server safely redirects. The evaluator covers typed, uploaded-data and voice prompt variants; local CI
 covers actual TXT/PDF/DOCX extraction. Its automatic pass flag checks scope and
 canary protection; approved live behavioral assessment remains a human task.
+
+### Optional credit presentation (AIT-411, RC13)
+
+Set these on `configure({ host })`; omitted options keep the RC13 DOM and
+behaviour. Use the supplied DE/EN dictionaries as before. A custom credits
+copy dictionary can opt into the separate offer wording.
+
+| Item | Host setting / contract | Behaviour |
+| --- | --- | --- |
+| O1 | `usedUp.newConversation: { enabled: true }` (default false) | When no upgrade remains, the primary action starts a fresh conversation through the existing new-session path. Export stays a secondary text link. |
+| O2 | `usedUp.dailyCapActions: 'none'` (default `'export'`) | Only the daily-cap panel suppresses actions; its empty row retains its height and is `aria-hidden`. |
+| O3 | Host-supplied `copy.hostSurface.credits.afterConfirm` | Separates the unconfirmed offer from `withConfirmed`, the confirmed current tier. Supports `{n}` and existing `{tier}`. Missing key falls back to `withConfirmed`; unchanged built-in dictionaries keep their historic anonymous offer. |
+| O4 | `credits: { reconcilingVisible: true }` (default false) | The balance stack reserves the visible reconciling text and announces it once through a polite live region. Phone hosts with legal links reserve a standing legal row beneath the balance. The existing tooltip remains; a custom `copy.hostSurface.credits.reconciling` supplies visible wording too. |
+| O5 | `credits: { dailyCapReset: true }` (default false) | Shows the host's `dailyCapResetAt` Unix milliseconds in local time (DE 24-hour; EN locale time), only while capped. Missing later reset receipts do not clear an acknowledged instant during the cap. |
+| O6 | `emailAsk: { lowCredits: false }` (default true) | Suppresses the low-credit transcript line and automatic low ask. The tier and panel confirmation entries remain. Set the same option on the server host; it rejects low line/show claims without consuming the latch. |
+| O7 | Wallet preview `canAdmit` may return `{ ok: false, reason: 'session' }`; atomic `admit` may return the same. Only boolean `true` authorizes `canAdmit`, including voice extensions | Session exhaustion survives admission. Unknown/missing reasons fail closed to host-limit. Daily cap takes presentation precedence over session, then host-limit. An unconfirmed session with a higher confirmation tier offers confirmation; otherwise O1 selects new conversation or the existing export action. |
+| O8 | Identity receipt `visitorEmail: { canSave, canDelete }` | Server checks all four visitor/email/erasure port methods. Only explicit `canDelete: true` enables deletion. Otherwise the action stays disabled, outside the tab order, with an erasure reason and a link to the host privacy notice (plain text without a URL). No deletion or credit-drop confirmation occurs. |
+
+O5's server host supplies `creditTiers(ownerToken, { sessionId })` with
+`dailyCapReached: true` and a nonnegative safe-integer `dailyCapResetAt` while
+its wallet reports `creditScope: 'session'`. This is a display receipt, never
+an admission override. Host privacy links use the existing legal slot with
+`data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
+German, German digit grouping and a nonbreaking space before `Credits`.

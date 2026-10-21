@@ -58,7 +58,7 @@ test('AIT-401: replayed cumulative extensions preserve committed times and never
   storage.close(); storage = new SQLiteStorage(path); clock = tomorrow;
   ledger = new SQLiteBudgetLedger(storage, { now: () => clock });
   let context;
-  assert.deepEqual(ledger.extendVoice('voice', maxima, (_, info) => { context = info; }), maxima);
+  assert.deepEqual(ledger.extendVoice('voice', maxima, (_, info) => { context = info; return true; }), maxima);
   assert.deepEqual(context, { attemptId: 'voice', sessionId: session.id, extraMicro: 0, at: today });
   assert.deepEqual(extensions(ledger), committed);
   ledger.extendVoice('voice', { maxMicro: 2_000_000, maxVisitorMicro: 1_500_000 });
@@ -184,6 +184,38 @@ test('AIT-401: legacy host callback calls and results snapshot remains identical
   });
 });
 
+for (const preview of [false, { ok: false, reason: 'session' }, { ok: false, reason: 'host-limit' },
+  { ok: false, reason: 'dailyCap' }, { ok: false, reason: 'daily-cap' }, { ok: false, reason: 'unknown' },
+  { ok: false }, { reason: 'session' }, {}, null, undefined, 1, 'true', { ok: true }]) {
+  test(`AIT-411: voice extension requires explicit wallet yes (${JSON.stringify(preview)})`, t => {
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    const ledger = new SQLiteBudgetLedger(storage, { now: () => today }), session = storage.create();
+    admission(ledger, session.id); ledger.claim('voice').consume();
+    const before = ledger.get('voice');
+    assert.throws(() => ledger.extendVoice('voice', { maxMicro: 2_000_000, maxVisitorMicro: 1_000_000 },
+      () => preview), { code: 'not-admitted' });
+    assert.deepEqual(ledger.get('voice'), before, 'refusal preserves every reservation and extension event');
+  });
+}
+test('AIT-411: an invalid extension authorizer fails closed without changing reservations', t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const ledger = new SQLiteBudgetLedger(storage, { now: () => today }), session = storage.create();
+  admission(ledger, session.id); ledger.claim('voice').consume();
+  const before = ledger.get('voice');
+  for (const invalid of [false, null, 0]) {
+    assert.throws(() => ledger.extendVoice('voice', { maxMicro: 2_000_000, maxVisitorMicro: 1_000_000 }, invalid), TypeError);
+    assert.deepEqual(ledger.get('voice'), before);
+  }
+});
+test('AIT-411: explicit boolean wallet yes funds a voice extension', t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const ledger = new SQLiteBudgetLedger(storage, { now: () => today }), session = storage.create();
+  admission(ledger, session.id); ledger.claim('voice').consume();
+  assert.deepEqual(ledger.extendVoice('voice', { maxMicro: 2_000_000, maxVisitorMicro: 1_000_000 }, () => true),
+    { maxMicro: 2_000_000, maxVisitorMicro: 1_000_000 });
+  assert.equal(extensions(ledger).length, 1);
+});
+
 test('AIT-401: handlers supply host.now to a prebuilt runtime ledger', async t => {
   const storage = new SQLiteStorage();
   const runtime = createPluginRuntime({ storage, now: () => yesterday, consent: { coverage: () => ({ covered: false }) } });
@@ -220,15 +252,24 @@ test('AIT-401: voice runtime forwards extension context to the host wallet and u
   const runtime = createPluginRuntime({ storage, now: () => clock, consent,
     registry: new PluginRegistry().register(createMockReasoning()).register(plugin),
     presets: { best: { plugins: ['mock', binding.plugin], bindings: { ...mockPresets().best.bindings, voice: binding }, policy: { endpoints: [endpoint] } } } });
+  let preview = true;
   const calls = [], host = { now: () => clock, walletForSession: () => ({ balance: () => ({ limitMicro: 10_000_000, committedMicro: 0 }),
     admit: () => ({ ok: true }), release() {},
-    canAdmit(extra, context) { calls.push({ extra, context }); return true; } }) };
+    canAdmit(extra, context) { calls.push({ extra, context }); return preview; } }) };
   const handlers = createHandlers({ storage, pluginRuntime: runtime, host, log: () => {} });
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ ownerToken: 'fixture-owner' });
   const admitted = await runtime.admitVoice({ session, request: { callId: 'attribution-call' } });
   await admitted.options.attempt.consume(); clock = today;
   const attemptId = admitted.options.attempt.attemptId;
+  const before = runtime.budget.get(attemptId), funded = admitted.options.attempt.fundedSeconds;
+  for (const refusal of [false, { ok: false, reason: 'session' }, { ok: false, reason: 'host-limit' }, { ok: false }, undefined]) {
+    preview = refusal;
+    assert.throws(() => admitted.options.attempt.extend(150), { code: 'not-admitted' });
+    assert.deepEqual(runtime.budget.get(attemptId), before);
+    assert.equal(admitted.options.attempt.fundedSeconds, funded, 'refusal cannot advance the runtime runway');
+  }
+  preview = true;
   admitted.options.attempt.extend(150);
   assert.deepEqual(calls.at(-1), { extra: { maxMicro: 300, maxVisitorMicro: 150 },
     context: { attemptId, sessionId: session.id, extraMicro: 300, at: today } });

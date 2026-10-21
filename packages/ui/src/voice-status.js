@@ -6,7 +6,7 @@ const reasonGroups = {
   voiceLimit: ['Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day'],
   checking: ['budget reconciling'], off: ['voice off'], verification: ['verification required'],
   setup: ['not configured', 'plugin not registered', 'preset not configured', 'template-agent-required'],
-  provider: ['plugin unhealthy', 'agent-api-unavailable'],
+  provider: ['plugin unhealthy'],
   ended: ['closed', 'turn-withdrawn', 'turn-expired', 'server-restart', 'server-stopping'],
   permission: ['call-authorization-lost'], consentWithdrawn: ['consent-withdrawn'],
   consentRevised: ['consent-revised'], sessionRevoked: ['session-revoked'],
@@ -29,6 +29,7 @@ export function creditVoiceStatus(copy, { reason, creditReason, exhausted = fals
 
 /** All header copy sources get a bounded visual label, including host-defined refusals. */
 export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditReason } = {}) {
+  if (rawReason === 'agent-api-unavailable' && sentence === copy.reasons[rawReason]) return copy.voiceReasonsNarrow.unavailable;
   if (sentence === copy.voiceStates.usedUp || rawReason && sentence === copy.reasons?.[rawReason]) {
     const credit = creditVoiceStatus(copy, { reason: rawReason, creditReason, exhausted: sentence === copy.voiceStates.usedUp });
     if (credit) return credit;

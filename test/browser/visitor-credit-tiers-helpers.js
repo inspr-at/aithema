@@ -40,17 +40,17 @@ const unchanged = (before, after, label) => {
   return displacement;
 };
 
-export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false, creditScope = null, dailyCap = false } = {}) {
+export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false, creditScope = null, dailyCap = false,
+  allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 } } = {}) {
   // Touch viewport changes reload the demo; wait for its owner session seed.
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, async (c, options) => {
-    const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap } = options;
+    const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, allowancesMicro } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     window.a2OriginalFetch ??= window.fetch.bind(window);
     const state = window.a2 = { address, spent, reserved, delivery, privacy, confirmed, saving: false,
       creditScope, dailyCap, denyVoice: voiceAdmissionFailure, voiceRequests: [], voiceCloses: 0, creditsReads: 0 };
-    const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && delivery ? 'verification-pending' : 'guest',
       assessmentUnlocked: true, conceptsUnlocked: true, verificationRequired: false, resendAfterMs: 0, pollVerification: false, delivery: 'sent' });
     const current = () => state.confirmed ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
@@ -79,7 +79,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
         if (method === 'DELETE') { state.address = null; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy });
       }
-      if (path.endsWith('/identity')) return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: privacy });
+      if (path.endsWith('/identity')) return Response.json({ identity: identity(), visitorEmail: { canSave: true, canDelete: true }, delivery, privacyDocumentConfigured: privacy });
       if (/\/identity\/(request|change|resend)$/u.test(path)) { state.address = JSON.parse(init.body).address ?? state.address; state.confirmed = false; return Response.json({ identity: identity() }); }
       return window.a2OriginalFetch(url, init);
     };
@@ -111,7 +111,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     }
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap });
+  }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, allowancesMicro });
   await until(page, () => window.a2.creditsReads > 0);
   await settle(page);
 }
@@ -144,21 +144,76 @@ export async function composerCreditReservationMatrix(t) {
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const rows = [], selectors = ['.question-card', '.composer-shell'];
   if (evidence) await mkdir(evidence, { recursive: true });
+  // Keep the v1.1 copy, line-count and DE/EN evidence checks intact.
+  await t.test('AIT-434 v1.1: four-digit DE offer fits two lines; DE/EN composer heights match', async () => {
+    const checks = [];
+    for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+      for (const locale of ['de', 'en']) {
+        await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+        await page.select('#locale', locale); await page.select('#theme', theme);
+        await fixture(page, locale, {
+          allowancesMicro: { anonymous: 12_000_000, emailGiven: 22_000_000, emailConfirmed: 28_000_000 } });
+        const before = await boxes(page, selectors);
+        await shadow(page, c => {
+          window.a2.spent = 12_000_000;
+          c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+        });
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up'));
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        const measured = await shadow(page, c => {
+          const root = c.shadowRoot, offer = root.querySelector('.composer-out__body > [data-active="true"]');
+          const style = getComputedStyle(offer), lines = new Map(), walker = document.createTreeWalker(offer, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const text = walker.currentNode;
+            for (let i = 0; i < text.length; i++) {
+              const range = document.createRange(); range.setStart(text, i); range.setEnd(text, i + 1);
+              const rect = [...range.getClientRects()].find(rect => rect.width && rect.height);
+              if (rect) lines.set(rect.top, (lines.get(rect.top) ?? '') + text.data[i]);
+            }
+          }
+          return { offer: offer.textContent, lines: [...lines.values()].map(line => line.trim()),
+            composerHeight: root.querySelector('.composer-shell').getBoundingClientRect().height,
+            font: style.fontFamily, fontSize: style.fontSize, lineHeight: style.lineHeight,
+            visibility: style.visibility, ariaHidden: offer.getAttribute('aria-hidden'),
+            reducedMotion: matchMedia('(prefers-reduced-motion:reduce)').matches, focused: Boolean(root.activeElement) };
+        });
+        const after = await boxes(page, selectors), label = `AIT-434 v1.1 ${locale}/${theme}/${width}`;
+        const row = { locale, theme, width, ...measured, lineCount: measured.lines.length, before, after, viewport: true, settled: true, blurred: true };
+        checks.push(row); t.diagnostic(`${label}: ${JSON.stringify(row)}`);
+        if (evidence) {
+          await mkdir(join(evidence, 'ait434'), { recursive: true });
+          await writeFile(join(evidence, 'ait434', 'v1.1-checks.json'), JSON.stringify({ ticket: 'AIT-434', head, spec: 'Tick spec v1.3, 2026-10-21', checks }, null, 2));
+          if (theme === 'light' && (width === 390 || width === 1440 && locale === 'de')) {
+            const scrollBefore = await page.evaluate(() => scrollY);
+            await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+            await settle(page);
+            await page.screenshot({ path: join(evidence, 'ait434', `${width}-light-${locale}-host-give-1000.png`), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+            await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
+          }
+        }
+        assert.equal(measured.visibility, 'visible', `${label}: offer is painted`);
+        assert.equal(measured.ariaHidden, 'false', `${label}: offer is accessible`);
+        assert.ok(row.lineCount > 0, `${label}: offer has rendered line boxes`);
+        if (locale === 'de' && width === 390) assert.ok(row.lineCount <= 2, `${label}: 1.000 delta must fit in at most two lines; got ${row.lineCount}: ${JSON.stringify(row.lines)}`);
+        if (locale === 'de' && width === 390) assert.ok(row.lines.every(line => !/(?:^|\s)Ihr$/u.test(line)), `${label}: 1.000 delta must not leave Ihr at a line end: ${JSON.stringify(row.lines)}`);
+        assert.equal(measured.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 1.000 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.'
+          : 'With your email address you get 1,000 more\u00a0credits. Your conversation stays saved.', `${label}: exact Tick copy and formatted delta`);
+        assert.equal(measured.font, 'ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif');
+        assert.equal(measured.reducedMotion, true); assert.equal(measured.focused, false);
+        unchanged(before, after, `${label}: default to host-give`);
+      }
+      const [de, en] = checks.slice(-2);
+      assert.equal(de.before[1][3], en.before[1][3], `AIT-434 v1.1 ${theme}/${width}: DE == EN default composer height`);
+      assert.equal(de.composerHeight, en.composerHeight, `AIT-434 v1.1 ${theme}/${width}: DE == EN host-give composer height`);
+    }
+    assert.equal(checks.length, 12);
+  });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1024, 390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.select('#locale', locale); await page.select('#theme', theme);
     await fixture(page, locale);
     const before = await boxes(page, selectors);
-    // AIT-422: copy changes must preserve the pre-change reservation, too.
-    const currentOffer = await shadow(page, (c, locale) => {
-      const peer = c.shadowRoot.querySelector('[data-credit-variant="host-give"]'), text = peer.textContent;
-      peer.textContent = locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.'
-        : 'Add your email address to get +600 more Credits. Your conversation stays saved.';
-      return text;
-    }, locale);
-    const originalCopyBoxes = await boxes(page, selectors);
-    await shadow(page, (c, text) => { c.shadowRoot.querySelector('[data-credit-variant="host-give"]').textContent = text; }, currentOffer);
-    unchanged(originalCopyBoxes, before, `AIT-422 ${locale}/${theme}/${width}: original-copy reservation`);
     // Retain the container handle, but inspect its current descendants for
     // every state: changing text can replace a text node inside a stable span.
     const { result } = await accessibility.send('Runtime.evaluate', { expression: "document.querySelector('aithema-session').shadowRoot.querySelector('.composer-out__body')" });
@@ -227,11 +282,16 @@ export async function composerCreditReservationMatrix(t) {
     unchanged(row.before, row.after, label);
     assert.equal(row.composerHeight, row.before[1][3], `${label}: identical composer height`);
   }
+  // Tick spec v1.2 (2026-10-20): DE == EN replaces the retired long-copy baseline.
+  for (const de of rows.filter(row => row.locale === 'de')) {
+    const en = rows.find(row => row.locale === 'en' && row.theme === de.theme && row.width === de.width && row.state === de.state);
+    assert.equal(de.composerHeight, en.composerHeight, `AIT-434 v1.2 ${de.theme}/${de.width}/${de.state}: DE == EN composer height`);
+  }
   for (const row of rows) {
     const label = `${row.locale}-${row.theme}-${row.width}/${row.state}`;
-    assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give-measure', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
+    assert.deepEqual(row.variants.map(n => n.key), ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: every variant reserves the grid cell`);
     assert.ok(row.variants.every(n => n.gridCell.join('/') === '1/1'), `${label}: variants share grid-area 1/1`);
-    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 11 : 10, `${label}: inactive variants aria-hidden`);
+    assert.equal(row.variants.filter(n => n.ariaHidden === 'true').length, row.state === 'default' ? 10 : 9, `${label}: inactive variants aria-hidden`);
     assert.ok(row.variants.filter(n => n.ariaHidden === 'true').every(n => n.visibility === 'hidden'), `${label}: inactive variants hidden`);
     assert.equal(row.hiddenVariantsAbsent, true, `${label}: hidden variants absent from accessibility tree`);
     assert.equal(row.activeBody.length, row.state === 'default' ? 0 : 1, `${label}: only the active variant is painted`);
@@ -388,7 +448,7 @@ export async function topUpReservationMatrix(t) {
         : locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now';
       assert.equal(presentation.full, expected); assert.equal(presentation.short, expected); assert.equal(presentation.label, expected);
       assert.equal(presentation.footer, '0');
-      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie 600 weitere\u00a0Credits.' : 'With your email address you get 600 more\u00a0credits.');
+      if (creditReason === 'host-limit') assert.equal(presentation.offer, locale === 'de' ? 'Mit E-Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.');
       assert.equal(presentation.ink3, presentation.muted);
       assert.equal(presentation.muted, theme === 'light' ? '#496477' : '#9db4c4');
       assert.equal(presentation.reducedMotion, true); assert.equal(presentation.focused, false);
@@ -399,6 +459,14 @@ export async function topUpReservationMatrix(t) {
       if (evidence) {
         await mkdir(join(evidence, 'ait422'), { recursive: true });
         await page.screenshot({ path: join(evidence, 'ait422', shot), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+        if (creditReason === 'host-limit' && theme === 'light' && (width === 390 || width === 1440 && locale === 'de')) {
+          const scrollBefore = await page.evaluate(() => scrollY);
+          await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+          await settle(page);
+          await mkdir(join(evidence, 'ait434'), { recursive: true });
+          await page.screenshot({ path: join(evidence, 'ait434', `${width}-light-${locale}-host-give.png`), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+          await page.evaluate(top => scrollTo(0, top), scrollBefore); await settle(page);
+        }
       }
     }
   }

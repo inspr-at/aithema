@@ -199,7 +199,10 @@ export class ConceptView {
     const feature = kind === 'html' ? 'html' : 'images', session = this.#session;
     if (!session || this.#consentRefreshFailed || this.#pendingScopes.has(kind) || session.consentWithdrawn || session.tombstone) return false;
     const doc = this.#consentDocument;
-    if (this.unavailable(kind, artifact)) return placeholder && Boolean(artifact && doc.artifacts?.[artifact.id]);
+    if (this.unavailable(kind, artifact)) {
+      const producer = artifact && doc.artifacts?.[artifact.id];
+      return placeholder && Boolean(producer && producer.purposes.every(id => doc.selected.includes(id)));
+    }
     const verdict = session.featureMatrix?.[session.processingPreset ?? 'best']?.[feature];
     const matchingDocument = doc?.consentRevision === session.consentRevision;
     const producer = matchingDocument && artifact ? doc.artifacts?.[artifact.id] : undefined;

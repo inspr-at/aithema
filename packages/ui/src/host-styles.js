@@ -167,7 +167,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out__title > span { grid-area:1/1; }
 .composer-out__body { display:grid; grid-template-columns:minmax(0,1fr); min-width:0; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 /* Tick spec v1 (AIT-406): every variant sizes the same cell, even while hidden. */
-.composer-out__body > span { grid-area:1/1; min-width:0; align-self:start; }
+.composer-out__body > :is(span,[data-credit-option-variant]) { grid-area:1/1; min-width:0; align-self:start; }
+.composer-out__body > [data-credit-option-variant] { font:inherit; }
 .composer-out__body > [data-active="false"] { visibility:hidden; }
 /* Match the question card's text inset, accounting for the composer border.
    Only copy moves; the measured surface and action cells retain their padding. */
@@ -197,6 +198,32 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
+.composer-out__actions { position:relative; }
+.composer-out[data-reset-slot] { position:relative; }
+.composer-out__deadline { position:absolute; inset-inline:clamp(.85rem,2vw,1.25rem); bottom:54px; font-size:12px; line-height:1.4; color:var(--aithema-muted); }
+.composer-out__new { position:absolute; inset-inline-start:0; bottom:0; min-height:44px; max-width:55%; padding:0 8px; border-radius:12px; background:var(--aithema-accent); color:var(--aithema-on-accent); font-size:13px; font-weight:600; }
+.composer-out[data-credit-actions="new"] .composer-out__actions { width:100%; }
+.composer-out[data-credit-actions="new"] .composer-out__steps { visibility:hidden; }
+.composer-out[data-credit-actions="none"] :is(.composer-out__actions,.composer-out__steps) { visibility:hidden; }
+.host-credits__reconciling { visibility:hidden; white-space:nowrap; color:var(--aithema-muted); font-weight:400; }
+.host-credits[data-reconciling] .host-credits__reconciling { visibility:visible; }
+.host-credits[data-reconciling] :is(.host-credits__text,.host-credits__used-up) { visibility:hidden; }
+/* Opt-in visible reconciliation reserves its phone row before any receipt.
+   Host legal links keep their full targets in the standing row beneath it. */
+@media(width < 600px) {
+  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px 44px; }
+  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
+  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .host-credits { grid-area:1/2; }
+  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .footer-right { display:contents; }
+  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .preset-panel { grid-area:1/3; }
+  .display-foot:has(.host-credits:not([hidden]) .host-credits__reconciling):has(.host-legal:not([hidden])) .host-legal { grid-area:2/1/3/-1; justify-content:center; margin-left:0; }
+}
+
+.m-delete-reason { color:var(--aithema-muted); }
+.m-mail-notice[data-delete-reservation] { display:grid; }
+.m-mail-notice[data-delete-reservation] > span { grid-area:1/1; min-width:0; }
+.m-mail-notice[data-delete-reservation] .m-notice-measure { display:block; visibility:hidden; }
+.m-notice .m-pp:not([href]) { color:inherit; text-decoration:none; cursor:inherit; }
 /* Footer labels share a cell. The track and the neighboring controls never move. */
 .host-credits .host-credits__button { display:flex; align-items:center; gap:8px; min-height:44px; padding:0; font:inherit; }
 .host-credits__measure-cap { visibility:hidden; white-space:nowrap; font-weight:600; }
@@ -229,7 +256,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits[data-session-credits] .credits-popup { display:grid; grid-template-rows:72px 48px 36px 28px 36px 18px; grid-template-columns:1fr; gap:8px; }
 .host-credits[data-session-credits] .credits-popup > :is(p,a,span) { margin:0; }
 .host-credits[data-session-credits] .credits-popup > [hidden] { display:block !important; visibility:hidden; pointer-events:none; }
-.host-credits[data-session-credits] .host-credits__deadline { display:none !important; }
+.host-credits[data-session-credits]:not([data-reset-time]) .host-credits__deadline { display:none !important; }
+.host-credits[data-reset-time] .host-credits__deadline { grid-area:5/1; min-height:2lh; }
+.host-credits[data-reset-time][data-daily-cap] .host-credits__limit { visibility:hidden; }
 .host-credits[data-session-credits] :is(.host-credits__scope,.host-credits__daily-cap) { grid-area:1/1; }
 .host-credits[data-session-credits] .host-credits__scope { visibility:visible; }
 .host-credits[data-session-credits][data-daily-cap] .host-credits__scope { visibility:hidden; }
@@ -321,6 +350,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 [data-email-mode="mail"] [data-address="false"] .m-mail-tier-state { visibility:hidden; }
 .host-mail .verify-entry-state { display:block; }
 .m-q { font-size:.95rem; font-weight:600; margin:0; min-height:1.5rem; }
+.m-cons[data-delete-normal]::before { content:attr(data-delete-normal); visibility:hidden; grid-area:1/1; }
+.m-cons[data-delete-over]::after { content:attr(data-delete-over); visibility:hidden; grid-area:1/1; }
 .m-cons { font-size:.85rem; line-height:1.45; margin:0; max-width:34rem; }
 .host-mail .m-del { min-height:44px; margin-left:0; padding:0 1rem; border-radius:.55rem; border:1px solid var(--aithema-line); color:var(--aithema-ink); font-weight:600; font-size:.85rem; }
 .m-delete-message,.m-unavailable-message { min-height:2.6em; margin:0; font-size:.8rem; }

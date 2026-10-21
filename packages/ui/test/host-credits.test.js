@@ -2,6 +2,7 @@
 // three-minute file deadline under merge-group CPU contention.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -483,8 +484,8 @@ for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'em
     assert.equal(root.querySelector('.host-credits__unit').textContent, '\u00a0Credits');
     assert.equal(action.hidden, ['emailConfirmed', 'dailyCap'].includes(state));
     if (!action.hidden) assert.equal(action.textContent, copy.hostSurface.credits.confirm);
-    if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'), 'Tick fix1: equal allowances name the confirmed tier without an email-given promise');
-    if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
+    if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, copy.hostSurface.credits.withConfirmed.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'), 'Tick fix1: equal allowances name the confirmed tier without an email-given promise');
+    if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
     if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250\u00a0Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250\u00a0credits are used up.");
     if (state === 'dailyCap') {
       assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow.");
@@ -510,7 +511,7 @@ for (const copy of [de, en]) test(`AIT-395: exhaustion offers exactly the conver
   assert.equal(root.querySelector('.composer-out').dataset.next, 'confirm');
   assert.match(root.querySelector('.composer-out__confirm').textContent, /750/u);
   assert.equal(root.querySelector('.host-credits__next').textContent,
-    copy.hostSurface.credits.afterConfirm.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
+    copy.hostSurface.credits.afterConfirm.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
 });
 
 for (const copy of [de, en]) for (const [variant, canCollect, confirmedMicro] of [
@@ -524,6 +525,160 @@ for (const copy of [de, en]) for (const [variant, canCollect, confirmedMicro] of
   } }); await tick(10);
   const next = root.querySelector('.host-credits__next'), eligible = canCollect && confirmedMicro > 2_500_000;
   assert.equal(root.querySelector('.credits-email').hidden, !eligible);
-  assert.equal(next.textContent, eligible ? copy.hostSurface.credits.withConfirmed.replace('{tier}', copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits') : '');
+  assert.equal(next.textContent, eligible ? copy.hostSurface.credits.withConfirmed.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits') : '');
   assert.equal(next.children.length, 0, 'the next line has no check mark');
+});
+
+for (const copy of [de, en]) test(`AIT-411: opt-in defaults preserve the credits and panel DOM (${copy.display.locale})`, async t => {
+  const snapshots = [];
+  for (const options of [{}, { usedUp: { newConversation: { enabled: false }, dailyCapActions: 'export' }, credits: { reconcilingVisible: false, dailyCapReset: false }, emailAsk: { lowCredits: true } }]) {
+    const fixture = setup(t, { copy, host: { credits: true, verification: true, ...options } });
+    await tick(10);
+    snapshots.push(['.host-credits', '.composer-out', '.transcript-shell'].map(selector => fixture.root.querySelector(selector).outerHTML.replaceAll(fixture.c.session.id, '<session>')));
+    fixture.c.remove(); await tick(10);
+  }
+  assert.deepEqual(snapshots[1], snapshots[0], 'all explicit defaults equal untouched RC13 DOM');
+});
+
+for (const copy of [de, en]) test(`AIT-411: defaults equal independently captured main DOM (${copy.display.locale})`, async t => {
+  const baseline = JSON.parse(await readFile(new URL('../../../test/fixtures/ait411-rc13-dom.json', import.meta.url), 'utf8'));
+  const fixture = setup(t, { copy, host: { credits: true, verification: true } });
+  await tick(10);
+  const actual = ['.host-credits', '.composer-out', '.transcript-shell'].map(selector => fixture.root.querySelector(selector).outerHTML.replaceAll(fixture.c.session.id, '<session>'));
+  const original = baseline.rc13Snapshots[copy.display.locale], main = baseline.snapshots[copy.display.locale];
+  // AIT-410/AIT-422 on main changed only this body between RC13 and the merge.
+  // Apply that independently captured exact hunk to RC13; never strip PR nodes.
+  const body = html => html.match(/<p class="composer-out__body"[^>]*>[\s\S]*?<\/p>/u)[0];
+  const expected = [original[0], original[1].replace(body(original[1]), body(main[1])), original[2]];
+  assert.deepEqual(main, expected, 'only the inherited AIT-410/AIT-422 body hunk differs from original RC13');
+  assert.deepEqual(actual, expected, 'no AIT-411 DOM delta from RC13 plus the approved main hunk');
+  assert.deepEqual(actual, baseline.snapshots[copy.display.locale], 'no AIT-411 DOM delta from main without this feature');
+  assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');
+});
+
+for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, session wins over host limit (${copy.display.locale})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const receipt = { scope: 'session', dailyCapReached: true, exhausted: true, balance,
+    tiers: { current: 'emailConfirmed', next: null, canConfirm: true, allowancesMicro: { anonymous: 1000000, emailConfirmed: 10000000 } } };
+  const { c, root } = setup(t, { copy, host: { credits: true, verification: true, usedUp: { newConversation: { enabled: true }, dailyCapActions: 'none' } },
+    routes: { 'GET /credits': () => Response.json(receipt) } });
+  await tick(10); userTurn(c);
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'session' } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.dailyCapShort);
+  assert.equal(root.querySelector('.composer-out__export').inert, true);
+  assert.equal(root.querySelector('.composer-out__actions').getAttribute('aria-hidden'), 'true');
+  receipt.dailyCapReached = false;
+  t.mock.timers.tick(15001); await tick(14);
+  assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.ended.session.title);
+  assert.equal(root.querySelector('.composer-out__body span').textContent, copy.hostSurface.credits.ended.newConversationHint);
+  assert.equal(root.querySelector('.composer-out__new').hidden, false);
+  assert.equal(root.querySelector('.composer-out__export').inert, false);
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out__title span').textContent, copy.hostSurface.credits.ended.session.title, 'session takes precedence over a later host-limit event');
+});
+
+for (const [copy, template, body] of [
+  [de, 'Mit bestätigter E-Mail-Adresse geht es mit {next}\u00a0Credits weiter.', 'Mit bestätigter E-Mail-Adresse geht es mit 1.000\u00a0Credits weiter.'],
+  [en, 'With a confirmed email address, this continues with {next}\u00a0credits.', 'With a confirmed email address, this continues with 1,000\u00a0credits.'],
+]) test(`AIT-411 round 7 S1: catalog and complete panel body match Tick (${copy.display.locale})`, async t => {
+  assert.equal(copy.hostSurface.credits.ended.sessionUpgrade, template);
+  const { c, root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, exhausted: true,
+      tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+        allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10); userTurn(c);
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'session' } }); await tick(10);
+  assert.equal(root.querySelector('.composer-out__body span').textContent, body);
+  assert.equal(root.querySelector('.composer-out__confirm').hidden, false);
+});
+
+for (const [copy, expected] of [
+  [de, 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits'],
+  [en, 'With a confirmed email address: 1,000\u00a0credits'],
+]) test(`AIT-411 round 7 O3: confirmed current tier matches Tick (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance,
+      tiers: { current: 'emailConfirmed', next: null, canConfirm: true, allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__current span:last-child').textContent, expected);
+});
+
+test('AIT-411 round 6 O3: shipped EN catalog and rendered offer match Tick including NBSP', async t => {
+  assert.equal(en.hostSurface.credits.afterConfirm, 'After confirmation: {n}\u00a0credits');
+  const { root } = setup(t, { copy: structuredClone(en), host: { verification: true, credits: true }, session: { locale: 'en' }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+      allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__next').textContent, 'After confirmation: 1,000\u00a0credits');
+});
+
+test('AIT-411 round 6 O3: lowercase custom credits receives NBSP', async t => {
+  const copy = structuredClone(en);
+  copy.hostSurface.credits.afterConfirm = 'After confirmation: {n} credits';
+  const { root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: 'en' }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+      allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__next').textContent, 'After confirmation: 1,000\u00a0credits');
+});
+
+for (const [option, host] of [
+  ['O4', { credits: { reconcilingVisible: true } }],
+  ['O5', { credits: { dailyCapReset: true } }],
+  ['O2-none', { usedUp: { dailyCapActions: 'none' } }],
+]) test(`AIT-411 round 6 ${option} without O1: no never-painted panel peers`, async t => {
+  const { root } = setup(t, { host: { credits: true, ...host }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', balance, exhausted: true, dailyCapReached: true, dailyCapResetAt: Date.now() + 3600000 }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelectorAll('[data-credit-option-variant]').length, 0, `${option}: panel reservation contains no unreachable option variants`);
+});
+
+for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and custom offer uses the separate key (${copy.display.locale})`, async t => {
+  for (const hasKey of [false, true]) {
+    const custom = structuredClone(copy);
+    if (hasKey) custom.hostSurface.credits.afterConfirm = copy === de ? 'Nach der Bestätigung: {n}\u00a0Credits' : 'After confirmation: {n} credits';
+    else delete custom.hostSurface.credits.afterConfirm;
+    const { root } = setup(t, { copy: custom, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
+      'GET /credits': () => Response.json({ scope: 'session', balance, tiers: { current: 'anonymous', next: 'emailConfirmed', canConfirm: true,
+        allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
+    } });
+    await tick(10);
+    assert.match(root.querySelector('.host-credits__next').textContent, hasKey ? copy === de ? /^Nach der Bestätigung:/u : /^After confirmation:/u : copy === de ? /^Mit bestätigter E-Mail-Adresse:/u : /^With a confirmed email address:/u);
+  }
+});
+
+for (const copy of [de, en]) test(`AIT-411 O4/O5: one reconciliation announcement and reset retained until cap clears (${copy.display.locale})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const receipt = { scope: 'session', balance, exhausted: true, dailyCapReached: true, dailyCapResetAt: 123456789, reconciling: false };
+  const { root } = setup(t, { copy, host: { credits: { reconcilingVisible: true, dailyCapReset: true } },
+    routes: { 'GET /credits': () => Response.json(receipt) } });
+  await tick(10);
+  const deadline = root.querySelector('.host-credits__deadline'), resetText = deadline.textContent;
+  assert.ok(resetText.length > 0); delete receipt.dailyCapResetAt;
+  receipt.reconciling = true; t.mock.timers.tick(15001); await tick(12);
+  assert.equal(deadline.textContent, resetText);
+  const live = root.querySelector('.host-credits__reconcile-live'), originalNode = live.firstChild;
+  assert.equal(live.textContent, copy.hostSurface.credits.reconcilingVisible);
+  assert.equal(root.querySelector('.host-credits__button').getAttribute('aria-label'), copy.hostSurface.credits.reconcilingVisible);
+  t.mock.timers.tick(15001); await tick(12);
+  assert.equal(live.firstChild, originalNode, 'same reconciliation never re-announces');
+  receipt.dailyCapReached = false; receipt.reconciling = false;
+  t.mock.timers.tick(15001); await tick(12);
+  assert.equal(deadline.hidden, true); assert.equal(deadline.textContent, ''); assert.equal(live.textContent, '');
+});
+
+test('AIT-411 defaults: a saved low-credit ask still restores after the balance rises', async t => {
+  const { root } = setup(t, { host: { credits: true, verification: true },
+    session: { transcript: [{ id: 'restore-reply', role: 'assistant', content: 'Ready.' }] }, routes: {
+      'GET /credits': () => Response.json({ balance, lowAtMicro: 500000, exhausted: false, emailAsk: { open: true, why: 'low' },
+        tiers: { current: 'anonymous', next: 'emailGiven', delta: 1000000, canConfirm: false,
+          allowancesMicro: { anonymous: 5000000, emailGiven: 6000000, emailConfirmed: 6000000 } } }),
+    } });
+  await tick(12);
+  assert.equal(root.querySelector('.email-ask').getAttribute('aria-hidden'), 'false', 'the default keeps the prior saved-ask restoration policy');
 });

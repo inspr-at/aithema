@@ -11,6 +11,14 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 const webp = Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA', 'base64');
 const spec = { prompt: 'A calm dispatch workspace', format: 'webp' }, feedback = 'Make the action button blue';
 const artifact = () => imageArtifact(png, { prompt: spec.prompt, model: 'gpt-image-2', operation: 'generate', now: 0 });
+test('AIT-403 Images deadline and provenance use the admitted runtime clock', async t => {
+  const wall = Date.parse('2030-06-15T00:00:30Z');
+  t.mock.timers.enable({ apis: ['Date'], now: wall });
+  const now = () => wall - 60_000, f = await fake(t);
+  const result = await f.plugin.generate(spec, '', options({ now, deadlineAt: now() + 2000 }));
+  assert.equal(result.provenance.generatedAt, new Date(now()).toISOString());
+  assert.equal(f.records.length, 1);
+});
 function options(extra = {}) {
   const reports = []; let consumed = false;
   return { signal: new AbortController().signal, deadlineAt: Date.now() + 2000, reports,

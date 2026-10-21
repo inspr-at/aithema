@@ -1232,3 +1232,6 @@ test('AIT-433: handover notice and reserved states fit without movement at narro
   assert.deepEqual(failures, [], 'Tick spec v1: full notice, readable reserved states, and exact zero movement');
   assert.deepEqual(problems, []);
 });
+
+import { creditHostOptionsCheck } from './credit-host-options-check.js';
+test('AIT-411: credit host options, exact zero geometry and Tick evidence', { timeout: 120_000 }, creditHostOptionsCheck);

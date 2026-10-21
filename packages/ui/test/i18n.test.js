@@ -11,6 +11,25 @@ import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manif
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
+test('AIT-411 round 7: EN confirmed tier matches Tick O3 exactly; DE stays unchanged', () => {
+  assert.equal(en.hostSurface.credits.withConfirmed, 'With a confirmed email address: {n}\u00a0credits');
+  assert.equal(de.hostSurface.credits.withConfirmed, 'Mit bestätigter E-Mail-Adresse: {tier} Credits');
+});
+
+test('AIT-411 round 7: every added or changed numeric credits catalog string uses NBSP', () => {
+  const entries = [
+    ['en', 'afterConfirm', en.hostSurface.credits.afterConfirm],
+    ['en', 'withConfirmed', en.hostSurface.credits.withConfirmed],
+    ['en', 'ended.sessionUpgrade', en.hostSurface.credits.ended.sessionUpgrade],
+    ['de', 'ended.sessionUpgrade', de.hostSurface.credits.ended.sessionUpgrade],
+  ];
+  for (const [locale, key, text] of entries) {
+    const amounts = [...text.matchAll(/(?:\{\w+\}|\d[\d.,]*)(\s+)credits\b/giu)];
+    assert.ok(amounts.length > 0, `${locale}.${key}: numeric credits copy is inventoried`);
+    for (const [, space] of amounts) assert.equal(space, '\u00a0', `${locale}.${key}: number and credits stay together`);
+  }
+});
+
 test('demo German consent stays verbatim START copy; all item versions and English server copy match', () => {
   const consent = locale => voiceManifest.presentation.translations.find(item => item.locale === locale).consentItem;
   const { items: genericItems, ...legal } = withDemoConsentCopy(de).processingConsent;
@@ -161,4 +180,21 @@ test('AIT-387: the visitor inventory uses the core evidence reason set and exclu
   const core = await import('../../core/src/presets.js');
   assert.equal(BINDING_REASON_CODES, core.BINDING_REASON_CODES, 'the fixture must share the core export');
   for (const copy of [en, de]) assert.equal(Object.hasOwn(copy.host, 'voiceUnavailable'), false);
+});
+
+test('AIT-429: agent-api-unavailable keeps its diagnostic code and renders Tick’s neutral voice copy', async () => {
+  const { narrowVoiceStatus } = await import('../src/voice-status.js');
+  const code = 'agent-api-unavailable';
+  assert.ok(VOICE_REASON_CODES.includes(code));
+  for (const [copy, expected] of [[de, 'Sprache gerade nicht verfügbar'], [en, 'Voice unavailable right now']]) {
+    assert.ok(Object.hasOwn(copy.reasons, code));
+    for (const render of [reasonText, hostReasonText]) for (const feature of [undefined, 'voice']) {
+      assert.equal(render(copy, code, feature), expected);
+      assert.equal(render(copy, `delegated reasoning: ${code}`, feature), copy.reasons.delegated.replace('{reason}', expected));
+    }
+    const compact = narrowVoiceStatus(copy, expected, { reason: code });
+    assert.doesNotMatch(compact, /provider|anbieter/iu);
+    assert.equal(compact, copy.voiceReasonsNarrow.unavailable);
+    assert.ok([...compact].length <= 22);
+  }
 });

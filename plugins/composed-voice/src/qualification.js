@@ -103,10 +103,10 @@ export async function runOfflineQualification({ candidate, baseline, candidateCo
   const budget = createQualificationBudget();
   let serial = 0;
   const oracle = async (item, componentsFactory) => {
-    const components = componentsFactory ? await componentsFactory(item) : null;
     // Deterministic clock/PCM and synthetic ports exercise the actual server coordinator.
     // The timings deliberately represent a fixture, never measured vendor latency.
     let at = Date.now(), speechEndAt, firstAudioAt, stoppedAt, hypothesis;
+    const components = componentsFactory ? await componentsFactory(item, { now: () => at }) : null;
     const frame = Buffer.alloc(3200); for (let i = 0; i < frame.length; i += 2) frame.writeInt16LE(8000, i);
     const sampleId = ++serial; let componentIndex = 0;
     const coordinator = createComposedVoiceCoordinator({ sessionId: 'offline-qualification', callId: `offline-${sampleId}`,

@@ -49,6 +49,31 @@ for (const reason of [null, 'budget denied', 'current processing consent require
   assert.deepEqual(paused.unpaused, before, 'takeback can project exactly the existing unpaused verdict, including refusals');
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 0, 'presentation evaluation reserves no work');
 });
+for (const preview of [false, { ok: false, reason: 'session' }, { ok: false, reason: 'host-limit' },
+  { ok: false, reason: 'dailyCap' }, { ok: false, reason: 'daily-cap' }, { ok: false, reason: 'unknown' },
+  { ok: false }, { reason: 'session' }, {}, null, undefined, 1, 'true', { ok: true }]) {
+  test(`AIT-411: feature admission requires explicit wallet yes (${JSON.stringify(preview)})`, async t => {
+    const h = setup(t);
+    h.runtime.setOwnerWallet(() => ({ canAdmit: () => preview }));
+    const matrix = await h.runtime.matrix(h.session);
+    for (const feature of ['text', 'analysis']) {
+      assert.equal(matrix.best[feature].available, false);
+      assert.equal(matrix.best[feature].reason, 'budget denied');
+    }
+    assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 0);
+  });
+}
+test('AIT-411: a configured wallet resolver cannot fail open when the wallet is missing', async t => {
+  const h = setup(t);
+  h.runtime.setOwnerWallet(() => undefined);
+  assert.equal((await h.runtime.matrix(h.session)).best.text.available, false);
+});
+test('AIT-411: explicit boolean wallet yes keeps feature admission available', async t => {
+  const h = setup(t);
+  h.runtime.setOwnerWallet(() => ({ canAdmit: () => true }));
+  assert.equal((await h.runtime.matrix(h.session)).best.text.available, true);
+});
+
 test('AIT-262 catalog exposes only public host summaries from admission evidence at now()', async t => {
   let clock = Date.now();
   const h = setup(t, 'https://private-host-evidence.example.test/chat', { now: () => clock });
