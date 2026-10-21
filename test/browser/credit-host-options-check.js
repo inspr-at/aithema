@@ -192,7 +192,7 @@ export async function creditHostOptionsCheck(t) {
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight, footerSizing };
       const titleNode = r.querySelector('.composer-out__title span'), titleBox = box(titleNode);
       const titleHit = r.elementFromPoint(titleBox.left + titleBox.width / 2, titleBox.top + titleBox.height / 2);
-      const actionGeometry = { titleUnobscured: titleNode.contains(titleHit), primary: primaryBox, export: exportBox, exportVisible:visible('.composer-out__export'), rows: [...new Set(primaryInk.map(b => b.top))].length,
+      const actionGeometry = { titleUnobscured: titleNode.contains(titleHit), primary: primaryBox, export: exportBox, exportVisible:visible('.composer-out__export'), reservedPair:r.querySelector('.composer-out').hasAttribute('data-host-limit'), rows: [...new Set(primaryInk.map(b => b.top))].length,
         gap: primaryBox ? exportBox.top >= primaryBox.bottom ? exportBox.top - primaryBox.bottom : exportBox.left - primaryBox.right : null,
         bodyBounds: box(activeBody), actions: box(r.querySelector('.composer-out__actions')), deadlineOffset: deadline && !deadline.hidden ? box(deadline).left - box(activeBody).left : null };
 
@@ -447,7 +447,7 @@ export async function creditHostOptionsCheck(t) {
       if (value.width < 600) assert.ok(value.export.top >= value.primary.bottom + 12, `${label}: export has its own row`);
     }
     for (const profile of ['all', 'O4', 'O5', 'O2-none']) for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
-      const usedUp = round2.filter(v => v.profile === profile && v.locale === locale && v.theme === theme && v.width === 390 && ['U1', 'U2', 'U3', 'S1', 'S2', 'S3'].includes(v.state));
+      const usedUp = round2.filter(v => v.profile === profile && v.locale === locale && v.theme === theme && v.width === 390 && v.reservedPair && ['U1', 'U2', 'U3', 'S1', 'S2', 'S3', 'host-limit'].includes(v.state));
       for (const value of usedUp) assert.deepEqual(value.export, usedUp[0].export, `${profile}/${locale}/${theme}/${value.state}: reserved export row moves 0 px`);
     }
   });
