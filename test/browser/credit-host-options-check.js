@@ -126,8 +126,18 @@ export async function creditHostOptionsCheck(t) {
       const textRight = Math.max(...ink(stack).map(b => b.right));
       const overlapWidth = Math.max(0, Math.min(creditsTarget.right, engineTarget.right) - Math.max(creditsTarget.left, engineTarget.left));
       const overlapHeight = Math.max(0, Math.min(creditsTarget.bottom, engineTarget.bottom) - Math.max(creditsTarget.top, engineTarget.top));
+      const legalLinks = [...c.querySelectorAll('[slot="legal"] a, a[slot="legal"]')].map(box);
+      const legalGaps = legalLinks.slice(1).map((link, index) => link.left - legalLinks[index].right);
+      const footerStyle = getComputedStyle(r.querySelector('.display-foot'));
+      const footerSizing = { height: footer.height,
+        rows: getComputedStyle(r.querySelector('.display-foot__row')).gridTemplateRows.split(' ').map(parseFloat),
+        rowGap: parseFloat(getComputedStyle(r.querySelector('.display-foot__row')).rowGap),
+        paddingTop: parseFloat(footerStyle.paddingTop), paddingBottom: parseFloat(footerStyle.paddingBottom),
+        composerGap: footer.top - box(r.querySelector('.composer-dock')).bottom,
+        row1Targets: ['.ai-notice', '.host-credits__button', '.engine-info'].map(selector => box(r.querySelector(selector)).height),
+        legalLinks, legalGaps };
       const footerGeometry = { stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
-        textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight };
+        textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight, footerSizing };
       const titleNode = r.querySelector('.composer-out__title span'), titleBox = box(titleNode);
       const titleHit = r.elementFromPoint(titleBox.left + titleBox.width / 2, titleBox.top + titleBox.height / 2);
       const actionGeometry = { titleUnobscured: titleNode.contains(titleHit), primary: primaryBox, export: exportBox, rows: [...new Set(primaryInk.map(b => b.top))].length,
@@ -329,6 +339,18 @@ export async function creditHostOptionsCheck(t) {
     assert.ok(round2.every(v => Number.isFinite(v.textRight) && Number.isFinite(v.textFlagGap) && Number.isFinite(v.overlapPx2)), 'every case measures visible credits ink and both tap targets');
     const failures = round2.filter(v => v.textFlagGap < 8 || v.overlapPx2 !== 0);
     assert.deepEqual(failures, [], JSON.stringify(failures));
+  });
+  await t.test('AIT-435 Tick v1.6: two-row phone minimums and unchanged 44 px first row', () => {
+    for (const value of round2.filter(v => v.width < 600)) {
+      const sizing = value.footerSizing, label = `${value.profile}/${value.locale}/${value.theme}/${value.state}: ${JSON.stringify(sizing)}`;
+      assert.deepEqual(sizing.rows, [44, 28], `${label}: 44 px controls then 28 px legal row`);
+      assert.deepEqual(sizing.row1Targets, [44, 44, 44], `${label}: notice, credits and engine keep real 44 px targets`);
+      assert.ok(sizing.legalLinks.every(link => link.height >= 24), `${label}: legal hit areas >=24 px high`);
+      assert.ok(sizing.legalGaps.every(gap => gap >= 12), `${label}: legal links separated by >=12 px`);
+      assert.ok(sizing.paddingTop >= 6 && sizing.paddingBottom >= 6, `${label}: footer padding >=6 px`);
+      assert.ok(sizing.composerGap >= 8, `${label}: composer/footer gap >=8 px`);
+    }
+    t.diagnostic(`AIT-435 Tick v1.6 phone sizing: ${JSON.stringify(round2.find(v => v.width === 390).footerSizing)}`);
   });
   t.diagnostic(`${checks.length} state checks; 20 viewport shots; one reused page`);
 }
