@@ -273,7 +273,7 @@ for (const explicitRuntimeClock of [false, true]) test(`AIT-447 / AIT-403 voice 
   assert.equal(attempt.fundedSeconds, 15, 'lagging host must not inflate continuation to maxDuration');
   assert.equal(attempt.maxMicro, 600);
   assert.equal(h.runtime.budget.get(attempt.attemptId).max_visitor_micro, 300);
-  assert.equal(h.cap.snapshot().reservedMilliseconds, 15_000);
+  assert.equal(h.cap.snapshot().reservedMilliseconds, 60_000, 'AIT-450: minute cap holds the full credential, independently of the 15-second runway');
   assert.equal(first.spendDeadlineAt, startedAt + 60_000);
   assert.equal(first.browserLivenessDeadlineAt, startedAt + 30_000);
   assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);

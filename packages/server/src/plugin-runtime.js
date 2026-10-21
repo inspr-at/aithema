@@ -6,6 +6,7 @@ import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCanc
   sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
+import { perMinuteCostMicro } from '@inspr/aithema-core/cost';
 import { localVoiceImplementation } from './voice-provider.js';
 import { createImageBinding, imagePluginBinding } from './image-binding.js';
 import { localImagesImplementation } from './local-images.js';
@@ -273,9 +274,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     // Runtime authority rolls by segment independently of the money held for
     // the full credential. A refused renewal must stop at the last funded end.
     const fundedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
-    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: fundedMs / 1000,
-      maxMicro: Math.max(binding.maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
-      maxVisitorMicro: Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute) };
+    return { maxMilliseconds: binding.maxDurationSeconds * 1000, logicalMilliseconds: Math.ceil(milliseconds), fundedSeconds: fundedMs / 1000,
+      maxMicro: Math.max(binding.maxMicro, perMinuteCostMicro(binding.maxDurationSeconds, binding.upstreamMicroPerMinute)),
+      maxVisitorMicro: perMinuteCostMicro(binding.maxDurationSeconds, binding.visitorMicroPerMinute) };
   };
   // Resolve once, synchronously. Every exempt dispatch uses only this private,
   // frozen implementation through health, consent awaits, admission and replay.
@@ -1012,12 +1013,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const result = await this.checkVoice(session, options);
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
       const { binding, plugin } = result;
-      const { maxMicro, maxVisitorMicro, maxMilliseconds, fundedSeconds: initialFundedSeconds } = voiceAmounts(binding, options);
+      const { maxMicro, maxVisitorMicro, maxMilliseconds, logicalMilliseconds, fundedSeconds: initialFundedSeconds } = voiceAmounts(binding, options);
       let fundedSeconds = initialFundedSeconds;
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
         voiceEstimate: { upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute },
-        voiceExposure: { maxMicro: Math.max(maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
-          maxVisitorMicro: Math.max(maxVisitorMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute)) },
+        voiceExposure: { maxMicro, maxVisitorMicro },
         requestSha256: hash(request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
       const report = terminal => {
@@ -1044,9 +1044,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           conversationLimits.assertOpen(session.id);
           // Full credential liability is already reserved. Rolling renewals
           // retain the admission checks and cannot lower that reservation.
-          const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
-          const extended = budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
-            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, ownerWallet ? (extra, context) => ownerWallet(session)?.canAdmit(extra, context) : undefined);
+          const totalSeconds = Math.min(logicalMilliseconds / 1000, seconds);
+          const extended = budget.extendVoice(attemptId, { maxMicro: perMinuteCostMicro(totalSeconds, binding.upstreamMicroPerMinute),
+            maxVisitorMicro: perMinuteCostMicro(totalSeconds, binding.visitorMicroPerMinute) }, ownerWallet ? (extra, context) => ownerWallet(session)?.canAdmit(extra, context) : undefined);
           fundedSeconds = Math.max(fundedSeconds, totalSeconds);
           return extended;
         } } : {}), async consume() {

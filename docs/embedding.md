@@ -1980,9 +1980,15 @@ The costs contain `maxDurationSeconds`, `reservationSeconds`,
 `minRunwaySeconds`, `upstreamMicroPerMinute` and optional `usdPerCredit`.
 Every voice segment, initial and recovery, reserves the full credential liability before facade
 provisioning or credential issuance: upstream is the greater of `maxMicro` and
-`ceil(maxDurationSeconds / 60 * upstreamMicroPerMinute)`, and visitor liability is
-`ceil(maxDurationSeconds / 60 * visitorMicroPerMinute)`. This applies to rolling
+`ceil(maxDurationSeconds * upstreamMicroPerMinute / 60)`, and visitor liability is
+`ceil(maxDurationSeconds * visitorMicroPerMinute / 60)`. These amounts use the shared
+integer ceiling helper, including non-whole-minute durations. This applies to rolling
 bindings too. A call starts only when the full maximum call can be reserved.
+The total and UTC-day minute caps likewise reserve `maxDurationSeconds` for every
+credential, initial and recovery, including rolling bindings. A shorter remaining
+logical deadline never reduces that hold; admission refuses before provisioning
+when either minute cap cannot hold the full credential. Settlement and reconciliation
+replace the hold with actual provider seconds, including paused provider time.
 Rolling runtime authority remains segmented: initial `fundedSeconds` is the
 greater of `reservationSeconds` and `minRunwaySeconds`; recovery starts with
 `reservationSeconds`, each clipped to the remaining logical duration.

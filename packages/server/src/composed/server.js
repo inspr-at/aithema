@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { PluginError } from '@inspr/aithema-core/invocation';
+import { perMinuteCostMicro } from '@inspr/aithema-core/cost';
 import { beginVoiceInvocation, voiceOperation } from '@inspr/aithema-core/live-voice';
 import { createComposedVoiceCoordinator, callDurationSeconds } from '../voice-coordinator.js';
 import { createComposedRelay } from './relay.js';
@@ -64,9 +65,11 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     function terminal(outcome, endedAt) {
       const providerSeconds = Math.max(0, endedAt - record.startedAt) / 1000;
       const pausedSeconds = Math.min(providerSeconds, record.pauses.reduce((sum, pause) => sum + Math.max(0, (pause.to ?? endedAt) - pause.from) / 1000, 0));
+      const visitorMicro = perMinuteCostMicro(providerSeconds - pausedSeconds, binding?.visitorMicroPerMinute ?? 0);
+      if (visitorMicro === null) return { providerSessionId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: 0, usage: null };
       return { providerSessionId, outcome, closureConfirmed: true, chargedMicro: 0,
         usage: { providerSeconds, providerMinutes: providerSeconds / 60, pausedSeconds, visitorSeconds: providerSeconds - pausedSeconds,
-          upstreamMicro: 0, visitorMicro: Math.ceil((providerSeconds - pausedSeconds) / 60 * (binding?.visitorMicroPerMinute ?? 0)),
+          upstreamMicro: 0, visitorMicro,
           visitorDurationSource: 'aithema-measured',
           costSource: 'separate-component-claims', costEstimated: false } };
     }

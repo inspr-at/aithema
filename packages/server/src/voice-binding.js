@@ -1,4 +1,5 @@
 import { createBinding, deepFreeze } from '@inspr/aithema-core';
+import { perMinuteCostMicro } from '@inspr/aithema-core/cost';
 
 // Keep duration selection private; token and minute ceilings are different units.
 export function createDurationBinding(raw) {
@@ -9,9 +10,9 @@ export function createDurationBinding(raw) {
     reservationSeconds !== undefined && (!Number.isSafeInteger(reservationSeconds) || reservationSeconds < 1 || reservationSeconds > maxDurationSeconds) ||
     minRunwaySeconds !== undefined && (!Number.isSafeInteger(minRunwaySeconds) || minRunwaySeconds < 1 || minRunwaySeconds > 86400) ||
     ![upstreamMicroPerMinute, visitorMicroPerMinute].every(n => Number.isSafeInteger(n) && n >= 0) ||
-    !Number.isSafeInteger(Math.ceil(maxDurationSeconds / 60 * upstreamMicroPerMinute)) ||
-    !Number.isSafeInteger(Math.ceil(maxDurationSeconds / 60 * visitorMicroPerMinute)) ||
-    Math.ceil((reservationSeconds ?? maxDurationSeconds) / 60 * upstreamMicroPerMinute) > binding.maxMicro) throw new TypeError('Invalid duration binding');
+    !Number.isSafeInteger(perMinuteCostMicro(maxDurationSeconds, upstreamMicroPerMinute)) ||
+    !Number.isSafeInteger(perMinuteCostMicro(maxDurationSeconds, visitorMicroPerMinute)) ||
+    perMinuteCostMicro(reservationSeconds ?? maxDurationSeconds, upstreamMicroPerMinute) > binding.maxMicro) throw new TypeError('Invalid duration binding');
   return Object.freeze({ ...binding, maxDurationSeconds, upstreamMicroPerMinute, visitorMicroPerMinute,
     ...(reservationSeconds === undefined ? {} : { reservationSeconds }), minRunwaySeconds: minRunwaySeconds ?? 120,
     ...(adapterConfig === undefined ? {} : { adapterConfig: deepFreeze(structuredClone(adapterConfig)) }) });

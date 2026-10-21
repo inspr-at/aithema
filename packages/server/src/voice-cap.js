@@ -21,7 +21,7 @@ export function voiceCapConfig(values = {}) {
 }
 
 /** Deployment-wide duration holds, independent of provider pricing and visitor pauses.
- * Each provider attempt extends the same logical call by its remaining maximum.
+ * Each credential holds its full provider maximum, including recovery attempts.
  * UTC-day accounting follows admission; unreconciled attempts never expire.
  */
 export function createVoiceCap({ storage, capMilliseconds, perDayMilliseconds, now = Date.now } = {}) {
