@@ -60,7 +60,8 @@ test('voice estimates and actual credit charges survive a restart without duplic
   assert.throws(() => ledger.reconcileVoice(admission.attemptId, { ...actual, usage: { ...actual.usage, upstreamMicro: 8401 } }), { code: 'already-claimed' });
 });
 
-test('a refused rolling money extension closes voice before its generous technical ceiling', { timeout: 1000 }, async () => {
+test('a refused rolling money extension closes voice before its generous technical ceiling', { timeout: 1000 }, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.now() });
   const closed = Promise.withResolvers(); let extensions = 0;
   const plugin = createElevenLabsServer({ binding: { ...binding, reservationSeconds: 1 },
     resolveSecret: () => 'fixture', prepareCall: () => {}, saveCall: () => {},
@@ -68,10 +69,17 @@ test('a refused rolling money extension closes voice before its generous technic
       ? Response.json({ token: 'fixture-token', conversation_id: 'conversation' }) : Response.json(details({ cost: 1 })) });
   const session = await plugin.start({ callId: 'call', facadeSecretRef: 'fixture-facade-ref' }, {
     deadlineAt: Date.now() + 500, spendDeadlineAt: Date.now() + 3600_000, browserLivenessDeadlineAt: Date.now() + 10_000,
-    attempt: { attemptId: 'attempt', claimId: 'claim', maxMicro: 1667, consume() {},
+    attempt: { attemptId: 'attempt', claimId: 'claim', maxMicro: 1667, fundedSeconds: 1, consume() {},
       extend() { extensions++; throw new Error('money exhausted'); } }, report: terminal => closed.resolve(terminal) });
+  const startedAt = session.snapshot().startedAt;
+  t.mock.timers.tick(500); await new Promise(setImmediate);
+  assert.equal(extensions, 1); assert.equal(session.snapshot().closing, undefined);
+  t.mock.timers.tick(499); await new Promise(setImmediate);
+  assert.equal(session.snapshot().closing, undefined, 'refusal does not discard the current funded segment');
+  t.mock.timers.tick(1);
   const terminal = await closed.promise;
   assert.equal(extensions, 1); assert.equal(session.snapshot().reason, 'budget-limit');
+  assert.equal(session.snapshot().endedAt - startedAt, 1000);
   assert.equal(terminal.usage.upstreamMicro, 200); assert.equal(terminal.closureConfirmed, true);
 });
 

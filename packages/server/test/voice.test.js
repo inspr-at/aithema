@@ -3165,6 +3165,59 @@ for (const phase of ['initial', 'rolling-initial', 'recovery', 'rolling-recovery
   });
 }
 
+for (const phase of ['initial', 'recovery']) for (const renewOnce of [false, true]) {
+  test(`AIT-447: refused rolling renewal closes ${phase} at the current segment boundary (renewOnce=${renewOnce})`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.now() });
+    const h = voiceFixture(t, { leaseMs: 700_000, durationBinding: {
+      maxDurationSeconds: 600, maxMicro: 1_000_000, upstreamMicroPerMinute: 100_000,
+      visitorMicroPerMinute: 200_000, reservationSeconds: 30,
+    }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
+    h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 700_000;
+    let grant = await h.start();
+    const advance = async ms => { h.advance(ms); t.mock.timers.tick(ms); await new Promise(setImmediate); };
+    if (phase === 'recovery') {
+      await advance(60_000);
+      const response = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId });
+      assert.equal(response.status, 200); grant = await response.json();
+    }
+    const record = h.storage.voiceCalls(h.session.id).at(-1), before = h.runtime.budget.get(record.attemptId);
+    assert.equal(before.max_micro, 1_000_000); assert.equal(before.max_visitor_micro, 2_000_000);
+    const priorCloses = h.closeRequests.length;
+    const walletForSession = h.host.walletForSession.bind(h.host), renewals = [];
+    let allowed = renewOnce;
+    t.mock.method(h.host, 'walletForSession', session => {
+      const wallet = walletForSession(session);
+      return { ...wallet, canAdmit(extra, context) {
+        renewals.push({ at: h.now(), extra, allowed });
+        return allowed;
+      } };
+    });
+    if (renewOnce) {
+      await advance(15_000);
+      assert.equal(renewals.length, 1); assert.equal(renewals[0].allowed, true);
+      allowed = false;
+    }
+    await advance(15_000);
+    assert.equal(renewals.length, renewOnce ? 2 : 1);
+    assert.equal(renewals.at(-1).allowed, false);
+    assert.deepEqual(renewals.at(-1).extra, { maxMicro: 0, maxVisitorMicro: 0 });
+    assert.deepEqual(h.closeRequests.slice(priorCloses), [], 'refusal preserves the rest of the current segment');
+    await advance(14_999);
+    assert.deepEqual(h.closeRequests.slice(priorCloses), [], 'the segment remains usable until its funded boundary');
+    await advance(1); await h.handlers.idle();
+    const closed = h.storage.voiceCalls(h.session.id).find(row => row.providerSessionId === grant.providerSessionId);
+    assert.equal(closed.reason, 'budget-limit', 'a full money reservation must not extend runtime after host refusal');
+    assert.equal(closed.endedAt - record.startedAt, renewOnce ? 45_000 : 30_000);
+    assert.ok(closed.endedAt < grant.spendDeadlineAt, 'host refusal ends this segment before the logical call deadline');
+    assert.deepEqual(h.closeRequests.slice(priorCloses), [grant.providerSessionId]);
+    assert.equal(closed.terminal.closureConfirmed, true);
+    const settled = h.runtime.budget.get(record.attemptId);
+    assert.equal(settled.max_micro, before.max_micro); assert.equal(settled.max_visitor_micro, before.max_visitor_micro);
+    assert.deepEqual(h.runtime.budget.voiceExposures(record.attemptId), []);
+    assert.equal(settled.overrun, 0);
+  });
+}
+
 for (const phase of ['initial', 'recovery']) test(`AIT-447: browser ignores stop on ${phase} rolling segment; reservation caps provider cost`, async t => {
   const h = voiceFixture(t, { slowClosure: true, providerCeiling: true, leaseMs: 700_000, durationBinding: {
     maxDurationSeconds: 600, maxMicro: 1_000_000, upstreamMicroPerMinute: 100_000,
