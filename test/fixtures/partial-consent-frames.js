@@ -10,6 +10,7 @@ import { previewFixture } from './html-preview-route.js';
 import { browserForFile } from '../browser/shared-browser.js';
 import { installConsentClock } from './consent-clock.js';
 import { scopedConsentEdges } from './scoped-consent-edges.js';
+import { closeConsentFixture } from './consent-teardown.js';
 
 export async function partialConsentFrames(t, { isCI } = {}) {
   const startedAt = performance.now();
@@ -73,7 +74,7 @@ export async function partialConsentFrames(t, { isCI } = {}) {
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const browser = await browserForFile();
-  t.after(async () => { await browser.close(); for (const stream of streams) stream.end(); await new Promise(resolve => server.close(resolve)); });
+  t.after(() => closeConsentFixture({ browser, server, streams }));
   const a = await browser.newPage(), b = await browser.newPage(), checks = [], shots = [];
   await a.setRequestInterception(true);
   a.on('request', request => {
