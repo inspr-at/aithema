@@ -33,4 +33,15 @@ test('AIT-455: a forced browser teardown hang fails fast with the suite and step
   assert.equal(result.code, 1, result.output);
   assert.match(result.output, /AIT-364: cross-tab single-item consent withdrawal removes HTML and images/u);
   assert.match(result.output, /AIT-364 consent teardown: browser pages and storage: exceeded 25 ms/u);
+  assert.match(result.output, /owned Chrome terminated: SIGKILL/u);
+});
+
+test('AIT-455: a forced HTTP close hang fails fast with the suite and step', async () => {
+  const result = await probe('server-hang');
+  assert.match(result.output, /forced teardown probe reached/u);
+  assert.equal(result.killed, false, `teardown hit the outer watchdog: ${result.output}`);
+  assert.equal(result.signal, null, result.output);
+  assert.equal(result.code, 1, result.output);
+  assert.match(result.output, /AIT-364: cross-tab single-item consent withdrawal removes HTML and images/u);
+  assert.match(result.output, /AIT-364 consent teardown: HTTP server: exceeded 25 ms/u);
 });

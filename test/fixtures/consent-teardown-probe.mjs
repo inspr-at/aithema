@@ -14,7 +14,14 @@ test('AIT-364: cross-tab single-item consent withdrawal removes HTML and images'
   const socket = connect(server.address().port, '127.0.0.1');
   await once(socket, 'connect');
   await accepted;
-  const browser = { close: () => process.argv[2] === 'browser-hang' ? new Promise(() => {}) : Promise.resolve() };
+  const browser = {
+    close: () => process.argv[2] === 'browser-hang' ? new Promise(() => {}) : Promise.resolve(),
+    browser: () => ({ process: () => ({ kill: signal => console.log(`owned Chrome terminated: ${signal}`) }) }),
+  };
+  if (process.argv[2] === 'server-hang') {
+    const close = server.close.bind(server);
+    server.close = () => close(); // Close the listener but deliberately lose its completion callback.
+  }
   t.after(() => closeConsentFixture({ browser, server, streams: new Set() }, { timeout: 25 }));
   // Leave an accepted TCP connection with no HTTP headers, as Chrome can do
   // while the shared browser remains alive after this fixture's pages close.
