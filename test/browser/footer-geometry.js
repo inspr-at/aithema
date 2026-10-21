@@ -28,9 +28,8 @@ export const measureFooterGeometry = (c, { visibleZonesOnly = false, zoneSelecto
   for (const selector of zoneSelectors) {
     const zone = root.querySelector(selector), contents = getComputedStyle(zone).display === 'contents';
     if (visibleZonesOnly && !contents && !visible(zone)) continue;
-    // AIT-435 item 5 deliberately reuses O4's two-row display:contents footer.
-    // It has no parent box: measure each painted child against its own box and
-    // the row, preserving both clipping checks and actual spaces between rows.
+    // A display:contents zone has no parent box: measure each painted child
+    // against its own box and the footer row, preserving clipping and spacing checks.
     const fragments = contents ? [...zone.children].filter(visible) : [zone], paintedFragments = [];
     for (const fragment of fragments) {
       const bounds = rect(fragment), painted = { ...bounds };

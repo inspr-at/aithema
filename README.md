@@ -427,7 +427,7 @@ while its demo host is active; a live provider host shows none of the demo copy)
 | `account` | Right end of the host bar (account menu) |
 | `credits-limit` | After the credits line once the limit is reached (top-up or next step) |
 | `handover-offer` | Offer copy in the handover band (default: a generic sentence) |
-| `legal` | Footer row under the workspace, left (legal links) |
+| `legal` | Right of the footer at 600 px and above; below 600 px, links open in a popover through the **Rechtliches** / **Legal** control in the single 44 px footer row |
 | `footer` | Footer row, right (status or imprint); the row shows only when a slot is filled |
 
 New interaction controls that start AI processing (Send confirmation link,
@@ -3558,7 +3558,7 @@ copy dictionary can opt into the separate offer wording.
 | O1 | `usedUp.newConversation: { enabled: true }` (default false) | When no upgrade remains, the primary action starts a fresh conversation through the existing new-session path. Export stays a secondary text link. |
 | O2 | `usedUp.dailyCapActions: 'none'` (default `'export'`) | Only the daily-cap panel suppresses actions; its empty row retains its height and is `aria-hidden`. |
 | O3 | Host-supplied `copy.hostSurface.credits.afterConfirm` | Separates the unconfirmed offer from `withConfirmed`, the confirmed current tier. Supports `{n}` and existing `{tier}`. Missing key falls back to `withConfirmed`; unchanged built-in dictionaries keep their historic anonymous offer. |
-| O4 | `credits: { reconcilingVisible: true }` (default false) | The balance stack reserves the visible reconciling text and announces it once through a polite live region. Phone hosts with legal links reserve a standing legal row beneath the balance. The existing tooltip remains; a custom `copy.hostSurface.credits.reconciling` supplies visible wording too. |
+| O4 | `credits: { reconcilingVisible: true }` (default false) | The balance stack reserves the visible reconciling text and announces it once through a polite live region. Below 600 px, the footer stays one 44 px row: host legal links open through the **Rechtliches** / **Legal** control, and the reconciling text wraps inside the credits cell. The existing tooltip remains; a custom `copy.hostSurface.credits.reconciling` supplies visible wording too. |
 | O5 | `credits: { dailyCapReset: true }` (default false) | Shows the host's `dailyCapResetAt` Unix milliseconds in local time (DE 24-hour; EN locale time), only while capped. Missing later reset receipts do not clear an acknowledged instant during the cap. |
 | O6 | `emailAsk: { lowCredits: false }` (default true) | Suppresses the low-credit transcript line and automatic low ask. The tier and panel confirmation entries remain. Set the same option on the server host; it rejects low line/show claims without consuming the latch. |
 | O7 | Wallet preview `canAdmit` may return `{ ok: false, reason: 'session' }`; atomic `admit` may return the same. Only boolean `true` authorizes `canAdmit`, including voice extensions | Session exhaustion survives admission. Unknown/missing reasons fail closed to host-limit. Daily cap takes presentation precedence over session, then host-limit. An unconfirmed session with a higher confirmation tier offers confirmation; otherwise O1 selects new conversation or the existing export action. |

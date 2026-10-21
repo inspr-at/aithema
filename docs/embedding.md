@@ -1209,10 +1209,11 @@ wrappers, in host order. Each visible label uses the original anchor's
 `aria-label` suitable for display as link text. The `href`, `target` and `rel` attribute values stay
 byte-identical. Non-link slot content is omitted, and anchor child markup is
 flattened to text. Host IDs, slot, class, style, `aria-labelledby` and
-`aria-describedby` attributes are removed from the clones. JavaScript listeners
-registered on the original anchors or their host wrappers are not transferred
-to the shadow-root popover; hosts must provide working `href` navigation rather
-than depend on those listeners. The original wide-screen slot remains in place.
+`aria-describedby` attributes are removed from the clones. Listeners registered
+with `addEventListener` on the original anchors or their host wrappers are not
+transferred to the shadow-root popover. Inline `on*` attributes are copied;
+hosts must provide working `href` navigation rather than depend on those
+listeners. The original wide-screen slot remains in place.
 
 The approved full AI label and connection status remain visible at 1024 px.
 The connection label reserves the widest short label in the current language,
@@ -2518,8 +2519,9 @@ sessionElement.configure({
 - **O4:** `credits.reconcilingVisible` defaults to false. When true, the visible
   balance stack reserves both number and muted reconciling text. The text has
   one polite announcement per reconciliation; the tooltip remains available.
-  Phone hosts with legal links reserve a separate standing legal row, so the
-  visible status cannot overlap those links.
+  Below 600 px, the footer stays one 44 px row: host legal links open through
+  the **Rechtliches** / **Legal** control, and the reconciling text wraps inside
+  the credits cell.
 - **O5:** `credits.dailyCapReset` defaults to false. On the server,
   `creditTiers(ownerToken, { sessionId })` supplies `dailyCapReached` and
   `dailyCapResetAt` (safe-integer Unix milliseconds) for a session-scoped wallet.
