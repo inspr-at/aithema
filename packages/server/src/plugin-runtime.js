@@ -270,7 +270,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     // rolling timer or recovery deadline asks the browser to stop sooner.
     const runwayMs = options.voiceContinuation ? 0 : Math.min(binding.minRunwaySeconds * 1000, binding.maxDurationSeconds * 1000);
     if (milliseconds <= 0 || milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
-    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: milliseconds / 1000,
+    // Runtime authority rolls by segment independently of the money held for
+    // the full credential. A refused renewal must stop at the last funded end.
+    const fundedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
+    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: fundedMs / 1000,
       maxMicro: Math.max(binding.maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
       maxVisitorMicro: Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute) };
   };

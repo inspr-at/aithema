@@ -1983,6 +1983,12 @@ provisioning or credential issuance: upstream is the greater of `maxMicro` and
 `ceil(maxDurationSeconds / 60 * upstreamMicroPerMinute)`, and visitor liability is
 `ceil(maxDurationSeconds / 60 * visitorMicroPerMinute)`. This applies to rolling
 bindings too. A call starts only when the full maximum call can be reserved.
+Rolling runtime authority remains segmented: initial `fundedSeconds` is the
+greater of `reservationSeconds` and `minRunwaySeconds`; recovery starts with
+`reservationSeconds`, each clipped to the remaining logical duration.
+Only an approved renewal advances that runway. An owner or host refusal closes
+with `budget-limit` at the current funded segment's end, while the full monetary
+reservation remains held until provider closure is confirmed.
 The original logical deadline still bounds the admitted call;
 its remaining time cannot reduce the credential's reservation.
 Admission fails closed when any ledger or owner limit cannot fund that liability,
