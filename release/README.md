@@ -99,8 +99,9 @@ use**; “Aithema recommends” is preserved; German defaults are impersonal.
 
 RC13 carried notes applied: Opus Low 1 uses one linked sentence for RC12/RC13
 requirements rather than repeating the old host checklist; Low 2 keeps visitor
-bullets in visitor words; Low 3 names identity request/change precisely in host
-text. Tick's O8 note places canDelete beside canSave in the same visitorEmail
+bullets in visitor words; Low 3 distinguishes the UI's identity request/change
+hold during a reply from server acceptance and a retryable `identity-changed`
+failure if the reply then fails. Tick's O8 note places canDelete beside canSave in the same visitorEmail
 object. Grok Low restores the visitor failure-message/Retry-delay line and the
 host HTTP 429/Retry-After requirement, relevant to AIT-384. `next-notes.md`
 contained only its empty stub and remains reset to it. All manifests, lock

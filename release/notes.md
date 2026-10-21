@@ -30,8 +30,8 @@ Fourteenth October release: credits display options for hosts, one clock for eve
   dismissed; its contents, downloads, votes and regeneration remain closed.
 - **Calmer messages and usable handover (AIT-387/429/426/433):** unavailable
   features use neutral wording. German defaults address visitors impersonally.
-  On phones, the handover heading, full demo notice, action and status stack
-  without clipping or moving the page as the status changes.
+  On phones, the handover heading, the host's full notice, the action and the
+  status stack without clipping or moving the page as the status changes.
 
 ## For hosts
 
@@ -43,18 +43,20 @@ existing low-credit ask stays enabled until explicitly suppressed.
 | --- | --- |
 | O1 | `host.usedUp.newConversation.enabled: true` adds the new-conversation action in the used-up panel; default false. |
 | O2 | `host.usedUp.dailyCapActions: 'none'` removes the daily-cap action while retaining its space; default `'export'`. |
-| O3 | Supply `copy.hostSurface.credits.afterConfirm` for a separate “After confirmation: {n} credits” offer; absent by default, with the existing copy fallback. |
+| O3 | `copy.hostSurface.credits.afterConfirm` supplies a separate “After confirmation: {n} credits” offer; the built-in dictionaries include it, and custom copy without it falls back to `withConfirmed`. |
 | O4 | `host.credits.reconcilingVisible: true` shows reconciling text; default false. |
 | O5 | `host.credits.dailyCapReset: true` shows the reset time supplied through `dailyCapResetAt`; default false. |
-| O6 | `host.emailAsk.lowCredits: false` on client and server suppresses the inline/automatic low-credit ask; the suppression is off by default (the setting defaults to true). |
-| O7 | Return `{ ok: false, reason: 'session' }` from the wallet to identify session end; absent by default, with precedence dailyCap > session > host-limit. |
-| O8 | Report `visitorEmail: { canSave, canDelete }` in the same object; deletion is enabled only for explicit `canDelete: true` from a complete visitor-email port. |
+| O6 | `host.emailAsk.lowCredits: false` (set on client and server) turns off the inline and automatic low-credit ask; default `true` (the ask shows). |
+| O7 | Return `{ ok: false, reason: 'session' }` from `canAdmit`/`admit` to identify session end; absent by default, with precedence dailyCap > session > host-limit. |
+| O8 | `/identity` automatically reports `visitorEmail: { canSave, canDelete }` from the complete visitor-email port; the client enables deletion only for explicit `canDelete: true`. |
 
 Only boolean `true` from wallet `canAdmit` authorizes spend; truthy objects do
 not. O1–O8 preserve their reserved space as state changes. See the
 [credit host options](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/docs/embedding.md#credit-host-options-o1o8-rc13)
 for the complete client/server contract. START must integrate its chosen options;
 this release does not deploy START.
+
+**Phone footer legal links (AIT-435).** Below 600 px, when host legal links are configured, they move from the footer row into a popover opened by one labelled footer control (“Rechtliches” / “Legal”, 44 px). Links, labels, order and hrefs are unchanged; 600 px and wider is unchanged. This applies to every host, not only those that set credit options. Custom CSS that targets the legal links in the phone footer needs review, and hosts should confirm that one clearly labelled control meets their own legal-notice requirements.
 
 **Credit callback failures are server errors (AIT-407/420).** On the turn path,
 a throwing host credit callback returns HTTP **500**, including `TypeError`
@@ -95,9 +97,10 @@ are de-duplicated per request and limited to four concurrent reads, with ownersh
 revision and scope checked per artifact. A full withdrawal through `POST /consent`
 includes every known scope in its revocation fields; `withdrawConsent(id)` omits
 those fields and uses the legacy refresh path. Both bypass host document reads.
-Legacy/unknown consent evidence stays flagged over the pending window. The
-identity request/change routes reject
-mid-reply races explicitly; undelivered replies cost the host within caps, not
+Legacy/unknown consent evidence stays flagged over the pending window. The UI
+holds identity request/change while a reply streams; the server accepts it, and
+if the reply then fails it reports a retryable `identity-changed` failure.
+Undelivered replies cost the host within caps, not
 visitor credits. The guide covers minimal module installation, equal-tier
 confirmation and the address-derived daily spend guard.
 
@@ -118,8 +121,12 @@ host integration failures, not malformed visitor input or oversized payloads.
 Update adapters, monitoring and retry/error handling that depended on the old
 status, and repair callbacks to the synchronous read contract above. AIT-403/430
 also rejects custom caps/limiters without `setClock` when installing a clock;
-add that method before opting into an injected clock. Wallet integrations must
-honor the existing explicit-true admission contract. The eight credit options
+add that method before opting into an injected clock. AIT-411 also changes
+`canAdmit` at two sites: the host wallet check before starting a voice call and
+the host authorizer for extending a voice credit reservation. At
+`v261020161837.0.0`, both sites admitted every result other than `false`; now a
+missing return or a non-boolean/object result fails closed. Hosts returning
+`true`/`false` are unchanged. The eight credit options
 are opt-in; they do not require enabling new UI.
 
 Voxtral and the second Grok voice pipeline (AIT-317/342) remain parked, private
@@ -202,6 +209,7 @@ the product version.
   Consumer smoke checks do not establish host-specific layout or CSP enforcement.
 - Further legal formalization remains follow-up work; this release grants no
   rights beyond its included license and rights/provenance notices.
+- Phone footer polish (AIT-439, RC15): the model flag sits flush against the Legal control, and with reconciling text enabled (O4) the credits label sits slightly above its row's centre. A CSS-only fix follows the same day.
 
 See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
