@@ -351,7 +351,14 @@ test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, mai
     browser = await browserForFile();
     const page = await browser.newPage(), main = await browser.newPage();
     await main.setRequestInterception(true);
-    main.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });
+    main.on('request', request => {
+      const source = baseline.modules[new URL(request.url()).pathname.slice(1)];
+      // Tick AIT-445 round 3 approves only this larger composer reservation.
+      // Retain the frozen email styles and every exact geometry/pixel assertion.
+      if (source) void request.respond({ status: 200, contentType: 'text/javascript',
+        body: source.replace('.composer-out__steps { min-height:4.05em; }', '.composer-out__steps { min-height:4lh; }') });
+      else void request.continue();
+    });
     for (const p of [page, main]) {
       await p.bringToFront();
       await p.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
