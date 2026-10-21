@@ -48,7 +48,13 @@ async function main() {
     child.unref();
   }
   mkdirSync(process.env.FAKE_TRACE_DIR, { recursive: true });
-  writeFileSync(join(process.env.FAKE_TRACE_DIR, `${process.pid}.json`), JSON.stringify(record));
+  const tracePath = join(process.env.FAKE_TRACE_DIR, `${process.pid}.json`);
+  // Widen the open-before-write window in both modes seen flaking in CI.
+  if (['descendant', 'slow'].includes(mode)) {
+    writeFileSync(tracePath, '');
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  writeFileSync(tracePath, JSON.stringify(record));
   if (['hang', 'ignoreterm', 'descendant'].includes(mode)) { setInterval(() => {}, 1000); process.send?.('fixture-stall'); return; }
   if (mode === 'none') return;
   if (mode === 'nonzero') { process.stderr.write('private-provider-detail'); process.exit(7); }
