@@ -262,7 +262,7 @@ test('AIT-138 fix 3: exhaustion reports are owner authenticated, validated, and 
   assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'ended', 'exhaustion cannot undo explicit hang-up');
 });
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost, purposePolicy, log } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, providerCeiling = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost, purposePolicy, log } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -299,8 +299,10 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
       providerEvents.record({ type: 'details', id });
       // Provider closure is unavailable until the browser ends the SDK session.
       if (slowClosure && !ended.has(id) && !releasing) await new Promise(resolve => waiting.set(id, resolve));
+      const seconds = (clock - opened.get(id)) / 1000;
       return Response.json({ conversation_id: id, status: unknown ? 'processing' : 'done',
-        metadata: { start_time_unix_secs: opened.get(id) / 1000, call_duration_secs: (clock - opened.get(id)) / 1000, cost: 7 } });
+        metadata: { start_time_unix_secs: opened.get(id) / 1000,
+          call_duration_secs: providerCeiling ? Math.min(seconds, binding.maxDurationSeconds) : seconds, cost: 7 } });
     } });
   const presets = mockPresets();
   const health = plugin.health; plugin.health = options => { healthReads++; return health(options); };
@@ -328,7 +330,14 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     waitForMintFailure: () => providerEvents.waitFor(event => event.type === 'mint-failed'),
     waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),
     authChecks: () => ({ secretReads, coverageReads, healthReads }),
-    advance: ms => { clock += ms; }, coverage: value => { covered = value; }, beforeCoverage: fn => { beforeCoverage = fn; } };
+    advance: ms => {
+      clock += ms;
+      if (providerCeiling) for (const [id, start] of opened) {
+        // The fake provider enforces its credential ceiling independently of
+        // browser stop acknowledgements and the host's logical deadline.
+        if (clock - start >= binding.maxDurationSeconds * 1000) endClient(id);
+      }
+    }, coverage: value => { covered = value; }, beforeCoverage: fn => { beforeCoverage = fn; } };
 }
 
 for (const ErrorType of [TypeError, Error, RangeError]) test(`AIT-416: throwing touchVisitor (${ErrorType.name}) cannot strand a voice turn`, async t => {
@@ -3157,7 +3166,7 @@ for (const phase of ['initial', 'rolling-initial', 'recovery', 'rolling-recovery
 }
 
 for (const phase of ['initial', 'recovery']) test(`AIT-447: browser ignores stop on ${phase} rolling segment; reservation caps provider cost`, async t => {
-  const h = voiceFixture(t, { slowClosure: true, leaseMs: 700_000, durationBinding: {
+  const h = voiceFixture(t, { slowClosure: true, providerCeiling: true, leaseMs: 700_000, durationBinding: {
     maxDurationSeconds: 600, maxMicro: 1_000_000, upstreamMicroPerMinute: 100_000,
     visitorMicroPerMinute: 200_000, reservationSeconds: 30,
   }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
@@ -3194,7 +3203,7 @@ for (const phase of ['initial', 'recovery']) test(`AIT-447: browser ignores stop
   assert.equal(wallet.balance().committedMicro, committed);
   // No browser acknowledgement: billing runs to the credential's full 600s
   // provider ceiling, including past the recovery's logical 10s remainder.
-  h.advance(599_000); h.endClient(grant.providerSessionId);
+  h.advance(599_000);
   const terminal = await closing.then(r => r.json());
   assert.equal(terminal.closureConfirmed, true);
   assert.equal(terminal.usage.providerSeconds, 600);
