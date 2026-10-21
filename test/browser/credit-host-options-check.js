@@ -23,6 +23,9 @@ export async function creditHostOptionsCheck(t) {
       await writeFile(join(evidence, 'ait435-r4-checks.json'), JSON.stringify({ head, spec:'Tick v1.7', footer80, legalChecks, shots:legalShots, errors }, null, 2));
       await writeFile(join(evidence, 'ait439-checks.json'), JSON.stringify({ head, spec:'Tick v1',
         checks:round2.filter(v => v.width === 390), shots:shots.filter(name => /390-light-(de|en)-S[23]\.png$/u.test(name)), errors }, null, 2));
+      await writeFile(join(evidence, 'ait448-checks.json'), JSON.stringify({ head, spec:'Tick v1',
+        checks:round2.filter(v => ['S1', 'U1', 'U2'].includes(v.state)),
+        shots:shots.filter(name => /390-light-(de|en)-S1\.png$/u.test(name)), errors }, null, 2));
     }
   });
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
@@ -129,8 +132,9 @@ export async function creditHostOptionsCheck(t) {
         }
         return rects;
       };
-      const primary = r.querySelector('.composer-out__new'), exportLink = r.querySelector('.composer-out__export');
-      const primaryBox = primary && !primary.hidden ? box(primary) : null, exportBox = box(exportLink);
+      const primary = [...r.querySelectorAll('.composer-out__new, .composer-out__upgrade')]
+        .find(n => n.checkVisibility({ visibilityProperty:true })), exportLink = r.querySelector('.composer-out__export');
+      const primaryBox = primary ? box(primary) : null, exportBox = box(exportLink);
       const primaryInk = primaryBox ? ink(primary) : [];
       const activeBody = body.querySelector('[data-active="true"]'), deadline = r.querySelector('.composer-out__deadline');
       const stack = r.querySelector('.host-credits__stack'), flag = box(r.querySelector('.engine__flag'));
@@ -188,7 +192,7 @@ export async function creditHostOptionsCheck(t) {
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight, footerSizing };
       const titleNode = r.querySelector('.composer-out__title span'), titleBox = box(titleNode);
       const titleHit = r.elementFromPoint(titleBox.left + titleBox.width / 2, titleBox.top + titleBox.height / 2);
-      const actionGeometry = { titleUnobscured: titleNode.contains(titleHit), primary: primaryBox, export: exportBox, rows: [...new Set(primaryInk.map(b => b.top))].length,
+      const actionGeometry = { titleUnobscured: titleNode.contains(titleHit), primary: primaryBox, export: exportBox, exportVisible:visible('.composer-out__export'), reservedPair:r.querySelector('.composer-out').hasAttribute('data-host-limit'), rows: [...new Set(primaryInk.map(b => b.top))].length,
         gap: primaryBox ? exportBox.top >= primaryBox.bottom ? exportBox.top - primaryBox.bottom : exportBox.left - primaryBox.right : null,
         bodyBounds: box(activeBody), actions: box(r.querySelector('.composer-out__actions')), deadlineOffset: deadline && !deadline.hidden ? box(deadline).left - box(activeBody).left : null };
 
@@ -428,6 +432,23 @@ export async function creditHostOptionsCheck(t) {
         assert.equal(value.titleUnobscured, true, `${locale}/${theme}/${width}/${value.state}: panel title is unobscured`);
         assert.deepEqual(value.actions, usedUp[0].actions, `${locale}/${theme}/${width}/${value.state}: actions reserve 0 px`);
       }
+    }
+  });
+  await t.test('AIT-448: every used-up action pair has 12 px and reserves the phone export row', () => {
+    const s1 = round2.find(v => v.profile === 'all' && v.width === 390 && v.locale === 'de' && v.theme === 'light' && v.state === 'S1');
+    t.diagnostic('AIT448_S1_390_DE ' + JSON.stringify(s1));
+    assert.ok(s1.gap >= 12, `S1 at 390 DE: primary/export gap ${s1.gap} px >= 12 px`);
+    const pairs = round2.filter(v => v.primary && v.exportVisible);
+    for (const value of pairs) {
+      const label = `${value.profile}/${value.locale}/${value.theme}/${value.width}/${value.state}`;
+      assert.equal(value.rows, 1, `${label}: primary text stays on one line`);
+      assert.ok(value.primary.top >= value.bodyBounds.bottom, `${label}: body clears the primary target`);
+      assert.ok(value.gap >= 12, `${label}: primary/export gap ${value.gap} px >= 12 px`);
+      if (value.width < 600) assert.ok(value.export.top >= value.primary.bottom + 12, `${label}: export has its own row`);
+    }
+    for (const profile of ['all', 'O4', 'O5', 'O2-none']) for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+      const usedUp = round2.filter(v => v.profile === profile && v.locale === locale && v.theme === theme && v.width === 390 && v.reservedPair && ['U1', 'U2', 'U3', 'S1', 'S2', 'S3', 'host-limit'].includes(v.state));
+      for (const value of usedUp) assert.deepEqual(value.export, usedUp[0].export, `${profile}/${locale}/${theme}/${value.state}: reserved export row moves 0 px`);
     }
   });
   await t.test('AIT-435 item 2: S3 without O1 paints sessionDefaultBody', () => {
