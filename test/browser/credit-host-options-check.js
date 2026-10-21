@@ -138,7 +138,7 @@ export async function creditHostOptionsCheck(t) {
         hidden: getComputedStyle(n).visibility === 'hidden', ariaHidden: n.getAttribute('aria-hidden'),
         height: n.getBoundingClientRect().height }));
       return { boxes: Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot'].map(s => [s, rect(s)])),
-        footerGeometry, actionGeometry, legalLinks: c.querySelectorAll('[slot="legal"]').length,
+        footerGeometry, actionGeometry, legalLinks: c.querySelectorAll('[slot="legal"] a, a[slot="legal"]').length,
         reservation, bodyHeight: body.getBoundingClientRect().height,
         footerTextFits, footerTextRects: { label: [footerLabel.x, footerLabel.y, footerLabel.width, footerLabel.height], neighbors: footerNeighbors.map(({ selector, box }) => ({ selector, rect: [box.x, box.y, box.width, box.height] })) },
         lowCredits: window.ait411.lowCredits, overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth), emailBox: rect('.host-verify'), title: r.querySelector('.composer-out__title span').textContent, body: r.querySelector('.composer-out__body span').textContent,
