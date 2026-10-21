@@ -61,11 +61,11 @@ test('AIT-102: another provider admits, discovers scope, extends and reconciles 
   assert.equal(scope.model, 'conversation-v2'); assert.equal(scope.plugin, 'neutral-voice');
   const admitted = await runtime.admitVoice({ session, request: { callId: 'fixture-call' } });
   const attempt = admitted.options.attempt;
-  assert.equal(attempt.fundedSeconds, 120);
-  assert.equal(attempt.maxMicro, 1200);
+  assert.equal(attempt.fundedSeconds, 3600);
+  assert.equal(attempt.maxMicro, 36_000);
   assert.equal(attempt.exposureMicro, 36_000);
   await attempt.consume(); attempt.extend(150);
-  assert.equal(attempt.fundedSeconds, 150); assert.equal(attempt.maxMicro, 1500);
+  assert.equal(attempt.fundedSeconds, 3600); assert.equal(attempt.maxMicro, 36_000);
   admitted.finish();
   const terminal = { attemptId: attempt.attemptId, outcome: 'completed', closureConfirmed: true, chargedMicro: 600,
     usage: { providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 600, visitorMicro: 300 } };

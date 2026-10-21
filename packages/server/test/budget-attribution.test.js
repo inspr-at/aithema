@@ -271,9 +271,11 @@ test('AIT-401: voice runtime forwards extension context to the host wallet and u
   }
   preview = true;
   admitted.options.attempt.extend(150);
-  assert.deepEqual(calls.at(-1), { extra: { maxMicro: 300, maxVisitorMicro: 150 },
-    context: { attemptId, sessionId: session.id, extraMicro: 300, at: today } });
-  assert.equal(extensions(runtime.budget, attemptId)[0].at, today);
+  assert.deepEqual(calls.at(-1), { extra: { maxMicro: 0, maxVisitorMicro: 0 },
+    context: { attemptId, sessionId: session.id, extraMicro: 0, at: today } });
+  assert.deepEqual(extensions(runtime.budget, attemptId), []);
+  assert.equal(runtime.budget.get(attemptId).max_micro, 36_000);
+  assert.equal(runtime.budget.get(attemptId).max_visitor_micro, 18_000);
   admitted.options.report(terminal(attemptId, 1500));
   assert.equal(runtime.budget.get(attemptId).settled_at_ms, today);
 });

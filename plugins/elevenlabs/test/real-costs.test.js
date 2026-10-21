@@ -150,14 +150,14 @@ async function exposureFixture(t, { path, state = { final: false }, closeHook } 
   presets.best.policy = { endpoints: [binding.apiBaseUrl] };
   const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, scope, ...scope, consentRevision,
     checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
-  const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: 1_000_000 });
+  const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: 6_000_000 });
   const runtime = createPluginRuntime({ storage, budget, consent, presets,
     registry: new PluginRegistry().register(createMockReasoning()).register(plugin) });
   const host = createDemoHost({ storage });
   // AIT-135 replaces constructor allowances with the audited settings store.
   const creditSettings = host.visitorCredits.settings();
-  if (creditSettings.allowancesMicro.anonymous !== 1_000_000) host.visitorCredits.saveSettings({
-    baseRevision: creditSettings.revision, allowancesUsd: { anonymous: '1', emailGiven: '1', emailConfirmed: '1' },
+  if (creditSettings.allowancesMicro.anonymous !== 6_000_000) host.visitorCredits.saveSettings({
+    baseRevision: creditSettings.revision, allowancesUsd: { anonymous: '6', emailGiven: '6', emailConfirmed: '6' },
   }, { actor: 'system:fixture', source: 'fixture' });
   runtime.setOwnerWallet(session => host.walletForSession(session));
   const session = storage.list().length ? storage.get(storage.list()[0]) : storage.create({ ownerToken: 'voice-owner', demo: true });
@@ -176,7 +176,7 @@ async function exposureFixture(t, { path, state = { final: false }, closeHook } 
 for (const hook of ['absent', 'failed']) test(`AIT-134 gate: ${hook} hangup holds ceiling exposure before closure and blocks admission`, async t => {
   const h = await exposureFixture(t, { closeHook: hook === 'failed' ? () => { throw new Error('hangup failed'); } : undefined });
   const { live, admission } = await h.start(); t.after(() => live.close());
-  assert.equal(h.balance().owner.reservedMicro, 200_000, 'healthy live calls fund the default 120-second runway');
+  assert.equal(h.balance().owner.reservedMicro, 6_000_000, 'initial admission funds the full provider ceiling');
   const pending = live.close('transport-lost', 'cancelled'); await h.queried.promise;
   const during = h.balance();
   const terminal = await pending;
@@ -191,9 +191,10 @@ for (const hook of ['absent', 'failed']) test(`AIT-134 gate: ${hook} hangup hold
   assert.equal(h.balance().owner.confirmedSpendMicro, 8400); assert.equal(h.balance().owner.uncertainSpendMicro, 0);
 });
 
-test('AIT-134 gate: a crashed live voice restores ceiling exposure before any retry or admission', async t => {
+test('AIT-447 / AIT-134 gate: a crashed live voice retains its full ceiling reservation before retry or admission', async t => {
   const path = await temporaryDb(); let h = await exposureFixture(t, { path });
   const admitted = await h.admit(); await admitted.options.attempt.consume();
+  assert.equal(h.balance().owner.reservedMicro, 6_000_000);
   h.storage.saveVoiceCall(h.session.id, { ...call, callId: 'crashed-call',
     attemptId: admitted.options.attempt.attemptId, claimId: admitted.options.attempt.claimId,
     maxMicro: 50_000, facadeSecretRef: 'fixture-facade', spendDeadlineAt: Date.now() + 3600_000 });
