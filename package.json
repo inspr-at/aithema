@@ -32,7 +32,7 @@
     "ws": "8.22.0",
     "yaml": "2.8.2"
   },
-  "version": "261021073740.0.0",
+  "version": "261021194038.0.0",
   "description": "Embeddable requirements conversation: core, server, web components and provider plugins",
   "license": "AGPL-3.0-only"
 }
