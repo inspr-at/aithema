@@ -416,13 +416,14 @@ export async function creditHostOptionsCheck(t) {
       if (!evidence) return;
       await page.mouse.move(-1, -1);
       const state = await shadow(page, async c => {
-        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0); await document.fonts.ready;
         await Promise.all(c.shadowRoot.getAnimations({ subtree:true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const r = c.shadowRoot, button = r.querySelector('.legal-toggle'), popup = r.querySelector('.legal-popup');
-        return { expanded:button.getAttribute('aria-expanded'), visible:popup.checkVisibility({ visibilityProperty:true, opacityProperty:true }),
+        return { pageScroll:scrollY, expanded:button.getAttribute('aria-expanded'), visible:popup.checkVisibility({ visibilityProperty:true, opacityProperty:true }),
           labels:[...popup.querySelectorAll('a')].map(n => n.textContent), active:r.activeElement?.className ?? null, pinned:r.querySelector('.host-legal').hasAttribute('data-pinned'), dismissed:r.querySelector('.host-legal').hasAttribute('data-dismissed') };
       });
+      assert.equal(state.pageScroll, 0, `${name}: same viewport after keyboard exit`);
       assert.equal(state.expanded, String(name.endsWith('-open.png')), `${name}: capture expansion ${JSON.stringify(state)}`);
       assert.equal(state.visible, name.endsWith('-open.png'), `${name}: capture visibility ${JSON.stringify(state)}`);
       legalChecks.push({ shot:name, ...state });
