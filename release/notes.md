@@ -31,10 +31,12 @@ requirements before upgrading from an earlier release.
 
 ## Breaking for hosts
 
-**None relative to RC17 (`v261021194038.0.0`).** The #405 diff changes no public
-export declarations, configuration keys or HTTP status codes and adds no host
-integration requirement. Minute admission is stricter: a call or recovery may
-now be refused when either minute cap cannot reserve the full maximum call.
+**None relative to RC17 (`v261021194038.0.0`).** The #405 diff adds one public
+export, `perMinuteCostMicro`, to `@inspr/aithema-core` (also at
+`@inspr/aithema-core/cost`); it is additive. It changes no configuration keys or
+HTTP status codes and adds no host integration requirement. Minute admission is
+stricter: a call or recovery may now be refused when either minute cap cannot
+reserve the full maximum call.
 START integrates and pins this release separately.
 
 ## Availability and verification

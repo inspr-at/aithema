@@ -95,9 +95,10 @@ guide: full maximum-call holds against total and UTC-day minute caps before
 provisioning, actual provider seconds at settlement including paused time,
 and the shared integer ceiling formula for non-whole-minute durations.
 The notes link back to RC14's host requirements. **Breaking for hosts relative
-to RC17: none.** The #405 diff changes no public export declarations,
-configuration keys or HTTP status codes; stricter minute admission alone adds
-no host integration requirement. Grok Voice is **not yet qualified in live use**;
+to RC17: none.** The #405 diff adds one public export, `perMinuteCostMicro`, to
+`@inspr/aithema-core` (also at `@inspr/aithema-core/cost`); it is additive. It
+changes no configuration keys or HTTP status codes and adds no host integration
+requirement. Grok Voice is **not yet qualified in live use**;
 “Aithema recommends” is preserved; this preparation changes no German visitor
 copy (AIT-426).
 
