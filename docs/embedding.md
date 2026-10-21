@@ -2548,5 +2548,13 @@ sessionElement.configure({
   legal-slot privacy link, or uses plain text if none is configured. No delete
   request or credit-drop confirmation can be triggered without the capability.
 
+When `/identity` reports both `visitorEmail.canSave: false` and `canDelete: false`,
+the UI skips `GET /api/visitor/email` and keeps conversation email verification.
+For an authenticated owner on a host without the complete optional visitor-email
+port, `/api/visitor/email` and `/api/visitor/erase` return HTTP 404
+`{ error: 'visitor-unavailable' }`. This is an absent capability, not a server
+failure. The UI continues to handle an unsuccessful visitor-email read gracefully;
+hosts with the complete port retain their existing visitor-email behavior.
+
 All state rows reserve their geometry. Host copy uses German grouping (`1.000`)
 and NBSP before `Credits`; copy is inserted as text, never HTML.
