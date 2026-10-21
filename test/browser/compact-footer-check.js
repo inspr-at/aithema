@@ -102,7 +102,7 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
       assert.deepEqual(link.clipping, [], `${context}: no ancestor clips the legal target`);
       assert.equal(link.unobscured, true, `${context}: all legal target corners are visible`);
     }
-    const line = `${name}: PASS both legal links visible, unclipped, inside row/viewport, targets >=${width < 600 ? 24 : 44}px high`;
+    const line = `${name}: PASS both legal links visible, unclipped, inside row/viewport, targets >=44px high`;
     console.log(line);
     legalChecks.push({ head: legalHead, width, theme, locale, state, ...result, pass: true, line });
   };

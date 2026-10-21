@@ -159,7 +159,7 @@ export async function creditHostOptionsCheck(t) {
         const modal = r.querySelector('dialog[open]');
         if (modal) modal.close();
         const closed = positions(), sources = [...c.querySelectorAll('[slot="legal"] a, a[slot="legal"]')];
-        const attrs = n => ({ label:n.getAttribute('aria-label') ?? n.textContent, href:n.getAttribute('href'), target:n.getAttribute('target'), rel:n.getAttribute('rel') });
+        const attrs = n => ({ label:n.getAttribute('aria-label') ?? n.textContent, text:n.textContent, href:n.getAttribute('href'), target:n.getAttribute('target'), rel:n.getAttribute('rel') });
         toggle.click();
         for (const animation of r.querySelector('.legal-popup').getAnimations()) if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
         const popup = r.querySelector('.legal-popup'), links = [...popup.querySelectorAll('a')];
@@ -462,6 +462,8 @@ export async function creditHostOptionsCheck(t) {
     await page.setViewport({ width:320, height:844 });
     const narrow = await scene('U3', 'de', 'light', 'O5');
     assert.equal(narrow.footerGeometry.legalState.fontSize, '12.5px', '320px credit host keeps specified control type');
+    assert.equal(narrow.footerGeometry.legalState.control.right, 320 - 12, '320px credit host control at gutter');
+    assert.equal(narrow.footerGeometry.legalState.popup.right, 320 - 12, '320px credit host popup at same gutter');
     assert.ok(narrow.footerGeometry.textFlagGap >= 8);
     assert.ok(narrow.footerGeometry.targetOverlaps.every(pair => pair.area === 0));
     legalChecks.push({ width:320, profile:'O5', ...narrow.footerGeometry });
@@ -470,8 +472,9 @@ export async function creditHostOptionsCheck(t) {
     await shadow(page, async c => {
       for (const n of c.querySelectorAll('[slot="legal"]')) n.remove();
       const nav = document.createElement('nav'); nav.slot = 'legal';
-      nav.innerHTML = '<a href="/imprint?x=%2f&amp;y=1#top" target="_blank" rel="noopener external">Legal information and contact details</a><a href="/privacy">Privacy</a>';
+      nav.innerHTML = '<a href="/imprint?x=%2f&amp;y=1#top" target="_blank" rel="noopener external" aria-label="Open legal information"><span>Legal information and contact details</span></a><a href="/privacy">Privacy</a>';
       c.append(nav); const { en:copy } = await import('/packages/ui/src/i18n/en.js'); c.configure({ copy, host:{}, session:c.session });
+      c.removeAttribute('motion');
     });
     for (const width of [320, 599, 600, 1024]) {
       await page.setViewport({ width, height:844 });
@@ -483,6 +486,9 @@ export async function creditHostOptionsCheck(t) {
         if (innerWidth < 600) button.click();
         const links = [...r.querySelectorAll('.legal-popup a')];
         const result = { control:shown(button), fontSize:getComputedStyle(button).fontSize, source:shown(source), height:before,
+          controlRight:button.getBoundingClientRect().right, popupRight:r.querySelector('.legal-popup').getBoundingClientRect().right,
+          chevronTransition:getComputedStyle(button.querySelector('svg')).transitionDuration,
+          labels:links.map(n => n.textContent), ariaLabel:links[0]?.getAttribute('aria-label'),
           href:links[0]?.getAttribute('href'), target:links[0]?.getAttribute('target'), rel:links[0]?.getAttribute('rel'),
           rows:links.map(n => n.getBoundingClientRect().height), clipped:links.some(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth) };
         if (innerWidth < 600) button.click(); return result;
@@ -490,6 +496,13 @@ export async function creditHostOptionsCheck(t) {
       assert.equal(state.control, width < 600); assert.equal(state.source, width >= 600);
       assert.equal(state.height, 57);
       if (width < 600) { assert.equal(state.fontSize, '12.5px'); assert.equal(state.href, '/imprint?x=%2f&y=1#top'); assert.equal(state.target, '_blank'); assert.equal(state.rel, 'noopener external'); assert.deepEqual(state.rows, [44, 44]); assert.equal(state.clipped, false); }
+      if (width < 600) {
+        assert.equal(state.controlRight, width - 12, `${width}px host control at gutter`);
+        assert.equal(state.popupRight, width - 12, `${width}px host popup at same gutter`);
+        assert.equal(state.chevronTransition, '0s', 'system reduced motion disables the chevron transition');
+        assert.deepEqual(state.labels, ['Legal information and contact details', 'Privacy'], 'visible host labels survive cloning');
+        assert.equal(state.ariaLabel, 'Open legal information', 'accessible name stays separate from visible label');
+      }
       legalChecks.push({ width, ...state });
     }
   });
