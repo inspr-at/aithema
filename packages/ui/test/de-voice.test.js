@@ -26,6 +26,12 @@ const leaves = (value, path = []) => typeof value === 'string'
   : value && typeof value === 'object'
     ? Object.entries(value).flatMap(([key, child]) => leaves(child, [...path, key])) : [];
 
+test('AIT-436: the impersonal UI guard catches mir outside the key allowlist', () => {
+  const fixture = { contactPrompt: 'Schreiben Sie mir' };
+  const violations = leaves(fixture).filter(([key, text]) => !personalVoice.has(key) && firstPerson.test(text));
+  assert.deepEqual(violations, [['contactPrompt', fixture.contactPrompt]]);
+});
+
 test('AIT-426: German defaults use an impersonal UI voice outside Tick’s key allowlist', () => {
   const strings = new Map(leaves(de));
   for (const key of personalVoice) {
