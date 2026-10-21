@@ -336,6 +336,7 @@ export const de = {
   deviceConnectFirst: 'Verbinden Sie zuerst ein lokales Modell', deviceConversation: 'Auf meinem Gerät: dieses Gespräch bleibt in diesem Tab',
   deviceUnavailable: 'Lokales Modell nicht verfügbar',
   // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
+  legal: 'Rechtliches',
   aiNotice: { ...AI_NOTICE.de },
   purposePausedDescription: 'Dieses Gespräch ist pausiert.',
   purposePaused: 'Dieses Gespräch ist pausiert. Hier geht es um Vorhaben, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern.',

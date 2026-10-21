@@ -14,23 +14,23 @@ export const questionCardStyles = `
    in the page below the bounded transcript; scrolling it never loses input. */
 @media(max-width:600px) {
   .workspace :is(.understanding,.transcript-shell) :is(button,a,input,textarea,select,[tabindex]) {
-    scroll-margin-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 12px + var(--phone-footer-gap,12px)); }
+    scroll-margin-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-phone-keyboard] .display-foot { display:none; }
   /* Linux and macOS font metrics differ; reclaim spacing, keeping every target 44px. */
   .workspace[data-phone-keyboard] .conversation { row-gap:4px; }
-  .workspace[data-stage="live"] { padding-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 12px + var(--phone-footer-gap,12px)); }
+  .workspace[data-stage="live"] { padding-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-stage="live"] .conversation {
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 20px - var(--phone-footer-gap,12px));
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 32px);
     min-height:0; grid-template-rows:auto minmax(0,1fr); }
   .workspace[data-stage="live"] .transcript-shell { height:auto; min-height:0; }
   .transcript-shell > .voice-notices { height:auto; margin-top:8px; }
   .workspace[data-stage="live"] .phone-dock-backdrop { display:block; position:fixed; z-index:8;
     left:0; right:0; bottom:var(--phone-bottom,0px);
-    height:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 12px + var(--phone-footer-gap,12px)); background:var(--aithema-paper);
+    height:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper);
     mask-image:linear-gradient(to bottom,transparent,#000 12px); }
   .workspace[data-stage="live"] .composer-dock { position:fixed; z-index:9;
     left:var(--aithema-gutter); right:var(--aithema-gutter);
-    bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + var(--phone-footer-gap,12px)); }
+    bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
 }
 
 .workspace:not([data-stage="live"]) .composer-dock { display:none; }
@@ -89,7 +89,7 @@ export const questionCardStyles = `
      focus/accessibility target while the compact transcript uses that space. */
   .workspace[data-question-compact] .concept-bar { position:absolute; inset:0 0 auto; visibility:hidden; pointer-events:none; }
   .workspace[data-question-compact] .conversation { row-gap:0; grid-template-rows:minmax(0,1fr);
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 14px - var(--phone-footer-gap,12px)); }
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 26px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
   .workspace[data-question-compact] .transcript-shell > .voice-notices { margin-top:0; }
 }
@@ -192,14 +192,12 @@ export class QuestionCard {
     const expandedGap = phone && workspace
       ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) : 0;
     const conceptHeight = phone && workspace ? this.root.querySelector('.concept-bar').getBoundingClientRect().height : 0;
-    const footerGap = phone && workspace
-      ? parseFloat(this.view.getComputedStyle(workspace).getPropertyValue('--phone-footer-gap')) || 12 : 12;
     const available = phone && workspace
       ? viewport + (visual?.scale === 1 ? visual.offsetTop : 0)
         - this.root.querySelector('.band').getBoundingClientRect().height
         - this.root.querySelector('.display-foot').getBoundingClientRect().height
         - this.root.querySelector('.composer-dock').getBoundingClientRect().height
-        - conceptHeight - expandedGap - 20 - footerGap
+        - conceptHeight - expandedGap - 32
       : shell.getBoundingClientRect().height + (this.height ?? 0);
     const wasCompact = this.card.hasAttribute('data-compact');
     let compact = phone && short && !this.card.hidden;

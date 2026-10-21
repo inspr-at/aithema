@@ -509,7 +509,7 @@ export class AithemaSession extends HTMLElement {
             <p class="host-credits__next"></p><a class="credits-email" href="#email"></a>
             <p class="host-credits__daily-cap" hidden></p><span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot><span class="host-credits__demo"></span></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
-          <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" hidden><slot name="legal"></slot></div></div></div></footer></div>
+          <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" data-footer-popup hidden><slot name="legal"></slot><button class="legal-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="legal-popup"><span id="legal-label" data-copy="legal"></span>${icon('chevron')}</button><div class="footer-popup legal-popup" id="legal-popup" role="dialog" aria-label="${this.#copy.legal}" hidden></div></div></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#follow && !this.#onTranscript,
@@ -1765,6 +1765,7 @@ export class AithemaSession extends HTMLElement {
   // accessible description of interaction controls. Host wording and voice-offered gating stay intact.
   #paintNotice() {
     const root = this.shadowRoot, pick = part => [this.#aiNotice?.[part], this.#copy.aiNotice?.[part]].find(value => typeof value === 'string' && value.trim());
+    root.querySelector('.legal-popup')?.setAttribute('aria-label', this.#copy.legal);
     const notice = aiNotice(this.#session.locale, { text: pick('text'), voice: pick('voice') });
     setText(root.querySelector('#ai-notice'), this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text);
     setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);

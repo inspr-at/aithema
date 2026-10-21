@@ -106,8 +106,8 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
    Replacing the short span with full copy restores the original host geometry. */
 @media(width < 600px) {
   /* Complete the slot wrapper's 4px margin to an 8px flag-to-link gap. */
-  #demo-legal { margin-inline-start:4px; gap:12px; }
-  #demo-legal a:has(> .demo-legal-short) { flex:none; min-height:28px; width:max-content; white-space:nowrap; overflow-wrap:normal; }
+  #demo-legal { margin-inline-start:4px; }
+  #demo-legal a:has(> .demo-legal-short) { flex:none; min-height:44px; width:max-content; white-space:nowrap; overflow-wrap:normal; }
 }
 /* The component removes its slot margin below 360px; reserve the full gap here. */
 @media(width < 360px) { #demo-legal { margin-inline-start:8px; } }

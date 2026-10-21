@@ -74,6 +74,19 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
   };
   const legalState = async (width, theme, locale, state) => {
     if (!legal) return;
+    if (width < 600) {
+      const control = await shadow(page, c => {
+        const r = c.shadowRoot, n = r.querySelector('.legal-toggle'), b = n.getBoundingClientRect();
+        return { label: n.textContent, width:b.width, height:b.height, visible:n.checkVisibility({ visibilityProperty:true }),
+          linksInRow: [...r.querySelector('slot[name="legal"]').assignedElements()].some(n => n.checkVisibility({ visibilityProperty:true })) };
+      });
+      assert.equal(control.visible, true);
+      assert.equal(control.label, locale === 'de' ? 'Rechtliches' : 'Legal');
+      assert.ok(control.width >= 44 && control.height === 44);
+      assert.equal(control.linksInRow, false);
+      legalChecks.push({ head:legalHead, width, theme, locale, state, control, pass:true });
+      return;
+    }
     const result = await shadow(page, measureLegalLinks);
     const name = `ait301-footer-${width}-${theme}-${locale}-${state}`;
     if (evidence) await heldShot(name);
@@ -82,9 +95,6 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
       const context = `${name}: ${link.text} ${JSON.stringify(link)}`;
       assert.equal(link.visible, true, `${context}: checkVisibility() is true`);
       assert.deepEqual(link.hidden, [], `${context}: link and composed ancestors are not hidden`);
-      // AIT-435 Tick v1.6: only the separate phone legal row uses 24px.
-      if (width < 600) assert.ok(link.rect.width > 0 && link.rect.height >= 24, `${context}: legal target is at least 24px high`);
-      else
       assert.ok(link.rect.width > 0 && link.rect.height >= 44, `${context}: legal target is at least 44px high`);
       assert.equal(link.insideRow, true, `${context}: fully inside footer row`);
       assert.equal(link.insideFooter, true, `${context}: fully inside footer`);

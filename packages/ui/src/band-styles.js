@@ -389,19 +389,20 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }
-/* AIT-435 Tick v1.1: legal gets its own row on every phone host,
-   before the first receipt, so neither credits nor its target reaches the flag. */
+/* AIT-435 Tick v1.7: one phone row; host links open directly above it. */
+.legal-toggle { display:none; }
 @media(width < 600px) {
-  /* Tick v1.6: padding is already at its 6px floor. The shorter legal row
-     still needs the final permitted 4px from the composer/footer gap. */
-  .workspace:not([data-phone-keyboard]):not([data-phone-short][data-phone-overlay]):has(.host-legal:not([hidden])) { --phone-footer-gap:8px; }
+  .display-foot:has(.host-legal:not([hidden])) { padding-inline:12px; }
   .display-foot:has(.host-legal:not([hidden])) .display-foot__row,
-  .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px minmax(28px,max-content); }
-  .display-foot:has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
-  .display-foot:has(.host-legal:not([hidden])) .host-credits { grid-area:1/2; }
-  .display-foot:has(.host-legal:not([hidden])) .footer-right { display:contents; }
-  .display-foot:has(.host-legal:not([hidden])) .preset-panel { grid-area:1/3; }
-  .display-foot:has(.host-legal:not([hidden])) .host-legal { grid-area:2/1/3/-1; justify-content:center; margin-left:0; gap:12px; }
-  .display-foot:has(.host-legal:not([hidden])) slot[name="legal"]::slotted(a) { min-height:28px; }
+  .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px; gap:8px; }
+  .display-foot:has(.host-legal:not([hidden])) .host-credits { justify-self:center; min-width:0; }
+  .display-foot:has(.host-legal:not([hidden])) .host-legal { margin-left:0; font-size:12.5px; }
+  .host-legal > slot { display:none; }
+  .legal-toggle { display:inline-flex; align-items:center; justify-content:center; gap:4px; height:44px; min-width:44px; padding:0; border-radius:0; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:3px; }
+  .legal-toggle svg { width:12px; height:12px; transform:rotate(180deg); transition:transform .12s; }
+  .legal-toggle[aria-expanded="true"] svg { transform:rotate(360deg); }
+  .legal-popup.footer-popup { min-width:200px; max-width:calc(100vw - 24px); background:var(--aithema-paper); color:var(--aithema-ink);
+    white-space:normal; box-shadow:0 0 0 1px var(--aithema-line),0 12px 30px -14px rgba(0,0,0,.45); }
+  .legal-popup a { display:flex; align-items:center; width:100%; min-height:44px; padding:0; color:inherit; font:inherit; line-height:1.4; white-space:normal; text-decoration:underline; text-underline-offset:3px; }
 }
 `;

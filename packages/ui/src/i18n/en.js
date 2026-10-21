@@ -335,6 +335,7 @@ export const en = {
   deviceConnectFirst: 'Connect a local model first', deviceConversation: 'On my device — this conversation stays in this tab',
   deviceUnavailable: 'Local model unavailable',
   // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
+  legal: 'Legal',
   aiNotice: { ...AI_NOTICE.en },
   purposePausedDescription: 'This conversation is paused.',
   purposePaused: "This conversation is paused. It's for projects Augmentoring can support: building a solution or improving how you work.",

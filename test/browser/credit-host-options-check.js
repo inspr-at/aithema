@@ -15,9 +15,12 @@ export async function creditHostOptionsCheck(t) {
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], errors = [];
-  const round2 = [], footer80 = [], round2Shots = [];
+  const round2 = [], footer80 = [], round2Shots = [], legalChecks = [], legalShots = [];
   t.after(async () => {
-    if (evidence) await writeFile(join(evidence, 'ait435-round2-checks.json'), JSON.stringify({ head, footer80, checks: round2, shots: round2Shots, errors }, null, 2));
+    if (evidence) {
+      await writeFile(join(evidence, 'ait435-round2-checks.json'), JSON.stringify({ head, footer80, checks: round2, shots: round2Shots, errors }, null, 2));
+      await writeFile(join(evidence, 'ait435-r4-checks.json'), JSON.stringify({ head, spec:'Tick v1.7', footer80, legalChecks, shots:legalShots, errors }, null, 2));
+    }
   });
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   const head = event?.pull_request?.head?.sha ?? evidenceCommit;
@@ -141,7 +144,28 @@ export async function creditHostOptionsCheck(t) {
       const targetOverlaps = footerTargets.flatMap((a, i) => footerTargets.slice(i + 1).map(b => ({
         controls: [a.selector, b.selector], area: Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
           Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)) })));
-      const footerGeometry = { footerTargets, targetOverlaps, stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
+      let legalState = null;
+      const toggle = r.querySelector('.legal-toggle');
+      if (innerWidth < 600 && toggle) {
+        const positions = () => ['.display-foot', '.display-foot__row', '.composer-dock', '.ai-notice', '.host-credits__button', '.engine-info', '.legal-toggle'].map(selector => box(r.querySelector(selector)));
+        const closed = positions(), sources = [...c.querySelectorAll('[slot="legal"] a, a[slot="legal"]')];
+        const attrs = n => ({ label:n.getAttribute('aria-label') ?? n.textContent, href:n.getAttribute('href'), target:n.getAttribute('target'), rel:n.getAttribute('rel') });
+        toggle.click();
+        for (const animation of r.querySelector('.legal-popup').getAnimations()) if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
+        const popup = r.querySelector('.legal-popup'), links = [...popup.querySelectorAll('a')];
+        legalState = { closed, open:positions(), popup:box(popup), control:box(toggle), label:toggle.textContent,
+          haspopup:toggle.getAttribute('aria-haspopup'), expanded:toggle.getAttribute('aria-expanded'), controls:toggle.getAttribute('aria-controls'),
+          role:popup.getAttribute('role'), name:popup.getAttribute('aria-label'), modal:popup.getAttribute('aria-modal'),
+          firstFocused:r.activeElement === links[0], source:sources.map(attrs), links:links.map(attrs),
+          linkBoxes:links.map(box), lines:links.map(n => { const range = document.createRange(); range.selectNodeContents(n); return new Set([...range.getClientRects()].map(b => b.y)).size; }),
+          originalLinksVisible:sources.some(n => n.checkVisibility({ visibilityProperty:true })),
+          visiblePopups:[...r.querySelectorAll('.footer-popup')].filter(n => n.checkVisibility({ visibilityProperty:true, opacityProperty:true })).map(n => n.className) };
+        popup.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', bubbles:true }));
+        legalState.escaped = positions(); legalState.escapeFocused = r.activeElement === toggle;
+        legalState.closedExpanded = toggle.getAttribute('aria-expanded');
+        toggle.blur();
+      }
+      const footerGeometry = { legalState, footerTargets, targetOverlaps, stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight, footerSizing };
       const titleNode = r.querySelector('.composer-out__title span'), titleBox = box(titleNode);
       const titleHit = r.elementFromPoint(titleBox.left + titleBox.width / 2, titleBox.top + titleBox.height / 2);
@@ -349,17 +373,98 @@ export async function creditHostOptionsCheck(t) {
       assert.ok(value.targetOverlaps.every(pair => pair.area === 0), `${JSON.stringify(value)}: no footer tap targets overlap`);
     }
   });
-  await t.test('AIT-435 Tick v1.6: two-row phone minimums and unchanged 44 px first row', () => {
+  await t.test('AIT-435 Tick v1.7: one-row phone legal dialog, exact links and zero movement', async () => {
     for (const value of round2.filter(v => v.width < 600)) {
-      const sizing = value.footerSizing, label = `${value.profile}/${value.locale}/${value.theme}/${value.state}: ${JSON.stringify(sizing)}`;
-      assert.deepEqual(sizing.rows, [44, 28], `${label}: 44 px controls then 28 px legal row`);
+      const sizing = value.footerSizing, state = value.legalState, label = `${value.profile}/${value.locale}/${value.theme}/${value.state}`;
+      assert.deepEqual(sizing.rows, [44], `${label}: one 44 px row`);
+      assert.equal(sizing.height, 57, `${label}: original footer budget`);
       assert.deepEqual(sizing.row1Targets, [44, 44, 44], `${label}: notice, credits and engine keep real 44 px targets`);
-      assert.ok(sizing.legalLinks.every(link => link.height >= 24), `${label}: legal hit areas >=24 px high`);
-      assert.ok(sizing.legalGaps.every(gap => gap >= 12), `${label}: legal links separated by >=12 px`);
       assert.ok(sizing.paddingTop >= 6 && sizing.paddingBottom >= 6, `${label}: footer padding >=6 px`);
-      assert.ok(sizing.composerGap >= 8, `${label}: composer/footer gap >=8 px`);
+      assert.equal(sizing.composerGap, 12, `${label}: original composer gap`);
+      assert.ok(state.control.width >= 44 && state.control.height === 44, label);
+      assert.equal(state.control.right, value.width - 12, `${label}: control at gutter`);
+      assert.equal(state.label, value.locale === 'de' ? 'Rechtliches' : 'Legal');
+      assert.equal(state.haspopup, 'dialog'); assert.equal(state.expanded, 'true'); assert.equal(state.controls, 'legal-popup');
+      assert.equal(state.role, 'dialog'); assert.equal(state.name, state.label); assert.notEqual(state.modal, 'true');
+      assert.equal(state.firstFocused, true); assert.equal(state.escapeFocused, true); assert.equal(state.closedExpanded, 'false');
+      assert.deepEqual(state.open, state.closed, `${label}: opening moves nothing`);
+      assert.deepEqual(state.escaped, state.closed, `${label}: closing moves nothing`);
+      assert.deepEqual(state.links, state.source, `${label}: configured labels, href bytes, targets and rel in order`);
+      assert.equal(state.originalLinksVisible, false, `${label}: no host legal link in the footer row`);
+      assert.equal(state.visiblePopups.length, 1, `${label}: exactly one footer popup`);
+      assert.ok(state.popup.width >= 200 && state.popup.width <= value.width - 24, label);
+      assert.equal(state.popup.right, value.width - 12, `${label}: popup at gutter`);
+      assert.ok(state.popup.bottom < state.control.top, `${label}: popup opens upward`);
+      for (const link of state.linkBoxes) { assert.equal(link.height, 44, label); assert.equal(link.width, state.linkBoxes[0].width, label); }
+      assert.ok(state.lines.every(lines => lines >= 1 && lines <= 2), `${label}: labels never truncate`);
     }
-    t.diagnostic(`AIT-435 Tick v1.6 phone sizing: ${JSON.stringify(round2.find(v => v.width === 390).footerSizing)}`);
+    const capture = async name => {
+      if (!evidence) return;
+      await shadow(page, async c => {
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+        await Promise.all(c.shadowRoot.getAnimations({ subtree:true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      await page.mouse.move(-1, -1);
+      await page.screenshot({ path:join(evidence, name), fullPage:false, captureBeyondViewport:false }); legalShots.push(name);
+    };
+    for (const [locale, theme] of [['de', 'light'], ['de', 'dark'], ['en', 'light']]) {
+      await page.setViewport({ width:390, height:844 });
+      await scene('U3', locale, theme, 'O5');
+      if (locale === 'de' && theme === 'light') await capture('ait435-r4-390-light-de-O5-U3-closed.png');
+      await shadow(page, c => c.shadowRoot.querySelector('.legal-toggle').focus());
+      await page.keyboard.press('Enter');
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.legal-popup a')), true, 'Enter focuses first link');
+      await page.keyboard.press('Escape');
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.legal-toggle')), true, 'real Escape returns focus');
+      await page.keyboard.press('Space');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.legal-toggle').getAttribute('aria-expanded')), 'true', 'Space opens');
+      await shadow(page, c => c.shadowRoot.querySelector('.legal-popup a:last-child').focus());
+      await page.keyboard.press('Tab');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.legal-toggle').getAttribute('aria-expanded')), 'false', 'Tab past last link closes without trapping focus');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-legal').contains(c.shadowRoot.activeElement)), false, 'Tab continues outside legal');
+      await shadow(page, c => c.shadowRoot.querySelector('.legal-toggle').click());
+      await page.mouse.click(1, 1);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.legal-toggle').getAttribute('aria-expanded')), 'false', 'outside tap closes');
+      await shadow(page, c => {
+        const r = c.shadowRoot;
+        r.querySelector('.host-credits__button').click(); r.querySelector('.legal-toggle').click();
+      });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits').hasAttribute('data-pinned')), false, 'legal closes credits');
+      await shadow(page, c => c.shadowRoot.querySelector('.engine-info').focus());
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.legal-toggle').getAttribute('aria-expanded')), 'false', 'engine focus closes legal');
+      await shadow(page, c => c.shadowRoot.querySelector('.legal-toggle').click());
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.engine__detail')).visibility), 'hidden', 'legal closes engine popup');
+      await capture(`ait435-r4-390-${theme}-${locale}-O5-U3-open.png`);
+      legalChecks.push({ locale, theme, keyboard:true, outside:true, tabContinues:true, exclusive:true });
+    }
+    // Boundary and host independence: no credit ports, nested links, exact URL bytes,
+    // a two-line label, and live edits before activation all use the same dialog.
+    await shadow(page, c => {
+      for (const n of c.querySelectorAll('[slot="legal"]')) n.remove();
+      const nav = document.createElement('nav'); nav.slot = 'legal';
+      nav.innerHTML = '<a href="/imprint?x=%2f&amp;y=1#top" target="_blank" rel="noopener external">Legal information and contact details</a><a href="/privacy">Privacy</a>';
+      c.append(nav); c.configure({ host:{}, session:c.session });
+    });
+    for (const width of [320, 599, 600, 1024]) {
+      await page.setViewport({ width, height:844 });
+      const state = await shadow(page, async c => {
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const r = c.shadowRoot, button = r.querySelector('.legal-toggle'), source = c.querySelector('nav[slot="legal"] a');
+        const shown = n => n.checkVisibility({ visibilityProperty:true });
+        const before = r.querySelector('.display-foot').getBoundingClientRect().height;
+        if (innerWidth < 600) button.click();
+        const links = [...r.querySelectorAll('.legal-popup a')];
+        const result = { control:shown(button), source:shown(source), height:before,
+          href:links[0]?.getAttribute('href'), target:links[0]?.getAttribute('target'), rel:links[0]?.getAttribute('rel'),
+          rows:links.map(n => n.getBoundingClientRect().height), clipped:links.some(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth) };
+        if (innerWidth < 600) button.click(); return result;
+      });
+      assert.equal(state.control, width < 600); assert.equal(state.source, width >= 600);
+      assert.equal(state.height, 57);
+      if (width < 600) { assert.equal(state.href, '/imprint?x=%2f&y=1#top'); assert.equal(state.target, '_blank'); assert.equal(state.rel, 'noopener external'); assert.deepEqual(state.rows, [44, 44]); assert.equal(state.clipped, false); }
+      legalChecks.push({ width, ...state });
+    }
   });
   t.diagnostic(`${checks.length} state checks; 20 viewport shots; one reused page`);
 }

@@ -710,9 +710,10 @@ async function postRelease297(browserPage, t, legalHTML) {
         overlap: (() => { const [a, b] = selectors.map(selector => r.querySelector(selector).getBoundingClientRect());
           return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; })(),
         licenceLines: (() => {
+          if (innerWidth < 600) { const range = document.createRange(); range.selectNodeContents(r.querySelector('.legal-toggle span')); return new Set([...range.getClientRects()].map(b => b.y)).size; }
           const range = document.createRange(); range.selectNodeContents(c.querySelector('#demo-license .demo-license-id'));
           return new Set([...range.getClientRects()].map(b => b.y)).size;
-        })(), legal: [...c.querySelectorAll('#demo-legal a')].map(n => {
+        })(), legal: [...(innerWidth < 600 ? r.querySelectorAll('.legal-toggle') : c.querySelectorAll('#demo-legal a'))].map(n => {
           const b = n.getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }), clipped: n.scrollWidth > n.clientWidth || n.scrollHeight > n.clientHeight };
         }), preset: (() => { const b = r.querySelector('.engine-info').getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width:b.width }; })() };
       });
@@ -740,10 +741,9 @@ async function postRelease297(browserPage, t, legalHTML) {
       assert.ok(state.legal.every(n => !n.clipped && n.left >= 0 && n.right <= width && n.top >= 0 && n.bottom <= height), `${label}: legal targets stay unclipped in the viewport`);
       assert.ok(state.legal.every(n => n.width >= 44 && n.height >= 44), `${label}: legal targets retain 44 px for touch too`);
       for (const [x, y, w, h] of state.boxes) { assert.ok(x >= 0 && x + w <= width && y >= 0 && y + h <= height, `${label}: action is in viewport`); assert.ok(h >= 44); }
-      assert.equal(state.legal.length, 2);
+      assert.equal(state.legal.length, width < 600 ? 1 : 2);
       assert.equal(state.preset.width, 44, `${label}: preset target cannot shrink`);
-      if (width < 600) assert.ok(state.legal.every(n => n.top >= state.preset.bottom), `${label}: the legal row clears the preset target below`);
-      else assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
+      assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
       assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
       assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
       if (variant === 'upgrade' && width < 600) {
@@ -796,7 +796,7 @@ async function postRelease297(browserPage, t, legalHTML) {
         const { actionsTop, actionsBottom, legalTop } = await inShadow(page, c => {
           const boxes = ['.composer-out__upgrade', '.composer-out__export'].map(selector => c.shadowRoot.querySelector(selector).getBoundingClientRect());
           return { actionsTop: Math.min(...boxes.map(b => b.top)), actionsBottom: Math.max(...boxes.map(b => b.bottom)),
-            legalTop: Math.min(...[...c.querySelectorAll('#demo-legal a')].map(n => n.getBoundingClientRect().top)) };
+            legalTop: Math.min(...[...(innerWidth < 600 ? c.shadowRoot.querySelectorAll('.legal-toggle') : c.querySelectorAll('#demo-legal a'))].map(n => n.getBoundingClientRect().top)) };
         });
         t.diagnostic(`AIT-297 360 geometry ${label}: ${JSON.stringify({ before, after, title, body, actionsTop })}`);
         assert.ok(body.bottom <= actionsTop, `${label}: body clears both actions`);

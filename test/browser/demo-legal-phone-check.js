@@ -47,7 +47,9 @@ const settle = page => shadow(page, async c => {
   }
 });
 const measure = page => shadow(page, c => {
-  const root = c.shadowRoot, links = [...c.querySelectorAll('#demo-legal a')];
+  const root = c.shadowRoot;
+  if (innerWidth < 600 && root.querySelector('.legal-toggle').getAttribute('aria-expanded') !== 'true') root.querySelector('.legal-toggle').click();
+  const links = [...(innerWidth < 600 ? root.querySelectorAll('.legal-popup a') : c.querySelectorAll('#demo-legal a'))];
   const box = node => { const b = node.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
   const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height;
   const overlap = (a, b) => Math.min(a.x + a.width, b.x + b.width) > Math.max(a.x, b.x) && Math.min(a.y + a.height, b.y + b.height) > Math.max(a.y, b.y);
@@ -90,9 +92,9 @@ const measure = page => shadow(page, c => {
       return { text: link.innerText, name: link.getAttribute('aria-label'), title: link.title, bounds, lines: rows.length,
         textInside: textBoxes.length > 0 && textBoxes.every(b => inside(b, bounds)), clipping,
         visible: link.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
-        inside: [row, footer, { x: 0, y: 0, width: innerWidth, height: innerHeight }].every(b => inside(bounds, b)),
+        inside: [...(innerWidth < 600 ? [box(root.querySelector('.legal-popup'))] : [row, footer]), { x: 0, y: 0, width: innerWidth, height: innerHeight }].every(b => inside(bounds, b)),
         overlap: zones.some(b => overlap(bounds, b)) || links.some(other => other !== link && overlap(bounds, box(other))),
-        unobscured: points.every(([x, y]) => link.contains(document.elementFromPoint(bounds.x + x, bounds.y + y))) };
+        unobscured: points.every(([x, y]) => link.contains((innerWidth < 600 ? root : document).elementFromPoint(bounds.x + x, bounds.y + y))) };
     }),
   };
 });
@@ -163,18 +165,15 @@ export async function demoLegalPhoneCheck(t) {
       await page.mouse.move(-1, -1); await settle(page);
       const state = await measure(page), label = `${width}/${theme}/${locale}`;
       if ([320, 360, 390].includes(width) || width === 1440 && theme === 'light' && locale === 'de') await capture(width, theme, locale);
-      if (width < 600) for (const link of state.links) assert.ok(link.bounds.y >= state.flagBounds.y + state.flagBounds.height + 8,
-        `${label}: legal row is at least 8 px below the flag`);
+      if (width < 600) for (const link of state.links) assert.ok(link.bounds.y + link.bounds.height <= state.flagBounds.y,
+        `${label}: legal popover opens above the footer`);
       else assert.ok(state.flagBounds.x + state.flagBounds.width + 8 <= state.links[0].bounds.x,
         `${label}: flag right edge + 8px <= first legal link left edge (gap ${state.flagLegalGap}px)`);
       if (width < 600) for (const [i, link] of state.links.entries()) {
-        assert.equal(link.lines, 1, `${label} ${i}: legal link has exactly one line box (got ${link.lines})`);
-        assert.equal(link.text, i === 0 ? 'AGPL-3.0' : locale === 'de' ? 'Quellcode' : 'Source', `${label}: short visible wording`);
+        assert.ok(link.lines >= 1 && link.lines <= 2, `${label} ${i}: legal label fits at most two lines (got ${link.lines})`);
+        assert.equal(link.text, full[i], `${label}: exact configured legal label`);
       }
       for (const [i, link] of state.links.entries()) {
-        // AIT-435 Tick v1.6 explicitly replaces the phone legal target height.
-        if (width < 600) assert.ok(link.bounds.width >= 44 && link.bounds.height >= 24, `${label}: >=44px wide and >=24px high legal target`);
-        else
         assert.ok(link.bounds.width >= 44 && link.bounds.height >= 44, `${label}: >=44px target`);
         assert.equal(link.visible && link.inside && link.unobscured && !link.overlap, true, `${label}: legal visible/unobscured/no overlap ${JSON.stringify(link)}`);
         if (width < 600) assert.equal(link.textInside, true, `${label}: phone text stays inside its target`);
