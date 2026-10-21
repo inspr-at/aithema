@@ -357,7 +357,6 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:0; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
   .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) { padding-inline:4px; }
 }
 /* Tablet input ends above the measured footer, including the extra rail row.
    The overview remains scrollable below this bounded conversation. */
@@ -410,4 +409,6 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
     white-space:normal; box-shadow:0 0 0 1px var(--aithema-line),0 12px 30px -14px rgba(0,0,0,.45); }
   .legal-popup a { display:flex; align-items:center; width:100%; min-height:44px; padding:0; border-radius:0; color:inherit; font:inherit; line-height:1.4; white-space:normal; text-decoration:underline; text-underline-offset:3px; }
 }
+:host([motion="off"]) .legal-toggle svg { transition:none; }
+@media(prefers-reduced-motion:reduce) { .legal-toggle svg { transition:none; } }
 `;

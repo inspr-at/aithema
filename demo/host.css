@@ -99,9 +99,7 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
 @media(max-width:600px) {
   #demo-legal { gap:8px; }
   #demo-license { flex-shrink:0; width:min-content; }
-  #demo-legal a { min-height:max(44px,4lh); }
 }
-@media(width < 360px) { #demo-legal a { min-height:max(44px,5lh); } }
 /* AIT-304: reserve each short label's natural width across platform fonts.
    Replacing the short span with full copy restores the original host geometry. */
 @media(width < 600px) {

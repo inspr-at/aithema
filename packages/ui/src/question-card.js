@@ -226,6 +226,7 @@ export class QuestionCard {
     // Native scroll extents use whole CSS pixels. Keep the affected phone
     // footer's bounded card in that same coordinate system, so reaching the
     // real scroll end also preserves the painted reply/card gap.
+    // Measured dock, concept-bar and reply heights include fractional font line boxes.
     const limit = this.view?.matchMedia('(width < 600px)').matches && this.root.querySelector('.host-legal')?.hidden === false
       ? Math.floor(remaining) : remaining;
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
