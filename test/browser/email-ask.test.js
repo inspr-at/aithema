@@ -366,7 +366,7 @@ test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, mai
         await shadow(p, c => c.setAttribute('theme', 'light'));
         await p.evaluate(() => window.ait164.reply()); await gateReady(p); await settle(p);
       }
-      const expected = locale === 'de' ? mode === 'mail' ? 'Ihre E-Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : 'Ihre E-Mail-Adresse wird nur für Ihr Guthaben verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
+      const expected = locale === 'de' ? mode === 'mail' ? 'Ihre E‑Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : 'Ihre E‑Mail-Adresse wird nur für Ihr Guthaben verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
       let passed = false;
       await t.test(label, async () => {
         // All notice consumers, including the hidden lock form and confirmation dialog.

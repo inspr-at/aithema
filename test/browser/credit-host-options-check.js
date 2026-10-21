@@ -289,15 +289,15 @@ export async function creditHostOptionsCheck(t) {
       }
       assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
       if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
-      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ gilt für diese E-Mail-Adresse ein neues Tageslimit\.$/u : /^This email address gets a new daily limit from .+\.$/u); assert.equal(value.panelDeadline, value.deadline); }
+      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ gilt für diese E‑Mail-Adresse ein neues Tageslimit\.$/u : /^This email address gets a new daily limit from .+\.$/u); assert.equal(value.panelDeadline, value.deadline); }
       if (state === 'S1') { assert.equal(value.upgrade, true); assert.equal(value.export, true); assert.match(value.body, /1[.,]000/u); }
-      if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E-Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.' : 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
+      if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E‑Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.' : 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
       if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
       if (state === 'offer') {
         assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
         assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits', `${label}: shipped O3 catalog copy and NBSP`);
       }
-      if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse:/u : /With a confirmed email address: 1,000\u00a0credits/u);
+      if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E‑Mail-Adresse:/u : /With a confirmed email address: 1,000\u00a0credits/u);
       if (state === 'reconciling') { assert.equal(value.footerTextFits, true, `${label}: visible reconciliation never overlaps legal or footer controls ${JSON.stringify(value.footerTextRects)}`); assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
       if (state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }
       if (state === 'low-off') { assert.equal(value.lowLines, 0); lowBaseline = { transcript: value.transcript, reply: value.reply }; }

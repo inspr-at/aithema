@@ -116,7 +116,7 @@ for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-215 ${locale}
 
 const guestIdentity = { status: 'guest', address: null, verificationRequired: false, assessmentUnlocked: true, pollVerification: false };
 const emailHelp = {
-  de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
+  de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E‑Mail-Adresse bestätigen.',
   en: 'General\u00a0· Start a new conversation, review consent and your defaults, and confirm your email address.',
 };
 const generalHelp = {
@@ -180,7 +180,7 @@ async function verificationDraft(t, options = {}) {
   const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true }));
   h.q('[data-tab="general"]').click();
   assert.equal(h.posts.length, 1, 'the effort change is still inside the autosave debounce');
-  assert.equal(h.q('.verify-entry').textContent, 'E-Mail-Adresse bestätigen');
+  assert.equal(h.q('.verify-entry').textContent, 'E‑Mail-Adresse bestätigen');
   return h;
 }
 

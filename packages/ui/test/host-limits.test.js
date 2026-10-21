@@ -121,7 +121,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
     const title = next === 'none' ? releaseLimits[locale]['host-limit'][0] : copy.hostSurface.usedUp.title;
     const body = next === 'none' ? releaseLimits[locale]['host-limit'][1] : locale === 'de'
-      ? next === 'give' ? 'Mit E-Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
+      ? next === 'give' ? 'Mit E‑Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'Bestätigen Sie Ihre E‑Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
       : next === 'give' ? 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.' : 'Confirm your email address to get +600 more Credits.';
     await waitForText(announcement, `${title} ${body}`);
     const out = root.querySelector('.composer-out'), upgrade = out.querySelector('.composer-out__upgrade'), link = out.querySelector('.composer-out__export');
@@ -273,7 +273,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const confirmed of
     const { root } = a2Setup(t, { copy, confirmed, endReason: 'host-limit', voiceClient: {} });
     await waitForText(root.querySelector('.credit-announcement'), confirmed
       ? `${releaseLimits[locale]['host-limit'][0]} ${releaseLimits[locale]['host-limit'][1]}`
-      : `${copy.hostSurface.usedUp.title} ${locale === 'de' ? 'Mit E-Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.'}`);
+      : `${copy.hostSurface.usedUp.title} ${locale === 'de' ? 'Mit E‑Mail-Adresse: 600 weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.' : 'With your email address you get 600 more\u00a0credits. Your conversation stays saved.'}`);
     const status = root.querySelector('.voice-state');
     assert.equal(status.querySelector('.consent-narrow').dataset.copy,
       locale === 'de' ? 'Sprache gerade nicht verfügbar' : 'Voice unavailable right now');
@@ -320,13 +320,13 @@ for (const [locale, copy] of Object.entries({ de, en })) {
       } });
     await tick(12);
     const number = delta / 10_000;
-    const expected = locale === 'de' ? `Mit E-Mail-Adresse: ${number} weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.`
+    const expected = locale === 'de' ? `Mit E‑Mail-Adresse: ${number} weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.`
       : `With your email address you get ${number} more\u00a0credits. Your conversation stays saved.`;
     assert.equal(root.querySelector('.composer-out__body > [data-active="true"]').textContent, expected);
     assert.equal(root.querySelector('[data-credit-variant="host-give-measure"]'), null, 'AIT-434: no invisible layout spacer');
     assert.equal(Object.hasOwn(copy.hostSurface.usedUp, 'hostGiveMeasure'), false, 'AIT-434: no spacer copy');
     assert.equal(copy.hostSurface.usedUp.give.replace('{delta}', number), locale === 'de'
-      ? `Mit Ihrer E-Mail-Adresse erhalten Sie ${number}\u00a0Credits mehr.` : `Add your email address to get ${number} more Credits.`);
+      ? `Mit Ihrer E‑Mail-Adresse erhalten Sie ${number}\u00a0Credits mehr.` : `Add your email address to get ${number} more Credits.`);
   });
 }
 test('AIT-422: ink-3 aliases the existing muted token without a new colour', async () => {

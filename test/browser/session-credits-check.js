@@ -115,9 +115,9 @@ export async function sessionCreditsCheck(t) {
       const value = await measure(), label = `${width}/light/${locale}/${state}`;
       assert.equal(value.popupVisible, 'visible', label);
       assert.doesNotMatch(value.scope, /all your conversations|alle Ihre Gespräche/u, label);
-      if (state === 'k1') { assert.equal(value.value, '250'); assert.equal(value.offer, true); assert.equal(value.next, locale === 'de' ? 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits' : 'With a confirmed email address: 1,000\u00a0credits'); }
-      if (state === 'k2') { assert.equal(value.value, locale === 'de' ? '1.000' : '1,000'); assert.equal(value.offer, false); assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse: 1\.000\u00a0Credits/u : /With a confirmed email address: 1,000\u00a0credits/u); }
-      if (state === 'k4') { assert.equal(value.offer, true); assert.equal(value.action, locale === 'de' ? 'E-Mail-Adresse bestätigen' : 'Confirm your email address'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); }
+      if (state === 'k1') { assert.equal(value.value, '250'); assert.equal(value.offer, true); assert.equal(value.next, locale === 'de' ? 'Mit bestätigter E‑Mail-Adresse: 1.000\u00a0Credits' : 'With a confirmed email address: 1,000\u00a0credits'); }
+      if (state === 'k2') { assert.equal(value.value, locale === 'de' ? '1.000' : '1,000'); assert.equal(value.offer, false); assert.match(value.current, locale === 'de' ? /Mit bestätigter E‑Mail-Adresse: 1\.000\u00a0Credits/u : /With a confirmed email address: 1,000\u00a0credits/u); }
+      if (state === 'k4') { assert.equal(value.offer, true); assert.equal(value.action, locale === 'de' ? 'E‑Mail-Adresse bestätigen' : 'Confirm your email address'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); }
       if (state === 'k5') { assert.equal(value.value, '0'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); assert.equal(value.offer, true); assert.equal(value.demo, locale === 'de' ? 'Nur Demo: Hier gibt es kein Aufladen.' : 'Demo only: no top-ups here.'); }
       if (state === 'k6') { assert.equal(value.offer, false); assert.equal(value.next, ''); assert.equal(value.dailyCap, locale === 'de' ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit."); }
       baseline ??= value.rects;
@@ -156,7 +156,7 @@ export async function sessionCreditsCheck(t) {
         assert.ok(['…', sample.id === 'ait395-a' ? '1.000' : '250'].includes(sample.value), JSON.stringify(sample));
         if (sample.id === 'ait395-b') {
           assert.doesNotMatch(sample.current, /bestätigter|1\.000/u, 'B never inherits A current tier');
-          assert.ok(['', 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits'].includes(sample.next), 'B only offers its own confirmed tier');
+          assert.ok(['', 'Mit bestätigter E‑Mail-Adresse: 1.000\u00a0Credits'].includes(sample.next), 'B only offers its own confirmed tier');
         }
         else assert.equal(sample.offer, false, 'confirmed A never shows B offer');
       }
@@ -185,7 +185,7 @@ export async function sessionCreditsCheck(t) {
   checks.push({ width: 1440, locale: 'de', theme: 'light', state: 'k1-no-offer', ...unavailable, movementPx: 0 });
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__next').children.length), 0, 'next slot has no check mark');
   await scene('k1', 'de', 'light', { equal: false }); value = await measure();
-  assert.equal(value.action, 'E-Mail-Adresse angeben'); assert.equal(value.next, 'Mit E-Mail-Adresse: 500\u00a0Credits');
+  assert.equal(value.action, 'E‑Mail-Adresse angeben'); assert.equal(value.next, 'Mit E‑Mail-Adresse: 500\u00a0Credits');
   // AIT-445: reuse this page for the RC17 U3 copy and geometry evidence.
   await page.setViewport({ width: 390, height: 1000 });
   await scene('k1', 'de', 'light');

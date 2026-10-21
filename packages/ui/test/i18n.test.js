@@ -12,7 +12,7 @@ import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
 for (const [locale, copy, dailyCap, dailyCapReset] of [
-  ['de', de, 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.', 'Ab {time} gilt für diese E-Mail-Adresse ein neues Tageslimit.'],
+  ['de', de, 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.', 'Ab {time} gilt für diese E‑Mail-Adresse ein neues Tageslimit.'],
   ['en', en, "This email address has reached today's limit.", 'This email address gets a new daily limit from {time}.'],
 ]) test(`AIT-443: ${locale} daily cap and reset match Tick v1.1 exactly`, () => {
   assert.equal(copy.hostSurface.credits.dailyCap, dailyCap);
@@ -38,7 +38,6 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [key, text] 
   });
 }
 
-
 test('AIT-445 Tick v1.1: every DE catalog string keeps E‑Mail together with U+2011', () => {
   for (const [key, text] of catalogLeaves(de)) {
     assert.doesNotMatch(text, /E-Mail/u, `de.${key}: use E‑Mail with U+2011, including compounds`);
@@ -46,7 +45,7 @@ test('AIT-445 Tick v1.1: every DE catalog string keeps E‑Mail together with U+
 });
 
 for (const [locale, copy, expected] of [
-  ['de', de, 'Mit E-Mail-Adresse: {n}\u00a0Credits'],
+  ['de', de, 'Mit E‑Mail-Adresse: {n}\u00a0Credits'],
   ['en', en, 'With an email address: {n}\u00a0credits'],
 ]) test(`AIT-435 item 3: ${locale} withEmail matches Tick exactly`, () => {
   assert.equal(copy.hostSurface.credits.withEmail, expected);
@@ -54,7 +53,7 @@ for (const [locale, copy, expected] of [
 
 test('AIT-411 round 7 and AIT-435: confirmed tier copy matches Tick exactly', () => {
   assert.equal(en.hostSurface.credits.withConfirmed, 'With a confirmed email address: {n}\u00a0credits');
-  assert.equal(de.hostSurface.credits.withConfirmed, 'Mit bestätigter E-Mail-Adresse: {tier}\u00a0Credits');
+  assert.equal(de.hostSurface.credits.withConfirmed, 'Mit bestätigter E‑Mail-Adresse: {tier}\u00a0Credits');
 });
 
 test('AIT-411 round 7: every added or changed numeric credits catalog string uses NBSP', () => {
