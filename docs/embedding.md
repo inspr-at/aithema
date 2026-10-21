@@ -1782,7 +1782,7 @@ const mail = createSmtpMail({
       explanation: 'Bestätigen Sie Ihre Adresse, um sich anzumelden.',
       explanationFallback: 'Bestätigen Sie Ihre Adresse, um sich anzumelden.',
       host: 'Gesendet von {brand} auf {host}, weil Sie einen Anmeldelink angefordert haben.',
-      privacy: 'Wir nutzen Ihre Adresse zur Anmeldung und löschen sie nach 24 Stunden.',
+      privacy: 'Ihre Adresse wird zur Anmeldung verwendet und nach 24 Stunden gelöscht.',
       retention: 'Bitte löschen Sie diese Anmeldenachricht innerhalb von 24 Stunden.',
     },
   },

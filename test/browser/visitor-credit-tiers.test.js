@@ -1,6 +1,6 @@
 // AIT-192: both locales share their server and browser process.
 import { test } from 'node:test';
-import { replyRowsMatrix, composerCreditReservationMatrix, topUpReservationMatrix, visitorCreditMatrix } from './visitor-credit-tiers-helpers.js';
+import { replyRowsMatrix, composerCreditReservationMatrix, topUpReservationMatrix, visitorCreditMatrix, impersonalGermanEvidence } from './visitor-credit-tiers-helpers.js';
 
 test('AIT-406: composer reserves every credit state across all widths, locales and themes', { timeout: 120_000 },
   composerCreditReservationMatrix);
@@ -11,3 +11,5 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (ful
   t => visitorCreditMatrix(t, ['de', 'en']));
 
 test('AIT-410 v4: every reply keeps usable controls without moving across calls and recovery', { timeout: 120_000 }, replyRowsMatrix);
+
+test('AIT-426: impersonal German sent copy and notice evidence stay isolated from the credit matrix', { timeout: 60_000 }, impersonalGermanEvidence);

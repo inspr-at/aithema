@@ -9,6 +9,7 @@ import { browserForFile } from './shared-browser.js';
 import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { contrast } from '../contrast.js';
+import { settleEvidenceFrame } from './start2-display-helpers.js';
 
 const workflowEvent = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
 const head = workflowEvent?.pull_request?.head?.sha ?? process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
@@ -785,7 +786,7 @@ export async function visitorCreditMatrix(t, locales) {
       });
       assert.equal(sent.helper, ''); assert.equal(sent.separator, '\u00a0· '); assert.equal(sent.inlineChange, true, `${label}: Change stays inline`);
       assert.equal(sent.gapPx, 12); assert.ok(sent.widthPx < sent.primaryWidthPx, `${label}: resend hugs its label`);
-      assert.match(sent.confirmation, locale === 'de' ? /^Wir haben Ihnen einen Bestätigungslink geschickt/u : /^We sent you a confirmation link/u);
+      assert.match(sent.confirmation, locale === 'de' ? /^Der Bestätigungslink wurde gesendet\./u : /^We sent you a confirmation link/u);
       uiChecks.push({ locale, theme, width, state: 'mail-link-sent', pass: true, ...sent });
       await page.keyboard.press('Escape');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
@@ -1219,4 +1220,74 @@ export async function replyRowsMatrix(t) {
   if (evidence) await writeFile(join(evidence, 'ait410-pointer-rest-checks.json'), JSON.stringify({ head, pointerRest }, null, 2));
   assert.ok(pointerRest.every(row => row.rest.every(visibility => visibility === 'visible')),
     `Tick v4.1: fine-pointer icons must be visible at rest: ${JSON.stringify(pointerRest)}`);
+}
+
+// AIT-426 evidence owns fresh pages and its handover-only conversation fixture.
+// Never run these scroll/state steps inside the shared credit-state matrix.
+export async function impersonalGermanEvidence(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait426-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(pointerLaunch), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  t.after(async () => { try { await browser.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const checks = [];
+  const evidencePage = async ({ handover = false } = {}) => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 390, height: 844 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session);
+    await page.select('#locale', 'de'); await page.select('#theme', 'light');
+    await fixture(page, 'de', { delivery: !handover });
+    if (handover) {
+      await shadow(page, async c => {
+        const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+        const creditFetch = window.fetch;
+        window.fetch = (url, init = {}) => {
+          if (new URL(url, location.href).pathname.endsWith('/handover') && (init.method ?? 'GET') === 'GET') {
+            return Promise.resolve(Response.json({ offer: { available: true }, handover: null }));
+          }
+          return creditFetch(url, init);
+        };
+        const session = structuredClone(c.session);
+        session.transcript = session.transcript.filter(turn => turn.role === 'user');
+        c.configure({ session, copy, host: { credits: true, verification: { delivery: false, privacyDocumentConfigured: true }, handover: true } });
+      });
+    }
+    await settleEvidenceFrame(page);
+    return page;
+  };
+  await t.test('handover sent copy on an isolated page', async () => {
+    const page = await evidencePage({ handover: true });
+    await shadow(page, c => c.shadowRoot.querySelector('.handover').scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await settleEvidenceFrame(page);
+    const targets = ['.handover', '.handover-request', '.handover__state'];
+    const before = await boxes(page, targets);
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      c.receive({ seq: c.session.seq + 1, type: 'handover.state', data: { status: 'sent', revision: inputRevision(c.session) } });
+    });
+    await settleEvidenceFrame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.handover__state').textContent), 'Ihre Anfrage wurde gesendet. Sie erhalten eine persönliche Rückmeldung.');
+    const shiftPx = unchanged(before, await boxes(page, targets), 'AIT-426 handover sent');
+    assert.equal(await shadow(page, c => {
+      const r = c.shadowRoot, state = r.querySelector('.handover__state').getBoundingClientRect();
+      return state.top >= r.querySelector('.band').getBoundingClientRect().bottom &&
+        state.bottom <= r.querySelector('.composer-shell').getBoundingClientRect().top;
+    }), true, 'AIT-426 handover sent text clears the sticky band and composer');
+    checks.push({ locale: 'de', theme: 'light', width: 390, state: 'ait-426-handover-sent', pass: true, shiftPx });
+    if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-handover-sent.png'), fullPage: false });
+    await page.close();
+  });
+  await t.test('email notice evidence on an isolated page', async () => {
+    const page = await evidencePage();
+    await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+    await settle(page); await click(page, '.verify-entry'); await settleEvidenceFrame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog[open] .m-notice-text').textContent),
+      'Ihre E-Mail-Adresse wird nur für Ihr Guthaben und die Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.');
+    checks.push({ locale: 'de', theme: 'light', width: 390, state: 'ait-426-email-dialog-notice', pass: true });
+    if (evidence) await page.screenshot({ path: join(evidence, 'ait-426-de-light-390-email-dialog-notice.png'), fullPage: false });
+    await page.close();
+  });
+  if (evidence) await writeFile(join(evidence, 'ait426-evidence-checks.json'), JSON.stringify({ head, checks }, null, 2));
 }
