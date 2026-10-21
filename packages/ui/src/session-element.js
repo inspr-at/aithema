@@ -934,8 +934,7 @@ export class AithemaSession extends HTMLElement {
     if (readFull) readFull.hidden = true;
     if (mini) mini.hidden = true;
     signal?.removeAttribute('data-read-full');
-    const card = this.shadowRoot.querySelector('.qcard');
-    if (latest && !card.hidden) {
+    if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
       if (latest.getBoundingClientRect().height > room) {
@@ -964,12 +963,6 @@ export class AithemaSession extends HTMLElement {
           button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
         }
         shell.scrollTop += latest.getBoundingClientRect().top - top;
-      } else if (this.ownerDocument.defaultView.matchMedia('(width < 600px)').matches && !this.shadowRoot.querySelector('.host-legal').hidden) {
-        // scrollHeight/clientHeight round to integers. At a fractional card
-        // limit that can leave extra space below a reply that fits; align its
-        // actual painted bottom to the existing turn gap without resizing it.
-        const gap = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell.querySelector('ol')).rowGap);
-        shell.scrollTop += latest.getBoundingClientRect().bottom - (card.getBoundingClientRect().top - gap);
       }
     }
     this.#latestScrollTop = shell.scrollTop;
