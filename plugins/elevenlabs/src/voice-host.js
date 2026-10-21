@@ -1,6 +1,7 @@
 import { ensureAgent, AgentEnsureError } from './ensure-agent.js';
 import { reconcileUsage, readConversationDetails } from './server.js';
 import { AI_NOTICE, aiNoticeText } from '@inspr/aithema-core/ai-notice';
+import { perMinuteCostMicro } from '@inspr/aithema-core/cost';
 import { manifest } from './manifest.js';
 import { voiceOverrides } from './options.js';
 import { watchBearerRejections } from './secret-repair.js';
@@ -83,7 +84,7 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
   const attempt = async () => {
     running = true;
     try {
-      const { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute, usdPerCredit } = costs;
+      const { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute, usdPerCredit, maxMicro } = costs;
       const { agentId, apiBaseUrl: endpoint } = await ensureAgent({ storage, resolveSecret, publicOrigin,
         templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds, spokenOpeners, agentName, facadeSecretName, signal: stop.signal,
         beforeSecretPatch: repairMode ? () => { lastRepairAt = repairPatchAt = now(); } : undefined });
@@ -96,7 +97,7 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
         transition('available', null, prepared); return;
       }
       const binding = qualifyBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
-        endpoint, accountRef, secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),
+        endpoint, accountRef, secretRef: 'ELEVENLABS_API_KEY', maxMicro,
         maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds, minRunwaySeconds,
         upstreamMicroPerMinute, visitorMicroPerMinute: upstreamMicroPerMinute,
         ...(usdPerCredit === undefined ? {} : { usdPerCredit }), publicFacadeBaseUrl: publicOrigin }, now());
@@ -114,7 +115,19 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
       if (host.transient) retryLater();
     } finally { running = false; }
   };
-  try { costs = typeof costConfig === 'function' ? costConfig(values) : costConfig; }
+  try {
+    costs = typeof costConfig === 'function' ? costConfig(values) : costConfig;
+    const { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute } = costs;
+    // Validate provider-independent duration/cost fields before provisioning.
+    const maxMicro = perMinuteCostMicro(reservationSeconds ?? maxDurationSeconds, upstreamMicroPerMinute);
+    if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400 ||
+      reservationSeconds !== undefined && (!Number.isSafeInteger(reservationSeconds) || reservationSeconds < 1 || reservationSeconds > maxDurationSeconds) ||
+      minRunwaySeconds !== undefined && (!Number.isSafeInteger(minRunwaySeconds) || minRunwaySeconds < 1 || minRunwaySeconds > 86400) ||
+      !Number.isSafeInteger(maxMicro) || !Number.isSafeInteger(perMinuteCostMicro(maxDurationSeconds, upstreamMicroPerMinute))) {
+      throw new TypeError('Invalid duration costs');
+    }
+    costs = { ...costs, maxMicro };
+  }
   catch { transition('off', 'voice-host-unavailable'); return host; }
   inFlight = attempt();
   await inFlight;

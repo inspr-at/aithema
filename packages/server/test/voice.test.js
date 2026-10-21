@@ -648,6 +648,22 @@ for (const reservationSeconds of [undefined, 30]) for (const [key, reason] of [
   });
 }
 
+test('AIT-450: full credential minutes never extend the remaining logical rolling runway', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 600_000 }, durationBinding: {
+    maxDurationSeconds: 600, maxMicro: 600_000, reservationSeconds: 30,
+  } });
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'short-runway' },
+    options: { spendDeadlineAt: h.now() + 10_001, voiceContinuation: true } });
+  const attempt = admitted.options.attempt;
+  assert.equal(attempt.fundedSeconds, 10.001);
+  attempt.extend(600);
+  assert.equal(attempt.fundedSeconds, 10.001, 'full minute reservation does not grant more runtime authority');
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000);
+  assert.equal(attempt.maxMicro, 600_000);
+  admitted.finish();
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+});
+
 for (const reservationSeconds of [undefined, 30]) test(`AIT-450: open credentials retain full minutes through recovery and settle provider seconds (${reservationSeconds ?? 'nonrolling'})`, async t => {
   const h = voiceFixture(t, { slowClosure: true, providerCeiling: true, leaseMs: 700_000,
     cap: { capMilliseconds: 1_200_000, perDayMilliseconds: 1_200_000 }, durationBinding: {

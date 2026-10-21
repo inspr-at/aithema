@@ -2,12 +2,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createPluginRuntime, createVoiceProvider, mockPresets } from '@inspr/aithema-server';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
+import { perMinuteCostMicro } from '@inspr/aithema-core/cost';
 import { createElevenLabsVoiceHost, normalizeElevenLabsDurationBinding } from '@inspr/aithema-plugin-elevenlabs/voice-host';
 import { createDurationBinding } from '../packages/server/src/voice-binding.js';
 import { qualifyStartBinding } from '../demo/processing-consent.js';
 import { stubAgentApi } from './fixtures/voice-self-heal-host.js';
 
 const ceiling = (seconds, rate) => Number((BigInt(seconds) * BigInt(rate) + 59n) / 60n);
+
+test('AIT-451: integer ceiling preserves fractional runway, safe large products and fail-closed overflow', () => {
+  assert.equal(perMinuteCostMicro(33, 100_000), 55_000);
+  assert.equal(perMinuteCostMicro(1.001, 60_000), 1001);
+  assert.equal(perMinuteCostMicro(1e-7, 60), 1);
+  assert.equal(perMinuteCostMicro(60, Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
+  assert.equal(perMinuteCostMicro(59, Number.MAX_SAFE_INTEGER), ceiling(59, Number.MAX_SAFE_INTEGER));
+  assert.equal(perMinuteCostMicro(61, Number.MAX_SAFE_INTEGER), null);
+  for (const invalid of [-1, NaN, Infinity, '33', undefined]) assert.equal(perMinuteCostMicro(invalid, 100_000), null);
+  for (const invalid of [-1, NaN, Infinity, 1.1, '100000', undefined]) assert.equal(perMinuteCostMicro(33, invalid), null);
+});
 
 async function bootAndAdmit(seconds, rate, visitorRate) {
   const now = Date.now(), api = stubAgentApi(), storage = new SQLiteStorage();
