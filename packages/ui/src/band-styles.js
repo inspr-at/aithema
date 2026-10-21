@@ -342,7 +342,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .footer-right .status { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .ai-notice { min-width:44px; font-size:12.5px; }
   .ai-notice .speaker-sign { display:block; }
-  .engine-info { width:44px; }
+  .engine-info { width:44px; place-items:center; }
   .host-legal { margin-left:4px; }
   .footer-info .phone-status { display:block; }
   .footer-info .connection-timer { grid-column:auto; min-width:8ch; }

@@ -20,6 +20,8 @@ export async function creditHostOptionsCheck(t) {
     if (evidence) {
       await writeFile(join(evidence, 'ait435-round2-checks.json'), JSON.stringify({ head, footer80, checks: round2, shots: round2Shots, errors }, null, 2));
       await writeFile(join(evidence, 'ait435-r4-checks.json'), JSON.stringify({ head, spec:'Tick v1.7', footer80, legalChecks, shots:legalShots, errors }, null, 2));
+      await writeFile(join(evidence, 'ait439-checks.json'), JSON.stringify({ head, spec:'Tick v1',
+        checks:round2.filter(v => v.width === 390), shots:shots.filter(name => /390-light-(de|en)-S[23]\.png$/u.test(name)), errors }, null, 2));
     }
   });
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
@@ -132,7 +134,10 @@ export async function creditHostOptionsCheck(t) {
       const activeBody = body.querySelector('[data-active="true"]'), deadline = r.querySelector('.composer-out__deadline');
       const stack = r.querySelector('.host-credits__stack'), flag = box(r.querySelector('.engine__flag'));
       const creditsTarget = box(r.querySelector('.host-credits__button')), engineTarget = box(r.querySelector('.engine-info'));
-      const textRight = Math.max(...ink(stack).map(b => b.right));
+      const creditsInk = ink(stack), textRight = Math.max(...creditsInk.map(b => b.right));
+      const creditsLabelCenter = (Math.min(...creditsInk.map(b => b.top)) + Math.max(...creditsInk.map(b => b.bottom))) / 2;
+      const creditsCenterOffset = creditsLabelCenter - (creditsTarget.top + creditsTarget.height / 2);
+      const legalLabel = box(r.querySelector('#legal-label')), flagLegalGap = legalLabel.left - flag.right;
       const overlapWidth = Math.max(0, Math.min(creditsTarget.right, engineTarget.right) - Math.max(creditsTarget.left, engineTarget.left));
       const overlapHeight = Math.max(0, Math.min(creditsTarget.bottom, engineTarget.bottom) - Math.max(creditsTarget.top, engineTarget.top));
       const legalLinks = [...c.querySelectorAll('[slot="legal"] a, a[slot="legal"]')].map(box);
@@ -177,7 +182,8 @@ export async function creditHostOptionsCheck(t) {
         toggle.blur();
         if (modal) modal.showModal();
       }
-      const footerGeometry = { legalState, footerTargets, targetOverlaps, stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
+      const footerGeometry = { legalState, footerTargets, targetOverlaps, creditsCenterOffset, flagLegalGap, stack:box(stack), flag, legalLabel,
+        stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight, footerSizing };
       const titleNode = r.querySelector('.composer-out__title span'), titleBox = box(titleNode);
       const titleHit = r.elementFromPoint(titleBox.left + titleBox.width / 2, titleBox.top + titleBox.height / 2);
@@ -351,6 +357,21 @@ export async function creditHostOptionsCheck(t) {
   recordRound2('none', 390, 'de', 'light', 'B1', noOptions);
   assert.equal(noOptions.legalLinks, 3, 'no-options evidence host has three legal links');
   await round2Shot('none', 'B1');
+  await t.test('AIT-439 item 1: phone flag clears the legal label by at least 12 px in DE and EN', () => {
+    for (const value of round2.filter(v => v.width === 390)) {
+      assert.ok(value.flagLegalGap >= 12, `${value.profile}/${value.locale}/${value.theme}/${value.state}: flag-to-legal gap ${value.flagLegalGap} px >= 12 px`);
+    }
+  });
+  await t.test('AIT-439 item 2: phone credits label stays centred within 1 px in every state and profile', () => {
+    const baselines = new Map();
+    for (const value of round2.filter(v => v.width === 390)) {
+      const label = `${value.profile}/${value.locale}/${value.theme}/${value.state}`;
+      assert.ok(Math.abs(value.creditsCenterOffset) <= 1, `${label}: visible credits centre offset ${value.creditsCenterOffset} px is within ±1 px`);
+      const key = `${value.profile}/${value.locale}/${value.theme}`, geometry = { controls:value.legalState.closed, stack:value.stack };
+      if (!baselines.has(key)) baselines.set(key, geometry);
+      assert.deepEqual(geometry, baselines.get(key), `${label}: footer controls and reserved stack move 0 px across states`);
+    }
+  });
   await t.test('AIT-435 item 1: single-line primary, 12 px gap and reserved phone export row', () => {
     const cases = round2.filter(v => v.profile === 'all' && ['S2', 'U2'].includes(v.state));
     for (const value of cases) {
