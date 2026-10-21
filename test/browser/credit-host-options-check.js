@@ -408,12 +408,18 @@ export async function creditHostOptionsCheck(t) {
     }
     const capture = async name => {
       if (!evidence) return;
-      await shadow(page, async c => {
+      await page.mouse.move(-1, -1);
+      const state = await shadow(page, async c => {
         c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
         await Promise.all(c.shadowRoot.getAnimations({ subtree:true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const r = c.shadowRoot, button = r.querySelector('.legal-toggle'), popup = r.querySelector('.legal-popup');
+        return { expanded:button.getAttribute('aria-expanded'), visible:popup.checkVisibility({ visibilityProperty:true, opacityProperty:true }),
+          active:r.activeElement?.className ?? null, pinned:r.querySelector('.host-legal').hasAttribute('data-pinned'), dismissed:r.querySelector('.host-legal').hasAttribute('data-dismissed') };
       });
-      await page.mouse.move(-1, -1);
+      assert.equal(state.expanded, String(name.endsWith('-open.png')), `${name}: capture expansion ${JSON.stringify(state)}`);
+      assert.equal(state.visible, name.endsWith('-open.png'), `${name}: capture visibility ${JSON.stringify(state)}`);
+      legalChecks.push({ shot:name, ...state });
       await page.screenshot({ path:join(evidence, name), fullPage:false, captureBeyondViewport:false }); legalShots.push(name);
     };
     for (const [locale, theme] of [['de', 'light'], ['de', 'dark'], ['en', 'light']]) {
