@@ -45,6 +45,7 @@ export function creditCost(micro, copy) {
 
 /** One sentence in the rail. A missing quote cannot offer paid work; feature verdicts still gate consent. */
 export function draftsLine({ copy, cost, feature, kind = 'html' }) {
+  if (feature.dailyCapped) return { state: 'low', text: copy.hostSurface.credits.dailyCap, action: false };
   const reason = feature.rawReason ?? feature.reason ?? '';
   if (!feature.available && reason === 'visuals off') return { state: 'off',
     text: `${copy.display.draftsDisabled}${reasonSeparator}${copy.display.draftsEnable}`, action: false };

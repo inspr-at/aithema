@@ -9,6 +9,39 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
+for (const copy of [de, en]) for (const exhausted of [false, true]) {
+  test(`AIT-445: drafts name the address day cap with 800 credits left (${copy.display.locale}, exhausted=${exhausted})`, async t => {
+    const { root } = setup(t, { copy, host: { credits: true }, session: {
+      conceptVisualKind: 'html', visualsBound: true, conceptCost: { maxMicro: 400_000 },
+      featureMatrix: { best: { html: { available: false, reason: 'budget denied' } } },
+    }, routes: {
+      'GET /credits': () => Response.json({ scope: 'session', dailyCapReached: true, exhausted,
+        balance: { owner: { limitMicro: 10_000_000, committedMicro: 2_000_000, availableMicro: 8_000_000, reservedMicro: 0 } } }),
+    } });
+    await tick(10);
+    assert.equal(root.querySelector('.host-credits__amount').textContent, exhausted ? '0' : '800');
+    const status = root.querySelector('.concept-activity-text');
+    assert.equal(status.textContent, copy.hostSurface.credits.dailyCap);
+    assert.equal(status.textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit.");
+    assert.notEqual(status.textContent, copy.display.draftsLow);
+    assert.equal(root.querySelector('.concept-request').hidden, true);
+  });
+}
+
+for (const copy of [de, en]) test(`AIT-445: a real low balance keeps the drafts credit message (${copy.display.locale})`, async t => {
+  const { root } = setup(t, { copy, host: { credits: true }, session: {
+    conceptVisualKind: 'html', visualsBound: true, conceptCost: { maxMicro: 400_000 },
+    featureMatrix: { best: { html: { available: false, reason: 'budget denied' } } },
+  }, routes: {
+    'GET /credits': () => Response.json({ scope: 'session', dailyCapReached: false, exhausted: false,
+      balance: { owner: { limitMicro: 10_000_000, committedMicro: 9_990_000, availableMicro: 10_000, reservedMicro: 0 } } }),
+  } });
+  await tick(10);
+  assert.equal(root.querySelector('.host-credits__amount').textContent, '1');
+  assert.equal(root.querySelector('.concept-activity-text').textContent, copy.display.draftsLow);
+  assert.equal(root.querySelector('.concept-request').hidden, true);
+});
+
 for (const [copy, loadingName] of [[de, 'Credits werden geladen'], [en, 'Loading credits']]) {
   test(`AIT-357: one placeholder and the loading accessible name until the first receipt (${copy.display.locale})`, async t => {
     let release;
@@ -70,7 +103,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one un
   assert.equal(popup.getAttribute('role'), 'group');
   assert.equal(popup.querySelector('.host-credits__current').hidden, true, 'the anonymous balance already names its tier');
   assert.match(popup.querySelector('.host-credits__next').textContent, copy === de ? /1\.800\u00a0Credits/u : /1,800\u00a0credits/u);
-  assert.equal(popup.querySelector('.credits-email').textContent, copy === de ? 'E-Mail-Adresse angeben' : 'Add your email address');
+  assert.equal(popup.querySelector('.credits-email').textContent, copy === de ? 'E‑Mail-Adresse angeben' : 'Add your email address');
   assert.equal(popup.querySelector('.host-credits__equivalence').textContent, copy === de ? '1 Credit = 1 US-Cent' : '1 Credit = 1 US cent');
   assert.equal(root.querySelector('.host-credits__deadline')?.textContent ?? '', '');
   popup.querySelector('.credits-email').click(); await tick(6);
@@ -551,13 +584,13 @@ for (const copy of [de, en]) test(`AIT-411: defaults equal independently capture
   const body = html => html.match(/<p class="composer-out__body"[^>]*>[\s\S]*?<\/p>/u)[0];
   const expected = [original[0], original[1].replace(body(original[1]), body(main[1])), original[2]];
   assert.deepEqual(main, expected, 'only the inherited AIT-410/AIT-422 body hunk differs from original RC13');
-  // Tick AIT-435 r2 item 0: exact byte substitutions in the preserved captures.
-  const approvedCopy = html => html.replaceAll('>Noch 0 Credits<', '>Noch 0&nbsp;Credits<').replaceAll('>0 Credits left<', '>0&nbsp;Credits left<').replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits')
+  // Tick AIT-445 v1.1 and AIT-435 r2: exact copy substitutions in preserved captures.
+  const approvedCopy = html => (copy === de ? html.replaceAll('E-Mail', 'E‑Mail') : html).replaceAll('>Noch 0 Credits<', '>Noch 0&nbsp;Credits<').replaceAll('>0 Credits left<', '>0&nbsp;Credits left<').replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits')
     // Tick AIT-443 v1 supersedes only the daily-cap sentence in these captures.
     .replaceAll('Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.', 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.')
     .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.");
-  assert.deepEqual(actual, expected.map(approvedCopy), 'only approved AIT-435 spaces and AIT-443 daily-cap copy differ from RC13 plus the main hunk');
-  assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(approvedCopy), 'only approved AIT-435 spaces and AIT-443 daily-cap copy differ from the main capture');
+  assert.deepEqual(actual, expected.map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from RC13 plus the main hunk');
+  assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from the main capture');
   assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');
 });
 
@@ -583,7 +616,7 @@ for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, sess
 });
 
 for (const [copy, template, body] of [
-  [de, 'Mit bestätigter E-Mail-Adresse steigt das Limit dieses Gesprächs auf {next}\u00a0Credits.', 'Mit bestätigter E-Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.'],
+  [de, 'Mit bestätigter E‑Mail-Adresse steigt das Limit dieses Gesprächs auf {next}\u00a0Credits.', 'Mit bestätigter E‑Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.'],
   [en, 'With a confirmed email address, this conversation\'s limit rises to {next}\u00a0credits.', 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.'],
 ]) test(`AIT-443 S1: catalog and complete panel body match Tick v1 (${copy.display.locale})`, async t => {
   assert.equal(copy.hostSurface.credits.ended.sessionUpgrade, template);
@@ -599,7 +632,7 @@ for (const [copy, template, body] of [
 });
 
 for (const [copy, expected] of [
-  [de, 'Mit bestätigter E-Mail-Adresse: 1.000\u00a0Credits'],
+  [de, 'Mit bestätigter E‑Mail-Adresse: 1.000\u00a0Credits'],
   [en, 'With a confirmed email address: 1,000\u00a0credits'],
 ]) test(`AIT-411 round 7 O3: confirmed current tier matches Tick (${copy.display.locale})`, async t => {
   const { root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
@@ -653,7 +686,7 @@ for (const copy of [de, en]) test(`AIT-411 O3: missing offer key falls back and 
         allowancesMicro: { anonymous: 5000000, emailGiven: 5000000, emailConfirmed: 10000000 } } }),
     } });
     await tick(10);
-    assert.match(root.querySelector('.host-credits__next').textContent, hasKey ? copy === de ? /^Nach der Bestätigung:/u : /^After confirmation:/u : copy === de ? /^Mit bestätigter E-Mail-Adresse:/u : /^With a confirmed email address:/u);
+    assert.match(root.querySelector('.host-credits__next').textContent, hasKey ? copy === de ? /^Nach der Bestätigung:/u : /^After confirmation:/u : copy === de ? /^Mit bestätigter E‑Mail-Adresse:/u : /^With a confirmed email address:/u);
   }
 });
 

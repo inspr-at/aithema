@@ -32,7 +32,7 @@ for (const copy of [de, en]) for (const delivery of [true, false]) for (const re
     repaint(); await tick(); assert.equal(mutations, 0, 'pending paints do not rewrite the live region');
     finish(); await tick(12);
     if (result === 'loaded') {
-      assert.match(lead.textContent, copy === de ? /Mit Ihrer E-Mail-Adresse/u : /With your email address/u);
+      assert.match(lead.textContent, copy === de ? /Mit Ihrer E‑Mail-Adresse/u : /With your email address/u);
       assert.equal(lead.hasAttribute('role'), false); assert.equal(lead.classList.contains('m-credit-status'), false);
     } else {
       assert.equal(lead.textContent, failed + (delivery ? mailHint : saveHint));
