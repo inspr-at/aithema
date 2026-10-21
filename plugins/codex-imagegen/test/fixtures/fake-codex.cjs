@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Local executable fixture only. It never loads Codex or contacts a provider.
-const { readFileSync, writeFileSync, mkdirSync, statSync, symlinkSync, linkSync, truncateSync } = require('node:fs');
+const { readFileSync, writeFileSync, mkdirSync, statSync, symlinkSync, linkSync, truncateSync, renameSync } = require('node:fs');
 const { join } = require('node:path');
 const { spawn } = require('node:child_process');
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII=';
@@ -48,7 +48,15 @@ async function main() {
     child.unref();
   }
   mkdirSync(process.env.FAKE_TRACE_DIR, { recursive: true });
-  writeFileSync(join(process.env.FAKE_TRACE_DIR, `${process.pid}.json`), JSON.stringify(record));
+  const tracePath = join(process.env.FAKE_TRACE_DIR, `${process.pid}.json`), pendingTracePath = `${tracePath}.tmp`;
+  // Widen the open-before-write window in both modes seen flaking in CI.
+  if (['descendant', 'slow'].includes(mode)) {
+    writeFileSync(pendingTracePath, '');
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  // ready() observes the final name only after the complete write has closed.
+  writeFileSync(pendingTracePath, JSON.stringify(record));
+  renameSync(pendingTracePath, tracePath);
   if (['hang', 'ignoreterm', 'descendant'].includes(mode)) { setInterval(() => {}, 1000); process.send?.('fixture-stall'); return; }
   if (mode === 'none') return;
   if (mode === 'nonzero') { process.stderr.write('private-provider-detail'); process.exit(7); }
