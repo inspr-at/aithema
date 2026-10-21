@@ -12,9 +12,9 @@ import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES, BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
 for (const [locale, copy, dailyCap, dailyCapReset] of [
-  ['de', de, 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.', 'Ab {time} ist ein neues Gespräch möglich.'],
-  ['en', en, "This email address has reached today's limit.", 'A new conversation is possible from {time}.'],
-]) test(`AIT-443: ${locale} daily cap and reset match Tick v1 exactly`, () => {
+  ['de', de, 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.', 'Ab {time} gilt für diese E-Mail-Adresse ein neues Tageslimit.'],
+  ['en', en, "This email address has reached today's limit.", 'This email address gets a new daily limit from {time}.'],
+]) test(`AIT-443: ${locale} daily cap and reset match Tick v1.1 exactly`, () => {
   assert.equal(copy.hostSurface.credits.dailyCap, dailyCap);
   assert.equal(copy.hostSurface.credits.dailyCapReset, dailyCapReset);
 });
