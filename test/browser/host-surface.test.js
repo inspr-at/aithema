@@ -742,7 +742,8 @@ async function postRelease297(browserPage, t, legalHTML) {
       for (const [x, y, w, h] of state.boxes) { assert.ok(x >= 0 && x + w <= width && y >= 0 && y + h <= height, `${label}: action is in viewport`); assert.ok(h >= 44); }
       assert.equal(state.legal.length, 2);
       assert.equal(state.preset.width, 44, `${label}: preset target cannot shrink`);
-      assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
+      if (width < 600) assert.ok(state.legal.every(n => n.top >= state.preset.bottom), `${label}: the legal row clears the preset target below`);
+      else assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
       assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
       assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
       if (variant === 'upgrade' && width < 600) {

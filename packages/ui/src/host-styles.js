@@ -390,7 +390,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
    the two real content gaps offset the margin, preserving grid contribution
    and the active composer's measured height. No spacer copy is involved. */
 @media(width < 600px) {
-  .composer-out { margin-block-start:-24px; row-gap:14px; }
+  .composer-out { z-index:3; margin-block-start:-24px; row-gap:14px; }
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px 44px; gap:12px 14px; }
   .composer-out[data-host-limit] .composer-out__actions > .composer-out__upgrade { grid-area:2/1; }
   .composer-out[data-host-limit] .composer-out__actions > .composer-out__export { grid-area:2/2; }

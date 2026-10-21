@@ -128,7 +128,9 @@ export async function creditHostOptionsCheck(t) {
       const overlapHeight = Math.max(0, Math.min(creditsTarget.bottom, engineTarget.bottom) - Math.max(creditsTarget.top, engineTarget.top));
       const footerGeometry = { stackRight: box(stack).right, flagLeft: flag.left, stackFlagGap: flag.left - box(stack).right,
         textRight, textFlagGap: flag.left - textRight, creditsTarget, engineTarget, overlapPx2: overlapWidth * overlapHeight };
-      const actionGeometry = { primary: primaryBox, export: exportBox, rows: [...new Set(primaryInk.map(b => b.top))].length,
+      const titleNode = r.querySelector('.composer-out__title span'), titleBox = box(titleNode);
+      const titleHit = r.elementFromPoint(titleBox.left + titleBox.width / 2, titleBox.top + titleBox.height / 2);
+      const actionGeometry = { titleUnobscured: titleNode.contains(titleHit), primary: primaryBox, export: exportBox, rows: [...new Set(primaryInk.map(b => b.top))].length,
         gap: primaryBox ? exportBox.top >= primaryBox.bottom ? exportBox.top - primaryBox.bottom : exportBox.left - primaryBox.right : null,
         bodyBounds: box(activeBody), actions: box(r.querySelector('.composer-out__actions')), deadlineOffset: deadline && !deadline.hidden ? box(deadline).left - box(activeBody).left : null };
 
@@ -309,7 +311,10 @@ export async function creditHostOptionsCheck(t) {
     }
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
       const usedUp = round2.filter(v => v.profile === 'all' && v.locale === locale && v.theme === theme && v.width === width && ['U1', 'U2', 'U3', 'S1', 'S2', 'S3'].includes(v.state));
-      for (const value of usedUp) assert.deepEqual(value.actions, usedUp[0].actions, `${locale}/${theme}/${width}/${value.state}: actions reserve 0 px`);
+      for (const value of usedUp) {
+        assert.equal(value.titleUnobscured, true, `${locale}/${theme}/${width}/${value.state}: panel title is unobscured`);
+        assert.deepEqual(value.actions, usedUp[0].actions, `${locale}/${theme}/${width}/${value.state}: actions reserve 0 px`);
+      }
     }
   });
   await t.test('AIT-435 item 2: S3 without O1 paints sessionDefaultBody', () => {
