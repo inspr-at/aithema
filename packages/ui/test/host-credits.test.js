@@ -488,7 +488,7 @@ for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'em
     if (state === 'emailGiven') assert.equal(next.textContent, copy.hostSurface.credits.afterConfirm.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'));
     if (state === 'exhausted') assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Die 250\u00a0Credits dieses Gesprächs sind aufgebraucht.' : "This conversation's 250\u00a0credits are used up.");
     if (state === 'dailyCap') {
-      assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow.");
+      assert.equal(root.querySelector('.host-credits__daily-cap').textContent, copy === de ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit.");
       assert.equal(next.textContent, '');
     }
   });
@@ -552,9 +552,12 @@ for (const copy of [de, en]) test(`AIT-411: defaults equal independently capture
   const expected = [original[0], original[1].replace(body(original[1]), body(main[1])), original[2]];
   assert.deepEqual(main, expected, 'only the inherited AIT-410/AIT-422 body hunk differs from original RC13');
   // Tick AIT-435 r2 item 0: exact byte substitutions in the preserved captures.
-  const nbsp = html => html.replaceAll('>Noch 0 Credits<', '>Noch 0&nbsp;Credits<').replaceAll('>0 Credits left<', '>0&nbsp;Credits left<').replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits');
-  assert.deepEqual(actual, expected.map(nbsp), 'only approved AIT-435 catalog spaces differ from RC13 plus the main hunk');
-  assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(nbsp), 'only approved AIT-435 catalog spaces differ from the main capture');
+  const approvedCopy = html => html.replaceAll('>Noch 0 Credits<', '>Noch 0&nbsp;Credits<').replaceAll('>0 Credits left<', '>0&nbsp;Credits left<').replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits')
+    // Tick AIT-443 v1 supersedes only the daily-cap sentence in these captures.
+    .replaceAll('Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.', 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.')
+    .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.");
+  assert.deepEqual(actual, expected.map(approvedCopy), 'only approved AIT-435 spaces and AIT-443 daily-cap copy differ from RC13 plus the main hunk');
+  assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(approvedCopy), 'only approved AIT-435 spaces and AIT-443 daily-cap copy differ from the main capture');
   assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');
 });
 
@@ -580,9 +583,9 @@ for (const copy of [de, en]) test(`AIT-411 O1/O2/O7: cap wins over session, sess
 });
 
 for (const [copy, template, body] of [
-  [de, 'Mit bestätigter E-Mail-Adresse geht es mit {next}\u00a0Credits weiter.', 'Mit bestätigter E-Mail-Adresse geht es mit 1.000\u00a0Credits weiter.'],
-  [en, 'With a confirmed email address, this continues with {next}\u00a0credits.', 'With a confirmed email address, this continues with 1,000\u00a0credits.'],
-]) test(`AIT-411 round 7 S1: catalog and complete panel body match Tick (${copy.display.locale})`, async t => {
+  [de, 'Mit bestätigter E-Mail-Adresse steigt das Limit dieses Gesprächs auf {next}\u00a0Credits.', 'Mit bestätigter E-Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.'],
+  [en, 'With a confirmed email address, this conversation\'s limit rises to {next}\u00a0credits.', 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.'],
+]) test(`AIT-443 S1: catalog and complete panel body match Tick v1 (${copy.display.locale})`, async t => {
   assert.equal(copy.hostSurface.credits.ended.sessionUpgrade, template);
   const { c, root } = setup(t, { copy, host: { verification: true, credits: true }, session: { locale: copy.display.locale }, routes: {
     'GET /credits': () => Response.json({ scope: 'session', balance, exhausted: true,

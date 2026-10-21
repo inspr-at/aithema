@@ -289,9 +289,9 @@ export async function creditHostOptionsCheck(t) {
       }
       assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
       if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
-      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ wieder verfügbar$/u : /^Available again from /u); assert.equal(value.panelDeadline, value.deadline); }
+      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ gilt für diese E-Mail-Adresse ein neues Tageslimit\.$/u : /^This email address gets a new daily limit from .+\.$/u); assert.equal(value.panelDeadline, value.deadline); }
       if (state === 'S1') { assert.equal(value.upgrade, true); assert.equal(value.export, true); assert.match(value.body, /1[.,]000/u); }
-      if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E-Mail-Adresse geht es mit 1.000\u00a0Credits weiter.' : 'With a confirmed email address, this continues with 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
+      if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E-Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.' : 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
       if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
       if (state === 'offer') {
         assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);

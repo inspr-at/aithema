@@ -119,7 +119,7 @@ export async function sessionCreditsCheck(t) {
       if (state === 'k2') { assert.equal(value.value, locale === 'de' ? '1.000' : '1,000'); assert.equal(value.offer, false); assert.match(value.current, locale === 'de' ? /Mit bestätigter E-Mail-Adresse: 1\.000\u00a0Credits/u : /With a confirmed email address: 1,000\u00a0credits/u); }
       if (state === 'k4') { assert.equal(value.offer, true); assert.equal(value.action, locale === 'de' ? 'E-Mail-Adresse bestätigen' : 'Confirm your email address'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); }
       if (state === 'k5') { assert.equal(value.value, '0'); assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits'); assert.equal(value.offer, true); assert.equal(value.demo, locale === 'de' ? 'Nur Demo: Hier gibt es kein Aufladen.' : 'Demo only: no top-ups here.'); }
-      if (state === 'k6') { assert.equal(value.offer, false); assert.equal(value.next, ''); assert.equal(value.dailyCap, locale === 'de' ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.' : "This email address has reached today's limit. You can continue tomorrow."); }
+      if (state === 'k6') { assert.equal(value.offer, false); assert.equal(value.next, ''); assert.equal(value.dailyCap, locale === 'de' ? 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.' : "This email address has reached today's limit."); }
       baseline ??= value.rects;
       assert.deepEqual(value.rects, baseline, `${label}: 0 px across K1–K6`);
       checks.push({ width, locale, theme: 'light', state, ...value, movementPx: 0 });
