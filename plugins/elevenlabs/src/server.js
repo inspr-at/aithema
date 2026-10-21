@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { PluginError, normalizedError } from '@inspr/aithema-core/invocation';
 import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '@inspr/aithema-core/live-voice';
 import { manifest } from './manifest.js';
-import { usdCostMicro } from '@inspr/aithema-core/cost';
+import { perMinuteCostMicro, usdCostMicro } from '@inspr/aithema-core/cost';
 import { voiceOverrides, elevenLabsMediaGrant, elevenLabsComponents } from './options.js';
 import { elevenLabsCallbackPort } from './callbacks.js';
 import { createTextSpeech } from './text-speech.js';
@@ -51,7 +51,7 @@ function conversationCost(metadata, binding, seconds) {
       costSource: amount(metadata.cost) ? 'elevenlabs.cost' : 'elevenlabs.charging', costEstimated: false,
       usdPerCredit: binding.usdPerCredit ?? 0 };
   }
-  return { upstreamMicro: Math.ceil(seconds * binding.upstreamMicroPerMinute / 60),
+  return { upstreamMicro: perMinuteCostMicro(seconds, binding.upstreamMicroPerMinute),
     costSource: 'duration-estimate', costEstimated: true,
     estimateMicroPerMinute: binding.upstreamMicroPerMinute,
     ...(credits === null ? {} : { providerCredits: credits }) };
@@ -198,7 +198,7 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
     const pausedSeconds = pausedMilliseconds(call.pauses ?? [], start, start + seconds * 1000) / 1000;
     const visitorSeconds = Math.max(0, seconds - pausedSeconds);
     const cost = conversationCost(details.metadata, binding, seconds), upstreamMicro = cost.upstreamMicro;
-    const visitorMicro = Math.ceil(visitorSeconds / 60 * binding.visitorMicroPerMinute);
+    const visitorMicro = perMinuteCostMicro(visitorSeconds, binding.visitorMicroPerMinute);
     if ([upstreamMicro, visitorMicro].every(amount)) usage = {
       providerSeconds: seconds, providerMinutes: seconds / 60, pausedSeconds, visitorSeconds, visitorMicro, ...cost,
     };
@@ -233,7 +233,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       let call = { callId: request.callId, startedAt: now(), pauses: [], paused: false,
         attemptId: options.attempt.attemptId, claimId: options.attempt.claimId, maxMicro: options.attempt.maxMicro,
         spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
-        exposureMicro: options.attempt.exposureMicro ?? Math.ceil((options.spendDeadlineAt - now()) / 60_000 * binding.upstreamMicroPerMinute),
+        exposureMicro: options.attempt.exposureMicro ?? perMinuteCostMicro((options.spendDeadlineAt - now()) / 1000, binding.upstreamMicroPerMinute),
         facadeSecretRef: request.facadeSecretRef };
       const callCancellation = new AbortController();
       let lifetime, rollingTimer, fundedTimer, closing, finished = false, delivered = false, mutation = Promise.resolve();
@@ -323,7 +323,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         const overrides = voiceOverrides(request.overrides);
         await voiceOperation(options, async opts => {
           if (![options.spendDeadlineAt, options.browserLivenessDeadlineAt].every(value => Number.isFinite(value) && value > now())) throw new PluginError('deadline', 'Spend and browser-liveness deadlines required');
-          const spendBound = Math.ceil((options.spendDeadlineAt - now()) / 60_000 * binding.upstreamMicroPerMinute);
+          const spendBound = perMinuteCostMicro((options.spendDeadlineAt - now()) / 1000, binding.upstreamMicroPerMinute);
           if (!amount(spendBound) || !options.attempt.extend && spendBound > options.attempt.maxMicro) throw new PluginError('not-admitted', 'Voice spend deadline exceeds admitted maximum');
           // Host preflight: legacy provisioning, or startup-established static callback authentication.
           await prepareCall(structuredClone(call), opts); opts.signal.throwIfAborted();
