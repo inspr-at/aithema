@@ -394,7 +394,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 @media(width < 600px) {
   /* Tick v1.6: padding is already at its 6px floor. The shorter legal row
      still needs the final permitted 4px from the composer/footer gap. */
-  .workspace:has(.host-legal:not([hidden])) { --phone-footer-gap:8px; }
+  .workspace:not([data-phone-keyboard]):not([data-phone-short][data-phone-overlay]):has(.host-legal:not([hidden])) { --phone-footer-gap:8px; }
   .display-foot:has(.host-legal:not([hidden])) .display-foot__row,
   .display-foot:has(.host-credits:not([hidden])):has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:44px minmax(28px,max-content); }
   .display-foot:has(.host-legal:not([hidden])) .footer-left { grid-area:1/1; }
