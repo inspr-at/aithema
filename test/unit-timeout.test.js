@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { UNIT_FILE_TIMEOUT_MS } from '../scripts/unit-watchdog.js';
-import { assertUnitCoverage, assertUnitHeadroom, discoverUnitTests, packUnitTests, readUnitWeights, selectUnitShard, unitConcurrency, unitJobOverheadSeconds, unitJobTargetSeconds, unitPlan, unitTestCommand, unitUnknownFileSeconds } from '../scripts/unit-shards.js';
+import { assertUnitCoverage, assertUnitHeadroom, discoverUnitTests, packUnitTests, readUnitWeights, selectUnitShard, unitConcurrency, unitJobOverheadSeconds, unitJobTargetSeconds, unitPlan, unitShardCount, unitTestCommand, unitUnknownFileSeconds } from '../scripts/unit-shards.js';
 import { assertUnitResults } from '../scripts/check-unit-results.js';
 import { unitFileMeasurements } from '../scripts/update-unit-timings.js';
 
@@ -66,11 +66,11 @@ test('AIT-193: npm test applies the three-minute deadline and watchdog to every 
   assert.throws(() => assertUnitHeadroom({ projected: [421] }), /exceeds 420/u);
   assert.throws(() => assertUnitHeadroom({ projected: [NaN] }), /exceeds 420/u);
   assert.doesNotThrow(() => assertUnitHeadroom({ projected: [420] }));
-  for (const args of [[], ['--shard'], ['--shard', '0/2'], ['--shard', '3/2'], ['--shard', '1/3'],
-    ['--shard', '1/2', '--test-name-pattern=x']]) {
+  for (const args of [[], ['--shard'], ['--shard', `0/${unitShardCount}`], ['--shard', `${unitShardCount + 1}/${unitShardCount}`], ['--shard', '1/2'],
+    ['--shard', `1/${unitShardCount}`, '--test-name-pattern=x']]) {
     assert.throws(() => selectUnitShard(args, packing), /Use --shard/u);
   }
-  packing.shards.forEach((shard, index) => assert.deepEqual(selectUnitShard(['--shard', `${index + 1}/2`], packing), shard));
+  packing.shards.forEach((shard, index) => assert.deepEqual(selectUnitShard(['--shard', `${index + 1}/${unitShardCount}`], packing), shard));
   const expected = { runId: '123', sha: 'a'.repeat(40), attempt: 1 };
   const summary = file => ({ type: 'test:summary', success: true, duration_ms: 1, ...(file ? { file } : {}),
     counts: { tests: 1, passed: 1, failed: 0, cancelled: 0, skipped: 0, todo: 0 } });

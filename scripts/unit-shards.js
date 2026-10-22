@@ -3,11 +3,13 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
-export const unitShardCount = 2;
+export const unitShardCount = 3;
 export const unitConcurrency = 3;
 export const unitJobTargetSeconds = 420; // 70% of the unchanged ten-minute cap.
 export const unitJobOverheadSeconds = 25; // measured ~13s + margin; pack/boot run in test.
-export const unitUnknownFileSeconds = 180; // unchanged per-file watchdog limit.
+// Round up the baseline mean (1798.188s / 256 files = 7.024s). The watchdog
+// remains 180s; measured execution must also pass the hard headroom guard.
+export const unitUnknownFileSeconds = 8;
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 
 // Derive discovery from npm test itself so new package/plugin files cannot be
@@ -72,6 +74,12 @@ export function assertUnitCoverage(files, shards) {
 export function assertUnitHeadroom(packing) {
   if (packing.projected.some(seconds => !Number.isFinite(seconds) || seconds > unitJobTargetSeconds)) {
     throw new Error(`Projected unit job exceeds ${unitJobTargetSeconds}s including overhead: ${packing.projected.map(n => n.toFixed(3)).join(' / ')}`);
+  }
+}
+export function assertUnitMeasuredHeadroom(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Invalid measured unit duration');
+  if (seconds + unitJobOverheadSeconds > unitJobTargetSeconds) {
+    throw new Error(`Measured unit job exceeds ${unitJobTargetSeconds}s including overhead: ${(seconds + unitJobOverheadSeconds).toFixed(3)}`);
   }
 }
 export function unitPlan() {

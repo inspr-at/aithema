@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { discoverUnitTests, repositoryRoot } from './unit-shards.js';
+import { assertUnitCoverage, discoverUnitTests, repositoryRoot } from './unit-shards.js';
+import { assertUnitResults, fetchUnitJobs, latestUnitJobs, readUnitResultArtifacts } from './check-unit-results.js';
 
 const repository = 'inspr-at/aithema';
 // One explicit, immutable profiling exception. Future observations must be main
@@ -58,12 +59,26 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-timings-'));
     try {
       gh(['run', 'download', id, '--repo', repository, '--pattern', 'unit-timings-*', '--dir', directory]);
+      let recordSets;
+      if (bootstrap) {
+        recordSets = readdirSync(directory).map(artifact => readFileSync(join(directory, artifact, 'timings.jsonl'), 'utf8')
+          .trim().split('\n').map(line => JSON.parse(line)));
+      } else {
+        const jobs = fetchUnitJobs(id, repository);
+        const counts = [...new Set(jobs.flatMap(job => /^unit \(1\/(\d+)\)$/u.exec(job.name)?.slice(1) ?? []))];
+        if (counts.length !== 1) throw new Error('Missing or ambiguous unit shard count');
+        const expected = { runId: id, sha: run.head_sha, attempt: run.run_attempt };
+        expected.shardAttempts = latestUnitJobs(jobs, Number(counts[0]), expected).map(job => job.run_attempt);
+        recordSets = readUnitResultArtifacts(directory, Number(counts[0]), expected);
+        const packing = { shards: recordSets.map(records => records[0].files) };
+        assertUnitCoverage(files, packing.shards);
+        assertUnitResults(recordSets, packing, expected);
+      }
       const imported = new Map(); let testedSha;
-      for (const artifact of readdirSync(directory)) {
-        const records = readFileSync(join(directory, artifact, 'timings.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      for (const records of recordSets) {
         const header = records[0];
         // PR GITHUB_SHA is the tested merge ref, rather than run.head_sha.
-        if (header.type !== 'run' || header.schema !== 1 || header.runId !== id || header.attempt !== run.run_attempt ||
+        if (header.type !== 'run' || header.schema !== 1 || header.runId !== id || (bootstrap && header.attempt !== run.run_attempt) ||
             !/^[a-f\d]{40}$/u.test(header.sha ?? '') || (!bootstrap && header.sha !== run.head_sha) ||
             (testedSha && testedSha !== header.sha)) throw new Error('Unit artifact provenance mismatch');
         testedSha = header.sha;

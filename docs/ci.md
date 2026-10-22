@@ -32,15 +32,15 @@ keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
 skipped shard fails the summaries. PR and merge-group events use the same jobs.
 
-Unit workers report `unit (1/2)` and `unit (2/2)`. The required `test` job needs
-both workers and retains its exact name and ten-minute cap. Its unconditional
+Unit workers report `unit (1/3)`, `unit (2/3)` and `unit (3/3)`. The required `test` job needs
+all three workers and retains its exact name and ten-minute cap. Its unconditional
 result gate fails on failure, cancellation, skipping or missing workers, including
-on docs-only PRs. On full runs it also validates both timing artifacts against
+on docs-only PRs. On full runs it also validates all three timing artifacts against
 the run, attempt, tested commit and complete file assignment. Missing/duplicate
 files, inconsistent test totals and any failed/cancelled/skipped/todo tests fail
 the aggregate. The browser guard, reproducible pack twice, two-minute standalone
 boot and 90-day consumer smoke retention remain in `test`. The unchanged
-90-day `reset-candidate` upload follows the unit file that creates those archives.
+90-day `reset-candidate-attempt-A` upload follows the unit file that creates those archives.
 
 On the light path, `test` and every worker shard run an explicit success step.
 They skip dependency installation, packaging,
@@ -64,41 +64,55 @@ source run/attempt/commit, with nearest-rank p95 and a 25% margin below five
 samples. File summaries include fixture hooks and worker teardown; nested
 test durations are never added again. `scripts/unit-shards.js` packs complete
 files by descending measured duration, breaking ties by path and shard index.
-Discovery comes directly from `npm test`'s four existing glob patterns. New
-files receive a conservative 180-second weight, matching the existing file
-watchdog; they join coverage automatically and must fit the target.
+Discovery comes directly from `npm test`'s four existing glob patterns. Unknown
+new files receive an **8-second provisional weight**, rounded up from the
+baseline's measured 7.024-second mean; they join exactly-once coverage immediately
+and do not need a main push before their PR can pass. The **180-second watchdog
+and native deadline remain unchanged**, and every run must pass both the
+pre-run projection and post-run measured headroom checks, so a genuinely slow
+new file still fails CI.
 
-Each unit shard uses three concurrent file workers, retaining the 180-second native test
-deadline and watchdog, disabled OOM core dumps and the ten-minute job cap. The
-planning guard fails above 420 seconds (70% of that cap), including a 25-second
-setup/report allowance. Its execution-order-independent bound is
+Each unit shard uses three concurrent file workers, disabled OOM core dumps and
+the unchanged ten-minute job cap. The planning guard fails above 420 seconds
+(70% of that cap), including a 25-second setup/report allowance. Its
+execution-order-independent bound is
 `25 + sum(file weights)/3 + 2*longest file weight/3`; Node need not preserve the
-planner's LPT order. Pack/boot run separately in the aggregate and are excluded
-from worker projections, with their original caps intact.
+planner's LPT order. After tests finish, the runner checks its measured elapsed
+time plus the same 25-second allowance; the aggregate checks the reported suite
+duration plus that allowance and the **entire completed GitHub job duration**
+(including setup and artifact upload) against 420 seconds. Missing, invalid or
+over-target measurements fail closed. Pack/boot run separately in the aggregate
+with their original caps intact.
 
 Bootstrap [CI 39699662257](https://github.com/inspr-at/aithema/actions/runs/39699662257)
 measured **6,936/6,936 passing tests**, **255 files**, **524.666 seconds**
-suite elapsed and **1,436.849 seconds** summed file work. After the 25% warmup
-margin, total planned file work is **1,796.188 seconds**. One shard's
-average-load lower bound is **623.729 seconds** including overhead, already
-above target. Two deterministic bins hold **898.087 / 898.101 seconds** of
-weighted file work, projecting **419.165 / 409.914 seconds** for complete jobs.
-Two is therefore the smallest fitting count. These projections include a
-25-second setup/report reserve: bootstrap job overhead excluding its 15-second
-pack/boot was about 14 seconds. Pack and boot remain in their separate aggregate.
-
-Main advanced to `08e53703` (AIT-455) during PR CI, adding three tests in
-`test/consent-teardown.test.js`. The conservative 180-second unknown-file
-weight correctly stopped the first shard attempt. Successful main
+suite elapsed and **1,436.849 seconds** summed file work. The table keeps the
+original 25% margin below five samples. Main AIT-455 then added three tests in
+`test/consent-teardown.test.js`: successful main
 [CI 39699778016](https://github.com/inspr-at/aithema/actions/runs/39699778016)
-passed **6,939/6,939** and measured the new file's three top-level tests at
-88.201232, 114.398426 and 111.835261 ms (**0.314435 seconds** combined).
-The table retains those observations and a separate **2-second floor** for
-process/import/teardown overhead until a whole-file artifact replaces it.
-All 255 original weights are unchanged. After merging main, the current plan
-covers **256 files / 6,939 tests**, with **899.090 / 899.098 seconds** of weighted
-work and projected jobs of **419.499 / 410.246 seconds**. One shard's average-load
-lower bound is **624.396 seconds**, so two remains the minimum.
+passed **6,939/6,939** and measured 0.314435 seconds of top-level work for that
+file. Its documented 2-second floor covers process/import/teardown until a
+whole-file artifact replaces it. No recorded file weight is reduced.
+
+Choose the **smallest N with p95-based projections ≤420 seconds and room for at
+least one further average file**. The original two bins projected
+419.499 / 410.246 seconds, but had **zero average-file growth room**; after adding
+this ticket's unweighted regression file they project 420.836 / 411.576 seconds.
+One bin projects 721.865 seconds. **Three is therefore the smallest count**:
+257 files, 1,806.188 seconds planned work, three bins of
+602.071 / 602.066 / 602.051 worker seconds, projecting complete jobs of
+**320.493 / 311.235 / 294.120 seconds**. The initial weights have too few samples
+to claim a ten-run measured p95; retain the margin and collect ten production
+runs before making that claim.
+
+**Growth room:** the current plan admits **111 further unknown files at the
+conservative 8-second weight** (112 total including this ticket's regression
+file), or **127 further files at the measured 7.024-second average**, before a
+re-shard is required. With 111 additional 8-second files it projects
+419.160 / 409.902 / 392.787 seconds; the 112th pushes the first bin to 420.045
+seconds and is rejected. These figures assume current measured weights; real
+slow files or updated p95 measurements consume that room sooner. Regression
+fixtures exercise both the passing boundary and the first rejected addition.
 
 The ten slowest baseline unit files, using full file summaries:
 
@@ -115,7 +129,7 @@ The ten slowest baseline unit files, using full file summaries:
 | `packages/ui/test/host-settlement.test.js` | 43.983 | 38 |
 | `packages/ui/test/display-regressions.test.js` | 43.643 | 93 |
 
-Every full run retains `unit-timings-N-of-2` for 14 days, with per-file durations
+Every full run retains `unit-timings-N-of-3-attempt-A` for 14 days, with per-file durations
 and counts plus the final shard count. Refresh from successful canonical main
 push CI runs, supplying multiple runs for a measured p95 series:
 
@@ -125,7 +139,7 @@ npm run test:unit-shards
 ```
 
 The importer checks canonical repository/workflow, success, main ancestry and
-run/attempt/commit provenance, then requires complete, successful, exactly-once
+run/attempt/commit provenance against each shard’s latest GitHub job, then requires complete, successful, exactly-once
 coverage matching the current discovery. It writes only after validating every
 input. One immutable profiling run on this PR is the explicit bootstrap
 exception: all 6,936 tests passed, with complete successful summaries for all
@@ -191,9 +205,22 @@ setup and artifact upload, so it differs from whole-job elapsed time.
 
 After a transient failure, use **Re-run failed jobs** in the GitHub Actions run.
 This preserves successful job results and avoids spending runner minutes on them
-again. Push a new commit when the source needs fixing; PR dedupe cancels the
-superseded CI run. A docs-only follow-up PR can verify the light path by checking
-that all required CI check jobs report success without installation or browser steps.
+again. The `test` aggregate queries **all pages and all attempts** of the run's
+GitHub jobs using a read-only Actions token, finds each unit shard's latest
+attempt and requires it to have succeeded. It then reads exactly that attempt's
+`unit-timings-N-of-3-attempt-A` artifact: an unchanged passing shard can retain
+attempt 1 while the repaired shard supplies attempt 2. It checks the run ID,
+tested SHA, exact per-shard attempt, complete assignment, successful summaries,
+zero failed/cancelled/skipped/todo tests and matching per-file/final total counts.
+A missing latest artifact fails; an older artifact from a shard that ran again
+cannot substitute for it. Old attempts remain immutable evidence.
+
+Candidate archives and standalone smoke evidence also include the run attempt
+in their artifact names, avoiding upload-name collisions when those jobs rerun.
+The trusted-main timing importer uses the same per-shard latest-attempt selection.
+Push a new commit when the source needs fixing; PR dedupe cancels the superseded
+CI run. A docs-only follow-up PR can verify the light path by checking that all
+required CI check jobs report success without installation or browser steps.
 
 ## Validation and references
 

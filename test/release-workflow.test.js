@@ -26,10 +26,10 @@ test('workflow parses, only a matching pushed tag admits release packing, and PR
   assert.equal(boot['timeout-minutes'], 2);
   assert.equal(boot.if, ci.jobs.unit.steps.find(step => step.run?.includes('npm run test:unit -- --shard')).if);
   assert.match(boot.run, /npm run release:pack -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --candidate\nnpm run release:consumer -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --boot-only/u);
-  const upload = ci.jobs.unit.steps.find(step => step.with?.name === 'reset-candidate');
-  assert.equal(upload.with.name, 'reset-candidate'); assert.equal(upload.with['retention-days'], 90);
+  const upload = ci.jobs.unit.steps.find(step => step.with?.name === 'reset-candidate-attempt-${{ github.run_attempt }}');
+  assert.equal(upload.with.name, 'reset-candidate-attempt-${{ github.run_attempt }}'); assert.equal(upload.with['retention-days'], 90);
   assert.equal(upload.with.path, '${{ runner.temp }}/release-evidence/candidate/');
-  const smokeUpload = ci.jobs.test.steps.find(step => step.with?.name === 'consumer-smoke');
+  const smokeUpload = ci.jobs.test.steps.find(step => step.with?.name === 'consumer-smoke-attempt-${{ github.run_attempt }}');
   assert.equal(smokeUpload.with.path, '${{ runner.temp }}/release-evidence/tarball-boot/');
   assert.equal(smokeUpload.if, upload.if);
   assert.equal(smokeUpload.with['retention-days'], 90);
