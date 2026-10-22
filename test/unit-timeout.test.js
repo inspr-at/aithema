@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { UNIT_FILE_TIMEOUT_MS } from '../scripts/unit-watchdog.js';
+import { assertUnitCoverage, assertUnitHeadroom, discoverUnitTests, packUnitTests, readUnitWeights, selectUnitShard, unitConcurrency, unitJobOverheadSeconds, unitJobTargetSeconds, unitPlan, unitShardCount, unitTestCommand, unitUnknownFileSeconds } from '../scripts/unit-shards.js';
+import { assertUnitResults } from '../scripts/check-unit-results.js';
+import { unitFileMeasurements } from '../scripts/update-unit-timings.js';
 
 const watchdog = fileURLToPath(new URL('../scripts/unit-watchdog.js', import.meta.url));
 
@@ -18,6 +21,84 @@ test('AIT-193: npm test applies the three-minute deadline and watchdog to every 
   assert.equal(UNIT_FILE_TIMEOUT_MS, 180_000);
   assert.match(command, /--test-timeout=180000\b/u);
   assert.match(command, /--import \.\/scripts\/unit-watchdog\.js\b/u);
+  // AIT-456: preserve every existing deadline/assertion; extend this guard with
+  // discovery, deterministic scheduling and adversarial result manifests.
+  assert.equal(unitConcurrency, 3);
+  assert.equal(unitJobTargetSeconds, 420);
+  const files = discoverUnitTests(), packing = unitPlan();
+  assertUnitCoverage(files, packing.shards);
+  assertUnitHeadroom(packing);
+  assert.ok(unitJobOverheadSeconds + Object.values(readUnitWeights()).reduce((sum, seconds) => sum + seconds, 0) /
+    unitConcurrency > unitJobTargetSeconds, 'One shard cannot meet the target even before its longest-file scheduling allowance');
+  assert.deepEqual(packing.shards.flat().sort(), files);
+  assert.equal(new Set(packing.shards.flat()).size, files.length);
+  assert.ok(unitTestCommand().includes('--test-timeout=180000'));
+  assert.ok(unitTestCommand().includes('./scripts/unit-watchdog.js'));
+  assert.deepEqual(packUnitTests(['d', 'b', 'c', 'a'], { a: 30, b: 20, c: 10, d: 10 }),
+    packUnitTests(['a', 'c', 'b', 'd'], { d: 10, c: 10, b: 20, a: 30 }));
+  assert.deepEqual(packUnitTests(['new'], {}, 1).totals, [unitUnknownFileSeconds]);
+  const measurementRoot = mkdtempSync(join(tmpdir(), 'aithema-unit-weights-'));
+  try {
+    // Use a directory root only for the reader's fixed scripts/ path.
+    const measurementFile = join(measurementRoot, 'scripts', 'unit-timings.json');
+    mkdirSync(join(measurementRoot, 'scripts'));
+    const measurement = { schema: 1, runs: [{ runId: '123' }],
+      files: { a: { samples: [0.3], runIds: ['123'], seconds: 2, floorSeconds: 2, evidence: 'CI top-level work + process reserve' } } };
+    writeFileSync(measurementFile, JSON.stringify(measurement));
+    assert.deepEqual(readUnitWeights(measurementRoot), { a: 2 });
+    for (const change of [
+      entry => { entry.runIds = ['unknown']; }, entry => { entry.runIds.push('123'); },
+      entry => { entry.seconds = 0.1; }, entry => { delete entry.evidence; },
+      entry => { entry.floorSeconds = -1; },
+    ]) {
+      const invalid = structuredClone(measurement); change(invalid.files.a);
+      writeFileSync(measurementFile, JSON.stringify(invalid));
+      assert.throws(() => readUnitWeights(measurementRoot));
+    }
+  } finally { rmSync(measurementRoot, { recursive: true }); }
+  for (const weights of [{ a: 0 }, { a: -1 }, { a: Infinity }, { a: NaN }]) {
+    assert.throws(() => packUnitTests(['a'], weights), /Invalid/u);
+  }
+  for (const count of [0, -1, 1.5]) assert.throws(() => packUnitTests(['a'], { a: 1 }, count), /Invalid/u);
+  for (const shards of [[['a'], []], [['a'], ['a']], [['a']], [['a'], ['b', 'extra']]]) {
+    assert.throws(() => assertUnitCoverage(['a', 'b'], shards), /exactly once/u);
+  }
+  assert.throws(() => assertUnitHeadroom({ projected: [421] }), /exceeds 420/u);
+  assert.throws(() => assertUnitHeadroom({ projected: [NaN] }), /exceeds 420/u);
+  assert.doesNotThrow(() => assertUnitHeadroom({ projected: [420] }));
+  for (const args of [[], ['--shard'], ['--shard', `0/${unitShardCount}`], ['--shard', `${unitShardCount + 1}/${unitShardCount}`], ['--shard', '1/2'],
+    ['--shard', `1/${unitShardCount}`, '--test-name-pattern=x']]) {
+    assert.throws(() => selectUnitShard(args, packing), /Use --shard/u);
+  }
+  packing.shards.forEach((shard, index) => assert.deepEqual(selectUnitShard(['--shard', `${index + 1}/${unitShardCount}`], packing), shard));
+  const expected = { runId: '123', sha: 'a'.repeat(40), attempt: 1 };
+  const summary = file => ({ type: 'test:summary', success: true, duration_ms: 1, ...(file ? { file } : {}),
+    counts: { tests: 1, passed: 1, failed: 0, cancelled: 0, skipped: 0, todo: 0 } });
+  const fixture = ['a', 'b'].map((file, index) => [
+    { type: 'run', schema: 1, ...expected, shard: `${index + 1}/2`, files: [file] }, summary(file), summary(),
+  ]);
+  const plan = { shards: [['a'], ['b']] };
+  assert.equal(assertUnitResults(fixture, plan, expected), 2);
+  assert.deepEqual(unitFileMeasurements(fixture[0]), { a: { seconds: 0.001, tests: 1 } });
+  assert.throws(() => unitFileMeasurements([...fixture[0], summary('a')]), /Duplicate|Incomplete/u);
+  assert.throws(() => unitFileMeasurements(fixture[0].slice(0, -1)), /Incomplete/u);
+  const invalidDuration = structuredClone(fixture[0]); invalidDuration[1].duration_ms = 0;
+  assert.throws(() => unitFileMeasurements(invalidDuration), /Invalid unit file duration/u);
+  assert.throws(() => assertUnitResults(fixture.slice(0, 1), plan, expected), /Missing/u);
+  for (const change of [
+    rows => { rows[0][0].sha = 'b'.repeat(40); },
+    rows => { rows[0][0].attempt++; },
+    rows => { rows[0][0].files = ['b']; },
+    rows => { rows[0][1].file = 'b'; },
+    rows => { rows[0].push(summary('a')); },
+    rows => { rows[0].pop(); },
+    rows => { rows[0][2].counts.tests++; },
+    rows => { rows[0][1].success = false; },
+    ...['failed', 'cancelled', 'skipped', 'todo'].map(key => rows => { rows[0][1].counts[key] = 1; }),
+  ]) {
+    const rows = structuredClone(fixture); change(rows);
+    assert.throws(() => assertUnitResults(rows, plan, expected));
+  }
 });
 
 for (const [name, body] of [

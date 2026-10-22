@@ -58,15 +58,20 @@ test('required jobs always exist; docs-only success gates every heavy step', () 
   const checkout = ci.jobs.changes.steps.find(step => step.uses);
   assert.equal(checkout.if, "github.event_name == 'pull_request'");
   assert.equal(checkout.with['fetch-depth'], 0);
-  for (const id of ['test', 'browser']) {
+  for (const id of ['test', 'unit', 'browser']) {
     const job = ci.jobs[id];
     assert.equal(job.if, '${{ !cancelled() }}');
-    assert.equal(job.needs, 'changes');
+    assert.deepEqual(job.needs, id === 'test' ? ['changes', 'unit'] : 'changes');
     const [noop, ...heavy] = job.steps;
     assert.equal(noop.if, lightCondition);
     assert.match(noop.run, /^echo /u);
     assert.ok(heavy.length > 0);
     for (const step of heavy) {
+      if (step.name === 'Require every unit shard') {
+        assert.equal(step.if, undefined);
+        assert.equal(step.run, "test '${{ needs.unit.result }}' = 'success'");
+        continue;
+      }
       assert.equal(step.if, step.uses?.startsWith('actions/upload-artifact@')
         ? '${{ always() && ' + heavyCondition + ' }}'
         : heavyCondition);
@@ -180,10 +185,14 @@ test('heavy jobs run on failed or absent detection; queue always runs everything
           cancelled: () => false,
         };
         const light = event === 'pull_request' && result === 'success' && output === 'true';
-        for (const id of ['test', 'browser']) {
+        for (const id of ['test', 'unit', 'browser']) {
           const job = ci.jobs[id];
           assert.equal(runInNewContext(job.if.slice(3, -2), context), true);
           for (const step of job.steps) {
+            if (step.name === 'Require every unit shard') {
+              assert.equal(step.if, undefined);
+              continue;
+            }
             const condition = step.if.startsWith('${{') ? step.if.slice(3, -2) : step.if;
             const runs = runInNewContext(condition.replaceAll("outputs.docs-only", "outputs['docs-only']"), {
               ...context, always: () => true,

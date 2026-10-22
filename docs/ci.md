@@ -32,6 +32,16 @@ keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
 skipped shard fails the summaries. PR and merge-group events use the same jobs.
 
+Unit workers report `unit (1/3)`, `unit (2/3)` and `unit (3/3)`. The required `test` job needs
+all three workers and retains its exact name and ten-minute cap. Its unconditional
+result gate fails on failure, cancellation, skipping or missing workers, including
+on docs-only PRs. On full runs it also validates all three timing artifacts against
+the run, attempt, tested commit and complete file assignment. Missing/duplicate
+files, inconsistent test totals and any failed/cancelled/skipped/todo tests fail
+the aggregate. The browser guard, reproducible pack twice, two-minute standalone
+boot and 90-day consumer smoke retention remain in `test`. The unchanged
+90-day `reset-candidate-attempt-A` upload follows the unit file that creates those archives.
+
 On the light path, `test` and every worker shard run an explicit success step.
 They skip dependency installation, packaging,
 unit tests and browsers. Their check names stay unchanged; no workflow-level
@@ -39,6 +49,107 @@ path filter leaves required checks pending. The separate `dco` and `dco-tests`
 jobs still run normally, so docs contributions also need commit signoffs.
 Merge queue and main push runs always take the full path, even for docs.
 Repository rulesets and required-check settings are unchanged.
+
+## AIT-456 unit capacity (2026-10-22)
+
+LEAD selected duration-balanced unit shards, retaining every job timeout. The
+unsharded merge-group run [39697819537](https://github.com/inspr-at/aithema/actions/runs/39697819537)
+was cancelled after 620 seconds despite all 6,936 tests passing. Ten preceding
+successful unit jobs measured 455, 555, 420, 564, 571, 547, 544, 480, 359 and
+557 seconds (the last includes three tests from AIT-455). Their nearest-rank
+p95 is 571 seconds, leaving inadequate runner-variance headroom.
+
+`scripts/unit-timings.json` commits whole-file CI worker durations and their
+source run/attempt/commit, with nearest-rank p95 and a 25% margin below five
+samples. File summaries include fixture hooks and worker teardown; nested
+test durations are never added again. `scripts/unit-shards.js` packs complete
+files by descending measured duration, breaking ties by path and shard index.
+Discovery comes directly from `npm test`'s four existing glob patterns. Unknown
+new files receive an **8-second provisional weight**, rounded up from the
+baseline's measured 7.024-second mean; they join exactly-once coverage immediately
+and do not need a main push before their PR can pass. The **180-second watchdog
+and native deadline remain unchanged**, and every run must pass both the
+pre-run projection and post-run measured headroom checks, so a genuinely slow
+new file still fails CI.
+
+Each unit shard uses three concurrent file workers, disabled OOM core dumps and
+the unchanged ten-minute job cap. The planning guard fails above 420 seconds
+(70% of that cap), including a 25-second setup/report allowance. Its
+execution-order-independent bound is
+`25 + sum(file weights)/3 + 2*longest file weight/3`; Node need not preserve the
+planner's LPT order. After tests finish, the runner checks its measured elapsed
+time plus the same 25-second allowance; the aggregate checks the reported suite
+duration plus that allowance and the **entire completed GitHub job duration**
+(including setup and artifact upload) against 420 seconds. Missing, invalid or
+over-target measurements fail closed. Pack/boot run separately in the aggregate
+with their original caps intact.
+
+Bootstrap [CI 39699662257](https://github.com/inspr-at/aithema/actions/runs/39699662257)
+measured **6,936/6,936 passing tests**, **255 files**, **524.666 seconds**
+suite elapsed and **1,436.849 seconds** summed file work. The table keeps the
+original 25% margin below five samples. Main AIT-455 then added three tests in
+`test/consent-teardown.test.js`: successful main
+[CI 39699778016](https://github.com/inspr-at/aithema/actions/runs/39699778016)
+passed **6,939/6,939** and measured 0.314435 seconds of top-level work for that
+file. Its documented 2-second floor covers process/import/teardown until a
+whole-file artifact replaces it. No recorded file weight is reduced.
+
+Choose the **smallest N with p95-based projections ≤420 seconds and room for at
+least one further average file**. The original two bins projected
+419.499 / 410.246 seconds, but had **zero average-file growth room**; after adding
+this ticket's unweighted regression file they project 420.836 / 411.576 seconds.
+One bin projects 721.865 seconds. **Three is therefore the smallest count**:
+257 files, 1,806.188 seconds planned work, three bins of
+602.071 / 602.066 / 602.051 worker seconds, projecting complete jobs of
+**320.493 / 311.235 / 294.120 seconds**. The initial weights have too few samples
+to claim a ten-run measured p95; retain the margin and collect ten production
+runs before making that claim.
+
+**Growth room:** the current plan admits **111 further unknown files at the
+conservative 8-second weight** (112 total including this ticket's regression
+file), or **127 further files at the measured 7.024-second average**, before a
+re-shard is required. With 111 additional 8-second files it projects
+419.160 / 409.902 / 392.787 seconds; the 112th pushes the first bin to 420.045
+seconds and is rejected. These figures assume current measured weights; real
+slow files or updated p95 measurements consume that room sooner. Regression
+fixtures exercise both the passing boundary and the first rejected addition.
+
+The ten slowest baseline unit files, using full file summaries:
+
+| File | Measured seconds | Tests |
+| --- | ---: | ---: |
+| `test/release-candidate.test.js` | 113.763 | 3 |
+| `packages/ui/test/host-credits.test.js` | 102.655 | 86 |
+| `packages/ui/test/session-element.test.js` | 82.123 | 112 |
+| `packages/ui/test/host-limits.test.js` | 73.799 | 75 |
+| `packages/ui/test/settings.test.js` | 70.917 | 171 |
+| `packages/ui/test/concepts.test.js` | 62.956 | 170 |
+| `packages/ui/test/uploads.test.js` | 50.451 | 76 |
+| `packages/ui/test/voice.test.js` | 47.287 | 113 |
+| `packages/ui/test/host-settlement.test.js` | 43.983 | 38 |
+| `packages/ui/test/display-regressions.test.js` | 43.643 | 93 |
+
+Every full run retains `unit-timings-N-of-3-attempt-A` for 14 days, with per-file durations
+and counts plus the final shard count. Refresh from successful canonical main
+push CI runs, supplying multiple runs for a measured p95 series:
+
+```sh
+npm run update:unit-timings -- --run RUN_ID --run ANOTHER_RUN_ID
+npm run test:unit-shards
+```
+
+The importer checks canonical repository/workflow, success, main ancestry and
+run/attempt/commit provenance against each shard’s latest GitHub job, then requires complete, successful, exactly-once
+coverage matching the current discovery. It writes only after validating every
+input. One immutable profiling run on this PR is the explicit bootstrap
+exception: all 6,936 tests passed, with complete successful summaries for all
+255 files, before Node's `/dev/null` reporter destination failed on `fsync`.
+The final reporter uses stdout instead. This exception admits complete passing
+measurements from that exact run/head; future PR/fork/merge-group measurements cannot replace trusted main
+history. Keep runs from matching workloads together: imports reject differing
+file sets or test counts. Initial bootstrap projections are conservative planning
+evidence; ten successful production runs are needed before claiming a measured
+ten-run p95. The coordinator should record one merge-group run after merge.
 
 ## AIT-423 eighth-shard capacity (2026-10-20)
 
@@ -94,9 +205,28 @@ setup and artifact upload, so it differs from whole-job elapsed time.
 
 After a transient failure, use **Re-run failed jobs** in the GitHub Actions run.
 This preserves successful job results and avoids spending runner minutes on them
-again. Push a new commit when the source needs fixing; PR dedupe cancels the
-superseded CI run. A docs-only follow-up PR can verify the light path by checking
-that all five CI check jobs report success without installation or browser steps.
+again. The `test` aggregate queries **all pages and all attempts** of the run's
+GitHub jobs using a read-only Actions token, finds each unit shard's latest
+attempt and requires it to have succeeded. GitHub copies retained successful
+jobs into later attempts with new check IDs and attempt numbers, while preserving
+their original execution timestamps, runner and steps. The verifier matches all
+those fields (and the head SHA) to the earliest record of that same successful
+execution to recover the attempt in which it actually ran; a distinct execution
+cannot fall back to an old manifest. Missing history or execution metadata does
+not authorize fallback. It then reads exactly that execution attempt's
+`unit-timings-N-of-3-attempt-A` artifact: an unchanged passing shard can retain
+attempt 1 while the repaired shard supplies attempt 2. It checks the run ID,
+tested SHA, exact per-shard attempt, complete assignment, successful summaries,
+zero failed/cancelled/skipped/todo tests and matching per-file/final total counts.
+A missing latest artifact fails; an older artifact from a shard that ran again
+cannot substitute for it. Old attempts remain immutable evidence.
+
+Candidate archives and standalone smoke evidence also include the run attempt
+in their artifact names, avoiding upload-name collisions when those jobs rerun.
+The trusted-main timing importer uses the same per-shard latest-attempt selection.
+Push a new commit when the source needs fixing; PR dedupe cancels the superseded
+CI run. A docs-only follow-up PR can verify the light path by checking that all
+required CI check jobs report success without installation or browser steps.
 
 ## Validation and references
 

@@ -52,7 +52,10 @@ jobs:
           PYTHON
 
   test:
-    needs: changes
+    permissions:
+      contents: read
+      actions: read
+    needs: [changes, unit]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -85,28 +88,24 @@ jobs:
         run: |
           npm run release:pack -- "$RUNNER_TEMP/release-evidence/tarball-boot" --candidate
           npm run release:consumer -- "$RUNNER_TEMP/release-evidence/tarball-boot" --boot-only
-      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-        # Intentional V8 heap-OOM fixtures must be reaped, not spend their
-        # deadline writing core dumps (AIT-222 observed vfs_coredump > 30s).
-        run: |
-          ulimit -c 0
-          npm test
-        env:
-          AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/release-evidence
-      - name: Retain candidate archives
-        if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Require every unit shard
+        run: test '${{ needs.unit.result }}' = 'success'
+      - name: Download unit result manifests
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: reset-candidate
-          path: ${{ runner.temp }}/release-evidence/candidate/
-          if-no-files-found: ignore
-          compression-level: 0
-          retention-days: 90
+          pattern: unit-timings-*-of-3-attempt-*
+          path: ${{ runner.temp }}/unit-results
+      - name: Verify exactly-once unit results and total test count
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: node scripts/check-unit-results.js "$RUNNER_TEMP/unit-results"
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Retain standalone consumer smoke evidence
         if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: consumer-smoke
+          name: consumer-smoke-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/release-evidence/tarball-boot/
           if-no-files-found: ignore
           compression-level: 0
@@ -175,6 +174,59 @@ jobs:
     steps:
       - name: Require every browser shard
         run: test '${{ needs.browser.result }}' = 'success'
+
+  unit:
+    needs: changes
+    if: ${{ !cancelled() }}
+    name: unit (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Docs-only success
+        if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
+        run: echo "Docs-only PR; heavy checks skipped."
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm ci
+      - name: Check measured unit shard headroom and coverage
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm run test:unit-shards
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        # Intentional V8 heap-OOM fixtures must be reaped, not spend their
+        # deadline writing core dumps (AIT-222 observed vfs_coredump > 30s).
+        run: |
+          ulimit -c 0
+          npm run test:unit -- --shard ${{ matrix.shard }}/3
+        env:
+          AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/release-evidence
+          UNIT_TIMING_DIR: ${{ runner.temp }}/unit-timings
+      - name: Retain candidate archives
+        if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reset-candidate-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-evidence/candidate/
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 90
+      - name: Retain measured unit test durations
+        if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unit-timings-${{ matrix.shard }}-of-3-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/unit-timings
+          if-no-files-found: error
+          retention-days: 14
 
   # AIT-354: isolated qualification; no changes to browser shard names/count/budgets.
   # One sequential three-engine loop, loopback fixtures only, no provider credentials.
