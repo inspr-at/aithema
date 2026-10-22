@@ -87,6 +87,19 @@ Two is therefore the smallest fitting count. These projections include a
 25-second setup/report reserve: bootstrap job overhead excluding its 15-second
 pack/boot was about 14 seconds. Pack and boot remain in their separate aggregate.
 
+Main advanced to `08e53703` (AIT-455) during PR CI, adding three tests in
+`test/consent-teardown.test.js`. The conservative 180-second unknown-file
+weight correctly stopped the first shard attempt. Successful main
+[CI 39699778016](https://github.com/inspr-at/aithema/actions/runs/39699778016)
+passed **6,939/6,939** and measured the new file's three top-level tests at
+88.201232, 114.398426 and 111.835261 ms (**0.314435 seconds** combined).
+The table retains those observations and a separate **2-second floor** for
+process/import/teardown overhead until a whole-file artifact replaces it.
+All 255 original weights are unchanged. After merging main, the current plan
+covers **256 files / 6,939 tests**, with **899.090 / 899.098 seconds** of weighted
+work and projected jobs of **419.499 / 410.246 seconds**. One shard's average-load
+lower bound is **624.396 seconds**, so two remains the minimum.
+
 The ten slowest baseline unit files, using full file summaries:
 
 | File | Measured seconds | Tests |

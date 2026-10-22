@@ -27,12 +27,17 @@ export function readUnitWeights(root = repositoryRoot) {
   if (measurement.schema !== 1 || !measurement.runs?.length) throw new Error('Missing unit CI timing provenance');
   const weights = {};
   for (const [file, entry] of Object.entries(measurement.files)) {
-    if (entry.samples?.length !== measurement.runs.length || entry.samples.some(value => !Number.isFinite(value) || value <= 0)) {
+    if (!entry.runIds?.length || entry.samples?.length !== entry.runIds.length ||
+        new Set(entry.runIds).size !== entry.runIds.length ||
+        entry.runIds.some(id => !measurement.runs.some(run => run.runId === id)) ||
+        entry.samples.some(value => !Number.isFinite(value) || value <= 0)) {
       throw new Error(`Invalid unit duration: ${file}`);
     }
     const sorted = [...entry.samples].sort((a, b) => a - b);
     const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
-    const expected = Math.ceil(p95 * (sorted.length < 5 ? 1.25 : 1) * 1000) / 1000;
+    const floor = entry.floorSeconds ?? 0;
+    if (!Number.isFinite(floor) || floor < 0 || (floor && !entry.evidence)) throw new Error(`Invalid measured unit floor: ${file}`);
+    const expected = Math.max(floor, Math.ceil(p95 * (sorted.length < 5 ? 1.25 : 1) * 1000) / 1000);
     if (entry.seconds !== expected) throw new Error(`Unit weight differs from measured p95: ${file}`);
     weights[file] = entry.seconds;
   }

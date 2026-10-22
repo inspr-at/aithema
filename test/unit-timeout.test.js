@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -37,6 +37,25 @@ test('AIT-193: npm test applies the three-minute deadline and watchdog to every 
   assert.deepEqual(packUnitTests(['d', 'b', 'c', 'a'], { a: 30, b: 20, c: 10, d: 10 }),
     packUnitTests(['a', 'c', 'b', 'd'], { d: 10, c: 10, b: 20, a: 30 }));
   assert.deepEqual(packUnitTests(['new'], {}, 1).totals, [unitUnknownFileSeconds]);
+  const measurementRoot = mkdtempSync(join(tmpdir(), 'aithema-unit-weights-'));
+  try {
+    // Use a directory root only for the reader's fixed scripts/ path.
+    const measurementFile = join(measurementRoot, 'scripts', 'unit-timings.json');
+    mkdirSync(join(measurementRoot, 'scripts'));
+    const measurement = { schema: 1, runs: [{ runId: '123' }],
+      files: { a: { samples: [0.3], runIds: ['123'], seconds: 2, floorSeconds: 2, evidence: 'CI top-level work + process reserve' } } };
+    writeFileSync(measurementFile, JSON.stringify(measurement));
+    assert.deepEqual(readUnitWeights(measurementRoot), { a: 2 });
+    for (const change of [
+      entry => { entry.runIds = ['unknown']; }, entry => { entry.runIds.push('123'); },
+      entry => { entry.seconds = 0.1; }, entry => { delete entry.evidence; },
+      entry => { entry.floorSeconds = -1; },
+    ]) {
+      const invalid = structuredClone(measurement); change(invalid.files.a);
+      writeFileSync(measurementFile, JSON.stringify(invalid));
+      assert.throws(() => readUnitWeights(measurementRoot));
+    }
+  } finally { rmSync(measurementRoot, { recursive: true }); }
   for (const weights of [{ a: 0 }, { a: -1 }, { a: Infinity }, { a: NaN }]) {
     assert.throws(() => packUnitTests(['a'], weights), /Invalid/u);
   }

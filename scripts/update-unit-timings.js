@@ -87,7 +87,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const values = samples.get(file), sorted = [...values].sort((a, b) => a - b);
     const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
     return [file, { seconds: Math.ceil(p95 * (values.length < 5 ? 1.25 : 1) * 1000) / 1000,
-      tests: tests.get(file), samples: values }];
+      tests: tests.get(file), samples: values, runIds: runs.map(run => run.runId) }];
   }));
   const measurement = { schema: 1, method: 'whole-file worker duration; nearest-rank p95; 25% margin below five samples',
     runs, totalTests: [...tests.values()].reduce((sum, count) => sum + count, 0), files: measured };
