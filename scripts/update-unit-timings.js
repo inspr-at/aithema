@@ -9,8 +9,8 @@ import { assertUnitResults, fetchUnitJobs, latestUnitJobs, readUnitResultArtifac
 
 const repository = 'inspr-at/aithema';
 // One explicit, immutable profiling exception. Future observations must be main
-// pushes. Bootstrap passed all 6,936 tests before a /dev/null reporter fsync
-// failed after the complete successful suite summary. Admit those measurements
+// pushes or merge-group commits verified on main history. Bootstrap passed all
+// 6,936 tests before a /dev/null reporter fsync failed after the complete successful suite summary. Admit those measurements
 // only for this exact run/head; this exception cannot admit a failed test.
 const bootstrapRun = '39699662257';
 const bootstrapHead = '1cd43c080d52b9e825a19088d1aa521e95ae1e85';
@@ -47,7 +47,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (run.repository?.full_name !== repository || run.head_repository?.full_name !== repository ||
         run.path !== '.github/workflows/ci.yml' || run.status !== 'completed' ||
         (bootstrap ? !['success', 'failure'].includes(run.conclusion) : run.conclusion !== 'success') ||
-        (!bootstrap && (run.event !== 'push' || run.head_branch !== 'main'))) {
+        (!bootstrap && !((run.event === 'push' && run.head_branch === 'main') || run.event === 'merge_group'))) {
       throw new Error(`Untrusted unit timing run ${id}: require successful canonical main CI`);
     }
     if (!bootstrap) {

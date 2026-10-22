@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 
 const root = new URL('../', import.meta.url);
 const workflows = ['ci', 'dco'].map(name => readFileSync(new URL(`.github/workflows/${name}.yml`, root), 'utf8'));
@@ -31,15 +32,12 @@ function checkNames(workflow, event) {
   block(block(workflow, 'on'), event, 2);
   return mappingEntries(block(workflow, 'jobs'), 2).flatMap(job => {
     const condition = /^    if: (.+)$/mu.exec(job.body)?.[1];
-    // Cancellation is independent of the PR/merge-group event selection.
-    if (condition && condition !== '${{ !cancelled() }}') {
-      const events = condition.split(' || ').map(expression => {
-        const match = /^github\.event_name == '(pull_request|merge_group)'$/u.exec(expression);
-        assert.ok(match, `Unsupported job condition: ${expression}`);
-        return match[1];
-      });
-      if (!events.includes(event)) return [];
-    }
+    // Evaluate the actual condition for each event; unsupported syntax throws.
+    if (condition && !runInNewContext(condition.replace(/^\$\{\{|\}\}$/gu, '')
+      .replaceAll('outputs.duplicate-of', "outputs['duplicate-of']"), {
+      github: { event_name: event }, cancelled: () => false,
+      needs: { changes: { result: 'success', outputs: { 'duplicate-of': '' } } },
+    })) return [];
     const name = /^    name: (.+)$/mu.exec(job.body)?.[1] ?? job.key;
     const matrix = /^        shard: (\[[^\n]+\])$/mu.exec(job.body);
     return matrix ? JSON.parse(matrix[1]).map(shard => name.replace('${{ matrix.shard }}', shard)) : [name];
@@ -62,7 +60,7 @@ test('PR and merge-group events run the same shard and required check names', ()
 
 test('ruleset browser summaries fail closed unless every worker shard passed', () => {
   const job = block(block(workflows[0], 'jobs'), 'browser-required', 2);
-  assert.match(job, /^    needs: browser$/mu);
+  assert.match(job, /^    needs: \[changes, browser\]$/mu);
   assert.match(job, /^    if: \$\{\{ !cancelled\(\) \}\}$/mu);
   assert.match(job, /^        shard: \[1, 2, 3, 4\]$/mu);
   assert.doesNotMatch(job, /continue-on-error/u);

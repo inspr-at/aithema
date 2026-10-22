@@ -86,18 +86,20 @@ export function assertMeasuredWeight(measurement) {
 // REST run metadata comes from the canonical repository, never the artifact.
 // Main ancestry must also be confirmed by the caller through GitHub's compare API.
 export function assertTrustedTimingRun(run, expectedRunId) {
-  if (String(run?.id) !== String(expectedRunId) || run.event !== 'push' || run.head_branch !== 'main' ||
+  if (String(run?.id) !== String(expectedRunId) ||
+      !((run.event === 'push' && run.head_branch === 'main') || run.event === 'merge_group') ||
+      typeof run.head_branch !== 'string' || !run.head_branch ||
       run.repository?.full_name !== timingRepository || run.head_repository?.full_name !== timingRepository ||
       !Number.isInteger(run.head_repository?.id) || !/^[a-f\d]{40}$/u.test(run.head_sha ?? '') ||
       !Number.isInteger(run.run_attempt) || run.run_attempt < 1 ||
       run.path !== '.github/workflows/ci.yml' || run.status !== 'completed' || run.conclusion !== 'success') {
-    throw new Error(`Untrusted timing run ${expectedRunId}: require successful canonical main push CI`);
+    throw new Error(`Untrusted timing run ${expectedRunId}: require successful canonical main push or merge-group CI`);
   }
 }
 
 export function assertTimingArtifactRun(artifact, run) {
   if (artifact?.workflow_run?.id !== run.id || artifact.workflow_run.head_sha !== run.head_sha ||
-      artifact.workflow_run.head_branch !== 'main' || artifact.workflow_run.head_repository_id !== run.head_repository.id) {
+      artifact.workflow_run.head_branch !== run.head_branch || artifact.workflow_run.head_repository_id !== run.head_repository.id) {
     throw new Error('Timing artifact run provenance mismatch');
   }
 }

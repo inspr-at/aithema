@@ -24,14 +24,16 @@ test('workflow parses, only a matching pushed tag admits release packing, and PR
   assert.equal(ci.jobs.test['timeout-minutes'], 10);
   const boot = ci.jobs.test.steps.find(step => step.name === 'Boot standalone host from candidate tarballs');
   assert.equal(boot['timeout-minutes'], 2);
-  assert.equal(boot.if, ci.jobs.unit.steps.find(step => step.run?.includes('npm run test:unit -- --shard')).if);
+  const duplicate = ci.jobs.test.steps.find(step => step.name === 'Require every unit shard').env.DUPLICATE_PUSH.slice(3, -2).trim();
+  const unitCondition = ci.jobs.unit.steps.find(step => step.run?.includes('npm run test:unit -- --shard')).if;
+  assert.equal(boot.if, '(' + unitCondition + ' && !(' + duplicate + '))');
   assert.match(boot.run, /npm run release:pack -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --candidate\nnpm run release:consumer -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --boot-only/u);
   const upload = ci.jobs.unit.steps.find(step => step.with?.name === 'reset-candidate-attempt-${{ github.run_attempt }}');
   assert.equal(upload.with.name, 'reset-candidate-attempt-${{ github.run_attempt }}'); assert.equal(upload.with['retention-days'], 90);
   assert.equal(upload.with.path, '${{ runner.temp }}/release-evidence/candidate/');
   const smokeUpload = ci.jobs.test.steps.find(step => step.with?.name === 'consumer-smoke-attempt-${{ github.run_attempt }}');
   assert.equal(smokeUpload.with.path, '${{ runner.temp }}/release-evidence/tarball-boot/');
-  assert.equal(smokeUpload.if, upload.if);
+  assert.equal(smokeUpload.if, '${{ always() && ' + boot.if + ' }}');
   assert.equal(smokeUpload.with['retention-days'], 90);
   assert.doesNotMatch(JSON.stringify(ci), /npm publish|gh release|git tag|git push/u);
   assert.deepEqual(release.permissions, { contents: 'read' });
@@ -142,8 +144,8 @@ import('node:fs').then(fs => {
   const step = releaseWorkflow().jobs.pack.steps.find(s => s.run?.includes('gh release create'));
   const env = { ...process.env, PATH: join(cwd, 'bin') + ':' + process.env.PATH,
     GH_TOKEN: 'test-placeholder', GITHUB_REF_NAME: 'v261015164601.0.0', GITHUB_REPOSITORY: 'inspr-at/aithema' };
-  const run = (immutable, failCommand = '') => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run],
-    { cwd, env: { ...env, TEST_IMMUTABLE: immutable, TEST_FAIL_COMMAND: failCommand }, stdio: 'pipe' });
+  const run = (immutable, failCommand = '') => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', 'export PATH="$FIXTURE_PATH"\n' + step.run],
+    { cwd, env: { ...env, FIXTURE_PATH: env.PATH, TEST_IMMUTABLE: immutable, TEST_FAIL_COMMAND: failCommand }, stdio: 'pipe' });
   const calls = () => readFileSync(join(cwd, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
   run('true');
   const [create, edit, view] = calls();

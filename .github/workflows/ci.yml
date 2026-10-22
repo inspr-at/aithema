@@ -17,10 +17,14 @@ permissions:
 
 jobs:
   changes:
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       docs-only: ${{ steps.changes.outputs.docs-only }}
+      duplicate-of: ${{ steps.duplicate.outputs.duplicate-of }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'pull_request'
@@ -51,6 +55,72 @@ jobs:
               output.write('docs-only=' + str(docs_only).lower() + '\n')
           PYTHON
 
+      - name: Find successful same-SHA merge-group CI
+        id: duplicate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+          import subprocess
+
+          duplicate = ''
+          if (os.environ['GITHUB_EVENT_NAME'] == 'push' and
+                  os.environ['GITHUB_REF'] == 'refs/heads/main' and
+                  os.environ['GITHUB_RUN_ATTEMPT'] == '1'):
+              try:
+                  repository = os.environ['GITHUB_REPOSITORY']
+                  sha = os.environ['GITHUB_SHA']
+                  if not re.fullmatch(r'[a-f0-9]{40}', sha):
+                      raise ValueError('Invalid commit SHA')
+                  # One bounded request; unavailable/ambiguous evidence means test.
+                  response = subprocess.run([
+                      'gh', 'api', f'repos/{repository}/actions/workflows/ci.yml/runs'
+                      f'?event=merge_group&head_sha={sha}&status=success&per_page=100',
+                  ], check=True, capture_output=True, text=True, timeout=15)
+                  runs = json.loads(response.stdout)['workflow_runs']
+                  for run in runs:
+                      if (type(run.get('id')) is int and run['id'] > 0 and
+                              run.get('name') == 'ci' and run.get('path') == '.github/workflows/ci.yml' and
+                              run.get('event') == 'merge_group' and run.get('head_sha') == sha and
+                              run.get('status') == 'completed' and run.get('conclusion') == 'success' and
+                              run.get('repository', {}).get('full_name') == repository and
+                              run.get('head_repository', {}).get('full_name') == repository):
+                          duplicate = str(run['id'])
+                          break
+              except Exception:
+                  # API errors, timeouts and unexpected metadata all run full CI.
+                  print('Merge-group lookup unavailable or untrusted; running full CI.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('duplicate-of=' + duplicate + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              if duplicate:
+                  url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{duplicate}"
+                  summary.write(f'Duplicate main push: same SHA already passed [merge-group CI {duplicate}]({url}). Heavy checks skipped.\n')
+              else:
+                  summary.write('No verified same-SHA merge-group success; running full CI.\n')
+          PYTHON
+
+  npm-cache:
+    needs: changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        id: node
+        with:
+          node-version: '24'
+          cache: npm
+      - if: steps.node.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
   test:
     permissions:
       contents: read
@@ -63,24 +133,24 @@ jobs:
       - name: Docs-only success
         if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
         run: echo "Docs-only PR; heavy checks skipped."
-      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+      - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+      - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           cache: npm
-      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+      - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         run: npm ci
-      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+      - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         run: npm run test:browser-shards
-      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+      - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         name: Pack twice and verify without upload
         run: node release/dry-run.mjs
         env:
           AITHEMA_CANONICAL_RELEASE: '1'
       # Extend the existing required test check; merge-group runs the same smoke.
-      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+      - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         name: Boot standalone host from candidate tarballs
         timeout-minutes: 2
         env:
@@ -89,20 +159,22 @@ jobs:
           npm run release:pack -- "$RUNNER_TEMP/release-evidence/tarball-boot" --candidate
           npm run release:consumer -- "$RUNNER_TEMP/release-evidence/tarball-boot" --boot-only
       - name: Require every unit shard
-        run: test '${{ needs.unit.result }}' = 'success'
+        run: test '${{ needs.unit.result }}' = 'success' || { test "$DUPLICATE_PUSH" = 'true' && test '${{ needs.unit.result }}' = 'skipped'; }
+        env:
+          DUPLICATE_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '' }}
       - name: Download unit result manifests
-        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           pattern: unit-timings-*-of-3-attempt-*
           path: ${{ runner.temp }}/unit-results
       - name: Verify exactly-once unit results and total test count
-        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         run: node scripts/check-unit-results.js "$RUNNER_TEMP/unit-results"
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Retain standalone consumer smoke evidence
-        if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
+        if: ${{ always() && ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '')) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: consumer-smoke-attempt-${{ github.run_attempt }}
@@ -113,7 +185,7 @@ jobs:
 
   browser:
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '') }}
     name: browser (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -162,7 +234,7 @@ jobs:
 
   # Keep the ruleset's four required names; each requires all eight shards to pass.
   browser-required:
-    needs: browser
+    needs: [changes, browser]
     if: ${{ !cancelled() }}
     name: browser (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
@@ -173,11 +245,13 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - name: Require every browser shard
-        run: test '${{ needs.browser.result }}' = 'success'
+        run: test '${{ needs.browser.result }}' = 'success' || { test "$DUPLICATE_PUSH" = 'true' && test '${{ needs.browser.result }}' = 'skipped'; }
+        env:
+          DUPLICATE_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '' }}
 
   unit:
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '') }}
     name: unit (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -232,7 +306,7 @@ jobs:
   # One sequential three-engine loop, loopback fixtures only, no provider credentials.
   preview-security:
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:

@@ -3,7 +3,7 @@
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
 CI hours (measured baseline AEON-1407, 2026-10-15). All eight browser shards run
-at once for every event. Per-PR cancellation and the docs-only light path stay
+at once on full runs. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
 The CI concurrency group is `ci-${{ github.event.pull_request.number || github.ref }}`.
@@ -47,8 +47,36 @@ They skip dependency installation, packaging,
 unit tests and browsers. Their check names stay unchanged; no workflow-level
 path filter leaves required checks pending. The separate `dco` and `dco-tests`
 jobs still run normally, so docs contributions also need commit signoffs.
-Merge queue and main push runs always take the full path, even for docs.
+Merge queue runs always take the full path, even for docs.
 Repository rulesets and required-check settings are unchanged.
+
+## Duplicate main pushes (AIT-461)
+
+The merge queue normally lands the same SHA that its `ci` run tested. On the
+first main push attempt, `changes` uses the workflow's token (`actions: read`
+only in that job and the existing unit aggregate) for one Actions API lookup,
+limited to 15 seconds. Only completed successful canonical `ci` merge-group
+runs with the exact push SHA qualify. The `duplicate-of` output and job summary
+link the original run. Unit/browser workers and preview-security skip entirely;
+`test` skips pack/boot and artifact work. Required aggregates accept skipped
+workers only for that verified duplicate and still reject every real failure.
+Required names, shard counts and existing job caps stay unchanged. Only the
+lookup, npm cache warmer and five cheap aggregate jobs execute, targeting at
+most 60 runner-seconds on a cache hit or 150 after a lockfile change.
+The warmer preserves main-scoped npm caches with a script-free install only
+on a cache miss, because PRs cannot restore caches scoped to merge-group refs.
+Missing matches, failed runs, API errors, timeouts or untrusted metadata run
+full CI. PR and merge-group runs always retain their existing behavior. To
+force full CI on main, choose **Re-run all jobs**: attempts after the first never
+use the duplicate shortcut.
+
+Timing refreshes still accept successful canonical main push runs, and now
+also accept canonical `ci` merge-group runs whose tested SHA is proven to be
+an ancestor of main by the compare API. Browser discovery considers both events
+and ignores queue heads that never landed. Explicit `--run` imports reject
+those heads. Artifact run/branch/repository metadata and payload run/SHA/attempt
+checks remain enforced; PR and fork timings are rejected. A skipped push has
+no timing artifacts; use its linked merge-group run for unit refreshes.
 
 ## AIT-456 unit capacity (2026-10-22)
 
