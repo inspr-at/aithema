@@ -207,7 +207,13 @@ After a transient failure, use **Re-run failed jobs** in the GitHub Actions run.
 This preserves successful job results and avoids spending runner minutes on them
 again. The `test` aggregate queries **all pages and all attempts** of the run's
 GitHub jobs using a read-only Actions token, finds each unit shard's latest
-attempt and requires it to have succeeded. It then reads exactly that attempt's
+attempt and requires it to have succeeded. GitHub copies retained successful
+jobs into later attempts with new check IDs and attempt numbers, while preserving
+their original execution timestamps, runner and steps. The verifier matches all
+those fields (and the head SHA) to the earliest record of that same successful
+execution to recover the attempt in which it actually ran; a distinct execution
+cannot fall back to an old manifest. Missing history or execution metadata does
+not authorize fallback. It then reads exactly that execution attempt's
 `unit-timings-N-of-3-attempt-A` artifact: an unchanged passing shard can retain
 attempt 1 while the repaired shard supplies attempt 2. It checks the run ID,
 tested SHA, exact per-shard attempt, complete assignment, successful summaries,

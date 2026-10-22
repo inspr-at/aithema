@@ -30,7 +30,15 @@ export function latestUnitJobs(jobs, count, expectedRun) {
     const job = latest[0], seconds = (Date.parse(job.completed_at) - Date.parse(job.started_at)) / 1000;
     if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Invalid measured unit job duration');
     if (seconds > unitJobTargetSeconds) throw new Error(`Measured unit job exceeds ${unitJobTargetSeconds}s: ${job.name} ${seconds}s`);
-    return job;
+    // GitHub copies retained successes into a rerun with new check IDs and
+    // run_attempt, but the ORIGINAL execution timestamps, runner and steps.
+    // Find that execution's first attempt, never an older distinct execution.
+    // Missing history/metadata cannot authorize fallback to an old artifact.
+    const execution = matching.filter(row => row.status === 'completed' && row.conclusion === 'success' &&
+      row.started_at === job.started_at && row.completed_at === job.completed_at && row.head_sha === job.head_sha &&
+      Number.isInteger(row.runner_id) && row.runner_id > 0 && row.runner_id === job.runner_id && row.runner_name === job.runner_name &&
+      Array.isArray(row.steps) && row.steps.length > 0 && JSON.stringify(row.steps) === JSON.stringify(job.steps));
+    return execution.sort((a, b) => a.run_attempt - b.run_attempt)[0] ?? job;
   });
 }
 
