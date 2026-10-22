@@ -10,7 +10,7 @@
     "plugins/*"
   ],
   "scripts": {
-    "test": "node --test --test-timeout=180000 --import ./scripts/unit-watchdog.js packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js test/*.test.js",
+    "test": "node --test --test-timeout=180000 --import ./scripts/unit-watchdog.js --test-reporter=spec --test-reporter=./scripts/unit-timing-reporter.js --test-reporter-destination=stdout --test-reporter-destination=/dev/null packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js test/*.test.js",
     "test:browser": "node scripts/test-browser.js",
     "update:browser-timings": "node scripts/update-browser-timings.js",
     "test:browser-shards": "node scripts/browser-shards.js",
