@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2), runIds = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--run' && /^\d+$/u.test(args[i + 1] ?? '')) runIds.push(args[++i]);
-  else throw new Error('Use [--run RUN_ID ...]; only verified canonical main push artifacts are accepted');
+  else throw new Error('Use [--run RUN_ID ...]; only verified canonical main push or merge-group artifacts are accepted');
 }
 const gh = (...args) => execFileSync('gh', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const observations = new Map();
@@ -25,16 +25,28 @@ function readDirectory(directory, expectedRun) {
     }
   }
 }
-if (!runIds.length) {
-  runIds.push(...JSON.parse(gh('run', 'list', '--repo', timingRepository, '--workflow', 'ci.yml', '--branch', 'main', '--event', 'push', '--status', 'success', '--limit', String(timingWindow), '--json', 'databaseId')).map(run => String(run.databaseId)));
+const automatic = !runIds.length;
+if (automatic) {
+  // Queue refs are ephemeral: select by event, then independently verify ancestry.
+  for (const event of ['push', 'merge_group']) {
+    runIds.push(...JSON.parse(gh('run', 'list', '--repo', timingRepository, '--workflow', 'ci.yml',
+      ...(event === 'push' ? ['--branch', 'main'] : []), '--event', event, '--status', 'success',
+      '--limit', String(timingWindow), '--json', 'databaseId')).map(run => String(run.databaseId)));
+  }
 }
+
 const temporary = mkdtempSync(join(tmpdir(), 'aithema-browser-timings-'));
 try {
   for (const runId of runIds) {
     const run = JSON.parse(gh('api', `repos/${timingRepository}/actions/runs/${runId}`));
     assertTrustedTimingRun(run, runId);
     const comparison = JSON.parse(gh('api', `repos/${timingRepository}/compare/${run.head_sha}...main`, '--jq', '{status, merge_base_commit: {sha: .merge_base_commit.sha}}'));
-    assertTimingMainHistory(comparison, run);
+    try { assertTimingMainHistory(comparison, run); }
+    catch (error) {
+      if (!automatic || run.event !== 'merge_group') throw error;
+      console.log(`CI ${runId}: merge-group head is not on main; skipped`);
+      continue;
+    }
     const artifacts = JSON.parse(gh('api', `repos/${timingRepository}/actions/runs/${runId}/artifacts?per_page=100`)).artifacts
       .filter(artifact => /^browser-timings-\d+-of-(?:6|7|8)$/u.test(artifact.name) && !artifact.expired);
     if (!artifacts.length) { console.log(`CI ${runId}: predates timing artifacts or artifacts expired; skipped`); continue; }

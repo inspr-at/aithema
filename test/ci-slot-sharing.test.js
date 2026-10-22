@@ -12,6 +12,10 @@ const ci = parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta
 const detector = ci.jobs.changes.steps.find(step => step.id === 'changes');
 const lightCondition = "github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'";
 const heavyCondition = "(github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')";
+const duplicateCondition = "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''";
+const workerCondition = '${{ !cancelled() && !(' + duplicateCondition + ') }}';
+const aggregateHeavyCondition = '(' + heavyCondition + ' && !(' + duplicateCondition + '))';
+const unitGate = "test '${{ needs.unit.result }}' = 'success' || { test \"$DUPLICATE_PUSH\" = 'true' && test '${{ needs.unit.result }}' = 'skipped'; }";
 const expression = (value, github) => runInNewContext(value.slice(3, -2), { github });
 
 test('dedupe cancels only PRs, with unique queue refs and all eight browser shards in parallel', () => {
@@ -60,7 +64,7 @@ test('required jobs always exist; docs-only success gates every heavy step', () 
   assert.equal(checkout.with['fetch-depth'], 0);
   for (const id of ['test', 'unit', 'browser']) {
     const job = ci.jobs[id];
-    assert.equal(job.if, '${{ !cancelled() }}');
+    assert.equal(job.if, id === 'test' ? '${{ !cancelled() }}' : workerCondition);
     assert.deepEqual(job.needs, id === 'test' ? ['changes', 'unit'] : 'changes');
     const [noop, ...heavy] = job.steps;
     assert.equal(noop.if, lightCondition);
@@ -69,12 +73,13 @@ test('required jobs always exist; docs-only success gates every heavy step', () 
     for (const step of heavy) {
       if (step.name === 'Require every unit shard') {
         assert.equal(step.if, undefined);
-        assert.equal(step.run, "test '${{ needs.unit.result }}' = 'success'");
+        assert.equal(step.run, unitGate);
         continue;
       }
+      const condition = id === 'test' ? aggregateHeavyCondition : heavyCondition;
       assert.equal(step.if, step.uses?.startsWith('actions/upload-artifact@')
-        ? '${{ always() && ' + heavyCondition + ' }}'
-        : heavyCondition);
+        ? '${{ always() && ' + condition + ' }}'
+        : condition);
     }
   }
   const dco = parse(readFileSync(new URL('../.github/workflows/dco.yml', import.meta.url), 'utf8'));
@@ -187,14 +192,14 @@ test('heavy jobs run on failed or absent detection; queue always runs everything
         const light = event === 'pull_request' && result === 'success' && output === 'true';
         for (const id of ['test', 'unit', 'browser']) {
           const job = ci.jobs[id];
-          assert.equal(runInNewContext(job.if.slice(3, -2), context), true);
+          assert.equal(runInNewContext(job.if.slice(3, -2).replaceAll("outputs.duplicate-of", "outputs['duplicate-of']"), context), true);
           for (const step of job.steps) {
             if (step.name === 'Require every unit shard') {
               assert.equal(step.if, undefined);
               continue;
             }
             const condition = step.if.startsWith('${{') ? step.if.slice(3, -2) : step.if;
-            const runs = runInNewContext(condition.replaceAll("outputs.docs-only", "outputs['docs-only']"), {
+            const runs = runInNewContext(condition.replaceAll("outputs.docs-only", "outputs['docs-only']").replaceAll("outputs.duplicate-of", "outputs['duplicate-of']"), {
               ...context, always: () => true,
             });
             assert.equal(runs, step.name === 'Docs-only success' ? light : !light);

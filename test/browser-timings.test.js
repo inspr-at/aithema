@@ -104,10 +104,10 @@ const trustedRun = () => ({ id: 123, event: 'push', head_branch: 'main', head_sh
   path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success',
   repository: { full_name: 'inspr-at/aithema' }, head_repository: { id: 42, full_name: 'inspr-at/aithema' } });
 
-test('timing runs require canonical main push provenance even for fork branches called main', () => {
+test('timing runs require canonical CI provenance even for fork branches called main', () => {
   assert.doesNotThrow(() => assertTrustedTimingRun(trustedRun(), '123'));
   for (const changes of [
-    { id: 456 }, { event: 'pull_request' }, { event: 'pull_request_target' }, { event: 'merge_group' },
+    { id: 456 }, { event: 'pull_request' }, { event: 'pull_request_target' }, { event: 'workflow_dispatch' },
     { head_branch: 'feature' }, { head_repository: { id: 99, full_name: 'fork/aithema' } },
     { repository: { full_name: 'fork/aithema' } }, { head_repository: null }, { head_sha: '' },
     { status: 'in_progress' }, { conclusion: 'failure' }, { run_attempt: 0 }, { path: '.github/workflows/other.yml' },
@@ -174,6 +174,7 @@ if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') 
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/compare/${sha}...main') reply(${JSON.stringify(changes.comparison ?? { status: 'ahead', merge_base_commit: { sha } })});
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123/artifacts?per_page=100') reply({ artifacts });
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && args[args.indexOf('--event') + 1] === 'push' && args[args.indexOf('--branch') + 1] === 'main') reply([{ databaseId: 123 }]);
+else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--event') + 1] === 'merge_group') reply([]);
 else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && JSON.stringify(args.filter((arg, i) => args[i - 1] === '--name')) === JSON.stringify(artifacts.map(a => a.name))) {
   const dir = args[args.indexOf('--dir') + 1]; mkdirSync(dir, { recursive: true });
   writeFileSync(dir + '/batch.jsonl', ${JSON.stringify(changes.payload ?? payload)});
