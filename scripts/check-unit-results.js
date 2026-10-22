@@ -7,7 +7,7 @@ import { assertUnitMeasuredHeadroom, unitJobTargetSeconds, unitPlan } from './un
 // filter=all includes jobs retained from earlier attempts after a partial rerun.
 // Paginate: counting just the first page could hide a more recent failed job.
 export function fetchUnitJobs(runId, repository = process.env.GITHUB_REPOSITORY) {
-  if (!/^\d+$/u.test(runId ?? '') || !/^[\w.-]+\/[\w.-]+$/u.test(repository ?? '')) throw new Error('Invalid unit jobs API scope');
+  if (!/^\d+$/u.test(runId ?? '') || !/^[a-z\d][a-z\d-]*\/[a-z\d][\w.-]*$/iu.test(repository ?? '')) throw new Error('Invalid unit jobs API scope');
   const pages = JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp',
     `repos/${repository}/actions/runs/${runId}/jobs?filter=all&per_page=100`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
   if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page.jobs))) throw new Error('Missing unit jobs API pages');
@@ -64,6 +64,7 @@ export function assertUnitResults(recordsByShard, packing, expectedRun) {
         files.reduce((sum, record) => sum + record.counts.tests, 0) !== final[0].counts.tests) {
       throw new Error('Unit result files/counts do not match the exactly-once assignment');
     }
+    if (!Number.isFinite(final[0].duration_ms)) throw new Error('Invalid measured unit duration');
     assertUnitMeasuredHeadroom(final[0].duration_ms / 1000);
     tests += final[0].counts.tests;
   }

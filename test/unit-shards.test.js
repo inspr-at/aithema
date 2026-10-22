@@ -36,7 +36,7 @@ test('AIT-456: a partial rerun accepts each shard latest successful attempt and 
 
 test('AIT-456: measured overruns and missing or invalid durations fail closed', () => {
   const current = { ...expected, attempt: 1, shardAttempts: [1, 1] };
-  for (const duration of [395001, 0, -1, NaN, Infinity, undefined]) {
+  for (const duration of [395001, 0, -1, NaN, Infinity, undefined, '1000']) {
     const rows = manifests(); rows[0][0].attempt = 1; rows[0][2].duration_ms = duration;
     assert.throws(() => results.assertUnitResults(rows, plan, current), /duration|exceeds 420/u);
   }
