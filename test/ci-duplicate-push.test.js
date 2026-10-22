@@ -102,6 +102,47 @@ test('duplicate pushes skip every worker and pack/boot; all other contexts run f
   }
 });
 
+test('only verified duplicate main pushes warm the npm cache; full CI and other events never do', () => {
+  const warm = ci.jobs['npm-cache'];
+  assert.ok(warm, 'duplicate pushes must retain a main-scoped npm cache producer');
+  assert.equal(warm.needs, 'changes');
+  assert.equal(warm['runs-on'], ci.jobs.unit['runs-on']);
+  for (const event of ['push', 'pull_request', 'merge_group']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/feature']) {
+      for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+        for (const duplicate of ['', '123']) for (const attempt of [1, 2]) {
+          const ctx = context(event, duplicate, result, attempt);
+          ctx.github.ref = ref;
+          const expected = event === 'push' && ref === 'refs/heads/main' && attempt === 1 &&
+            result === 'success' && duplicate !== '';
+          assert.equal(evaluate(warm.if, ctx), expected, JSON.stringify(ctx));
+        }
+      }
+    }
+  }
+});
+
+test('npm cache warming installs only on a cache miss with scripts disabled and no test or browser work', () => {
+  const warm = ci.jobs['npm-cache'];
+  assert.ok(warm, 'duplicate pushes need the cheap npm-cache job');
+  assert.equal(warm.steps.length, 3, 'only checkout, setup-node and a conditional install');
+  const [checkout, setup, install] = warm.steps;
+  assert.equal(checkout.uses, ci.jobs.unit.steps.find(step => step.uses?.startsWith('actions/checkout@')).uses);
+  assert.deepEqual(checkout.with, { 'persist-credentials': false });
+  assert.equal(checkout.if, undefined);
+  assert.equal(setup.uses, ci.jobs.unit.steps.find(step => step.uses?.startsWith('actions/setup-node@')).uses);
+  assert.ok(setup.id, 'the install condition must use setup-node cache-hit output');
+  assert.deepEqual(setup.with, { 'node-version': '24', cache: 'npm' });
+  assert.equal(setup.if, undefined);
+  assert.equal(install.run, 'npm ci --ignore-scripts --no-audit --no-fund');
+  assert.equal(install['continue-on-error'], undefined);
+  for (const hit of ['true', 'false', '', undefined]) {
+    const ctx = { steps: { [setup.id]: { outputs: { 'cache-hit': hit } } } };
+    const expression = install.if.replaceAll('outputs.cache-hit', "outputs['cache-hit']");
+    assert.equal(evaluate(expression, ctx), hit !== 'true', `cache-hit=${hit}`);
+  }
+});
+
 test('required aggregates allow only verified duplicate skips and never mask a failure', () => {
   for (const [id, dependency] of [['test', 'unit'], ['browser-required', 'browser']]) {
     const gate = ci.jobs[id].steps.find(step => step.name === `Require every ${dependency} shard`);
@@ -122,6 +163,7 @@ test('all resource caps, shard counts and required names retain the main baselin
   assert.deepEqual(Object.keys(ci.on), ['pull_request', 'merge_group', 'push']);
   assert.deepEqual(Object.fromEntries(Object.entries(ci.jobs).map(([id, job]) => [id, [job.name ?? id, job['timeout-minutes'], job.strategy?.matrix.shard]])), {
     changes: ['changes', 5, undefined], test: ['test', 10, undefined],
+    'npm-cache': ['npm-cache', 3, undefined],
     browser: ['browser (${{ matrix.shard }}/8)', 10, [1, 2, 3, 4, 5, 6, 7, 8]],
     'browser-required': ['browser (${{ matrix.shard }}/4)', 1, [1, 2, 3, 4]],
     unit: ['unit (${{ matrix.shard }}/3)', 10, [1, 2, 3]], 'preview-security': ['preview-security', 6, undefined],
