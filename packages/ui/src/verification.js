@@ -113,7 +113,10 @@ export class Verification {
     if (before?.verificationRevision !== this.#identity?.verificationRevision || before?.status !== this.#identity?.status) {
       if (!this.#ui.busy) this.#ui.message = '';
     }
-    if (this.#identity?.status === 'verified') this.#ui.editing = false;
+    // Credit refreshes can acknowledge the same verified address while its edit
+    // is open. Only a newly verified identity ends that edit; clearing it on a
+    // duplicate acknowledgement collapses the hint row and recenters the dialog.
+    if (this.#identity?.status === 'verified' && (before?.status !== 'verified' || before.address !== this.#identity.address)) this.#ui.editing = false;
     const wasLocked = this.#locked, focusInLock = this.#lock.contains(this.#root.activeElement);
     this.#locked = this.locked;
     this.#paint(); this.#schedule();

@@ -23,9 +23,17 @@ for (const copy of [en, de]) test(`AIT-418: address change stays editable, block
   assert.equal(calls.some(call => call.path === '/identity/change'), false);
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
   c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
+  // A duplicate verified acknowledgement from a credit/identity refresh must
+  // keep the open address edit and its reserved hint row through re-enable.
+  c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity } });
+  assert.equal(form.dataset.mode, 'capture');
+  assert.equal(form.querySelector('.verify__note').textContent, copy.hostSurface.verify.hint);
   assert.equal(submit.getAttribute('aria-disabled'), 'false');
   assert.equal(input.value, 'after@example.test');
   assert.equal(form.querySelector('.verify__message').textContent, '');
+  c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...verified, status: 'verification-pending', address: 'after@example.test' } });
+  c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...verified, address: 'after@example.test' } });
+  assert.equal(form.dataset.mode, 'verified', 'a newly verified address still completes the edit');
 });
 
 test('AIT-418: race failure renders existing failed reply with retry and permits address change', async t => {
