@@ -62,6 +62,8 @@ test('AIT-456: three is the smallest count with average-file growth room; the bo
 });
 
 const job = (shard, attempt, extra = {}) => ({ name: `unit (${shard}/2)`, run_id: 123, run_attempt: attempt,
+  runner_id: 42, runner_name: 'fixture-runner', head_sha: expected.sha,
+  steps: [{ name: 'Set up job', started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T00:00:01Z', conclusion: 'success' }],
   status: 'completed', conclusion: 'success', started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T00:03:00Z', ...extra });
 const jobs = () => [job(1, 1, { conclusion: 'failure' }), job(2, 1), job(1, 2)];
 
@@ -81,6 +83,22 @@ test('AIT-456: latest job metadata permits partial reruns and rejects failed, mi
   }
   const boundary = jobs(); boundary[2].completed_at = '2026-01-01T00:07:00Z';
   assert.equal(results.latestUnitJobs(boundary, 2, expected).length, 2);
+});
+
+test('AIT-456: GitHub copied successful jobs retain their actual execution attempt, but a rerun needs fresh evidence', () => {
+  // GitHub creates new check IDs/run_attempt values for retained successes,
+  // copying the original timestamps, runner and steps (CI 39704541114).
+  const rows = [job(1, 1), job(2, 1), job(2, 2), job(1, 2, {
+    started_at: '2026-01-01T00:04:00Z', completed_at: '2026-01-01T00:06:00Z',
+  })];
+  const latest = results.latestUnitJobs(rows, 2, expected);
+  assert.deepEqual(latest.map(row => row.run_attempt), [2, 1]);
+  assert.equal(results.assertUnitResults(manifests(), plan, { ...expected, shardAttempts: latest.map(row => row.run_attempt) }), 2);
+  const stale = manifests(); stale[0][0].attempt = 1;
+  assert.throws(() => results.assertUnitResults(stale, plan, { ...expected, shardAttempts: latest.map(row => row.run_attempt) }), /provenance/u);
+  const actualRerun = structuredClone(rows);
+  actualRerun[2].started_at = '2026-01-01T00:04:00Z'; actualRerun[2].completed_at = '2026-01-01T00:06:00Z';
+  assert.deepEqual(results.latestUnitJobs(actualRerun, 2, expected).map(row => row.run_attempt), [2, 2]);
 });
 
 test('AIT-456: artifact selection uses the jobs latest attempts and never falls back to a stale manifest', t => {
