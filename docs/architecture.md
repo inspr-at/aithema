@@ -266,6 +266,7 @@ they are not test coverage switches.
 | `test/browser/voice-failure-helpers.js` | `CI` ×1, `GITHUB_EVENT_PATH` ×2 | Linux headless Chrome sandbox selection and AIT-361 PR-head evidence provenance |
 | `test/browser/voice-presentation.test.js` | `CI` ×4, `GITHUB_EVENT_PATH` ×4 | Linux headless Chrome sandbox selection and AIT-179/AIT-302/AIT-377 PR-head evidence provenance |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
+| `test/consent-teardown.test.js` | `process.env` ×1 | AIT-455 isolated teardown probes forward the child environment after removing NODE_TEST_CONTEXT |
 | `test/fixtures/lane-race-ait197-proof.js` | `process.env` ×1 | AIT-201 legacy-lane red proof forwards the child environment after removing NODE_TEST_CONTEXT |
 | `test/fixtures/lane-race-proof.js` | `process.env` ×1 | AIT-201 lane-race red proof forwards the child environment after removing NODE_TEST_CONTEXT |
 | `test/fixtures/lane-race-validation.js` | `process.env` ×1 | AIT-201 lane-race validation forwards the child environment after removing NODE_TEST_CONTEXT |
@@ -274,6 +275,7 @@ they are not test coverage switches.
 | `test/live/soak.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/measurements/browser-comparison.js` | `process.env` ×1 | Intentional browser measurement child-process environment forwarding; exact occurrence pinned |
 | `test/measurements/consent-reload-repeat.test.js` | `process.env` ×1 | AIT-398 remote browser qualification forwards the child environment after removing NODE_TEST_CONTEXT |
+| `test/measurements/consent-suite-repeat.test.js` | `process.env` ×1 | AIT-455 sequential browser qualification forwards the child environment after removing NODE_TEST_CONTEXT |
 | `test/release-prep.test.js` | `GITHUB_RUN_ID` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/release-workflow.test.js` | `process.env` ×1 | Hermetic release-workflow child-process setup; exact occurrence pinned |
 | `test/soak/unit-worker.test.js` | `process.env[key]` ×2 | Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned |
