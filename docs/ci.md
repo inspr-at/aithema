@@ -60,8 +60,11 @@ runs with the exact push SHA qualify. The `duplicate-of` output and job summary
 link the original run. Unit/browser workers and preview-security skip entirely;
 `test` skips pack/boot and artifact work. Required aggregates accept skipped
 workers only for that verified duplicate and still reject every real failure.
-Required names, shard counts and job caps stay unchanged. Only the lookup and
-five cheap aggregate jobs execute, targeting at most 60 runner-seconds.
+Required names, shard counts and existing job caps stay unchanged. Only the
+lookup, npm cache warmer and five cheap aggregate jobs execute, targeting at
+most 60 runner-seconds on a cache hit or 150 after a lockfile change.
+The warmer preserves main-scoped npm caches with a script-free install only
+on a cache miss, because PRs cannot restore caches scoped to merge-group refs.
 Missing matches, failed runs, API errors, timeouts or untrusted metadata run
 full CI. PR and merge-group runs always retain their existing behavior. To
 force full CI on main, choose **Re-run all jobs**: attempts after the first never
