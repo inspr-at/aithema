@@ -1,29 +1,27 @@
 # Aithema 2026.10
 
-Version **261021222022.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261022020419.0.0**. Licensed under **AGPL-3.0-only**.
 
-Eighteenth October release: voice minute limits hold across reconnects, and call lengths between whole minutes work.
+Nineteenth October release: the email dialog stays put while you edit your address.
 
 ## What START and visitors notice
 
-- **Minute limits across reconnects (AIT-450):** voice calls keep to the site's
-  minute limit when they reconnect.
-- **More call lengths work (AIT-451):** calls whose maximum length is between
-  whole minutes can now start.
+- **Email address editing (AIT-454):** Your address edit stays open and the dialog
+  no longer jumps when a reply finishes.
 
 ## For hosts
 
-**Voice minute caps (AIT-450).** “The total and UTC-day minute caps likewise
-reserve `maxDurationSeconds` for every credential, initial and recovery,
-including rolling bindings.” Admission refuses before provisioning when either
-cap cannot hold the full credential, even when less time remains in the call;
-settlement and reconciliation use actual provider seconds, including paused
-provider time.
+**Visitor behaviour (AIT-454).** Repeated verified-identity refreshes keep an
+address edit open; a host that overrides the verification copy sees no change
+to that copy.
 
-**Per-minute rounding (AIT-451).** Per-minute voice amounts now use one integer
-ceiling formula, `ceil(seconds * microPerMinute / 60)`: “These amounts use the
-shared integer ceiling helper, including non-whole-minute durations.” Call
-lengths between whole minutes can now boot without “Invalid duration binding”.
+**Test-only (AIT-455).** The consent cross-tab suite releases a headerless socket
+and gives browser and HTTP teardown named 10-second deadlines so teardown cannot
+hang a browser shard.
+
+**CI-only (AIT-456).** Unit tests run in three shards balanced by measured duration
+under the single required `test` check, with unchanged caps and support for new
+test files and partial re-runs.
 
 [RC14's host requirements](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#for-hosts)
 still apply, including its breaking changes; Aithema recommends checking those
@@ -31,12 +29,9 @@ requirements before upgrading from an earlier release.
 
 ## Breaking for hosts
 
-**None relative to RC17 (`v261021194038.0.0`).** The #405 diff adds one public
-export, `perMinuteCostMicro`, to `@inspr/aithema-core` (also at
-`@inspr/aithema-core/cost`); it is additive. It changes no configuration keys or
-HTTP status codes and adds no host integration requirement. Minute admission is
-stricter: a call or recovery may now be refused when either minute cap cannot
-reserve the full maximum call.
+**None relative to RC18 (`v261021222022.0.0`).** The #408 diff changes visitor
+behaviour only, with no new public export, configuration key, HTTP status code
+or host integration requirement; #407 is test-only and #409 is CI-only.
 START integrates and pins this release separately.
 
 ## Availability and verification
@@ -51,7 +46,7 @@ Release assets include module tarballs, the workspace archive, dependency locks,
 an SPDX SBOM and `release-set.json`. Verify the published attestations and
 `SHA256SUMS` before installation, following
 [RC14's verification and installation instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261021222022.0.0` in every download and installation URL. Retain the
+with tag `v261022020419.0.0` in every download and installation URL. Retain the
 verified assets, manifest and deployment pin for rollback to those exact bytes.
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261021222022.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261022020419.0.0/docs/embedding.md)
 for host integration.

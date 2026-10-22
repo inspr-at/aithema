@@ -253,6 +253,15 @@
       "tag": "v261021194038.0.0",
       "source_commit": "b27b372dd9b333287bed6455be8e451dc4b66608",
       "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v261021194038.0.0"
+    },
+    {
+      "version_scheme": "inspr-calver-3",
+      "version": "261021222022.0.0",
+      "release_channel": "stable",
+      "release_sequence": 29,
+      "tag": "v261021222022.0.0",
+      "source_commit": "1d267d60455e88c351ddf6db3607ac4eb91ea8ac",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v261021222022.0.0"
     }
   ]
 }
