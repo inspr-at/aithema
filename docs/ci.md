@@ -32,6 +32,16 @@ keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
 skipped shard fails the summaries. PR and merge-group events use the same jobs.
 
+Unit workers report `unit (1/2)` and `unit (2/2)`. The required `test` job needs
+both workers and retains its exact name and ten-minute cap. Its unconditional
+result gate fails on failure, cancellation, skipping or missing workers, including
+on docs-only PRs. On full runs it also validates both timing artifacts against
+the run, attempt, tested commit and complete file assignment. Missing/duplicate
+files, inconsistent test totals and any failed/cancelled/skipped/todo tests fail
+the aggregate. The browser guard, reproducible pack twice, two-minute standalone
+boot and 90-day consumer smoke retention remain in `test`. The unchanged
+90-day `reset-candidate` upload follows the unit file that creates those archives.
+
 On the light path, `test` and every worker shard run an explicit success step.
 They skip dependency installation, packaging,
 unit tests and browsers. Their check names stay unchanged; no workflow-level
@@ -39,6 +49,80 @@ path filter leaves required checks pending. The separate `dco` and `dco-tests`
 jobs still run normally, so docs contributions also need commit signoffs.
 Merge queue and main push runs always take the full path, even for docs.
 Repository rulesets and required-check settings are unchanged.
+
+## AIT-456 unit capacity (2026-10-22)
+
+LEAD selected duration-balanced unit shards, retaining every job timeout. The
+unsharded merge-group run [39697819537](https://github.com/inspr-at/aithema/actions/runs/39697819537)
+was cancelled after 620 seconds despite all 6,936 tests passing. Ten preceding
+successful unit jobs measured 455, 555, 420, 564, 571, 547, 544, 480, 359 and
+557 seconds (the last includes three tests from AIT-455). Their nearest-rank
+p95 is 571 seconds, leaving inadequate runner-variance headroom.
+
+`scripts/unit-timings.json` commits whole-file CI worker durations and their
+source run/attempt/commit, with nearest-rank p95 and a 25% margin below five
+samples. File summaries include fixture hooks and worker teardown; nested
+test durations are never added again. `scripts/unit-shards.js` packs complete
+files by descending measured duration, breaking ties by path and shard index.
+Discovery comes directly from `npm test`'s four existing glob patterns. New
+files receive a conservative 180-second weight, matching the existing file
+watchdog; they join coverage automatically and must fit the target.
+
+Each unit shard uses three concurrent file workers, retaining the 180-second native test
+deadline and watchdog, disabled OOM core dumps and the ten-minute job cap. The
+planning guard fails above 420 seconds (70% of that cap), including a 25-second
+setup/report allowance. Its execution-order-independent bound is
+`25 + sum(file weights)/3 + 2*longest file weight/3`; Node need not preserve the
+planner's LPT order. Pack/boot run separately in the aggregate and are excluded
+from worker projections, with their original caps intact.
+
+Bootstrap [CI 39699662257](https://github.com/inspr-at/aithema/actions/runs/39699662257)
+measured **6,936/6,936 passing tests**, **255 files**, **524.666 seconds**
+suite elapsed and **1,436.849 seconds** summed file work. After the 25% warmup
+margin, total planned file work is **1,796.188 seconds**. One shard's
+average-load lower bound is **623.729 seconds** including overhead, already
+above target. Two deterministic bins hold **898.087 / 898.101 seconds** of
+weighted file work, projecting **419.165 / 409.914 seconds** for complete jobs.
+Two is therefore the smallest fitting count. These projections include a
+25-second setup/report reserve: bootstrap job overhead excluding its 15-second
+pack/boot was about 14 seconds. Pack and boot remain in their separate aggregate.
+
+The ten slowest baseline unit files, using full file summaries:
+
+| File | Measured seconds | Tests |
+| --- | ---: | ---: |
+| `test/release-candidate.test.js` | 113.763 | 3 |
+| `packages/ui/test/host-credits.test.js` | 102.655 | 86 |
+| `packages/ui/test/session-element.test.js` | 82.123 | 112 |
+| `packages/ui/test/host-limits.test.js` | 73.799 | 75 |
+| `packages/ui/test/settings.test.js` | 70.917 | 171 |
+| `packages/ui/test/concepts.test.js` | 62.956 | 170 |
+| `packages/ui/test/uploads.test.js` | 50.451 | 76 |
+| `packages/ui/test/voice.test.js` | 47.287 | 113 |
+| `packages/ui/test/host-settlement.test.js` | 43.983 | 38 |
+| `packages/ui/test/display-regressions.test.js` | 43.643 | 93 |
+
+Every full run retains `unit-timings-N-of-2` for 14 days, with per-file durations
+and counts plus the final shard count. Refresh from successful canonical main
+push CI runs, supplying multiple runs for a measured p95 series:
+
+```sh
+npm run update:unit-timings -- --run RUN_ID --run ANOTHER_RUN_ID
+npm run test:unit-shards
+```
+
+The importer checks canonical repository/workflow, success, main ancestry and
+run/attempt/commit provenance, then requires complete, successful, exactly-once
+coverage matching the current discovery. It writes only after validating every
+input. One immutable profiling run on this PR is the explicit bootstrap
+exception: all 6,936 tests passed, with complete successful summaries for all
+255 files, before Node's `/dev/null` reporter destination failed on `fsync`.
+The final reporter uses stdout instead. This exception admits complete passing
+measurements from that exact run/head; future PR/fork/merge-group measurements cannot replace trusted main
+history. Keep runs from matching workloads together: imports reject differing
+file sets or test counts. Initial bootstrap projections are conservative planning
+evidence; ten successful production runs are needed before claiming a measured
+ten-run p95. The coordinator should record one merge-group run after merge.
 
 ## AIT-423 eighth-shard capacity (2026-10-20)
 
@@ -96,7 +180,7 @@ After a transient failure, use **Re-run failed jobs** in the GitHub Actions run.
 This preserves successful job results and avoids spending runner minutes on them
 again. Push a new commit when the source needs fixing; PR dedupe cancels the
 superseded CI run. A docs-only follow-up PR can verify the light path by checking
-that all five CI check jobs report success without installation or browser steps.
+that all required CI check jobs report success without installation or browser steps.
 
 ## Validation and references
 

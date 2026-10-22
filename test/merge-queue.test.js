@@ -54,7 +54,7 @@ test('both required workflows request merge-group checks', () => {
 });
 
 test('PR and merge-group events run the same shard and required check names', () => {
-  const expected = ['test', 'browser (1/8)', 'browser (2/8)', 'browser (3/8)', 'browser (4/8)', 'browser (5/8)', 'browser (6/8)', 'browser (7/8)', 'browser (8/8)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'preview-security', 'dco', 'dco-tests'];
+  const expected = ['test', 'browser (1/8)', 'browser (2/8)', 'browser (3/8)', 'browser (4/8)', 'browser (5/8)', 'browser (6/8)', 'browser (7/8)', 'browser (8/8)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'unit (1/2)', 'unit (2/2)', 'preview-security', 'dco', 'dco-tests'];
   for (const event of ['pull_request', 'merge_group']) {
     assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)).filter(name => name !== 'changes'), expected);
   }
@@ -69,6 +69,22 @@ test('ruleset browser summaries fail closed unless every worker shard passed', (
   const command = /^        run: (.+)$/mu.exec(job)[1];
   for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
     const run = () => execFileSync('bash', ['-c', command.replace('${{ needs.browser.result }}', result)], { stdio: 'pipe' });
+    if (result === 'success') assert.doesNotThrow(run);
+    else assert.throws(run, { status: 1 }, result);
+  }
+  const unit = block(block(workflows[0], 'jobs'), 'unit', 2);
+  assert.match(unit, /^    timeout-minutes: 10$/mu);
+  assert.match(unit, /^      fail-fast: false$/mu);
+  assert.match(unit, /^        shard: \[1, 2\]$/mu);
+  assert.doesNotMatch(unit, /continue-on-error|--test-name-pattern|--test-skip-pattern/u);
+  const aggregate = block(block(workflows[0], 'jobs'), 'test', 2);
+  assert.match(aggregate, /^    needs: \[changes, unit\]$/mu);
+  assert.match(aggregate, /^    if: \$\{\{ !cancelled\(\) \}\}$/mu);
+  assert.match(aggregate, /^    timeout-minutes: 10$/mu);
+  assert.doesNotMatch(aggregate, /continue-on-error/u);
+  const gate = /- name: Require every unit shard\n        run: (.+)/u.exec(aggregate)[1];
+  for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+    const run = () => execFileSync('bash', ['-c', gate.replace('${{ needs.unit.result }}', result)], { stdio: 'pipe' });
     if (result === 'success') assert.doesNotThrow(run);
     else assert.throws(run, { status: 1 }, result);
   }

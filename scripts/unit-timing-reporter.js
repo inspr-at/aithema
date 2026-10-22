@@ -2,6 +2,7 @@
 // teardown, unlike a sum of assertion durations. Keep the final suite count too.
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
+import { discoverUnitTests } from './unit-shards.js';
 
 export default async function* unitTimings(source) {
   const directory = process.env.UNIT_TIMING_DIR;
@@ -12,6 +13,8 @@ export default async function* unitTimings(source) {
     writeFileSync(output, JSON.stringify({ type: 'run', schema: 1,
       runId: process.env.GITHUB_RUN_ID ?? 'remote', attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1),
       sha: process.env.GITHUB_SHA ?? null, observedAt: new Date().toISOString(),
+      shard: process.env.UNIT_TEST_SHARD ?? null,
+      files: JSON.parse(process.env.UNIT_TEST_FILES ?? JSON.stringify(discoverUnitTests())),
     }) + '\n');
   }
   for await (const { type, data } of source) {
