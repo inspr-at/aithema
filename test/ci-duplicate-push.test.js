@@ -34,8 +34,8 @@ ${failure ? 'process.exit(1);' : `process.stdout.write(${JSON.stringify(typeof r
 `, { mode: 0o755 });
   // Inject an immediate subprocess timeout: no real waiting or network.
   const script = timeout ? step.run.replace("import subprocess", "import subprocess\nsubprocess.run = lambda *args, **kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired(args[0], kwargs['timeout']))") : step.run;
-  const result = spawnSync('bash', ['-e', '-c', script], { encoding: 'utf8',
-    env: { PATH: `${directory}:${process.env.PATH}`, GITHUB_EVENT_NAME: event, GITHUB_REF: ref,
+  const result = spawnSync('bash', ['-e', '-c', 'export PATH="$FIXTURE_PATH"\n' + script], { encoding: 'utf8',
+    env: { ...process.env, FIXTURE_PATH: `${directory}:${process.env.PATH}`, GITHUB_EVENT_NAME: event, GITHUB_REF: ref,
       GITHUB_RUN_ATTEMPT: attempt, GITHUB_SHA: sha, GITHUB_REPOSITORY: repository,
       GITHUB_SERVER_URL: 'https://github.com', GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary } });
   assert.equal(result.status, 0, result.stderr);
