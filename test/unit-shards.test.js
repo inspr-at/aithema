@@ -106,6 +106,10 @@ test('AIT-456: GitHub copied successful jobs retain their actual execution attem
     const distinct = structuredClone(rows); change(distinct[2]);
     assert.deepEqual(results.latestUnitJobs(distinct, 2, expected).map(row => row.run_attempt), [2, 2]);
   }
+  for (const field of ['runner_name', 'head_sha', 'runner_id', 'steps']) {
+    const incomplete = structuredClone(rows); incomplete.forEach(row => { delete row[field]; });
+    assert.deepEqual(results.latestUnitJobs(incomplete, 2, expected).map(row => row.run_attempt), [2, 2]);
+  }
 });
 
 test('AIT-456: artifact selection uses the jobs latest attempts and never falls back to a stale manifest', t => {

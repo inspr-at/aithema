@@ -36,6 +36,7 @@ export function latestUnitJobs(jobs, count, expectedRun) {
     // Missing history/metadata cannot authorize fallback to an old artifact.
     const execution = matching.filter(row => row.status === 'completed' && row.conclusion === 'success' &&
       row.started_at === job.started_at && row.completed_at === job.completed_at && row.head_sha === job.head_sha &&
+      /^[a-f\d]{40}$/u.test(row.head_sha ?? '') && typeof row.runner_name === 'string' && row.runner_name.length > 0 &&
       Number.isInteger(row.runner_id) && row.runner_id > 0 && row.runner_id === job.runner_id && row.runner_name === job.runner_name &&
       Array.isArray(row.steps) && row.steps.length > 0 && JSON.stringify(row.steps) === JSON.stringify(job.steps));
     return execution.sort((a, b) => a.run_attempt - b.run_attempt)[0] ?? job;
