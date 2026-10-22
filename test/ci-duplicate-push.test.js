@@ -35,7 +35,7 @@ ${failure ? 'process.exit(1);' : `process.stdout.write(${JSON.stringify(typeof r
   // Inject an immediate subprocess timeout: no real waiting or network.
   const script = timeout ? step.run.replace("import subprocess", "import subprocess\nsubprocess.run = lambda *args, **kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired(args[0], kwargs['timeout']))") : step.run;
   const result = spawnSync('bash', ['-e', '-c', 'export PATH="$FIXTURE_PATH"\n' + script], { encoding: 'utf8',
-    env: { ...process.env, FIXTURE_PATH: `${directory}:${process.env.PATH}`, GITHUB_EVENT_NAME: event, GITHUB_REF: ref,
+    env: { PATH: process.env.PATH, FIXTURE_PATH: `${directory}:${process.env.PATH}`, GITHUB_EVENT_NAME: event, GITHUB_REF: ref,
       GITHUB_RUN_ATTEMPT: attempt, GITHUB_SHA: sha, GITHUB_REPOSITORY: repository,
       GITHUB_SERVER_URL: 'https://github.com', GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary } });
   assert.equal(result.status, 0, result.stderr);
@@ -111,7 +111,7 @@ test('required aggregates allow only verified duplicate skips and never mask a f
       for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
         const env = Object.fromEntries(Object.entries(gate.env ?? {}).map(([key, value]) => [key, String(evaluate(value, ctx))]));
         const command = gate.run.replaceAll(`\${{ needs.${dependency}.result }}`, result);
-        const executed = spawnSync('bash', ['-c', command], { env: { ...process.env, ...env } });
+        const executed = spawnSync('bash', ['-c', command], { env });
         assert.equal(executed.status === 0, result === 'success' || (duplicate && result === 'skipped'), `${id}: ${result} / ${JSON.stringify(ctx)}`);
       }
     }
