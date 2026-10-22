@@ -37,9 +37,9 @@ Retain `first/`, `candidate-evidence.json`, `deployment-pin.json`,
 The consumer deployment contains relative `file:artifacts/` pins, tarballs,
 package/lock and the executable smoke script: run `npm ci` then `node smoke.mjs`
 in that directory on the build runner. It contains no workspace links.
-PR CI also retains a `reset-candidate` artifact for 90 days, with canonical GNU
-archives and the same consumer proof; this is artifact storage, not registry or
-forge publication.
+PR CI also retains a `reset-candidate-attempt-<N>` artifact for 90 days, where
+`<N>` is the workflow run attempt number, with canonical GNU archives and the
+same consumer proof; this is artifact storage, not registry or forge publication.
 Round 6 retains the remote evidence copy under ignored
 `dist/ait105-r6-final/candidate/`. Its `candidate-evidence.json` and
 `first/release-set.json` bind the exact final branch head. The committed
@@ -53,6 +53,108 @@ BSD and GNU tar encode different bytes. PR CI's Linux candidate is qualification
 and retention evidence for that CI source commit. A tag build from the same C
 must have the same normalized member digest; exact archive hashes remain specific
 to the candidate or published set.
+
+## Nineteenth October candidate (AIT-457)
+
+The reserved coordinate is `261022020419.0.0` (UTC reservation time), stable sequence
+30, status `reserved`. Marketing name: **Aithema 2026.10**, with the exact version
+below the notes title. Authority is Markus's standing release go, Desk
+**4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19, and LEAD 2026-10-22
+04:0x: RC19 after OPS's approximately 08:00 all-clear. The coordinator prepares
+and gates now; the OPS cut happens after the all-clear, never 06:00–08:00.
+The coordinator holds `release-lock/seq-30`, pushed at base
+`12cbf997599e166e938418faa522746f2cb36730` before preparation.
+
+This is the **eleventh release on the active fixed-candidate route (AIT-363 B)**.
+Order: lock tag (done), prep, coordinator gates, true merge preserving C,
+candidate marker, OPS cut, verification. There is **no merge freeze**: main
+keeps moving; the final committed RC head C is the candidate. Builders prepare
+only and invoke no review gates, tags, tag pushes, GitHub releases or publication.
+The coordinator owns release gates and merge; OPS owns the cut. This preparation
+changes release metadata and notes only. START pins the release separately;
+nothing waits on this release.
+
+Every requested Content item is on main at the lock. The complete first-parent
+range since `v261021222022.0.0` contains four PR merges: #406 (RC18 preparation,
+`a8d66cb5`), #407 (AIT-455, `08e53703`), #408 (AIT-454, `03a30cac`) and
+#409 (AIT-456, `12cbf997`). AIT-455 releases the consent cross-tab suite's
+headerless socket and gives browser and HTTP teardown named 10-second deadlines;
+it is test-only. AIT-454 keeps address editing open on repeated verified-identity
+refreshes, so the dialog no longer jumps when a reply finishes (0 px in 50/50
+runs at 390 px, DE/EN; Tick spec v1 and after-merge ok). AIT-456 balances unit
+CI in three shards (217/165/167 seconds in the merge group, previously one
+540–620-second job), with unchanged caps, one aggregate required `test` check,
+and support for new test files and partial re-runs. Stop and report if any
+expected item is missing; do not extend the lock's content range.
+Voxtral (AIT-342) remains parked, private and outside the release closure.
+Provider-side closure of a live call (AIT-446's second part) remains parked
+until ElevenLabs monitoring is enabled. The previous release
+`v261021222022.0.0`, sequence 29, AIT-452, published by OPS on 2026-10-22,
+is recorded in `history.json` at source
+`1d267d60455e88c351ddf6db3607ac4eb91ea8ac`.
+
+Notes lead with Tick's visitor benefit: “Your address edit stays open and the
+dialog no longer jumps when a reply finishes.” The brief host section covers
+AIT-454's visitor behaviour and unchanged overridden verification copy,
+AIT-455's test-only change and AIT-456's CI-only change, then links back to
+RC14's host requirements. **Breaking for hosts relative to RC18: none.** The
+#408 diff changes no public exports, configuration keys or HTTP status codes
+and adds no host integration requirement; #407 is test-only and #409 is CI-only.
+Grok Voice is **not yet qualified in live use**; “Aithema recommends” is preserved;
+this preparation changes no German visitor copy (AIT-426).
+
+Carried notes applied: AIT-452's retained final-head candidate directory is
+corrected to `dist/ait452-b2-final` for `1d267d60`; all release-document references
+to the CI candidate artifact now use `reset-candidate-attempt-<N>`, with the
+workflow run attempt number in place of `<N>` (AIT-456). `next-notes.md` contained
+only its empty stub and remains reset to it. All manifests, lock entries and
+internal dependency pins mirror the reservation, including private source-only
+workspaces. Migration and presentation pins stay fixed. `release/evidence.json`
+remains historical checkpoint evidence; the retained final-head evidence below
+is authoritative for this preparation.
+
+Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
+
+1. Fetch `origin --tags`; check every Content merge against main at
+   `release-lock/seq-30`. Commit the reservation, all mirrors/pins, history,
+   notes and this runbook with `--signoff`. Worktree:
+   `/Users/markus/Code/aithema-worktrees/ait-457`; branch:
+   `release/ait-457-nineteenth-release`; recorded builder: `AIT-457-b1`.
+2. Run the remote lane on the **final committed C**. The candidate test invokes
+   `npm run release:candidate -- <retained dir>`: two identical packs,
+   verification, isolated consumer smoke from all sixteen shipped module
+   tarballs, locked reinstall, dependency replacement and exact rollback.
+   Release tests cover `release/gate.mjs` tag matching and synthetic candidate
+   admission without creating any operational tag. WAIT means wait and retry
+   (five minutes for OPS-300 policy refusal); LOCAL-FALLBACK means stop with tests
+   pending, never run locally. No browser files change here; the full browser
+   suite runs in PR CI.
+
+   ```sh
+   EVIDENCE_OUT="$PWD/dist/ait457-final" \
+     /private/tmp/claude-501/-Users-markus-Code-aithema/c3acf551-65c1-4283-a0f5-bea8a7cfc6f7/scratchpad/remote-browser.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-457/dist/ait457-final/candidate/`,
+   including `first/`, `candidate-evidence.json` and the isolated consumer
+   deployment. Confirm `source_commit` equals C and that `manifest_sha256` and
+   `normalized_digest` bind `first/`. Make **no evidence-only commit after this
+   final build**. A subsequent source change requires a new final-head build.
+4. Push only the assigned branch, open a PR to main and wait for green CI:
+   eight browser shards, four browser aliases, test, preview-security and DCO.
+   Hand the coordinator the PR, C, X, sequence 30 (previous: 29), retained absolute
+   directory, manifest SHA-256 and normalized digest exactly as in the evidence.
+   After gates and true merge, the coordinator records the candidate marker and
+   hands it to OPS for the cut after the all-clear. Retain the directory in
+   durable owner storage before publication; CI retains
+   `reset-candidate-attempt-<N>` for 90 days.
 
 ## Eighteenth October candidate (AIT-452)
 
@@ -127,7 +229,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    suite runs in PR CI.
 
    ```sh
-   EVIDENCE_OUT="$PWD/dist/ait452-final" \
+   EVIDENCE_OUT="$PWD/dist/ait452-b2-final" \
      /private/tmp/claude-501/-Users-markus-Code-aithema/c3acf551-65c1-4283-a0f5-bea8a7cfc6f7/scratchpad/remote-browser.sh \
      "$PWD" unit --test-concurrency=2 \
      test/release-candidate.test.js test/release-workflow.test.js \
@@ -138,9 +240,9 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
      test/consumer-isolation.test.js test/grok-release.test.js
    ```
 
-3. Retain `/Users/markus/Code/aithema-worktrees/ait-452/dist/ait452-final/candidate/`,
-   including `first/`, `candidate-evidence.json` and the isolated consumer
-   deployment. Confirm `source_commit` equals C and that `manifest_sha256` and
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-452/dist/ait452-b2-final/candidate/`
+   for final committed head `1d267d60455e88c351ddf6db3607ac4eb91ea8ac`, including
+   `first/`, `candidate-evidence.json` and the isolated consumer deployment. Confirm `source_commit` equals C and that `manifest_sha256` and
    `normalized_digest` bind `first/`. Make **no evidence-only commit after this
    final build**. A subsequent source change requires a new final-head build.
 4. Push only the assigned branch, open a PR to main and wait for green CI:
@@ -149,7 +251,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    directory, manifest SHA-256 and normalized digest exactly as in the evidence.
    After gates and true merge, the coordinator records the candidate marker and
    hands it to OPS. Retain the directory in durable owner storage before
-   publication; CI retains `reset-candidate` for 90 days.
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Seventeenth October candidate (AIT-449)
 
@@ -241,7 +343,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    directory, manifest SHA-256 and normalized digest exactly as in the evidence.
    After gates and true merge, the coordinator records the candidate marker and
    hands it to OPS. Retain the directory in durable owner storage before
-   publication; CI retains `reset-candidate` for 90 days.
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Sixteenth October candidate (AIT-444)
 
@@ -329,7 +431,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    directory, manifest SHA-256 and normalized digest exactly as in the evidence.
    After gates and true merge, the coordinator records the candidate marker and
    hands it to OPS. Retain the directory in durable owner storage before
-   publication; CI retains `reset-candidate` for 90 days.
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Fifteenth October candidate (AIT-441)
 
@@ -417,7 +519,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    directory, manifest SHA-256 and normalized digest exactly as in the evidence.
    After gates and true merge, the coordinator records the candidate marker and
    hands it to OPS. Retain the directory in durable owner storage before
-   publication; CI retains `reset-candidate` for 90 days.
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Fourteenth October candidate (AIT-431 / START-524)
 
@@ -515,7 +617,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    directory, manifest SHA-256 and normalized digest exactly as in the evidence.
    After gates and true merge, the coordinator records the candidate marker and
    hands it to OPS. Retain the directory in durable owner storage before
-   publication; CI retains `reset-candidate` for 90 days.
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Thirteenth October candidate (AIT-415 / START-524)
 
@@ -600,7 +702,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    directory, manifest SHA-256 and normalized digest exactly as in the evidence.
    After gates and true merge, the coordinator records the candidate marker and
    hands it to OPS. Retain the directory in durable owner storage before
-   publication; CI retains `reset-candidate` for 90 days.
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Twelfth October candidate (AIT-413 / START-524)
 
@@ -705,7 +807,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    in the evidence. The coordinator copies those values into the immutable
    candidate marker after gates and true merge, then hands them to OPS; no OPS
    command is supplied by this builder. Retain the complete directory in durable
-   owner storage before publication; CI also retains `reset-candidate` for 90 days.
+   owner storage before publication; CI also retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Eleventh October candidate (AIT-408 / START-524)
 
@@ -811,7 +913,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    in the evidence. The coordinator copies those values into the immutable
    candidate marker after gates and true merge, then hands them to OPS; no OPS
    command is supplied by this builder. Retain the complete directory in durable
-   owner storage before publication; CI also retains `reset-candidate` for 90 days.
+   owner storage before publication; CI also retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Tenth October candidate (AIT-389 / START-523, START-550)
 
@@ -916,7 +1018,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    coordinator copies those values into the immutable candidate marker after
    gates and true merge, then hands them to OPS; no OPS command is supplied by
    this builder. Retain the complete directory in durable owner storage before
-   publication; CI also retains `reset-candidate` for 90 days.
+   publication; CI also retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Ninth October candidate (AIT-373 / START-550 #2)
 
@@ -1004,7 +1106,7 @@ Preparation order (all execution on mbp2606; no tests/builds on mbp2607):
    coordinator copies those values into the immutable candidate marker after
    gates and true merge, then hands them to OPS; no OPS command is supplied by
    this builder. Retain the complete directory in durable owner storage before
-   publication; CI also retains `reset-candidate` for 90 days.
+   publication; CI also retains `reset-candidate-attempt-<N>` for 90 days.
 
 ## Eighth October candidate (AIT-366 / START-550)
 
@@ -1091,7 +1193,7 @@ Run order (the round-6 evidence rule above applies):
    full directory to durable owner storage before publication.
 5. Push only `release/ait-366-eighth-release`, open a PR to main, leave it unmerged
    and wait for green CI: seven browser shards, four required browser aliases,
-   units, preview-security and DCO. CI retains `reset-candidate` for 90 days.
+   units, preview-security and DCO. CI retains `reset-candidate-attempt-<N>` for 90 days.
    The coordinator runs the release gate after handoff; OPS owns publication
    under the standing go and reports to Markus afterwards.
 
@@ -1168,7 +1270,7 @@ Run order (the round-6 evidence rule above applies):
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-360-seventh-release`, open the PR to main and wait for
    green PR CI: seven browser shards, all four required browser aliases, units,
-   preview-security and DCO. CI retains `reset-candidate` for 90 days. The
+   preview-security and DCO. CI retains `reset-candidate-attempt-<N>` for 90 days. The
    coordinator runs review gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.
 
@@ -1244,7 +1346,7 @@ Run order (the round-6 evidence rule above applies):
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-356-sixth-release`, open the PR to main and wait for
    green PR CI: seven browser shards, all four required browser aliases, units
-   and DCO. CI retains `reset-candidate` for 90 days. The coordinator runs review
+   and DCO. CI retains `reset-candidate-attempt-<N>` for 90 days. The coordinator runs review
    gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.
 
@@ -1322,7 +1424,7 @@ Run order (the round-6 evidence rule above applies):
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-325-fifth-release`, open the PR to main and wait for
    green PR CI: seven browser shards, all four required browser aliases, units
-   and DCO. CI retains `reset-candidate` for 90 days. The coordinator runs review
+   and DCO. CI retains `reset-candidate-attempt-<N>` for 90 days. The coordinator runs review
    gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.
 
@@ -1389,7 +1491,7 @@ Run order (the round-6 evidence rule above applies):
    head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-315-fourth-release`, open the PR to main and wait for
    green PR CI: seven browser shards, all four required browser aliases, units
-   and DCO. CI retains `reset-candidate` for 90 days. The coordinator runs review
+   and DCO. CI retains `reset-candidate-attempt-<N>` for 90 days. The coordinator runs review
    gates after builder handoff; copy the complete final directory to durable
    owner storage before OPS uses the publish route below.
 
@@ -1437,7 +1539,7 @@ Run order (the round-6 evidence rule above applies):
    `candidate-evidence.json` and `first/release-set.json` must both bind the
    handed-over head. Hand OPS that head and final manifest SHA-256 together.
 5. Push only `release/ait-303-third-release`, open the PR to main and wait for
-   green PR CI, including the retained `reset-candidate` artifact. The coordinator
+   green PR CI, including the retained `reset-candidate-attempt-<N>` artifact. The coordinator
    runs review gates; Tick owns release QA. Copy the complete final directory
    to durable owner storage before OPS uses the publish route below.
 
