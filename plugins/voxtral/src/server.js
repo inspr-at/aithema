@@ -10,7 +10,7 @@ export { manifest, componentManifest } from './manifest.js';
 
 /** Guarded speech selection using AIT-328's pure preflight. Await preflight
  * before parent/child admission; every component invocation also awaits it.
- * This is not account admission or a live provider. No default transports. */
+ * This format check is separate from account admission. No default transports. */
 export function createVoxtralComponents({ composition, ...options } = {}) {
   const config = validateVoxtralConfiguration(options.config);
   const stt = createVoxtralSTT({ ...options, config });
@@ -68,4 +68,5 @@ export function createVoxtralComponents({ composition, ...options } = {}) {
     outputFormat: TTS_FORMAT.encoding, outputAudioFormat: TTS_FORMAT });
 }
 
-export { createVoxtralProviderAuthority } from './provider.js';
+export { createVoxtralProviderAuthority, createVoxtralVoiceProvider } from './provider.js';
+export { createVoxtralTransports } from './transports.js';

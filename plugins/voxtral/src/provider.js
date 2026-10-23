@@ -1,4 +1,9 @@
-import { isDeepStrictEqual } from 'node:util';
+import { PluginError } from '@inspr/aithema-core/invocation';
+import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server';
+import { createComposedVoiceAuthority } from '@inspr/aithema-server/composed-voice/authority';
+import { createVoxtralComponents } from './server.js';
+import { createVoxtralTransports } from './transports.js';
+import { manifest, componentManifest } from './manifest.js';
 import { bindingReason, processingScope, consentReason, EU_COUNTRIES } from '@inspr/aithema-core';
 import { deepFreeze } from '@inspr/aithema-core/plugins';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
@@ -12,9 +17,12 @@ const euCountries = countries => Array.isArray(countries) && countries.length > 
 const emptyRouting = routing => routing === undefined || routing !== null && typeof routing === 'object' &&
   [Object.prototype, null].includes(Object.getPrototypeOf(routing)) && Reflect.ownKeys(routing).length === 0;
 const SELECTED_REASONING = 'selected reasoning binding must match the Voxtral authority';
+// Runtime effort selection changes invocation policy, not account/model identity.
+const sameReasoning = (a, b) => ['plugin', 'model', 'endpoint', 'accountRef', 'secretRef'].every(key => a?.[key] === b?.[key]) &&
+  a?.legal?.evidence?.dpaRef === b?.legal?.evidence?.dpaRef;
 const snapshot = value => value === undefined ? undefined : deepFreeze(structuredClone(value));
 
-/** Private, effect-free authority for AIT-330's future assembly. Pair each binding
+/** Private, effect-free authority for the supported assembly. Pair each binding
  * with the actual component/reasoning manifest and every host processor. The
  * mounted host must use these checks for admission AND delivery of late results,
  * and supply its authoritative synchronous session reader. No claims or ports for
@@ -39,8 +47,10 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
       plugin: { manifest: snapshot(part.plugin?.manifest) }, operation: part.operation })));
   } catch { invalid = 'current Mistral account and complete host processing evidence required'; }
 
-  function linkReason(part, { preset, policy }, clock) {
-    const { role, binding, plugin, operation } = part;
+  function linkReason(part, { preset, policy, reasoningBinding }, clock) {
+    const { role, plugin, operation } = part;
+    const binding = role === 'reasoning' && part.binding
+      ? { ...part.binding, effort: reasoningBinding?.effort ?? part.binding.effort ?? 'none' } : part.binding;
     if (!binding || !plugin.manifest || plugin.manifest.id !== binding.plugin) return 'component binding mismatch';
     const model = plugin.manifest.models?.find(model => model.id === binding.model || model.id === '*');
     if (!operation || !model?.operations?.includes(operation)) return 'operation unsupported';
@@ -77,8 +87,8 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
       let reason = accountReason;
       if (!reason) {
         try {
-          reason = part.role === 'reasoning' && reasoningBinding !== undefined && !isDeepStrictEqual(reasoningBinding, part.binding)
-            ? SELECTED_REASONING : linkReason(part, { preset, policy }, clock);
+          reason = part.role === 'reasoning' && reasoningBinding !== undefined && !sameReasoning(reasoningBinding, part.binding)
+            ? SELECTED_REASONING : linkReason(part, { preset, policy, reasoningBinding }, clock);
         }
         catch { reason = 'invalid processing binding'; }
       }
@@ -89,7 +99,7 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
     // check must never turn international reasoning into an EU claim.
     let euEligible = !reason;
     if (euEligible) for (const part of parts) {
-      try { if (linkReason(part, { preset: 'eu', policy }, clock)) euEligible = false; }
+      try { if (linkReason(part, { preset: 'eu', policy, reasoningBinding }, clock)) euEligible = false; }
       catch { euEligible = false; }
     }
     return deepFreeze({ reason, available: reason === null, euEligible, links });
@@ -150,3 +160,75 @@ export function createVoxtralProviderAuthority({ config: raw, componentBindings,
     ports: Object.freeze({ serverAdapter: adapter }) });
 }
 
+/** Supported host assembly. Host callbacks own session/reasoning selection and
+ * re-enter AIT-331 on every authorization, including late result delivery.
+ * Component admission is a private host port; reservation formulas and durable
+ * speech charging are deliberately left to AIT-332. */
+export function createVoxtralVoiceProvider({ enabled = false, config: raw, binding: rawBinding,
+  componentBindings: rawBindings, plugins, hostProcessing, storage, consent, getSession,
+  resolveSecret, connect, fetchImpl, WebSocket, composition, admitComponent,
+  authenticateRelay, relayOrigin, now = Date.now } = {}) {
+  const binding = snapshot(rawBinding), componentBindings = snapshot(rawBindings);
+  let config, components, unavailable;
+  try {
+    config = validateVoxtralAccountConfiguration(raw, { now: now() });
+    if (!binding || binding.plugin !== 'voxtral-voice' || binding.model !== 'voxtral-voice' ||
+      binding.endpoint !== config.endpoint || binding.accountRef !== config.accountRef || binding.secretRef !== config.secretRef ||
+      binding.maxMicro !== 0 || binding.upstreamMicroPerMinute !== 0) throw new TypeError('Invalid parent binding');
+    if (!connect && WebSocket) ({ connect } = createVoxtralTransports({ endpoint: config.endpoint, WebSocket }));
+    components = createVoxtralComponents({ enabled, config, composition, resolveSecret, connect, fetchImpl });
+  } catch { unavailable = 'current Mistral account and parent binding required'; }
+  const gate = createVoxtralProviderAuthority({ config: raw, componentBindings, hostProcessing, consent, getSession, now,
+    plugins: { ...plugins, stt: { manifest: componentManifest }, tts: { manifest: componentManifest } } });
+  let mounted;
+  const authorize = async (request, options) => {
+    if (unavailable || !enabled || !mounted) return false;
+    // The mounted authority reads the current session and actual reasoning
+    // selection through runtime.checkVoice, which calls this adapter's gate.
+    return await mounted.authorize(request, options) === true;
+  };
+  const composed = createComposedVoice({ enabled, binding, manifest, storage, now,
+    config: binding?.adapterConfig ?? {}, interruptionAwareness: true,
+    stt: components?.stt, tts: components?.tts, componentsReady: components?.preflight,
+    authenticateRelay, relayOrigin, authorize,
+    commitUtterance: (envelope, options) => mounted.commitUtterance(envelope, options),
+    replyExecutor: { execute: (envelope, options) => mounted.replyExecutor.execute(envelope, options) },
+    async admitComponent(request) {
+      if (!await authorize(request, request)) throw new PluginError('not-admitted');
+      if (typeof admitComponent !== 'function') throw new PluginError('not-admitted', 'host speech admission required');
+      return admitComponent({ ...request, binding: componentBindings[request.role] });
+    },
+  });
+  async function health() {
+    if (unavailable) return { available: false, reason: unavailable };
+    try { validateVoxtralAccountConfiguration(config, { now: now() }); }
+    catch { return { available: false, reason: 'current Mistral account evidence required' }; }
+    const available = enabled && typeof resolveSecret === 'function' && typeof connect === 'function' &&
+      typeof fetchImpl === 'function' && typeof storage?.saveVoiceCall === 'function';
+    return { available, reason: available ? 'not yet qualified in live use' : 'Voxtral components unavailable' };
+  }
+  const start = async (request, options) => {
+    if (components) await voiceOperation(options, () => components.preflight);
+    const state = await health(); if (!state.available) throw new PluginError('unavailable', state.reason);
+    if (!await authorize(request, options)) throw new PluginError('not-admitted');
+    const session = await storage.authorize(request.sessionId, request.ownerToken);
+    const epoch = storage.voiceLifecycle?.(request.sessionId, request.callId)?.epoch ?? 0;
+    return composed.start({ ...request, epoch, voice: config.voiceId, language: session.locale }, options);
+  };
+  const adapter = Object.freeze({ ...composed.ports.serverAdapter, ...gate.ports.serverAdapter,
+    async admissionReason(request, options) {
+      if (components) await voiceOperation(options, () => components.preflight);
+      const state = await health(); if (!state.available) return state.reason;
+      return gate.admissionReason(request, options);
+    },
+    bindCallbacks(operations) {
+      if (mounted) throw new PluginError('already-claimed');
+      mounted = createComposedVoiceAuthority(operations);
+      return { prepareCallback: () => ({ request: {}, prepare() {}, revoke() {} }),
+        callbackRoutes: composed.networkRelay ? [{ method: 'POST', path: '/composed/relay', handle: request => composed.networkRelay.handle(request) }] : [] };
+    },
+    startSegment: start,
+  });
+  return Object.freeze({ ...composed, manifest, binding, health, start,
+    ports: Object.freeze({ ...composed.ports, serverAdapter: adapter }) });
+}

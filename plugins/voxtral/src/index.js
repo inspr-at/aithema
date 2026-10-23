@@ -3,13 +3,14 @@ import { deepFreeze } from '@inspr/aithema-core/plugins';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { componentInvocation, boundedEvents, TTS_SPEAK_BYTES, TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS } from '@inspr/aithema-core/voice-components';
 
-import { STT_FORMAT, TTS_FORMAT, STT_MODEL, TTS_MODEL } from './configuration.js';
+import { STT_FORMAT, TTS_FORMAT, STT_MODEL, TTS_MODEL, voxtralEndpoints } from './configuration.js';
 import { componentManifest as manifest } from './manifest.js';
 export { STT_FORMAT, TTS_FORMAT } from './configuration.js';
 export { componentManifest as manifest } from './manifest.js';
 
 function configuration(raw = {}) {
   const endpoint = raw.endpoint ?? 'https://api.mistral.ai', url = new URL(endpoint);
+  voxtralEndpoints(endpoint);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/' ||
     raw.secretRef !== undefined && (typeof raw.secretRef !== 'string' || !raw.secretRef) ||
     !Number.isSafeInteger(raw.targetDelayMs ?? 480) || (raw.targetDelayMs ?? 480) < 0 || (raw.targetDelayMs ?? 480) > 2400 ||
@@ -32,30 +33,41 @@ function decodeJSON(wire, maxCharacters = 256_000) {
   try { const value = JSON.parse(wire); if (!value || typeof value.type !== 'string') throw new Error(); return value; }
   catch { throw new PluginError('invalid-output'); }
 }
-function providerError(value) {
+function providerError(value, tts = false) {
+  const marker = value?.error?.code ?? value?.code;
+  if (tts && ['moderation_blocked', 'content_policy_violation', 'moderation_refused'].includes(marker)) return new PluginError('provider', 'tts-moderation-refused');
   const status = value?.status ?? value?.error?.code;
-  return new PluginError(status === 401 || status === 403 ? 'auth' : status === 429 ? 'rate-limit' : 'provider');
+  return new PluginError(status === 401 || status === 403 ? 'auth' : status === 429 ? 'rate-limit' : 'provider',
+    tts && status === 403 ? 'tts-forbidden-or-moderation' : status === 401 ? 'provider-authentication-failed' : status === 429 ? 'provider-rate-limited' : 'provider-request-failed');
 }
 
-/** No default transport: PR 4a can only use an explicitly injected fixture port. */
+/** Server-only component: host-injected transport and secret resolver. */
 export function createVoxtralSTT({ enabled = false, config: raw, resolveSecret, connect } = {}) {
   const config = configuration(raw);
   const stream = async function* ({ audio, format }, options) {
     if (!enabled || typeof connect !== 'function') throw new PluginError('unavailable');
     if (format !== STT_FORMAT.encoding || !audio?.[Symbol.asyncIterator]) throw new TypeError('PCM16 stream required');
     const invocation = await componentInvocation(options, { role: 'stt', unit: 'seconds', model: STT_MODEL });
-    const opts = { ...options, signal: invocation.signal }; let socket, pump, completed = false, bytes = 0, text = '', created = false;
+    const cleanup = new AbortController();
+    const opts = { ...options, signal: AbortSignal.any([invocation.signal, cleanup.signal]) };
+    let socket, pump, pumpError, closed = false, completed = false, bytes = 0, text = '', created = false, count = 0;
+    const stop = () => { if (!closed && socket) { closed = true; return socket.close(); } };
     const audioIterator = audio[Symbol.asyncIterator]();
     try {
       const headers = await authorization(config, resolveSecret, opts);
       const url = new URL('/v1/audio/transcriptions/realtime', config.endpoint); url.protocol = 'wss:'; url.searchParams.set('model', STT_MODEL);
       invocation.dispatch();
-      socket = await voiceOperation(opts, () => connect({ url: url.href, headers, signal: opts.signal }));
+      const pending = Promise.resolve().then(() => connect({ url: url.href, headers, signal: opts.signal }));
+      let accepted = false;
+      try { socket = await voiceOperation(opts, () => pending); accepted = true; }
+      finally { if (!accepted) void pending.then(value => value?.close?.()).catch(() => {}); }
       if (!socket?.send || !socket.close || !socket.events?.[Symbol.asyncIterator]) throw new PluginError('invalid-output');
-      const stop = () => { void Promise.resolve(socket.close()).catch(() => {}); };
-      opts.signal.addEventListener('abort', stop, { once: true });
+      const onAbort = () => { void Promise.resolve().then(stop).catch(() => {}); };
+      opts.signal.addEventListener('abort', onAbort, { once: true });
+      opts.signal.throwIfAborted();
       try {
         for await (const wire of boundedEvents(socket.events, opts)) {
+          if (++count > 4096) throw new PluginError('limit');
           const event = decodeJSON(wire);
           if (event.type === 'error') throw providerError(event);
           if (event.type === 'session.created') {
@@ -73,14 +85,14 @@ export function createVoxtralSTT({ enabled = false, config: raw, resolveSecret, 
               }
               await voiceOperation(opts, () => socket.send(JSON.stringify({ type: 'input_audio.end' })));
             })();
-            pump.catch(stop);
+            pump.catch(error => { pumpError = error; cleanup.abort(); });
           } else if (event.type === 'transcription.text.delta') {
             if (!created || typeof event.text !== 'string') throw new PluginError('invalid-output');
             text += event.text; if (text.length > 32_768) throw new PluginError('limit');
             yield { text, final: false };
           } else if (event.type === 'transcription.done') {
             if (!created || typeof event.text !== 'string' || event.text.length > 32_768) throw new PluginError('invalid-output');
-            await pump;
+            await voiceOperation(opts, () => pump);
             invocation.usage(bytes / 32_000, Math.ceil(bytes / 32_000 * config.sttMicroPerSecond), 'configured-audio-tariff');
             completed = true;
             yield { text: event.text, final: true }; break;
@@ -88,11 +100,12 @@ export function createVoxtralSTT({ enabled = false, config: raw, resolveSecret, 
           // Language/segment diagnostics and future events cannot establish finality.
         }
         if (!completed) throw new PluginError('invalid-output', 'Transcription ended without done');
-      } finally { opts.signal.removeEventListener('abort', stop); }
-    } catch (error) { throw normalizedError(error, opts.signal); }
+      } finally { opts.signal.removeEventListener('abort', onAbort); }
+    } catch (error) { throw pumpError ?? normalizedError(error, opts.signal); }
     finally {
+      cleanup.abort();
       if (audioIterator.return) void Promise.resolve(audioIterator.return()).catch(() => {});
-      if (socket) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => socket.close()).catch(() => {});
+      if (socket) await voiceOperation({ deadlineAt: Date.now() + 1000 }, stop).catch(() => {});
       await invocation.finish(completed);
     }
   };
@@ -115,6 +128,7 @@ async function* speechEvents(body, options) {
   try {
     for (;;) {
       const item = await voiceOperation(options, () => reader.read());
+      if (!item.done && (!(item.value instanceof Uint8Array) || item.value.byteLength > TTS_SPEAK_BYTES * 2)) throw new PluginError('limit');
       const input = item.done ? decoder.decode() : decoder.decode(item.value, { stream: true });
       // HTTP reads may coalesce many valid events. Bound the pending SSE
       // message, not the aggregate read, and drain before accepting more.
@@ -131,6 +145,20 @@ async function* speechEvents(body, options) {
       }
       if (item.done) { if (pending.trim()) throw new PluginError('invalid-output'); return; }
     }
+  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+
+async function errorDetail(body, options) {
+  const reader = body?.getReader(); if (!reader) return {};
+  let length = 0; const chunks = [];
+  try {
+    for (;;) {
+      const { value, done } = await voiceOperation(options, () => reader.read());
+      if (done) break;
+      if (!(value instanceof Uint8Array) || (length += value.byteLength) > 8192) return {};
+      chunks.push(value);
+    }
+    try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return {}; }
   } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
@@ -151,11 +179,22 @@ export function createVoxtralTTS({ enabled = false, config: raw, resolveSecret, 
         if (!Number.isSafeInteger(cost) || cost > options.attempt.maxMicro) throw new PluginError('not-admitted');
         const headers = await authorization(config, resolveSecret, opts);
         invocation.dispatch();
-        const response = await voiceOperation(opts, () => fetchImpl(`${config.endpoint}/v1/audio/speech`, {
+        const pending = Promise.resolve().then(() => fetchImpl(`${config.endpoint}/v1/audio/speech`, {
           method: 'POST', redirect: 'error', headers: { ...headers, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
           signal: opts.signal, body: JSON.stringify({ model: TTS_MODEL, input: text, voice_id: voice, response_format: 'pcm', stream: true }) }));
-        if (!response.ok) throw providerError({ status: response.status });
-        if (!response.headers.get('content-type')?.startsWith('text/event-stream')) throw new PluginError('invalid-output');
+        let response, accepted = false;
+        try { response = await voiceOperation(opts, () => pending); accepted = true; }
+        finally { if (!accepted) void pending.then(value => value?.body?.cancel()).catch(() => {}); }
+        if (!response.ok) {
+          // A 403 can mean TTS moderation, not just authentication. Never publish
+          // provider text; inspect only bounded machine-readable error markers.
+          const detail = await errorDetail(response.body, opts);
+          throw providerError({ ...detail, status: response.status }, true);
+        }
+        if (!response.headers.get('content-type')?.startsWith('text/event-stream')) {
+          void response.body?.cancel().catch(() => {});
+          throw new PluginError('invalid-output');
+        }
         for await (const event of speechEvents(response.body, opts)) {
           if (event.type === 'speech.audio.delta') {
             if (typeof event.audio_data !== 'string' || event.audio_data.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(event.audio_data)) throw new PluginError('invalid-output');
@@ -169,7 +208,7 @@ export function createVoxtralTTS({ enabled = false, config: raw, resolveSecret, 
           } else if (event.type === 'speech.audio.done') {
             if (!totalBytes || !event.usage || typeof event.usage !== 'object') throw new PluginError('invalid-output');
             invocation.usage(characters, cost, 'configured-character-tariff'); completed = true; break;
-          } else if (event.type === 'error') throw providerError(event);
+          } else if (['error', 'speech.audio.error'].includes(event.type)) throw providerError(event, true);
           else throw new PluginError('invalid-output');
         }
         if (!completed) throw new PluginError('invalid-output', 'Speech ended without done');

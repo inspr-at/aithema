@@ -50,7 +50,7 @@ test('AIT-329: supported entrypoints preserve component identity and separate li
   assert.equal(manifest.entrypoints.browser, './src/client.js');
   const client = await import('@inspr/aithema-plugin-voxtral/client');
   assert.equal(client.manifest, manifest);
-  assert.deepEqual(Object.keys(client), ['manifest'], 'client assembly belongs to AIT-330');
+  assert.equal(typeof client.createVoxtralVoiceClient, 'function', 'AIT-330 supplies the browser assembly');
 });
 
 test('AIT-329: private workspace has exact dependencies and keeps the boundary policy', async () => {

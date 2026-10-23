@@ -16,7 +16,8 @@
     "./composed-voice/network-client": "./src/composed/network-client.js",
     "./composed-voice/browser-audio": "./src/composed/browser-audio.js",
     "./composed-voice/authority": "./src/composed/authority.js",
-    "./composed-voice/accounting": "./src/composed/accounting.js"
+    "./composed-voice/accounting": "./src/composed/accounting.js",
+    "./composed-voice/pcm-capture-worklet.js": "./src/composed/pcm-capture-worklet.js"
   },
   "bin": {
     "aithema-server": "./bin/server.js"
