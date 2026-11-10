@@ -12,10 +12,10 @@ export const inputRevision = session => `${session.inputRevision}:${session.conv
 // Identity still invalidates assessment input, but an admitted reply owns its turn.
 export const replyInputRevision = session => inputRevision({ ...session,
   sessionRevision: (session.sessionRevision ?? 0) - (session.identityRevision ?? 0) });
-// Legacy unstamped replies keep their question; old full stamps retain their fence.
+// Old full-revision stamps retain their strict freshness fence.
 export const replyIsCurrent = (session, turn) => turn.replyRevision !== undefined
   ? turn.replyRevision === replyInputRevision(session)
-  : turn.inputRevision === undefined || turn.inputRevision === inputRevision(session);
+  : turn.inputRevision === inputRevision(session);
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
 /** IDs belong to one assessment, including replacements at the same input revision. */
 export function openQuestionItems(session) {
@@ -29,7 +29,7 @@ export function openQuestionItems(session) {
 function latestReply(session) {
   if (session.tombstone || session.consentWithdrawn) return null;
   const turn = activeTurns(session).at(-1);
-  if (turn?.role !== 'assistant' || !replyIsCurrent(session, turn)) return null;
+  if (turn?.role !== 'assistant' || turn.inputRevision !== undefined && !replyIsCurrent(session, turn)) return null;
   return turn;
 }
 export function currentQuestionCard(session) {
