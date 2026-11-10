@@ -24,7 +24,7 @@ async function fixture(t, options = {}) {
 }
 function inline(root, copy, disabled = false) {
   const retry = root.querySelector('.retry');
-  assert.equal(retry.parentNode, root.querySelector('.reaction-failure'));
+  assert.ok(retry.parentNode === root.querySelector('.reaction-failure'), 'same Retry node belongs to the reply line');
   assert.equal(retry.hidden, false); assert.equal(retry.disabled, false);
   assert.equal(retry.getAttribute('aria-disabled'), String(disabled));
   assert.equal(retry.textContent, copy.retry);
@@ -42,7 +42,7 @@ for (const copy of [en, de]) for (const identity of [locked(), pending()]) {
     c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
     status(c, [], []);
     assert.equal(root.querySelector('.reaction-failure').hidden, true);
-    assert.equal(retry.parentNode, root.querySelector('.understanding > .foot'));
+    assert.ok(retry.parentNode === root.querySelector('.understanding > .foot'), 'same Retry node belongs to the footer');
     assert.equal(retry.hidden, true); assert.equal(retry.hasAttribute('aria-disabled'), false); assert.equal(retry.hasAttribute('aria-busy'), false);
     assert.equal(root.querySelector('.readiness').inert, true); assert.equal(retries(calls), 1);
   });
@@ -122,7 +122,7 @@ test('AIT-466 N2: assessment becoming available keeps the reply slot and uses th
   fail(c); const retry = root.querySelector('.retry'); inline(root, en);
   available = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(8);
   assert.equal(c.session.featureMatrix.best.analysis.available, true);
-  inline(root, en); assert.equal(root.querySelector('.reaction-failure > .retry'), retry);
+  inline(root, en); assert.ok(root.querySelector('.reaction-failure > .retry') === retry, 'same Retry stays on the reply line');
   root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), 1);
 });
 test('AIT-466 N2 guard: unlocked reconciliation retains automatic recovery', async t => {
@@ -142,7 +142,7 @@ test('AIT-466 U9: newer shared failure survives the older acknowledgement', asyn
 test('AIT-466 U10 guard: available assessment keeps shared footer Retry', async t => {
   const { c, root, calls } = await fixture(t, { host: {}, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: true }) } });
   fail(c); const retry = root.querySelector('.retry');
-  assert.equal(retry.parentNode, root.querySelector('.understanding > .foot')); assert.equal(retry.hasAttribute('aria-disabled'), false);
+  assert.ok(retry.parentNode === root.querySelector('.understanding > .foot'), 'same Retry node belongs to the footer'); assert.equal(retry.hasAttribute('aria-disabled'), false);
   retry.click(); await tick(); assert.equal(retries(calls), 1);
 });
 
@@ -155,7 +155,7 @@ for (const state of ['active', 'waiting']) test(`AIT-466 U6: identity race Retry
 test('AIT-466 U6: assessable identity race retains footer slot and reply gate', async t => {
   const { c, root, calls } = await fixture(t, { host: null, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: true }) } });
   fail(c, { reason: 'identity-changed' }); const retry = root.querySelector('.retry');
-  assert.equal(retry.parentNode, root.querySelector('.understanding > .foot'));
+  assert.ok(retry.parentNode === root.querySelector('.understanding > .foot'), 'same Retry node belongs to the footer');
   assert.equal(retry.hidden, false); assert.equal(retry.getAttribute('aria-disabled'), 'false');
   retry.click(); await tick(); assert.equal(retries(calls), 1);
 });
