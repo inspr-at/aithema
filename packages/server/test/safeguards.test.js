@@ -700,7 +700,26 @@ for (const path of ['P', 'V']) test(`AIT-463 T12: delegated voice ${path} unlock
   await f.handlers.idle(); assert.equal(f.assessments.length, 1); assert.equal(f.calls.length, 0);
   const current = f.storage.get(id); assert.equal(current.understanding.inputRevision, inputRevision(current));
   assert.equal(current.transcript.at(-1).replyRevision !== undefined, true, 'voice finals persist reply identity');
-  await f.handlers.handle(req(id, `voice/${call.callId}/end`, { providerSessionId: call.providerSessionId }));
+  await f.handlers.handle(req(id, `voice/${call.callId}/close`, { providerSessionId: call.providerSessionId }));
   const stream = await f.handlers.handle(req(id, 'events')); await stream.body.cancel(); await f.handlers.idle();
   assert.equal(f.calls.length, 0);
+});
+
+test('AIT-463 B1: carry skips NULL and unrelated epochs, treats columns independently, and rolls back with the flip', t => {
+  const { storage, id, last } = unlockStorage(t);
+  const suffix = last.slice(last.indexOf(':'));
+  const insert = storage.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,assessment_revision,off_topic,analysis_off) VALUES (?,?,?,?,0,0)');
+  insert.run(id, 'split', null, `0${suffix}`);
+  insert.run(id, 'old', '0:99:0:en:0:false', null);
+  const before = storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id);
+  assert.throws(() => storage.transitionHost(id, () => ({ state: {}, events: [
+    { type: 'identity.state', data: { identified: true } },
+    { type: 'turn.final', data: { id: 'invalid', role: 'user' } },
+  ] })));
+  assert.equal(storage.get(id).identified, false);
+  assert.deepEqual(storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id), before);
+  storage.append(id, 'identity.state', { identified: true });
+  const next = inputRevision(storage.get(id)), split = storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=? AND input_key=?').get(id, 'split');
+  assert.equal(split.revision, null); assert.equal(split.assessment_revision, `0${next.slice(next.indexOf(':'))}`);
+  assert.deepEqual(storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=? AND input_key=?').get(id, 'old'), before.find(row => row.input_key === 'old'));
 });
