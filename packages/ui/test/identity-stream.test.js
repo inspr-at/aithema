@@ -262,7 +262,7 @@ test('AIT-470 U16 waiting-call: a 409 cannot roll back the acknowledged Resume p
 
 test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent window is live', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const held = Promise.withResolvers(); t.after(() => held.resolve()); let polls = 0;
+  const held = Promise.withResolvers(); t.after(() => held.resolve()); let polls = 0, conflicts = 0;
   const h = fixture470(t, { session: { identity: pending470({ pollVerification: true }) }, routes: {
     'POST /identity/unlock': () => {
       polls++;
@@ -270,7 +270,7 @@ test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent wind
       h.state.snapshot = () => held.promise.then(() => Response.json(h.c.session));
       event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true });
       assert.equal(h.reads, 1, 'the live consent window owns an unfinished read');
-      h.state.snapshot = () => new Response(null, { status: 409 });
+      h.state.snapshot = () => { conflicts++; return new Response(null, { status: 409 }); };
       return Response.json({ identity: verified470() });
     } } });
   await tick(8);
@@ -288,6 +288,7 @@ test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent wind
   });
   t.mock.timers.tick(4000); await tick(8);
   assert.equal(polls, 1, 'the poll response reaches the live-window unlock edge');
+  assert.equal(conflicts, 1, 'the edge read receives the injected conflict');
   assert.equal(streams, 1, 'the unlock-edge conflict reconnects even inside live consent');
   assert.equal(h.reads, 3); clear470(h);
   held.resolve(); await tick(8); t.mock.timers.tick(60_000); await tick(8);
