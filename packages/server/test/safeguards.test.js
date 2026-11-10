@@ -237,7 +237,7 @@ test('AIT-174 round2 unclear options are cleared; direction question is text onl
     }
   }
   const path = await temporaryDb(); let storage = new SQLiteStorage(path);
-  const session = configuredHost ? null : storage.create({ demo: true, ownerToken: testToken });
+  const session = storage.create({ demo: true, ownerToken: testToken });
   for (let i = 0; i < 3; i++) {
     storage.postTurn(session.id, 'vague-' + i, Buffer.from('vague'), 'vague');
     storage.guardPurposeDirection(session.id, { content: 'What should improve?', scope: 'unclear', question_short: null, options: [] }, purposePolicy);
