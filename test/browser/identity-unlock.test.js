@@ -157,7 +157,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       window.__ait470Hidden = false;
       Object.defineProperty(document, 'hidden', { get: () => window.__ait470Hidden });
       Object.defineProperty(document, 'visibilityState', { get: () => window.__ait470Hidden ? 'hidden' : 'visible' });
-      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [], arrivals: [], closes: [] };
+      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [], arrivals: [], closes: [], unlocks: [] };
       const ids = new WeakMap(); let nextId = 0;
       window.__ait470Id = object => {
         if (!ids.has(object)) ids.set(object, ++nextId);
@@ -174,6 +174,14 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           const response = await original.call(this, url, options);
           const body = await response.clone().json();
           Object.assign(read, { t1: performance.now(), status: response.status, revision: body.consentRevision, event: body.event });
+          return response;
+        }
+        if (path.endsWith('/identity/unlock')) {
+          const response = await original.call(this, url, options), body = await response.clone().json();
+          evidence.unlocks.push({ t: performance.now(), wall: Date.now(),
+            unlocked: body.identity?.assessmentUnlocked === true,
+            journalLocked: component()?.session?.identity?.assessmentUnlocked !== true,
+            readCount: evidence.reads.length, fence: component()?.ait470Fence });
           return response;
         }
         if ((options.method ?? 'GET') !== 'GET' || !/^\/api\/sessions\/[^/]+$/u.test(path)) return original.call(this, url, options);
@@ -318,7 +326,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     evidence.unlockedAt = unlockedAt;
     if (freezeAt) {
       evidence.freezeAt = freezeAt;
-      assert.equal(f.log.filter(e => e.t0 > freezeAt && e.t0 < unlockedAt && (e.kind === 'restore' || e.path.endsWith('/events'))).length, 0,
+      evidence.pollUnlock = await page.evaluate(freezeAt => window.__ait470.unlocks.find(u => u.unlocked && u.wall >= freezeAt), freezeAt);
+      assert.ok(evidence.pollUnlock?.journalLocked, 'the frozen original stream misses the unlock before its HTTP response');
+      assert.equal(evidence.pollUnlock.readCount, before, 'no feature read starts for the missed stream unlock before the poll edge');
+      assert.equal(f.log.filter(e => e.t0 > freezeAt && e.t0 < evidence.pollUnlock.wall && (e.kind === 'restore' || e.path.endsWith('/events'))).length, 0,
         'P-stalled: no restore GET or stream reconnection between freeze and unlock');
     }
     if (variant === 'P-continue-slow' || variant === 'V-outbox-slow') {
@@ -355,7 +366,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       }, seconds));
     }
     const reads = await page.evaluate(before => window.__ait470.reads.slice(before), before);
-    evidence.redPrecondition = variant === 'P-stalled' && reads.length === 0 ? 'never-started' : reads.some(r => r.outcome === 'behind') ? 'behind' : null;
+    evidence.redPrecondition = variant === 'P-stalled' && evidence.pollUnlock?.journalLocked && evidence.pollUnlock.readCount === before ? 'never-started' : reads.some(r => r.outcome === 'behind') ? 'behind' : null;
     if (['P-stalled', 'P-continue-slow', 'V-outbox-slow'].includes(variant)) {
       // A healed run can be green, but must still prove that the injected fault occurred.
       assert.ok(evidence.redPrecondition, 'red mechanism (never-started or behind) must be proven before checking wording');
