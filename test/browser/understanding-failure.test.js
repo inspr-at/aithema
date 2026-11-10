@@ -626,6 +626,34 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
   if (evidence) await writeFile(join(evidence, 'ait212-r5-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
 
+// Measure the person and reply, including clipping and compensation, independently
+// of the Retry node that disappears at completion.
+const transcriptState = page => shadow(page, c => {
+  const root = c.shadowRoot, shell = root.querySelector('.transcript-shell'), list = shell.querySelector('ol');
+  const rect = n => { const r = n.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; };
+  const person = rect(list.querySelector('.turn.user')), reply = list.querySelector('.turn:not(.user)');
+  const viewport = rect(shell), style = getComputedStyle(shell);
+  return { person, reply: reply && rect(reply), viewport, scrollTop: shell.scrollTop,
+    paddingTop: parseFloat(style.paddingTop), paddingBottom: parseFloat(style.paddingBottom),
+    slack: ['top', 'bottom'].map(side => parseFloat(shell.style.getPropertyValue(`--aithema-slack-${side}`)) || 0),
+    rowGap: parseFloat(getComputedStyle(list).rowGap),
+    emptyGap: reply && Math.max(0, viewport.bottom - reply.getBoundingClientRect().bottom) };
+});
+
+const successfulTranscript = (baseline, state, normal, label) => {
+  assert.ok(state.person.top >= state.viewport.top + 8 - .5 && state.person.bottom <= state.viewport.bottom + .5,
+    `${label}: entire person row inside transcript viewport: ${JSON.stringify(state)}`);
+  assert.ok(Math.abs(state.person.top - baseline.person.top) <= .5,
+    `${label}: person top matches pre-click baseline ${baseline.person.top} → ${state.person.top}`);
+  assert.ok(Math.abs(state.reply.top - state.person.bottom - state.rowGap) <= .5,
+    `${label}: reply directly below person`);
+  for (const key of ['paddingTop', 'paddingBottom']) assert.ok(Math.abs(state[key] - baseline[key]) <= .5,
+    `${label}: ${key} returns to pre-failure value ${baseline[key]} → ${state[key]}`);
+  state.slack.forEach((value, i) => assert.ok(Math.abs(value - baseline.slack[i]) <= .5, `${label}: slack ${i} restored`));
+  assert.ok(state.emptyGap <= normal.emptyGap + .5,
+    `${label}: empty gap below reply no larger than normal success ${normal.emptyGap} → ${state.emptyGap}`);
+};
+
 test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/1440', { timeout: 90_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-locked-retry-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'fixture.sqlite'), { AITHEMA_HOST_LOCK: '1' });
@@ -644,10 +672,39 @@ test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/14
     }
   };
   const stats = () => page.evaluate(async () => (await fetch('/stats')).json());
-  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) await t.test(`${locale}/${width}`, async () => {
     await page.mouse.move(-1, -1);
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    // Guard the existing unlocked path with the same person/reply and resting pointer.
+    await shadow(page, async (c, locale) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.transcript = [{ id: 'normal-person', role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' }];
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      session.operations = { inputRevision: inputRevision(session), running: ['reaction'], failures: [], lastFailure: null };
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ session, copy });
+    }, locale);
+    await settle(page);
+    const normalBaseline = await transcriptState(page);
+    await page.mouse.move(normalBaseline.viewport.top + 20, normalBaseline.person.bottom + 25);
+    await shadow(page, c => {
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'normal-reply', role: 'assistant',
+        content: 'Welche Arbeit? Which work?', inputRevision: c.session.operations.inputRevision } });
+      c.receive({ type: 'lane.status', data: { ...c.session.operations, running: [] } });
+    });
+    await settle(page);
+    const normal = await transcriptState(page);
+    successfulTranscript(normalBaseline, normal, normal, `${locale}/${width} normal success`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations })); await settle(page);
+    successfulTranscript(normalBaseline, await transcriptState(page), normal, `${locale}/${width} settled normal success`);
+    console.log(`AIT-466 NORMAL PASS ${locale}/${width}: ${JSON.stringify({ baseline: normalBaseline, normal })}`);
+    await page.mouse.move(-1, -1);
     const statsBefore = await stats();
     await shadow(page, async (c, locale) => {
       const session = await (await fetch('/locked-reply-failure?locale=' + locale)).json();
@@ -675,6 +732,7 @@ test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/14
       }, { signal: (window.retryListenerAbort?.abort(), (window.retryListenerAbort = new AbortController()).signal) });
     }, locale);
     await settle(page);
+    const beforeFailure = await transcriptState(page);
     let state = await sample();
     assert.equal(state.inline, true); assert.equal(state.disabled, 'false'); assert.equal(state.hidden, false); assert.equal(state.nativeDisabled, false);
     assert.equal(state.readinessInert, true); assert.equal(state.text, state.expected);
@@ -687,7 +745,7 @@ test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/14
       return { x, y, reachable: c.shadowRoot.elementFromPoint(x, y) === retry };
     });
     assert.equal(point.reachable, true); await page.mouse.move(point.x, point.y); await settle(page);
-    const baseline = await sample();
+    const baseline = await sample(), personBaseline = await transcriptState(page);
     const click = async () => {
       const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')), page.mouse.click(point.x, point.y)]);
       assert.equal(response.status(), 202);
@@ -711,14 +769,27 @@ test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/14
     const landed = await page.evaluate(() => window.replyLanded);
     holds(baseline, landed, ['retry', 'line'], 'assistant final render holds Retry');
     assert.equal(landed.lineHidden, false); assert.equal(landed.disabled, 'true');
-    await settle(page); state = await sample(); holds(landed, state, ['person'], 'failure collapse holds person');
+    await settle(page); state = await sample();
+    await capture('E3-complete-at-assertion');
+    holds(landed, state, ['person'], 'failure collapse holds person');
     assert.equal(state.lineHidden, true); assert.equal(state.hidden, true); assert.equal(state.disabled, null); assert.equal(state.busy, null);
     assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.understanding > .foot > .retry'))), true);
+    const immediate = await transcriptState(page);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations })); await settle(page);
+    const settled = await transcriptState(page);
     await capture('E3-complete');
+    const measurements = { head: evidenceCommit, locale, width, beforeFailure, baseline: personBaseline, normal, landed, immediate, settled,
+      collapsePersonOffset: state.person.y - landed.person.y,
+      settledPersonOffset: settled.person.top - personBaseline.person.top,
+      releasePersonOffset: settled.person.top - immediate.person.top };
+    if (evidence) await writeFile(join(evidence, `ait466-${locale}-${width}-offsets.json`), JSON.stringify(measurements, null, 2));
+    console.log(`AIT-466 OFFSETS ${locale}/${width}: ${JSON.stringify(measurements)}`);
+    successfulTranscript({ ...personBaseline, paddingTop: beforeFailure.paddingTop, paddingBottom: beforeFailure.paddingBottom, slack: beforeFailure.slack }, settled, normal, `${locale}/${width} settled retry success`);
     const after = await stats(); assert.deepEqual(after.lanes.slice(statsBefore.providerCalls), ['reaction', 'reaction']);
     assert.equal(after.attempts.length, statsBefore.attempts.length + 2); assert.ok(after.attempts.slice(-2).every(a => a.state === 'settled'));
     console.log(`AIT-466 B1 PASS ${locale}/${width}: Retry holds on final; person holds on collapse; two reply admissions; no understanding`);
-  }
+  });
   assert.deepEqual(errors, []);
 });
 
