@@ -5,6 +5,7 @@ import { registerHooks } from 'node:module';
 
 const consentURL = new URL('../../demo/mock-consent.js', import.meta.url).href;
 const smtpURL = new URL('../../plugins/mail-smtp/src/index.js', import.meta.url).href;
+const creditsURL = new URL('../../demo/visitor-credits.js', import.meta.url).href;
 const serverURL = new URL('../../demo/server.js', import.meta.url).href;
 registerHooks({ load(url, context, nextLoad) {
   const result = nextLoad(url, context);
@@ -12,6 +13,13 @@ registerHooks({ load(url, context, nextLoad) {
     const source = String(result.source), needle = 'return { ...ledger, describe(';
     assert.ok(source.includes(needle), 'fixture consent port still matches the demo');
     return { ...result, source: source.replace(needle, 'return { ...ledger, conversationUnchanged: () => true, describe(') };
+  }
+  if (url === creditsURL && process.env.AIT470_STABLE_TIER === '1') {
+    const source = String(result.source), needle = 'row?.address && row.confirmed_at !== null && current.confirmationEnabled && deliveryEnabled';
+    assert.ok(source.includes(needle), 'fixture credit tier still matches the demo policy');
+    // The reviewed deterministic-fault alternative: confirmation still projects
+    // verified identity, but keeps the pre-confirmation allowance and tier.
+    return { ...result, source: source.replace(needle, 'false') };
   }
   if (url === smtpURL && process.env.AIT470_SMTP_PORT) {
     const source = String(result.source), needle = 'getSocket, htmlTemplate';

@@ -116,6 +116,7 @@ async function fixture(t, variant) {
   const child = fork(new URL('../fixtures/identity-unlock-host.mjs', import.meta.url), [], { silent: true, env: {
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
+    ...(variant === 'P-continue-slow' ? { AIT470_STABLE_TIER: '1' } : {}),
     ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AIT470_INPLACE: variant === 'V-inplace-false' ? 'false' : '1', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(!variant.startsWith('V-') ? { SMTP_HOST: '127.0.0.1', SMTP_PORT: '25', AIT470_SMTP_PORT: String(smtpPort),
@@ -157,7 +158,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       window.__ait470Hidden = false;
       Object.defineProperty(document, 'hidden', { get: () => window.__ait470Hidden });
       Object.defineProperty(document, 'visibilityState', { get: () => window.__ait470Hidden ? 'hidden' : 'visible' });
-      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [], arrivals: [], closes: [], unlocks: [] };
+      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [], arrivals: [], closes: [], unlocks: [], credits: [] };
       const ids = new WeakMap(); let nextId = 0;
       window.__ait470Id = object => {
         if (!ids.has(object)) ids.set(object, ++nextId);
@@ -174,6 +175,11 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           const response = await original.call(this, url, options);
           const body = await response.clone().json();
           Object.assign(read, { t1: performance.now(), status: response.status, revision: body.consentRevision, event: body.event });
+          return response;
+        }
+        if (path.endsWith('/credits')) {
+          const response = await original.call(this, url, options), body = await response.clone().json();
+          evidence.credits.push({ t: performance.now(), wall: Date.now(), tiers: body.tiers, limitMicro: body.balance?.owner?.limitMicro });
           return response;
         }
         if (path.endsWith('/identity/unlock')) {
@@ -337,11 +343,9 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       await waitFor(() => {
         const snapshots = f.log.filter(e => e.held && e.locked === false);
         if (!snapshots.length || snapshots.some(e => !e.forwarded)) return false;
-        if (variant === 'P-continue-slow') {
-          // Confirmation raises the credit tier on P: include that last natural read.
-          const credit = f.log.findLast(e => e.path.endsWith('/credits') && e.t0 >= unlockedAt && e.forwarded);
-          return credit && snapshots.some(e => e.t0 >= credit.forwarded);
-        }
+        // This reviewed alternative keeps P's credit tier unchanged, so its
+        // identity-triggered snapshot is the last natural unlock read.
+        if (variant === 'P-continue-slow') return true;
         // Both V identity triggers must have their post-unlock snapshots upstream.
         return snapshots.length >= 2;
       });
@@ -364,6 +368,14 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           consentWindow: c.ait470Consent, fence: c.ait470Fence, readiness: q('.readiness')?.style.visibility, lockHidden: q('.verify-lock')?.hidden,
           verifiedHidden: q('.host-verify .verify-done')?.hidden, connection: q('.status__label')?.textContent };
       }, seconds));
+    }
+    if (variant === 'P-continue-slow') {
+      evidence.creditReceipts = await page.evaluate(() => window.__ait470.credits);
+      const before = evidence.creditReceipts.findLast(r => r.wall < unlockedAt);
+      const after = evidence.creditReceipts.find(r => r.wall >= unlockedAt);
+      assert.ok(before && after, 'credit receipts bracket the unlock');
+      assert.deepEqual(after.tiers, before.tiers, 'confirmation leaves the fixture tier unchanged');
+      assert.equal(after.limitMicro, before.limitMicro, 'confirmation leaves the fixture allowance unchanged');
     }
     const reads = await page.evaluate(before => window.__ait470.reads.slice(before), before);
     evidence.redPrecondition = variant === 'P-stalled' && evidence.pollUnlock?.journalLocked && evidence.pollUnlock.readCount === before ? 'never-started' : reads.some(r => r.outcome === 'behind') ? 'behind' : null;
