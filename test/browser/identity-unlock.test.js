@@ -97,6 +97,7 @@ async function fixture(t, variant) {
     ? '../fixtures/identity-unlock-host.mjs' : '../../demo/server.js', import.meta.url), [], { silent: true, env: {
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
+    ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AITHEMA_HTML_MODE: 'off' } : {}),
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(!variant.startsWith('V-') ? { SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtpPort),
       SMTP_FROM: 'sender@example.test', SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY: 'true' } : {}),
@@ -125,7 +126,8 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
   test(`AIT-470 ${variant} ${locale} ${width}: confirmation clears every lock indicator`, { timeout: 130_000 }, async t => {
     const copy = locale === 'de' ? de : en, reason = copy.reasons['verification required'];
     const f = await fixture(t, variant), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser') });
-    t.after(() => browser.close());
+    let collectEvidence = async () => {};
+    t.after(async () => { try { await collectEvidence(); } finally { await browser.close(); } });
     const context = await browser.createBrowserContext(), page = await context.newPage();
     await page.setViewport({ width, height: width === 390 ? 844 : 900, isMobile: width === 390, hasTouch: width === 390 });
     await page.evaluateOnNewDocument(locale => {
@@ -185,12 +187,12 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     }, locale);
     const samples = [], evidence = { variant, locale, width, generationFence: 'n/a: no call', samples };
     const evidenceDir = process.env.AITHEMA_EVIDENCE_DIR;
-    t.after(async () => {
+    collectEvidence = async () => {
       evidence.proxy = f.log;
       evidence.browser = await page.evaluate(() => window.__ait470).catch(() => null);
       if (evidenceDir) { await mkdir(evidenceDir, { recursive: true }); await writeFile(join(evidenceDir, `ait470-${variant}-${locale}-${width}.json`), JSON.stringify(evidence, null, 2)); }
       console.log(`AIT-470 evidence ${JSON.stringify(evidence)}`);
-    });
+    };
     await page.goto(f.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.chooser__continue'));
     await mockConsent(page);
@@ -206,6 +208,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       }
     }
     await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+    if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
+      await until(page, () => document.querySelector('aithema-session').session.conceptVisualKind === 'images');
+      evidence.visualKind = await shadow(page, c => c.session.conceptVisualKind);
+    }
     const send = content => shadow(page, (c, content) => { c.shadowRoot.querySelector('textarea').value = content; c.shadowRoot.querySelector('form.composer').requestSubmit(); }, content);
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('textarea').disabled);
     await send('We need a preorder app for a bakery.');
