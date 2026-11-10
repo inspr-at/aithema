@@ -37,8 +37,8 @@ fs.appendFileSync('gh-calls.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n
 if (process.argv[2] !== 'api' || !process.argv.includes('--paginate') || !process.argv.includes('--slurp')) process.exit(91);
 process.stdout.write(fs.readFileSync('published.json', 'utf8'));
 `, { mode: 0o755 });
-  // Explicit minimal child environment: no ambient credentials or network.
-  const env = { PATH: `${join(root, 'bin')}:/usr/bin:/bin`, GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
+  // Explicit child environment: fixture stubs first, no ambient credentials.
+  const env = { PATH: [join(root, 'bin'), process.env.PATH].filter(Boolean).join(':'), GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
   const gate = fileURLToPath(new URL('../release/gate.mjs', import.meta.url));
   const run = () => spawnSync(process.execPath, [gate, 'candidate', ref, release.directory], { cwd: root, env, encoding: 'utf8' });
   const pages = entries => writeFileSync(join(root, 'published.json'), JSON.stringify(entries));
@@ -47,6 +47,7 @@ process.stdout.write(fs.readFileSync('published.json', 'utf8'));
 }
 function refused(result, reason) {
   assert.notEqual(result.status, 0, result.stdout);
+  assert.doesNotMatch(result.stderr, /spawnSync \S+ E(?:NOENT|ACCES)/u);
   assert.match(result.stderr, reason);
 }
 
@@ -71,7 +72,7 @@ for (const [name, setup, reason] of [
     f.git(['tag', `v${next.version}`]); f.published([{ tag_name: `v${next.version}`, draft: false }]);
     f.git(['checkout', '--detach', f.commit]);
   }, /published.*sequence/iu],
-  ['failed-terminal rerun', f => { f.tag(); f.git(['tag', '-a', `release-failed/v${version.version}`, '-m', 'terminal failure']); }, /failed|terminal/iu],
+  ['failed-terminal rerun', f => { f.tag(); f.git(['tag', '-a', `release-failed/v${version.version}`, '-m', 'terminal failure']); }, /failed-terminal/iu],
   ['digest mismatch', f => f.tag({ ...f.marker, normalized_digest: digest('other') }), /normalized.*digest/iu],
   ['missing manifest digest', f => { const m = { ...f.marker }; delete m.manifest_sha256; f.tag(m); }, /marker|manifest/iu],
   ['invalid manifest digest', f => f.tag({ ...f.marker, manifest_sha256: 'invalid' }), /marker|manifest/iu],
@@ -112,10 +113,13 @@ test('explicit legacy ledger binds published sequences to their original tag com
 
 test('unreadable or unbound published release metadata fails closed', t => {
   const f = fixture(t); f.tag();
-  for (const pages of [{ unexpected: true }, [[{ tag_name: 'vunknown', draft: false }]],
-    [[{ tag_name: 'v261019120002.0.0', draft: false }]]]) {
+  for (const [pages, reason] of [
+    [{ unexpected: true }, /Invalid published release response/u],
+    [[[{ tag_name: 'vunknown', draft: false }]], /Unknown published release coordinate/u],
+    [[[{ tag_name: 'v261019120002.0.0', draft: false }]], /Command failed: git rev-parse --verify/u],
+  ]) {
     f.pages(pages);
-    assert.notEqual(f.run().status, 0);
+    refused(f.run(), reason);
   }
 });
 
