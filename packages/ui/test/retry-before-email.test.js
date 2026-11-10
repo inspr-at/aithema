@@ -91,9 +91,10 @@ test('AIT-466 U3: this tab running call dims reply Retry', async t => {
 test('AIT-466 U3 guards: non-retryable and used-up failures offer no activation', async t => {
   const { c, root, calls } = await fixture(t, { host: { verification: true, credits: true } });
   fail(c, { retryable: false }); assert.equal(root.querySelector('.retry').hidden, true); assert.equal(root.querySelector('.retry').hasAttribute('aria-disabled'), false);
-  fail(c);
+  fail(c); inline(root, en);
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'session' } });
   const retry = root.querySelector('.retry'); assert.equal(retry.style.visibility, 'hidden'); assert.equal(retry.inert, true);
+  assert.equal(retry.hidden, false); assert.equal(retry.parentNode, root.querySelector('.reaction-failure'));
   assert.equal(root.querySelector('.reaction-failure-text').textContent, en.reasoningFailed); retry.click(); await tick(); assert.equal(retries(calls), 0);
 });
 test('AIT-466 U3 guard: already ended session never shows Retry', async t => {
