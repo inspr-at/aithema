@@ -48,9 +48,9 @@ try {
       continue;
     }
     const artifacts = JSON.parse(gh('api', `repos/${timingRepository}/actions/runs/${runId}/artifacts?per_page=100`)).artifacts
-      .filter(artifact => /^browser-timings-\d+-of-(?:6|7|8)$/u.test(artifact.name) && !artifact.expired);
+      .filter(artifact => /^browser-timings-\d+-of-(?:6|7|8|9)$/u.test(artifact.name) && !artifact.expired);
     if (!artifacts.length) { console.log(`CI ${runId}: predates timing artifacts or artifacts expired; skipped`); continue; }
-    // Preserve six/seven-shard history while admitting complete AIT-423 eight-shard runs.
+    // Preserve six/seven/eight-shard history while admitting complete AIT-470 nine-shard runs.
     const count = Number(artifacts[0].name.match(/-of-(\d+)$/u)[1]);
     const expected = Array.from({ length: count }, (_, index) => `browser-timings-${index + 1}-of-${count}`);
     if (artifacts.length !== count || expected.some(name => !artifacts.some(artifact => artifact.name === name))) {

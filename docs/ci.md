@@ -279,7 +279,7 @@ Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
 with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
-deterministic LPT across **eight** bins, followed by whole-file moves/swaps
+deterministic LPT across **nine** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
