@@ -58,10 +58,22 @@ async function fixture(t, variant) {
         res.writeHead(response.statusCode, response.headers);
         response.on('data', bytes => { if (!stream.frozen) res.write(bytes); });
         response.on('end', () => res.end());
-      } else if (snapshot || path.endsWith('/concepts/eligibility')) {
+      } else if (snapshot || path.endsWith('/concepts/eligibility') || path === '/packages/ui/src/session-element.js') {
         const chunks = []; response.on('data', bytes => chunks.push(bytes));
         response.on('end', async () => {
-          const body = Buffer.concat(chunks);
+          let body = Buffer.concat(chunks);
+          if (path === '/packages/ui/src/session-element.js') {
+            // Read-only fixture instrumentation of the private consent window. No production changes.
+            const source = body.toString(), needle = '  receive(event) { this.#anchored';
+            assert.ok(source.includes(needle), 'consent trace hook still matches the component');
+            body = Buffer.from(source.replace(needle, `  get ait470Consent() {
+              const p = this.#consentRefresh;
+              return p ? { failed: !!p.failed, exhausted: !!p.exhausted, retries: p.retries,
+                attempt: !!p.attempt, scopedGrant: p.scopedGrant } : null;
+            }\n${needle}`));
+            // Source length changed; let HTTP chunk it.
+            delete response.headers['content-length'];
+          }
           try { const s = JSON.parse(body); entry.seq = s.seq; entry.locked = s.identity?.assessmentUnlocked !== true; } catch { /* error response */ }
           entry.forwarded = Date.now();
           try { entry.eventSeq = JSON.parse(body).event?.seq; } catch { /* no event */ }
@@ -76,7 +88,8 @@ async function fixture(t, variant) {
   const proxyPort = await listen(proxy), url = `http://127.0.0.1:${proxyPort}`;
   t.after(() => { proxy.closeAllConnections(); proxy.close(); });
   const socketPath = join(directory, 'ops.sock');
-  const child = fork(new URL('../../demo/server.js', import.meta.url), [], { silent: true, env: {
+  const child = fork(new URL(variant.startsWith('V-inplace') || variant === 'V-reconfigure'
+    ? '../fixtures/identity-unlock-host.mjs' : '../../demo/server.js', import.meta.url), [], { silent: true, env: {
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
@@ -101,7 +114,7 @@ async function fixture(t, variant) {
   }, get frozen() { return frozen; } };
 }
 
-const variants = full ? ['P-page', 'P-token', 'P-continue-slow', 'P-stalled', 'V-outbox', 'P-page-slow', 'V-outbox-slow', 'control'] : ['P-stalled', 'P-continue-slow'];
+const variants = full ? ['V-inplace', 'V-reconfigure', 'P-page', 'P-token', 'P-continue-slow', 'P-stalled', 'V-outbox', 'P-page-slow', 'V-outbox-slow', 'control'] : ['V-inplace', 'P-stalled', 'P-continue-slow'];
 for (const variant of variants) for (const locale of ['en', 'de']) for (const width of [390, 1440]) {
   if (!full && variant === 'P-continue-slow' && width === 390) continue;
   test(`AIT-470 ${variant} ${locale} ${width}: confirmation clears every lock indicator`, { timeout: 130_000 }, async t => {
@@ -115,25 +128,37 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       window.__ait470Hidden = false;
       Object.defineProperty(document, 'hidden', { get: () => window.__ait470Hidden });
       Object.defineProperty(document, 'visibilityState', { get: () => window.__ait470Hidden ? 'hidden' : 'visible' });
-      window.__ait470 = { reads: [], events: [], features: [], streams: [] };
+      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [] };
       const original = window.fetch;
       window.fetch = async function (url, options = {}) {
         const path = new URL(url, location.href).pathname, evidence = window.__ait470;
         const component = () => document.querySelector('aithema-session');
         if (path.endsWith('/events')) evidence.streams.push(performance.now());
+        if (path.endsWith('/consent')) {
+          const read = { t0: performance.now(), method: options.method ?? 'GET', window: component()?.ait470Consent };
+          evidence.consent.push(read);
+          const response = await original.call(this, url, options);
+          const body = await response.clone().json();
+          Object.assign(read, { t1: performance.now(), status: response.status, revision: body.consentRevision, event: body.event });
+          return response;
+        }
         if ((options.method ?? 'GET') !== 'GET' || !/^\/api\/sessions\/[^/]+$/u.test(path)) return original.call(this, url, options);
         const read = { t0: performance.now(), startCursor: component()?.session?.seq,
-          journalLocked: component()?.session?.identity?.assessmentUnlocked !== true };
+          journalLocked: component()?.session?.identity?.assessmentUnlocked !== true, consentAtStart: component()?.ait470Consent };
         evidence.reads.push(read);
         try {
           const response = await original.call(this, url, options), body = await response.clone().json();
           Object.assign(read, { t1: performance.now(), status: response.status, snapshotSeq: body.seq,
-            cursorAtResponse: component()?.session?.seq });
+            cursorAtResponse: component()?.session?.seq, consentAtResponse: component()?.ait470Consent });
           read.outcome = response.status === 409 ? '409' : body.seq > read.cursorAtResponse ? 'ahead' : body.seq < read.cursorAtResponse ? 'behind' : 'equal';
           return response;
         } catch (error) { read.outcome = 'error'; throw error; }
       };
-      document.addEventListener('aithema-event', e => window.__ait470.events.push({ t: performance.now(), ...e.detail }));
+      document.addEventListener('aithema-event', e => {
+        window.__ait470.events.push({ t: performance.now(), ...e.detail });
+        if (e.detail.type === 'identity.unlocked') window.__ait470.toasts.push({ t: performance.now(),
+          label: document.querySelector('aithema-session').shadowRoot.querySelector('.composer-dock > .status__label')?.textContent });
+      });
       document.addEventListener('aithema-features', () => {
         const seq = document.querySelector('aithema-session').session.seq;
         window.__ait470.features.push({ t: performance.now(), seq });
@@ -152,6 +177,17 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     await page.goto(f.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.chooser__continue'));
     await mockConsent(page);
+    if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
+      evidence.grant = await page.evaluate(() => window.__ait470.consent.find(e => e.event)?.event);
+      assert.equal(evidence.grant?.type, 'consent.revised');
+      assert.equal(evidence.grant?.data.conversationUnchanged, true, 'primary host grants consent in place');
+      if (variant === 'V-reconfigure') {
+        await shadow(page, async c => {
+          const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
+          c.configure({ session, host: { verification: true, credits: true } });
+        });
+      }
+    }
     await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
     const send = content => shadow(page, (c, content) => { c.shadowRoot.querySelector('textarea').value = content; c.shadowRoot.querySelector('form.composer').requestSubmit(); }, content);
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('textarea').disabled);
@@ -199,6 +235,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     }
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.verify-lock').hidden);
     const unlockedAt = Date.now(); evidence.unlockedAt = unlockedAt;
+    if (variant.startsWith('V-')) {
+      await until(page, () => window.__ait470.events.some(e => e.type === 'identity.unlocked'));
+      evidence.unlockToast = await shadow(page, c => c.shadowRoot.querySelector('.composer-dock > .status__label')?.textContent);
+    }
     if (freezeAt) {
       evidence.freezeAt = freezeAt;
       assert.equal(f.log.filter(e => e.t0 > freezeAt && e.t0 < unlockedAt && (e.snapshot || e.path.endsWith('/events'))).length, 0,
@@ -214,14 +254,14 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       await send('It also needs a collection time selector.');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 4);
     }
-    for (const seconds of full ? [0.5, 3, 20, 60] : variant.endsWith('-slow') ? [0.5, 3, 20] : [0.5, 3]) {
+    for (const seconds of full ? [0.1, 0.5, 3, 20, 60] : variant.endsWith('-slow') || variant === 'V-inplace' ? [0.1, 0.5, 3, 20] : [0.1, 0.5, 3]) {
       await delay(Math.max(0, unlockedAt + seconds * 1000 - Date.now()));
       samples.push(await shadow(page, (c, seconds) => {
         const r = c.shadowRoot, q = s => r.querySelector(s);
         return { seconds, cursor: c.session.seq, notice: q('.notice-text')?.textContent, concept: q('.concept-activity-text')?.textContent,
           conceptHidden: q('.concept-activity')?.hidden, attachDisabled: q('.attach')?.getAttribute('aria-disabled'),
           attachTitle: q('.attach')?.title, attachLimits: q('#attach-limits')?.textContent,
-          readiness: q('.readiness')?.style.visibility, lockHidden: q('.verify-lock')?.hidden,
+          consentWindow: c.ait470Consent, readiness: q('.readiness')?.style.visibility, lockHidden: q('.verify-lock')?.hidden,
           verifiedHidden: q('.host-verify .verify-done')?.hidden, connection: q('.status__label')?.textContent };
       }, seconds));
     }
@@ -229,7 +269,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     evidence.redPrecondition = variant === 'P-stalled' && reads.length === 0 ? 'never-started' : reads.some(r => r.outcome === 'behind') ? 'behind' : null;
     if (['P-stalled', 'P-continue-slow', 'V-outbox-slow'].includes(variant)) {
       // A healed run can be green, but must still prove that the injected fault occurred.
-      assert.ok(evidence.redPrecondition || reads.some(r => r.outcome === 'ahead'), 'red mechanism must be proven before checking wording');
+      assert.ok(evidence.redPrecondition, 'red mechanism (never-started or behind) must be proven before checking wording');
+    }
+    if (variant === 'V-inplace' && samples.at(-1).concept?.includes(reason)) {
+      assert.ok(evidence.redPrecondition || reads.some(r => r.consentAtResponse?.exhausted), 'primary stale line must have a traced drop');
     }
     for (const sample of samples.filter(s => s.seconds >= (variant.endsWith('-slow') ? 20 : 3))) {
       assert.equal(sample.lockHidden, true);
