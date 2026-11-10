@@ -70,10 +70,10 @@ else process.exit(90);
   writeFileSync(join(cwd, 'bin/node'), `#!${process.execPath}\nprocess.exit(process.argv[2] === 'release/gate.mjs' && process.argv[3] === 'candidate' ? 0 : 1)\n`, { mode: 0o755 });
   const command = [steps().find(step => step.run?.includes('release/gate.mjs candidate')).run,
     steps().find(step => step.run?.includes('gh release create')).run].join('\n');
-  const env = { PATH: [join(cwd, 'bin'), process.env.PATH].filter(Boolean).join(':'), GITHUB_REF_NAME: 'v261019120000.0.0',
+  const env = { PATH: process.env.PATH, FIXTURE_PATH: [join(cwd, 'bin'), process.env.PATH].filter(Boolean).join(':'), GITHUB_REF_NAME: 'v261019120000.0.0',
     GITHUB_REF: 'refs/tags/v261019120000.0.0', GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
   const run = () => {
-    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], { cwd, env, encoding: 'utf8' });
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', 'export PATH="$FIXTURE_PATH"\n' + command], { cwd, env, encoding: 'utf8' });
     assert.equal(result.error, undefined, result.error?.message);
     return result;
   };
