@@ -37,8 +37,8 @@ fs.appendFileSync('gh-calls.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n
 if (process.argv[2] !== 'api' || !process.argv.includes('--paginate') || !process.argv.includes('--slurp')) process.exit(91);
 process.stdout.write(fs.readFileSync('published.json', 'utf8'));
 `, { mode: 0o755 });
-  // Explicit minimal child environment: no ambient credentials or network.
-  const env = { PATH: `${join(root, 'bin')}:/usr/bin:/bin`, GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
+  // Explicit child environment: fixture stubs first, no ambient credentials.
+  const env = { PATH: [join(root, 'bin'), process.env.PATH].filter(Boolean).join(':'), GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
   const gate = fileURLToPath(new URL('../release/gate.mjs', import.meta.url));
   const run = () => spawnSync(process.execPath, [gate, 'candidate', ref, release.directory], { cwd: root, env, encoding: 'utf8' });
   const pages = entries => writeFileSync(join(root, 'published.json'), JSON.stringify(entries));

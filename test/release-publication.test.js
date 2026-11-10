@@ -70,7 +70,7 @@ else process.exit(90);
   writeFileSync(join(cwd, 'bin/node'), '#!/bin/sh\n[ "$1" = release/gate.mjs ] && [ "$2" = candidate ]\n', { mode: 0o755 });
   const command = [steps().find(step => step.run?.includes('release/gate.mjs candidate')).run,
     steps().find(step => step.run?.includes('gh release create')).run].join('\n');
-  const env = { PATH: `${join(cwd, 'bin')}:/usr/bin:/bin`, GITHUB_REF_NAME: 'v261019120000.0.0',
+  const env = { PATH: [join(cwd, 'bin'), process.env.PATH].filter(Boolean).join(':'), GITHUB_REF_NAME: 'v261019120000.0.0',
     GITHUB_REF: 'refs/tags/v261019120000.0.0', GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
   const run = () => {
     const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], { cwd, env, encoding: 'utf8' });
