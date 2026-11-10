@@ -77,7 +77,8 @@ test('AIT-466 U3: this tab running call dims reply Retry', async t => {
   const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'local', events,
     async setInput() {}, async setOutput() {}, async updateContext() {}, async close() { events.end(); return { closureConfirmed: true }; } }; } };
   const { c, root, calls } = await fixture(t, { voiceClient, session: { settings: { origin: 'chosen', voice: 'off', visuals: 'off' } } });
-  root.querySelector('.voice-start').click(); await tick(8); fail(c);
+  fail(c); inline(root, en);
+  root.querySelector('.voice-start').click(); await tick(8);
   inline(root, en, true); root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), 0);
   root.querySelector('.voice-close').click(); await tick(8); inline(root, en);
 });
@@ -108,9 +109,14 @@ for (const reason of ['verification required', 'not configured']) test(`AIT-466 
   fail(c); inline(root, en); root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), 1);
 });
 test('AIT-466 N2: assessment becoming available keeps the reply slot and uses the live gate', async t => {
-  const { c, root, calls } = await fixture(t, { host: {}, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: false, reason: 'not configured' }) } });
-  const failure = fail(c), retry = root.querySelector('.retry'); inline(root, en);
-  c.session.featureMatrix.best.analysis = { available: true }; status(c, [], [failure]);
+  let available = false;
+  const { c, root, calls } = await fixture(t, { host: {}, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: false, reason: 'not configured' }) }, routes: {
+    'GET ': () => Response.json({ ...c.session, featureMatrix: matrix({ available: true }, { available, reason: available ? null : 'not configured' }) }),
+    'POST /retry': () => Response.json({}, { status: 202 }),
+  } });
+  fail(c); const retry = root.querySelector('.retry'); inline(root, en);
+  available = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(8);
+  assert.equal(c.session.featureMatrix.best.analysis.available, true);
   inline(root, en); assert.equal(root.querySelector('.reaction-failure > .retry'), retry);
   root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), 1);
 });

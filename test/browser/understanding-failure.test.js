@@ -738,11 +738,18 @@ test('AIT-466 N2: unlocked availability changes preserve the Retry slot and rect
     session.operations = { inputRevision: inputRevision(session), running: [], failures: [f], lastFailure: f };
     c.setAttribute('motion', 'off'); c.configure({ session, copy }); window.stickyRetry = c.shadowRoot.querySelector('.retry');
     window.stickyFooter = c.shadowRoot.querySelector('.understanding > .foot');
+    window.assessmentAvailable = false;
+    const fetchOriginal = window.fetch.bind(window);
+    window.fetch = (url, options) => String(url) === `/api/sessions/${c.session.id}`
+      ? Promise.resolve(Response.json({ ...c.session, featureMatrix: { best: { text: { available: true },
+        analysis: { available: window.assessmentAvailable, reason: window.assessmentAvailable ? null : 'not configured' } } } }))
+      : fetchOriginal(url, options);
   }); await settle(page);
   await shadow(page, c => c.shadowRoot.querySelector('.retry').scrollIntoView({ block: 'center' })); await settle(page);
   const point = await shadow(page, c => { const r = c.shadowRoot.querySelector('.retry').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   await page.mouse.move(point.x, point.y); const before = await boxes(page, ['.retry', '.reaction-failure']);
-  await shadow(page, c => { c.session.featureMatrix.best.analysis = { available: true }; c.receive({ type: 'lane.status', data: { ...c.session.operations } }); }); await settle(page);
+  await shadow(page, c => { window.assessmentAvailable = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); });
+  await until(page, () => document.querySelector('aithema-session').session.featureMatrix.best.analysis.available); await settle(page);
   assert.deepEqual(await boxes(page, ['.retry', '.reaction-failure']), before);
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure > .retry') === window.stickyRetry), true);
   // Reverse transition: a failure first shown in the footer keeps its own slot too.
@@ -753,6 +760,7 @@ test('AIT-466 N2: unlocked availability changes preserve the Retry slot and rect
     c.receive({ type: 'lane.status', data: { ...c.session.operations, failures: [f], lastFailure: f } });
   }); await settle(page);
   assert.equal(await shadow(page, c => window.stickyRetry.parentElement === window.stickyFooter), true);
-  await shadow(page, c => { c.session.featureMatrix.best.analysis = { available: false, reason: 'not configured' }; c.receive({ type: 'lane.status', data: { ...c.session.operations } }); });
+  await shadow(page, c => { window.assessmentAvailable = false; c.receive({ type: 'voice.state', data: { state: 'ended' } }); });
+  await until(page, () => !document.querySelector('aithema-session').session.featureMatrix.best.analysis.available);
   assert.equal(await shadow(page, c => window.stickyRetry.parentElement === window.stickyFooter), true);
 });
