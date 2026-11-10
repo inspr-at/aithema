@@ -472,6 +472,17 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     const before = await boxes(page, targets);
     const statsBefore = await page.evaluate(async () => (await fetch('/stats')).json());
     await capture(locale, width, theme, 'two-failures');
+    // AIT-466 B2: a hidden shared Retry must anchor to the rendered failure line.
+    await shadow(page, c => c.shadowRoot.querySelector('.retry').scrollIntoView({ block: 'center' }));
+    await settle(page);
+    const pointer = await shadow(page, c => {
+      const retry = c.shadowRoot.querySelector('.retry'), rect = retry.getBoundingClientRect();
+      const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+      return { x, y, reachable: c.shadowRoot.elementFromPoint(x, y) === retry };
+    });
+    assert.equal(pointer.reachable, true); await page.mouse.move(pointer.x, pointer.y); await settle(page);
+    const pointerTargets = ['.reaction-failure', '.turn.user'];
+    const pointerBefore = await boxes(page, pointerTargets);
     // Exercise hidden Retry and placement changes without another provider run.
     await shadow(page, c => {
       window.bothFailures = structuredClone(c.session.operations);
@@ -481,6 +492,12 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
       text: c.shadowRoot.querySelector('.reaction-failure-text').textContent, expected: window.reasoningFailedCopy }));
     assert.equal(hiddenRetry.hidden, true);
     assert.equal(hiddenRetry.text, hiddenRetry.expected, 'hidden Retry leaves the failure sentence without a trailing separator');
+    const pointerAfter = await boxes(page, pointerTargets);
+    pointerBefore.forEach((rect, i) => rect.forEach((value, j) => assert.ok(Math.abs(pointerAfter[i][j] - value) <= .5, `${pointerTargets[i]} dimension ${j} holds under pointer`)));
+    assert.deepEqual(await shadow(page, c => ['top', 'bottom'].map(side => c.shadowRoot.querySelector('.transcript-shell').style.getPropertyValue(`--aithema-slack-${side}`))), ['', '']);
+    await page.mouse.move(-1, -1);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await settle(page);
+
     if ((locale === 'de' && theme === 'light') || (locale === 'en' && theme === 'dark')) await capture(locale, width, theme, 'two-failures-retry-hidden');
     await shadow(page, c => {
       c.receive({ type: 'lane.status', data: window.bothFailures });
@@ -607,4 +624,214 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     console.log(`AIT-212 R5 PASS ${locale} ${width} light: pending once, quiet ink, no link, one reply Retry, no-details off-topic, preparing then current assessment, 0 px`);
   }
   if (evidence) await writeFile(join(evidence, 'ait212-r5-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
+});
+
+// Measure the person and reply, including clipping and compensation, independently
+// of the Retry node that disappears at completion.
+const transcriptState = page => shadow(page, c => {
+  const root = c.shadowRoot, shell = root.querySelector('.transcript-shell'), list = shell.querySelector('ol');
+  const rect = n => { const r = n.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; };
+  const person = rect(list.querySelector('.turn.user')), reply = list.querySelector('.turn:not(.user)');
+  const viewport = rect(shell), style = getComputedStyle(shell);
+  return { person, reply: reply && rect(reply), viewport, scrollTop: shell.scrollTop,
+    paddingTop: parseFloat(style.paddingTop), paddingBottom: parseFloat(style.paddingBottom),
+    slack: ['top', 'bottom'].map(side => parseFloat(shell.style.getPropertyValue(`--aithema-slack-${side}`)) || 0),
+    rowGap: parseFloat(getComputedStyle(list).rowGap),
+    emptyGap: reply && Math.max(0, viewport.bottom - reply.getBoundingClientRect().bottom) };
+});
+
+const successfulTranscript = (baseline, state, normal, label) => {
+  assert.ok(state.person.top >= state.viewport.top + 8 - .5 && state.person.bottom <= state.viewport.bottom + .5,
+    `${label}: entire person row inside transcript viewport: ${JSON.stringify(state)}`);
+  assert.ok(Math.abs(state.person.top - baseline.person.top) <= .5,
+    `${label}: person top matches pre-click baseline ${baseline.person.top} → ${state.person.top}`);
+  assert.ok(Math.abs(state.reply.top - state.person.bottom - state.rowGap) <= .5,
+    `${label}: reply directly below person`);
+  for (const key of ['paddingTop', 'paddingBottom']) assert.ok(Math.abs(state[key] - baseline[key]) <= .5,
+    `${label}: ${key} returns to pre-failure value ${baseline[key]} → ${state[key]}`);
+  state.slack.forEach((value, i) => assert.ok(Math.abs(value - baseline.slack[i]) <= .5, `${label}: slack ${i} restored`));
+  assert.ok(state.emptyGap <= normal.emptyGap + .5,
+    `${label}: empty gap below reply no larger than normal success ${normal.emptyGap} → ${state.emptyGap}`);
+};
+
+test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/1440', { timeout: 90_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-locked-retry-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'fixture.sqlite'), { AITHEMA_HOST_LOCK: '1' });
+  const browser = await browserForFile(), page = await browser.newPage(), errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  const sample = () => shadow(page, c => window.retrySample());
+  const holds = (before, after, names, label) => {
+    for (const name of names) for (const key of ['x', 'y', 'width', 'height']) {
+      assert.ok(Math.abs(before[name][key] - after[name][key]) <= .5, `${label}: ${name}.${key} ${before[name][key]} → ${after[name][key]}`);
+    }
+  };
+  const stats = () => page.evaluate(async () => (await fetch('/stats')).json());
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) await t.test(`${locale}/${width}`, async () => {
+    await page.mouse.move(-1, -1);
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    // Guard the existing unlocked path with the same person/reply and resting pointer.
+    await shadow(page, async (c, locale) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.transcript = [{ id: 'normal-person', role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' }];
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      session.operations = { inputRevision: inputRevision(session), running: ['reaction'], failures: [], lastFailure: null };
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ session, copy });
+    }, locale);
+    await settle(page);
+    const normalBaseline = await transcriptState(page);
+    await page.mouse.move(normalBaseline.viewport.top + 20, normalBaseline.person.bottom + 25);
+    await shadow(page, c => {
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'normal-reply', role: 'assistant',
+        content: 'Welche Arbeit? Which work?', inputRevision: c.session.operations.inputRevision } });
+      c.receive({ type: 'lane.status', data: { ...c.session.operations, running: [] } });
+    });
+    await settle(page);
+    const normal = await transcriptState(page);
+    successfulTranscript(normalBaseline, normal, normal, `${locale}/${width} normal success`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations })); await settle(page);
+    successfulTranscript(normalBaseline, await transcriptState(page), normal, `${locale}/${width} settled normal success`);
+    console.log(`AIT-466 NORMAL PASS ${locale}/${width}: ${JSON.stringify({ baseline: normalBaseline, normal })}`);
+    await page.mouse.move(-1, -1);
+    const statsBefore = await stats();
+    await shadow(page, async (c, locale) => {
+      const session = await (await fetch('/locked-reply-failure?locale=' + locale)).json();
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { reasonSeparator } = await import('/packages/ui/src/consent-line.js');
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ session, copy, host: { verification: true } });
+      window.expectedFailure = copy.reasoningFailed + reasonSeparator + copy.retry;
+      window.retrySample = () => {
+        const root = c.shadowRoot, retry = root.querySelector('.retry'), line = root.querySelector('.reaction-failure'), shell = root.querySelector('.transcript-shell');
+        const rect = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+        return { person: rect(root.querySelector('.turn.user')), retry: rect(retry), line: rect(line), scrollTop: shell.scrollTop,
+          slack: ['top', 'bottom'].map(side => shell.style.getPropertyValue(`--aithema-slack-${side}`)),
+          disabled: retry.getAttribute('aria-disabled'), busy: retry.getAttribute('aria-busy'), hidden: retry.hidden, nativeDisabled: retry.disabled,
+          focused: root.activeElement === retry, text: line.textContent, expected: window.expectedFailure,
+          inline: retry.parentElement === line, lineHidden: line.hidden, readinessInert: root.querySelector('.readiness').inert };
+      };
+      window.replyLanded = null;
+      c.addEventListener('aithema-event', event => {
+        if (event.detail.type === 'turn.final' && event.detail.data.role === 'assistant') {
+          queueMicrotask(() => { window.replyLanded = window.retrySample(); });
+        }
+      }, { signal: (window.retryListenerAbort?.abort(), (window.retryListenerAbort = new AbortController()).signal) });
+    }, locale);
+    await settle(page);
+    const beforeFailure = await transcriptState(page);
+    let state = await sample();
+    assert.equal(state.inline, true); assert.equal(state.disabled, 'false'); assert.equal(state.hidden, false); assert.equal(state.nativeDisabled, false);
+    assert.equal(state.readinessInert, true); assert.equal(state.text, state.expected);
+    const capture = async name => { if (evidence) await page.screenshot({ path: join(evidence, `ait466-${locale}-${width}-${name}.png`), fullPage: false, captureBeyondViewport: false }); };
+    await shadow(page, c => c.shadowRoot.querySelector('.retry').scrollIntoView({ block: 'center' })); await settle(page);
+    await capture('E1-enabled');
+    await page.evaluate(() => fetch('/hold-reply'));
+    const point = await shadow(page, c => {
+      const retry = c.shadowRoot.querySelector('.retry'), r = retry.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
+      return { x, y, reachable: c.shadowRoot.elementFromPoint(x, y) === retry };
+    });
+    assert.equal(point.reachable, true); await page.mouse.move(point.x, point.y); await settle(page);
+    const baseline = await sample(), personBaseline = await transcriptState(page);
+    const click = async () => {
+      const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')), page.mouse.click(point.x, point.y)]);
+      assert.equal(response.status(), 202);
+      await until(page, () => document.querySelector('aithema-session').session.operations.running.includes('reaction')); await settle(page);
+      const running = await sample(); holds(baseline, running, ['person', 'retry', 'line'], 'running');
+      assert.deepEqual(running.slack, ['', '']); assert.equal(running.hidden, false); assert.equal(running.nativeDisabled, false);
+      assert.equal(running.disabled, 'true'); assert.equal(running.busy, 'true'); assert.equal(running.focused, true); assert.equal(running.text, running.expected);
+    };
+    await click(); await capture('E2-E3-running');
+    const failedRelease = await page.evaluate(async () => (await fetch('/release-reply?verdict=fail')).status); assert.equal(failedRelease, 200);
+    await until(page, () => { const ops = document.querySelector('aithema-session').session.operations; return !ops.running.length && ops.failures.some(f => f.lane === 'reaction'); }); await settle(page);
+    state = await sample(); holds(baseline, state, ['person', 'retry', 'line'], 'second failure');
+    assert.equal(state.disabled, 'false'); assert.equal(state.focused, true); await capture('E1-second-failure');
+    const failedStats = await stats();
+    assert.deepEqual(failedStats.lanes.slice(statsBefore.providerCalls), ['reaction']);
+    assert.equal(failedStats.attempts.length, statsBefore.attempts.length + 1);
+    assert.equal(failedStats.attempts.at(-1).state, 'settled');
+    await page.evaluate(() => fetch('/hold-reply')); await click();
+    const successRelease = await page.evaluate(async () => (await fetch('/release-reply?verdict=success')).status); assert.equal(successRelease, 200);
+    await until(page, () => { const c = document.querySelector('aithema-session'); return window.replyLanded && !c.session.operations.running.length && !c.session.operations.failures.length && c.session.transcript.some(t => t.role === 'assistant'); });
+    const landed = await page.evaluate(() => window.replyLanded);
+    holds(baseline, landed, ['retry', 'line'], 'assistant final render holds Retry');
+    assert.equal(landed.lineHidden, false); assert.equal(landed.disabled, 'true');
+    await settle(page); state = await sample();
+    await capture('E3-complete-at-assertion');
+    holds(landed, state, ['person'], 'failure collapse holds person');
+    assert.equal(state.lineHidden, true); assert.equal(state.hidden, true); assert.equal(state.disabled, null); assert.equal(state.busy, null);
+    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.understanding > .foot > .retry'))), true);
+    const immediate = await transcriptState(page);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations })); await settle(page);
+    const settled = await transcriptState(page);
+    await capture('E3-complete');
+    const measurements = { head: evidenceCommit, locale, width, beforeFailure, baseline: personBaseline, normal, landed, immediate, settled,
+      collapsePersonOffset: state.person.y - landed.person.y,
+      settledPersonOffset: settled.person.top - personBaseline.person.top,
+      releasePersonOffset: settled.person.top - immediate.person.top };
+    if (evidence) await writeFile(join(evidence, `ait466-${locale}-${width}-offsets.json`), JSON.stringify(measurements, null, 2));
+    console.log(`AIT-466 OFFSETS ${locale}/${width}: ${JSON.stringify(measurements)}`);
+    successfulTranscript({ ...personBaseline, paddingTop: beforeFailure.paddingTop, paddingBottom: beforeFailure.paddingBottom, slack: beforeFailure.slack }, settled, normal, `${locale}/${width} settled retry success`);
+    const after = await stats(); assert.deepEqual(after.lanes.slice(statsBefore.providerCalls), ['reaction', 'reaction']);
+    assert.equal(after.attempts.length, statsBefore.attempts.length + 2); assert.ok(after.attempts.slice(-2).every(a => a.state === 'settled'));
+    console.log(`AIT-466 B1 PASS ${locale}/${width}: Retry holds on final; person holds on collapse; two reply admissions; no understanding`);
+  });
+  assert.deepEqual(errors, []);
+});
+
+test('AIT-466 N2: unlocked availability changes preserve the Retry slot and rect', { timeout: 30_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-retry-slot-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
+  await page.setViewport({ width: 390, height: 844 }); await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  await shadow(page, async c => {
+    const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+    const { en: copy } = await import('/packages/ui/src/i18n/en.js');
+    const session = createSession({ demo: true }); session.transcript = [{ id: 'person', role: 'user', content: 'A preorder app.' }];
+    session.featureMatrix = { best: { text: { available: true }, analysis: { available: false, reason: 'not configured' } } };
+    const f = { lane: 'reaction', inputRevision: inputRevision(session), error: 'reasoning-unavailable', retryable: true };
+    session.operations = { inputRevision: inputRevision(session), running: [], failures: [f], lastFailure: f };
+    c.setAttribute('motion', 'off'); c.configure({ session, copy }); window.stickyRetry = c.shadowRoot.querySelector('.retry');
+    window.stickyFooter = c.shadowRoot.querySelector('.understanding > .foot');
+    window.assessmentAvailable = false;
+    const fetchOriginal = window.fetch.bind(window);
+    window.fetch = (url, options) => String(url) === `/api/sessions/${c.session.id}`
+      ? Promise.resolve(Response.json({ ...c.session, featureMatrix: { best: { text: { available: true },
+        analysis: { available: window.assessmentAvailable, reason: window.assessmentAvailable ? null : 'not configured' } } } }))
+      : fetchOriginal(url, options);
+  }); await settle(page);
+  await shadow(page, c => c.shadowRoot.querySelector('.retry').scrollIntoView({ block: 'center' })); await settle(page);
+  const point = await shadow(page, c => { const r = c.shadowRoot.querySelector('.retry').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.move(point.x, point.y); const before = await boxes(page, ['.retry', '.reaction-failure']);
+  await shadow(page, c => { window.assessmentAvailable = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); });
+  await until(page, () => document.querySelector('aithema-session').session.featureMatrix.best.analysis.available); await settle(page);
+  assert.deepEqual(await boxes(page, ['.retry', '.reaction-failure']), before);
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure > .retry') === window.stickyRetry), true);
+  // Reverse transition: a failure first shown in the footer keeps its own slot too.
+  await page.mouse.move(-1, -1);
+  await shadow(page, c => {
+    c.receive({ type: 'lane.status', data: { ...c.session.operations, failures: [], lastFailure: null } });
+    const f = { lane: 'reaction', inputRevision: c.session.operations.inputRevision, error: 'reasoning-unavailable', retryable: true };
+    c.receive({ type: 'lane.status', data: { ...c.session.operations, failures: [f], lastFailure: f } });
+  }); await settle(page);
+  assert.equal(await shadow(page, c => window.stickyRetry.parentElement === window.stickyFooter), true);
+  await shadow(page, c => { window.assessmentAvailable = false; c.receive({ type: 'voice.state', data: { state: 'ended' } }); });
+  await until(page, () => !document.querySelector('aithema-session').session.featureMatrix.best.analysis.available);
+  assert.equal(await shadow(page, c => window.stickyRetry.parentElement === window.stickyFooter), true);
 });

@@ -1276,9 +1276,15 @@ for (const state of ['shown', 'running', 'unavailable']) test(`AIT-221 two failu
   if (state === 'unavailable') session.featureMatrix.best.analysis = { available: false, reason: 'not configured' };
   c.configure({ session, copy: en, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 });
   const root = c.shadowRoot, retry = root.querySelector('.retry');
-  assert.equal(retry.hidden, state !== 'shown');
-  assert.equal(root.querySelector('.reaction-failure-text').textContent, `${en.reasoningFailed}${state === 'shown' ? '\u00a0· ' : ''}`);
+  assert.equal(retry.hidden, state === 'running');
+  assert.equal(root.querySelector('.reaction-failure-text').textContent, `${en.reasoningFailed}${state !== 'running' ? '\u00a0· ' : ''}`);
+  if (state === 'unavailable') { assert.equal(retry.disabled, false); assert.equal(retry.getAttribute('aria-disabled'), 'false'); }
   c.receive({ type: 'lane.status', data: { ...session.operations, running: [], failures: [failures[0]], lastFailure: failures[0] } });
+  if (state === 'unavailable') {
+    assert.equal(root.querySelector('.reaction-failure > .retry'), retry, 'AIT-466 option 1 keeps the same Retry beside the reply');
+    assert.equal(root.querySelector('.reaction-failure-text').textContent, en.reasoningFailed + '\u00a0· ');
+    c.receive({ type: 'lane.status', data: { ...session.operations, running: [], failures: [], lastFailure: null } });
+  }
   const footer = root.querySelector('.understanding > .foot');
   assert.equal(footer.children[1], retry, 'same Retry returns immediately after export');
   assert.equal(retry.nextElementSibling, footer.querySelector('.export-reason'));

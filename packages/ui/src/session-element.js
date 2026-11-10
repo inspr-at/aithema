@@ -102,6 +102,7 @@ export class AithemaSession extends HTMLElement {
   #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
+  #retryPending = null; #replyRetrySlot = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #creditLayoutScope; #options; #refocus = null;
   #introOrb = null; #reveal = null; #fold; #phoneViewport; #timer; #popups; #motion = true; #motionMedia; #motionListener;
@@ -140,6 +141,7 @@ export class AithemaSession extends HTMLElement {
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null; this.#laneStatusPending = null;
+    this.#retryPending = null; this.#replyRetrySlot = null;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
@@ -609,12 +611,22 @@ export class AithemaSession extends HTMLElement {
       details.forEach(d => { d.open = expand; }); this.#expandLabel();
     });
     root.querySelector('.overview-retry').addEventListener('click', () => root.querySelector('.retry').click());
-    root.querySelector('.retry').addEventListener('click', async () => {
-      if (!this.#feature('analysis').available) return;
+    root.querySelector('.retry').addEventListener('click', async e => {
+      const button = e.currentTarget, sessionId = this.#session.id, revision = inputRevision(this.#session);
+      if (button.getAttribute('aria-disabled') === 'true' ||
+        this.#retryPending?.sessionId === sessionId && this.#retryPending.revision === revision) return;
+      if (!this.#feature(this.#replyOwnsRetry() ? 'text' : 'analysis').available) return;
+      const marker = this.#retryPending = { sessionId, revision, settled: false };
+      this.#render('aside');
       try {
-        const response = await postJson(`${this.#base}/api/sessions/${this.#session.id}/retry`, {}, { sessionToken: this.#sessionToken });
-        if (!response.ok) throw new Error(); this.#failure = false; this.#render('aside');
-      } catch { this.#status(this.#copy.reasoningFailed); }
+        const response = await postJson(`${this.#base}/api/sessions/${sessionId}/retry`, {}, { sessionToken: this.#sessionToken });
+        if (!response.ok) throw new Error();
+        // A newer failure/status, revision or configuration owns the UI over this acknowledgement.
+        if (this.#retryPending === marker) { marker.settled = true; this.#failure = false; this.#render('aside'); }
+      } catch {
+        if (this.#retryPending === marker) { this.#retryPending = null; this.#render('aside'); }
+        if (sessionId === this.#session.id) this.#status(this.#copy.reasoningFailed);
+      }
     });
     if (this.#voiceBound) {
       this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
@@ -668,7 +680,7 @@ export class AithemaSession extends HTMLElement {
         },
         // A call that starts, ends or fails moves the stage and the avatar with it.
         onState: state => {
-          if (this.#clarify?.waitingForReply) this.#render('aside');
+          if (this.#clarify?.waitingForReply || this.#replyRetrySlot?.managed) this.#render('aside');
           if (state === 'speaking') this.#updateVoiceTranscript({ type: 'speaking' });
           if (['paused', 'recovering', 'waiting', 'closing', 'idle', 'failed'].includes(state)) this.#updateVoiceTranscript({ type: 'reset' });
           // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
@@ -976,8 +988,8 @@ export class AithemaSession extends HTMLElement {
     return point ? this.shadowRoot.elementFromPoint?.(point.x, point.y) ?? null : null;
   }
   // Scroll anchoring done by hand (panes set overflow-anchor:none): keep the element under
-  // a resting pointer at the same viewport position while content above it changes. Keyed
-  // nodes survive updates, so this is the hovered element itself, not a surviving parent.
+  // a resting pointer at the same viewport position while content above it changes.
+  // Prefer the hovered node, falling back when an action collapses or leaves its pane.
   // When a pane cannot scroll far enough, temporary padding (slack) makes room until the
   // pointer leaves. Slack is derived afresh on every update, so it never accumulates.
   #anchored(update) {
@@ -986,8 +998,20 @@ export class AithemaSession extends HTMLElement {
     // Host content in a slot belongs to the page: its chain ends at the document, never at this root.
     const chain = [];
     for (let node = hovered; node?.nodeType === 1; node = node.parentNode) chain.push([node, node.getBoundingClientRect().top]);
+    const before = hovered.closest?.(PANES);
+    // After collapse the resting pointer can hit the compensation padding itself.
+    // Subsequent lane statuses must preserve that reading position too; fresh pane
+    // padding still has no person anchor.
+    const compensated = before && ['top', 'bottom'].some(side => before.style.getPropertyValue(`--aithema-slack-${side}`));
+    const person = (hovered !== before || compensated) && before?.matches('.transcript-shell')
+      ? [...before.querySelectorAll('ol > .turn.user')].at(-1) : null;
+    const fallback = person && [person, person.getBoundingClientRect().top];
     update();
-    const [node, top] = chain.find(([n]) => n.isConnected && n.getRootNode() === this.shadowRoot) ?? [];
+    // A hidden or reparented action cannot anchor its old pane. Prefer its rendered
+    // ancestor, then the last person turn when only the pane survives.
+    let [node, top] = chain.find(([n]) => n.isConnected && n.getRootNode() === this.shadowRoot &&
+      (!before || n === before || before.contains(n) && n.getClientRects().length > 0)) ?? [];
+    if (node === before && fallback?.[0].isConnected && fallback[0].getClientRects().length > 0) [node, top] = fallback;
     const pane = node?.closest?.(PANES);
     if (!pane) return;
     const slack = { top: 0, bottom: 0 };
@@ -1190,6 +1214,7 @@ export class AithemaSession extends HTMLElement {
     if (operations?.inputRevision === inputRevision(this.#session)) this.#laneStatusPending = null;
     const failure = operations?.inputRevision === inputRevision(this.#session) ? operations.lastFailure : null;
     this.#recordFailure(failure);
+    this.#settleRetry();
   }
   #recordFailure(failure) {
     const reconciling = failure && (failure.reason === 'budget reconciling' ||
@@ -1201,6 +1226,25 @@ export class AithemaSession extends HTMLElement {
       this.#failure = Boolean(failure); this.#failureLane = failure?.lane ?? null;
       if (failure) { this.#analysisRecovery = null; this.#laneStatusPending = null; }
     }
+  }
+  // AIT-466 option 1: the reply owns admission when assessment cannot run.
+  // Ignore pause; unlocked reconciliation belongs to automatic resume (AIT-173).
+  #replyOwnsRetry() {
+    if (this.#clarify?.state === 'retry') return false;
+    const revision = inputRevision(this.#session), ops = this.#session.operations;
+    const failures = ops?.inputRevision === revision ? ops.failures ?? [ops.lastFailure].filter(Boolean) : [];
+    const analysis = this.#feature('analysis', true, { ignorePause: true });
+    const assessable = !this.#host?.locked &&
+      (Boolean(this.#host?.usedUp) || analysis.available || analysis.rawReason === 'budget reconciling');
+    return failures.some(f => f.lane === 'reaction' && f.retryable !== false && (!assessable || f.reason === 'identity-changed'));
+  }
+  #settleRetry() {
+    const marker = this.#retryPending, ops = this.#session.operations, revision = inputRevision(this.#session);
+    if (!marker) return;
+    if (marker.sessionId !== this.#session.id || marker.revision !== revision) { this.#retryPending = null; return; }
+    if (ops?.inputRevision !== revision) return;
+    const failures = ops.failures ?? [ops.lastFailure].filter(Boolean);
+    if (ops.running.length || !failures.length || marker.settled) this.#retryPending = null;
   }
   #stopReconciling() {
     clearInterval(this.#reconcilingPoll); this.#reconcilingPoll = null;
@@ -1519,6 +1563,12 @@ export class AithemaSession extends HTMLElement {
       // Rows are keyed by turn id (uploads by "upload:" and their id) and updated in place: new turns
       // append below, and focus and the hovered row survive updates. Superseded partials lose their rows.
       const list = root.querySelector('ol'), shell = root.querySelector('.transcript-shell');
+      const replyNotice = root.querySelector('.reaction-failure');
+      const failures = this.#session.operations?.failures ?? [this.#session.operations?.lastFailure].filter(Boolean);
+      // Clear the failure before revealing its replacement, so nested pointer
+      // anchoring never scrolls the person away to hold the old Retry below it.
+      if (replyNotice && !replyNotice.hidden && !failures.some(f => f.lane === 'reaction')) this.#render('aside');
+      const replacingFailure = this.#replyRetrySlot?.inline && replyNotice && !replyNotice.hidden;
       const entries = this.#transcriptEntries(this.#session.transcript.filter(t => !t.erased || t.role === 'user'));
       const rows = new Map([...list.children].map(row => [row.dataset.id, row]));
       const hovered = this.#onTranscript, count = list.children.length, kept = new Set(entries.map(entry => entry.key));
@@ -1562,6 +1612,9 @@ export class AithemaSession extends HTMLElement {
           row.querySelector('.voice-provisional')?.remove();
         }
         row.className = `turn ${t.role === 'user' ? 'user' : ''} ${t.partial ? 'partial' : ''}`;
+        // The inline failure owns this slot until its retry settles. Keep older
+        // replies visible; reveal the incoming reply when the failure collapses.
+        row.hidden = Boolean(replacingFailure && t.role === 'assistant' && (t.partial || t.inputRevision === inputRevision(this.#session)));
         // Redacted rows keep their height only while the pointer rests on the transcript.
         if (!hovered) row.style.minHeight = '';
         row.querySelector('.speaker-name').textContent = t.role === 'user' ? copy.you : copy.assistant;
@@ -1655,14 +1708,14 @@ export class AithemaSession extends HTMLElement {
     // pending until the assistant final or an authoritative end of that call.
     const voice = this.#rail?.ownershipState;
     const liveVoice = Boolean(this.#rail?.session) || voice && !['idle', 'ended'].includes(voice.state);
+    const callRunning = this.#rail?.state === 'connecting' ||
+      Boolean(this.#rail?.session) && !['waiting', 'closing'].includes(this.#rail.state) ||
+      ['connecting', 'active'].includes(voice?.state);
     const facadeCallId = person?.voiceCallId ?? person?.callId;
     const facadePending = turns.at(-1) === person && facadeCallId &&
       !(voice?.callId === facadeCallId && voice.state === 'ended');
     const waiting = liveVoice || facadePending || this.#laneStatusPending === revision ||
       this.#deferredAnalysis === revision || this.#analysisRecovery === revision;
-    root.querySelector('.retry').disabled = !analysis.available;
-    if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || (waiting && !this.#failure) || Boolean(running) || !(this.#failure || hasPersonTurn &&
-      (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
     // Real pending work owns the slot before failure; an existing assessment
     // keeps its draft/stale copy while its replacement runs.
     const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
@@ -1682,14 +1735,35 @@ export class AithemaSession extends HTMLElement {
       replyNotice.append(node('span', 'reaction-failure-text'));
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
-    const itemRetry = this.#clarify?.state === 'retry';
-    const identityReplyFailed = failures.some(f => f.lane === 'reaction' && f.reason === 'identity-changed');
-    const replyRetry = replyFailed && (overviewFailed || identityReplyFailed && (!analysis.available || locked)) && !itemRetry;
-    if (identityReplyFailed && !itemRetry && !this.#host?.usedUp) {
-      root.querySelector('.retry').hidden = Boolean(running);
-      root.querySelector('.retry').disabled = !this.#feature('text').available || Boolean(running);
+    const itemRetry = this.#clarify?.state === 'retry', ownReply = this.#replyOwnsRetry();
+    const retryNode = root.querySelector('.retry');
+    const retryableReply = failures.some(f => f.lane === 'reaction' && f.retryable !== false);
+    if (!retryableReply || this.#replyRetrySlot?.sessionId !== this.#session.id || this.#replyRetrySlot?.revision !== revision) this.#replyRetrySlot = null;
+    if (retryableReply && !this.#replyRetrySlot) this.#replyRetrySlot = {
+      sessionId: this.#session.id, revision,
+      inline: overviewFailed || ownReply && (!analysis.available || locked), managed: ownReply,
+    };
+    // Freeze placement across changing verdicts. Stable shared assessment recovery
+    // retains its existing first-failure reading order (AIT-221).
+    const slot = this.#replyRetrySlot;
+    if (slot && ownReply) slot.managed = true;
+    const managedReply = slot?.managed && !itemRetry;
+    const replyRetry = replyFailed && (managedReply ? slot.inline : overviewFailed) && !itemRetry;
+    if (managedReply && !this.#host?.usedUp) {
+      const pending = this.#retryPending?.sessionId === this.#session.id && this.#retryPending.revision === revision;
+      const replyRunning = operations?.inputRevision === revision && operations.running.includes('reaction');
+      retryNode.hidden = false; retryNode.disabled = false;
+      retryNode.setAttribute('aria-disabled', String(pending || Boolean(running) || callRunning || !this.#feature(ownReply ? 'text' : 'analysis').available));
+      retryNode.setAttribute('aria-busy', String(pending || replyRunning));
+    } else {
+      // Never transiently hide or native-disable a managed Retry: Chrome drops
+      // focus immediately, even if the same paint later restores it.
+      retryNode.disabled = !analysis.available;
+      if (!this.#host?.usedUp) retryNode.hidden = locked || !analysis.available || (waiting && !this.#failure) || Boolean(running) || !(this.#failure || hasPersonTurn &&
+        (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
+      retryNode.removeAttribute('aria-disabled'); retryNode.removeAttribute('aria-busy');
     }
-    if (itemRetry) root.querySelector('.retry').hidden = true;
+    if (itemRetry) retryNode.hidden = true;
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading
     // order. Keep its handler and node while the project action keeps its slot.
@@ -2651,6 +2725,7 @@ export class AithemaSession extends HTMLElement {
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
       this.#session.operations = event.data; this.#restoreFailure();
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
+      this.#retryPending = null;
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
       if (this.#clarify?.requestId && event.data.lane === 'reaction') {
         if (event.data.retryable === false) this.#clarify = null;
@@ -2658,6 +2733,7 @@ export class AithemaSession extends HTMLElement {
       }
       this.#host?.receive(event);
     }
+    if (this.#retryPending && (this.#retryPending.sessionId !== this.#session.id || this.#retryPending.revision !== inputRevision(this.#session))) this.#retryPending = null;
     this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
     this.#host?.updateStreaming();
