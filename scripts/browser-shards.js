@@ -18,6 +18,12 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
   }
   const weights = {};
   for (const file of files) {
+    // AIT-463: bootstrap this new demo workload until its first trusted main
+    // timing artifact exists. Replace with rolling samples after merge.
+    if (root === repositoryRoot && file === 'test/browser/email-unlock-reply.test.js') {
+      weights[file] = 45;
+      continue;
+    }
     const weightPath = file.replace(/\.test\.js$/u, '.weight.json');
     let measurement;
     try {

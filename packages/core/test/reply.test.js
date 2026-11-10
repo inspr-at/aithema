@@ -179,3 +179,58 @@ test('AIT-132: a heard-prefix correction cannot keep an unheard question or its 
   assert.equal(core.currentQuestionCard(session), null);
   assert.equal(session.transcript.at(-1).options, undefined);
 });
+
+test('AIT-463 Low 1: an unstamped assistant turn keeps its fold question without a question card', () => {
+  const session = core.applyEvent(core.createSession(), { type: 'turn.final',
+    data: { id: 'unstamped', role: 'assistant', ...reply } });
+  assert.equal(core.hasOpenReplyQuestion(session), true, 'latestReply still accepts unstamped replies');
+  assert.equal(core.currentQuestionCard(session), null);
+  assert.equal(core.replyIsCurrent(session, session.transcript.at(-1)), false);
+});
+
+test('AIT-463 Low 1: an unstamped assistant turn does not cache a plain-host reply', async () => {
+  let session = core.applyEvent(core.createSession({ demo: true }), { type: 'turn.final',
+    data: { id: 'person', role: 'user', content: 'I sell cushions.' } });
+  session = core.applyEvent(session, { type: 'turn.final', data: { id: 'unstamped', role: 'assistant', ...reply } });
+  const lanes = new core.SessionLanes({ reasoning: core.createMockReasoning(), beforeDispatch: async () => true,
+    getSession: () => session, publish(id, type, data) {
+      session = core.applyEvent(session, { type, data }); return true;
+    } });
+  assert.equal(await lanes.run(session.id, 'reaction'), 'completed');
+  assert.equal(await lanes.run(session.id, 'reaction'), 'cached', 'the newly stamped reply is current');
+});
+
+test('AIT-463 gate2 Low 2: a reply-only stamp fences a stale fold question', () => {
+  let session = core.createSession();
+  session = core.applyEvent(session, { type: 'turn.final', data: {
+    id: 'reply-only', role: 'assistant', replyRevision: core.replyInputRevision(session), ...reply,
+  } });
+  assert.equal(session.transcript.at(-1).inputRevision, undefined);
+  assert.equal(core.hasOpenReplyQuestion(session), true);
+  assert.equal(core.currentQuestionCard(session)?.turnId, 'reply-only');
+  session = core.applyEvent(session, { type: 'session.locale-changed', data: { locale: 'de' } });
+  assert.equal(core.replyIsCurrent(session, session.transcript.at(-1)), false);
+  assert.equal(core.currentQuestionCard(session), null);
+  assert.equal(core.hasOpenReplyQuestion(session), false, 'a stale reply stamp cannot retain the fold question');
+});
+
+test('AIT-463 BC9/L4: reply identity retains cards and fold questions across identity only', async () => {
+  const core = await import('../src/index.js');
+  let session = core.createSession({ demo: true });
+  const turn = { id: 'identity-card', role: 'assistant', content: 'Which project?', question_short: 'Which project?',
+    options: [{ text: 'An API' }], inputRevision: core.inputRevision(session), replyRevision: core.replyInputRevision(session) };
+  session = core.applyEvent(session, { type: 'turn.final', data: turn });
+  for (const identified of [true, false]) {
+    session = core.applyEvent(session, { type: 'identity.state', data: { identified } });
+    assert.equal(core.replyIsCurrent(session, turn), true);
+    assert.equal(core.currentQuestionCard(session)?.turnId, turn.id);
+    assert.equal(core.hasOpenReplyQuestion(session), true);
+  }
+  const changed = core.applyEvent(session, { type: 'turn.final', data: { id: 'next', role: 'user', content: 'New project' } });
+  assert.equal(core.replyIsCurrent(changed, turn), false);
+  assert.equal(core.currentQuestionCard(changed), null);
+  const unstamped = { ...session, transcript: [{ id: 'legacy', role: 'assistant', content: 'Which work?' }] };
+  assert.equal(core.hasOpenReplyQuestion(unstamped), true, 'legacy unstamped reply keeps its fold question');
+  const legacy = { ...turn }; delete legacy.replyRevision;
+  assert.equal(core.replyIsCurrent(session, legacy), false, 'D3: old full-revision replies keep the strict fallback');
+});
