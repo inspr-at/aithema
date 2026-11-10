@@ -723,3 +723,15 @@ test('AIT-463 B1: carry skips NULL and unrelated epochs, treats columns independ
   assert.equal(split.revision, null); assert.equal(split.assessment_revision, `0${next.slice(next.indexOf(':'))}`);
   assert.deepEqual(storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=? AND input_key=?').get(id, 'old'), before.find(row => row.input_key === 'old'));
 });
+
+for (const change of ['locale', 'correction', 'upload', 'input', 'consent-withdrawal']) test(`AIT-463 B1 guard: ${change} does not carry purpose rows`, t => {
+  const { storage, id } = unlockStorage(t);
+  const before = storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id);
+  if (change === 'locale') storage.changeLocale(id, 'de');
+  if (change === 'correction') storage.append(id, 'turn.corrected', { id: 'project', role: 'user', content: 'systems: corrected API' });
+  if (change === 'upload') storage.append(id, 'upload.state', { id: 'reference', state: 'accepted', filename: 'reference.txt', mediaType: 'text/plain', text: 'API' });
+  if (change === 'input') storage.postTurn(id, 'new-input', Buffer.from('API details'), 'API details');
+  if (change === 'consent-withdrawal') storage.reviseConsent(id, false);
+  assert.deepEqual(storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id), before);
+  assert.equal(storage.safeguards(id, inputRevision(storage.get(id))).assessed, false);
+});
