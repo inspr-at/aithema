@@ -23,24 +23,35 @@ async function waitFor(fn) {
   throw new Error('Timed out waiting for proxy/SMTP evidence');
 }
 async function listen(server) { server.listen(0, '127.0.0.1'); await once(server, 'listening'); return server.address().port; }
-async function fixture(t, variant) {
+async function fixture(t, variant, lateDelivery) {
   const directory = await mkdtemp(join(tmpdir(), 'ait470-')), messages = [], log = [];
+  let releaseDelivery = () => {};
+  t.after(() => releaseDelivery());
   const smtp = createSmtpServer(socket => {
-    let buffer = '', data = false, content = '';
+    let buffer = '', data = false, content = '', holding = false;
     socket.write('220 sink ESMTP\r\n');
-    socket.on('data', bytes => {
-      buffer += bytes.toString();
-      while (buffer.includes('\r\n')) {
+    const processLines = () => {
+      while (!holding && buffer.includes('\r\n')) {
         const end = buffer.indexOf('\r\n'), line = buffer.slice(0, end); buffer = buffer.slice(end + 2);
         if (data) {
-          if (line === '.') { messages.push(content); content = ''; data = false; socket.write('250 accepted\r\n'); }
+          if (line === '.') {
+            messages.push(content); content = ''; data = false;
+            if (lateDelivery) {
+              holding = true;
+              releaseDelivery = () => {
+                if (!holding) return;
+                holding = false; socket.write('250 accepted\r\n'); processLines();
+              };
+            } else socket.write('250 accepted\r\n');
+          }
           else content += line + '\r\n';
         } else if (line.startsWith('EHLO')) socket.write('250-sink\r\n250 PIPELINING\r\n');
         else if (line === 'DATA') { data = true; socket.write('354 send message\r\n'); }
         else if (line === 'QUIT') socket.end('221 bye\r\n');
         else socket.write('250 ok\r\n');
       }
-    });
+    };
+    socket.on('data', bytes => { buffer += bytes.toString(); processLines(); });
     socket.on('error', () => {});
   });
   const smtpPort = await listen(smtp); t.after(() => smtp.close());
@@ -116,6 +127,7 @@ async function fixture(t, variant) {
   const child = fork(new URL('../fixtures/identity-unlock-host.mjs', import.meta.url), [], { silent: true, env: {
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
+    ...(lateDelivery ? { AIT483_SYNC_DELIVERY: '1' } : {}),
     ...(variant === 'P-continue-slow' ? { AIT470_STABLE_TIER: '1' } : {}),
     ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AIT470_INPLACE: variant === 'V-inplace-false' ? 'false' : '1', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
@@ -135,7 +147,7 @@ async function fixture(t, variant) {
     assert.equal((await adminRequest(socketPath, 'set-confirmation', { baseRevision: settings.revision, confirmationEnabled: true })).status, 200);
 
   }
-  return { url, directory, messages, log, holdGrantStream() { grantStreamHeld = true; },
+  return { url, directory, messages, log, releaseDelivery() { releaseDelivery(); }, holdGrantStream() { grantStreamHeld = true; },
     releaseGrantStream() { grantStreamHeld = false; for (const send of grantChunks.splice(0)) send(); }, hold(barrier = false) {
     hold = true; if (barrier) holdBarrier = Promise.withResolvers();
   }, release() { holdBarrier?.resolve(); }, freeze() {
@@ -144,11 +156,12 @@ async function fixture(t, variant) {
 }
 
 const variants = full ? ['V-inplace-false', 'V-inplace', 'V-reconfigure', 'P-page', 'P-token', 'P-continue-slow', 'P-stalled', 'V-outbox', 'P-page-slow', 'V-outbox-slow', 'control'] : ['V-inplace', 'P-stalled', 'P-continue-slow'];
-for (const variant of variants) for (const locale of ['en', 'de']) for (const width of [390, 1440]) {
+for (const variant of variants) for (const locale of ['en', 'de']) for (const width of [390, 1440]) for (const lateDelivery of variant === 'P-stalled' && (full || (locale === 'en' && width === 1440)) ? [false, true] : [false]) {
   if (!full && variant === 'P-continue-slow' && width === 390) continue;
-  test(`AIT-470 ${variant} ${locale} ${width}: confirmation clears every lock indicator`, { timeout: 130_000 }, async t => {
+  const suffix = lateDelivery ? '-late-delivery' : '';
+  test(`AIT-470 ${variant} ${locale} ${width}${suffix}: confirmation clears every lock indicator`, { timeout: 130_000 }, async t => {
     const copy = locale === 'de' ? de : en, reason = copy.reasons['verification required'];
-    const f = await fixture(t, variant), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser') });
+    const f = await fixture(t, variant, lateDelivery), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser') });
     let collectEvidence = async () => {};
     t.after(async () => { try { await collectEvidence(); } finally { await browser.close(); } });
     const context = await browser.createBrowserContext(), page = await context.newPage();
@@ -225,14 +238,14 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
         if (read) read.outcome = 'applied';
       });
     }, locale);
-    const samples = [], evidence = { variant, locale, width, generationFence: 'n/a: no call', samples };
+    const samples = [], evidence = { variant, locale, width, lateDelivery, generationFence: 'n/a: no call', samples };
     const evidenceDir = process.env.AITHEMA_EVIDENCE_DIR;
     collectEvidence = async () => {
       evidence.proxy = f.log;
       evidence.browser = await page.evaluate(() => window.__ait470).catch(() => null);
       if (evidence.grant) evidence.grantArrivals = evidence.browser?.arrivals.filter(a =>
         a.event.seq === evidence.grant.seq && a.event.type === 'consent.revised');
-      if (evidenceDir) { await mkdir(evidenceDir, { recursive: true }); await writeFile(join(evidenceDir, `ait470-${variant}-${locale}-${width}.json`), JSON.stringify(evidence, null, 2)); }
+      if (evidenceDir) { await mkdir(evidenceDir, { recursive: true }); await writeFile(join(evidenceDir, `ait470-${variant}-${locale}-${width}${suffix}.json`), JSON.stringify(evidence, null, 2)); }
       console.log(`AIT-470 evidence ${JSON.stringify(evidence)}`);
     };
     await page.goto(f.url, { waitUntil: 'domcontentloaded' });
@@ -307,6 +320,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           await until(page, seq => document.querySelector('aithema-session').session.seq >= seq, eventSeq);
           evidence.hideEligibility = f.log.filter(e => e.path.endsWith('/concepts/eligibility')).at(-1);
           evidence.hideCursor = await shadow(page, c => c.session.seq);
+        }
+        if (lateDelivery) {
+          f.releaseDelivery();
+          await until(page, () => document.querySelector('aithema-session').session.identity.delivery !== 'requested');
         }
         if (variant === 'P-stalled') freezeAt = f.freeze();
         if (variant.endsWith('-slow')) f.hold(variant === 'P-continue-slow');
@@ -391,7 +408,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     }
     if (evidenceDir) {
       const capture = async surface => {
-        const name = `ait470-${variant}-${locale}-${width}-${surface}.png`;
+        const name = `ait470-${variant}-${locale}-${width}${suffix}-${surface}.png`;
         const png = await page.screenshot({ path: join(evidenceDir, name), fullPage: false });
         // Preserve fixture evidence in the runner log as well: artifact fetches
         // can be capacity-refused after a successful remote run.
