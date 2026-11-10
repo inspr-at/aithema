@@ -70,7 +70,8 @@ async function fixture(t, variant) {
             body = Buffer.from(source.replace(needle, `  get ait470Consent() {
               const p = this.#consentRefresh;
               return p ? { failed: !!p.failed, exhausted: !!p.exhausted, retries: p.retries,
-                attempt: !!p.attempt, scopedGrant: p.scopedGrant } : null;
+                attempt: !!p.attempt, scopedGrant: p.scopedGrant,
+                windowId: window.__ait470Id(p), attemptId: p.attempt ? window.__ait470Id(p.attempt) : null } : null;
             }\n${needle}`));
             // Source length changed; let HTTP chunk it.
             delete response.headers['content-length'];
@@ -133,6 +134,11 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       Object.defineProperty(document, 'hidden', { get: () => window.__ait470Hidden });
       Object.defineProperty(document, 'visibilityState', { get: () => window.__ait470Hidden ? 'hidden' : 'visible' });
       window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [] };
+      const ids = new WeakMap(); let nextId = 0;
+      window.__ait470Id = object => {
+        if (!ids.has(object)) ids.set(object, ++nextId);
+        return ids.get(object);
+      };
       const original = window.fetch;
       window.fetch = async function (url, options = {}) {
         const path = new URL(url, location.href).pathname, evidence = window.__ait470;
@@ -158,6 +164,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           Object.assign(read, { t1: performance.now(), status: response.status, snapshotSeq: body.seq,
             cursorAtResponse: component()?.session?.seq, consentAtResponse: component()?.ait470Consent });
           read.outcome = response.status === 409 ? '409' : body.seq > read.cursorAtResponse ? 'ahead' : body.seq < read.cursorAtResponse ? 'behind' : 'equal';
+          if (read.consentAtStart && read.consentAtStart.attemptId !== read.consentAtResponse?.attemptId) {
+            read.consentDrop = read.consentAtResponse?.failed && !read.consentAtResponse.attempt
+              ? 'watchdog-or-failure' : 'superseded-consent-attempt';
+          }
           return response;
         } catch (error) { read.outcome = 'error'; throw error; }
       };
