@@ -184,7 +184,7 @@ test('AIT-463 BC9/L4: reply identity retains cards and fold questions across ide
   const core = await import('../src/index.js');
   let session = core.createSession({ demo: true });
   const turn = { id: 'identity-card', role: 'assistant', content: 'Which project?', question_short: 'Which project?',
-    options: [{ id: 'api', text: 'An API' }], inputRevision: core.inputRevision(session), replyRevision: core.replyInputRevision(session) };
+    options: [{ text: 'An API' }], inputRevision: core.inputRevision(session), replyRevision: core.replyInputRevision(session) };
   session = core.applyEvent(session, { type: 'turn.final', data: turn });
   for (const identified of [true, false]) {
     session = core.applyEvent(session, { type: 'identity.state', data: { identified } });
