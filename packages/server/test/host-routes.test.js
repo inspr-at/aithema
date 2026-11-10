@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
+import { start2PurposePolicy } from '../../../demo/safeguards.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { mockConsent, temporaryDb, readEvents, unzip } from '../../../test/helpers.js';
 import { createSession, applyEvent, inputRevision, createHandover, reduceHandover, PluginError } from '@inspr/aithema-core';
@@ -14,7 +15,7 @@ function fixture(t, options = {}) {
     identityPolicy: { resendCooldownMs: 100, verificationTtlMs: 500 }, ...options });
   const runtime = createPluginRuntime({ storage, consent: mockConsent, presets: options.presets });
   const handlers = createHandlers({ storage, consent: mockConsent, pluginRuntime: runtime, host, ownership: options.ownership,
-    deadlineMs: options.deadlineMs ?? 30_000, log: options.log });
+    deadlineMs: options.deadlineMs ?? 30_000, log: options.log, purposePolicy: options.purposePolicy, sessionOptions: options.sessionOptions });
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await handlers.close(); storage.close(); };
   t.after(close);
@@ -1092,4 +1093,242 @@ for (const fails of [false, true]) test(`AIT-418: identity/change during an admi
     assert.equal(calls, 2); assert.equal(snapshot.transcript.filter(turn => turn.role === 'assistant').length, 1);
     assert.equal(snapshot.operations.lastFailure, null);
   }
+});
+
+// AIT-463: counts successful dispatch claims, including the canonical mock wire.
+function unlockCounts(t, f, intercept = () => {}) {
+  const calls = { reaction: [], understanding: [] }, admit = f.runtime.admit.bind(f.runtime);
+  t.mock.method(f.runtime, 'admit', async args => {
+    const replacement = await intercept(args);
+    const admission = await admit(args), attempt = admission.options.attempt;
+    const counted = { ...admission, options: { ...admission.options, attempt: { ...attempt, async consume() {
+      await attempt.consume(); calls[args.lane]?.push(args); return undefined;
+    } } } };
+    return replacement ? replacement(counted) : counted;
+  });
+  return calls;
+}
+async function unlockFixture(t, path = 'P', options = {}) {
+  const messages = [], mailPlugin = { id: 'smtp', deliversVerification: true,
+    async requestVerification(effect) { messages.push(effect); return { status: 'sent' }; } };
+  const f = fixture(t, { purposePolicy: start2PurposePolicy, ...(path === 'P' ? { mailPlugin } : {}), ...options });
+  if (path === 'P') f.host.visitorCredits.saveSettings({ baseRevision: f.host.visitorCredits.settings().revision, confirmationEnabled: true });
+  const session = await f.create(), base = `/api/sessions/${session.id}`;
+  const send = async (content = 'systems: API', clientEventId = crypto.randomUUID()) => {
+    assert.equal((await f.call(`${base}/turns`, { content, clientEventId })).status, 200); await f.handlers.idle();
+  };
+  const request = async () => {
+    assert.equal((await f.call(`${base}/identity/request`, { address: 'unlock@example.test' })).status, 200);
+    await f.handlers.idle();
+    return path === 'P' ? messages.at(-1).token : (await f.message(session.id)).token;
+  };
+  const verify = async (token, { poll = true } = {}) => {
+    if (path === 'P') {
+      assert.equal(f.host.confirmation.redeem(token).state, 'confirmed');
+      if (poll) assert.equal((await f.call(`${base}/identity/unlock`, {})).status, 200);
+    } else assert.equal((await f.call(`${base}/identity/confirm`, { token })).status, 200);
+  };
+  const reconnect = async () => { const stream = await f.call(`${base}/events`); await stream.body.cancel(); await f.handlers.idle(); };
+  return { ...f, session, base, send, request, verify, reconnect, messages };
+}
+function currentUnlockUnderstanding(f) {
+  const session = f.storage.get(f.session.id);
+  assert.equal(session.understanding.inputRevision, inputRevision(session));
+}
+
+test('AIT-463 T1: projected mail confirmation wakes understanding without an unlock event', async t => {
+  const f = await unlockFixture(t), counts = unlockCounts(t, f);
+  await f.send(); const token = await f.request();
+  assert.equal(counts.understanding.length, 0);
+  await f.verify(token); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1); currentUnlockUnderstanding(f);
+  assert.equal(counts.reaction.length, 1);
+  assert.equal(f.storage.read(f.session.id).filter(e => e.type === 'identity.unlocked').length, 0);
+});
+
+test('AIT-463 T2: reducer unlock, reconnect, Retry and Resume never rebill the answered reply', async t => {
+  const f = await unlockFixture(t, 'V'), counts = unlockCounts(t, f);
+  await f.send(); const token = await f.request(); await f.verify(token); await f.handlers.idle();
+  await f.reconnect(); await f.call(`${f.base}/retry`, {}); await f.handlers.idle();
+  await f.call(`${f.base}/pause`, { paused: true }); await f.call(`${f.base}/pause`, { paused: false }); await f.handlers.idle();
+  assert.equal(counts.reaction.length, 1);
+  assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'assistant').length, 1);
+  assert.equal(counts.understanding.length, 1); assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
+});
+
+for (const path of ['P', 'V']) test(`AIT-463 T3: ${path} unlock assesses the project prefix while purpose-paused`, async t => {
+  const f = await unlockFixture(t, path), counts = unlockCounts(t, f);
+  await f.send(); for (let i = 0; i < 3; i++) await f.send('Give me a soup recipe.');
+  assert.equal(f.storage.get(f.session.id).pauseReason, 'purpose');
+  const token = await f.request(); await f.verify(token); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1);
+  const request = JSON.stringify(counts.understanding[0].request.messages);
+  assert.match(request, /API/u); assert.doesNotMatch(request, /recipe/iu);
+  assert.equal(counts.reaction.length, 4); assert.equal(f.storage.get(f.session.id).paused, true);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 3);
+});
+
+test('AIT-463 T6: concurrent projection polls and replay schedule exactly once', async t => {
+  const f = await unlockFixture(t), counts = unlockCounts(t, f);
+  await f.send(); const token = await f.request(); await f.verify(token, { poll: false });
+  await Promise.all([f.call(`${f.base}/identity/unlock`, {}), f.call(`${f.base}/identity/unlock`, {})]); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1);
+  await f.call(`${f.base}/identity/unlock`, {}); await f.reconnect();
+  assert.equal(counts.understanding.length, 1); assert.equal(counts.reaction.length, 1);
+});
+
+test('AIT-463 T7: immediate new input does not pay for an unlock reply', async t => {
+  const f = await unlockFixture(t, 'V'), entered = deferred(), held = deferred(); t.after(held.resolve);
+  let reactions = 0;
+  const counts = unlockCounts(t, f, args => args.lane === 'reaction' && ++reactions === 2 ? admission => {
+    const plugin = admission.plugin;
+    return { ...admission, plugin: { ...plugin, async *stream(...args) {
+      for await (const delta of plugin.stream(...args)) { entered.resolve(); await held.promise; yield delta; }
+    } } };
+  } : undefined);
+  await f.send(); const token = await f.request(); await f.verify(token);
+  await Promise.race([entered.promise, f.handlers.idle()]);
+  assert.equal((await f.call(`${f.base}/turns`, { content: 'systems: API dashboard', clientEventId: 'next-project' })).status, 200);
+  held.resolve(); await f.handlers.idle();
+  assert.equal(counts.reaction.length, 2); currentUnlockUnderstanding(f);
+  const revisions = counts.understanding.map(call => inputRevision(call.session));
+  assert.equal(new Set(revisions).size, revisions.length);
+});
+
+for (const scenario of ['before-admission', 'while-down']) test(`AIT-463 T8: restart ${scenario} recovers behind budget recovery without rebilling`, async t => {
+  const db = await temporaryDb(), f = await unlockFixture(t, 'P', { storage: new SQLiteStorage(db) });
+  await f.send(); const token = await f.request();
+  const entered = deferred(), held = deferred(); t.after(held.resolve);
+  if (scenario === 'before-admission') {
+    const admit = f.runtime.admit.bind(f.runtime);
+    t.mock.method(f.runtime, 'admit', async args => {
+      if (args.lane === 'understanding') { entered.resolve(); await held.promise; }
+      return admit(args);
+    });
+    await f.verify(token); await Promise.race([entered.promise, f.handlers.idle()]);
+    const closing = f.close(); held.resolve(); await closing;
+  } else {
+    await f.handlers.close(); await f.verify(token, { poll: false }); await f.close();
+  }
+  const reopened = fixture(t, { storage: new SQLiteStorage(db), purposePolicy: start2PurposePolicy,
+    mailPlugin: { id: 'smtp', deliversVerification: true, async requestVerification() { return { status: 'sent' }; } } });
+  let recovered = false; const recover = reopened.runtime.budget.recover.bind(reopened.runtime.budget);
+  t.mock.method(reopened.runtime.budget, 'recover', (...args) => { recovered = true; return recover(...args); });
+  const counts = unlockCounts(t, reopened, args => { if (args.lane === 'understanding') assert.equal(recovered, true); });
+  await reopened.handlers.resume(); await reopened.handlers.idle();
+  assert.equal(counts.reaction.length, 0); assert.equal(counts.understanding.length, 1);
+  currentUnlockUnderstanding({ ...reopened, session: f.session });
+});
+
+for (const path of ['P', 'V']) test(`AIT-463 T9: plain host ${path} unlock wakes only understanding`, async t => {
+  const f = await unlockFixture(t, path, { purposePolicy: undefined }), counts = unlockCounts(t, f);
+  await f.send(); const token = await f.request(); await f.verify(token); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1); assert.equal(counts.reaction.length, 1); currentUnlockUnderstanding(f);
+  await f.reconnect(); await f.call(`${f.base}/retry`, {}); await f.handlers.idle();
+  assert.equal(counts.reaction.length, 1);
+});
+
+test('AIT-463 T10: plain paused confirmation and Resume retain one assistant reply', async t => {
+  const f = await unlockFixture(t, 'V', { purposePolicy: undefined }), counts = unlockCounts(t, f);
+  await f.send(); const token = await f.request(); await f.call(`${f.base}/pause`, { paused: true }); await f.verify(token);
+  await f.call(`${f.base}/pause`, { paused: false }); await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'assistant').length, 1);
+  assert.equal(counts.reaction.length, 1);
+});
+
+for (const path of ['P', 'V']) for (const failure of ['provider', 'credits']) test(`AIT-463 T11: ${path} ${failure} failure survives unlock until Retry`, async t => {
+  const f = await unlockFixture(t, path); let first = true;
+  const counts = unlockCounts(t, f, args => {
+    if (args.lane !== 'reaction' || !first) return;
+    first = false;
+    if (failure === 'credits') throw new PluginError('not-admitted', 'host-limit');
+    return admission => ({ ...admission, plugin: { ...admission.plugin, async *stream(_request, options) {
+      await options.attempt.consume(); throw new Error('controlled provider failure');
+    } } });
+  });
+  await f.send(); const reaction = counts.reaction.length, token = await f.request();
+  await f.verify(token); await f.handlers.idle();
+  const snapshot = await (await f.call(f.base)).json();
+  assert.equal(snapshot.operations.failures.length, 1);
+  assert.equal(snapshot.operations.failures[0].inputRevision, inputRevision(snapshot));
+  assert.equal(snapshot.operations.failures[0].lane, 'reaction');
+  assert.equal(counts.reaction.length, reaction); assert.equal(counts.understanding.length, 0);
+  await f.reconnect(); assert.equal(counts.reaction.length, reaction);
+  assert.equal((await f.call(`${f.base}/retry`, {})).status, 202); await f.handlers.idle();
+  assert.equal(counts.reaction.length, reaction + 1); assert.equal(counts.understanding.length, 1);
+});
+
+for (const path of ['P', 'V']) test(`AIT-463 T13: ${path} off-topic last input assesses only the project prefix`, async t => {
+  const f = await unlockFixture(t, path), counts = unlockCounts(t, f);
+  await f.send(); await f.send('Give me a soup recipe.'); const token = await f.request(); await f.verify(token); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1); assert.equal(counts.reaction.length, 2);
+  const request = JSON.stringify(counts.understanding[0].request.messages);
+  assert.match(request, /API/u); assert.doesNotMatch(request, /recipe/iu); assert.equal(f.storage.get(f.session.id).paused, false);
+});
+
+test('AIT-463 T17a: a lock-free host does not rerun current work on verification', async t => {
+  const f = await unlockFixture(t, 'V', { verificationRequired: false }), counts = unlockCounts(t, f);
+  await f.send(); assert.equal(counts.understanding.length, 1);
+  const token = await f.request(); await f.verify(token); await f.handlers.idle();
+  assert.equal(counts.reaction.length, 1); assert.equal(counts.understanding.length, 1);
+});
+
+test('AIT-463 T17b: a lock-free anonymous threshold is lifted by a projected unlock', async t => {
+  const f = await unlockFixture(t, 'P', { verificationRequired: false, sessionOptions: { demo: false } }), counts = unlockCounts(t, f);
+  await f.send(); assert.equal(counts.understanding.length, 0);
+  const token = await f.request(); await f.verify(token); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1); assert.equal(counts.reaction.length, 1);
+});
+
+test('AIT-463 T18: a new conversation for a verified visitor starts no paid work', async t => {
+  const f = await unlockFixture(t), counts = unlockCounts(t, f), token = await f.request();
+  await f.verify(token); await f.handlers.idle(); const next = await f.create();
+  assert.deepEqual(next.operations.running, []); assert.equal(counts.reaction.length, 0); assert.equal(counts.understanding.length, 0);
+  assert.notEqual((await f.call(`/api/sessions/${next.id}`, undefined, owner, 'DELETE')).status, 409);
+});
+
+for (const path of ['P', 'V']) test(`AIT-463 T19: ${path} re-lock then re-verify keeps the deferred finding-4 bound`, async t => {
+  // Follow-up: design section E, re-lock then re-verify strands purpose classification.
+  const f = await unlockFixture(t, path), counts = unlockCounts(t, f), token = await f.request();
+  await f.verify(token); await f.handlers.idle(); await f.send();
+  f.at(1_100); await f.call(`${f.base}/identity/change`, { address: 'changed@example.test' }); await f.handlers.idle();
+  const nextToken = path === 'P' ? f.messages.at(-1).token : (await f.message(f.session.id)).token;
+  const before = { reaction: counts.reaction.length, understanding: counts.understanding.length };
+  await f.verify(nextToken);
+  assert.equal(f.storage.safeguards(f.session.id, inputRevision(f.storage.get(f.session.id))).assessed, false);
+  await f.handlers.idle();
+  assert.ok(counts.reaction.length - before.reaction <= (path === 'P' ? 0 : 1));
+  assert.ok(counts.understanding.length - before.understanding <= (path === 'P' ? 0 : 1));
+});
+
+test('AIT-463 L1: lock-free understanding in flight survives unlock without another assessment', async t => {
+  const f = await unlockFixture(t, 'V', { verificationRequired: false }), entered = deferred(), held = deferred(); t.after(held.resolve);
+  const counts = unlockCounts(t, f, args => args.lane === 'understanding' ? admission => {
+    const plugin = admission.plugin;
+    return { ...admission, plugin: { ...plugin, async structured(...args) {
+      const result = await plugin.structured(...args); entered.resolve(); await held.promise; return result;
+    } } };
+  } : undefined);
+  await f.call(`${f.base}/identity/request`, { address: 'unlock@example.test' }); await f.handlers.idle();
+  const token = (await f.message(f.session.id)).token;
+  await f.call(`${f.base}/turns`, { content: 'systems: API', clientEventId: 'in-flight-project' });
+  await Promise.race([entered.promise, f.handlers.idle()]); assert.equal(counts.understanding.length, 1);
+  await f.verify(token); held.resolve(); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1); currentUnlockUnderstanding(f);
+});
+
+for (const path of ['P', 'V']) test(`AIT-463 L2: ${path} off-topic classification arriving after unlock wakes the deferred prefix`, async t => {
+  const f = await unlockFixture(t, path), entered = deferred(), held = deferred(); t.after(held.resolve);
+  let replies = 0;
+  const counts = unlockCounts(t, f, args => args.lane === 'reaction' && ++replies === 2 ? admission => {
+    const plugin = admission.plugin;
+    return { ...admission, plugin: { ...plugin, async *stream(...args) {
+      for await (const delta of plugin.stream(...args)) { entered.resolve(); await held.promise; yield delta; }
+    } } };
+  } : undefined);
+  await f.send(); const token = await f.request();
+  await f.call(`${f.base}/turns`, { content: 'Give me a soup recipe.', clientEventId: 'off-in-flight' });
+  await Promise.race([entered.promise, f.handlers.idle()]); await f.verify(token); held.resolve(); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1); assert.equal(counts.reaction.length, 2);
+  assert.doesNotMatch(JSON.stringify(counts.understanding[0].request.messages), /recipe/iu);
 });

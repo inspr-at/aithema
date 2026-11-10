@@ -11,13 +11,14 @@ import { createPluginRuntime, mockPresets } from '../src/index.js';
 import { deflateSync } from 'node:zlib';
 import { pdf, docx, zip } from '../../../test/extractor-fixtures.js';
 
+import { createDemoHost } from '../../../demo/host-ports.js';
 import { start2PurposePolicy } from '../../../demo/safeguards.js';
 
 const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessions/${id}${action ? '/' + action : ''}`, body === undefined ? {} : {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const envelope = (content, scope = 'off') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {}, analysisGate, voiceCallbacks, consent = mockConsent } = {}) {
+function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {}, analysisGate, voiceCallbacks, host, delegate = false, consent = mockConsent } = {}) {
   const assessmentStarted = Promise.withResolvers();
   const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [], assessments = [];
   const plugin = { ...mock, async *stream(request, options) {
@@ -36,13 +37,16 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
     const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets(), ...(voiceCallbacks ? { callbackAdapter: { bindCallbacks(operations) { voiceCallbacks(operations); return { callbackRoutes: [] }; } } } : {}) } } : {}), log });
-  const session = storage.create({ demo: true, ownerToken: testToken });
+  const configuredHost = typeof host === 'function' ? host(storage) : host;
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, host: configuredHost, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets(), ...(voiceCallbacks ? { callbackAdapter: { bindCallbacks(operations) { voiceCallbacks(operations); return { callbackRoutes: [], ...(delegate ? { prepareCallback: () => ({ request: {}, prepare() {}, revoke() {} }) } : {}) }; } } } : {}) } } : {}), log });
+  const session = configuredHost ? null : storage.create({ demo: true, ownerToken: testToken });
   t.after(async () => { await handlers.close(); storage.close(); });
   const send = async (content, clientEventId = crypto.randomUUID()) => {
     const response = await handlers.handle(req(session.id, 'turns', { content, clientEventId })); await handlers.idle(); return response;
   };
-  return { storage, handlers, session, calls, assessments, send, plugin, assessmentStarted: assessmentStarted.promise };
+  return { storage, handlers, session, calls, assessments, send, plugin, host: configuredHost,
+    create: () => handlers.handle(ownedRequest('http://localhost/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).then(r => r.json()),
+    assessmentStarted: assessmentStarted.promise };
 }
 function framed(request, locale = 'en') {
   assert.ok(request.system.includes(purposePolicy.purpose[locale]));
@@ -233,7 +237,7 @@ test('AIT-174 round2 unclear options are cleared; direction question is text onl
     }
   }
   const path = await temporaryDb(); let storage = new SQLiteStorage(path);
-  const session = storage.create({ demo: true, ownerToken: testToken });
+  const session = configuredHost ? null : storage.create({ demo: true, ownerToken: testToken });
   for (let i = 0; i < 3; i++) {
     storage.postTurn(session.id, 'vague-' + i, Buffer.from('vague'), 'vague');
     storage.guardPurposeDirection(session.id, { content: 'What should improve?', scope: 'unclear', question_short: null, options: [] }, purposePolicy);
@@ -617,4 +621,86 @@ for (const project of [false, true]) test(`AIT-212 reconnect recovers ${project 
   const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='understanding'").all();
   assert.equal(attempts.length, Number(project));
   assert.ok(attempts.every(attempt => attempt.state === 'settled'));
+});
+
+function unlockStorage(t) {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const session = storage.create({ demo: true, ownerToken: testToken }), id = session.id;
+  storage.postTurn(id, 'project', Buffer.from('systems: API'), 'systems: API');
+  const first = inputRevision(storage.get(id)); storage.appendPurposeReply(id, null, first, false, 3);
+  storage.postTurn(id, 'off', Buffer.from('Give me a soup recipe.'), 'Give me a soup recipe.');
+  const last = inputRevision(storage.get(id)); storage.appendPurposeReply(id, null, last, true, 3);
+  return { storage, id, first, last };
+}
+
+test('AIT-463 T4: unlock carries the whole purpose epoch and lane failure atomically', t => {
+  const { storage, id, first, last } = unlockStorage(t);
+  storage.setLaneFailure(id, { lane: 'reaction', inputRevision: last, retryable: true, error: 'reasoning-unavailable' });
+  const result = storage.transitionHost(id, () => ({ state: {}, events: [{ type: 'identity.state', data: { status: 'verified', identified: true } }] }));
+  const session = storage.get(id), revision = inputRevision(session), state = storage.safeguards(id, revision);
+  assert.equal(state.offTopicTurns, 1, 'guard: carry never adds a counter contribution');
+  assert.equal(state.assessed, true); assert.equal(state.offTopic, true);
+  const input = storage.purposeAssessmentInput(session);
+  assert.ok(input); assert.equal(input.transcript.at(-1).id, 'project');
+  assert.equal(storage.laneFailures(id)[0].inputRevision, revision);
+  assert.equal(inputRevision(result.identityUnlocked), last);
+  const rows = storage.db.prepare('SELECT revision,assessment_revision FROM safeguard_inputs WHERE session_id=? ORDER BY rowid').all(id);
+  assert.equal(rows[0].revision.split(':')[0], first.split(':')[0]);
+  assert.ok(rows.every(row => row.revision.slice(row.revision.indexOf(':')) === revision.slice(revision.indexOf(':')) && row.assessment_revision === row.revision));
+});
+
+test('AIT-463 T5: re-lock, consent and withdrawal retain their existing purpose fences', t => {
+  const { storage, id } = unlockStorage(t);
+  storage.append(id, 'identity.state', { status: 'verified', identified: true });
+  const rows = () => storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id);
+  const verified = rows();
+  storage.append(id, 'identity.state', { status: 'verification-pending', identified: false });
+  assert.deepEqual(rows(), verified); assert.equal(storage.safeguards(id, inputRevision(storage.get(id))).assessed, false);
+  const second = storage.create({ demo: true, ownerToken: testToken });
+  storage.postTurn(second.id, 'consent-project', Buffer.from('API'), 'API');
+  const revision = inputRevision(storage.get(second.id)); storage.appendPurposeReply(second.id, null, revision, false, 3);
+  storage.reviseConsent(second.id, true);
+  const consent = storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').get(second.id);
+  assert.equal(consent.revision, revision); assert.equal(consent.assessment_revision, inputRevision(storage.get(second.id)));
+  storage.withdraw(second.id, 'consent-project');
+  assert.deepEqual(storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').get(second.id), consent);
+});
+
+test('AIT-463 T14: late voice writers never regress either carried revision or replace it with NULL', t => {
+  const { storage, id, last } = unlockStorage(t);
+  storage.recordSafeguard(id, 'voice-key', last, false, 3);
+  storage.append(id, 'identity.state', { status: 'verified', identified: true });
+  const revision = inputRevision(storage.get(id));
+  for (const incoming of [last, null]) {
+    storage.recordSafeguard(id, 'voice-key', incoming, false, 3);
+    const row = storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=? AND input_key=?').get(id, 'voice-key');
+    assert.equal(row.revision, revision); assert.equal(row.assessment_revision, revision);
+  }
+});
+
+for (const path of ['P', 'V']) test(`AIT-463 T12: delegated voice ${path} unlock starts understanding without a text reply`, { timeout: 5000 }, async t => {
+  let callbacks;
+  const f = fixture(t, { voice: true, delegate: true, voiceCallbacks: value => { callbacks = value; },
+    host: storage => createDemoHost({ storage, verificationRequired: true, now: () => 1_000 }) });
+  const session = await f.create(), id = session.id;
+  const call = await f.handlers.handle(req(id, 'voice', { callId: 'unlock-voice' })).then(r => r.json());
+  assert.ok(call.providerSessionId);
+  const event = value => f.handlers.handle(req(id, `voice/${call.callId}/events`, { providerSessionId: call.providerSessionId, event: { callId: call.callId, ...value } }));
+  assert.equal((await event({ type: 'final', turnId: `${call.providerSessionId}:project`, role: 'user', text: 'systems: API', userTurnOrdinal: 1 })).status, 200);
+  callbacks.onCompletion({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: 'spoken-reply', content: 'What should the project improve?', userTurnOrdinal: 1, scope: 'in' });
+  assert.equal((await event({ type: 'final', turnId: `${call.providerSessionId}:answer`, role: 'assistant', text: 'What should the project improve?', userTurnOrdinal: 1, replyId: 'spoken-reply' })).status, 200);
+  await f.handlers.idle(); assert.equal(f.calls.length, 0); assert.equal(f.assessments.length, 0);
+  await f.handlers.handle(req(id, 'identity/request', { address: 'voice@example.test' })); await f.handlers.idle();
+  const token = f.host.outbox({ sessionId: id, ownerToken: testToken }).at(-1).token;
+  if (path === 'P') {
+    const project = f.host.identity.project;
+    t.mock.method(f.host.identity, 'project', (context, state) => ({ ...project(context, state), status: 'verified', expiresAt: null }));
+    await f.handlers.handle(req(id, 'identity/unlock', {}));
+  } else await f.handlers.handle(req(id, 'identity/confirm', { token }));
+  await f.handlers.idle(); assert.equal(f.assessments.length, 1); assert.equal(f.calls.length, 0);
+  const current = f.storage.get(id); assert.equal(current.understanding.inputRevision, inputRevision(current));
+  assert.equal(current.transcript.at(-1).replyRevision !== undefined, true, 'voice finals persist reply identity');
+  await f.handlers.handle(req(id, `voice/${call.callId}/end`, { providerSessionId: call.providerSessionId }));
+  const stream = await f.handlers.handle(req(id, 'events')); await stream.body.cancel(); await f.handlers.idle();
+  assert.equal(f.calls.length, 0);
 });
