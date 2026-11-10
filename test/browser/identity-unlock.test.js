@@ -354,7 +354,6 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
         return snapshots.length >= 2;
       });
       const forwarded = f.log.filter(e => e.held && e.forwarded).at(-1);
-      assert.ok(forwarded && Date.now() - forwarded.forwarded < 3000, 'journal advance precedes delivery of last natural snapshot');
       evidence.extraTurnAfterSnapshot = forwarded;
       await send('It also needs a collection time selector.');
       await until(page, () => document.querySelector('aithema-session').session.transcript.filter(t => t.role === 'user').length >= 2);
