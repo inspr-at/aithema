@@ -1013,3 +1013,34 @@ for (const [copy, plain] of [[de, 'Derzeit nicht verfügbar'], [en, 'Currently u
     }
   }
 }
+
+for (const timing of ['closed-menu', 'open-before-unlock', 'open-before-response']) test(`AIT-470 U14 ${timing}: unlock reload respects option menus through response and close`, async t => {
+  const locked = { status: 'verification-pending', address: 'visitor@example.test', verificationRequired: true, assessmentUnlocked: false, conceptsUnlocked: false };
+  let reads = 0, unlocked = false; const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = await opened(fixture(t, { host: { verification: true }, identity: locked, loadIdentity: () => locked,
+    loadCatalog: async catalog => {
+      reads++; const result = structuredClone(catalog);
+      result.presets.best.visuals[0].status = unlocked ? 'available' : 'unavailable';
+      result.presets.best.visuals[0].reason = unlocked ? null : 'verification required';
+      if (timing === 'open-before-response' && reads === 2) await held.promise;
+      return result;
+    } }));
+  assert.equal(reads, 1);
+  const button = () => h.q('[data-select="visuals"] .select__button');
+  if (timing === 'open-before-unlock') button().click();
+  unlocked = true;
+  const event = { seq: h.c.session.seq + 1, type: 'identity.state', data: { ...locked, status: 'verified', assessmentUnlocked: true, conceptsUnlocked: true } };
+  h.server.apply(event); h.c.receive(event); await tick(8);
+  if (timing === 'open-before-response') { button().click(); held.resolve(); await tick(8); }
+  const menu = () => h.q('#settings-options-visuals');
+  const option = () => menu().querySelector('[data-value="fake-images"]');
+  if (timing !== 'closed-menu') {
+    assert.equal(menu().hidden, false);
+    assert.ok(option().title.includes(en.reasons['verification required']), 'open menu keeps its option wording');
+    assert.equal(reads, timing === 'open-before-unlock' ? 1 : 2);
+    button().click(); await tick(8);
+  }
+  assert.equal(reads, timing === 'open-before-response' ? 3 : 2);
+  assert.ok(!option().title.includes(en.reasons['verification required']), 'closed menu accepts the refreshed catalog');
+  assert.equal(h.posts.length, 0);
+});
