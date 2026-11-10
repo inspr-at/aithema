@@ -7,7 +7,7 @@ import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handler
 import { createTouchVisitor } from './host-activity.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, replyInputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, replyInputRevision, replyIsCurrent, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError, ConsentConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -123,9 +123,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
   const laneKey = (session, lane) => `${lane === 'reaction' ? replyInputRevision(session) : inputRevision(session)}|${selection(session, lane)}|${lane === 'reaction' ? session.questionFocus?.requestId ?? '' : ''}`;
   // New turns may obsolete a paid assessment but must let it collect its receipt.
-  // Consent, locale, correction, upload and identity revisions remain strict.
+  // Consent, locale, correction, upload and re-lock revisions remain strict.
+  const understandingUnlock = (source, current) => !source.identified && current.identified && replyInputRevision(source) === replyInputRevision(current);
   const keepUnderstanding = (source, current) => {
-    if (!purposePolicy || current.consentWithdrawn || current.tombstone) return false;
+    if (current.consentWithdrawn || current.tombstone) return false;
+    if (understandingUnlock(source, current)) return true;
+    if (!purposePolicy) return false;
     const suffix = inputRevision(source).split(':').slice(1).join(':');
     if (inputRevision(current).split(':').slice(1).join(':') !== suffix) return false;
     const before = source.transcript.filter(turn => turn.role === 'user').length;
@@ -137,7 +140,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     if (!original.assessed || original.offTopic && !storage.purposeAssessmentInput(source)) return false;
     return true;
   };
-  // Publishing an older result additionally requires every new turn to be off-topic.
+  // An unlock retains the same input; added turns must all be off-topic before publication.
   const retainUnderstanding = (source, current, pending = false) => {
     if (!keepUnderstanding(source, current)) return false;
     const suffix = inputRevision(source).split(':').slice(1).join(':');
@@ -173,7 +176,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     onScope(id, scope, revision, { reply = true } = {}) {
       if (!reply) for (const event of storage.appendPurposeReply(id, null, revision, false, purposePolicy.offTopicLimit)) broadcast(id, event);
       lanes.supersede(id);
-      if (scope !== 'off') scheduleLane(id, 'understanding');
+      if (scope !== 'off' || storage.purposeAssessmentInput(storage.get(id))) scheduleLane(id, 'understanding');
     },
     admit: args => pluginRuntime.admit(args),
     onOpenerStripped() {
@@ -198,6 +201,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const current = storage.get(id);
       const acceptedRevision = type === 'understanding.updated' && source && retainUnderstanding(source, current)
         ? inputRevision(current) : revision;
+      if (type === 'understanding.updated' && source && understandingUnlock(source, current)) data = { ...data, inputRevision: acceptedRevision };
       const event = storage.append(id, type, data, acceptedRevision);
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
@@ -256,7 +260,24 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       await eraseConversation(id, { ownerToken }, ownerToken);
       return { id, erased: true };
     },
-    unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
+    unlocked(id, { before, notified = false }) {
+      const session = storage.get(id);
+      const input = purposePolicy ? storage.purposeAssessmentInput(session) : session;
+      const locked = before.identity?.verificationRequired === true && before.identity.assessmentUnlocked !== true;
+      const deferred = Boolean(input) && understandingDeferred({ ...input, identified: false }) && !understandingDeferred(input);
+      // Wake only work this flip unblocked, and preserve failures until Retry.
+      if (!hasConversationInput(session) || !locked && !deferred) return;
+      if (purposePolicy) {
+        // A re-lock can strand classification; projection keeps today's idle path.
+        if (!notified && !storage.safeguards(id, inputRevision(session)).assessed) return;
+        lanes.supersede(id); schedule(id, { reconnect: true });
+      } else {
+        lanes.supersede(id);
+        if (!currentFailures(session).some(failure => failure.lane === 'understanding')) scheduleLane(id, 'understanding');
+        status(id);
+      }
+      conceptHandlers.schedule(id);
+    },
   });
   pluginRuntime.conversationLimits.configure({ publish: broadcast, now,
     durationMs: host?.credits?.durationMs });
@@ -429,7 +450,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   function unfinished(session) {
     const revision = inputRevision(session);
     const scoped = purposePolicy ? storage.safeguards(session.id, revision) : null;
-    const replyMissing = pendingQuestionFocus(session) || (scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision));
+    const replyMissing = pendingQuestionFocus(session) || (scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && replyIsCurrent(session, t)));
     return !session.tombstone && hasConversationInput(session) &&
       (replyMissing || purposePolicy && storage.purposeAssessmentInput(session) || !scoped?.offTopic && !understandingDeferred(session) &&
         (session.understanding.inputRevision !== revision || session.understanding.draft));

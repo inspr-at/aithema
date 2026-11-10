@@ -3,7 +3,7 @@ import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
-import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
+import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
@@ -1650,7 +1650,7 @@ export class AithemaSession extends HTMLElement {
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const turns = activeTurns(this.#session), person = turns.findLast(t => t.role === 'user');
     const hasPersonTurn = Boolean(person);
-    const missingReply = hasPersonTurn && !turns.some(t => t.role === 'assistant' && t.inputRevision === revision);
+    const missingReply = hasPersonTurn && !turns.some(t => t.role === 'assistant' && replyIsCurrent(this.#session, t));
     // A facade reply has no reaction job. Its accepted person turn remains
     // pending until the assistant final or an authoritative end of that call.
     const voice = this.#rail?.ownershipState;

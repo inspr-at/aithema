@@ -436,7 +436,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           try { fresh = sessionFor(entry); }
           catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
           if (retry || !(error instanceof PluginError) || error.code !== 'not-admitted' ||
-            !['Session changed', 'Session changed during admission'].includes(error.message) ||
+            !['Session changed', 'Session changed during admission', 'Session changed before dispatch'].includes(error.message) ||
             inputRevision(fresh) === inputRevision(session) || fresh.paused || fresh.locale !== session.locale ||
             fresh.settings?.revision !== session.settings?.revision ||
             runtime.selectionKey(fresh, 'voice') !== runtime.selectionKey(session, 'voice')) throw error;

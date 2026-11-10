@@ -67,7 +67,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     identity.manualPaused = storage.get(id).paused;
     return identity;
   }
-  function initialize(id, ownerToken, { newSession = false } = {}) {
+  function initialize(id, ownerToken, { newSession = false, wake = true } = {}) {
     if (!host) return;
     if (newSession && ownerToken) touchVisitor(storage.get(id));
     const state = storage.hostState(id);
@@ -76,14 +76,15 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         const projected = host.identity.project({ session: storage.get(id) }, state.identity);
         if (!storage.get(id).identity || JSON.stringify(identityView(projected, clock(projected))) !== JSON.stringify(identityView(state.identity, clock(state.identity)))) {
           if (projected.address) assertAddressCollectionAllowed();
-          emit(id, storage.transitionHost(id, current => ({ state: { ...current, identity: projected },
+          const result = emit(id, storage.transitionHost(id, current => ({ state: { ...current, identity: projected },
             events: [{ type: 'identity.state', data: identityView(projected, clock(projected)) }] }), ownerToken ? { ownerToken } : {}));
+          if (wake && !newSession && result.identityUnlocked) unlocked(id, { before: result.identityUnlocked, notified: false });
         }
       }
       // A lock from an earlier host policy must not strand a conversation
       // when verification is disabled, including demo-to-live adoption.
       if (state.identity?.verificationRequired === true && host.policy?.verificationRequired !== true) {
-        identityTransition(id, ownerToken, { type: 'policy', origin: 'host', verificationRequired: false });
+        identityTransition(id, ownerToken, { type: 'policy', origin: 'host', verificationRequired: false }, { wake });
       }
       return;
     }
@@ -91,7 +92,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     if (host.credits?.ownerGuard !== false && ownerToken && storage.ownerCreditState(ownerToken)?.paused && !storage.get(id).paused) {
       publish(id, storage.pause(id, true, { ownerToken }));
     }
-    emit(id, storage.transitionHost(id, () => {
+    const result = emit(id, storage.transitionHost(id, () => {
       // Older conversations retain their admission policy when adopted by B1.
       const identity = initialIdentity(id, ownerToken, newSession);
       if (identity?.address) assertAddressCollectionAllowed();
@@ -101,8 +102,9 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         { type: 'handover.state', data: handoverView(handover) },
       ] };
     }, ownerToken ? { ownerToken } : {}));
+    if (wake && !newSession && result.identityUnlocked) unlocked(id, { before: result.identityUnlocked, notified: false });
   }
-  function identityTransition(id, ownerToken, event) {
+  function identityTransition(id, ownerToken, event, { wake = true } = {}) {
     let erased = false;
     const result = emit(id, storage.transitionHost(id, (state, session) => {
       const identity = host.identity?.project?.({ session }, state.identity) ?? state.identity;
@@ -120,6 +122,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       return { ...result, state: { ...state, ...(emailAsk ? { emailAsk } : {}), identity: result.state } };
     }, { ownerToken }));
     if (erased) storage.checkpointErasure();
+    if (wake && result.identityUnlocked) unlocked(id, { before: result.identityUnlocked, notified: result.events.some(event => event.type === 'identity.unlocked') });
     return result;
   }
   function assertPauseAllowed(id, paused) {
@@ -452,9 +455,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           }
           if (signal?.aborted) return json({ error: 'server-stopping' }, 503);
           storage.authorize(id, ownerToken); syncPause(id, ownerToken);
-          const result = identityTransition(id, ownerToken, { type: 'verification', verified: evidence?.verified === true,
+          identityTransition(id, ownerToken, { type: 'verification', verified: evidence?.verified === true,
             address: evidence?.address, revision: evidence?.revision });
-          if (result.events.some(e => e.type === 'identity.unlocked')) unlocked(id);
           return json(identityResult(id));
         }
         let result = identityTransition(id, ownerToken, { type: command === 'request' ? 'request-verification' : command === 'change' ? 'change-address' : 'resend', address: options.address });
@@ -531,7 +533,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       for (const id of storage.list()) {
         if (storage.get(id).tombstone) continue;
         try {
-          initialize(id);
+          initialize(id, undefined, { wake: false });
           if (storage.hostState(id).handover.status === 'preparing') handoverTransition(id, undefined, { type: 'recover' });
         } catch (error) {
           // Leave protected state untouched while keeping deletion reachable.
