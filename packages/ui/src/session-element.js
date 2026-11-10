@@ -89,9 +89,13 @@ function textKeys(values) {
   const seen = new Map();
   return values.map(value => { const n = seen.get(value) ?? 0; seen.set(value, n + 1); return [`${value}\u0000${n}`, value]; });
 }
+const lockedIdentity = identity => identity?.verificationRequired === true && identity.assessmentUnlocked !== true;
+// Each natural read owns at most five journal-driven repeats, with no timer.
+const REPEAT_LIMIT = 5;
 
 export class AithemaSession extends HTMLElement {
   #consentRefresh;
+  #featureRead = null;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
@@ -139,7 +143,7 @@ export class AithemaSession extends HTMLElement {
     clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
-    this.#postCallMatrix = null; this.#laneStatusPending = null;
+    this.#postCallMatrix = null; this.#laneStatusPending = null; this.#featureRead = null;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
@@ -190,6 +194,7 @@ export class AithemaSession extends HTMLElement {
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect();
     if (this.#consentRefresh) { this.#consentRefresh.retryTimer = null; void this.#refreshFeatures(); }
+    this.#repeatFeatures();
     this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
@@ -749,7 +754,7 @@ export class AithemaSession extends HTMLElement {
       replyInFlight: () => this.#sending || this.#partials.size > 0 || this.#session.operations?.running.includes('reaction'),
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
-      onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); },
+      onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); if (info?.unlocked) this.#unlocked(); },
       // Focus follows the visible stage control: Continue at the entrance, Start at readiness; live,
       // unlocking keeps a deliberate pause (Resume is offered), else the composer takes focus.
       focusAfterUnlock: () => {
@@ -1046,6 +1051,11 @@ export class AithemaSession extends HTMLElement {
       form.append(field); document.body.append(form); form.submit();
     } catch { this.#status(this.#copy.controlFailed); }
     finally { form.remove(); }
+  }
+  #unlocked() {
+    this.#dialog?.refreshCatalog();
+    // HTTP may see verification before the journal does, including on a stalled stream.
+    if (this.isConnected && lockedIdentity(this.#session.identity)) void this.#refreshFeatures(false, { unlockEdge: true });
   }
   #creditsChanged({ allowanceChanged = false, settledCall, receiptFailed = false } = {}) {
     if (!this.#host) return;
@@ -2634,6 +2644,8 @@ export class AithemaSession extends HTMLElement {
       }
       this.#host?.receive(event);
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
+      // Host callbacks can start a natural read; that read supersedes any pending repeat.
+      this.#repeatFeatures();
     } else if (event.type === 'voice.state') {
       this.#receiveVoiceState(event.data);
       this.#host?.receive(event);
@@ -2732,9 +2744,13 @@ export class AithemaSession extends HTMLElement {
       void this.#refreshFeatures(true);
     } else this.#failConsentRefresh(pending);
   }
-  async #refreshFeatures(consentRetry = false) {
+  #repeatFeatures() {
+    const read = this.#featureRead;
+    if (read?.repeatAt !== undefined && this.#cursor >= read.repeatAt && this.isConnected) void this.#refreshFeatures(false, { chain: read.chain + 1 });
+  }
+  async #refreshFeatures(consentRetry = false, { unlockEdge = false, chain = 0 } = {}) {
     if (this.#session.processingPreset === 'device') return;
-    const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
+    const sessionId = this.#session.id, startCursor = this.#cursor, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
     // A read begun before the local listening acknowledgement cannot repaint
     // its cached paused verdict afterward, even within the same rail generation.
     const projectionRevision = this.#voiceResumeRevision, resume = this.#voiceResumeProjection;
@@ -2750,7 +2766,7 @@ export class AithemaSession extends HTMLElement {
     if (consentRetry && pending?.exhausted) return;
     // Ordinary refresh triggers remain useful after the automatic budget ends.
     if (pending) { clearTimeout(pending.retryTimer); pending.retryTimer = null; }
-    const attempt = {};
+    const attempt = { chain }; this.#featureRead = attempt;
     if (pending) {
       pending.attempt = attempt;
       // Retries must also time out: a stalled attempt cannot hold the budget open.
@@ -2763,15 +2779,35 @@ export class AithemaSession extends HTMLElement {
     const active = () => sessionId === this.#session.id && projectionRevision === this.#voiceResumeRevision &&
       pending === this.#consentRefresh && (!pending || pending.attempt === attempt);
     const fail = () => { if (active()) { restorePaused(); this.#failConsentRefresh(pending); } };
+    const repeat = (seq, differs) => {
+      // A live consent window retains its own deadline and retry budget.
+      if (!differs || this.#featureRead !== attempt || pending && !pending.exhausted || attempt.chain >= REPEAT_LIMIT) return;
+      attempt.repeatAt = Math.max(Number.isSafeInteger(seq) ? seq : 0, startCursor + 1);
+      this.#repeatFeatures();
+    };
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!active()) return;
-      if (!response.ok) { fail(); return; }
+      if (!response.ok) {
+        // A 409 means all server snapshot attempts were overtaken. Like a stale
+        // snapshot, it cannot roll back an acknowledged Resume.
+        if (response.status === 409 && !(pending && !pending.exhausted)) {
+          this.#retryStaleConsentRefresh(pending);
+          if (unlockEdge && lockedIdentity(this.#session.identity)) this.#connect();
+          repeat(0, true); return;
+        }
+        fail(); return;
+      }
       const session = await response.json();
       if (!active()) return;
       if (revision !== this.#session.consentRevision || session.consentRevision !== revision ||
         session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) {
-        this.#retryStaleConsentRefresh(pending); return;
+        this.#retryStaleConsentRefresh(pending);
+        if (session.id === sessionId && (session.seq !== this.#cursor || voiceGeneration !== this.#rail?.generation)) {
+          if (unlockEdge && session.seq > this.#cursor && !lockedIdentity(session.identity) && lockedIdentity(this.#session.identity)) this.#connect();
+          repeat(session.seq, JSON.stringify(session.featureMatrix) !== JSON.stringify(this.#session.featureMatrix));
+        }
+        return;
       }
       // Older reads cannot confirm or roll back a superseding visitor command.
       if (resume && !currentResume()) return;
@@ -2839,7 +2875,7 @@ export class AithemaSession extends HTMLElement {
       // An accepted snapshot protects its state from older responses to concurrent restores.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
       const before = this.#session;
-      this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
+      this.#session = session; this.#cursor = this.#session.seq; this.#featureRead = null; this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
       this.#restoreVoiceEffects(before);
       this.#repaintLocale();
       this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();

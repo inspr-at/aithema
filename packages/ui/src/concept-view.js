@@ -423,13 +423,15 @@ export class ConceptView {
     const initial = this.#stageFeature === undefined;
     const current = this.accessFeature();
     const consentChanged = isConsentReason(current.rawReason ?? current.reason) || isConsentReason(this.#stageFeature?.rawReason ?? this.#stageFeature?.reason);
-    if (!this.#session.paused || initial || consentChanged) this.#stageFeature = current;
+    const gateLifted = (this.#stageFeature?.rawReason ?? this.#stageFeature?.reason) === 'verification required' &&
+      (current.rawReason ?? current.reason) !== 'verification required';
+    if (!this.#session.paused || initial || consentChanged || gateLifted) this.#stageFeature = current;
     const feature = this.#session.consentWithdrawn || this.#session.tombstone ? this.feature() : this.#stageFeature;
     const words = conceptStateText({ copy: this.copy, status, feature, items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
     // Tick L1: pausing gates actions, but keeps the stage's pre-pause words.
     // A reload has no previous words: initialize from the underlying feature verdict.
-    // Consent withdrawal and erasure still clear dependent presentation normally.
-    if (initial || !this.#session.paused || consentChanged || this.#session.consentWithdrawn || this.#session.tombstone) {
+    // A lifted verification gate, consent withdrawal and erasure still repaint.
+    if (initial || !this.#session.paused || consentChanged || gateLifted || this.#session.consentWithdrawn || this.#session.tombstone) {
       const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
       if (!['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError && (!this.items.length || !feature.available)) this.#paintReason(text, feature, words, line);
       else paintConsentLine(text, { copy: this.copy, feature: (this.#withdrawnKind ?? this.visualKind()) === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener, this.#withdrawnKind ?? this.visualKind()) });

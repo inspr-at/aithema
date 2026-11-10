@@ -121,7 +121,7 @@ export class Verification {
     this.#locked = this.locked;
     this.#paint(); this.#schedule();
     if (!quiet) {
-      this.#onChange?.();
+      this.#onChange?.(wasLocked && !this.#locked ? { unlocked: true } : undefined);
       if (wasLocked && !this.#locked && focusInLock) this.#focusAfterUnlock?.();
     }
   }
