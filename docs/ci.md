@@ -2,7 +2,7 @@
 
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
-CI hours (measured baseline AEON-1407, 2026-10-15). All eight browser shards run
+CI hours (measured baseline AEON-1407, 2026-10-15). All nine browser shards run
 at once on full runs. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
@@ -27,7 +27,7 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-Eight worker shards report `browser (1/8)` through `browser (8/8)`. The ruleset
+Nine worker shards report `browser (1/9)` through `browser (9/9)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
 skipped shard fails the summaries. PR and merge-group events use the same jobs.
@@ -307,8 +307,11 @@ retained seven shards and the 420 s ceiling, with an eighth shard as the next ca
 raised the target once to 405 s under LEAD's AIT-410 decision (2026-10-20);
 AIT-423 implements its standing answer to the next overshoot: an eighth shard,
 not a 410 s target. The current target is 405 s; the hard ceiling remains 420 s.
+AIT-470 adds a ninth bin because the new unlock workload projects eight bins
+at 425.784–428.702 s. Its 240 s bootstrap reservation remains provisional;
+no weights, headroom target, hard ceiling or required summary names are lowered.
 
-Each CI shard writes `browser-timings-N-of-8` artifacts (14-day retention).
+Each CI shard writes `browser-timings-N-of-9` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.
 Nested subtests are excluded because their parent's duration already includes
@@ -324,10 +327,10 @@ npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
 npm run test:browser-shards
 ```
 
-The importer accepts complete historical six/seven-shard and current eight-shard runs;
+The importer accepts complete historical six/seven/eight-shard and current nine-shard runs;
 it rejects mixed counts, missing indices, duplicates, and expired artifacts.
-CI screenshots use `browser-evidence-N-of-8`; the full nightly matrix uses
-`full-browser-evidence-N-of-8`. All eight workers run concurrently, so this adds
+CI screenshots use `browser-evidence-N-of-9`; the full nightly matrix uses
+`full-browser-evidence-N-of-9`. All nine workers run concurrently, so this adds
 runner minutes while keeping wall-clock time comparable.
 
 Nightly selects the full Cartesian matrix with `AITHEMA_FULL_MATRIX=1`.
@@ -335,9 +338,9 @@ It retains GitHub Actions' `CI=true`, including the CI timing budgets in
 fixtures such as `scoped-consent-edges.js`. An evidence directory alone keeps
 PR width rotation when `CI` is set; local manual evidence retains its existing
 full-matrix path. GitHub Actions never enables the manual axe audit. Nightly
-retains eight shards and a 25-minute job timeout; successful complete jobs must
+retains nine shards and a 25-minute job timeout; successful complete jobs must
 finish within 17:30 (70%) before claiming measured headroom. Small timing
-artifacts are `full-browser-timings-N-of-8`, separate from viewport screenshots.
+artifacts are `full-browser-timings-N-of-9`, separate from viewport screenshots.
 
 The script downloads only the small timing artifacts through the selected `gh`
 account, pinned to `inspr-at/aithema`. Both automatic selection and explicit

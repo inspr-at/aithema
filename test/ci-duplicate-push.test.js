@@ -159,12 +159,12 @@ test('required aggregates allow only verified duplicate skips and never mask a f
   }
 });
 
-test('all resource caps, shard counts and required names retain the main baseline', () => {
+test('resource caps and required summaries stay fixed while AIT-470 adds browser capacity', () => {
   assert.deepEqual(Object.keys(ci.on), ['pull_request', 'merge_group', 'push']);
   assert.deepEqual(Object.fromEntries(Object.entries(ci.jobs).map(([id, job]) => [id, [job.name ?? id, job['timeout-minutes'], job.strategy?.matrix.shard]])), {
     changes: ['changes', 5, undefined], test: ['test', 10, undefined],
     'npm-cache': ['npm-cache', 3, undefined],
-    browser: ['browser (${{ matrix.shard }}/8)', 10, [1, 2, 3, 4, 5, 6, 7, 8]],
+    browser: ['browser (${{ matrix.shard }}/9)', 10, [1, 2, 3, 4, 5, 6, 7, 8, 9]],
     'browser-required': ['browser (${{ matrix.shard }}/4)', 1, [1, 2, 3, 4]],
     unit: ['unit (${{ matrix.shard }}/3)', 10, [1, 2, 3]], 'preview-security': ['preview-security', 6, undefined],
   });
