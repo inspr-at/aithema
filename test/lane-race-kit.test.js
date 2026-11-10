@@ -252,3 +252,51 @@ test('AIT-197 recovered project input settles during purpose pause without a rep
   assert.equal(h.kit.calls.length, 2, 'recovered input is assessed only once');
   const c = balanced(h).understanding; assert.equal(c.started, 2); assert.equal(c.failed, 1); assert.equal(c.completed, 1);
 });
+
+for (const relock of [false, true]) test(`AIT-463 ${relock ? 'N1 guard' : 'T15'}: ${relock ? 're-lock refuses' : 'unlock accepts'} a reaction at dispatch`, { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ purposePolicy: start2PurposePolicy }); t.after(() => h.close());
+  h.handlers.lanes.replyVisible = () => !relock;
+  if (relock) h.storage.append(h.id, 'identity.state', { status: 'verified', identified: true });
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), admit = h.runtime.admit.bind(h.runtime); t.after(release.resolve);
+  h.runtime.admit = async args => {
+    const admission = await admit(args), attempt = admission.options.attempt;
+    return { ...admission, options: { ...admission.options, attempt: { ...attempt, async consume() {
+      entered.resolve(); await release.promise; return attempt.consume();
+    } } } };
+  };
+  const pending = h.run('reaction'); await entered.promise;
+  h.storage.append(h.id, 'identity.state', { status: relock ? 'verification-pending' : 'verified', identified: !relock });
+  release.resolve();
+  if (relock) {
+    await assert.rejects(pending, /Session changed before dispatch/u);
+    assert.equal(h.kit.calls.length, 0);
+    assert.equal(h.storage.db.prepare('SELECT settled_micro FROM budget_attempts').get().settled_micro, 0);
+  } else {
+    const dispatch = await Promise.race([h.next('reaction'), pending.then(() => null)]);
+    h.resolve(dispatch); assert.equal(await pending, 'completed');
+    assert.equal(h.storage.get(h.id).transcript.filter(turn => turn.role === 'assistant').length, 1);
+  }
+});
+
+for (const relock of [false, true]) test(`AIT-463 T16: private classification ${relock ? 'does not cross re-lock' : 'follows unlock'} during the stream`, { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ purposePolicy: start2PurposePolicy }); t.after(() => h.close());
+  h.handlers.lanes.replyVisible = () => false;
+  if (relock) h.storage.append(h.id, 'identity.state', { status: 'verified', identified: true });
+  const pending = h.run('reaction'), call = await h.next('reaction');
+  h.storage.append(h.id, 'identity.state', { status: relock ? 'verification-pending' : 'verified', identified: !relock });
+  h.resolve(call); assert.equal(await pending, 'completed');
+  assert.equal(h.storage.safeguards(h.id, inputRevision(h.storage.get(h.id))).assessed, !relock);
+  assert.equal(h.storage.get(h.id).transcript.filter(turn => turn.role === 'assistant').length, 0);
+});
+
+test('AIT-463 L3 guard: a delegated voice request retains its strict identity dispatch fence', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ purposePolicy: start2PurposePolicy }); t.after(() => h.close());
+  const session = h.storage.get(h.id);
+  const request = (await import('../packages/core/src/prompts.js')).reasoningRequest(session, 'reaction', false, '', { voiceReply: true, purposePolicy: start2PurposePolicy });
+  const admission = await h.runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options: { voiceReply: true } });
+  h.storage.append(h.id, 'identity.state', { status: 'verified', identified: true });
+  await assert.rejects(async () => { for await (const _ of admission.plugin.stream(request, admission.options)) { /* no dispatch */ } }, /Session changed before dispatch/u);
+  await admission.finish({ failed: true });
+  assert.equal(h.kit.calls.length, 0);
+  assert.equal(h.storage.db.prepare('SELECT settled_micro FROM budget_attempts').get().settled_micro, 0);
+});

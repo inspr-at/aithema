@@ -5,14 +5,14 @@ import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { createVoiceOperationStore } from './voice-operation-storage.js';
-import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
+import { applyEvent, createSession, inputRevision, replyInputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
   defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, reduceCredits, aiTextOrigin, withAITextOrigin,
   voiceAuthorizationRevision, createVoiceLifecycle, reduceVoiceLifecycle, parseReply, focusQuestion } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SETTINGS_REVISIONS = 1000;
-const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId', 'interruption'];
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'replyRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId', 'interruption'];
 
 // Only core-owned session rows belong here. Host extensions are cleaned by retired.
 export const CORE_RETIREMENT_TABLES = Object.freeze([
@@ -468,8 +468,9 @@ export class SQLiteStorage {
       const result = update(this.hostState(id), session);
       this.db.prepare('INSERT INTO host_states VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET record=excluded.record')
         .run(id, JSON.stringify(result.state));
-      const events = (result.events ?? []).map(event => this.#append(this.get(id), event.type, event.data));
-      return { ...result, events };
+      const report = {};
+      const events = (result.events ?? []).map(event => this.#append(this.get(id), event.type, event.data, report));
+      return { ...result, events, identityUnlocked: report.unlocked ?? null };
     });
   }
   creditState(id) {
@@ -548,7 +549,11 @@ export class SQLiteStorage {
   recordSafeguard(id, key, revision, offTopic, limit, { pause = true } = {}) {
     return this.transaction(() => {
       const session = this.get(id); this.#check(session);
-      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off,assessment_revision) VALUES (?,?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,assessment_revision=excluded.assessment_revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)').run(id, key, revision ?? null, Number(offTopic), Number(offTopic), revision ?? null);
+      const stored = this.db.prepare('SELECT revision,assessment_revision FROM safeguard_inputs WHERE session_id=? AND input_key=?').get(id, key);
+      const keepNewest = previous => previous != null && (revision == null || Number(revision.split(':')[4]) < Number(previous.split(':')[4]))
+        ? previous : revision ?? null;
+      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off,assessment_revision) VALUES (?,?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,assessment_revision=excluded.assessment_revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)')
+        .run(id, key, keepNewest(stored?.revision), Number(offTopic), Number(offTopic), keepNewest(stored?.assessment_revision));
       const state = this.safeguards(id, revision);
       const event = pause && state.offTopicTurns >= limit && session.pauseReason !== 'purpose'
         ? this.#append(session, 'session.paused', { paused: true, reason: 'purpose' }) : null;
@@ -672,7 +677,7 @@ export class SQLiteStorage {
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId', 'interruption'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'replyRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId', 'interruption'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -707,7 +712,20 @@ export class SQLiteStorage {
     } else metadata.actor = null;
     this.db.prepare('UPDATE sessions SET snapshot=? WHERE id=?').run(JSON.stringify(metadata), session.id);
   }
-  #append(session, type, data) {
+  // Identity unlock changes the epoch without changing conversation input.
+  // Carry both gates independently so off-topic prefixes and consent carries survive.
+  #carryIdentityUnlock(id, from, to) {
+    const suffix = value => value.slice(value.indexOf(':'));
+    const carry = value => value != null && suffix(value) === suffix(from)
+      ? `${value.slice(0, value.indexOf(':'))}${suffix(to)}` : value;
+    const update = this.db.prepare('UPDATE safeguard_inputs SET revision=?,assessment_revision=? WHERE session_id=? AND input_key=?');
+    for (const row of this.db.prepare('SELECT input_key,revision,assessment_revision FROM safeguard_inputs WHERE session_id=?').all(id)) {
+      update.run(carry(row.revision), carry(row.assessment_revision), id, row.input_key);
+    }
+    this.db.prepare("UPDATE lane_failures SET failure=json_set(failure,'$.inputRevision',?) WHERE session_id=? AND json_extract(failure,'$.inputRevision')=?")
+      .run(to, id, from);
+  }
+  #append(session, type, data, report) {
     if (type === 'session.paused' && session.pauseReason === 'purpose' && !data.paused) throw new ConflictError('Purpose pause is locked');
     if (type === 'turn.final' && (session.transcript.length >= 500 ||
       session.transcript.reduce((n, t) => n + (t.content?.length ?? 0), 0) + data.content.length > 250_000)) {
@@ -717,6 +735,10 @@ export class SQLiteStorage {
       at: new Date(this.now()).toISOString(), data: this.#metadata(session.id, type, data, session.seq + 1) };
     this.db.prepare('INSERT INTO events VALUES (?,?,?)').run(session.id, event.seq, JSON.stringify(event));
     const hydrated = this.#hydrateEvent(event), next = applyEvent(session, hydrated);
+    if (type === 'identity.state' && !session.identified && next.identified) {
+      this.#carryIdentityUnlock(session.id, inputRevision(session), inputRevision(next));
+      if (report) report.unlocked = session;
+    }
     this.#save(next, type === 'understanding.updated' ? event.data : undefined, type === 'question.focused' ? event.data : undefined);
     return hydrated;
   }
@@ -930,7 +952,7 @@ export class SQLiteStorage {
             ...(Number.isSafeInteger(userTurnOrdinal) && userTurnOrdinal > 0 ? { userTurnOrdinal } : {}),
             ...(value.role === 'assistant' && guard.replyId ? { replyId: guard.replyId } : {}),
             at: new Date(this.now()).toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
-              ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
+              ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session), replyRevision: replyInputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
         if (typed) {
           const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };

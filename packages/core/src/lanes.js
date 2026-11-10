@@ -1,4 +1,4 @@
-import { inputRevision, replyInputRevision, activeTurns, openQuestionItems } from './session.js';
+import { inputRevision, replyInputRevision, replyIsCurrent, activeTurns, openQuestionItems } from './session.js';
 import { PluginError } from './invocation.js';
 import { pendingQuestionFocus } from './question-focus.js';
 import { reduceUnderstanding, understandingSchema } from './understanding.js';
@@ -134,12 +134,14 @@ export class SessionLanes {
           }), ...producer(admitted, admitted?.plugin ?? binding) };
           if (!this.publish(id, 'understanding.updated', data, revision, undefined, session)) return 'stale';
           // Verify persisted state before a final result is reported.
-          if (!current() || this.getSession(id).understanding.inputRevision !== revision) return 'stale';
+          const persisted = this.getSession(id);
+          if (!current() || persisted.understanding.inputRevision !== revision &&
+            !(this.retainUnderstanding(session, persisted) && persisted.understanding.inputRevision === inputRevision(persisted))) return 'stale';
         }
       } else {
         if (!hasConversationInput(session)) return 'deferred';
         if (!focus && (this.purposePolicy && this.scopeKnown ? this.scopeKnown(id, revision) :
-          activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision))) return 'cached';
+          activeTurns(session).some(t => t.role === 'assistant' && replyIsCurrent(session, t)))) return 'cached';
         if (this.getSession(id).paused) return 'paused';
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
@@ -181,11 +183,14 @@ export class SessionLanes {
           // Classify privately without adding a duplicate assistant turn.
           if (!focus && !this.replyVisible(session) && classification !== 'off') {
             replyDelivered = true;
-            this.onScope(id, classification, revision, { reply: false });
+            const latest = this.getSession(id);
+            const classifiedRevision = !session.identified && latest.identified && replyInputRevision(latest) === replyInputRevision(session)
+              ? inputRevision(latest) : revision;
+            this.onScope(id, classification, classifiedRevision, { reply: false });
             return 'completed';
           }
           if (!this.publish(id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant', ...visible, ...focusData, content: guarded.text,
-            ...producer(admitted, admitted?.plugin ?? this.reasoning), at: new Date(this.now()).toISOString(), inputRevision: inputRevision(this.getSession(id)),
+            ...producer(admitted, admitted?.plugin ?? this.reasoning), at: new Date(this.now()).toISOString(), inputRevision: inputRevision(this.getSession(id)), replyRevision: replyInputRevision(this.getSession(id)),
             ...(admitted?.engine ? { engine: admitted.engine } : {}) }, inputRevision(this.getSession(id)), classification)) return 'stale';
           replyDelivered = true;
           if (!focus) this.onScope(id, classification, inputRevision(this.getSession(id)));
@@ -228,7 +233,7 @@ export class SessionLanes {
         // The admitted public choice labels which model and effort produced this reply.
         if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content, question_short, options: answers, ...focusData,
           ...producer(admitted, admitted?.plugin ?? this.reasoning),
-          at: new Date(this.now()).toISOString(), inputRevision: inputRevision(this.getSession(id)), ...(admitted?.engine ? { engine: admitted.engine } : {}) }, inputRevision(this.getSession(id)))) return 'stale';
+          at: new Date(this.now()).toISOString(), inputRevision: inputRevision(this.getSession(id)), replyRevision: replyInputRevision(this.getSession(id)), ...(admitted?.engine ? { engine: admitted.engine } : {}) }, inputRevision(this.getSession(id)))) return 'stale';
         replyDelivered = true;
       }
       return 'completed';

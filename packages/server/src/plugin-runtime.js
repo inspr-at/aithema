@@ -2,7 +2,7 @@ import { providerProcessingFacts } from './provider-processing.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, MOCK_PROCESSING_SCOPE,
-  operationScope, inputRevision, voiceAuthorizationRevision, untilCancelled, MAX_HTML_BYTES, isCanonicalMockReasoning, EFFORT_ORDER, SETTINGS_OFF, isOptionId,
+  operationScope, inputRevision, replyInputRevision, voiceAuthorizationRevision, untilCancelled, MAX_HTML_BYTES, isCanonicalMockReasoning, EFFORT_ORDER, SETTINGS_OFF, isOptionId,
   sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
@@ -239,12 +239,15 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const visual = feature => ['images', 'html'].includes(feature);
   // Single writer recovery is invoked by the host on startup, never on each dispatch.
-  const unchanged = (session, lane, allowTranscriptFinals = false, purposeAssessment = false) => {
+  const unchanged = (session, lane, allowTranscriptFinals = false, purposeAssessment = false, voiceReply = false) => {
     const current = storage.get(session.id);
     if (!session.ownerHash || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn || current.paused && !(purposeAssessment && current.pauseReason === 'purpose') ||
       selectionKey(current, lane) !== selectionKey(session, lane)) return false;
-    if (inputRevision(current) === inputRevision(session)) return true;
-    if (!allowTranscriptFinals || inputRevision({ ...current, inputRevision: session.inputRevision }) !== inputRevision(session)) return false;
+    // Only text reactions may cross an unlock. Re-locks and delegated voice
+    // keep the full revision fence and rebuild their request through Retry.
+    const revision = lane === 'reaction' && !voiceReply && !session.identified && current.identified ? replyInputRevision : inputRevision;
+    if (revision(current) === revision(session)) return true;
+    if (!allowTranscriptFinals || revision({ ...current, inputRevision: session.inputRevision }) !== revision(session)) return false;
     // A voice reply already owns its callback input. Only append-only finals
     // are benign: existing transcript bytes and uploads must remain identical,
     // and every added user final must account for exactly one input increment.
@@ -1094,9 +1097,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       conversationLimits.assertOpen(session.id);
       const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
         Boolean(storage.purposeAssessmentInput(session));
-      const invocationCurrent = () => unchanged(session, lane, false, purposeAssessment) && (lane !== 'concept' ||
+      const invocationCurrent = () => unchanged(session, lane, false, purposeAssessment, options.voiceReply === true) && (lane !== 'concept' ||
         storage.get(session.id).conceptIntent?.pending?.id === session.conceptIntent?.pending?.id);
-      const dispatchCurrent = () => (options.voiceReply === true && lane === 'reaction' ? unchanged(session, lane, true) : invocationCurrent()) &&
+      const dispatchCurrent = () => (options.voiceReply === true && lane === 'reaction' ? unchanged(session, lane, true, false, true) : invocationCurrent()) &&
         options.beforeDispatch?.() !== false;
       // Ownership, revision and tombstone precede health, consent and budget work.
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
