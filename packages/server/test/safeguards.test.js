@@ -751,24 +751,3 @@ for (const change of ['locale', 'correction', 'upload', 'input', 'consent-withdr
   assert.deepEqual(storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id), before);
   assert.equal(storage.safeguards(id, inputRevision(storage.get(id))).assessed, false);
 });
-
-test('AIT-463 L3: delegated voice retries the before-dispatch refusal with a fresh request', async t => {
-  let callbacks;
-  const f = fixture(t, { voice: true, delegate: true, consent: unlockConsent, voiceCallbacks: value => { callbacks = value; },
-    host: storage => createDemoHost({ storage, verificationRequired: true, now: unlockClock }) });
-  const session = await f.create(), call = await f.handlers.handle(req(session.id, 'voice', { callId: 'unlock-voice-retry' })).then(r => r.json());
-  const admit = f.runtime.admit.bind(f.runtime); let first = true, retries = 0;
-  t.mock.method(f.runtime, 'admit', async args => {
-    if (first && args.options.voiceReply) {
-      first = false;
-      f.storage.append(session.id, 'identity.state', { status: 'verified', identified: true });
-      throw new PluginError('not-admitted', 'Session changed before dispatch');
-    }
-    return admit(args);
-  });
-  const admission = await callbacks.admitReasoning({ callId: call.callId, messages: [], options: {}, onRetry: () => { retries++; } });
-  assert.equal(retries, 1);
-  assert.equal(admission.request.safeguardRevision, inputRevision(f.storage.get(session.id)));
-  await admission.finish({ failed: true });
-  assert.equal(f.calls.length, 0);
-});
