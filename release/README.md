@@ -54,6 +54,135 @@ and retention evidence for that CI source commit. A tag build from the same C
 must have the same normalized member digest; exact archive hashes remain specific
 to the candidate or published set.
 
+## Twenty-first candidate (AIT-482)
+
+The reserved coordinate is `261110175455.0.0` (UTC reservation time), stable sequence
+32, status `reserved`. Marketing name: **Aithema 2026.10**, with the exact version
+below the notes title. Per the coordinator's RC20 ruling, the visible product
+name stays as documented in `docs/embedding.md` and hard-coded in the UI and its
+tests; changing it is a separate product decision. Authority is Markus's standing
+release go, Desk **4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19, and
+MAC-LEAD 2026-11-10 12:18: “split approved”: RC20 = AIT-463 + AIT-466;
+RC21 = AIT-470. Markus is away (OPS-581). The coordinator holds
+`release-lock/seq-32`, pushed at base
+`cd272fd641c479699da1724809ef7d7b4e924cb9` before preparation.
+
+This is the **thirteenth release on the active fixed-candidate route (AIT-363 B)**.
+Order: lock tag (done), prep, coordinator gates, true merge preserving C,
+candidate marker, OPS cut, verification. There is **no merge freeze**: main
+keeps moving; the final committed RC head C is the candidate. Builders prepare
+only and invoke no review gates, pushes, PRs, tags, tag pushes, GitHub releases
+or publication. The coordinator owns release gates, branch push, PR and merge;
+OPS owns the cut. This preparation changes release metadata and notes only.
+START pins the release separately; nothing waits on this release.
+
+Every requested Content item is on main at the lock. The complete first-parent
+range since `v261110120839.0.0` through
+`cd272fd641c479699da1724809ef7d7b4e924cb9` contains exactly two PR merges:
+#414 (RC20 preparation, `f056217c`) and #415 (AIT-470, `cd272fd6`).
+AIT-470 is UI-only: after email confirmation the lock indicator no longer stays
+stale in the concept line, overview or an open Settings dialog. The page repeats
+a dropped feature read on new journal movement, at most five times, without a
+timer and only while the server's verdicts differ from the screen. The poll's
+unlock edge starts one feature read, plus one reconnect if the page has fallen
+behind, including on a 409. A 409 no longer rolls back an acknowledged voice
+Resume. A paused draft line updates its lock wording when the lock lifts. Open
+Settings refreshes its option statuses after unlock; an open menu keeps its rows
+until it closes. Existing copy and states only; no server change. AIT-470's
+CI-only part adds a ninth browser shard with the same 405 s target and 420 s
+ceiling; checks use `browser (n/9)` and the required `browser (1/4)`–`(4/4)`
+contexts stay unchanged. Stop and report if any expected item is missing or
+another merge is in the range; do not extend the lock's content range.
+
+The consumer's exact trigger did not reproduce. The fix covers two forced
+races: a feature read that lands behind the page, and an unlock seen only
+through the poll while the stream is stalled.
+
+- L2 (`2de4288c`): the gate asked to remove `assert.ok(forwarded && Date.now() - forwarded.forwarded < 3000, 'journal advance precedes delivery of last natural snapshot')` as an elapsed-time threshold; journal-before-delivery ordering remains proven by held delivery awaiting `holdBarrier` (`test/browser/identity-unlock.test.js:102`), resolved only by `f.release()` (:358), after :357 asserts `extraTurnCursor > forwarded.seq`.
+- L1: the browser test keeps the gated `await delay(700)` credit settle; `377fea12` reverts barrier attempts `2c231b54` and `8adfbcac` after CI run `42865309289` showed them non-deterministic; the deterministic barrier is AIT-483.
+- Follow-ups outside this release: AIT-481 (Settings reload notice after an unlock), AIT-483 (deterministic barrier), AIT-477 (measured browser weight).
+
+Voxtral (AIT-342) remains parked, private and outside the release closure.
+Provider-side closure of a live call (AIT-446's second part) remains parked
+until ElevenLabs monitoring is enabled. The previous release
+`v261110120839.0.0`, sequence 31, AIT-478, published by OPS on 2026-11-10
+at `2026-11-10T14:37:18Z`, is recorded in `history.json` at source
+`33f66953484b56830ac01df95e690c2b6da23f29` and
+[its forge release](https://github.com/inspr-at/aithema/releases/tag/v261110120839.0.0).
+
+Notes lead with the visitor benefit: “After you confirm your email, the lock
+indicator clears without a reload, including in open Settings and on a paused
+draft line.” The host section covers AIT-470's UI behaviour, existing copy and
+states, preserved host copy overrides and CI-only ninth shard, then links back
+to RC14's host requirements. **Breaking for hosts relative to RC20: none.**
+#415 changes no public export contract, configuration key, HTTP status code,
+event contract or host integration requirement; its server implementation is
+unchanged. #414 is RC20 preparation. Grok Voice is **not yet qualified in live
+use**; “Aithema recommends” is preserved; this preparation changes no German
+visitor copy (AIT-426).
+
+Carried notes: `next-notes.md` already contained only its empty stub and is left
+unchanged. All manifests, lock entries and internal dependency pins mirror the
+reservation, including private source-only workspaces. Migration pins stay
+fixed. **presentation pin reviewed: unchanged at
+bd0a13816f728ad91c36d849f88168bcac4fdc6e**. The current upstream display
+configuration and renderer closure match `release/presentation.json`: config
+SHA-256 `bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`,
+manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
+Verification uses `release/verify-upstream-presentation.mjs` against the original
+upstream commit and `release/presentation-pin.mjs` for the complete pinned payload;
+the final remote release tests also verify its tracked closure. No presentation
+file changes. `release/evidence.json` remains historical checkpoint evidence;
+the retained final-head evidence below is authoritative for this preparation.
+
+Preparation order (remote execution only):
+
+1. Fetch `origin --tags`; check every Content merge against main at
+   `release-lock/seq-32`. Commit the reservation, all mirrors/pins, history,
+   notes and this runbook with `--signoff`. Worktree:
+   `/Users/markus/Code/aithema-worktrees/ait-482`; branch:
+   `release/ait-482-twenty-first-release`; recorded builder session:
+   `AIT-482-prep` (`0d840962-77b3-4c04-bdfb-6e542a0fb9c1`, role builder).
+2. Run the remote lane on the **final committed C**. The candidate test invokes
+   `npm run release:candidate -- <retained dir>`: two identical packs,
+   verification, isolated consumer smoke from all sixteen shipped module
+   tarballs, locked reinstall, dependency replacement and exact rollback.
+   Release tests cover `release/gate.mjs` tag matching and synthetic candidate
+   admission without creating any operational tag. WAIT means back off about
+   five minutes and retry, up to twelve times; LOCAL-FALLBACK means stop with
+   tests pending, never run locally. No browser files change here; the full
+   browser suite runs in PR CI.
+
+   ```sh
+   EVIDENCE_OUT="$PWD/dist/ait482-final" \
+     /Users/markus/.local/share/ait-qa/coordinator/remote-browser.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-482/dist/ait482-final/candidate/`,
+   including `first/`, `candidate-evidence.json` and the isolated consumer
+   deployment. Confirm `source_commit` equals C and that `manifest_sha256` and
+   `normalized_digest` bind `first/`. Make **no evidence-only commit after this
+   final build**. A subsequent source change requires a new final-head build.
+   The remote lane's known AIT-480 fixture PATH issue can produce ENOENT for
+   hardcoded `/usr/bin` or `/bin` git/bash executables. If that is the only failure
+   signature, retain the candidate and list each failing test and ENOENT line in
+   the handoff; do not change fixtures. Any other failure means stop and report.
+4. Commit locally only. The coordinator pushes the assigned branch, opens the
+   PR and waits for green CI: nine browser shards, four browser aliases, test,
+   preview-security and DCO. Hand the coordinator the PR (pending coordinator
+   creation), C, X, sequence 32 (previous: 31), retained absolute directory,
+   manifest SHA-256 and normalized digest exactly as in the evidence. After
+   gates and true merge, the coordinator records the candidate marker and hands
+   it to OPS for the cut. Retain the directory in durable owner storage before
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
+
 ## Twentieth candidate (AIT-478)
 
 The reserved coordinate is `261110120839.0.0` (UTC reservation time), stable sequence
