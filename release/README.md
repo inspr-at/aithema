@@ -78,22 +78,24 @@ START pins the release separately; nothing waits on this release.
 
 Every requested Content item is on main at the lock. The complete first-parent
 range since `v261110120839.0.0` through
-`cd272fd641c479699da1724809ef7d7b4e924cb9` contains exactly two PR merges:
-#414 (RC20 preparation, `f056217c`) and #415 (AIT-470, `cd272fd6`).
-AIT-470 is UI-only: after email confirmation the lock indicator no longer stays
-stale in the concept line, overview or an open Settings dialog. The page repeats
-a dropped feature read on new journal movement, at most five times and without
-a timer, while the server's verdicts differ from those on screen or the read was
-refused with 409. The poll's unlock edge starts one feature read, plus one
-reconnect if the page has fallen behind, including on a 409. Outside a pending
-consent retry, a 409 no longer rolls back an acknowledged voice Resume. A paused
-draft line updates its lock wording when the lock lifts. Open Settings refreshes
-its option statuses after unlock; an open menu keeps its rows until it closes.
-Existing copy and states only; no server change. AIT-470's
-CI-only part adds a ninth browser shard with the same 405 s target and 420 s
-ceiling; checks use `browser (n/9)` and the required `browser (1/4)`–`(4/4)`
-contexts stay unchanged. Stop and report if any expected item is missing or
-another merge is in the range; do not extend the lock's content range.
+`cd272fd641c479699da1724809ef7d7b4e924cb9` contains exactly two PR merges: #414
+(RC20 preparation, `f056217c`) and #415 (AIT-470, `cd272fd6`). AIT-470 is
+UI-only: after email confirmation the lock indicator no longer stays stale in
+the concept line, overview or an open Settings dialog. Outside a live consent
+window (while a consent change is still being confirmed), the page repeats a
+dropped feature read when new journal movement arrives, at most five times and
+without a timer, while the server's verdicts differ from those on screen or the
+read was refused with 409; inside one, the window's own retries apply. The
+poll's unlock edge starts one feature read, plus one reconnect if the page has
+fallen behind, including on a 409. Outside a live consent window, a 409 no
+longer rolls back an acknowledged voice Resume. A paused draft line updates its
+lock wording when the lock lifts. Open Settings refreshes its option statuses
+after unlock; an open menu keeps its rows until it closes. Existing copy and
+states only; no server change. AIT-470's CI-only part adds a ninth browser
+shard with the same 405 s target and 420 s ceiling; checks use `browser (n/9)`
+and the required `browser (1/4)`–`(4/4)` contexts stay unchanged. Stop and
+report if any expected item is missing or another merge is in the range; do not
+extend the lock's content range.
 
 The consumer's exact trigger did not reproduce. The fix covers two forced
 races: a feature read that lands behind the page, and an unlock seen only

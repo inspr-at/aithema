@@ -13,16 +13,18 @@ After you confirm your email, the lock indicator clears without a reload, includ
 
 ## For hosts
 
-**Email unlock UI (AIT-470).** The page repeats a dropped feature read when new
-journal movement arrives, at most five times and without a timer, while the
-server's verdicts differ from those on screen or the read was refused with 409.
-The verification poll's unlock edge starts one feature read, plus one reconnect
-if the page has fallen behind, including on a 409 response. Outside a pending
-consent retry, a 409 no longer rolls back an acknowledged voice Resume. A paused
-draft line updates its lock wording when the lock lifts; an open Settings dialog
-refreshes its option statuses after unlock, preserving an open menu's rows until
-it closes. This is UI-only: existing copy and states, including host copy
-overrides, are preserved; no server behaviour changes.
+**Email unlock UI (AIT-470).** Outside a live consent window (while a consent
+change is still being confirmed), the page repeats a dropped feature read when
+new journal movement arrives, at most five times and without a timer, while the
+server's verdicts differ from those on screen or the read was refused with 409;
+inside one, the window's own retries apply. The verification poll's unlock edge
+starts one feature read, plus one reconnect if the page has fallen behind,
+including on a 409 response. Outside a live consent window, a 409 no longer
+rolls back an acknowledged voice Resume. A paused draft line updates its lock
+wording when the lock lifts; an open Settings dialog refreshes its option
+statuses after unlock, preserving an open menu's rows until it closes. This is
+UI-only: existing copy and states, including host copy overrides, are
+preserved; no server behaviour changes.
 
 **CI-only (AIT-470, #415).** A ninth browser shard keeps the 405 s target and
 420 s ceiling. Shard checks are named `browser (n/9)`; the four required
