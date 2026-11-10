@@ -22,8 +22,7 @@ test('AIT-463 BC9: email unlock keeps one answered reply, its choices and no Ret
   });
   t.after(() => demo.kill());
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-    userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
-    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() } });
   t.after(() => browser.close());
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
