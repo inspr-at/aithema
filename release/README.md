@@ -54,6 +54,120 @@ and retention evidence for that CI source commit. A tag build from the same C
 must have the same normalized member digest; exact archive hashes remain specific
 to the candidate or published set.
 
+## Twentieth candidate (AIT-478)
+
+The reserved coordinate is `261110120839.0.0` (UTC reservation time), stable sequence
+31, status `reserved`. Marketing name: **Aithema 2026.10**, with the exact version
+below the notes title. Per the coordinator's RC20 ruling, the visible product
+name stays as documented in `docs/embedding.md` and hard-coded in the UI and its
+tests; changing it is a separate product decision. Authority is Markus's standing
+release go, Desk **4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19, and
+MAC-LEAD 2026-11-10 12:18: “split approved”: RC20 = AIT-463 + AIT-466;
+RC21 = AIT-470 later today. The coordinator holds `release-lock/seq-31`, pushed
+at base `073338081521db2d1bea0fb4b939ad407071fc47` before preparation.
+
+This is the **twelfth release on the active fixed-candidate route (AIT-363 B)**.
+Order: lock tag (done), prep, coordinator gates, true merge preserving C,
+candidate marker, OPS cut, verification. There is **no merge freeze**: main
+keeps moving; the final committed RC head C is the candidate. Builders prepare
+only and invoke no review gates, pushes, PRs, tags, tag pushes, GitHub releases
+or publication. The coordinator owns release gates, branch push, PR and merge;
+OPS owns the cut. This preparation changes release metadata and notes only.
+START pins the release separately; nothing waits on this release.
+
+Every requested Content item is on main at the lock. The complete first-parent
+range since `v261022020419.0.0` contains exactly four PR merges: #410 (RC19
+preparation, `e4d0faa8`), #411 (AIT-461, `7447d5dd`), #412 (AIT-463,
+`4da2f653`) and #413 (AIT-466, `07333808`). AIT-461 is CI-only: skipped
+duplicate pushes warm main's npm cache, and its test fixtures are independent
+of the ambient CI state. AIT-463 starts understanding on email unlock without
+another visitor input, with or without a purpose policy and for hosts with an
+identity projection. Answered replies are not generated or billed again after
+identity changes; their question cards or answer buttons stay visible, without
+a stray Retry. Earlier failures stay on explicit Retry. AIT-466 is UI-only:
+a reply that failed before email confirmation can be retried on its reply line;
+Retry dims in place and the person's turn holds still when the reply lands.
+Stop and report if any expected item is missing or another merge is in the range;
+do not extend the lock's content range. AIT-470 belongs to RC21, outside this
+preparation. Voxtral (AIT-342) remains parked, private and outside the release
+closure. Provider-side closure of a live call (AIT-446's second part) remains
+parked until ElevenLabs monitoring is enabled. The previous release
+`v261022020419.0.0`, sequence 30, AIT-457, published by OPS on 2026-10-22,
+is recorded in `history.json` at source
+`dbc07075dfc3f8d8fca18b8df9fa7e79d3fcbffe`.
+
+Notes lead with the visitor benefit: “Confirming your email moves understanding
+forward, keeps your answered reply in place, and leaves a failed reply ready
+to retry.” The host section covers AIT-463's unlock behaviour and additive,
+identity-independent `replyRevision` field in assistant-turn snapshots, events,
+journal and receipt metadata, and transcript exports; it explicitly includes
+hosts with an identity projection. It also covers AIT-466's unchanged copy,
+including host overrides, and AIT-461's CI-only change, then links back to RC14's
+host requirements. **Breaking for hosts relative to RC19: none.** #412's
+`replyRevision` metadata and public `replyIsCurrent` helper are additive; no
+existing export contract is removed or changed, no configuration key or HTTP
+status code changes, and no new host integration requirement is added. #413 is
+UI-only, #411 is CI-only and #410 is RC19 preparation. Grok Voice is **not yet
+qualified in live use**; “Aithema recommends” is preserved; this preparation
+changes no German visitor copy (AIT-426).
+
+Carried notes applied: AIT-463's host note from `next-notes.md` is folded into
+`notes.md`, and `next-notes.md` is reset to its empty stub. All manifests, lock
+entries and internal dependency pins mirror the reservation, including private
+source-only workspaces. Migration pins stay fixed. **presentation pin reviewed:
+unchanged at bd0a13816f728ad91c36d849f88168bcac4fdc6e**. The current upstream
+display configuration and renderer closure match `release/presentation.json`:
+config SHA-256 `bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`,
+manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
+Verification uses `release/verify-upstream-presentation.mjs` against the original
+upstream commit and `release/presentation-pin.mjs` for the complete pinned payload;
+the final remote release tests also verify its tracked closure. No presentation
+file changes. `release/evidence.json` remains historical checkpoint evidence;
+the retained final-head evidence below is authoritative for this preparation.
+
+Preparation order (remote execution only):
+
+1. Fetch `origin --tags`; check every Content merge against main at
+   `release-lock/seq-31`. Commit the reservation, all mirrors/pins, history,
+   notes and this runbook with `--signoff`. Worktree:
+   `/Users/markus/Code/aithema-worktrees/ait-478`; branch:
+   `release/ait-478-twentieth-release`; recorded builder: `AIT-478-b1c`.
+2. Run the remote lane on the **final committed C**. The candidate test invokes
+   `npm run release:candidate -- <retained dir>`: two identical packs,
+   verification, isolated consumer smoke from all sixteen shipped module
+   tarballs, locked reinstall, dependency replacement and exact rollback.
+   Release tests cover `release/gate.mjs` tag matching and synthetic candidate
+   admission without creating any operational tag. WAIT means back off about
+   five minutes and retry, up to twelve times; LOCAL-FALLBACK means stop with
+   tests pending, never run locally. No browser files change here; the full
+   browser suite runs in PR CI.
+
+   ```sh
+   EVIDENCE_OUT="$PWD/dist/ait478-final" \
+     /Users/markus/.local/share/ait-qa/coordinator/remote-browser.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-478/dist/ait478-final/candidate/`,
+   including `first/`, `candidate-evidence.json` and the isolated consumer
+   deployment. Confirm `source_commit` equals C and that `manifest_sha256` and
+   `normalized_digest` bind `first/`. Make **no evidence-only commit after this
+   final build**. A subsequent source change requires a new final-head build.
+4. Commit locally only. The coordinator pushes the assigned branch, opens the
+   PR and waits for green CI: eight browser shards, four browser aliases, test,
+   preview-security and DCO. Hand the coordinator the PR (pending coordinator
+   creation), C, X, sequence 31 (previous: 30), retained absolute directory,
+   manifest SHA-256 and normalized digest exactly as in the evidence. After
+   gates and true merge, the coordinator records the candidate marker and hands
+   it to OPS for the cut. Retain the directory in durable owner storage before
+   publication; CI retains `reset-candidate-attempt-<N>` for 90 days.
+
 ## Nineteenth October candidate (AIT-457)
 
 The reserved coordinate is `261022020419.0.0` (UTC reservation time), stable sequence

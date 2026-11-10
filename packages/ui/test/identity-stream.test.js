@@ -38,7 +38,7 @@ for (const copy of [en, de]) test(`AIT-418: address change stays editable, block
 
 test('AIT-418: race failure renders existing failed reply with retry and permits address change', async t => {
   const verified = identity({ status: 'verified', address: 'before@example.test' });
-  const { c, root } = setup(t, { host: { verification: true }, session: { identified: true, identity: verified, featureMatrix: { best: { text: { available: true }, analysis: { available: false, reason: 'not configured' } } } } });
+  const { c, root, calls } = setup(t, { routes: { 'POST /retry': () => Response.json({}, { status: 202 }) }, host: { verification: true }, session: { identified: true, identity: verified, featureMatrix: { best: { text: { available: true }, analysis: { available: false, reason: 'not configured' } } } } });
   await tick(8); userTurn(c);
   c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...verified, status: 'verification-pending', identified: false } });
   const failure = { inputRevision: inputRevision(c.session), lane: 'reaction', error: 'reasoning-unavailable', reason: 'identity-changed', retryable: true };
@@ -48,6 +48,8 @@ test('AIT-418: race failure renders existing failed reply with retry and permits
   assert.match(root.querySelector('.reaction-failure').textContent, /reply|response|reasoning|answer/i);
   assert.equal(root.querySelector('.retry').hidden, false);
   assert.equal(root.querySelector('.verify-send').getAttribute('aria-disabled'), 'false');
+  root.querySelector('.retry').click(); await tick();
+  assert.equal(calls.filter(call => call.path === '/retry').length, 1, 'AIT-466 U6: identity-race Retry reaches the reply lane');
 });
 
 test('AIT-418: an accepted turn with no running reply does not block address change', async t => {

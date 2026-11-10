@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261022020419.0.0",
+  "version": "261110120839.0.0",
   "release_channel": "stable",
-  "release_sequence": 30,
+  "release_sequence": 31,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-457 nineteenth October candidate, eleventh release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and LEAD 2026-10-22 04:0x: RC19 after OPS's approximately 08:00 all-clear, never 06:00\u201308:00; sequence 30 under coordinator-held release-lock/seq-30 at 12cbf997599e166e938418faa522746f2cb36730; prepare and gate now, final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut after the all-clear and verification precede publication; no builder tag, tag push, GitHub release or publication"
+  "reservation_purpose": "AIT-478 twentieth candidate, twelfth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and MAC-LEAD 2026-11-10 12:18 split approved: RC20 = AIT-463 + AIT-466; RC21 = AIT-470 later today; sequence 31 under coordinator-held release-lock/seq-31 at 073338081521db2d1bea0fb4b939ad407071fc47; final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder push, PR, tag, tag push, GitHub release or publication"
 }

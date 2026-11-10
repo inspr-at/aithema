@@ -15,11 +15,16 @@ let storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture', OPENROUTER_ANALYSIS_EFFORT: 'low',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
+let replyHold = null;
 let release, holdAssessment = false, success = false, current, analysisEntered, enterAnalysis;
 const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
   async fetchImpl(url, init) {
     const result = kit.fetchImpl(url, init), call = await kit.next();
-    if (call.body.stream) call.resolve({ content: 'Welche Arbeit? Which work?', scope: 'in', question_short: null, options: [] }, { costUSD: 0.1 });
+    if (call.body.stream) {
+      const finish = verdict => verdict === 'fail' ? call.httpError(400)
+        : call.resolve({ content: 'Welche Arbeit? Which work?', scope: 'in', question_short: null, options: [] }, { costUSD: 0.1 });
+      if (replyHold && !replyHold.release) { replyHold.release = finish; replyHold.entered.resolve(); } else finish('success');
+    }
     else if (success && !holdAssessment) call.resolve(assessment, { costUSD: 0.1 });
     else { release = verdict => {
       if (verdict === 'success') call.resolve(assessment, { costUSD: 0.1 });
@@ -32,7 +37,7 @@ const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: con
 const makeHandlers = () => {
   const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(plugin),
   presets: { best: { plugins: ['openrouter'], bindings: { reaction: config.reaction, understanding: config.understanding }, policy: { endpoints: [config.reaction.endpoint] } } } });
-  const host = createDemoHost({ storage, ownerGuard: false });
+  const host = createDemoHost({ storage, ownerGuard: false, ...(process.env.AITHEMA_HOST_LOCK === '1' ? { verificationRequired: true, demoBypass: false } : {}) });
   return createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, host, consent });
 };
 let handlers = makeHandlers();
@@ -42,6 +47,21 @@ const call = (action, data) => handlers.handle(new Request(`http://fixture/api/s
 const root = new URL('../../', import.meta.url);
 const { server, url } = await listen(async request => {
   const u = new URL(request.url), path = u.pathname;
+  if (path === '/hold-reply') { replyHold = { entered: Promise.withResolvers(), release: null }; return Response.json({ ok: true }); }
+  if (path === '/release-reply') {
+    const held = replyHold;
+    if (!held) return Response.json({ error: 'reply-not-held' }, { status: 409 });
+    await held.entered.promise; replyHold = null; held.release(u.searchParams.get('verdict'));
+    await handlers.idle(); return Response.json({ ok: true });
+  }
+  if (path === '/locked-reply-failure') {
+    current = await (await handlers.handle(new Request('http://fixture/api/sessions', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner }, body: '{}' }))).json();
+    storage.changeLocale(current.id, u.searchParams.get('locale') ?? 'de', { ownerToken: owner });
+    storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
+    storage.setLaneFailure(current.id, { inputRevision: inputRevision(storage.get(current.id)), lane: 'reaction' });
+    return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
+  }
   if (path === '/reply-failure') {
     success = true; holdAssessment = true;
     current = storage.create({ demo: true, ownerToken: owner, locale: u.searchParams.get('locale') ?? 'de' });
