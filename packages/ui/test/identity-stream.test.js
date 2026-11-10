@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inputRevision } from '@inspr/aithema-core';
+import { createSession, inputRevision } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { EmailAsk } from '../src/email-ask.js';
-import { window, tick, identity, setup, userTurn } from './host-surface-helpers.js';
+import { window, tick, identity, entry, setup, userTurn } from './host-surface-helpers.js';
 
 for (const copy of [en, de]) test(`AIT-418: address change stays editable, blocks submit, then re-enables (${copy.display.locale})`, async t => {
   const verified = identity({ status: 'verified', address: 'before@example.test' });
@@ -223,6 +223,143 @@ async function voice470(t) {
     async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
     async close() { events.end(); return { closureConfirmed: true }; } }; } };
 }
+// AIT-464: count only A's snapshot and consent GETs after the server erases A.
+function fixture464(t, options = {}) {
+  const h = fixture470(t, { ...options, session: { ...options.session, id: 'conversation-a' } });
+  const original = globalThis.fetch, reads = { snapshot: 0, consent: 0 };
+  let erased = false;
+  t.mock.method(globalThis, 'fetch', (url, options = {}) => {
+    const path = String(url), get = (options.method ?? 'GET') === 'GET';
+    const resource = path === '/api/sessions/conversation-a' ? 'snapshot'
+      : path === '/api/sessions/conversation-a/consent' ? 'consent' : null;
+    if (erased && get && resource) {
+      reads[resource]++;
+      return Promise.resolve(new Response(null, { status: 404 }));
+    }
+    return original(url, options);
+  });
+  return { ...h, reads, markErased() { erased = true; }, erase() {
+    erased = true;
+    event470(h.c, 'session.erased', { at: new Date().toISOString() });
+  } };
+}
+function noErasedReads464(t, h) {
+  const counts = `snapshot=${h.reads.snapshot}, consent=${h.reads.consent}`;
+  t.diagnostic(`AIT-464 erased A reads: ${counts}`);
+  assert.equal(h.reads.snapshot, 0, `erased A reads: ${counts}`);
+  assert.equal(h.reads.consent, 0, `erased A consent reads: ${counts}`);
+}
+async function library464(t, kind, acknowledgementFirst = false) {
+  const create = Promise.withResolvers(); t.after(() => create.resolve());
+  const now = new Date().toISOString(), next = createSession({ id: 'conversation-b', demo: true }); next.featureMatrix = structuredClone(unlocked470);
+  // Construct responses before holding them, just as a server would serialize them.
+  const replacement = Response.json({ ...entry(next.id, '', now), session: next }, { status: 201 });
+  const acknowledgement = Response.json({ id: 'conversation-a', erased: true });
+  const h = fixture464(t, { host: { library: true }, routes: {
+    'GET /library': () => Response.json({ items: [entry('conversation-a', 'Conversation A', now)], total: 1, offset: 0, limit: 100 }),
+    'POST /library/conversation-a/delete': () => {
+      if (!acknowledgementFirst) h.erase();
+      return acknowledgement;
+    },
+    'POST /library/conversation-a/reset': () => { h.erase(); return create.promise.then(() => replacement); },
+    'POST /library': () => create.promise.then(() => replacement),
+  } });
+  await tick(8);
+  h.root.querySelector('.library-open-dialog').click(); await tick(8);
+  h.root.querySelector(kind === 'reset' ? '.library-reset' : 'tr[data-key="conversation-a"] .library-delete').click();
+  h.root.querySelector('.library-confirm').click(); await tick(8);
+  if (acknowledgementFirst) { assert.ok(h.calls.some(call => call.method === 'POST' && call.path === '/library')); h.erase(); await tick(8); }
+  assert.equal(h.c.session.id, 'conversation-a'); assert.ok(h.c.session.tombstone);
+  const beforeReplacement = { ...h.reads };
+  create.resolve(); await tick(8);
+  assert.equal(h.c.session.id, 'conversation-b');
+  const original = globalThis.fetch; let replacementReads = 0;
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    if (String(url) === '/api/sessions/conversation-b' && (options?.method ?? 'GET') === 'GET') replacementReads++;
+    return original(url, options);
+  });
+  event470(h.c, 'identity.state', verified470()); await tick(8);
+  assert.equal(replacementReads, 1, 'B still reads its own snapshot after adoption');
+  assert.deepEqual(h.reads, beforeReplacement, 'adoption and B activity never read A');
+  noErasedReads464(t, h);
+}
+for (const kind of ['delete', 'reset']) test(`AIT-464 U1 ${kind}: library erasure never reads A and replacement B still refreshes`, async t => {
+  await library464(t, kind);
+});
+test('AIT-464 U2: erasure and credit-denied callbacks never read A', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const matrix = structuredClone(locked470); matrix.best.text = { available: false, reason: 'budget denied' };
+  const h = fixture464(t, { host: { credits: true }, session: { featureMatrix: matrix } }); await tick(8);
+  h.erase(); await tick(8);
+  assert.ok(h.c.session.tombstone); noErasedReads464(t, h);
+});
+test('AIT-464 U3: an erased consent window fails closed at its watchdog without reads or backoff reads', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture464(t), held = Promise.withResolvers(); t.after(() => held.resolve()); await tick(8);
+  h.state.snapshot = () => { const response = Response.json(h.c.session); return held.promise.then(() => response); };
+  event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true });
+  assert.equal(h.calls.filter(call => call.method === 'GET' && call.path === '').length, 1, 'the pre-erasure consent read is in flight');
+  h.erase(); await tick(8);
+  t.mock.timers.tick(2000); await tick(8);
+  assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  const watchdogReads = { ...h.reads };
+  for (const ms of [4000, 8000]) { t.mock.timers.tick(ms); await tick(8); }
+  noErasedReads464(t, h);
+  assert.deepEqual(watchdogReads, { snapshot: 0, consent: 0 }, 'the 2 s watchdog also sends no read');
+  held.resolve(); await tick(8); noErasedReads464(t, h);
+});
+test('AIT-464 U4: live-call erasure and the closing voice state never read A', async t => {
+  const h = fixture464(t, { voiceClient: await voice470(t) }); await tick(8);
+  h.root.querySelector('.voice-start').click(); await tick(8);
+  assert.equal(h.root.querySelector('.audio-rail').dataset.state, 'listening');
+  h.erase();
+  h.c.receive({ type: 'voice.state', data: { state: 'closing', callId: h.c.session.voiceLifecycle?.callId, providerSessionId: 'fixture-provider' } });
+  await tick(8); noErasedReads464(t, h);
+});
+test('AIT-464 U5: delete acknowledgement before the erasure event never reads A', async t => {
+  await library464(t, 'delete', true);
+});
+test('AIT-464 U6: erased stream reconnect 404s never read A through rail onEnd', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture464(t, { voiceClient: await voice470(t) }); await tick(8);
+  h.c.remove(); await tick(8);
+  const original = globalThis.fetch; let streams = 0;
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    if (String(url) === '/api/sessions/conversation-a/events') {
+      if (++streams > 1) return Promise.resolve(new Response(null, { status: 404 }));
+      return Promise.resolve(new Response(new ReadableStream({ start(controller) {
+        // The server refuses reads before its erasure event reaches the client.
+        h.markErased();
+        const event = { seq: h.c.session.seq + 1, type: 'session.erased', data: { at: new Date().toISOString() } };
+        controller.enqueue(new TextEncoder().encode(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`));
+        controller.close();
+      } })));
+    }
+    return original(url, options);
+  });
+  document.body.append(h.c); await tick(8);
+  for (let i = 0; i < 3; i++) { t.mock.timers.tick(1000); await tick(8); }
+  assert.equal(streams, 4, 'one erased stream and three genuine reconnect 404s');
+  noErasedReads464(t, h);
+});
+test('AIT-464 positive U3: a non-erased 404 issues one read with no timer retry', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture470(t); await tick(8); h.state.snapshot = () => new Response(null, { status: 404 });
+  event470(h.c, 'identity.state', verified470()); await tick(8); assert.equal(h.reads, 1);
+  t.mock.timers.tick(60_000); await tick(8); assert.equal(h.reads, 1); assert.equal(Boolean(h.c.session.tombstone), false);
+});
+test('AIT-464 positive U6: a non-erased 404 keeps the consent backoff and later repeats', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture470(t); await tick(8); h.state.snapshot = () => new Response(null, { status: 404 });
+  event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true }); await tick(8);
+  for (const ms of [2000, 4000, 8000]) { t.mock.timers.tick(ms); await tick(8); }
+  assert.equal(h.reads, 4); assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  h.state.snapshot = () => { const response = Response.json({ ...h.c.session, featureMatrix: unlocked470 }); return held.promise.then(() => response); };
+  event470(h.c, 'identity.state', verified470()); journal470(h.c);
+  h.state.snapshot = () => Response.json({ ...h.c.session, featureMatrix: unlocked470 }); held.resolve(); await tick(8);
+  assert.equal(h.reads, 6); clear470(h);
+});
 test('AIT-470 U13: generation drop repeats at the first call turn', async t => {
   const h = fixture470(t, { voiceClient: await voice470(t) }), held = Promise.withResolvers(); t.after(() => held.resolve()); await tick(8); userTurn(h.c);
   h.state.snapshot = () => { const response = Response.json({ ...h.c.session, featureMatrix: unlocked470 }); return held.promise.then(() => response); };
