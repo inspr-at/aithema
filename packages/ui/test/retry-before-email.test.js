@@ -62,11 +62,16 @@ for (const copy of [en, de]) for (const identity of [locked(), pending()]) {
     if (state === 'consent' || state === 'reconciling') session.featureMatrix = matrix({ available: false, reason: state === 'consent' ? 'current processing consent required' : 'budget reconciling' });
     if (state === 'pause' || state === 'purpose') Object.assign(session, { paused: true, pauseReason: state === 'purpose' ? 'purpose' : 'manual' });
     if (state === 'call') session.voiceLifecycle = { callId: 'call', providerSessionId: 'p', epoch: 1, state: 'active' };
-    const { c, root, calls } = await fixture(t, { copy, session, ...(state === 'call' ? { voiceClient: {} } : {}) }); fail(c);
+    let callState = 'active';
+    const { c, root, calls } = await fixture(t, { copy, session, ...(state === 'call' ? { voiceClient: {}, routes: {
+      'GET ': () => Response.json({ ...c.session, voiceLifecycle: { ...session.voiceLifecycle, state: callState } }),
+      'POST /retry': () => Response.json({}, { status: 202 }),
+    } } : {}) }); fail(c);
     if (state === 'running') status(c, ['reaction']);
     inline(root, copy, true); root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), 0);
     if (state === 'running') assert.equal(root.querySelector('.retry').getAttribute('aria-busy'), 'true');
     if (state === 'call') for (const state of ['waiting', 'ended']) {
+      callState = state;
       c.receive({ type: 'voice.state', data: { callId: 'call', providerSessionId: 'p', epoch: 1, state } }); await tick(); inline(root, copy);
     }
   });

@@ -15,7 +15,7 @@ let storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture', OPENROUTER_ANALYSIS_EFFORT: 'low',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
-let holdReply = false, releaseReply;
+let replyHold = null;
 let release, holdAssessment = false, success = false, current, analysisEntered, enterAnalysis;
 const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
   async fetchImpl(url, init) {
@@ -23,7 +23,7 @@ const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: con
     if (call.body.stream) {
       const finish = verdict => verdict === 'fail' ? call.httpError(400)
         : call.resolve({ content: 'Welche Arbeit? Which work?', scope: 'in', question_short: null, options: [] }, { costUSD: 0.1 });
-      if (holdReply) { holdReply = false; releaseReply = finish; } else finish('success');
+      if (replyHold && !replyHold.release) { replyHold.release = finish; replyHold.entered.resolve(); } else finish('success');
     }
     else if (success && !holdAssessment) call.resolve(assessment, { costUSD: 0.1 });
     else { release = verdict => {
@@ -47,10 +47,11 @@ const call = (action, data) => handlers.handle(new Request(`http://fixture/api/s
 const root = new URL('../../', import.meta.url);
 const { server, url } = await listen(async request => {
   const u = new URL(request.url), path = u.pathname;
-  if (path === '/hold-reply') { holdReply = true; return Response.json({ ok: true }); }
+  if (path === '/hold-reply') { replyHold = { entered: Promise.withResolvers(), release: null }; return Response.json({ ok: true }); }
   if (path === '/release-reply') {
-    if (!releaseReply) return Response.json({ error: 'reply-not-held' }, { status: 409 });
-    const finish = releaseReply; releaseReply = undefined; finish(u.searchParams.get('verdict'));
+    const held = replyHold;
+    if (!held) return Response.json({ error: 'reply-not-held' }, { status: 409 });
+    await held.entered.promise; replyHold = null; held.release(u.searchParams.get('verdict'));
     await handlers.idle(); return Response.json({ ok: true });
   }
   if (path === '/locked-reply-failure') {
