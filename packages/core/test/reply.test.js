@@ -200,6 +200,20 @@ test('AIT-463 Low 1: an unstamped assistant turn does not cache a plain-host rep
   assert.equal(await lanes.run(session.id, 'reaction'), 'cached', 'the newly stamped reply is current');
 });
 
+test('AIT-463 gate2 Low 2: a reply-only stamp fences a stale fold question', () => {
+  let session = core.createSession();
+  session = core.applyEvent(session, { type: 'turn.final', data: {
+    id: 'reply-only', role: 'assistant', replyRevision: core.replyInputRevision(session), ...reply,
+  } });
+  assert.equal(session.transcript.at(-1).inputRevision, undefined);
+  assert.equal(core.hasOpenReplyQuestion(session), true);
+  assert.equal(core.currentQuestionCard(session)?.turnId, 'reply-only');
+  session = core.applyEvent(session, { type: 'session.locale-changed', data: { locale: 'de' } });
+  assert.equal(core.replyIsCurrent(session, session.transcript.at(-1)), false);
+  assert.equal(core.currentQuestionCard(session), null);
+  assert.equal(core.hasOpenReplyQuestion(session), false, 'a stale reply stamp cannot retain the fold question');
+});
+
 test('AIT-463 BC9/L4: reply identity retains cards and fold questions across identity only', async () => {
   const core = await import('../src/index.js');
   let session = core.createSession({ demo: true });
