@@ -195,6 +195,43 @@ for (const body of [undefined, { title: 'New' }]) test(`library ${body ? 'new' :
   }
 });
 
+test('AIT-485: a ticking clock never re-journals an unchanged pending identity; a real change journals once', async t => {
+  let time = 1_000, step = 0;
+  const f = fixture(t, { identityPolicy: IDENTITY_POLICY, now: () => (time += step) });
+  const s = await f.create(), base = `/api/sessions/${s.id}`;
+  assert.equal((await f.call(`${base}/identity/request`, { address: 'tick@example.test' })).status, 200);
+  const states = () => f.storage.read(s.id).filter(event => event.type === 'identity.state');
+  const before = states().length, originalProject = f.host.identity.project;
+  let projection;
+  const project = t.mock.method(f.host.identity, 'project', (context, state) =>
+    projection ? { ...state, ...projection } : originalProject(context, state));
+  step = 1;
+  assert.equal((await f.call(base)).status, 200);
+  assert.equal(project.mock.callCount(), 2, 'snapshot initializes twice');
+  project.mock.resetCalls();
+  assert.equal((await f.call(`${base}/concepts/eligibility`, { eligible: false })).status, 200);
+  assert.equal(project.mock.callCount(), 1, 'eligibility initializes once');
+  project.mock.resetCalls();
+  assert.equal((await f.call(`${base}/identity/unlock`, {})).status, 200);
+  // Three initializations, plus the verification reducer and response projection.
+  assert.equal(project.mock.callCount(), 5, 'unlock initializes three times');
+  assert.ok(time > 1_001 && time < 1_000 + IDENTITY_POLICY.resendCooldownMs, 'ticked inside the cooldown');
+  assert.equal(states().length, before, `AIT-485: ${states().length - before} duplicate identity.state events during cooldown`);
+
+  projection = { delivery: 'failed' };
+  assert.equal((await f.call(base)).status, 200);
+  assert.equal(states().length, before + 1, 'a delivery projection change journals once');
+  assert.equal(states().at(-1).data.delivery, 'failed');
+  assert.equal(states().at(-1).data.status, 'verification-pending');
+
+  projection = { status: 'verified', expiresAt: null };
+  assert.equal((await f.call(base)).status, 200);
+  assert.equal(states().length, before + 2, 'a verified status projection journals once');
+  assert.equal(states().at(-1).data.status, 'verified');
+  assert.equal((await f.call(base)).status, 200);
+  assert.equal(states().length, before + 2, 'a further ticking request journals nothing');
+});
+
 test('identity locks assessment and concepts, trusts only host evidence, verifies once and keeps manual pause', async t => {
   const f = fixture(t), s = await f.create(), base = `/api/sessions/${s.id}`;
   assert.equal(s.identity.status, 'guest'); assert.equal(s.identity.assessmentUnlocked, false); assert.equal(s.identified, false);
