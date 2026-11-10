@@ -84,7 +84,11 @@ async function fixture(t, variant) {
             }\n  get ait470Options() { return this.#options; }\n  get ait470Fence() { return { invalidatedAt: this.#invalidatedAt, cursor: this.#cursor, generation: this.#rail?.generation }; }\n${needle}`));
             body = Buffer.from(body.toString().replace('  #receive(event) {', `  #receive(event) {
               window.__ait470?.arrivals.push({ t: performance.now(), event, fence: this.ait470Fence,
+                source: new Error().stack.includes('#events') ? 'stream' : 'host',
                 duplicate: !!event.seq && event.seq <= this.#cursor });`));
+            body = Buffer.from(body.toString().replace('        onEnd: () => {', `        onEnd: () => {
+              window.__ait470?.closes.push({ t: performance.now(), fence: this.ait470Fence,
+                refreshAllowed: this.isConnected && !this.#rail?.unloading && this.#invalidatedAt <= this.#cursor });`));
             // Source length changed; let HTTP chunk it.
             delete response.headers['content-length'];
           }
@@ -148,7 +152,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       window.__ait470Hidden = false;
       Object.defineProperty(document, 'hidden', { get: () => window.__ait470Hidden });
       Object.defineProperty(document, 'visibilityState', { get: () => window.__ait470Hidden ? 'hidden' : 'visible' });
-      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [], arrivals: [] };
+      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [], arrivals: [], closes: [] };
       const ids = new WeakMap(); let nextId = 0;
       window.__ait470Id = object => {
         if (!ids.has(object)) ids.set(object, ++nextId);
