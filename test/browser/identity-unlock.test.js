@@ -178,8 +178,9 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           return response;
         }
         if (path.endsWith('/credits')) {
+          const t0 = performance.now();
           const response = await original.call(this, url, options), body = await response.clone().json();
-          evidence.credits.push({ t: performance.now(), wall: Date.now(), tiers: body.tiers, limitMicro: body.balance?.owner?.limitMicro });
+          evidence.credits.push({ t0, t: performance.now(), wall: Date.now(), tiers: body.tiers, limitMicro: body.balance?.owner?.limitMicro });
           return response;
         }
         if (path.endsWith('/identity/unlock')) {
@@ -269,7 +270,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     await until(page, () => {
       const { events, credits, reads } = window.__ait470;
       const requested = events.findLast(e => e.type === 'identity.state' && e.data.status === 'verification-pending');
-      return requested && credits.some(receipt => receipt.t > requested.t) && reads.every(read => read.t1 !== undefined);
+      return requested && credits.some(receipt => receipt.t0 > requested.t) && reads.every(read => read.t1 !== undefined);
     });
     const before = await page.evaluate(() => window.__ait470.reads.length);
     let freezeAt;
