@@ -1333,3 +1333,19 @@ for (const path of ['P', 'V']) test(`AIT-463 L2: ${path} off-topic classificatio
   assert.equal(counts.understanding.length, 1); assert.equal(counts.reaction.length, 2);
   assert.doesNotMatch(JSON.stringify(counts.understanding[0].request.messages), /recipe/iu);
 });
+
+test('AIT-463 L1 plain: lock-free understanding in flight survives unlock without another assessment', async t => {
+  const f = await unlockFixture(t, 'V', { verificationRequired: false, purposePolicy: undefined }), entered = deferred(), held = deferred(); t.after(held.resolve);
+  const counts = unlockCounts(t, f, args => args.lane === 'understanding' ? admission => {
+    const plugin = admission.plugin;
+    return { ...admission, plugin: { ...plugin, async structured(...args) {
+      const result = await plugin.structured(...args); entered.resolve(); await held.promise; return result;
+    } } };
+  } : undefined);
+  await f.call(`${f.base}/identity/request`, { address: 'unlock@example.test' }); await f.handlers.idle();
+  const token = (await f.message(f.session.id)).token;
+  await f.call(`${f.base}/turns`, { content: 'systems: API', clientEventId: 'in-flight-project' });
+  await Promise.race([entered.promise, f.handlers.idle()]); assert.equal(counts.understanding.length, 1);
+  await f.verify(token); held.resolve(); await f.handlers.idle();
+  assert.equal(counts.understanding.length, 1); currentUnlockUnderstanding(f);
+});
