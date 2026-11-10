@@ -38,7 +38,21 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
   const configuredHost = typeof host === 'function' ? host(storage) : host;
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, host: configuredHost, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets(), ...(voiceCallbacks ? { callbackAdapter: { bindCallbacks(operations) { voiceCallbacks(operations); return { callbackRoutes: [], ...(delegate ? { prepareCallback: () => ({ request: {}, prepare() {}, revoke() {} }) } : {}) }; } } } : {}) } } : {}), log });
+  const callbackAdapter = voiceCallbacks ? { bindCallbacks(operations) {
+    voiceCallbacks(operations);
+    return { callbackRoutes: [], ...(delegate ? { prepareCallback: () => ({ request: {}, prepare() {}, revoke() {} }) } : {}) };
+  } } : undefined;
+  if (delegate) {
+    // The local provider owns its adapter. Substitute only this mock callback seam
+    // after canonical admission so the fixture exercises actual delegation.
+    const admitVoice = runtime.admitVoice.bind(runtime);
+    runtime.admitVoice = async args => {
+      const admitted = await admitVoice(args);
+      return { ...admitted, plugin: { ...admitted.plugin, ports: { ...admitted.plugin.ports, serverAdapter: callbackAdapter } } };
+    };
+  }
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, host: configuredHost, purposePolicy: policy,
+    ...(voice ? { voice: { secrets: createFacadeSecrets(), ...(callbackAdapter ? { callbackAdapter } : {}) } } : {}), log });
   const session = configuredHost ? null : storage.create({ demo: true, ownerToken: testToken });
   t.after(async () => { await handlers.close(); storage.close(); });
   const send = async (content, clientEventId = crypto.randomUUID()) => {
