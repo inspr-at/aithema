@@ -4,7 +4,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from 
 import { start2PurposePolicy } from '../../../demo/safeguards.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { mockConsent, temporaryDb, readEvents, unzip } from '../../../test/helpers.js';
-import { createSession, applyEvent, inputRevision, createHandover, reduceHandover, PluginError } from '@inspr/aithema-core';
+import { createSession, applyEvent, inputRevision, createHandover, reduceHandover, PluginError, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
 
 const owner = 'host-owner', foreign = 'another-owner';
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
@@ -13,8 +13,9 @@ function fixture(t, options = {}) {
   let time = 1_000;
   const host = createDemoHost({ storage, demoBypass: false, verificationRequired: true, now: () => time,
     identityPolicy: { resendCooldownMs: 100, verificationTtlMs: 500 }, ...options });
-  const runtime = createPluginRuntime({ storage, consent: mockConsent, presets: options.presets });
-  const handlers = createHandlers({ storage, consent: mockConsent, pluginRuntime: runtime, host, ownership: options.ownership,
+  const consent = options.clockedConsent ? { coverage: ({ consentRevision }) => ({ covered: true, ...MOCK_PROCESSING_SCOPE, consentRevision, expiresAt: time + 60_000 }) } : mockConsent;
+  const runtime = createPluginRuntime({ storage, consent, presets: options.presets });
+  const handlers = createHandlers({ storage, consent, pluginRuntime: runtime, host, ownership: options.ownership,
     deadlineMs: options.deadlineMs ?? 30_000, log: options.log, purposePolicy: options.purposePolicy, sessionOptions: options.sessionOptions });
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await handlers.close(); storage.close(); };
@@ -1111,7 +1112,7 @@ function unlockCounts(t, f, intercept = () => {}) {
 async function unlockFixture(t, path = 'P', options = {}) {
   const messages = [], mailPlugin = { id: 'smtp', deliversVerification: true,
     async requestVerification(effect) { messages.push(effect); return { status: 'sent' }; } };
-  const f = fixture(t, { purposePolicy: start2PurposePolicy, ...(path === 'P' ? { mailPlugin } : {}), ...options });
+  const f = fixture(t, { clockedConsent: true, purposePolicy: start2PurposePolicy, ...(path === 'P' ? { mailPlugin } : {}), ...options });
   if (path === 'P') f.host.visitorCredits.saveSettings({ baseRevision: f.host.visitorCredits.settings().revision, confirmationEnabled: true });
   const session = await f.create(), base = `/api/sessions/${session.id}`;
   const send = async (content = 'systems: API', clientEventId = crypto.randomUUID()) => {
@@ -1210,7 +1211,7 @@ for (const scenario of ['before-admission', 'while-down']) test(`AIT-463 T8: res
   } else {
     await f.handlers.close(); await f.verify(token, { poll: false }); await f.close();
   }
-  const reopened = fixture(t, { storage: new SQLiteStorage(db), purposePolicy: start2PurposePolicy,
+  const reopened = fixture(t, { clockedConsent: true, storage: new SQLiteStorage(db), purposePolicy: start2PurposePolicy,
     mailPlugin: { id: 'smtp', deliversVerification: true, async requestVerification() { return { status: 'sent' }; } } });
   let recovered = false; const recover = reopened.runtime.budget.recover.bind(reopened.runtime.budget);
   t.mock.method(reopened.runtime.budget, 'recover', (...args) => { recovered = true; return recover(...args); });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createFacadeSecrets } from '../src/index.js';
-import { createMockReasoning, inputRevision, reasoningRequest, createSession, PluginRegistry, PluginError } from '@inspr/aithema-core';
+import { createMockReasoning, inputRevision, reasoningRequest, createSession, PluginRegistry, PluginError, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/dev/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
@@ -34,7 +34,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
   if (uploads || voice) {
     const registry = new PluginRegistry().register(mock), presets = mockPresets(); registerDemoExtractors(registry, presets);
     if (voice) { registry.register(createLocalVoiceProvider({ storage })); presets.best.plugins.push('fake-voice'); presets.best.bindings.voice = localVoiceBinding; }
-    const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
+    const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
   const configuredHost = typeof host === 'function' ? host(storage) : host;
@@ -623,6 +623,8 @@ for (const project of [false, true]) test(`AIT-212 reconnect recovers ${project 
   assert.ok(attempts.every(attempt => attempt.state === 'settled'));
 });
 
+const unlockClock = () => 1_000;
+const unlockConsent = { coverage: ({ consentRevision }) => ({ covered: true, ...MOCK_PROCESSING_SCOPE, consentRevision, expiresAt: unlockClock() + 60_000 }) };
 function unlockStorage(t) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
   const session = storage.create({ demo: true, ownerToken: testToken }), id = session.id;
@@ -680,8 +682,8 @@ test('AIT-463 T14: late voice writers never regress either carried revision or r
 
 for (const path of ['P', 'V']) test(`AIT-463 T12: delegated voice ${path} unlock starts understanding without a text reply`, { timeout: 5000 }, async t => {
   let callbacks;
-  const f = fixture(t, { voice: true, delegate: true, voiceCallbacks: value => { callbacks = value; },
-    host: storage => createDemoHost({ storage, verificationRequired: true, now: () => 1_000 }) });
+  const f = fixture(t, { voice: true, delegate: true, consent: unlockConsent, voiceCallbacks: value => { callbacks = value; },
+    host: storage => createDemoHost({ storage, verificationRequired: true, now: unlockClock }) });
   const session = await f.create(), id = session.id;
   const call = await f.handlers.handle(req(id, 'voice', { callId: 'unlock-voice' })).then(r => r.json());
   assert.ok(call.providerSessionId);
@@ -738,8 +740,8 @@ for (const change of ['locale', 'correction', 'upload', 'input', 'consent-withdr
 
 test('AIT-463 L3: delegated voice retries the before-dispatch refusal with a fresh request', async t => {
   let callbacks;
-  const f = fixture(t, { voice: true, delegate: true, voiceCallbacks: value => { callbacks = value; },
-    host: storage => createDemoHost({ storage, verificationRequired: true, now: () => 1_000 }) });
+  const f = fixture(t, { voice: true, delegate: true, consent: unlockConsent, voiceCallbacks: value => { callbacks = value; },
+    host: storage => createDemoHost({ storage, verificationRequired: true, now: unlockClock }) });
   const session = await f.create(), call = await f.handlers.handle(req(session.id, 'voice', { callId: 'unlock-voice-retry' })).then(r => r.json());
   const admit = f.runtime.admit.bind(f.runtime); let first = true, retries = 0;
   t.mock.method(f.runtime, 'admit', async args => {
