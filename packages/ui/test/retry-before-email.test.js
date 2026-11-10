@@ -39,8 +39,12 @@ for (const copy of [en, de]) for (const identity of [locked(), pending()]) {
     const retry = root.querySelector('.retry'); retry.click(); await tick();
     status(c, ['reaction', 'understanding']); inline(root, copy, true);
     assert.equal(retry.getAttribute('aria-busy'), 'true');
+    c.receive({ type: 'turn.partial', data: { id: 'reply', delta: 'Done.', inputRevision: inputRevision(c.session) } });
+    assert.equal(root.querySelector('.turn.partial').hidden, true, 'inline failure owns the slot while the retry streams');
     c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
+    assert.equal(root.querySelector('.turn:not(.user)').hidden, true, 'final bytes wait for the failure status to clear');
     status(c, [], []);
+    assert.equal(root.querySelector('.turn:not(.user)').hidden, false, 'success reveals the reply in the vacated failure slot');
     assert.equal(root.querySelector('.reaction-failure').hidden, true);
     assert.ok(retry.parentNode === root.querySelector('.understanding > .foot'), 'same Retry node belongs to the footer');
     assert.equal(retry.hidden, true); assert.equal(retry.hasAttribute('aria-disabled'), false); assert.equal(retry.hasAttribute('aria-busy'), false);

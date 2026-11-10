@@ -1563,6 +1563,12 @@ export class AithemaSession extends HTMLElement {
       // Rows are keyed by turn id (uploads by "upload:" and their id) and updated in place: new turns
       // append below, and focus and the hovered row survive updates. Superseded partials lose their rows.
       const list = root.querySelector('ol'), shell = root.querySelector('.transcript-shell');
+      const replyNotice = root.querySelector('.reaction-failure');
+      const failures = this.#session.operations?.failures ?? [this.#session.operations?.lastFailure].filter(Boolean);
+      // Clear the failure before revealing its replacement, so nested pointer
+      // anchoring never scrolls the person away to hold the old Retry below it.
+      if (replyNotice && !replyNotice.hidden && !failures.some(f => f.lane === 'reaction')) this.#render('aside');
+      const replacingFailure = this.#replyRetrySlot?.inline && replyNotice && !replyNotice.hidden;
       const entries = this.#transcriptEntries(this.#session.transcript.filter(t => !t.erased || t.role === 'user'));
       const rows = new Map([...list.children].map(row => [row.dataset.id, row]));
       const hovered = this.#onTranscript, count = list.children.length, kept = new Set(entries.map(entry => entry.key));
@@ -1606,6 +1612,9 @@ export class AithemaSession extends HTMLElement {
           row.querySelector('.voice-provisional')?.remove();
         }
         row.className = `turn ${t.role === 'user' ? 'user' : ''} ${t.partial ? 'partial' : ''}`;
+        // The inline failure owns this slot until its retry settles. Keep older
+        // replies visible; reveal the incoming reply when the failure collapses.
+        row.hidden = Boolean(replacingFailure && t.role === 'assistant' && (t.partial || t.inputRevision === inputRevision(this.#session)));
         // Redacted rows keep their height only while the pointer rests on the transcript.
         if (!hovered) row.style.minHeight = '';
         row.querySelector('.speaker-name').textContent = t.role === 'user' ? copy.you : copy.assistant;
