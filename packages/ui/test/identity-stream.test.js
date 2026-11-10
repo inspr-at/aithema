@@ -84,7 +84,7 @@ const event470 = (c, type, data) => c.receive({ seq: c.session.seq + 1, type, da
 const journal470 = c => event470(c, 'turn.final', { id: 'reply-' + c.session.seq, role: 'assistant', content: 'More detail.', inputRevision: inputRevision(c.session) });
 function fixture470(t, options = {}) {
   let reads = 0;
-  const state = { snapshot: () => Response.json({ ...h.c.session, featureMatrix: unlocked470 }) };
+  const state = { snapshot: () => Response.json({ ...h.c.session, featureMatrix: options.session?.featureMatrix ?? unlocked470 }) };
   const h = setup(t, { ...options, host: options.host ?? { verification: true }, session: {
     identity: pending470(), visualsBound: true, conceptCost: { maxMicro: 0 }, conceptVisualKind: 'images', featureMatrix: structuredClone(locked470), ...options.session },
     routes: { 'GET ': () => { reads++; return state.snapshot(); },
@@ -243,4 +243,17 @@ test('AIT-470 U16: a 409 preserves an acknowledged voice Resume', async t => {
   h.state.snapshot = () => new Response(null, { status: 409 });
   h.root.querySelector('.pause').click(); await tick(8);
   assert.equal(h.c.session.paused, false); assert.equal(h.root.querySelector('.audio-rail').dataset.state, 'listening');
+});
+
+test('AIT-470 U16 waiting-call: a 409 cannot roll back the acknowledged Resume projection', async t => {
+  const h = fixture470(t, { voiceClient: await voice470(t), session: {
+    paused: true, identity: verified470(), featureMatrix: structuredClone(unlocked470),
+    voiceLifecycle: { state: 'waiting', callId: 'held-call', providerSessionId: 'fixture-provider' },
+  } });
+  await tick(8); assert.equal(h.root.querySelector('.audio-rail').dataset.state, 'waiting');
+  h.state.snapshot = () => new Response(null, { status: 409 });
+  h.root.querySelector('.pause').click(); await tick(8);
+  assert.equal(h.reads, 1, 'the acknowledged waiting-call Resume starts its confirming read');
+  assert.equal(h.c.session.paused, false);
+  assert.equal(h.root.querySelector('.audio-rail').dataset.state, 'listening');
 });
