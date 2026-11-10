@@ -1097,6 +1097,8 @@ for (const fails of [false, true]) test(`AIT-418: identity/change during an admi
 
 // AIT-466: real lock and admission guards; only the reply plugin output is controlled.
 async function failedFirstReply(t, options = {}) {
+  // The host fixture and consent/storage timestamps share one clock.
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
   const f = fixture(t, options), s = await f.create(), base = `/api/sessions/${s.id}`;
   const admitted = [], entered = deferred(), held = deferred(); let attempts = 0, hold = false;
   const admit = f.runtime.admit.bind(f.runtime);
