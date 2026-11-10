@@ -2789,11 +2789,13 @@ export class AithemaSession extends HTMLElement {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!active()) return;
       if (!response.ok) {
+        // A live consent window still owns failure handling, but its edge must
+        // also replay a missed unlock before the window's later retries.
+        if (response.status === 409 && unlockEdge && lockedIdentity(this.#session.identity)) this.#connect();
         // A 409 means all server snapshot attempts were overtaken. Like a stale
         // snapshot, it cannot roll back an acknowledged Resume.
         if (response.status === 409 && !(pending && !pending.exhausted)) {
           this.#retryStaleConsentRefresh(pending);
-          if (unlockEdge && lockedIdentity(this.#session.identity)) this.#connect();
           repeat(0, true); return;
         }
         fail(); return;
