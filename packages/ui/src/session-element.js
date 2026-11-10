@@ -999,7 +999,11 @@ export class AithemaSession extends HTMLElement {
     const chain = [];
     for (let node = hovered; node?.nodeType === 1; node = node.parentNode) chain.push([node, node.getBoundingClientRect().top]);
     const before = hovered.closest?.(PANES);
-    const person = hovered !== before && before?.matches('.transcript-shell')
+    // After collapse the resting pointer can hit the compensation padding itself.
+    // Subsequent lane statuses must preserve that reading position too; fresh pane
+    // padding still has no person anchor.
+    const compensated = before && ['top', 'bottom'].some(side => before.style.getPropertyValue(`--aithema-slack-${side}`));
+    const person = (hovered !== before || compensated) && before?.matches('.transcript-shell')
       ? [...before.querySelectorAll('ol > .turn.user')].at(-1) : null;
     const fallback = person && [person, person.getBoundingClientRect().top];
     update();
