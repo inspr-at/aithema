@@ -2825,7 +2825,8 @@ export class AithemaSession extends HTMLElement {
     if (read?.repeatAt !== undefined && this.#cursor >= read.repeatAt && this.isConnected) void this.#refreshFeatures(false, { chain: read.chain + 1 });
   }
   async #refreshFeatures(consentRetry = false, { unlockEdge = false, chain = 0 } = {}) {
-    if (this.#session.processingPreset === 'device') return;
+    // An erased conversation has no server snapshot: any read can only 404 (AIT-464).
+    if (this.#session.processingPreset === 'device' || this.#session.tombstone) return;
     const sessionId = this.#session.id, startCursor = this.#cursor, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
     // A read begun before the local listening acknowledgement cannot repaint
     // its cached paused verdict afterward, even within the same rail generation.
