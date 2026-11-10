@@ -44,7 +44,8 @@ async function fixture(t, variant) {
     socket.on('error', () => {});
   });
   const smtpPort = await listen(smtp); t.after(() => smtp.close());
-  let upstream, hold = false, frozen = false, liveStream;
+  let upstream, hold = false, frozen = false, liveStream, holdBarrier;
+  t.after(() => holdBarrier?.resolve());
   const proxy = createServer((req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname;
     const snapshot = req.method === 'GET' && /^\/api\/sessions\/[^/]+$/u.test(path);
@@ -79,7 +80,7 @@ async function fixture(t, variant) {
           try { const s = JSON.parse(body); entry.seq = s.seq; entry.locked = s.identity?.assessmentUnlocked !== true; } catch { /* error response */ }
           entry.forwarded = Date.now();
           try { entry.eventSeq = JSON.parse(body).event?.seq; } catch { /* no event */ }
-          if (entry.held) await delay(3000);
+          if (entry.held) { await holdBarrier?.promise; await delay(3000); }
           if (!res.destroyed) { res.writeHead(response.statusCode, response.headers); res.end(body); }
         });
       } else {
@@ -114,7 +115,9 @@ async function fixture(t, variant) {
     assert.equal((await adminRequest(socketPath, 'set-confirmation', { baseRevision: settings.revision, confirmationEnabled: true })).status, 200);
 
   }
-  return { url, directory, messages, log, hold() { hold = true; }, freeze() {
+  return { url, directory, messages, log, hold(barrier = false) {
+    hold = true; if (barrier) holdBarrier = Promise.withResolvers();
+  }, release() { holdBarrier?.resolve(); }, freeze() {
     assert.ok(liveStream); liveStream.frozen = true; frozen = true; return Date.now();
   }, get frozen() { return frozen; } };
 }
@@ -225,7 +228,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     let freezeAt;
     if (variant.startsWith('V-')) {
       await page.$eval('#outbox-open', button => button.click()); await page.waitForSelector('#outbox-list li button');
-      if (variant.endsWith('-slow')) f.hold();
+      if (variant.endsWith('-slow')) f.hold(variant === 'V-outbox-slow');
       await page.$eval('#outbox-list li button', button => button.click()); await page.$eval('#outbox-close', button => button.click());
     } else {
       await waitFor(() => f.messages.length > 0);
@@ -247,7 +250,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           evidence.hideCursor = await shadow(page, c => c.session.seq);
         }
         if (variant === 'P-stalled') freezeAt = f.freeze();
-        if (variant.endsWith('-slow')) f.hold();
+        if (variant.endsWith('-slow')) f.hold(variant === 'P-continue-slow');
         const mail = await context.newPage(); await mail.bringToFront(); await mail.goto(link);
         await mail.click('form[data-confirm] button');
         await mail.waitForFunction(() => !document.querySelector('form[data-confirm]'));
@@ -284,6 +287,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       evidence.extraTurnAfterSnapshot = forwarded;
       await send('It also needs a collection time selector.');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 4);
+      f.release();
     }
     for (const seconds of full ? [0.1, 0.5, 3, 20, 60] : variant.endsWith('-slow') || variant === 'V-inplace' ? [0.1, 0.5, 3, 20] : [0.1, 0.5, 3]) {
       await delay(Math.max(0, unlockedAt + seconds * 1000 - Date.now()));
