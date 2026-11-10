@@ -48,7 +48,8 @@ async function fixture(t, variant) {
   const proxy = createServer((req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname;
     const snapshot = req.method === 'GET' && /^\/api\/sessions\/[^/]+$/u.test(path);
-    const entry = { method: req.method, path, t0: Date.now(), snapshot, held: snapshot && hold };
+    const entry = { method: req.method, path, t0: Date.now(), snapshot, held: snapshot && hold,
+      kind: req.headers['x-ait470-read'] };
     log.push(entry);
     // Preserve Host: the demo validates the canonical proxy origin.
     const forward = request(new URL(req.url, upstream), { method: req.method, headers: req.headers }, response => {
@@ -80,7 +81,10 @@ async function fixture(t, variant) {
           if (entry.held) await delay(3000);
           if (!res.destroyed) { res.writeHead(response.statusCode, response.headers); res.end(body); }
         });
-      } else { res.writeHead(response.statusCode, response.headers); response.pipe(res); }
+      } else {
+        response.on('end', () => { entry.forwarded = Date.now(); });
+        res.writeHead(response.statusCode, response.headers); response.pipe(res);
+      }
     });
     forward.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
     res.on('close', () => forward.destroy()); req.pipe(forward);
@@ -147,7 +151,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           journalLocked: component()?.session?.identity?.assessmentUnlocked !== true, consentAtStart: component()?.ait470Consent };
         evidence.reads.push(read);
         try {
-          const response = await original.call(this, url, options), body = await response.clone().json();
+          const kind = new Error().stack.includes('#restore') ? 'restore' : 'features';
+          read.kind = kind;
+          const headers = new Headers(options.headers); headers.set('x-ait470-read', kind);
+          const response = await original.call(this, url, { ...options, headers }), body = await response.clone().json();
           Object.assign(read, { t1: performance.now(), status: response.status, snapshotSeq: body.seq,
             cursorAtResponse: component()?.session?.seq, consentAtResponse: component()?.ait470Consent });
           read.outcome = response.status === 409 ? '409' : body.seq > read.cursorAtResponse ? 'ahead' : body.seq < read.cursorAtResponse ? 'behind' : 'equal';
@@ -241,13 +248,22 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     }
     if (freezeAt) {
       evidence.freezeAt = freezeAt;
-      assert.equal(f.log.filter(e => e.t0 > freezeAt && e.t0 < unlockedAt && (e.snapshot || e.path.endsWith('/events'))).length, 0,
+      assert.equal(f.log.filter(e => e.t0 > freezeAt && e.t0 < unlockedAt && (e.kind === 'restore' || e.path.endsWith('/events'))).length, 0,
         'P-stalled: no restore GET or stream reconnection between freeze and unlock');
     }
     if (variant === 'P-continue-slow' || variant === 'V-outbox-slow') {
       // Wait until all natural reads have reached upstream; no arbitrary +0.2s race.
-      await waitFor(() => f.log.some(e => e.held && e.forwarded && e.locked === false));
-      await delay(650);
+      await waitFor(() => {
+        const snapshots = f.log.filter(e => e.held && e.locked === false);
+        if (!snapshots.length || snapshots.some(e => !e.forwarded)) return false;
+        if (variant === 'P-continue-slow') {
+          // Confirmation raises the credit tier on P: include that last natural read.
+          const credit = f.log.findLast(e => e.path.endsWith('/credits') && e.t0 >= unlockedAt && e.forwarded);
+          return credit && snapshots.some(e => e.t0 >= credit.forwarded);
+        }
+        // Both V identity triggers must have their post-unlock snapshots upstream.
+        return snapshots.length >= 2;
+      });
       const forwarded = f.log.filter(e => e.held && e.forwarded).at(-1);
       assert.ok(forwarded && Date.now() - forwarded.forwarded < 3000, 'journal advance precedes delivery of last natural snapshot');
       evidence.extraTurnAfterSnapshot = forwarded;
