@@ -180,6 +180,26 @@ test('AIT-132: a heard-prefix correction cannot keep an unheard question or its 
   assert.equal(session.transcript.at(-1).options, undefined);
 });
 
+test('AIT-463 Low 1: an unstamped assistant turn keeps its fold question without a question card', () => {
+  const session = core.applyEvent(core.createSession(), { type: 'turn.final',
+    data: { id: 'unstamped', role: 'assistant', ...reply } });
+  assert.equal(core.hasOpenReplyQuestion(session), true, 'latestReply still accepts unstamped replies');
+  assert.equal(core.currentQuestionCard(session), null);
+  assert.equal(core.replyIsCurrent(session, session.transcript.at(-1)), false);
+});
+
+test('AIT-463 Low 1: an unstamped assistant turn does not cache a plain-host reply', async () => {
+  let session = core.applyEvent(core.createSession({ demo: true }), { type: 'turn.final',
+    data: { id: 'person', role: 'user', content: 'I sell cushions.' } });
+  session = core.applyEvent(session, { type: 'turn.final', data: { id: 'unstamped', role: 'assistant', ...reply } });
+  const lanes = new core.SessionLanes({ reasoning: core.createMockReasoning(), beforeDispatch: async () => true,
+    getSession: () => session, publish(id, type, data) {
+      session = core.applyEvent(session, { type, data }); return true;
+    } });
+  assert.equal(await lanes.run(session.id, 'reaction'), 'completed');
+  assert.equal(await lanes.run(session.id, 'reaction'), 'cached', 'the newly stamped reply is current');
+});
+
 test('AIT-463 BC9/L4: reply identity retains cards and fold questions across identity only', async () => {
   const core = await import('../src/index.js');
   let session = core.createSession({ demo: true });
