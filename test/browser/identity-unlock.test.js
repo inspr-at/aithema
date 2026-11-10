@@ -85,7 +85,7 @@ async function fixture(t, variant) {
               return p ? { failed: !!p.failed, exhausted: !!p.exhausted, retries: p.retries,
                 attempt: !!p.attempt, scopedGrant: p.scopedGrant,
                 windowId: window.__ait470Id(p), attemptId: p.attempt ? window.__ait470Id(p.attempt) : null } : null;
-            }\n  get ait470Options() { return this.#options; }\n  get ait470Fence() { return { invalidatedAt: this.#invalidatedAt, cursor: this.#cursor, generation: this.#rail?.generation }; }\n${needle}`));
+            }\n  get ait470Options() { return this.#options; }\n  get ait470Fence() { const read = ${source.includes('#featureRead = null;') ? 'this.#featureRead' : 'null'}; return { invalidatedAt: this.#invalidatedAt, cursor: this.#cursor, generation: this.#rail?.generation, chain: read?.chain, repeatAt: read?.repeatAt }; }\n${needle}`));
             body = Buffer.from(body.toString().replace('  #receive(event) {', `  #receive(event) {
               window.__ait470?.arrivals.push({ t: performance.now(), event, fence: this.ait470Fence,
                 source: new Error().stack.includes('#events') ? 'stream' : 'host',
