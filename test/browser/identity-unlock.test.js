@@ -72,7 +72,7 @@ async function fixture(t, variant) {
               return p ? { failed: !!p.failed, exhausted: !!p.exhausted, retries: p.retries,
                 attempt: !!p.attempt, scopedGrant: p.scopedGrant,
                 windowId: window.__ait470Id(p), attemptId: p.attempt ? window.__ait470Id(p.attempt) : null } : null;
-            }\n${needle}`));
+            }\n  get ait470Options() { return this.#options; }\n${needle}`));
             // Source length changed; let HTTP chunk it.
             delete response.headers['content-length'];
           }
@@ -93,13 +93,12 @@ async function fixture(t, variant) {
   const proxyPort = await listen(proxy), url = `http://127.0.0.1:${proxyPort}`;
   t.after(() => { proxy.closeAllConnections(); proxy.close(); });
   const socketPath = join(directory, 'ops.sock');
-  const child = fork(new URL(variant.startsWith('V-inplace') || variant === 'V-reconfigure'
-    ? '../fixtures/identity-unlock-host.mjs' : '../../demo/server.js', import.meta.url), [], { silent: true, env: {
+  const child = fork(new URL('../fixtures/identity-unlock-host.mjs', import.meta.url), [], { silent: true, env: {
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
-    ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AITHEMA_HTML_MODE: 'off' } : {}),
+    ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AIT470_INPLACE: '1', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
-    ...(!variant.startsWith('V-') ? { SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtpPort),
+    ...(!variant.startsWith('V-') ? { SMTP_HOST: '127.0.0.1', SMTP_PORT: '25', AIT470_SMTP_PORT: String(smtpPort),
       SMTP_FROM: 'sender@example.test', SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY: 'true' } : {}),
   } });
   child.stdout.resume(); let errors = ''; child.stderr.on('data', bytes => { errors += bytes.toString(); });
@@ -200,17 +199,17 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       evidence.grant = await page.evaluate(() => window.__ait470.consent.find(e => e.event)?.event);
       assert.equal(evidence.grant?.type, 'consent.revised');
       assert.equal(evidence.grant?.data.conversationUnchanged, true, 'primary host grants consent in place');
-      if (variant === 'V-reconfigure') {
-        await shadow(page, async c => {
-          const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
-          c.configure({ session, host: { verification: true, credits: true } });
-        });
-      }
     }
     await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
       await until(page, () => document.querySelector('aithema-session').session.conceptVisualKind === 'images');
       evidence.visualKind = await shadow(page, c => c.session.conceptVisualKind);
+    }
+    if (variant === 'V-reconfigure') {
+      await shadow(page, async c => {
+        const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
+        c.configure({ ...c.ait470Options, session });
+      });
     }
     const send = content => shadow(page, (c, content) => { c.shadowRoot.querySelector('textarea').value = content; c.shadowRoot.querySelector('form.composer').requestSubmit(); }, content);
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('textarea').disabled);
@@ -225,9 +224,9 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     const before = await page.evaluate(() => window.__ait470.reads.length);
     let freezeAt;
     if (variant.startsWith('V-')) {
-      await page.click('#outbox-open'); await page.waitForSelector('#outbox-list li button');
+      await page.$eval('#outbox-open', button => button.click()); await page.waitForSelector('#outbox-list li button');
       if (variant.endsWith('-slow')) f.hold();
-      await page.click('#outbox-list li button'); await page.click('#outbox-close');
+      await page.$eval('#outbox-list li button', button => button.click()); await page.$eval('#outbox-close', button => button.click());
     } else {
       await waitFor(() => f.messages.length > 0);
       const decoded = f.messages.at(-1).replace(/=\r\n/gu, '').replace(/=([A-F0-9]{2})/gu, (_, x) => String.fromCharCode(parseInt(x, 16)));
@@ -290,7 +289,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       await delay(Math.max(0, unlockedAt + seconds * 1000 - Date.now()));
       samples.push(await shadow(page, (c, seconds) => {
         const r = c.shadowRoot, q = s => r.querySelector(s);
-        return { seconds, cursor: c.session.seq, notice: q('.notice-text')?.textContent, concept: q('.concept-activity-text')?.textContent,
+        return { seconds, sampledAt: Date.now(), cursor: c.session.seq, notice: q('.notice-text')?.textContent, concept: q('.concept-activity-text')?.textContent,
           conceptHidden: q('.concept-activity')?.hidden, attachDisabled: q('.attach')?.getAttribute('aria-disabled'),
           attachTitle: q('.attach')?.title, attachLimits: q('#attach-limits')?.textContent,
           consentWindow: c.ait470Consent, readiness: q('.readiness')?.style.visibility, lockHidden: q('.verify-lock')?.hidden,
