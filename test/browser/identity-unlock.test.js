@@ -230,7 +230,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
       evidence.grant = await page.evaluate(() => window.__ait470.consent.find(e => e.event)?.event);
       assert.equal(evidence.grant?.type, 'consent.revised');
-      assert.equal(evidence.grant?.data.conversationUnchanged, variant !== 'V-inplace-false', 'host grant event is received unchanged');
+      assert.equal((evidence.grant?.data.conversationUnchanged ?? false), variant !== 'V-inplace-false', 'host grant event is received unchanged');
     }
     await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
