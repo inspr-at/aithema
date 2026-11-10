@@ -743,7 +743,7 @@ test('AIT-463 B1: carry skips NULL and unrelated epochs, treats columns independ
 for (const change of ['locale', 'correction', 'upload', 'input', 'consent-withdrawal']) test(`AIT-463 B1 guard: ${change} does not carry purpose rows`, t => {
   const { storage, id } = unlockStorage(t);
   const before = storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id);
-  if (change === 'locale') storage.changeLocale(id, 'de');
+  if (change === 'locale') storage.append(id, 'session.locale-changed', { locale: 'de' });
   if (change === 'correction') storage.append(id, 'turn.corrected', { id: 'project', role: 'user', content: 'systems: corrected API' });
   if (change === 'upload') storage.append(id, 'upload.state', { id: 'reference', state: 'accepted', filename: 'reference.txt', mediaType: 'text/plain', text: 'API', at: new Date(storage.now()).toISOString() });
   if (change === 'input') storage.postTurn(id, 'new-input', Buffer.from('API details'), 'API details');
