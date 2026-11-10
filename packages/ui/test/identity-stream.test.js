@@ -318,7 +318,8 @@ test('AIT-464 U3: an erased consent window fails closed at its watchdog without 
   event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true });
   assert.equal(h.calls.filter(call => call.method === 'GET' && call.path === '').length, 1, 'the pre-erasure consent read is in flight');
   h.erase(); await tick(8);
-  assert.deepEqual([...armed.values()], [{ kind: 'Timeout', delay: 2000 }], 'only the original watchdog remains armed after erasure');
+  assert.deepEqual([...armed.values()], [{ kind: 'Timeout', delay: 2000 }, { kind: 'Timeout', delay: 4000 }],
+    'the original watchdog and withdrawal notice remain armed until the watchdog fails closed');
   watching = true;
   t.mock.timers.tick(2000); await tick(8);
   assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
