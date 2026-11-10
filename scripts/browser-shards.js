@@ -29,6 +29,12 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
     }
+    // AIT-470: new workload has no CI history yet. Keep its provisional
+    // reservation explicit until the coordinator records rolling CI samples.
+    if (file === 'test/browser/identity-unlock.test.js' && measurement.provisional === true) {
+      weights[file] = measurement.seconds;
+      continue;
+    }
     try { assertMeasuredWeight(measurement); }
     catch (error) { throw new Error(`Invalid browser test weight: ${weightPath}; ${error.message}`); }
     weights[file] = measurement.seconds;

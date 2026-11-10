@@ -1,0 +1,5 @@
+{
+  "seconds": 180,
+  "provisional": true,
+  "evidence": "AIT-470 new six-case SMTP/proxy workload; provisional reservation pending committed-head remote timing and first successful CI measurements. No CI samples claimed."
+}
