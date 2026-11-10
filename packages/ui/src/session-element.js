@@ -1703,9 +1703,6 @@ export class AithemaSession extends HTMLElement {
       !(voice?.callId === facadeCallId && voice.state === 'ended');
     const waiting = liveVoice || facadePending || this.#laneStatusPending === revision ||
       this.#deferredAnalysis === revision || this.#analysisRecovery === revision;
-    root.querySelector('.retry').disabled = !analysis.available;
-    if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || (waiting && !this.#failure) || Boolean(running) || !(this.#failure || hasPersonTurn &&
-      (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
     // Real pending work owns the slot before failure; an existing assessment
     // keeps its draft/stale copy while its replacement runs.
     const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
@@ -1745,7 +1742,14 @@ export class AithemaSession extends HTMLElement {
       retryNode.hidden = false; retryNode.disabled = false;
       retryNode.setAttribute('aria-disabled', String(pending || Boolean(running) || callRunning || !this.#feature(ownReply ? 'text' : 'analysis').available));
       retryNode.setAttribute('aria-busy', String(pending || replyRunning));
-    } else { retryNode.removeAttribute('aria-disabled'); retryNode.removeAttribute('aria-busy'); }
+    } else {
+      // Never transiently hide or native-disable a managed Retry: Chrome drops
+      // focus immediately, even if the same paint later restores it.
+      retryNode.disabled = !analysis.available;
+      if (!this.#host?.usedUp) retryNode.hidden = locked || !analysis.available || (waiting && !this.#failure) || Boolean(running) || !(this.#failure || hasPersonTurn &&
+        (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
+      retryNode.removeAttribute('aria-disabled'); retryNode.removeAttribute('aria-busy');
+    }
     if (itemRetry) retryNode.hidden = true;
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading
