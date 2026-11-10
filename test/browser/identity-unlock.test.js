@@ -391,7 +391,14 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       for (const key of ['notice', 'concept', 'attachTitle', 'attachLimits']) assert.ok(!sample[key]?.includes(reason), `${key} stays locked: ${sample[key]}`);
     }
     if (evidenceDir) {
-      await page.screenshot({ path: join(evidenceDir, `ait470-${variant}-${locale}-${width}-confirmed.png`), fullPage: false });
+      const capture = async surface => {
+        const name = `ait470-${variant}-${locale}-${width}-${surface}.png`;
+        const png = await page.screenshot({ path: join(evidenceDir, name), fullPage: false });
+        // Preserve fixture evidence in the runner log as well: artifact fetches
+        // can be capacity-refused after a successful remote run.
+        if (['P-continue-slow', 'P-stalled'].includes(variant)) console.log(`AIT-470 screenshot ${JSON.stringify({ name, base64: Buffer.from(png).toString('base64') })}`);
+      };
+      await capture('confirmed');
       // Phone layouts stack the overview below the conversation. Keep viewport
       // captures of both surfaces after the same settled unlock observation.
       for (const [surface, selector] of [['concept', '.concept-bar'], ['concept-attach', '.composer-dock'], ['overview', '.understanding']]) {
@@ -400,7 +407,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           if (selector === '.understanding') c.shadowRoot.querySelector('.analysis-content').scrollTop = 0;
         }, selector);
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        await page.screenshot({ path: join(evidenceDir, `ait470-${variant}-${locale}-${width}-${surface}.png`), fullPage: false });
+        await capture(surface);
       }
     }
   });
