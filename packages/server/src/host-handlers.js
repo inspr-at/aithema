@@ -74,10 +74,11 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     if (state) {
       if (state.identity && host.identity?.project) {
         const projected = host.identity.project({ session: storage.get(id) }, state.identity);
-        if (!storage.get(id).identity || JSON.stringify(identityView(projected, clock(projected))) !== JSON.stringify(identityView(state.identity, clock(state.identity)))) {
+        const at = clock(projected), view = identityView(projected, at);
+        if (!storage.get(id).identity || JSON.stringify(view) !== JSON.stringify(identityView(state.identity, at))) {
           if (projected.address) assertAddressCollectionAllowed();
           const result = emit(id, storage.transitionHost(id, current => ({ state: { ...current, identity: projected },
-            events: [{ type: 'identity.state', data: identityView(projected, clock(projected)) }] }), ownerToken ? { ownerToken } : {}));
+            events: [{ type: 'identity.state', data: view }] }), ownerToken ? { ownerToken } : {}));
           if (wake && !newSession && result.identityUnlocked) unlocked(id, { before: result.identityUnlocked, notified: false });
         }
       }
