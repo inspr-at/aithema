@@ -120,10 +120,11 @@ test('AIT-463 BC9: email unlock keeps one answered reply, its choices and no Ret
           const outbox = await window.ait463RawFetch(`/api/sessions/${id}/demo/outbox`).then(r => r.json());
           return outbox.messages.some(message => message.token);
         });
-        await page.click('#outbox-open'); await page.waitForSelector('#outbox-list li button');
-        await page.click('#outbox-list li button');
+        await page.$eval('#outbox-open', button => button.click());
+        await page.waitForSelector('#outbox-list li button');
+        await page.$eval('#outbox-list li button', button => button.click());
         await until(page, () => document.querySelector('aithema-session').session.identified === true);
-        await page.click('#outbox-close');
+        await page.$eval('#outbox-close', button => button.click());
       } else {
         // Path P needs no new server: a second conversation of this visitor can
         // confirm the fake outbox token. The tested conversation never confirms;
@@ -163,6 +164,12 @@ test('AIT-463 BC9: email unlock keeps one answered reply, its choices and no Ret
       assert.deepEqual(errors, []); assert.deepEqual(external, []);
     } catch (error) {
       console.error(`Error: AIT-463 ${path}/${locale}/${width}: ${error.stack}`);
+      console.error('Error: AIT-463 fixture state', await page.evaluate(() => ({
+        outboxOpen: document.querySelector('#outbox')?.open,
+        outboxStatus: document.querySelector('#outbox-status')?.textContent,
+        outboxRows: document.querySelector('#outbox-list')?.children.length,
+        identified: document.querySelector('aithema-session')?.session?.identified,
+      })).catch(() => null));
       throw error;
     }
   });
