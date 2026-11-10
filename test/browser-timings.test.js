@@ -149,7 +149,7 @@ test('planning adds 25% for one and four samples and uses unpadded p95 at five o
   assert.equal(reset.seconds, 2.5, 'test-file edits restart the margin as well as the series');
 });
 
-test('updater verifies GitHub provenance before importing and rejects local or PR sources', t => {
+test('updater verifies GitHub provenance before importing and rejects local or PR sources', async t => {
   const root = mkdtempSync(join(tmpdir(), 'timing-import-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'scripts'));
@@ -206,6 +206,21 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
   const eight = Array.from({ length: 8 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-8` }));
   const eightSuccess = invoke({ artifacts: eight });
   assert.equal(eightSuccess.status, 0, eightSuccess.stderr);
+  const nine = Array.from({ length: 9 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-9` }));
+  await t.test('imports a complete nine-shard run', () => {
+    const success = invoke({ artifacts: nine });
+    assert.equal(success.status, 0, success.stderr);
+    assert.equal(JSON.parse(readFileSync(weightPath)).seconds, 2.5);
+  });
+  for (const [name, invalid] of [
+    ['rejects an incomplete nine-shard run', nine.slice(1)],
+    ['rejects browser-timings-10-of-9', nine.map((a, i) => i ? a : { ...a, name: 'browser-timings-10-of-9' })],
+  ]) await t.test(name, () => {
+    const rejected = invoke({ artifacts: invalid });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /incomplete or mixed 9-shard/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before, 'invalid nine-shard input writes no weights');
+  });
   for (const incomplete of [artifacts.slice(1), seven.slice(1), [...seven.slice(1), seven[1]],
     eight.slice(1), [...eight.slice(1), eight[1]], [...seven, eight[7]],
     eight.map((a, i) => i ? a : { ...a, name: 'browser-timings-9-of-8' }),
