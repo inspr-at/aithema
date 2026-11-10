@@ -44,7 +44,8 @@ async function fixture(t, variant) {
     socket.on('error', () => {});
   });
   const smtpPort = await listen(smtp); t.after(() => smtp.close());
-  let upstream, hold = false, frozen = false, liveStream, holdBarrier;
+  let upstream, hold = false, frozen = false, liveStream, holdBarrier, grantStreamHeld = false;
+  const grantChunks = [];
   t.after(() => holdBarrier?.resolve());
   const proxy = createServer((req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname;
@@ -66,7 +67,10 @@ async function fixture(t, variant) {
       if (path.endsWith('/events')) {
         const stream = { frozen: false }; liveStream = stream;
         res.writeHead(response.statusCode, response.headers);
-        response.on('data', bytes => { if (!stream.frozen) res.write(bytes); });
+        response.on('data', bytes => {
+          if (grantStreamHeld) grantChunks.push(() => { if (!res.destroyed) res.write(bytes); });
+          else if (!stream.frozen) res.write(bytes);
+        });
         response.on('end', () => res.end());
       } else if (snapshot || path.endsWith('/concepts/eligibility') || path === '/packages/ui/src/session-element.js') {
         const chunks = []; response.on('data', bytes => chunks.push(bytes));
@@ -130,7 +134,8 @@ async function fixture(t, variant) {
     assert.equal((await adminRequest(socketPath, 'set-confirmation', { baseRevision: settings.revision, confirmationEnabled: true })).status, 200);
 
   }
-  return { url, directory, messages, log, hold(barrier = false) {
+  return { url, directory, messages, log, holdGrantStream() { grantStreamHeld = true; },
+    releaseGrantStream() { grantStreamHeld = false; for (const send of grantChunks.splice(0)) send(); }, hold(barrier = false) {
     hold = true; if (barrier) holdBarrier = Promise.withResolvers();
   }, release() { holdBarrier?.resolve(); }, freeze() {
     assert.ok(liveStream); liveStream.frozen = true; frozen = true; return Date.now();
@@ -218,7 +223,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     };
     await page.goto(f.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.chooser__continue'));
+    // The primary host consumes the ack first; then let the identical stream copy replay.
+    if (variant === 'V-inplace-false') f.holdGrantStream();
     await mockConsent(page);
+    if (variant === 'V-inplace-false') f.releaseGrantStream();
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
       evidence.grant = await page.evaluate(() => window.__ait470.consent.find(e => e.event)?.event);
       assert.equal(evidence.grant?.type, 'consent.revised');
