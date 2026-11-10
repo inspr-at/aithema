@@ -1277,7 +1277,7 @@ for (const path of ['P', 'V']) test(`AIT-463 Low 4: ${path} provider failure dur
   assert.equal(snapshot.operations.lastFailure.lane, 'reaction');
   assert.equal(snapshot.operations.lastFailure.retryable, true);
   assert.equal(snapshot.operations.lastFailure.inputRevision, inputRevision(snapshot));
-  assert.notEqual(snapshot.operations.lastFailure.reason, 'identity-changed');
+  assert.equal(snapshot.operations.lastFailure.reason, null);
 });
 
 for (const path of ['P', 'V']) test(`AIT-463 T13: ${path} off-topic last input assesses only the project prefix`, async t => {

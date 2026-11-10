@@ -29,7 +29,7 @@ export function openQuestionItems(session) {
 function latestReply(session) {
   if (session.tombstone || session.consentWithdrawn) return null;
   const turn = activeTurns(session).at(-1);
-  if (turn?.role !== 'assistant' || turn.inputRevision !== undefined && !replyIsCurrent(session, turn)) return null;
+  if (turn?.role !== 'assistant' || (turn.inputRevision !== undefined || turn.replyRevision !== undefined) && !replyIsCurrent(session, turn)) return null;
   return turn;
 }
 export function currentQuestionCard(session) {
