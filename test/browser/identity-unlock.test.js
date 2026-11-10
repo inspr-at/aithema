@@ -266,7 +266,11 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     await shadow(page, c => { c.shadowRoot.querySelector('#verify-lock-email').value = 'visitor@example.test'; c.shadowRoot.querySelector('.verify-lock .verify-send').click(); });
     await until(page, () => document.querySelector('aithema-session').session.identity?.status === 'verification-pending');
     // Settle request-time credit reads before arming faults.
-    await delay(700);
+    await until(page, () => {
+      const { events, credits, reads } = window.__ait470;
+      const requested = events.findLast(e => e.type === 'identity.state' && e.data.status === 'verification-pending');
+      return requested && credits.some(receipt => receipt.t > requested.t) && reads.every(read => read.t1 !== undefined);
+    });
     const before = await page.evaluate(() => window.__ait470.reads.length);
     let freezeAt;
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
