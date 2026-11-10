@@ -259,3 +259,32 @@ test('AIT-470 U16 waiting-call: a 409 cannot roll back the acknowledged Resume p
   assert.equal(h.c.session.paused, false);
   assert.equal(h.root.querySelector('.audio-rail').dataset.state, 'listening');
 });
+
+test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent window is live', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture470(t, { session: { identity: pending470({ pollVerification: true }) }, routes: {
+    'POST /identity/unlock': () => Response.json({ identity: verified470() }) } });
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  await tick(8); t.mock.timers.tick(3500); await tick(8);
+  h.state.snapshot = () => held.promise.then(() => Response.json(h.c.session));
+  event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true }); await tick(8);
+  assert.equal(h.reads, 1, 'the live consent window owns an unfinished read');
+  h.state.snapshot = () => new Response(null, { status: 409 });
+  const original = globalThis.fetch; let streams = 0;
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    if (String(url).endsWith('/events')) {
+      streams++; h.state.snapshot = () => Response.json({ ...h.c.session, featureMatrix: unlocked470 });
+      return Promise.resolve(new Response(new ReadableStream({ start(controller) {
+        const event = { seq: h.c.session.seq + 1, type: 'identity.state', data: verified470() };
+        controller.enqueue(new TextEncoder().encode(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`));
+        options.signal.addEventListener('abort', () => controller.close(), { once: true });
+      } })));
+    }
+    return original(url, options);
+  });
+  t.mock.timers.tick(500); await tick(8);
+  assert.equal(streams, 1, 'the unlock-edge conflict reconnects even inside live consent');
+  assert.equal(h.reads, 3); clear470(h);
+  held.resolve(); await tick(8); t.mock.timers.tick(60_000); await tick(8);
+  assert.equal(streams, 1); assert.equal(h.reads, 3);
+});
