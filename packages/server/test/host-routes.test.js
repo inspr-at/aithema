@@ -1371,6 +1371,18 @@ test('AIT-463 L1 plain: lock-free understanding in flight survives unlock withou
   assert.equal(counts.understanding.length, 1); currentUnlockUnderstanding(f);
 });
 
+test('AIT-470 S1: confirmed identity snapshot has unlocked verdicts at the journal cursor', async t => {
+  const f = fixture(t), s = await f.create(), base = `/api/sessions/${s.id}`;
+  await f.call(`${base}/turns`, { clientEventId: 'unlock-guard', content: 'systems: API' }); await f.handlers.idle();
+  assert.equal((await (await f.call(base)).json()).featureMatrix.best.analysis.reason, 'verification required');
+  await f.call(`${base}/identity/request`, { address: 'visitor@example.test' });
+  const message = await f.message(s.id);
+  await f.call(`${base}/identity/confirm`, { token: message.token }); await f.handlers.idle();
+  const snapshot = await (await f.call(base)).json();
+  for (const feature of ['analysis', 'images', 'html']) assert.notEqual(snapshot.featureMatrix.best[feature].reason, 'verification required');
+  assert.equal(snapshot.seq, f.storage.get(s.id).seq);
+});
+
 // AIT-466: real lock and admission guards; only the reply plugin output is controlled.
 async function failedFirstReply(t, options = {}) {
   // The host fixture and consent/storage timestamps share one clock.

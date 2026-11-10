@@ -124,6 +124,7 @@ export function engineView(session) {
 
 export class SettingsDialog {
   #fadeObserver;
+  #catalogRefreshPending = false;
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
@@ -414,6 +415,7 @@ export class SettingsDialog {
     // Return closed menus to their select for inactive-panel semantics.
     select.append(menu); menu.removeAttribute('style');
     if (focus) button.focus();
+    if (this.#catalogRefreshPending) this.refreshCatalog();
   }
   /** Opens on the AI model tab; Continue is the chooser's Custom path. */
   open(opener, { tab = 'model', continueLabel = false, preset } = {}) {
@@ -448,9 +450,23 @@ export class SettingsDialog {
     (presets ? target.querySelector('[aria-checked="true"]') : target)?.focus({ preventScroll: true });
     this.#help = tab; this.#showHelp();
   }
-  async reload() {
-    try { this.setCatalog(await this.#ports.catalog()); }
+  async reload(afterUnlock = false) {
+    try {
+      const catalog = await this.#ports.catalog();
+      if (afterUnlock) {
+        if (!this.#dialog.open || this.#closing) return;
+        // A menu may have opened during the request. Preserve its rows until close.
+        if (this.#all('.select').some(select => !this.#menu(select).hidden)) { this.#catalogRefreshPending = true; return; }
+      }
+      this.setCatalog(catalog);
+    }
     catch { this.#loadFailed = true; this.#render(); }
+  }
+  /** Refresh unlocked verdicts without replacing an open option menu's rows. */
+  refreshCatalog() {
+    if (!this.#dialog.open || this.#closing) return;
+    this.#catalogRefreshPending = this.#all('.select').some(select => !this.#menu(select).hidden);
+    if (!this.#catalogRefreshPending) void this.reload(true);
   }
   setCatalog(catalog) {
     this.#catalog = catalog; this.#loadFailed = false;
@@ -479,6 +495,7 @@ export class SettingsDialog {
     if (!this.#dialog.open || this.#closing) return;
     this.#closeGeneration++;
     this.#closing = true; this.#pendingPreset = null; this.#pendingVoice = null; this.#voiceConfirm = false;
+    this.#catalogRefreshPending = false;
     clearTimeout(this.#timer); this.#timer = 0;
     this.#fadeObserver?.disconnect();
     for (const select of this.#all('.select')) this.#closeMenu(select);

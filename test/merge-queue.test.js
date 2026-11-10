@@ -52,7 +52,7 @@ test('both required workflows request merge-group checks', () => {
 });
 
 test('PR and merge-group events run the same shard and required check names', () => {
-  const expected = ['test', 'browser (1/8)', 'browser (2/8)', 'browser (3/8)', 'browser (4/8)', 'browser (5/8)', 'browser (6/8)', 'browser (7/8)', 'browser (8/8)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'unit (1/3)', 'unit (2/3)', 'unit (3/3)', 'preview-security', 'dco', 'dco-tests'];
+  const expected = ['test', 'browser (1/9)', 'browser (2/9)', 'browser (3/9)', 'browser (4/9)', 'browser (5/9)', 'browser (6/9)', 'browser (7/9)', 'browser (8/9)', 'browser (9/9)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'unit (1/3)', 'unit (2/3)', 'unit (3/3)', 'preview-security', 'dco', 'dco-tests'];
   for (const event of ['pull_request', 'merge_group']) {
     assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)).filter(name => name !== 'changes'), expected);
   }
