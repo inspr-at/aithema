@@ -629,6 +629,7 @@ summary::after { content:''; width:.45rem; height:.45rem; margin:0 .25rem .2rem;
 details[open] summary::after { transform:rotate(225deg); }
 summary:hover { background:color-mix(in srgb,var(--aithema-accent-soft) 50%,transparent); }
 blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--aithema-muted); }
+.retry[aria-disabled="true"] { opacity:.5; cursor:not-allowed; } .retry[aria-disabled="true"]:hover { background:none; } .retry[aria-disabled="true"][aria-busy="true"] { cursor:wait; }
 .overview-retry, .reaction-failure > .retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
 .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:1rem; row-gap:0; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export { white-space:nowrap; flex:none; }
