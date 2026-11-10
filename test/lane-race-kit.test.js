@@ -288,3 +288,15 @@ for (const relock of [false, true]) test(`AIT-463 T16: private classification ${
   assert.equal(h.storage.safeguards(h.id, inputRevision(h.storage.get(h.id))).assessed, !relock);
   assert.equal(h.storage.get(h.id).transcript.filter(turn => turn.role === 'assistant').length, 0);
 });
+
+test('AIT-463 L3 guard: a delegated voice request retains its strict identity dispatch fence', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ purposePolicy: start2PurposePolicy }); t.after(() => h.close());
+  const session = h.storage.get(h.id);
+  const request = (await import('../packages/core/src/prompts.js')).reasoningRequest(session, 'reaction', false, '', { voiceReply: true, purposePolicy: start2PurposePolicy });
+  const admission = await h.runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options: { voiceReply: true } });
+  h.storage.append(h.id, 'identity.state', { status: 'verified', identified: true });
+  await assert.rejects(async () => { for await (const _ of admission.plugin.stream(request, admission.options)) { /* no dispatch */ } }, /Session changed before dispatch/u);
+  await admission.finish({ failed: true });
+  assert.equal(h.kit.calls.length, 0);
+  assert.equal(h.storage.db.prepare('SELECT settled_micro FROM budget_attempts').get().settled_micro, 0);
+});
