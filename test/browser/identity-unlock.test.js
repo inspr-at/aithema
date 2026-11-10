@@ -48,6 +48,14 @@ async function fixture(t, variant) {
   t.after(() => holdBarrier?.resolve());
   const proxy = createServer((req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname;
+    if (req.method === 'GET' && path === '/fixture-confirm-email') {
+      const query = new URL(req.url, 'http://fixture').searchParams;
+      const id = query.get('sessionId'), token = query.get('token');
+      assert.match(id, /^[a-zA-Z0-9_-]+$/u); assert.match(token, /^[a-zA-Z0-9_-]+$/u);
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(`<form method="POST"><input type="hidden" name="sessionId" value="${id}"><input type="hidden" name="token" value="${token}"><button>Confirm</button></form>`);
+      return;
+    }
     const snapshot = req.method === 'GET' && /^\/api\/sessions\/[^/]+$/u.test(path);
     const entry = { method: req.method, path, t0: Date.now(), snapshot, held: snapshot && hold,
       kind: req.headers['x-ait470-read'] };
@@ -226,7 +234,23 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     await delay(700);
     const before = await page.evaluate(() => window.__ait470.reads.length);
     let freezeAt;
-    if (variant.startsWith('V-')) {
+    if (variant === 'V-inplace' || variant === 'V-reconfigure') {
+      const link = await shadow(page, async c => {
+        const { messages } = await fetch(`/api/sessions/${c.session.id}/demo/outbox`).then(r => r.json());
+        return `/fixture-confirm-email?${new URLSearchParams({ sessionId: c.session.id, token: messages.at(-1).token })}`;
+      });
+      const eligibilityCount = f.log.filter(e => e.path.endsWith('/concepts/eligibility')).length;
+      await page.evaluate(() => { window.__ait470Hidden = true; document.dispatchEvent(new Event('visibilitychange')); });
+      await waitFor(() => f.log.filter(e => e.path.endsWith('/concepts/eligibility') && e.eventSeq).length > eligibilityCount);
+      evidence.hideEligibility = f.log.filter(e => e.path.endsWith('/concepts/eligibility')).at(-1);
+      await until(page, seq => document.querySelector('aithema-session').session.seq >= seq, evidence.hideEligibility.eventSeq);
+      const mail = await context.newPage(); await mail.bringToFront(); await mail.goto(new URL(link, f.url).href);
+      await Promise.all([mail.waitForNavigation(), mail.click('form button')]);
+      assert.equal(await mail.$eval('h1', h => h.textContent), 'Confirmed');
+      await page.bringToFront();
+      await page.evaluate(() => { window.__ait470Hidden = false; document.dispatchEvent(new Event('visibilitychange')); });
+      evidence.unlockSource = 'second-tab evidence, conversation poll reducer';
+    } else if (variant.startsWith('V-')) {
       await page.$eval('#outbox-open', button => button.click()); await page.waitForSelector('#outbox-list li button');
       if (variant.endsWith('-slow')) f.hold(variant === 'V-outbox-slow');
       await page.$eval('#outbox-list li button', button => button.click()); await page.$eval('#outbox-close', button => button.click());
@@ -263,6 +287,11 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     if (variant.startsWith('V-')) {
       await until(page, () => window.__ait470.events.some(e => e.type === 'identity.unlocked'));
       evidence.unlockToast = await shadow(page, c => c.shadowRoot.querySelector('.composer-dock > .status__label')?.textContent);
+      if (variant === 'V-inplace' || variant === 'V-reconfigure') {
+        const confirmation = f.log.find(e => e.method === 'POST' && e.path === '/fixture-confirm-email');
+        assert.ok(confirmation && f.log.some(e => e.path.endsWith('/identity/unlock') && e.t0 >= confirmation.t0), 'the conversation poll reduces the confirmed proof');
+        assert.equal(f.log.some(e => e.path.endsWith('/identity/confirm')), false, 'no direct reducer confirmation route');
+      }
     }
     if (freezeAt) {
       evidence.freezeAt = freezeAt;
