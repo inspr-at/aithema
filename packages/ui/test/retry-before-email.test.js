@@ -85,7 +85,7 @@ test('AIT-466 U3: this tab running call dims reply Retry', async t => {
 test('AIT-466 U3 guards: non-retryable and used-up failures offer no activation', async t => {
   const { c, root, calls } = await fixture(t, { host: { verification: true, credits: true } });
   fail(c, { retryable: false }); assert.equal(root.querySelector('.retry').hidden, true); assert.equal(root.querySelector('.retry').hasAttribute('aria-disabled'), false);
-  fail(c); inline(root, en);
+  fail(c);
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'session' } });
   const retry = root.querySelector('.retry'); assert.equal(retry.style.visibility, 'hidden'); assert.equal(retry.inert, true);
   assert.equal(root.querySelector('.reaction-failure-text').textContent, en.reasoningFailed); retry.click(); await tick(); assert.equal(retries(calls), 0);
@@ -133,4 +133,10 @@ test('AIT-466 U10 guard: available assessment keeps shared footer Retry', async 
   fail(c); const retry = root.querySelector('.retry');
   assert.equal(retry.parentNode, root.querySelector('.understanding > .foot')); assert.equal(retry.hasAttribute('aria-disabled'), false);
   retry.click(); await tick(); assert.equal(retries(calls), 1);
+});
+
+for (const state of ['active', 'waiting']) test(`AIT-466 U6: identity race Retry during ${state} call`, async t => {
+  const { c, root, calls } = await fixture(t, { voiceClient: {}, session: { voiceLifecycle: { callId: 'race-call', providerSessionId: 'p', epoch: 1, state } } });
+  fail(c, { reason: 'identity-changed' }); inline(root, en, state === 'active');
+  root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), state === 'active' ? 0 : 1);
 });
