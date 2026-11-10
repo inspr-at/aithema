@@ -294,19 +294,55 @@ test('AIT-464 U2: erasure and credit-denied callbacks never read A', async t => 
   assert.ok(h.c.session.tombstone); noErasedReads464(t, h);
 });
 test('AIT-464 U3: an erased consent window fails closed at its watchdog without reads or backoff reads', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   const h = fixture464(t), held = Promise.withResolvers(); t.after(() => held.resolve()); await tick(8);
+  const armed = new Map(), scheduledAfterWatchdog = [], firedAfterWatchdog = [];
+  let watching = false;
+  // Observe the public timer surface, including handles that never fire or re-arm.
+  for (const kind of ['Timeout', 'Interval']) {
+    const schedule = globalThis[`set${kind}`], clear = globalThis[`clear${kind}`];
+    t.mock.method(globalThis, `set${kind}`, (callback, delay, ...args) => {
+      const timer = { kind, delay };
+      const handle = schedule(function (...values) {
+        if (kind === 'Timeout') armed.delete(handle);
+        if (watching) firedAfterWatchdog.push(timer);
+        return callback.apply(this, values);
+      }, delay, ...args);
+      armed.set(handle, timer);
+      if (watching) scheduledAfterWatchdog.push(timer);
+      return handle;
+    });
+    t.mock.method(globalThis, `clear${kind}`, handle => { armed.delete(handle); return clear(handle); });
+  }
   h.state.snapshot = () => { const response = Response.json(h.c.session); return held.promise.then(() => response); };
   event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true });
   assert.equal(h.calls.filter(call => call.method === 'GET' && call.path === '').length, 1, 'the pre-erasure consent read is in flight');
   h.erase(); await tick(8);
+  assert.deepEqual([...armed.values()], [{ kind: 'Timeout', delay: 2000 }], 'only the original watchdog remains armed after erasure');
+  watching = true;
   t.mock.timers.tick(2000); await tick(8);
   assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  const expectedRetry = [{ kind: 'Timeout', delay: 2000 }];
+  assert.deepEqual(scheduledAfterWatchdog, expectedRetry, 'the watchdog arms exactly one consent-failure retry');
+  assert.deepEqual([...armed.values()], expectedRetry, 'only that one retry remains armed');
   const watchdogReads = { ...h.reads };
   for (const ms of [4000, 8000]) { t.mock.timers.tick(ms); await tick(8); }
+  const assertQuiescent = () => {
+    assert.deepEqual(scheduledAfterWatchdog, expectedRetry, 'no timeout or interval re-arms after the one retry');
+    assert.equal(armed.size, 0, 'no timer stays armed for the erased consent window');
+    assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+    noErasedReads464(t, h);
+  };
+  assertQuiescent();
+  for (const ms of [16_000, 60_000]) { t.mock.timers.tick(ms); await tick(8); assertQuiescent(); }
   noErasedReads464(t, h);
   assert.deepEqual(watchdogReads, { snapshot: 0, consent: 0 }, 'the 2 s watchdog also sends no read');
   held.resolve(); await tick(8); noErasedReads464(t, h);
+  assertQuiescent();
+  journal470(h.c); await tick(8);
+  assertQuiescent();
+  assert.deepEqual(firedAfterWatchdog, [...expectedRetry, ...expectedRetry], 'only the original watchdog and its one retry fire');
+  t.diagnostic('AIT-464 U3: post-watchdog timers scheduled=1, remaining=0; late read completion and journal event add no read or timer');
 });
 test('AIT-464 U4: live-call erasure and the closing voice state never read A', async t => {
   const h = fixture464(t, { voiceClient: await voice470(t) }); await tick(8);
