@@ -81,7 +81,10 @@ async function fixture(t, variant) {
               return p ? { failed: !!p.failed, exhausted: !!p.exhausted, retries: p.retries,
                 attempt: !!p.attempt, scopedGrant: p.scopedGrant,
                 windowId: window.__ait470Id(p), attemptId: p.attempt ? window.__ait470Id(p.attempt) : null } : null;
-            }\n  get ait470Options() { return this.#options; }\n${needle}`));
+            }\n  get ait470Options() { return this.#options; }\n  get ait470Fence() { return { invalidatedAt: this.#invalidatedAt, cursor: this.#cursor, generation: this.#rail?.generation }; }\n${needle}`));
+            body = Buffer.from(body.toString().replace('  #receive(event) {', `  #receive(event) {
+              window.__ait470?.arrivals.push({ t: performance.now(), event, fence: this.ait470Fence,
+                duplicate: !!event.seq && event.seq <= this.#cursor });`));
             // Source length changed; let HTTP chunk it.
             delete response.headers['content-length'];
           }
@@ -105,7 +108,7 @@ async function fixture(t, variant) {
   const child = fork(new URL('../fixtures/identity-unlock-host.mjs', import.meta.url), [], { silent: true, env: {
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
-    ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AIT470_INPLACE: '1', AITHEMA_HTML_MODE: 'off' } : {}),
+    ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AIT470_INPLACE: variant === 'V-inplace-false' ? 'false' : '1', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(!variant.startsWith('V-') ? { SMTP_HOST: '127.0.0.1', SMTP_PORT: '25', AIT470_SMTP_PORT: String(smtpPort),
       SMTP_FROM: 'sender@example.test', SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY: 'true' } : {}),
@@ -130,7 +133,7 @@ async function fixture(t, variant) {
   }, get frozen() { return frozen; } };
 }
 
-const variants = full ? ['V-inplace', 'V-reconfigure', 'P-page', 'P-token', 'P-continue-slow', 'P-stalled', 'V-outbox', 'P-page-slow', 'V-outbox-slow', 'control'] : ['V-inplace', 'P-stalled', 'P-continue-slow'];
+const variants = full ? ['V-inplace-false', 'V-inplace', 'V-reconfigure', 'P-page', 'P-token', 'P-continue-slow', 'P-stalled', 'V-outbox', 'P-page-slow', 'V-outbox-slow', 'control'] : ['V-inplace', 'P-stalled', 'P-continue-slow'];
 for (const variant of variants) for (const locale of ['en', 'de']) for (const width of [390, 1440]) {
   if (!full && variant === 'P-continue-slow' && width === 390) continue;
   test(`AIT-470 ${variant} ${locale} ${width}: confirmation clears every lock indicator`, { timeout: 130_000 }, async t => {
@@ -145,7 +148,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       window.__ait470Hidden = false;
       Object.defineProperty(document, 'hidden', { get: () => window.__ait470Hidden });
       Object.defineProperty(document, 'visibilityState', { get: () => window.__ait470Hidden ? 'hidden' : 'visible' });
-      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [] };
+      window.__ait470 = { reads: [], events: [], features: [], streams: [], consent: [], toasts: [], arrivals: [] };
       const ids = new WeakMap(); let nextId = 0;
       window.__ait470Id = object => {
         if (!ids.has(object)) ids.set(object, ++nextId);
@@ -166,7 +169,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
         }
         if ((options.method ?? 'GET') !== 'GET' || !/^\/api\/sessions\/[^/]+$/u.test(path)) return original.call(this, url, options);
         const read = { t0: performance.now(), startCursor: component()?.session?.seq,
-          journalLocked: component()?.session?.identity?.assessmentUnlocked !== true, consentAtStart: component()?.ait470Consent };
+          journalLocked: component()?.session?.identity?.assessmentUnlocked !== true, fenceAtStart: component()?.ait470Fence, consentAtStart: component()?.ait470Consent };
         evidence.reads.push(read);
         try {
           const kind = new Error().stack.includes('#restore') ? 'restore' : 'features';
@@ -174,13 +177,16 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           const headers = new Headers(options.headers); headers.set('x-ait470-read', kind);
           const response = await original.call(this, url, { ...options, headers }), body = await response.clone().json();
           Object.assign(read, { t1: performance.now(), status: response.status, snapshotSeq: body.seq,
-            cursorAtResponse: component()?.session?.seq, consentAtResponse: component()?.ait470Consent });
+            cursorAtResponse: component()?.session?.seq, fenceAtResponse: component()?.ait470Fence, consentAtResponse: component()?.ait470Consent });
           read.outcome = response.status === 409 ? '409' : body.seq > read.cursorAtResponse ? 'ahead' : body.seq < read.cursorAtResponse ? 'behind' : 'equal';
           if (read.consentAtStart?.windowId !== read.consentAtResponse?.windowId ||
             read.consentAtStart?.attemptId !== read.consentAtResponse?.attemptId) {
             read.consentDrop = read.consentAtResponse?.failed && !read.consentAtResponse.attempt
               ? 'watchdog-or-failure' : 'superseded-consent-attempt';
           }
+          read.dropReason = !response.ok ? 'http-' + response.status : read.consentDrop ??
+            (read.fenceAtStart?.generation !== read.fenceAtResponse?.generation ? 'generation' :
+              read.outcome === 'equal' ? null : read.outcome);
           return response;
         } catch (error) { read.outcome = 'error'; throw error; }
       };
@@ -201,6 +207,8 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     collectEvidence = async () => {
       evidence.proxy = f.log;
       evidence.browser = await page.evaluate(() => window.__ait470).catch(() => null);
+      if (evidence.grant) evidence.grantArrivals = evidence.browser?.arrivals.filter(a =>
+        a.event.seq === evidence.grant.seq && a.event.type === 'consent.revised');
       if (evidenceDir) { await mkdir(evidenceDir, { recursive: true }); await writeFile(join(evidenceDir, `ait470-${variant}-${locale}-${width}.json`), JSON.stringify(evidence, null, 2)); }
       console.log(`AIT-470 evidence ${JSON.stringify(evidence)}`);
     };
@@ -210,7 +218,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
       evidence.grant = await page.evaluate(() => window.__ait470.consent.find(e => e.event)?.event);
       assert.equal(evidence.grant?.type, 'consent.revised');
-      assert.equal(evidence.grant?.data.conversationUnchanged, true, 'primary host grants consent in place');
+      assert.equal(evidence.grant?.data.conversationUnchanged, variant !== 'V-inplace-false', 'host grant event is received unchanged');
     }
     await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
@@ -235,7 +243,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     await delay(700);
     const before = await page.evaluate(() => window.__ait470.reads.length);
     let freezeAt;
-    if (variant === 'V-inplace' || variant === 'V-reconfigure') {
+    if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
       const link = await shadow(page, async c => {
         const { messages } = await fetch(`/api/sessions/${c.session.id}/demo/outbox`).then(r => r.json());
         return `/fixture-confirm-email?${new URLSearchParams({ sessionId: c.session.id, token: messages.at(-1).token })}`;
@@ -289,7 +297,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       await until(page, () => window.__ait470.events.some(e => e.type === 'identity.unlocked'));
       unlockedAt = await page.evaluate(() => window.__ait470.toasts.at(-1).wall);
       evidence.unlockToast = await shadow(page, c => c.shadowRoot.querySelector('.composer-dock > .status__label')?.textContent);
-      if (variant === 'V-inplace' || variant === 'V-reconfigure') {
+      if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
         const confirmation = f.log.find(e => e.method === 'POST' && e.path === '/fixture-confirm-email');
         assert.ok(confirmation && f.log.some(e => e.path.endsWith('/identity/unlock') && e.t0 >= confirmation.t0), 'the conversation poll reduces the confirmed proof');
         assert.equal(f.log.some(e => e.path.endsWith('/identity/confirm')), false, 'no direct reducer confirmation route');
@@ -330,7 +338,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
         return { seconds, sampledAt: Date.now(), cursor: c.session.seq, notice: q('.notice-text')?.textContent, concept: q('.concept-activity-text')?.textContent,
           conceptHidden: q('.concept-activity')?.hidden, attachDisabled: q('.attach')?.getAttribute('aria-disabled'),
           attachTitle: q('.attach')?.title, attachLimits: q('#attach-limits')?.textContent,
-          consentWindow: c.ait470Consent, readiness: q('.readiness')?.style.visibility, lockHidden: q('.verify-lock')?.hidden,
+          consentWindow: c.ait470Consent, fence: c.ait470Fence, readiness: q('.readiness')?.style.visibility, lockHidden: q('.verify-lock')?.hidden,
           verifiedHidden: q('.host-verify .verify-done')?.hidden, connection: q('.status__label')?.textContent };
       }, seconds));
     }

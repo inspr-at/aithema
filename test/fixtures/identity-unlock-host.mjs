@@ -25,7 +25,7 @@ registerHooks({ load(url, context, nextLoad) {
         socket.once('connect', () => { socket.removeListener('error', fail); done(null, { connection: socket }); });
       }, htmlTemplate`) };
   }
-  if (url === serverURL && process.env.AIT470_INPLACE === '1') {
+  if (url === serverURL && process.env.AIT470_INPLACE) {
     const source = String(result.source), needle = '  const grokResponse = await grokHost?.handle?.(request);';
     assert.ok(source.includes(needle), 'fixture confirmation port still follows the deployment gate');
     // A host's mail page records evidence; only the conversation's unlock poll
