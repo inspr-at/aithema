@@ -176,7 +176,8 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           Object.assign(read, { t1: performance.now(), status: response.status, snapshotSeq: body.seq,
             cursorAtResponse: component()?.session?.seq, consentAtResponse: component()?.ait470Consent });
           read.outcome = response.status === 409 ? '409' : body.seq > read.cursorAtResponse ? 'ahead' : body.seq < read.cursorAtResponse ? 'behind' : 'equal';
-          if (read.consentAtStart && read.consentAtStart.attemptId !== read.consentAtResponse?.attemptId) {
+          if (read.consentAtStart?.windowId !== read.consentAtResponse?.windowId ||
+            read.consentAtStart?.attemptId !== read.consentAtResponse?.attemptId) {
             read.consentDrop = read.consentAtResponse?.failed && !read.consentAtResponse.attempt
               ? 'watchdog-or-failure' : 'superseded-consent-attempt';
           }
@@ -185,7 +186,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       };
       document.addEventListener('aithema-event', e => {
         window.__ait470.events.push({ t: performance.now(), ...e.detail });
-        if (e.detail.type === 'identity.unlocked') window.__ait470.toasts.push({ t: performance.now(),
+        if (e.detail.type === 'identity.unlocked') window.__ait470.toasts.push({ t: performance.now(), wall: Date.now(),
           label: document.querySelector('aithema-session').shadowRoot.querySelector('.composer-dock > .status__label')?.textContent });
       });
       document.addEventListener('aithema-features', () => {
@@ -283,9 +284,10 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       }
     }
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.verify-lock').hidden);
-    const unlockedAt = Date.now(); evidence.unlockedAt = unlockedAt;
+    let unlockedAt = Date.now();
     if (variant.startsWith('V-')) {
       await until(page, () => window.__ait470.events.some(e => e.type === 'identity.unlocked'));
+      unlockedAt = await page.evaluate(() => window.__ait470.toasts.at(-1).wall);
       evidence.unlockToast = await shadow(page, c => c.shadowRoot.querySelector('.composer-dock > .status__label')?.textContent);
       if (variant === 'V-inplace' || variant === 'V-reconfigure') {
         const confirmation = f.log.find(e => e.method === 'POST' && e.path === '/fixture-confirm-email');
@@ -293,6 +295,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
         assert.equal(f.log.some(e => e.path.endsWith('/identity/confirm')), false, 'no direct reducer confirmation route');
       }
     }
+    evidence.unlockedAt = unlockedAt;
     if (freezeAt) {
       evidence.freezeAt = freezeAt;
       assert.equal(f.log.filter(e => e.t0 > freezeAt && e.t0 < unlockedAt && (e.kind === 'restore' || e.path.endsWith('/events'))).length, 0,
@@ -315,7 +318,9 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       assert.ok(forwarded && Date.now() - forwarded.forwarded < 3000, 'journal advance precedes delivery of last natural snapshot');
       evidence.extraTurnAfterSnapshot = forwarded;
       await send('It also needs a collection time selector.');
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 4);
+      await until(page, () => document.querySelector('aithema-session').session.transcript.filter(t => t.role === 'user').length >= 2);
+      evidence.extraTurnCursor = await shadow(page, c => c.session.seq);
+      assert.ok(evidence.extraTurnCursor > forwarded.seq, 'the durable person turn overtakes every held natural snapshot');
       f.release();
     }
     for (const seconds of full ? [0.1, 0.5, 3, 20, 60] : variant.endsWith('-slow') || variant === 'V-inplace' ? [0.1, 0.5, 3, 20] : [0.1, 0.5, 3]) {
