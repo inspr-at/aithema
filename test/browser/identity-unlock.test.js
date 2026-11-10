@@ -394,7 +394,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
       await page.screenshot({ path: join(evidenceDir, `ait470-${variant}-${locale}-${width}-confirmed.png`), fullPage: false });
       // Phone layouts stack the overview below the conversation. Keep viewport
       // captures of both surfaces after the same settled unlock observation.
-      for (const [surface, selector] of [['concept-attach', '.composer-dock'], ['overview', '.understanding']]) {
+      for (const [surface, selector] of [['concept', '.concept-bar'], ['concept-attach', '.composer-dock'], ['overview', '.understanding']]) {
         await shadow(page, (c, selector) => {
           c.shadowRoot.querySelector(selector).scrollIntoView({ block: 'center', behavior: 'instant' });
           if (selector === '.understanding') c.shadowRoot.querySelector('.analysis-content').scrollTop = 0;
