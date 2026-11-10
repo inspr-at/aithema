@@ -1310,7 +1310,7 @@ test('AIT-463 T18: a new conversation for a verified visitor starts no paid work
 });
 
 for (const path of ['P', 'V']) test(`AIT-463 T19: ${path} re-lock then re-verify keeps the deferred finding-4 bound`, async t => {
-  // Follow-up: design section E, re-lock then re-verify strands purpose classification.
+  // Follow-up AIT-468 ("re-lock, then re-verify"): design section E strands purpose classification.
   const f = await unlockFixture(t, path), counts = unlockCounts(t, f), token = await f.request();
   await f.verify(token); await f.handlers.idle(); await f.send();
   f.at(f.host.now() + IDENTITY_POLICY.resendCooldownMs); await f.call(`${f.base}/identity/change`, { address: 'changed@example.test' }); await f.handlers.idle();
