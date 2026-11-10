@@ -72,7 +72,11 @@ else process.exit(90);
     steps().find(step => step.run?.includes('gh release create')).run].join('\n');
   const env = { PATH: `${join(cwd, 'bin')}:/usr/bin:/bin`, GITHUB_REF_NAME: 'v261019120000.0.0',
     GITHUB_REF: 'refs/tags/v261019120000.0.0', GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
-  const run = () => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], { cwd, env, encoding: 'utf8' });
+  const run = () => {
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], { cwd, env, encoding: 'utf8' });
+    assert.equal(result.error, undefined, result.error?.message);
+    return result;
+  };
   writeFileSync(join(cwd, 'fail-upload'), 'once');
   const failure = run(); assert.notEqual(failure.status, 0, failure.stdout);
   assert.equal(existsSync(join(cwd, 'draft')), false, 'the trap removes the draft created before the upload failure');
