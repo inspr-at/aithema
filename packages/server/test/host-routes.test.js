@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
+import { start2PurposePolicy } from '../../../demo/safeguards.js';
 import { mockConsent, temporaryDb, readEvents, unzip } from '../../../test/helpers.js';
 import { createSession, applyEvent, inputRevision, createHandover, reduceHandover, PluginError } from '@inspr/aithema-core';
 
@@ -14,7 +15,7 @@ function fixture(t, options = {}) {
     identityPolicy: { resendCooldownMs: 100, verificationTtlMs: 500 }, ...options });
   const runtime = createPluginRuntime({ storage, consent: mockConsent, presets: options.presets });
   const handlers = createHandlers({ storage, consent: mockConsent, pluginRuntime: runtime, host, ownership: options.ownership,
-    deadlineMs: options.deadlineMs ?? 30_000, log: options.log });
+    purposePolicy: options.purposePolicy, deadlineMs: options.deadlineMs ?? 30_000, log: options.log });
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await handlers.close(); storage.close(); };
   t.after(close);
@@ -1092,4 +1093,70 @@ for (const fails of [false, true]) test(`AIT-418: identity/change during an admi
     assert.equal(calls, 2); assert.equal(snapshot.transcript.filter(turn => turn.role === 'assistant').length, 1);
     assert.equal(snapshot.operations.lastFailure, null);
   }
+});
+
+// AIT-466: real lock and admission guards; only the reply plugin output is controlled.
+async function failedFirstReply(t, options = {}) {
+  const f = fixture(t, options), s = await f.create(), base = `/api/sessions/${s.id}`;
+  const admitted = [], entered = deferred(), held = deferred(); let attempts = 0, hold = false;
+  const admit = f.runtime.admit.bind(f.runtime);
+  t.mock.method(f.runtime, 'admit', async args => {
+    const admission = await admit(args); admitted.push(args.lane);
+    if (args.lane !== 'reaction') return admission;
+    return { ...admission, plugin: { ...admission.plugin, async *stream(request, runtimeOptions) {
+      attempts++;
+      if (attempts === 1) throw new Error('controlled first reply failure');
+      if (hold) { entered.resolve(); await held.promise; }
+      if (options.purposePolicy) {
+        for await (const _ of admission.plugin.stream(request, runtimeOptions)) { /* settle mock admission */ }
+        yield JSON.stringify({ content: 'Which work should the project improve?', scope: 'in', question_short: null, options: [] });
+      } else yield* admission.plugin.stream(request, runtimeOptions);
+    } } };
+  });
+  assert.equal((await f.call(`${base}/turns`, { clientEventId: 'first-failed-reply', content: 'We need a project for orders.' })).status, 200);
+  await f.handlers.idle();
+  const snapshot = async () => (await f.call(base)).json();
+  const before = await snapshot();
+  assert.equal(before.transcript.filter(turn => turn.role === 'assistant').length, 0);
+  assert.equal(before.operations.lastFailure.lane, 'reaction');
+  assert.equal(before.operations.lastFailure.retryable, true);
+  assert.equal(before.operations.lastFailure.reason, undefined);
+  return { ...f, s, base, admitted, snapshot, entered, held, hold: () => { hold = true; }, attempts: () => attempts };
+}
+for (const purpose of [false, true]) test(`AIT-466 S1: locked first reply retries without assessment, concepts or voice (purpose=${purpose})`, async t => {
+  const f = await failedFirstReply(t, { ...(purpose ? { purposePolicy: start2PurposePolicy } : {}) });
+  const cursor = f.storage.get(f.s.id).seq;
+  assert.equal((await f.call(`${f.base}/retry`, {})).status, 202); await f.handlers.idle();
+  const s = await f.snapshot();
+  assert.equal(s.transcript.filter(turn => turn.role === 'assistant').length, 1);
+  assert.deepEqual(s.operations.failures, []); assert.deepEqual(f.admitted, ['reaction', 'reaction']);
+  assert.equal(f.attempts(), 2); assert.equal(s.understanding.inputRevision, null);
+  const events = f.storage.read(f.s.id);
+  assert.equal(events.some(event => event.type === 'understanding.updated'), false);
+  assert.equal(events.filter(event => event.seq > cursor).some(event => event.type === 'concept.state' || event.type.startsWith('voice.')), false);
+  assert.equal(s.identity.assessmentUnlocked, false); assert.equal(s.identity.conceptsUnlocked, false);
+});
+test('AIT-466 S2: concurrent locked retries admit one additional reply', async t => {
+  const f = await failedFirstReply(t); f.hold();
+  assert.equal((await f.call(`${f.base}/retry`, {})).status, 202); await f.entered.promise;
+  assert.equal((await f.call(`${f.base}/retry`, {})).status, 202); f.held.resolve(); await f.handlers.idle();
+  const s = await f.snapshot(); assert.deepEqual(f.admitted, ['reaction', 'reaction']);
+  assert.equal(s.transcript.filter(turn => turn.role === 'assistant').length, 1); assert.deepEqual(s.operations.failures, []);
+});
+test('AIT-466 S3: paused retry clears failure without admission, resume admits once', async t => {
+  const f = await failedFirstReply(t);
+  await f.call(`${f.base}/pause`, { paused: true }); await f.call(`${f.base}/retry`, {}); await f.handlers.idle();
+  assert.deepEqual(f.admitted, ['reaction']); assert.deepEqual((await f.snapshot()).operations.failures, []);
+  await f.call(`${f.base}/pause`, { paused: false }); await f.handlers.idle();
+  assert.deepEqual(f.admitted, ['reaction', 'reaction']); assert.equal((await f.snapshot()).transcript.filter(turn => turn.role === 'assistant').length, 1);
+});
+test('AIT-466 S4: unavailable assessment refuses before budget while unlocked reply retries', async t => {
+  const presets = mockPresets(); delete presets.best.bindings.understanding;
+  const f = await failedFirstReply(t, { verificationRequired: false, presets });
+  const before = f.storage.db.prepare('SELECT * FROM budget_attempts').all();
+  await f.call(`${f.base}/retry`, {}); await f.handlers.idle();
+  const after = f.storage.db.prepare('SELECT * FROM budget_attempts').all();
+  assert.deepEqual(f.admitted, ['reaction', 'reaction']); assert.equal(after.length, before.length + 1);
+  assert.equal(after.some(attempt => attempt.lane === 'understanding'), false);
+  assert.equal((await f.snapshot()).transcript.filter(turn => turn.role === 'assistant').length, 1);
 });
