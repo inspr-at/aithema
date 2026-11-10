@@ -1259,6 +1259,27 @@ for (const path of ['P', 'V']) for (const failure of ['provider', 'credits']) te
   assert.equal(counts.reaction.length, reaction + 1); assert.equal(counts.understanding.length, 1);
 });
 
+for (const path of ['P', 'V']) test(`AIT-463 Low 4: ${path} provider failure during unlock has no identity-changed reason`, async t => {
+  const f = await unlockFixture(t, path), token = await f.request(), entered = deferred(), held = deferred();
+  t.after(held.resolve);
+  const counts = unlockCounts(t, f, args => args.lane === 'reaction' ? admission => ({ ...admission,
+    plugin: { ...admission.plugin, async *stream(_request, options) {
+      await options.attempt.consume(); entered.resolve(); await held.promise;
+      throw new Error('controlled provider failure');
+    } } }) : undefined);
+  await f.call(`${f.base}/turns`, { content: 'systems: API', clientEventId: 'unlock-provider-failure' });
+  await Promise.race([entered.promise, f.handlers.idle()]);
+  assert.equal(counts.reaction.length, 1);
+  await f.verify(token); held.resolve(); await f.handlers.idle();
+  const snapshot = await (await f.call(f.base)).json();
+  assert.equal(snapshot.identified, true);
+  assert.equal(snapshot.operations.failures.length, 1);
+  assert.equal(snapshot.operations.lastFailure.lane, 'reaction');
+  assert.equal(snapshot.operations.lastFailure.retryable, true);
+  assert.equal(snapshot.operations.lastFailure.inputRevision, inputRevision(snapshot));
+  assert.notEqual(snapshot.operations.lastFailure.reason, 'identity-changed');
+});
+
 for (const path of ['P', 'V']) test(`AIT-463 T13: ${path} off-topic last input assesses only the project prefix`, async t => {
   const f = await unlockFixture(t, path), counts = unlockCounts(t, f);
   await f.send(); await f.send('Give me a soup recipe.'); const token = await f.request(); await f.verify(token); await f.handlers.idle();
