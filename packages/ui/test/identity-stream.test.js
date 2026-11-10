@@ -204,6 +204,8 @@ test('AIT-470 U11: equal matrices do not repeat after a seq drop', async t => {
   journal470(h.c); await tick(8); journal470(h.c); await tick(8); assert.equal(h.reads, 1);
 });
 test('AIT-470 U12: credit denial costs one read per journal event', async t => {
+  // Exercise journal-driven reads alone, independently of the 300 ms receipt debounce.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const matrix = structuredClone(locked470); matrix.best.text = { available: false, reason: 'budget denied' };
   const h = fixture470(t, { host: { credits: true }, session: { featureMatrix: matrix } }); await tick(8);
   const before = h.reads, frozen = { ...h.c.session, featureMatrix: unlocked470 };
