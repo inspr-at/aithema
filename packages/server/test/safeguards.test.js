@@ -44,7 +44,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
   const send = async (content, clientEventId = crypto.randomUUID()) => {
     const response = await handlers.handle(req(session.id, 'turns', { content, clientEventId })); await handlers.idle(); return response;
   };
-  return { storage, handlers, session, calls, assessments, send, plugin, host: configuredHost,
+  return { storage, handlers, runtime, session, calls, assessments, send, plugin, host: configuredHost,
     create: () => handlers.handle(ownedRequest('http://localhost/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).then(r => r.json()),
     assessmentStarted: assessmentStarted.promise };
 }
@@ -729,9 +729,30 @@ for (const change of ['locale', 'correction', 'upload', 'input', 'consent-withdr
   const before = storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id);
   if (change === 'locale') storage.changeLocale(id, 'de');
   if (change === 'correction') storage.append(id, 'turn.corrected', { id: 'project', role: 'user', content: 'systems: corrected API' });
-  if (change === 'upload') storage.append(id, 'upload.state', { id: 'reference', state: 'accepted', filename: 'reference.txt', mediaType: 'text/plain', text: 'API' });
+  if (change === 'upload') storage.append(id, 'upload.state', { id: 'reference', state: 'accepted', filename: 'reference.txt', mediaType: 'text/plain', text: 'API', at: new Date(storage.now()).toISOString() });
   if (change === 'input') storage.postTurn(id, 'new-input', Buffer.from('API details'), 'API details');
   if (change === 'consent-withdrawal') storage.reviseConsent(id, false);
   assert.deepEqual(storage.db.prepare('SELECT * FROM safeguard_inputs WHERE session_id=?').all(id), before);
   assert.equal(storage.safeguards(id, inputRevision(storage.get(id))).assessed, false);
+});
+
+test('AIT-463 L3: delegated voice retries the before-dispatch refusal with a fresh request', async t => {
+  let callbacks;
+  const f = fixture(t, { voice: true, delegate: true, voiceCallbacks: value => { callbacks = value; },
+    host: storage => createDemoHost({ storage, verificationRequired: true, now: () => 1_000 }) });
+  const session = await f.create(), call = await f.handlers.handle(req(session.id, 'voice', { callId: 'unlock-voice-retry' })).then(r => r.json());
+  const admit = f.runtime.admit.bind(f.runtime); let first = true, retries = 0;
+  t.mock.method(f.runtime, 'admit', async args => {
+    if (first && args.options.voiceReply) {
+      first = false;
+      f.storage.append(session.id, 'identity.state', { status: 'verified', identified: true });
+      throw new PluginError('not-admitted', 'Session changed before dispatch');
+    }
+    return admit(args);
+  });
+  const admission = await callbacks.admitReasoning({ callId: call.callId, messages: [], options: {}, onRetry: () => { retries++; } });
+  assert.equal(retries, 1);
+  assert.equal(admission.request.safeguardRevision, inputRevision(f.storage.get(session.id)));
+  await admission.finish({ failed: true });
+  assert.equal(f.calls.length, 0);
 });
