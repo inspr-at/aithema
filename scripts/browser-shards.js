@@ -35,9 +35,9 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
     }
-    // AIT-470: new workload has no CI history yet. Keep its provisional
-    // reservation explicit until the coordinator records rolling CI samples.
-    if (file === 'test/browser/identity-unlock.test.js' && measurement.provisional === true) {
+    // AIT-470: new workload has no CI history yet. AIT-477 replaces this
+    // repository-only provisional reservation with rolling CI measurements.
+    if (root === repositoryRoot && file === 'test/browser/identity-unlock.test.js' && measurement.provisional === true) {
       weights[file] = measurement.seconds;
       continue;
     }
