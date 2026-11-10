@@ -110,7 +110,7 @@ test('AIT-466 U5: locked reconciliation polls admission but never automatically 
   root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), 1);
 });
 for (const reason of ['verification required', 'not configured']) test(`AIT-466 U7/U8: server verdict ${reason} without host surface`, async t => {
-  const { c, root, calls } = await fixture(t, { host: {}, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: false, reason }) } });
+  const { c, root, calls } = await fixture(t, { host: null, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: false, reason }) } });
   fail(c); inline(root, en); root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), 1);
 });
 test('AIT-466 N2: assessment becoming available keeps the reply slot and uses the live gate', async t => {
@@ -150,4 +150,12 @@ for (const state of ['active', 'waiting']) test(`AIT-466 U6: identity race Retry
   const { c, root, calls } = await fixture(t, { voiceClient: {}, session: { voiceLifecycle: { callId: 'race-call', providerSessionId: 'p', epoch: 1, state } } });
   fail(c, { reason: 'identity-changed' }); inline(root, en, state === 'active');
   root.querySelector('.retry').click(); await tick(); assert.equal(retries(calls), state === 'active' ? 0 : 1);
+});
+
+test('AIT-466 U6: assessable identity race retains footer slot and reply gate', async t => {
+  const { c, root, calls } = await fixture(t, { host: null, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: true }) } });
+  fail(c, { reason: 'identity-changed' }); const retry = root.querySelector('.retry');
+  assert.equal(retry.parentNode, root.querySelector('.understanding > .foot'));
+  assert.equal(retry.hidden, false); assert.equal(retry.getAttribute('aria-disabled'), 'false');
+  retry.click(); await tick(); assert.equal(retries(calls), 1);
 });
