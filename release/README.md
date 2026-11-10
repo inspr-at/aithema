@@ -82,13 +82,14 @@ range since `v261110120839.0.0` through
 #414 (RC20 preparation, `f056217c`) and #415 (AIT-470, `cd272fd6`).
 AIT-470 is UI-only: after email confirmation the lock indicator no longer stays
 stale in the concept line, overview or an open Settings dialog. The page repeats
-a dropped feature read on new journal movement, at most five times, without a
-timer and only while the server's verdicts differ from the screen. The poll's
-unlock edge starts one feature read, plus one reconnect if the page has fallen
-behind, including on a 409. A 409 no longer rolls back an acknowledged voice
-Resume. A paused draft line updates its lock wording when the lock lifts. Open
-Settings refreshes its option statuses after unlock; an open menu keeps its rows
-until it closes. Existing copy and states only; no server change. AIT-470's
+a dropped feature read on new journal movement, at most five times and without
+a timer, while the server's verdicts differ from those on screen or the read was
+refused with 409. The poll's unlock edge starts one feature read, plus one
+reconnect if the page has fallen behind, including on a 409. Outside a pending
+consent retry, a 409 no longer rolls back an acknowledged voice Resume. A paused
+draft line updates its lock wording when the lock lifts. Open Settings refreshes
+its option statuses after unlock; an open menu keeps its rows until it closes.
+Existing copy and states only; no server change. AIT-470's
 CI-only part adds a ninth browser shard with the same 405 s target and 420 s
 ceiling; checks use `browser (n/9)` and the required `browser (1/4)`–`(4/4)`
 contexts stay unchanged. Stop and report if any expected item is missing or
