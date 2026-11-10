@@ -67,7 +67,7 @@ else process.exit(90);
 `, { mode: 0o755 });
   // This fixture exercises the publication shell, while release-candidate-gate
   // exercises the actual admission command against Git and API fixtures.
-  writeFileSync(join(cwd, 'bin/node'), '#!/bin/sh\n[ "$1" = release/gate.mjs ] && [ "$2" = candidate ]\n', { mode: 0o755 });
+  writeFileSync(join(cwd, 'bin/node'), `#!${process.execPath}\nprocess.exit(process.argv[2] === 'release/gate.mjs' && process.argv[3] === 'candidate' ? 0 : 1)\n`, { mode: 0o755 });
   const command = [steps().find(step => step.run?.includes('release/gate.mjs candidate')).run,
     steps().find(step => step.run?.includes('gh release create')).run].join('\n');
   const env = { PATH: [join(cwd, 'bin'), process.env.PATH].filter(Boolean).join(':'), GITHUB_REF_NAME: 'v261019120000.0.0',
@@ -88,7 +88,7 @@ else process.exit(90);
   assert.equal(existsSync(join(cwd, 'draft')), false);
   assert.equal(readFileSync(join(cwd, 'calls.jsonl'), 'utf8'), 'create\ndelete\ncreate\nedit\nview\n');
   // A denied candidate must stop before creation and before the cleanup trap.
-  writeFileSync(join(cwd, 'bin/node'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  writeFileSync(join(cwd, 'bin/node'), `#!${process.execPath}\nprocess.exit(1)\n`, { mode: 0o755 });
   writeFileSync(join(cwd, 'calls.jsonl'), '');
   assert.notEqual(run().status, 0);
   assert.equal(readFileSync(join(cwd, 'calls.jsonl'), 'utf8'), '');
