@@ -4,7 +4,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from 
 import { start2PurposePolicy } from '../../../demo/safeguards.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { mockConsent, temporaryDb, readEvents, unzip } from '../../../test/helpers.js';
-import { createSession, applyEvent, inputRevision, createHandover, reduceHandover, PluginError, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+import { createSession, applyEvent, inputRevision, createHandover, reduceHandover, PluginError, MOCK_PROCESSING_SCOPE, IDENTITY_POLICY } from '@inspr/aithema-core';
 
 const owner = 'host-owner', foreign = 'another-owner';
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
@@ -1292,7 +1292,7 @@ for (const path of ['P', 'V']) test(`AIT-463 T19: ${path} re-lock then re-verify
   // Follow-up: design section E, re-lock then re-verify strands purpose classification.
   const f = await unlockFixture(t, path), counts = unlockCounts(t, f), token = await f.request();
   await f.verify(token); await f.handlers.idle(); await f.send();
-  f.at(1_100); await f.call(`${f.base}/identity/change`, { address: 'changed@example.test' }); await f.handlers.idle();
+  f.at(f.host.now() + IDENTITY_POLICY.resendCooldownMs); await f.call(`${f.base}/identity/change`, { address: 'changed@example.test' }); await f.handlers.idle();
   const nextToken = path === 'P' ? f.messages.at(-1).token : (await f.message(f.session.id)).token;
   const before = { reaction: counts.reaction.length, understanding: counts.understanding.length };
   await f.verify(nextToken);
