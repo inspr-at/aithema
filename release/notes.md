@@ -4,14 +4,15 @@ Version **261110120839.0.0**. Licensed under **AGPL-3.0-only**.
 
 Confirming your email moves understanding forward, keeps your answered reply in place, and leaves a failed reply ready to retry.
 
-## What START and visitors notice
+## What visitors notice
 
 - **Email unlock (AIT-463):** Understanding starts without another message after
   you confirm your email. An answered reply keeps its question card or answer
   buttons, with no stray Retry.
-- **Reply recovery (AIT-466):** If your reply failed before you confirmed your
-  email, Retry stays on the reply line. It dims in place while unavailable or
-  retrying, and your turn holds still when the retried reply arrives.
+- **Reply recovery (AIT-466):** If a reply to you fails before you confirm
+  your email, Retry now appears at the end of the failure line. It dims in place
+  while unavailable or retrying, and your turn holds still when the retried reply
+  arrives.
 
 ## For hosts
 
@@ -25,8 +26,9 @@ snapshots, events, journal and receipt metadata, and transcript exports. The
 additive `replyIsCurrent` core helper checks reply freshness; existing full
 `inputRevision` stamps retain their fallback checks.
 
-**Reply recovery UI (AIT-466).** A failed reply remains retryable on its reply
-line before email confirmation. Retry dims in place instead of disappearing,
+**Reply recovery UI (AIT-466).** A failed reply is now retryable on its reply
+line before email confirmation (and when the assessment is unavailable for another
+reason). Retry dims in place instead of disappearing,
 and the person's turn holds still when the reply lands. This is UI-only and
 preserves existing copy, including host overrides.
 
@@ -43,8 +45,7 @@ requirements before upgrading from an earlier release.
 metadata field and `replyIsCurrent` core export without removing or changing an
 existing export contract. It changes no configuration key, HTTP status code or
 host integration requirement; #413 is UI-only, #411 is CI-only and #410 prepared
-RC19. [RC14's host requirements](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#for-hosts)
-still apply when upgrading from an earlier release.
+RC19.
 START integrates and pins this release separately.
 
 ## Availability and verification

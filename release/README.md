@@ -125,7 +125,7 @@ the final remote release tests also verify its tracked closure. No presentation
 file changes. `release/evidence.json` remains historical checkpoint evidence;
 the retained final-head evidence below is authoritative for this preparation.
 
-Preparation order (remote execution only; no tests/builds on mbp2607):
+Preparation order (remote execution only):
 
 1. Fetch `origin --tags`; check every Content merge against main at
    `release-lock/seq-31`. Commit the reservation, all mirrors/pins, history,
