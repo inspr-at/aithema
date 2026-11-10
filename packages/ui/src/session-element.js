@@ -988,7 +988,7 @@ export class AithemaSession extends HTMLElement {
     return point ? this.shadowRoot.elementFromPoint?.(point.x, point.y) ?? null : null;
   }
   // Scroll anchoring done by hand (panes set overflow-anchor:none): keep the element under
-  // a resting pointer at the same viewport position while content above it changes. Keyed
+  // a resting pointer at the same viewport position while content above it changes.
   // Prefer the hovered node, falling back when an action collapses or leaves its pane.
   // When a pane cannot scroll far enough, temporary padding (slack) makes room until the
   // pointer leaves. Slack is derived afresh on every update, so it never accumulates.
