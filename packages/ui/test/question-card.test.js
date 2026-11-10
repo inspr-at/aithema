@@ -255,3 +255,12 @@ test('AIT-411: queued unchanged viewport resize cannot scroll a default conversa
   view.dispatchEvent(new view.Event('resize')); frames.shift()();
   assert.deepEqual(followed, [{ following: true }], 'a real viewport resize retains the existing follow behavior');
 });
+
+test('AIT-463 BC9: an identity unlock keeps the answered reply card without Retry', async () => {
+  const core = await import('../../core/src/session.js'), c = setup();
+  question(c, { replyRevision: core.replyInputRevision(c.session) });
+  c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { identified: true } });
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, inputRevision: core.inputRevision(c.session), readinessAssessed: true } });
+  assert.equal(shown(c), true);
+  assert.equal(c.shadowRoot.querySelector('.retry').hidden, true);
+});
