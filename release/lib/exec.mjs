@@ -7,7 +7,9 @@ export const RELEASE_EXEC_MAX_BUFFER = 64 * 1024 * 1024;
 export const RELEASE_EXEC_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Callers that recover from malformed metadata must still refuse bound failures.
-export class ReleaseExecBoundError extends Error {}
+export class ReleaseExecBoundError extends Error {
+  name = 'ReleaseExecBoundError';
+}
 
 // Keep untrusted/injected bounds separate from trusted process options.
 export function validateExecBounds(bounds = {}) {
