@@ -776,10 +776,11 @@ test('AIT-484 end live region is empty on insertion and filled on the next frame
   const h = fixture484(t, { host: {} }); await h.reconnect();
   const frames = []; t.mock.method(window, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
   h.streamErase(); await tick(8);
-  const row = h.root.querySelector('.erased-end[role="status"]');
-  assert.equal(row.textContent, '', 'region is registered before its announcement');
-  for (const callback of frames.splice(0)) callback(0);
+  const row = h.root.querySelector('.erased-end'), region = row.querySelector('[role="status"]');
   assert.equal(row.querySelector('[data-copy]').textContent, en.conversationUnavailable);
   assert.equal(row.querySelector('button').textContent, en.hostSurface.library.new);
+  assert.equal(region.textContent, '', 'region is registered before its announcement');
+  for (const callback of frames.splice(0)) callback(0);
+  assert.equal(region.textContent, en.conversationUnavailable);
   await quiet484(t, h);
 });
