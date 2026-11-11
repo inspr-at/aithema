@@ -67,15 +67,6 @@ test('C1 SMTP config has value-free secret references, safe TLS defaults and mis
 
 const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 };
 
-
-
-test('AIT-487 characterizes the nodemailer 10.1.0 nested-comment parser', async t => {
-  const { default: addressparser } = await import('nodemailer/lib/addressparser');
-  const parsed = addressparser('x(y(z)@evil.example)');
-  t.diagnostic(JSON.stringify(parsed));
-  assert.deepEqual(parsed, [{ address: 'x@evil.example)', name: 'y(z' }]);
-});
-
 // The semicolon in '"a;b"@example.test' is already rejected; isolate quotes here.
 for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment)@example.test', 'a\\b@example.test',
   'a(comment@example.test', 'a)@example.test']) {

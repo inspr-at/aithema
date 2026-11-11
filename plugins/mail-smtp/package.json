@@ -6,7 +6,7 @@
     ".": "./src/index.js"
   },
   "dependencies": {
-    "nodemailer": "10.1.0",
+    "nodemailer": "10.1.7",
     "@inspr/aithema-ui": "261110175455.0.0"
   },
   "engines": {
