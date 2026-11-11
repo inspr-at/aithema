@@ -383,3 +383,23 @@ for (const key of ['maxBuffer', 'timeout']) {
     });
   }
 }
+
+for (const encoding of [undefined, 'utf8']) test(`release exec forwards successful stderr (${encoding ?? 'buffer'})`, () => {
+  const helper = new URL('../release/lib/exec.mjs', import.meta.url).href;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { releaseExecFileSync } from ${JSON.stringify(helper)};
+    const output = releaseExecFileSync(process.execPath, ['-e',
+      'process.stdout.write("listing"); process.stderr.write("fixture warning\\n")'],
+      ${JSON.stringify({ encoding })});
+    process.stdout.write(output);
+  `], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'listing');
+  assert.equal(result.stderr, 'fixture warning\n');
+});
+
+test('release exec retains captured stderr in a failure message', async () => {
+  const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+  assert.throws(() => releaseExecFileSync(process.execPath, ['-e',
+    'process.stderr.write("fixture failure detail"); process.exit(1)']), /fixture failure detail/u);
+});
