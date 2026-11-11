@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { releaseExecFileSync } from './exec.mjs';
 
 /**
  * @param {string} repoRoot
@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
  * @returns {string | Buffer}
  */
 function git(repoRoot, args, encoding = 'utf8') {
-  return execFileSync('git', args, {
+  return releaseExecFileSync('git', args, {
     cwd: repoRoot,
     encoding,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -142,11 +142,7 @@ export function readBlob(repoRoot, commit, path) {
   const [item] = listTreeEntries(repoRoot, commit, path).filter((entry) => entry.path === path);
   if (!item) throw new Error(`missing git blob for ${path} at ${commit}`);
   assertBlobEntry(item);
-  return execFileSync('git', ['show', `${commit}:${path}`], {
-    cwd: repoRoot,
-    encoding: 'buffer',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  return git(repoRoot, ['show', `${commit}:${path}`], 'buffer');
 }
 
 /**
