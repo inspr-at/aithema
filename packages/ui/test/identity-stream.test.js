@@ -366,6 +366,7 @@ for (const library of [false, true]) test(`AIT-484 new action: ${library ? 'libr
   action.click(); action.click(); await tick(16);
   if (library) {
     assert.equal(h.calls.filter(c => c.method === 'POST' && c.path === '/library').length, 1);
+    assert.equal(h.openEvents.length, 1, 'double activation opens one replacement');
     assert.equal(h.openEvents[0].reason, 'deleted'); assert.equal(h.c.session.id, next.id);
     assert.equal(h.c.hasAttribute('data-aithema-erased'), false);
   } else {
@@ -725,6 +726,8 @@ for (const configure of [false, true]) test(`AIT-484 erased locale text repaint 
   assert.equal(row.querySelector('[data-copy]').textContent, de.conversationUnavailable);
   assert.equal(h.root.querySelector('.settings-open span').textContent, de.settings.open);
   assert.equal(h.root.querySelector('.conversations-toggle span').textContent, de.hostSurface.library.open);
+  assert.equal(h.root.querySelector('.conversations-new span').textContent, de.display.newConversation);
+  assert.equal(h.root.querySelector('.library-new').textContent, de.hostSurface.library.new);
   assert.equal(h.root.querySelector('#library-title').textContent, de.hostSurface.library.title);
   assert.deepEqual(events, [{ locale: 'de' }]);
   await quiet484(t, h);
