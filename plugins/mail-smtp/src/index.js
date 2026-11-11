@@ -6,10 +6,10 @@ import { confirmationMessage, mergeMailCopy } from './templates.js';
 export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js';
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
 // AIT-487: trusted host configuration keeps RC21's grammar for compatibility.
-// Visitor `to` strings reach nodemailer's parser, so exclude parser-ambiguous
-// syntax there; the UI's type=email grammar already excludes it.
+// Recipient checks exclude quoted strings, comments, escapes, groups, and
+// control/format characters so nodemailer's parser cannot reinterpret the identity.
 const configuredAddress = value => clean(value) && /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/u.test(value);
-const recipientAddress = value => clean(value) && /^[^\s@<>;,"()\\]+@[^\s@<>;,"()\\]+\.[^\s@<>;,"()\\]+$/u.test(value);
+const recipientAddress = value => clean(value) && /^[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+@[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+\.[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+$/u.test(value);
 const boolean = (value, fallback = false) => {
   if (value === undefined || value === '') return fallback;
   if (['true', '1'].includes(value)) return true;
