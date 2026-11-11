@@ -56,16 +56,28 @@ to the candidate or published set.
 
 ## Twenty-second candidate (AIT-489)
 
-The reserved coordinate is `261111070532.0.0` (UTC reservation time), stable sequence
+The reserved coordinate is `261111083713.0.0` (UTC reservation time), stable sequence
 33, status `reserved`. Marketing name: **Aithema 2026.10**, with the exact version
 below the notes title. Per the coordinator's RC20 ruling, the visible product
 name stays as documented in `docs/embedding.md` and hard-coded in the UI and its
 tests; changing it is a separate product decision. Authority is Markus's standing
 release go, Desk **4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19, and
 MAC-LEAD 2026-11-10 22:31: “No RC tonight… Cut that one in the daytime under
-the standing go”. Markus is away (OPS-581). The coordinator holds
+the standing go”; MAC-LEAD 2026-11-11 06:54 and 08:33 approve
+this re-preparation route. The old 08:20 cut go for C1 is withdrawn. Markus is
+away (OPS-581). The coordinator holds
 `release-lock/seq-33`, pushed at base
 `2d4b30bdc383ab4bdc426f2bf742683cdb52df15` before preparation.
+
+**Re-preparation.** The first candidate (C1 `93ff9df3`, version
+`261111070532.0.0`, marker `candidate/v261111070532.0.0`, manifest
+`af916a39…`, normalized digest `04f78ebe…`) was superseded before publication
+because the release gate hit `ENOBUFS` reading published release history
+(AIT-491). The new coordinate supersedes it; OPS must add the old coordinate
+to the no-bypass deny ruleset. The old candidate marker stays immutable.
+`release-lock/seq-33` stays at `2d4b30bdc383ab4bdc426f2bf742683cdb52df15`;
+this re-preparation's base is `3edea35337e487879c11f86164022eaeeb04523f`.
+Sequence remains 33; `history.json` stays unchanged at published sequence 32.
 
 This is the **fourteenth release on the active fixed-candidate route (AIT-363 B)**.
 Order: lock tag (done), prep, coordinator gates, true merge preserving C,
@@ -76,15 +88,18 @@ or publication. The coordinator owns release gates, branch push, PR and merge;
 OPS owns the cut. This preparation changes release metadata and notes only.
 START pins the release separately; nothing waits on this release.
 
-Every requested Content item is on main at the lock. The complete first-parent
+Every requested Content item is on main at the re-preparation base. The complete
+first-parent
 range since `v261110175455.0.0` through
-`2d4b30bdc383ab4bdc426f2bf742683cdb52df15` contains exactly eight PR merges:
+`3edea35337e487879c11f86164022eaeeb04523f` contains exactly ten PR merges:
 #416 (RC21 preparation, `4d675562`), #418 (AIT-480, `d42e1a71`),
 #417 (AIT-464, `ca72d9c1`), #419 (AIT-485, `d21ad300`),
 #420 (AIT-483, `c425ae63`), #421 (AIT-474, `0c4c4b1a`),
-#423 (AIT-477, `1540f11f`) and #422 (AIT-487, `2d4b30bd`).
+#423 (AIT-477, `1540f11f`), #422 (AIT-487, `2d4b30bd`),
+#424 (first RC22 preparation, superseded and never published, `114a28df`) and
+#425 (AIT-491 bounded release subprocess output, `3edea353`).
 Stop and report if any expected item is missing or another merge is in the range;
-do not extend the lock's content range.
+do not extend the re-preparation base's content range.
 
 AIT-464 is UI behaviour only: an erased (deleted or reset) conversation no
 longer requests its feature snapshot, so there is no console 404 after deleting
@@ -112,7 +127,9 @@ deterministic settle barrier in the identity-unlock browser test; AIT-474 moves
 preview-security to ubuntu-24.04, supported by its pinned Playwright (the job
 had been red since about 2026-10-22 and blocked browser-weight refreshes);
 AIT-477 replaces two bootstrap reservations with measured browser weights and
-puts every browser test through the measured-weight check.
+puts every browser test through the measured-weight check; AIT-491 bounds
+history-growing subprocess output in the release gate and pack verification
+at 64 MiB and five minutes, failing closed.
 
 Voxtral (AIT-342) remains parked, private and outside the release closure.
 Provider-side closure of a live call (AIT-446's second part) remains parked
@@ -162,13 +179,14 @@ the retained final-head evidence below is authoritative for this preparation.
 
 Preparation order (remote execution only):
 
-1. Fetch `origin --tags`; check every Content merge against main at
-   `release-lock/seq-33`. Commit the reservation, all mirrors/pins, history,
+1. Check every Content merge against the re-preparation base
+   `3edea35337e487879c11f86164022eaeeb04523f`; verify the unchanged
+   `release-lock/seq-33`. Commit the reservation, all mirrors/pins,
    notes and this runbook with `--signoff`. Worktree:
-   `/Users/markus/Code/aithema-worktrees/ait-489`; branch:
-   `release/ait-489-twenty-second-release`; recorded builder session:
-   `AIT-489-prep` (`3e9519a3-901e-4638-9024-fb4ed655eb7b`, role builder).
-2. Run the remote lane on the **final committed C**, using the fetch-retry wrapper
+   `/Users/markus/Code/aithema-worktrees/ait-489-r2`; branch:
+   `release/ait-489-twenty-second-release-r2`; recorded builder session:
+   `AIT-489-prep-r2` (`e706a341-a9b2-47c4-ba84-a7f852d9a176`, role builder).
+2. Run the remote lane on the **final committed C2**, using the fetch-retry wrapper
    for every run with `EVIDENCE_OUT`. The candidate test invokes
    `npm run release:candidate -- <retained dir>`: two identical packs,
    verification, isolated consumer smoke from all sixteen shipped module
@@ -180,8 +198,8 @@ Preparation order (remote execution only):
    browser suite runs in PR CI.
 
    ```sh
-   EVIDENCE_OUT="$PWD/dist/ait489-final" \
-     /Users/markus/.local/share/ait-qa/coordinator/rb-fetchretry.sh \
+   EVIDENCE_OUT="$PWD/dist/ait489r2-final" \
+     /private/tmp/claude-501/-Users-markus-Code-aithema/10586c9c-50d4-4e85-acb5-3ce3aff9be82/scratchpad/rb-fetchretry.sh \
      "$PWD" unit --test-concurrency=2 \
      test/release-candidate.test.js test/release-workflow.test.js \
      test/release-candidate-gate.test.js test/release-publication.test.js \
@@ -191,17 +209,19 @@ Preparation order (remote execution only):
      test/consumer-isolation.test.js test/grok-release.test.js
    ```
 
-3. Retain `/Users/markus/Code/aithema-worktrees/ait-489/dist/ait489-final/candidate/`,
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-489-r2/dist/ait489r2-final/candidate/`,
    including `first/`, `candidate-evidence.json` and the isolated consumer
-   deployment. Confirm `source_commit` equals C and that `manifest_sha256` and
+   deployment. Confirm `source_commit` equals C2 and that `manifest_sha256` and
    `normalized_digest` bind `first/`. Make **no evidence-only commit after this
    final build**. A subsequent source change requires a new final-head build.
-   All 118 release tests must pass on the lane; AIT-480 fixed the fixture PATH
-   failures, so any failure means stop and report.
+   All 122 release tests must pass on the lane; AIT-480 fixed the fixture PATH
+   failures and AIT-491 adds four bounded-output checks, so any failure means
+   stop and report.
 4. Commit locally only. The coordinator pushes the assigned branch, opens the
    PR and waits for green CI: nine browser shards, four browser aliases, test,
    preview-security and DCO. Hand the coordinator the PR (pending coordinator
-   creation), C and every commit since the lock, X, sequence 33 (previous: 32),
+   creation), C2 and every commit since the re-preparation base, X, sequence 33
+   (previous: 32),
    retained absolute directory, manifest SHA-256 and normalized digest exactly
    as in the evidence, presentation result, content range check, breaking-change
    decision and reason, audit line, test results and anything unproved. After
