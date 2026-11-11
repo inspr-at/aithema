@@ -5,7 +5,9 @@ import { formatCredits } from '@inspr/aithema-ui/display';
 import { confirmationMessage, mergeMailCopy } from './templates.js';
 export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js';
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
-const address = value => clean(value) && /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/u.test(value);
+// AIT-487: `to` is a string passed to nodemailer's parser, so admit no
+// parser-ambiguous syntax; the UI's type=email grammar already excludes it.
+const address = value => clean(value) && /^[^\s@<>;,"()\\]+@[^\s@<>;,"()\\]+\.[^\s@<>;,"()\\]+$/u.test(value);
 const boolean = (value, fallback = false) => {
   if (value === undefined || value === '') return fallback;
   if (['true', '1'].includes(value)) return true;
