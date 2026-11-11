@@ -1,5 +1,6 @@
 // Real handlers, visitor wallet and ledger; the only provider is a controlled fake.
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { SQLiteStorage, createHandlers, createPluginRuntime } from '../../packages/server/src/index.js';
 import { PluginRegistry, inputRevision } from '../../packages/core/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
@@ -47,6 +48,15 @@ const call = (action, data) => handlers.handle(new Request(`http://fixture/api/s
 const root = new URL('../../', import.meta.url);
 const { server, url } = await listen(async request => {
   const u = new URL(request.url), path = u.pathname;
+  if (path === '/seed' && request.method === 'POST') {
+    const session = await request.json();
+    // UI-only scenarios own their synthetic journal and processing fields. Store
+    // that exact baseline without adding host initialization events to its stream.
+    storage.db.prepare('INSERT INTO sessions (id, snapshot) VALUES (?, ?)').run(session.id,
+      JSON.stringify({ ...session, ownerHash: createHash('sha256').update(owner).digest('hex') }));
+    storage.transitionHost(session.id, () => ({ state: {}, events: [] }));
+    return Response.json({ ok: true }, { headers: { 'x-aithema-session-token': owner } });
+  }
   if (path === '/hold-reply') { replyHold = { entered: Promise.withResolvers(), release: null }; return Response.json({ ok: true }); }
   if (path === '/release-reply') {
     const held = replyHold;

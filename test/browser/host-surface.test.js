@@ -1286,7 +1286,11 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
       if (!response.ok) throw new Error(`fixture delete ${response.status}`);
     }, session.id);
     await until(page, () => document.querySelector('aithema-session').hasAttribute('data-aithema-erased'));
-    const actionFirst = await box(page, '.erased-end__new');
+    // A synchronous DOM read can precede the first paint's queued announcement.
+    const actionFirst = await inShadow(page, c => new Promise(resolve => requestAnimationFrame(() => {
+      const rect = c.shadowRoot.querySelector('.erased-end__new').getBoundingClientRect();
+      resolve({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    })));
     await settle484();
     const after = await Promise.all(selectors.map(selector => box(page, selector)));
     const actionSettled = await box(page, '.erased-end__new');

@@ -35,11 +35,9 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     const configure = enabled => shadow(page, async (c, locale, enabled) => {
-      const { inputRevision } = await import('/packages/core/src/index.js');
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const response = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo: true, locale }) });
-      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
-      const session = await response.json(), sessionToken = response.headers.get('x-aithema-session-token');
+      const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
       session.transcript = [{ id: 'person', role: 'user', content: 'A bakery preorder app.' }, { id: 'reply', role: 'assistant', content: 'Which payment methods?' }];
       session.transcript[1].inputRevision = inputRevision(session);
@@ -48,6 +46,9 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
       c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      const response = await fetch('/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
+      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
+      const sessionToken = response.headers.get('x-aithema-session-token');
       c.configure({ session, sessionToken, copy, ...(enabled ? { paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 } : {}) });
     }, locale, enabled);
     const targets = ['.understanding', '.understanding > .foot', '.composer-shell', '.display-foot', '.band'];
@@ -186,14 +187,15 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
     await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
     await shadow(page, async (c, locale) => {
-      const { inputRevision } = await import('/packages/core/src/index.js');
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const response = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo: true, locale }) });
-      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
-      const session = await response.json(), sessionToken = response.headers.get('x-aithema-session-token');
+      const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true, reason: null }, analysis: { available: true, reason: null } } };
       session.transcript.push({ id: 'stuck-person', role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
       session.operations = { inputRevision: inputRevision(session), running: ['reaction'], lastFailure: null };
+      const response = await fetch('/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
+      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
+      const sessionToken = response.headers.get('x-aithema-session-token');
       c.setAttribute('motion', 'off'); c.configure({ session, sessionToken, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
     }, locale);
     await settle(page);
@@ -235,13 +237,14 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
     await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
     await shadow(page, async (c, locale, kind) => {
-      const { inputRevision } = await import('/packages/core/src/index.js');
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const response = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo: true, locale }) });
-      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
-      const session = await response.json(), sessionToken = response.headers.get('x-aithema-session-token');
+      const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
       if (kind === 'live voice') session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'active' };
+      const response = await fetch('/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
+      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
+      const sessionToken = response.headers.get('x-aithema-session-token');
       c.setAttribute('motion', 'off'); c.configure({ session, sessionToken, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
       window.gapStates = [];
       window.captureGap = phase => {
@@ -295,11 +298,9 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
     await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
     await shadow(page, async (c, locale, kind) => {
-      const { inputRevision } = await import('/packages/core/src/index.js');
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const response = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo: true, locale }) });
-      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
-      const session = await response.json(), sessionToken = response.headers.get('x-aithema-session-token');
+      const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
       if (kind.endsWith('voice')) session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1,
         state: kind === 'waiting voice' ? 'waiting' : 'active' };
@@ -307,6 +308,9 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
         ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } :
           kind === 'spoken facade pending' ? { callId: 'call', providerSessionId: 'provider' } : {}) });
       session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
+      const response = await fetch('/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
+      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
+      const sessionToken = response.headers.get('x-aithema-session-token');
       c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, sessionToken, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
       window.reactionFailureCopy = copy.reasoningFailed;
     }, locale, kind);
@@ -686,17 +690,18 @@ test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/14
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     // Guard the existing unlocked path with the same person/reply and resting pointer.
     await shadow(page, async (c, locale) => {
-      const { inputRevision } = await import('/packages/core/src/index.js');
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const response = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo: true, locale }) });
-      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
-      const session = await response.json(), sessionToken = response.headers.get('x-aithema-session-token');
+      const session = createSession({ demo: true, locale });
       session.transcript = [{ id: 'normal-person', role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' }];
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
       session.operations = { inputRevision: inputRevision(session), running: ['reaction'], failures: [], lastFailure: null };
       c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      const response = await fetch('/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
+      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
+      const sessionToken = response.headers.get('x-aithema-session-token');
       c.configure({ session, sessionToken, copy });
     }, locale);
     await settle(page);
@@ -811,15 +816,15 @@ test('AIT-466 N2: unlocked availability changes preserve the Retry slot and rect
   await page.setViewport({ width: 390, height: 844 }); await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
   await shadow(page, async c => {
-    const { inputRevision } = await import('/packages/core/src/index.js');
+    const { createSession, inputRevision } = await import('/packages/core/src/index.js');
     const { en: copy } = await import('/packages/ui/src/i18n/en.js');
-    const response = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo: true, locale: 'en' }) });
-    if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
-    const session = await response.json(), sessionToken = response.headers.get('x-aithema-session-token');
-    session.transcript = [{ id: 'person', role: 'user', content: 'A preorder app.' }];
+    const session = createSession({ demo: true }); session.transcript = [{ id: 'person', role: 'user', content: 'A preorder app.' }];
     session.featureMatrix = { best: { text: { available: true }, analysis: { available: false, reason: 'not configured' } } };
     const f = { lane: 'reaction', inputRevision: inputRevision(session), error: 'reasoning-unavailable', retryable: true };
     session.operations = { inputRevision: inputRevision(session), running: [], failures: [f], lastFailure: f };
+    const response = await fetch('/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
+    if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
+    const sessionToken = response.headers.get('x-aithema-session-token');
     c.setAttribute('motion', 'off'); c.configure({ session, sessionToken, copy }); window.stickyRetry = c.shadowRoot.querySelector('.retry');
     window.stickyFooter = c.shadowRoot.querySelector('.understanding > .foot');
     window.assessmentAvailable = false;
