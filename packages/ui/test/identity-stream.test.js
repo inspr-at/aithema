@@ -385,6 +385,48 @@ test('AIT-484 late snapshot cannot undo erasure; configure B works and A stays r
   assert.ok(h.c.hasAttribute('data-aithema-erased')); assert.equal(h.erasedEvents.length, 1);
 });
 
+test('AIT-484 a burst shares one held confirmation and late success changes nothing', async t => {
+  const h = fixture484(t, { host: { credits: true, verification: { delivery: true } }, session: { identity: pending470({ pollVerification: true }) } });
+  await h.reconnect(); const held = Promise.withResolvers(); t.after(() => held.resolve());
+  h.serverErase(); h.state.snapshot = () => held.promise.then(() => Response.json(h.c.session));
+  h.dropStream(); t.mock.timers.tick(1000); await tick(8);
+  h.c.receive({ type: 'voice.state', data: { state: 'closing' } }); t.mock.timers.tick(4000); await tick(12);
+  assert.ok(h.raw.length >= 3, 'several routes saw the refusal');
+  assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 1);
+  held.resolve(); await tick(12);
+  assert.equal(h.c.hasAttribute('data-aithema-erased'), false);
+});
+for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 ${provider}: real client and voice control tear down once without voice POSTs`, async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const { createElevenLabsClient } = await import('../../../plugins/elevenlabs/src/client.js');
+  const { createGrokVoiceClient } = await import('../../../plugins/grok-voice/src/client.js');
+  const { fakeSdk } = await import('../../../plugins/elevenlabs/test/fixtures.js');
+  let ports, h, sdk = fakeSdk(), disconnected = 0;
+  const control = new Proxy({}, { get: (_, name) => (...args) => ports.control[name](...args) });
+  const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
+    AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control,
+    async openRelay() { const frames = voiceEvents(); return { frames, async disconnect() { disconnected++; frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } }; },
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
+  h = fixture484(t, { voiceClient: client, host: {}, session: { featureMatrix: unlocked470 }, routes: {
+    'POST /voice': request => {
+      const providerSessionId = 'fixture-provider', until = Date.now() + 180000;
+      return Response.json({ callId: request.callId, providerSessionId, epoch: 1,
+        spendDeadlineAt: until, browserLivenessDeadlineAt: until,
+        credential: { providerSessionId, ttlMs: 60000, connectionType: 'webrtc', conversationToken: 'fixture-token-fixture-provider' },
+        mediaGrant: { callId: request.callId, providerSessionId, expiresAt: until, opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } } });
+    } } });
+  ports = createVoiceControl({ sessionId: h.c.session.id, receive: event => h.c.receive(event) });
+  await h.reconnect(); userTurn(h.c); h.root.querySelector('.voice-start').click(); await tick(24);
+  assert.equal(h.root.querySelector('.audio-rail').dataset.call, 'active');
+  h.streamErase(); await tick(24); event470(h.c, 'session.erased', {}); await tick(12);
+  assert.equal(h.raw.filter(r => r.path.includes('/voice')).length, 0);
+  assert.equal(h.root.querySelector('.audio-rail').hasAttribute('data-call-reconciling'), false);
+  assert.equal(h.root.querySelector('.voice-state').textContent, '');
+  if (provider === 'elevenlabs') assert.equal(sdk.effects.filter(e => e[0] === 'endSession').length, 1);
+  else assert.equal(disconnected, 1);
+  await quiet484(t, h);
+});
+
 function noErasedReads464(t, h) {
   const counts = `snapshot=${h.reads.snapshot}, consent=${h.reads.consent}`;
   t.diagnostic(`AIT-464 erased A reads: ${counts}`);
