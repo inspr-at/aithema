@@ -142,13 +142,15 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     if (this.#erased && session.id === this.#session.id) {
-      this.#copy = copy; this.#copyLocale = session.locale; this.#session.locale = session.locale;
+      this.#session.locale = session.locale;
       this.#options.copy = copy; this.#sessionToken = sessionToken; this.#options.sessionToken = sessionToken;
       if (options.copyForLocale) this.#options.copyForLocale = options.copyForLocale;
       this.#host?.setSessionToken(sessionToken);
       if (this.#concept) this.#concept.sessionToken = sessionToken;
-      this.#paintErased(); return;
+      this.#repaintLocale(copy); return;
     }
+    this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
+    this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     this.#cancelUploads();
     clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
@@ -203,10 +205,16 @@ export class AithemaSession extends HTMLElement {
   }
   connectedCallback() {
     if (!this.#session) return;
-    if (this.#erased) { this.#host?.connect(); return; }
     this.#disposeVersion?.();
     this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), this.#options.host?.version ?? {}, { locale: this.#session.locale });
     this.#watchBrand(); this.#footerMedia?.addEventListener?.('change', this.#footerListener); this.#footerListener?.();
+    if (this.#erased) {
+      this.#host?.connect(); this.#phoneViewport?.connect(); this.#popups?.connect(); this.#reveal?.connect();
+      this.#motionMedia?.addEventListener?.('change', this.#motionListener);
+      this.ownerDocument.defaultView?.addEventListener('resize', this.#releaseErasedHeights);
+      this.ownerDocument.defaultView?.addEventListener('orientationchange', this.#releaseErasedHeights);
+      return;
+    }
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect();
     if (this.#consentRefresh) { this.#consentRefresh.retryTimer = null; void this.#refreshFeatures(); }
@@ -219,6 +227,8 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
+    this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
     if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; this.#concept?.failClosedConsent(); }
     clearTimeout(this.#clarifyNoticeTimer);
@@ -440,14 +450,23 @@ export class AithemaSession extends HTMLElement {
     this.#localeChanging = changing.catch(() => false);
     return changing;
   }
-  #repaintLocale() {
-    if (this.#copyLocale === this.#session.locale) return;
-    const copy = this.#options.copyForLocale?.(this.#session.locale);
+  #repaintLocale(suppliedCopy) {
+    if (this.#copyLocale === this.#session.locale && !suppliedCopy) return;
+    const copy = suppliedCopy ?? this.#options.copyForLocale?.(this.#session.locale);
     if (!copy) return;
     this.#copyLocale = this.#session.locale;
     const previous = this.#copy, root = this.shadowRoot;
     this.#copy = copy; this.#options.copy = copy;
-    if (this.#erased) { this.#paintErased(); return; }
+    if (this.#erased) {
+      for (const element of root.querySelectorAll('[data-copy]')) setText(element, copy[element.dataset.copy]);
+      setText(root.querySelector('.settings-open span'), copy.settings.open);
+      root.querySelector('.settings-open').title = copy.settings.open;
+      this.#fold?.setCopy(copy); this.#paintMotion();
+      this.#dialog?.setCopy(copy); this.#host?.setCopy(copy); this.#concept?.setCopy(copy);
+      this.#paintErased();
+      this.dispatchEvent(new CustomEvent('aithema-locale', { detail: { locale: this.#session.locale }, bubbles: true, composed: true }));
+      return;
+    }
     this.#fold?.setCopy(copy); this.#paintMotion(); this.#paintNotice();
     for (const key of ['connecting', 'connected', 'reconnecting']) if (this.#connection === previous[key]) { this.#connection = copy[key]; break; }
     this.#notice = ''; this.#chooser.error = '';
@@ -1126,14 +1145,16 @@ export class AithemaSession extends HTMLElement {
       usedUp: this.#host?.usedUp ?? false, endReason: this.#host?.endReason ?? null,
       processingPreset: this.#session.processingPreset, engine: structuredClone(this.#session.engine),
       folded: workspace.hasAttribute('data-folded'), panel: root.querySelector('.composer-shell').hasAttribute('data-used-up'),
-      focus: Boolean(root.activeElement?.closest('form.composer,.audio-rail,.understanding,.intro,.qcard,.composer-out,.purpose-new,dialog,.fold-strip')), painted: false };
+      focus: Boolean(root.activeElement?.closest('form.composer,.audio-rail,.understanding,.intro,.qcard,.composer-out,.purpose-new,dialog,.fold-strip,.fold,.concept-bar,.email-ask,.concept-access,.drafts-canvas,.settings-open')), painted: false, holds: [] };
     this.#erasedIds.set(id, remembered ?? { via, announced: false });
     // Hold boxes before teardown can change a rail, question or composer reservation.
     for (const selector of ['.intro__card', '.composer-dock', '.composer-shell', 'form.composer', '.qcard', '.audio-rail', '.fold-strip', '.transcript-shell']) {
       const element = root.querySelector(selector); if (!element) continue;
       const height = element.getBoundingClientRect().height;
-      if (height > 0) { element.style.minHeight = `${height}px`; element.style.height = `${height}px`; element.style.boxSizing = 'border-box'; }
+      if (height > 0) { this.#erased.holds.push({ element, height: element.style.height, minHeight: element.style.minHeight, boxSizing: element.style.boxSizing }); element.style.minHeight = `${height}px`; element.style.height = `${height}px`; element.style.boxSizing = 'border-box'; }
     }
+    this.ownerDocument.defaultView?.addEventListener('resize', this.#releaseErasedHeights);
+    this.ownerDocument.defaultView?.addEventListener('orientationchange', this.#releaseErasedHeights);
     this.setAttribute('data-aithema-erased', ''); this.setAttribute('data-aithema-mounted', '');
     this.#abort?.abort(); this.#stopReconciling();
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
@@ -1151,11 +1172,22 @@ export class AithemaSession extends HTMLElement {
     this.#erasureJournal = null; this.#partials.clear(); this.#notice = '';
     if (!this.#anchorDepth) this.#paintErased();
   }
+  #releaseErasedHeights = () => {
+    for (const hold of this.#erased?.holds ?? []) {
+      Object.assign(hold.element.style, { height: hold.height, minHeight: hold.minHeight, boxSizing: hold.boxSizing });
+    }
+    if (this.#erased) this.#erased.holds = [];
+  };
   #paintErased() {
     const frozen = this.#erased; if (!frozen || this.#anchorDepth) return;
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
     if (!frozen.painted) {
       frozen.painted = true;
+      // Insert an empty live region first, then announce after the browser registers it.
+      this.ownerDocument.defaultView.requestAnimationFrame(() => {
+        if (this.#erased !== frozen) return;
+        frozen.announcementReady = true; this.#paintErased();
+      });
       workspace.dataset.stage = frozen.stage; workspace.dataset.understanding = frozen.understanding;
       workspace.toggleAttribute('data-folded', frozen.folded);
       root.querySelector('.composer-shell').toggleAttribute('data-used-up', frozen.panel);
@@ -1172,25 +1204,33 @@ export class AithemaSession extends HTMLElement {
         const empty = root.querySelector('.canvas-empty'); empty.hidden = false; empty.replaceChildren(makeEnd());
         // The old strip was a button. Preserve its box without nesting actions.
         const strip = root.querySelector('.fold-strip'), replacement = node('div', 'fold-strip');
-        replacement.style.cssText = strip.style.cssText; replacement.append(makeEnd('div', false)); strip.replaceWith(replacement);
+        replacement.style.cssText = strip.style.cssText;
+        const hold = frozen.holds.find(hold => hold.element === strip); if (hold) hold.element = replacement;
+        replacement.append(makeEnd('div', false)); strip.replaceWith(replacement);
       } else if (frozen.stage === 'live') list.append(makeEnd('li'));
       else root.querySelector('.intro__card').replaceChildren(makeEnd());
       for (const selector of ['.voice-notices', '.summary-text', '.signals', '.questions', '.missing', '.cleared', '.overflow']) {
-        const element = root.querySelector(selector); if (element) { element.style.minHeight = `${element.getBoundingClientRect().height}px`; element.replaceChildren(); }
+        const element = root.querySelector(selector); if (element) {
+          frozen.holds.push({ element, height: element.style.height, minHeight: element.style.minHeight, boxSizing: element.style.boxSizing });
+          element.style.minHeight = `${element.getBoundingClientRect().height}px`; element.replaceChildren();
+        }
       }
       const card = root.querySelector('.qcard'); card.replaceChildren(); card.inert = true;
       for (const selector of ['form.composer', '.audio-rail', '.understanding', '.purpose-new', '.composer-out', '.concept-bar', '.email-ask']) {
         const element = root.querySelector(selector); if (element) element.inert = true;
       }
       for (const element of root.querySelectorAll('form.composer button,form.composer input,form.composer textarea,.audio-rail button,.fold')) element.disabled = true;
+      for (const element of root.querySelectorAll('.settings-open,.actor-processing button')) { element.disabled = true; element.setAttribute('aria-disabled', 'true'); }
       for (const element of root.querySelectorAll('.export,.composer-out__export')) { element.setAttribute('aria-disabled', 'true'); element.removeAttribute('href'); }
       for (const element of root.querySelectorAll('[aria-live],[role="status"],[role="alert"]')) if (!element.closest('.erased-end')) element.setAttribute('aria-live', 'off');
       for (const pane of root.querySelectorAll(PANES)) { clearSlack(pane); pane.scrollTop = 0; }
       transcript.scrollTop = 0;
       if (frozen.focus) root.querySelector('.erased-end__new')?.focus({ preventScroll: true });
     }
-    for (const element of root.querySelectorAll('[data-copy="conversationUnavailable"]')) setText(element, this.#copy.conversationUnavailable);
-    for (const element of root.querySelectorAll('.erased-end__new')) setText(element, this.#copy.hostSurface.library.new);
+    if (frozen.announcementReady) {
+      for (const element of root.querySelectorAll('[data-copy="conversationUnavailable"]')) setText(element, this.#copy.conversationUnavailable);
+      for (const element of root.querySelectorAll('.erased-end__new')) setText(element, this.#copy.hostSurface.library.new);
+    }
     this.#paintStatus();
     const record = this.#erasedIds.get(frozen.id);
     if (!record.announced) {
@@ -1201,10 +1241,10 @@ export class AithemaSession extends HTMLElement {
   async #newAfterErased() {
     if (!this.#erased || this.#erasedCreating) return;
     const id = this.#session.id;
+    this.#erasedCreating = true;
     if (!this.#host?.library) {
       this.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: { previousSessionId: id, reason: 'deleted', confirm: false }, bubbles: true, composed: true })); return;
     }
-    this.#erasedCreating = true;
     try { await this.#host.newAfterErased(); }
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }

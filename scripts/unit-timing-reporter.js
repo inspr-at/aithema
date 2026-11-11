@@ -1,11 +1,11 @@
 // Companion to spec output: file summaries include hooks, imports and worker
 // teardown, unlike a sum of assertion durations. Keep the final suite count too.
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { discoverUnitTests } from './unit-shards.js';
 
 export default async function* unitTimings(source) {
-  const directory = process.env.UNIT_TIMING_DIR;
+  const directory = process.env.UNIT_TIMING_DIR ?? (process.env.AITHEMA_EVIDENCE_DIR && join(process.env.AITHEMA_EVIDENCE_DIR, 'unit-timings'));
   let output;
   if (directory) {
     mkdirSync(directory, { recursive: true });

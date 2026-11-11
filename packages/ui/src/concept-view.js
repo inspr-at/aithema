@@ -59,7 +59,7 @@ export class ConceptView {
   #canvasEpoch = 0; #canvasCopy; #stageFeature; #canvasWithdrawnKind;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
-  setCopy(copy) { this.copy = copy; if (this.#erased) return; this.#paintCopy(); this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
+  setCopy(copy) { this.copy = copy; this.#paintCopy(); if (this.#erased) return; this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
   #paintCopy() {
     const { root, copy } = this;
     root.querySelectorAll('.concept-preview-sizer').forEach((node, index) => {

@@ -75,7 +75,7 @@ export class HostSurface {
     root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
     this.#menu?.setCopy(copy);
     if (!this.#erased) this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
-    if (!this.#erased) { this.#emailAsk?.setCopy(copy); this.#actorRole?.setCopy(copy); }
+    if (!this.#erased) this.#emailAsk?.setCopy(copy); this.#actorRole?.setCopy(copy);
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
     root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));

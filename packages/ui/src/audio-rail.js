@@ -444,7 +444,9 @@ export class AudioRail {
       // 30 s provider deadline. Cleanup/cooldown above remain outside both.
       if (microphonePhases) connectDeadline();
       const continuing = Boolean(this.waitingCall);
-      const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
+      const startingCall = this.waitingCall ?? { callId: crypto.randomUUID() };
+      this.startingCall = startingCall;
+      const opening = this.client.start(startingCall, {
         signal: controller.signal, holdSignal: holdController.signal,
         // Today's clients retain main's option and their own deadline scopes.
         ...(!microphonePhases || !this.input ? { deadlineAt: Date.now() + 30_000 } : {}),
@@ -471,7 +473,7 @@ export class AudioRail {
       // Ports which ignore AbortSignal still cannot retain this click. Close any late session.
       void opening.then(late => { if (generation !== this.generation || controller.signal.aborted) void late.close().catch(() => {}); }, () => {});
       try { session = await startupWait(opening, controller.signal); }
-      finally { if (this.opening === opening) this.opening = null; }
+      finally { if (this.opening === opening) { this.opening = null; this.startingCall = null; } }
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.startupPhase = null; this.state = 'listening';
       clearTimeout(connectTimer); this.stopReplyWatch();
@@ -745,8 +747,9 @@ export class AudioRail {
   }
   close(reason, { serverEnded = false } = {}) {
     if (serverEnded) {
-      const call = this.session ?? this.closingSession ?? this.waitingCall;
-      if (call && this.client?.closeWaiting) void this.client.closeWaiting({ callId: call.callId,
+      const call = this.session ?? this.closingSession ?? this.waitingCall ?? this.startingCall ?? {};
+      // Latch the control even before startup returns a session; abort can close its grant.
+      if (this.client?.closeWaiting) void this.client.closeWaiting({ callId: call.callId,
         providerSessionId: call.providerSessionId, epoch: call.epoch }, { reason: 'session-erased' }).catch(() => {});
       this.erased = true; this.journal?.clear(); this.endedCall = null; this.errorKey = null;
       this.root.removeAttribute('data-call-reconciling');
