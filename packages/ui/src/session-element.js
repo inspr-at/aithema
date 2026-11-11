@@ -1120,13 +1120,13 @@ export class AithemaSession extends HTMLElement {
       folded: workspace.hasAttribute('data-folded'), panel: root.querySelector('.composer-shell').hasAttribute('data-used-up'),
       focus: Boolean(root.activeElement?.closest('form.composer,.audio-rail,.understanding,.intro,.qcard,.composer-out,.purpose-new,dialog,.fold-strip')), painted: false };
     this.#erasedIds.set(id, remembered ?? { via, announced: false });
-    this.setAttribute('data-aithema-erased', ''); this.setAttribute('data-aithema-mounted', '');
     // Hold boxes before teardown can change a rail, question or composer reservation.
     for (const selector of ['.intro__card', '.composer-dock', '.composer-shell', 'form.composer', '.qcard', '.audio-rail', '.fold-strip', '.transcript-shell']) {
       const element = root.querySelector(selector); if (!element) continue;
       const height = element.getBoundingClientRect().height;
       if (height > 0) { element.style.minHeight = `${height}px`; element.style.height = `${height}px`; element.style.boxSizing = 'border-box'; }
     }
+    this.setAttribute('data-aithema-erased', ''); this.setAttribute('data-aithema-mounted', '');
     this.#abort?.abort(); this.#stopReconciling();
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
     this.#featureRead = null; clearTimeout(this.#creditEndTimer); this.#cancelUploads();

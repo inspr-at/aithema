@@ -390,7 +390,9 @@ test('AIT-484 a burst shares one held confirmation and late success changes noth
   await h.reconnect(); const held = Promise.withResolvers(); t.after(() => held.resolve());
   h.serverErase(); h.state.snapshot = () => held.promise.then(() => Response.json(h.c.session));
   h.dropStream(); await tick(8); t.mock.timers.tick(1000); await tick(8);
-  h.c.receive({ type: 'voice.state', data: { state: 'closing' } }); t.mock.timers.tick(4000); await tick(12);
+  // The verification timer provides the second suspect route without a journal
+  // event that also owns an independent natural feature snapshot read.
+  t.mock.timers.tick(4000); await tick(12);
   assert.ok(h.raw.length >= 3, 'several routes saw the refusal');
   assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 1);
   held.resolve(); await tick(12);
