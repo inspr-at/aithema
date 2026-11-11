@@ -745,6 +745,9 @@ export class AudioRail {
   }
   close(reason, { serverEnded = false } = {}) {
     if (serverEnded) {
+      const call = this.session ?? this.closingSession ?? this.waitingCall;
+      if (call && this.client?.closeWaiting) void this.client.closeWaiting({ callId: call.callId,
+        providerSessionId: call.providerSessionId, epoch: call.epoch }, { reason: 'session-erased' }).catch(() => {});
       this.erased = true; this.journal?.clear(); this.endedCall = null; this.errorKey = null;
       this.root.removeAttribute('data-call-reconciling');
     }
