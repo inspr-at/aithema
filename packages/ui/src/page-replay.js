@@ -3,13 +3,13 @@ import { playReplyAudio } from './reply-audio.js';
 
 /** The same explicit replay outside a call uses page audio and the host's current-reply fence. */
 export function createPageReplay({ control, document = globalThis.document, playAudio = playReplyAudio }) {
-  let fence = () => false, cleanup, onState;
+  let fence = () => false, cleanup, onState, stopReason;
   const player = createReplyReplay({ current: reply => !document?.hidden && fence(reply),
     synthesize: (reply, options) => control.speakText?.({ turnId: reply.turnId, replayId: options.replayId }, options),
-    release: replayId => control.stopReplyReplay?.({ replayId }),
+    release: replayId => control.stopReplyReplay?.({ replayId, ...(stopReason ? { reason: stopReason } : {}) }),
     playAudio: (audio, options) => playAudio(audio, { ...options, document }),
     onState: (playing, detail) => { onState?.(playing, detail); if (!playing) { cleanup?.(); cleanup = null; } } });
-  return { stop() { const released = player.stop(); cleanup?.(); cleanup = null; return released; }, get active() { return player.active; },
+  return { stop(options) { stopReason = options?.reason; const released = player.stop(); cleanup?.(); cleanup = null; return released; }, get active() { return player.active; },
     async replay(reply, options = {}) {
       player.stop();
       onState = options.onState;
