@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Duplex } from 'node:stream';
+import addressparser from 'nodemailer/lib/addressparser';
 
 // Actual SMTP dialogue over a Duplex: no listener, DNS or network connection.
 function smtpSink(messages, commands, failure = {}) {
@@ -108,9 +109,41 @@ for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment
   });
 }
 
+// The character rules exclude the pinned parser's operators. Model a future
+// reinterpretation through the factory seam using an otherwise ordinary input.
+for (const [kind, result] of [
+  ['empty', []],
+  ['split', [{ name: '', address: effect.address }, { name: '', address: 'other@example.test' }]],
+  ['group', [{ name: '', address: effect.address, group: [] }]],
+  ['display name', [{ name: 'Visitor', address: effect.address }]],
+  ['changed mailbox', [{ name: '', address: 'other@example.test' }]],
+]) {
+  test(`AIT-487 requestVerification refuses a parser round-trip with ${kind}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [];
+    const parseAddress = t.mock.fn(() => result);
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      parseAddress,
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    const delivery = plugin.requestVerification(effect);
+    await Promise.all([
+      assert.rejects(delivery, new TypeError('Invalid confirmation delivery')),
+      delivery.catch(() => {}).then(() => assert.equal(messages.length, 0, 'sendMail must not receive a reinterpreted address')),
+    ]);
+    assert.equal(parseAddress.mock.callCount(), 1);
+    assert.deepEqual(parseAddress.mock.calls[0].arguments, [effect.address]);
+  });
+}
+
 for (const recipient of ['visitor@example.test', 'visitor@sub.example.test', 'first.last+tag@example.test',
   "o'brien@example.test", 'user@bücher.example', 'user@xn--bcher-kva.example']) {
   test(`AIT-487 requestVerification preserves ordinary address ${recipient}`, async t => {
+    // addressparser preserves IDN and punycode verbatim; mime-node converts IDN
+    // domains later, so the round-trip can compare exactly without rewriting to.
+    assert.deepEqual(addressparser(recipient), [{ address: recipient, name: '' }]);
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');
     const messages = [];
     const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
