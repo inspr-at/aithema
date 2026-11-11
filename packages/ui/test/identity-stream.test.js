@@ -313,19 +313,17 @@ for (const copy of [en, de]) test(`AIT-484 journal: one end state, silent host, 
   assert.equal(closes, 1); assert.equal(h.erasedEvents.length, 1);
 });
 for (const route of ['events', 'credits', 'identity/unlock', 'restore', 'voice-close']) test(`AIT-484 exact not-found: ${route} confirms once then stops`, async t => {
-  const client = await voice470(t); let control;
-  const start = client.start; client.start = async (...args) => { const call = await start(...args), close = call.close; call.close = async options => { try { return await control.close(call, options); } finally { await close(options); } }; return call; };
-  const h = fixture484(t, { voiceClient: client, host: { verification: { delivery: true }, credits: true },
+  const h = fixture484(t, { voiceClient: await voice470(t), host: { verification: { delivery: true }, credits: true },
     session: { identity: pending470({ pollVerification: true }), featureMatrix: unlocked470 } });
-  control = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) }).control;
+  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) });
   await h.reconnect();
-  if (route === 'voice-close') { h.root.querySelector('.voice-start').click(); await tick(8); }
   h.serverErase();
   if (route === 'events') { h.dropStream(); await tick(8); }
   if (route === 'credits') { h.c.receive({ type: 'voice.state', data: { state: 'closing' } }); t.mock.timers.tick(300); }
   if (route === 'identity/unlock') t.mock.timers.tick(4000);
   if (route === 'restore') h.c.receive({ seq: h.c.session.seq + 2, type: 'turn.final', data: { id: 'gap', role: 'assistant', content: 'gap' } });
-  if (route === 'voice-close') h.root.querySelector('.voice-close').click();
+  // Isolate the suspect route: rail onEnd also owns a natural snapshot read.
+  if (route === 'voice-close') void control.close({ callId: 'fixture-call', providerSessionId: 'fixture-provider', reason: 'closed' }).catch(() => {});
   t.mock.timers.tick(1000); await tick(16);
   assert.ok(h.c.hasAttribute('data-aithema-erased'));
   assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 1);
