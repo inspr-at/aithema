@@ -1,80 +1,40 @@
 {
-  "seconds": 173.317,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 244.69,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "2b1e678dfbb81b3d67a57170b44573450d52d2a9c18b64f1f83d617761628c32",
+    "workload": "c249e0a859a4121cf0ea6cf705a6b5c1b91147d4837805b83ded9cd863655ce3",
     "samples": [
       {
-        "runId": "39119554362",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
-        "observedAt": "2026-10-18T10:31:16.597Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:10.707Z",
         "tests": [
           {
             "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 51.461958814999996
+            "seconds": 51.199750328
           },
           {
             "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 18.253642095
+            "seconds": 17.29510817
           },
           {
             "name": "AIT-302: phone header voice statuses and fixed controls",
-            "seconds": 52.210604681
+            "seconds": 56.718397899
           },
           {
             "name": "AIT-302: unchanged desktop consent",
-            "seconds": 16.017928658000002
-          }
-        ]
-      },
-      {
-        "runId": "39119578412",
-        "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:23.631Z",
-        "tests": [
-          {
-            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 49.514564882
+            "seconds": 14.969089024
           },
           {
-            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 18.389061069
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 6.802198204000001
           },
           {
-            "name": "AIT-302: phone header voice statuses and fixed controls",
-            "seconds": 52.356869044999996
-          },
-          {
-            "name": "AIT-302: unchanged desktop consent",
-            "seconds": 15.951768923
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:04.048Z",
-        "tests": [
-          {
-            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 51.577357780999996
-          },
-          {
-            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 18.63680511
-          },
-          {
-            "name": "AIT-302: phone header voice statuses and fixed controls",
-            "seconds": 52.187748018
-          },
-          {
-            "name": "AIT-302: unchanged desktop consent",
-            "seconds": 16.081366791
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 48.76743086
           }
         ]
       }

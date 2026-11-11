@@ -1,0 +1,23 @@
+{
+  "seconds": 8.423,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "9f8b99a1542f5c3520f2f257a47e18da6874b09d07dbca6854ffddaf9b1dffc4",
+    "samples": [
+      {
+        "runId": "42947874534",
+        "attempt": 1,
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:01.260Z",
+        "tests": [
+          {
+            "name": "AIT-463 BC9: email unlock keeps one answered reply, its choices and no Retry",
+            "seconds": 6.737892437
+          }
+        ]
+      }
+    ]
+  }
+}

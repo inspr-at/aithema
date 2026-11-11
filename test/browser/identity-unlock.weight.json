@@ -1,5 +1,63 @@
 {
-  "seconds": 242,
-  "provisional": true,
-  "evidence": "AIT-483 committed-head ed99e09b remote default-file runs ait-10e988ddcd204eff91443f22, ait-de22151eabf04d0c9fd28fde, ait-43445d21697c4e75aeb9bcdf, ait-793af1363a764dbca85240f7, ait-7212fb75f88548769282b308: 192.976351533s, 192.860122603s, 192.595116134s, 192.748010456s, 192.803849822s; max 192.976351533s; ceil(max x 1.25) = 242s. Provisional remote reservation; no CI samples claimed."
+  "seconds": 246.55,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "7531cbfc1ab8d3bcc9f98beb07200f929d334d19b8d2f52d0def2c629a372f51",
+    "samples": [
+      {
+        "runId": "42947874534",
+        "attempt": 1,
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:02.190Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 25.646132463999997
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 25.839448218
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 8.68295615
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 8.502219469
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 9.156895833
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 8.594505972
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 8.472027963
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 25.714851635
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 25.360796224999998
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 25.700982862
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 25.568740548
+          }
+        ]
+      }
+    ]
+  }
 }

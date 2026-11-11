@@ -18,12 +18,6 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
   }
   const weights = {};
   for (const file of files) {
-    // AIT-463: bootstrap this new demo workload until its first trusted main
-    // timing artifact exists. Replace with rolling samples after merge.
-    if (root === repositoryRoot && file === 'test/browser/email-unlock-reply.test.js') {
-      weights[file] = 45;
-      continue;
-    }
     const weightPath = file.replace(/\.test\.js$/u, '.weight.json');
     let measurement;
     try {
@@ -34,12 +28,6 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
     if (!Number.isFinite(measurement?.seconds) || measurement.seconds <= 0 ||
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
-    }
-    // AIT-470: new workload has no CI history yet. AIT-477 replaces this
-    // repository-only provisional reservation with rolling CI measurements.
-    if (root === repositoryRoot && file === 'test/browser/identity-unlock.test.js' && measurement.provisional === true) {
-      weights[file] = measurement.seconds;
-      continue;
     }
     try { assertMeasuredWeight(measurement); }
     catch (error) { throw new Error(`Invalid browser test weight: ${weightPath}; ${error.message}`); }

@@ -1,72 +1,40 @@
 {
-  "seconds": 216.968,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 213.854,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "06fbeba21424e8251c76ea68bcad50aca4cf537338211f2dc5e02a39b98e2e91",
+    "workload": "c675bcf6ff5455a0f1780b260d3e37c018340792a8a885fa3c86f61c9cc8ed28",
     "samples": [
       {
-        "runId": "39119578412",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:18.092Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:02.304Z",
         "tests": [
           {
             "name": "AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes and languages",
-            "seconds": 38.291077709
+            "seconds": 46.17411917
           },
           {
             "name": "AIT-210: header and rail reserve first-paint geometry before upgrade and fonts settle",
-            "seconds": 23.037168205999997
+            "seconds": 25.322253479
           },
           {
             "name": "AIT-276: classic scrollbars and wider actions reserve the mounted rail on first paint",
-            "seconds": 19.779655942
+            "seconds": 22.392763401
           },
           {
             "name": "AIT-299: hidden footer labels restore full fit without moving controls under the pointer",
-            "seconds": 17.510048898
+            "seconds": 19.710137234999998
           },
           {
             "name": "AIT-301: host legal links remain visible through compact footer pointer and focus holds",
-            "seconds": 25.767087563
+            "seconds": 25.814836211000003
           },
           {
             "name": "AIT-309: legal hosts without credits respect every compact fit at 900/1024/1180/1440, DE/EN, light/dark",
-            "seconds": 27.833966051
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:05.722Z",
-        "tests": [
-          {
-            "name": "AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes and languages",
-            "seconds": 45.349636872000005
-          },
-          {
-            "name": "AIT-210: header and rail reserve first-paint geometry before upgrade and fonts settle",
-            "seconds": 25.416768355
-          },
-          {
-            "name": "AIT-276: classic scrollbars and wider actions reserve the mounted rail on first paint",
-            "seconds": 22.476129624000002
-          },
-          {
-            "name": "AIT-299: hidden footer labels restore full fit without moving controls under the pointer",
-            "seconds": 19.716508717
-          },
-          {
-            "name": "AIT-301: host legal links remain visible through compact footer pointer and focus holds",
-            "seconds": 28.862871172
-          },
-          {
-            "name": "AIT-309: legal hosts without credits respect every compact fit at 900/1024/1180/1440, DE/EN, light/dark",
-            "seconds": 31.751633075
+            "seconds": 31.668800337
           }
         ]
       }

@@ -1,264 +1,40 @@
 {
-  "seconds": 88.576,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 86.389,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "e4c62c6e685dfe7f68d95cc64e27e402bb0cc793deb8572240a1d6858852f914",
+    "workload": "9d970e0dd31757489d76dd224c24febe27093ba18e1f893401ce3824ac110c8d",
     "samples": [
       {
-        "runId": "39112261287",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
-        "observedAt": "2026-10-18T08:39:22.703Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:01.867Z",
         "tests": [
           {
             "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 31.973339808000002
+            "seconds": 27.170985463
           },
           {
             "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 16.298739718
+            "seconds": 14.923604036999999
           },
           {
             "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 6.700192511999999
+            "seconds": 4.147851485
           },
           {
             "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 7.849186821
+            "seconds": 6.52966309
           },
           {
             "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 8.705738958
+            "seconds": 6.705967585000001
           },
           {
             "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 11.557620355
-          }
-        ]
-      },
-      {
-        "runId": "39113978451",
-        "attempt": 1,
-        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
-        "observedAt": "2026-10-18T09:05:58.724Z",
-        "tests": [
-          {
-            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 32.665186247
-          },
-          {
-            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 17.998182755000002
-          },
-          {
-            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 7.348212372
-          },
-          {
-            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 6.614740055
-          },
-          {
-            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 9.632661764
-          },
-          {
-            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 11.350501928
-          }
-        ]
-      },
-      {
-        "runId": "39114014147",
-        "attempt": 1,
-        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
-        "observedAt": "2026-10-18T09:12:37.083Z",
-        "tests": [
-          {
-            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 31.748142724
-          },
-          {
-            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 15.81544184
-          },
-          {
-            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 6.215734193
-          },
-          {
-            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 6.34941978
-          },
-          {
-            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 4.4495491419999995
-          },
-          {
-            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 10.316788725
-          }
-        ]
-      },
-      {
-        "runId": "39116626384",
-        "attempt": 1,
-        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
-        "observedAt": "2026-10-18T09:46:23.801Z",
-        "tests": [
-          {
-            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 31.742242498
-          },
-          {
-            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 15.796990357
-          },
-          {
-            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 4.667054915
-          },
-          {
-            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 8.465880589000001
-          },
-          {
-            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 4.515241763
-          },
-          {
-            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 10.31693663
-          }
-        ]
-      },
-      {
-        "runId": "39119045746",
-        "attempt": 1,
-        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
-        "observedAt": "2026-10-18T10:23:38.720Z",
-        "tests": [
-          {
-            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 31.762847694
-          },
-          {
-            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 16.799209738000002
-          },
-          {
-            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 7.049270284
-          },
-          {
-            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 7.982226298
-          },
-          {
-            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 6.234964239
-          },
-          {
-            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 10.413568286
-          }
-        ]
-      },
-      {
-        "runId": "39119554362",
-        "attempt": 1,
-        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
-        "observedAt": "2026-10-18T10:31:16.597Z",
-        "tests": [
-          {
-            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 31.626514308999997
-          },
-          {
-            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 15.665643491
-          },
-          {
-            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 6.232633992
-          },
-          {
-            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 7.716918831
-          },
-          {
-            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 4.9983850819999995
-          },
-          {
-            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 11.366538904999999
-          }
-        ]
-      },
-      {
-        "runId": "39119578412",
-        "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:23.034Z",
-        "tests": [
-          {
-            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 31.61774714
-          },
-          {
-            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 16.416509708000003
-          },
-          {
-            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 6.198680297
-          },
-          {
-            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 8.732378258999999
-          },
-          {
-            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 5.399954487
-          },
-          {
-            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 12.199238294999999
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:05.358Z",
-        "tests": [
-          {
-            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
-            "seconds": 27.612435372
-          },
-          {
-            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
-            "seconds": 15.136169450999999
-          },
-          {
-            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
-            "seconds": 4.165277927
-          },
-          {
-            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
-            "seconds": 6.197008416
-          },
-          {
-            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
-            "seconds": 4.401249368
-          },
-          {
-            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
-            "seconds": 10.362958858
+            "seconds": 9.632859067
           }
         ]
       }

@@ -1,168 +1,48 @@
 {
-  "seconds": 88.37,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 244.435,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "a5579f227beded773fac874b1bb75730cb1292e2fa44aae0e57f1deba39635f4",
+    "workload": "1b36b1f338603af7f948b8574f636975f004c4a90362cb565dbd20723f1ac515",
     "samples": [
       {
-        "runId": "39112261287",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
-        "observedAt": "2026-10-18T08:39:27.857Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:03.694Z",
         "tests": [
           {
             "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.446455078
+            "seconds": 6.534115508
           },
           {
             "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 70.590831107
+            "seconds": 71.825719645
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.796941665
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 12.274141315000001
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 14.872974727
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 74.577926774
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 3.436719949
           },
           {
             "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 7.736675
-          }
-        ]
-      },
-      {
-        "runId": "39113978451",
-        "attempt": 1,
-        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
-        "observedAt": "2026-10-18T09:05:56.283Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.230054749
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 66.67546154
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 6.587594661
-          }
-        ]
-      },
-      {
-        "runId": "39114014147",
-        "attempt": 1,
-        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
-        "observedAt": "2026-10-18T09:12:42.795Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.534971812
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 71.62598076
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 7.82698055
-          }
-        ]
-      },
-      {
-        "runId": "39116626384",
-        "attempt": 1,
-        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
-        "observedAt": "2026-10-18T09:46:18.628Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.4970135099999995
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 70.50271627999999
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 8.031744942
-          }
-        ]
-      },
-      {
-        "runId": "39119045746",
-        "attempt": 1,
-        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
-        "observedAt": "2026-10-18T10:23:36.654Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.50018328
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 70.938968859
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 7.840604299
-          }
-        ]
-      },
-      {
-        "runId": "39119554362",
-        "attempt": 1,
-        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
-        "observedAt": "2026-10-18T10:31:16.829Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.687498961
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 72.73220707200001
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 8.949722458
-          }
-        ]
-      },
-      {
-        "runId": "39119578412",
-        "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:22.830Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.497989899999999
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 70.546656271
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 8.001753558999999
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:02.918Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.031564513999999
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 63.733480676
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 5.8371434639999995
+            "seconds": 8.229267834
           }
         ]
       }
