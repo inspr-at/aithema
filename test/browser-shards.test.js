@@ -120,13 +120,9 @@ test('invalid weights and shard counts fail before packing', () => {
 
 
 test('the shard guard command prints projected totals for every shard', () => {
-  const result = spawnSync('npm', ['run', 'test:browser-shards'], {
+  const result = spawnSync(process.execPath, ['scripts/browser-shards.js'], {
     cwd: new URL('../', import.meta.url), encoding: 'utf8',
   });
-  if (process.env.AITHEMA_EVIDENCE_DIR) {
-    mkdirSync(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-    writeFileSync(join(process.env.AITHEMA_EVIDENCE_DIR, 'browser-shards.txt'), result.stdout + result.stderr);
-  }
   assert.equal(result.status, 0, result.stderr);
   browserShardTotals.forEach((total, index) => {
     assert.ok(result.stdout.includes(`Browser shard ${index + 1}/${browserShardCount}: projected file work ${total.toFixed(3)}s`));
