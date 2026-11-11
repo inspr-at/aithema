@@ -706,7 +706,7 @@ for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 connecting ${provid
   await h.reconnect(); userTurn(h.c); h.root.querySelector('.voice-start').click();
   await opened.promise; await tick(8);
   assert.equal(h.calls.filter(call => call.path === '/voice' && call.method === 'POST').length, 1, 'start POST already resolved');
-  assert.equal(h.root.querySelector('.audio-rail').dataset.call, 'connecting');
+  assert.equal(h.root.querySelector('.audio-rail').dataset.state, 'connecting');
   h.streamErase(); await tick(12); release.resolve(); await tick(32);
   assert.equal(h.raw.filter(call => call.path.includes('/voice')).length, 0, 'no voice request after erasure, including late startup cleanup');
   await quiet484(t, h);
