@@ -368,7 +368,10 @@ for (const library of [false, true]) test(`AIT-484 new action: ${library ? 'libr
     assert.equal(h.calls.filter(c => c.method === 'POST' && c.path === '/library').length, 1);
     assert.equal(h.openEvents[0].reason, 'deleted'); assert.equal(h.c.session.id, next.id);
     assert.equal(h.c.hasAttribute('data-aithema-erased'), false);
-  } else assert.deepEqual(h.newEvents[0], { previousSessionId: 'conversation-a', reason: 'deleted', confirm: false });
+  } else {
+    assert.deepEqual(h.newEvents[0], { previousSessionId: 'conversation-a', reason: 'deleted', confirm: false });
+    assert.equal(h.newEvents.length, 1, 'double activation dispatches one new-conversation event');
+  }
 });
 test('AIT-484 late snapshot cannot undo erasure; configure B works and A stays remembered', async t => {
   const h = fixture484(t, { host: {} }); await h.reconnect(); const held = Promise.withResolvers(); t.after(() => held.resolve());
@@ -674,4 +677,106 @@ test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent wind
   assert.equal(h.reads, 3); clear470(h);
   held.resolve(); await tick(8); t.mock.timers.tick(60_000); await tick(8);
   assert.equal(streams, 1); assert.equal(h.reads, 3);
+});
+
+for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 connecting ${provider}: erasure latches control before abort cleanup`, async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const { createElevenLabsClient } = await import('../../../plugins/elevenlabs/src/client.js');
+  const { createGrokVoiceClient } = await import('../../../plugins/grok-voice/src/client.js');
+  const { fakeSdk } = await import('../../../plugins/elevenlabs/test/fixtures.js');
+  const opened = Promise.withResolvers(), release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  let h;
+  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) });
+  const sdk = fakeSdk(); sdk.beforeCreated = async () => { opened.resolve(); await release.promise; };
+  const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
+    AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control, now: () => Date.now(),
+    async openRelay() { opened.resolve(); await release.promise; const frames = voiceEvents(); return { frames,
+      async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } }; },
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
+  h = fixture484(t, { voiceClient: client, host: {}, session: { featureMatrix: unlocked470 }, routes: {
+    'POST /voice': request => {
+      const providerSessionId = 'fixture-provider', until = Date.now() + 180000;
+      return Response.json({ callId: request.callId, providerSessionId, epoch: 1,
+        spendDeadlineAt: until, browserLivenessDeadlineAt: until,
+        credential: { providerSessionId, ttlMs: 60000, connectionType: 'webrtc', conversationToken: 'fixture-token-fixture-provider' },
+        mediaGrant: { callId: request.callId, providerSessionId, expiresAt: until,
+          opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } } });
+    } } });
+  await h.reconnect(); userTurn(h.c); h.root.querySelector('.voice-start').click();
+  await opened.promise; await tick(8);
+  assert.equal(h.calls.filter(call => call.path === '/voice' && call.method === 'POST').length, 1, 'start POST already resolved');
+  assert.equal(h.root.querySelector('.audio-rail').dataset.call, 'connecting');
+  h.streamErase(); await tick(12); release.resolve(); await tick(32);
+  assert.equal(h.raw.filter(call => call.path.includes('/voice')).length, 0, 'no voice request after erasure, including late startup cleanup');
+  await quiet484(t, h);
+});
+
+for (const configure of [false, true]) test(`AIT-484 erased locale text repaint via ${configure ? 'same-id configure' : 'changeLocale'}`, async t => {
+  const h = fixture484(t, { host: { library: true } }); await h.reconnect();
+  h.c.configure({ session: h.c.session, copy: en, host: { library: true }, copyForLocale: locale => ({ en, de })[locale] });
+  await tick(8); h.streamErase(); await tick(8);
+  const events = []; h.c.addEventListener('aithema-locale', e => events.push(e.detail));
+  const row = h.root.querySelector('.erased-end');
+  if (configure) h.c.configure({ session: { ...h.c.session, locale: 'de' }, copy: de });
+  else assert.equal(await h.c.changeLocale('de'), true);
+  await tick(8);
+  assert.equal(h.root.querySelector('.erased-end'), row);
+  assert.equal(row.querySelector('[data-copy]').textContent, de.conversationUnavailable);
+  assert.equal(h.root.querySelector('.settings-open span').textContent, de.settings.open);
+  assert.equal(h.root.querySelector('.conversations-toggle span').textContent, de.hostSurface.library.open);
+  assert.equal(h.root.querySelector('#library-title').textContent, de.hostSurface.library.title);
+  assert.deepEqual(events, [{ locale: 'de' }]);
+  await quiet484(t, h);
+});
+
+test('AIT-484 focus on fold moves to the end action; Settings controls are disabled', async t => {
+  const labels = { en: { private: 'Private', company: 'Company', representative: 'Representative', agency: 'Agency' } };
+  const h = fixture484(t, { host: { actorRole: { labels } }, session: { roleChoice: {
+    available: true, roles: Object.keys(labels.en), role: 'company', source: 'chosen', revision: 1 } } });
+  await h.reconnect(); userTurn(h.c); h.root.querySelector('.fold').focus();
+  assert.equal(h.root.activeElement, h.root.querySelector('.fold'));
+  h.streamErase(); await tick(8);
+  assert.equal(h.root.activeElement, h.root.querySelector('.erased-end__new'));
+  for (const selector of ['.settings-open', '.actor-processing button']) {
+    const control = h.root.querySelector(selector);
+    assert.equal(control.getAttribute('aria-disabled'), 'true', selector);
+    assert.equal(control.disabled, true, selector);
+  }
+  await quiet484(t, h);
+});
+
+test('AIT-484 erased reattachment reconnects footer interactions without requests', async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect(); h.streamErase(); await tick(8);
+  await h.reconnect();
+  const info = h.root.querySelector('.footer-info'), button = info.querySelector('button');
+  button.click(); assert.equal(button.getAttribute('aria-expanded'), 'true');
+  h.root.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(button.getAttribute('aria-expanded'), 'false', 'reconnected popup closes on Escape');
+  assert.ok(h.root.querySelector('#build-info').textContent.trim(), 'version details restored');
+  await quiet484(t, h);
+});
+
+test('AIT-484 resize releases frozen pixel heights without requesting the session', async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect(); userTurn(h.c);
+  const composer = h.root.querySelector('form.composer');
+  t.mock.method(composer, 'getBoundingClientRect', () => ({ height: 120 }));
+  h.streamErase(); await tick(8);
+  assert.equal(composer.style.height, '120px', 'fixed-size geometry held at erasure');
+  window.dispatchEvent(new window.Event('resize')); await tick(8);
+  assert.equal(composer.style.height, '', 'responsive CSS can size the composer again');
+  assert.equal(composer.style.minHeight, '', 'old minimum does not block a smaller viewport');
+  await quiet484(t, h);
+});
+
+test('AIT-484 end live region is empty on insertion and filled on the next frame', async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect();
+  const frames = []; t.mock.method(window, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  h.streamErase(); await tick(8);
+  const row = h.root.querySelector('.erased-end[role="status"]');
+  assert.equal(row.textContent, '', 'region is registered before its announcement');
+  for (const callback of frames.splice(0)) callback(0);
+  assert.equal(row.querySelector('[data-copy]').textContent, en.conversationUnavailable);
+  assert.equal(row.querySelector('button').textContent, en.hostSurface.library.new);
+  await quiet484(t, h);
 });
