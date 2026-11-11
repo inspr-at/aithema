@@ -3,6 +3,7 @@ import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
+  conversationUnavailable: 'Dieses Gespräch ist nicht mehr verfügbar.',
   actorRole: {
     label: 'Rolle', inferred: 'abgeleitet', why: 'So eingeschätzt:', chosen: 'Von Ihnen gewählt.',
     unset: 'noch offen', notAssessed: 'Noch nicht eingeschätzt.',

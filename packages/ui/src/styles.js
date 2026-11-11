@@ -735,4 +735,10 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; animation:none !important; } .workspace, .understanding, .fill, .icon-slash { transition:none !important; } }
 .workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview-slot { visibility:visible; justify-self:end; }
 .workspace[data-concept-layout="image"] .concept-access:is([data-partial-withdrawal],[data-refresh-failed]) .concept-preview:not([hidden]) { visibility:visible !important; }
+
+.erased-end { display:flex; flex-direction:column; align-items:flex-start; gap:12px; margin:0; padding:16px; list-style:none; }
+.erased-end__new { min-height:44px; padding:0 14px; border-radius:10px; background:var(--aithema-accent); color:var(--aithema-on-accent); font:inherit; }
+:host([data-aithema-erased]) .fold-strip > .erased-end { flex-direction:row; align-items:center; justify-content:space-between; gap:8px; padding:0; font-size:12px; }
+:host([data-aithema-erased]) .fold-strip .erased-end__new { flex:none; padding-inline:8px; }
+:host([data-aithema-erased]) .intro__card > .erased-end { align-self:center; justify-self:center; }
 `;

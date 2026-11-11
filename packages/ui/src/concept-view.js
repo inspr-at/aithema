@@ -51,6 +51,7 @@ export function paintFailureLine(line, words, suffix = '') {
 
 /** Generic START viewer experience, owner-authenticated artifacts and scoped previews. */
 export class ConceptView {
+  #erased = false;
   #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #previewRetryAt = 0; #previewDenied = new Map();
@@ -58,7 +59,7 @@ export class ConceptView {
   #canvasEpoch = 0; #canvasCopy; #stageFeature; #canvasWithdrawnKind;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
-  setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
+  setCopy(copy) { this.copy = copy; if (this.#erased) return; this.#paintCopy(); this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
   #paintCopy() {
     const { root, copy } = this;
     root.querySelectorAll('.concept-preview-sizer').forEach((node, index) => {
@@ -95,8 +96,8 @@ export class ConceptView {
     if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
     root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });
   }
-  constructor({ root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL }) {
-    Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL });
+  constructor({ transport, root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL }) {
+    Object.assign(this, { transport, root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
     this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -227,8 +228,26 @@ export class ConceptView {
   current() { return this.displayItems.find(c => c.id === this.#selected); }
   path(suffix = '') { return `${this.baseUrl}/api/sessions/${this.#session.id}/concepts${suffix}`; }
   // Every owner-authenticated concept request, GET or POST, passes here before it is sent.
-  sameOrigin(path) { return sameOrigin(this.root.ownerDocument.defaultView, path, 'Concept routes require same origin'); }
+  sameOrigin(path) { if (this.#erased) throw new DOMException('Conversation erased', 'AbortError'); return sameOrigin(this.root.ownerDocument.defaultView, path, 'Concept routes require same origin'); }
+  #api(url, bodyOrInit, options) {
+    return this.transport ? this.transport(url, bodyOrInit, options)
+      : options ? postJson(url, bodyOrInit, options) : fetch(url, bodyOrInit);
+  }
+  erased() {
+    if (this.#erased) return;
+    this.#erased = true; this.#lifetime++; this.#epoch++; this.#canvasEpoch++;
+    clearTimeout(this.#withdrawnTimer); this.#withdrawnUntil = 0;
+    clearInterval(this.#timer); this.#timer = null; this.#pendingScopes.clear();
+    this.#phone.removeEventListener('change', this.#placeAccess);
+    this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
+    this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
+    this.root.querySelector('.concept-withdrawn').textContent = '';
+    for (const control of this.root.querySelectorAll('.concept-bar button,.concept-viewer button,.drafts-canvas button,.concept-bar a')) {
+      control.disabled = true; control.setAttribute('aria-disabled', 'true');
+    }
+  }
   connect() {
+    if (this.#erased) return;
     this.#phone.addEventListener('change', this.#placeAccess); this.#placeAccess();
     this.root.ownerDocument.addEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.addEventListener('pagehide', this.pagehide);
@@ -245,7 +264,7 @@ export class ConceptView {
     if (!this.#session || this.#session.tombstone || this.#session.processingPreset === 'device') return;
     const sessionId = this.#session.id;
     try {
-      const response = await postJson(this.sameOrigin(this.path('/eligibility')), { eligible: false }, { sessionToken: this.sessionToken, keepalive: true });
+      const response = await this.#api(this.sameOrigin(this.path('/eligibility')), { eligible: false }, { sessionToken: this.sessionToken, keepalive: true });
       if (!response.ok) return;
       const ack = await response.json(); if (sessionId === this.#session.id && ack.event) this.receive(ack.event);
     } catch { /* Server idle spending is disabled even if teardown loses this signal. */ }
@@ -270,6 +289,7 @@ export class ConceptView {
     this.update(this.#session);
   }
   failClosedConsent() {
+    if (this.#erased) return;
     this.#consentRefreshFailed = true;
     // A refusal may already have removed the last item. Its four-second
     // notice must not expire or move focus while verification is closed.
@@ -277,6 +297,7 @@ export class ConceptView {
     this.update(this.#session);
   }
   update(session, consentDocument, consentVerified = false) {
+    if (this.#erased) return;
     const active = this.root.activeElement, preview = this.root.querySelector('.concept-preview'), notice = this.root.querySelector('.concept-withdrawn');
     const previewFocused = active === preview, viewerFocused = Boolean(active && this.dialog.contains(active));
     if (consentVerified) this.#pendingScopes.clear();
@@ -405,6 +426,7 @@ export class ConceptView {
     return this.feature({ ignorePause: true });
   }
   progress() {
+    if (this.#erased) return;
     if (!this.#session) return;
     const unbound = !this.#visualsBound();
     this.#unbound = unbound;
@@ -466,6 +488,7 @@ export class ConceptView {
   }
   // Every control keeps a fixed slot, so state renders at once, also under the pointer (AIT-116 D3).
   render() {
+    if (this.#erased) return;
     const owner = this.#session?.id, epoch = this.#epoch;
     this.progress();
     const latest = this.displayItems.at(-1), tab = this.root.querySelector('.concept-tab'), latestDraft = latest ? conceptKind(latest) === 'html' : this.#withdrawnKind === 'html';
@@ -560,7 +583,7 @@ export class ConceptView {
       if (!active() || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) throw new Error('Preview scope expired');
       if (this.#previewDenied.get(id) === this.#session.consentRevision) throw new Error('Preview scope denied');
       if (Date.now() < this.#previewRetryAt) throw new Error('Preview retry later');
-      const response = await postJson(this.sameOrigin(this.path(`/${id}/preview`)), {}, {
+      const response = await this.#api(this.sameOrigin(this.path(`/${id}/preview`)), {}, {
         sessionToken: this.sessionToken, cache: 'no-store', redirect: 'error', signal,
       });
       if (!active()) throw new Error('Preview scope expired');
@@ -595,6 +618,7 @@ export class ConceptView {
     this.root.querySelector('.canvas-status').textContent = '';
   }
   async paintCanvas() {
+    if (this.#erased) return;
     this.#placeAccess?.();
     const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
     if (!draft || !this.root.querySelector('.workspace')?.hasAttribute('data-folded')) return;
@@ -787,6 +811,7 @@ export class ConceptView {
     if (extra.length) this.gates();
   }
   gates() {
+    if (this.#erased) return;
     const active = this.root.activeElement; // captured before any control below is disabled
     const feature = this.#withdrawnKind && !this.covered(this.visualKind()) ? this.accessFeature() : this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
@@ -859,7 +884,7 @@ export class ConceptView {
     const scopeEpoch = this.#scopeEpoch[html ? 'html' : 'image'];
     const promise = (async () => {
       try {
-        const response = await fetch(this.sameOrigin(this.path(`/${id}/${html ? 'html' : 'image'}`)), { headers: this.headers(), cache: 'no-store' });
+        const response = await this.#api(this.sameOrigin(this.path(`/${id}/${html ? 'html' : 'image'}`)), { headers: this.headers(), cache: 'no-store' });
         const type = response.headers.get('content-type');
         if (!response.ok || !(html ? type === 'application/octet-stream' : ['image/png', 'image/jpeg', 'image/webp'].includes(type))) throw new Error();
         const data = html ? new Uint8Array(await response.arrayBuffer()) : await response.blob();
@@ -879,7 +904,7 @@ export class ConceptView {
     const focused = this.root.activeElement; this.#busy = true; this.#requestError = null; this.gates(); const sessionId = this.#session.id, lifetime = this.#lifetime;
     const active = () => lifetime === this.#lifetime && sessionId === this.#session.id;
     try {
-      const response = await postJson(this.sameOrigin(this.path(artifactId ? `/${artifactId}/regenerate` : '')),
+      const response = await this.#api(this.sameOrigin(this.path(artifactId ? `/${artifactId}/regenerate` : '')),
         { clientEventId: crypto.randomUUID(), intent: true, sourceTurnId }, { sessionToken: this.sessionToken });
       if (!response.ok) throw Object.assign(new Error(), { reason: (await response.json().catch(() => null))?.reason });
       const ack = await response.json(); if (active()) this.receive(ack.event);
@@ -895,7 +920,7 @@ export class ConceptView {
     const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id, lifetime = this.#lifetime;
     const active = () => lifetime === this.#lifetime && sessionId === this.#session.id;
     try {
-      const response = await postJson(this.sameOrigin(this.path(`/${current.id}/${reject ? 'reject' : 'feedback'}`)),
+      const response = await this.#api(this.sameOrigin(this.path(`/${current.id}/${reject ? 'reject' : 'feedback'}`)),
         { clientEventId: crypto.randomUUID(), vote, chips }, { sessionToken: this.sessionToken });
       if (!response.ok) throw new Error(); const ack = await response.json();
       if (active()) { this.receive(ack.event); if (reject) this.close(); }
@@ -919,7 +944,7 @@ export class ConceptView {
     }
     try {
       // A real owner-authenticated GET on the image route, never a provider URL.
-      const response = await fetch(this.sameOrigin(this.path(`/${current.id}/image?download=1`)), { headers: this.headers(), cache: 'no-store' });
+      const response = await this.#api(this.sameOrigin(this.path(`/${current.id}/image?download=1`)), { headers: this.headers(), cache: 'no-store' });
       if (!response.ok) throw new Error(); const blob = await response.blob();
       if (epoch !== this.#epoch || sessionId !== this.#session.id || !this.items.some(c => c.id === current.id)) return;
       url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url;
