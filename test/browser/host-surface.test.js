@@ -1258,11 +1258,12 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
     });
     await inShadow(page, async (c, { session, stage }) => {
       const { en } = await import('/packages/ui/src/i18n/en.js');
+      const { inputRevision } = await import('/packages/core/src/session.js');
       session.settings = { ...session.settings, origin: 'chosen' };
       session.featureMatrix = { best: { text: { available: true }, images: { available: true }, analysis: { available: true } } };
       c.configure({ copy: en, session, host: { library: true } });
       if (stage !== 'ready') {
-        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'fixture-question', role: 'assistant', content: 'Which option?', question_short: 'Which option?', answer_options: ['One', 'Two'] } });
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'fixture-question', role: 'assistant', content: 'Which option?', inputRevision: inputRevision(c.session), question_short: 'Which option?', options: [{ text: 'One' }, { text: 'Two' }] } });
       }
       if (stage === 'folded') c.shadowRoot.querySelector('.fold').click();
       window.erased484 = [];
@@ -1272,6 +1273,7 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
     if (stage === 'live') await rest(page, '.transcript-shell');
     const selectors = ['form.composer', '.composer-dock', ...(stage === 'ready' ? ['.intro__card'] : [])];
     const before = await Promise.all(selectors.map(selector => box(page, selector)));
+    if (stage === 'live') assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), false, 'the dock check includes an open question card');
     const beforeStage = await inShadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage);
     await other.evaluate(async id => {
       const response = await fetch(`/api/library/${id}/delete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });

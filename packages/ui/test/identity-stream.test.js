@@ -426,6 +426,43 @@ for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 ${provider}: real c
   await quiet484(t, h);
 });
 
+test('AIT-484 actor account and device choice stay mounted; all id dialogs close', async t => {
+  const labels = { en: { private: 'Private', company: 'Company', representative: 'Representative', agency: 'Agency' } };
+  const roleChoice = { available: true, roles: Object.keys(labels.en), role: 'company', source: 'chosen', revision: 1 };
+  const h = fixture484(t, { host: { actorRole: { labels }, verification: true }, session: { processingPreset: 'device', roleChoice, identity: identity() } }); await tick(8);
+  const actor = h.root.querySelector('.actor-role'), account = h.root.querySelector('slot[name="account"]'), parent = account.parentNode;
+  const dialogs = ['dialog.settings', 'dialog.verify-dialog', 'dialog.actor-sheet'];
+  for (const selector of dialogs) h.root.querySelector(selector).showModal();
+  event470(h.c, 'session.erased', { at: new Date().toISOString() }); await tick(8);
+  assert.equal(h.root.querySelector('.actor-role'), actor); assert.equal(account.parentNode, parent);
+  for (const selector of dialogs) assert.equal(h.root.querySelector(selector).open, false);
+  assert.equal(h.root.querySelector('.workspace').dataset.stage, 'entrance');
+  assert.match(h.root.querySelector('.erased-end').textContent, /no longer available/u);
+  h.c.openSettings(); await tick(8); assert.equal(h.root.querySelector('dialog.settings').open, false);
+  assert.equal(h.root.querySelector('.actor-role'), actor);
+});
+test('AIT-484 freezes the used-up composer and empties the question card in its held box', async t => {
+  const h = fixture484(t, { host: { credits: true, usedUp: { newConversation: { enabled: true } } }, routes: {
+    'GET /credits': () => Response.json({ exhausted: true, balance: { owner: { availableMicro: 0 } } }),
+  } }); await h.reconnect();
+  event470(h.c, 'turn.final', { id: 'question', role: 'assistant', content: 'Choose?', question_short: 'Choose?',
+    inputRevision: inputRevision(h.c.session), options: [{ text: 'One' }, { text: 'Two' }] });
+  const shell = h.root.querySelector('.composer-shell'), card = h.root.querySelector('.qcard');
+  const panel = shell.hasAttribute('data-used-up'), hidden = card.hidden;
+  h.streamErase(); await tick(8);
+  assert.equal(shell.hasAttribute('data-used-up'), panel); assert.equal(card.hidden, hidden);
+  assert.equal(card.textContent, ''); assert.equal(card.inert, true);
+  assert.equal(h.root.querySelector('.composer-out').inert, true);
+  assert.equal(h.root.querySelector('.composer-out__export').getAttribute('aria-disabled'), 'true');
+  await quiet484(t, h);
+});
+for (const source of ['.purpose-new', '.composer-out__new']) test(`AIT-484 ${source} routes to the deleted action`, async t => {
+  const h = fixture484(t, { host: { credits: true, usedUp: { newConversation: { enabled: true } } }, session: { credits: { status: 'ended', endReason: 'session' } } });
+  await h.reconnect(); h.streamErase(); await tick(8);
+  const button = h.root.querySelector(source); assert.ok(button); button.click(); await tick(8);
+  assert.deepEqual(h.newEvents[0], { previousSessionId: 'conversation-a', reason: 'deleted', confirm: false });
+});
+
 function noErasedReads464(t, h) {
   const counts = `snapshot=${h.reads.snapshot}, consent=${h.reads.consent}`;
   t.diagnostic(`AIT-464 erased A reads: ${counts}`);
