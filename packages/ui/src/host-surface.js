@@ -62,7 +62,8 @@ export class HostSurface {
       request: (path, body) => this.#call(this.#sessionPath(path), body), session, streaming,
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     this.#mountHandover(); this.#mountFoot();
-    if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole, session,
+    if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole,
+      session: () => this.#erased ? { ...session(), processingPreset: this.#erased.processingPreset } : session(),
       request: (path, body) => this.#call(this.#sessionPath(path), body), settings: opener => openSettings?.(opener, { processing: true }) });
     root.querySelector('.credits-email').addEventListener('click', event => { event.preventDefault(); this.#openSettings?.(); });
     this.#handover = this.#session().handover ?? null;
@@ -170,7 +171,7 @@ export class HostSurface {
   }
   erased(id) {
     if (this.#erased || id !== this.#session().id) return;
-    this.#erased = { id, usedUp: this.usedUp, endReason: this.endReason };
+    this.#erased = { id, usedUp: this.usedUp, endReason: this.endReason, processingPreset: this.#session().processingPreset };
     clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
     clearInterval(this.#creditsPoll); this.#creditsPoll = null; this.#creditsLoad++;
     this.#verification?.disconnect(); this.#emailAsk?.disconnect();
