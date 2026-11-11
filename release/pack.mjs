@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { releaseExecFileSync } from './lib/exec.mjs';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -153,10 +154,10 @@ export function verifyRelease(directory, { onArtifact = () => {} } = {}) {
     if (artifact.path.includes('/') || !/^sha256:[a-f0-9]{64}$/u.test(artifact.sha256) || artifact.coordinate !== coordinate) throw new Error('Invalid artifact coordinate');
     const path = join(directory, artifact.path); if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) throw new Error('Artifact must be regular file');
     if (digest(readFileSync(path)) !== artifact.sha256) throw new Error('Artifact digest mismatch');
-    const paths = execFileSync('tar', ['-tzf', path], { encoding: 'utf8' }).trim().split('\n');
+    const paths = releaseExecFileSync('tar', ['-tzf', path], { encoding: 'utf8' }).trim().split('\n');
     const expected = inventory.map(file => `package/${file.path}`).sort();
     if (JSON.stringify([...paths].sort()) !== JSON.stringify(expected)) throw new Error('Artifact file inventory mismatch');
-    const listing = execFileSync('tar', ['-tvzf', path], { encoding: 'utf8' }).trim().split('\n');
+    const listing = releaseExecFileSync('tar', ['-tvzf', path], { encoding: 'utf8' }).trim().split('\n');
     if (listing.length !== paths.length || listing.some(line => !line.startsWith('-'))) throw new Error('Artifact requires regular members');
     const byPath = new Map(inventory.map(file => [file.path, file]));
     if (byPath.size !== inventory.length) throw new Error('Duplicate artifact member');

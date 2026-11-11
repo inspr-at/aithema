@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertReleaseTag, compareVersions, migrationGate, parseVersion } from './lib/version.mjs';
 import { normalizedDigest } from './normalize.mjs';
+import { releaseExecFileSync, ReleaseExecBoundError } from './lib/exec.mjs';
 
 const isDigest = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value);
 const isCommit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value);
@@ -32,8 +32,8 @@ export function parseCandidateMarker(tag, object) {
   }
 }
 
-export function candidateGate(ref, { root = process.cwd(), directory = join(root, 'dist/release') } = {}) {
-  const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+export function candidateGate(ref, { root = process.cwd(), directory = join(root, 'dist/release'), execBounds = {} } = {}) {
+  const git = args => releaseExecFileSync('git', args, { ...execBounds, cwd: root, encoding: 'utf8' }).trim();
   const source = JSON.parse(readFileSync(join(root, 'release/version.json')));
   assertReleaseTag(ref, source);
   git(['fetch', '--no-tags', 'origin',
@@ -58,10 +58,14 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
     try {
       other = tag === name ? selected : marker(tag);
     } catch (error) {
+      if (error instanceof ReleaseExecBoundError) throw error;
       // A broken immutable marker must still close its claimed sequence. An
       // unrelated (or unreadable) sequence cannot poison all future releases.
       let sequence;
-      try { sequence = markerMessage(git(['cat-file', '-p', `refs/tags/${tag}`])).release_sequence; } catch { /* no readable claim */ }
+      try { sequence = markerMessage(git(['cat-file', '-p', `refs/tags/${tag}`])).release_sequence; } catch (cause) {
+        if (cause instanceof ReleaseExecBoundError) throw cause;
+        // No readable claim.
+      }
       if (sequence === selected.release_sequence || typeof sequence === 'string' && Number(sequence) === selected.release_sequence) throw error;
       console.warn(`Warning: ignoring malformed ${tag} (sequence ${sequence ?? 'unknown'}, candidate sequence ${selected.release_sequence}): ${error.message}`);
       continue;
@@ -74,8 +78,8 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
   const repo = process.env.GITHUB_REPOSITORY;
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repo ?? '')) throw new Error('GITHUB_REPOSITORY required for published release admission');
   // gh uses this workflow's GH_TOKEN. Only GET requests; every page is read.
-  const pages = JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`],
-    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  const pages = JSON.parse(releaseExecFileSync('gh', ['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`],
+    { ...execBounds, cwd: root, encoding: 'utf8' }));
   if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page))) throw new Error('Invalid published release response');
   const history = JSON.parse(readFileSync(join(root, 'release/history.json'))).releases;
   const publishedTags = new Set();
@@ -106,6 +110,7 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
       sequence = JSON.parse(git(['show', `refs/tags/${tag}^{commit}:release/version.json`])).release_sequence;
       if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error('Invalid release sequence');
     } catch (cause) {
+      if (cause instanceof ReleaseExecBoundError) throw cause;
       throw new Error(`Unreadable release sequence for in-flight ${tag}`, { cause });
     }
     if (sequence === selected.release_sequence) throw new Error(`Another in-flight tag ${tag} claims release sequence ${sequence}`);
