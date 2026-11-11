@@ -416,7 +416,7 @@ test('AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any rec
       await page.setViewport({ width: 1440, height: 1000 });
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
       await until(page, () => document.querySelector('aithema-session')?.session);
-      await fixture(page, 'en', { delivery: true, ...(path === 'verification' ? { address: 'prior@example.test' } : {}) });
+      await fixture(page, 'en', { delivery: true, confirmationEnabled: path !== 'visitor-email', ...(path === 'verification' ? { address: 'prior@example.test' } : {}) });
       let selector;
       if (path === 'email-ask') {
         await page.evaluate(() => window.ait164.reply()); await gateReady(page);
