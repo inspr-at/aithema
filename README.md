@@ -504,11 +504,18 @@ A journal `session.erased`, or a snapshot 404 with exactly
 `{error: 'session-not-found'}`, enters the erased state. An exact refusal from
 another session route first shares one confirming snapshot read per conversation,
 limited to once every 15 seconds. Other 404 bodies do not erase the view. Entry
-sets `data-aithema-erased` and dispatches one bubbling, composed
-`aithema-erased` event with `{sessionId, via: 'journal' | 'not-found'}`. Session
-requests and timers stop; changing to a different id with `configure()` clears
-this state. The copy key `conversationUnavailable` supplies “This conversation
-is no longer available.” / “Dieses Gespräch ist nicht mehr verfügbar.” and
+sets `data-aithema-erased` and dispatches the bubbling, composed, non-cancelable
+`aithema-erased` event with detail `{sessionId, via}`. The `via` value is `journal`
+for a journal `session.erased` (also for a newly seen tombstoned snapshot), or
+`not-found` for the exact snapshot 404 above, including the confirming snapshot
+404 after another session route refuses. The element keeps an `announced` latch
+per erased conversation id and sets it before dispatch: each id is announced
+once for that element instance. Removing and appending the element preserves
+the latch. `configure()` to the same id only repaints locale/copy and updates the
+token; configuring a different id clears the current erased view, but returning
+to the erased id restores its terminal view without another event. Session
+requests and timers stop while erased. The copy key `conversationUnavailable`
+supplies “This conversation is no longer available.” / “Dieses Gespräch ist nicht mehr verfügbar.” and
 repaints on locale changes; the action reuses `hostSurface.library.new`. Locale
 changes while erased repaint local text and dispatch `aithema-locale` without
 requesting the session. Geometry holds are released on resize or rotation so
@@ -520,6 +527,10 @@ Without a library, the end action emits `aithema-new-conversation` with
 `{previousSessionId, reason: 'deleted', confirm: false}`, omitting `processingPreset`
 and `settings`. No preset/settings means the server's last choice. Other
 new-conversation entry points route to this action while erased.
+
+Hosts should stop their own per-session requests (for example consent, locale or
+handover) on `aithema-erased`, `aithema-open-conversation` with reason `deleted`,
+or `aithema-new-conversation`.
 
 | Request | Result |
 | --- | --- |
