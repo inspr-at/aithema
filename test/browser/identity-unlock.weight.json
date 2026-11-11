@@ -1,5 +1,5 @@
 {
-  "seconds": 240,
+  "seconds": 242,
   "provisional": true,
-  "evidence": "AIT-470 expanded ten-case SMTP/proxy workload with fast in-place consent primary cases; provisional reservation pending committed-head remote timing and first successful CI measurements. No CI samples claimed."
+  "evidence": "AIT-483 committed-head ed99e09b remote default-file runs ait-10e988ddcd204eff91443f22, ait-de22151eabf04d0c9fd28fde, ait-43445d21697c4e75aeb9bcdf, ait-793af1363a764dbca85240f7, ait-7212fb75f88548769282b308: 192.976351533s, 192.860122603s, 192.595116134s, 192.748010456s, 192.803849822s; max 192.976351533s; ceil(max x 1.25) = 242s. Provisional remote reservation; no CI samples claimed."
 }
