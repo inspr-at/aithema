@@ -438,3 +438,12 @@ test('bound errors identify their class in logs and stack traces', async () => {
   assert.equal(error.name, 'ReleaseExecBoundError');
   assert.match(error.stack, /^ReleaseExecBoundError: fixture bound/u);
 });
+
+for (const key of ['maxBuffer', 'timeout']) test(`non-enumerable ${key} cannot hide an invalid bound`, async () => {
+  const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+  const bounds = Object.defineProperty({}, key, { value: 0 });
+  assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, bounds),
+    /exec bound.*positive finite number/iu);
+  assert.throws(() => gateModule.candidateGate('invalid', { execBounds: bounds }),
+    /exec bound.*positive finite number/iu);
+});
