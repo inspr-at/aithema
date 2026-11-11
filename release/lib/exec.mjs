@@ -20,7 +20,10 @@ export function validateExecBounds(bounds = {}) {
   for (const key of Reflect.ownKeys(bounds)) {
     if (!['maxBuffer', 'timeout'].includes(key)) throw new TypeError(`Unsupported exec bound: ${String(key)}`);
   }
-  const values = { maxBuffer: RELEASE_EXEC_MAX_BUFFER, timeout: RELEASE_EXEC_TIMEOUT_MS, ...bounds };
+  const values = {
+    maxBuffer: Object.hasOwn(bounds, 'maxBuffer') ? bounds.maxBuffer : RELEASE_EXEC_MAX_BUFFER,
+    timeout: Object.hasOwn(bounds, 'timeout') ? bounds.timeout : RELEASE_EXEC_TIMEOUT_MS,
+  };
   for (const [key, value] of Object.entries(values)) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
       throw new TypeError(`Invalid exec bound ${key}: expected a positive finite number`);
