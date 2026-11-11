@@ -1275,7 +1275,8 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
     }, { session, stage });
     await settle484();
     if (stage === 'live') await rest(page, '.transcript-shell');
-    const selectors = ['form.composer', '.composer-dock', ...(stage === 'ready' ? ['.intro__card'] : stage === 'folded' ? ['.fold-strip'] : ['.qcard'])];
+    const selectors = stage === 'ready' ? ['.intro__card'] : stage === 'folded' ? ['.fold-strip']
+      : ['form.composer', '.composer-dock', '.transcript-shell', '.qcard'];
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-folded')), stage === 'folded', 'the fixture actually enters the requested fold state');
     const before = await Promise.all(selectors.map(selector => box(page, selector)));
     if (stage === 'live') assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), false, 'the dock check includes an open question card');
