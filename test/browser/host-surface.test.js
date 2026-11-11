@@ -72,6 +72,9 @@ const box = (page, selector) => inShadow(page, (c, selector) => {
   return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 }, selector);
 function sameBox(before, after, label) {
+  for (const [sample, rect] of [['before', before], ['after', after]]) {
+    assert.ok(rect.width > 0 && rect.height > 0, `${label} ${sample} must have positive width and height: ${JSON.stringify(rect)}`);
+  }
   for (const key of ['x', 'y', 'width', 'height']) {
     assert.ok(Math.abs(before[key] - after[key]) <= .5, `${label} moved: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
   }
