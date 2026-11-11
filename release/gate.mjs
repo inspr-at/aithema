@@ -58,12 +58,10 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
     try {
       other = tag === name ? selected : marker(tag);
     } catch (error) {
-      if (error instanceof ReleaseExecBoundError) throw error;
       // A broken immutable marker must still close its claimed sequence. An
       // unrelated (or unreadable) sequence cannot poison all future releases.
       let sequence;
       try { sequence = markerMessage(git(['cat-file', '-p', `refs/tags/${tag}`])).release_sequence; } catch (cause) {
-        if (cause instanceof ReleaseExecBoundError) throw cause;
         // No readable claim.
       }
       if (sequence === selected.release_sequence || typeof sequence === 'string' && Number(sequence) === selected.release_sequence) throw error;

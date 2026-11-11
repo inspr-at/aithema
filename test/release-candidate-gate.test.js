@@ -403,3 +403,26 @@ test('release exec retains captured stderr in a failure message', async () => {
   assert.throws(() => releaseExecFileSync(process.execPath, ['-e',
     'process.stderr.write("fixture failure detail"); process.exit(1)']), /fixture failure detail/u);
 });
+
+for (const annotated of [true, false]) test(`sibling marker bound failure escapes the ${annotated ? 'outer' : 'fallback'} rethrow guard`, t => {
+  const f = fixture(t); f.tag();
+  const sibling = '261019120001.0.0', tag = `refs/tags/candidate/v${sibling}`;
+  f.tag({ ...f.marker, version: sibling, release_sequence: version.release_sequence - 1 }, f.commit, sibling, annotated);
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(f.root, 'bin/git'), `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args[0] === 'cat-file' && args[1] === '-p' && args[2] === ${JSON.stringify(tag)}) {
+  process.stdout.write('x'.repeat(128 * 1024));
+} else {
+  const child = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
+  process.exit(child.status ?? 1);
+}
+`, { mode: 0o755 });
+  const result = f.run({ maxBuffer: 64 * 1024 });
+  refused(result, /exceeded maxBuffer=65536 bytes/u);
+  assert.ok(result.stderr.includes(`git cat-file -p ${tag}`), result.stderr);
+  assert.doesNotMatch(result.stderr, /ignoring malformed/u);
+  assert.equal(result.stdout, '', 'a sibling read failure never emits an admitted marker');
+  assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')), 'API admission is never reached');
+});
