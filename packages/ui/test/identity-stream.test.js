@@ -747,7 +747,7 @@ test('AIT-484 focus on fold moves to the end action; Settings controls are disab
 });
 
 test('AIT-484 erased reattachment reconnects footer interactions without requests', async t => {
-  const h = fixture484(t, { host: {} }); await h.reconnect(); h.streamErase(); await tick(8);
+  const h = fixture484(t, { host: { version: { version: '1.2.3', version_scheme: 'legacy', commit: 'abcdef1234' } } }); await h.reconnect(); h.streamErase(); await tick(8);
   await h.reconnect();
   const info = h.root.querySelector('.footer-info'), button = info.querySelector('button');
   button.click(); assert.equal(button.getAttribute('aria-expanded'), 'true');
