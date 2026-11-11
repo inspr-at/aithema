@@ -40,10 +40,20 @@ process.stdout.write(fs.readFileSync('published.json', 'utf8'));
   // Explicit child environment: fixture stubs first, no ambient credentials.
   const env = { PATH: [join(root, 'bin'), process.env.PATH].filter(Boolean).join(':'), GITHUB_REPOSITORY: 'fixture/repo', GH_TOKEN: 'fixture-only' };
   const gate = fileURLToPath(new URL('../release/gate.mjs', import.meta.url));
-  const run = () => spawnSync(process.execPath, [gate, 'candidate', ref, release.directory], { cwd: root, env, encoding: 'utf8' });
+  const run = (execBounds) => {
+    const args = execBounds === undefined ? [gate, 'candidate', ref, release.directory] : [
+      '--input-type=module', '-e', `
+        import { candidateGate } from ${JSON.stringify(new URL('../release/gate.mjs', import.meta.url).href)};
+        console.log(JSON.stringify(candidateGate(process.argv[1], {
+          directory: process.argv[2], execBounds: JSON.parse(process.argv[3]),
+        })));
+      `, ref, release.directory, JSON.stringify(execBounds),
+    ];
+    return spawnSync(process.execPath, args, { cwd: root, env, encoding: 'utf8' });
+  };
   const pages = entries => writeFileSync(join(root, 'published.json'), JSON.stringify(entries));
   const published = entries => pages([entries]);
-  return { root, git, commit, marker, tag, run, published, pages };
+  return { root, env, git, commit, marker, tag, run, published, pages };
 }
 function refused(result, reason) {
   assert.notEqual(result.status, 0, result.stdout);
@@ -58,6 +68,71 @@ test('candidate gate admits the active annotated marker and uses only paginated 
   const calls = readFileSync(join(f.root, 'gh-calls.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], ['api', '--paginate', '--slurp', 'repos/fixture/repo/releases?per_page=100']);
+});
+
+function publishedHistory(f, count, bodyBytes) {
+  const releases = Array.from({ length: count }, (_, index) => {
+    const tag = `v0.${index + 1}.0`;
+    f.git(['tag', tag, f.commit]);
+    return { version_scheme: 'legacy', version: tag.slice(1), release_sequence: index + 1,
+      release_channel: 'stable', tag, source_commit: f.commit };
+  });
+  writeFileSync(join(f.root, 'release/history.json'), json({ releases }));
+  const notes = 'Release notes for the published artifact.\n';
+  f.pages(releases.map(release => [{ tag_name: release.tag, draft: false,
+    name: `Release ${release.version}`, body: notes.repeat(Math.ceil(bodyBytes / notes.length)) }]));
+}
+
+test('candidate gate admits valid published release history larger than 1 MiB', t => {
+  const f = fixture(t); f.tag();
+  publishedHistory(f, 18, 64 * 1024);
+  assert.ok(readFileSync(join(f.root, 'published.json')).length > 1024 * 1024);
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), f.marker);
+});
+
+const releaseApiArgs = ['api', '--paginate', '--slurp', 'repos/fixture/repo/releases?per_page=100'];
+const boundMessage = bound => `Release command "gh ${releaseApiArgs.join(' ')}" exceeded ${bound}; ` +
+  'review the required bound and raise it explicitly in release/lib/exec.mjs.';
+
+test('candidate gate refuses release history exceeding an injected small output cap', t => {
+  const f = fixture(t); f.tag();
+  // Below Node's old default: ignoring the injected cap would admit this candidate.
+  publishedHistory(f, 1, 128 * 1024);
+  const result = f.run({ maxBuffer: 64 * 1024 });
+  refused(result, /exceeded maxBuffer=65536 bytes/u);
+  assert.ok(result.stderr.includes(boundMessage('maxBuffer=65536 bytes')), result.stderr);
+  assert.equal(result.stdout, '', 'a bounded failure never emits an admitted marker');
+});
+
+test('release exec helper fails closed with the command and output bound on ENOBUFS', async t => {
+  const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+  const f = fixture(t);
+  writeFileSync(join(f.root, 'published.json'), 'x'.repeat(128 * 1024));
+  assert.throws(() => releaseExecFileSync('gh', releaseApiArgs, {
+    cwd: f.root, env: f.env, encoding: 'utf8', maxBuffer: 64 * 1024,
+  }), error => {
+    assert.equal(error.message, boundMessage('maxBuffer=65536 bytes'));
+    assert.equal(error.cause.code, 'ENOBUFS');
+    return true;
+  });
+});
+
+test('release exec helper fails closed with the command and time bound on timeout', async t => {
+  const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+  const f = fixture(t);
+  writeFileSync(join(f.root, 'bin/gh'), `#!${process.execPath}
+process.stdout.write('[[]]');
+setTimeout(() => {}, 5000);
+`, { mode: 0o755 });
+  assert.throws(() => releaseExecFileSync('gh', releaseApiArgs, {
+    cwd: f.root, env: f.env, encoding: 'utf8', timeout: 50,
+  }), error => {
+    assert.equal(error.message, boundMessage('timeout=50 ms'));
+    assert.equal(error.cause.code, 'ETIMEDOUT');
+    return true;
+  });
 });
 for (const [name, setup, reason] of [
   ['no marker', () => {}, /candidate.*marker|marker.*missing/iu],
