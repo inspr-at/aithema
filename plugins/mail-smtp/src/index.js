@@ -5,9 +5,11 @@ import { formatCredits } from '@inspr/aithema-ui/display';
 import { confirmationMessage, mergeMailCopy } from './templates.js';
 export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js';
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
-// AIT-487: `to` is a string passed to nodemailer's parser, so admit no
-// parser-ambiguous syntax; the UI's type=email grammar already excludes it.
-const address = value => clean(value) && /^[^\s@<>;,"()\\]+@[^\s@<>;,"()\\]+\.[^\s@<>;,"()\\]+$/u.test(value);
+// AIT-487: trusted host configuration keeps RC21's grammar for compatibility.
+// Visitor `to` strings reach nodemailer's parser, so exclude parser-ambiguous
+// syntax there; the UI's type=email grammar already excludes it.
+const configuredAddress = value => clean(value) && /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/u.test(value);
+const recipientAddress = value => clean(value) && /^[^\s@<>;,"()\\]+@[^\s@<>;,"()\\]+\.[^\s@<>;,"()\\]+$/u.test(value);
 const boolean = (value, fallback = false) => {
   if (value === undefined || value === '') return fallback;
   if (['true', '1'].includes(value)) return true;
@@ -32,9 +34,9 @@ export function smtpConfig(values = process.env, { production = false } = {}) {
   const host = values.SMTP_HOST, from = values.SMTP_FROM, port = Number(values.SMTP_PORT ?? 587);
   const allowPlaintextLocalRelay = boolean(values.SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY);
   const secure = boolean(values.SMTP_SECURE, port === 465);
-  if (!clean(host) || !/^[a-z0-9.:[\]-]+$/iu.test(host) || !address(from) || !Number.isInteger(port) || port < 1 || port > 65535 ||
+  if (!clean(host) || !/^[a-z0-9.:[\]-]+$/iu.test(host) || !configuredAddress(from) || !Number.isInteger(port) || port < 1 || port > 65535 ||
     values.SMTP_USER && !clean(values.SMTP_USER) || values.SMTP_FROM_NAME && !clean(values.SMTP_FROM_NAME) ||
-    values.SMTP_REPLY_TO && !address(values.SMTP_REPLY_TO)) throw new TypeError('Invalid SMTP configuration');
+    values.SMTP_REPLY_TO && !configuredAddress(values.SMTP_REPLY_TO)) throw new TypeError('Invalid SMTP configuration');
   if (allowPlaintextLocalRelay && (port !== 25 || secure)) throw new TypeError('Plaintext SMTP requires port 25 and a local/private relay');
   if (port === 465 && !secure) throw new TypeError('SMTP port 465 requires implicit TLS');
   return Object.freeze({ host, port, secure, allowPlaintextLocalRelay, from, fromName: values.SMTP_FROM_NAME,
@@ -100,7 +102,7 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
   return { id: 'smtp', deliversVerification: true,
     async requestVerification({ address: to, token, locale = 'en', expiresAt, confirmedAllowanceMicro, privacyDocumentConfigured = false }, { signal } = {}) {
       assertOpen();
-      if (!address(to) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
+      if (!recipientAddress(to) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
       signal?.throwIfAborted();
       const link = new URL('/confirm-email', origin); link.searchParams.set('token', token); link.searchParams.set('lang', locale === 'de' ? 'de' : 'en');
       locale = locale === 'de' ? 'de' : 'en';
