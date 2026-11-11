@@ -1,5 +1,6 @@
 // Real handlers, visitor wallet and ledger; the only provider is a controlled fake.
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { SQLiteStorage, createHandlers, createPluginRuntime } from '../../packages/server/src/index.js';
 import { PluginRegistry, inputRevision } from '../../packages/core/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
@@ -41,12 +42,24 @@ const makeHandlers = () => {
   return createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, host, consent });
 };
 let handlers = makeHandlers();
+const inertSessions = new Set();
 const call = (action, data) => handlers.handle(new Request(`http://fixture/api/sessions/${current.id}/${action}`, {
   method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner }, body: JSON.stringify(data),
 }));
 const root = new URL('../../', import.meta.url);
 const { server, url } = await listen(async request => {
   const u = new URL(request.url), path = u.pathname;
+  if (path === '/seed' && request.method === 'POST') {
+    const { inert = false, ...session } = await request.json();
+    // These UI scenarios own their synthetic timeline. On main their ids were
+    // unknown, so the server did no work; the element now treats unknown ids as
+    // erased, so they must exist without server work.
+    if (inert === true) inertSessions.add(session.id);
+    storage.db.prepare('INSERT INTO sessions (id, snapshot) VALUES (?, ?)').run(session.id,
+      JSON.stringify({ ...session, ownerHash: createHash('sha256').update(owner).digest('hex') }));
+    storage.transitionHost(session.id, () => ({ state: {}, events: [] }));
+    return Response.json({ ok: true }, { headers: { 'x-aithema-session-token': owner } });
+  }
   if (path === '/hold-reply') { replyHold = { entered: Promise.withResolvers(), release: null }; return Response.json({ ok: true }); }
   if (path === '/release-reply') {
     const held = replyHold;
@@ -100,6 +113,32 @@ const { server, url } = await listen(async request => {
     return Response.json({ providerCalls: kit.calls.length, lanes: kit.calls.map(call => call.body.stream ? 'reaction' : 'understanding'), attempts: storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all() });
   }
   if (path === '/success') { success = true; return Response.json({ ok: true }); }
+  const seededRoute = /^\/api\/sessions\/([^/]+)(?:\/(events))?$/u.exec(path);
+  if (request.method === 'GET' && seededRoute && inertSessions.has(seededRoute[1])) {
+    const id = seededRoute[1], { ownerHash, ...session } = storage.get(id);
+    if (!seededRoute[2]) return Response.json(session, { headers: { 'cache-control': 'no-store' } });
+    const raw = request.headers.get('last-event-id') ?? u.searchParams.get('after') ?? '0';
+    if (!/^\d+$/u.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) > session.seq)
+      return Response.json({ error: 'invalid-cursor' }, { status: 400 });
+    let cleanup;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        const send = event => controller.enqueue(encoder.encode(`${event.seq ? `id: ${event.seq}\n` : ''}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+        for (const event of storage.read(id, Number(raw))) send(event);
+        // Preserve the seeded operations instead of rebuilding them from jobs.
+        if (session.operations) send({ sessionId: id, type: 'lane.status', data: session.operations });
+        const heartbeat = setInterval(() => controller.enqueue(encoder.encode(': heartbeat\n\n')), 15_000);
+        const abort = () => { cleanup(); controller.close(); };
+        cleanup = () => { clearInterval(heartbeat); request.signal.removeEventListener('abort', abort); };
+        request.signal.addEventListener('abort', abort, { once: true });
+        if (request.signal.aborted) abort();
+      },
+      cancel() { cleanup?.(); },
+    });
+    return new Response(stream, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive', 'x-accel-buffering': 'no' } });
+  }
   if (path.startsWith('/api/')) return handlers.handle(new Request(request, { headers: { ...Object.fromEntries(request.headers), 'x-aithema-session-token': owner } }));
   if (path === '/') return new Response('<!doctype html><html><meta charset="utf-8"><style>body{margin:0}aithema-session{display:block;min-height:100vh}</style><aithema-session></aithema-session><script type="module" src="/packages/ui/src/session-element.js"></script></html>', { headers: { 'content-type': 'text/html' } });
   if (!/^\/packages\/(ui|core)\/src\/[a-z0-9/-]+\.(?:js|json)$/u.test(path)) return new Response(null, { status: 404 });

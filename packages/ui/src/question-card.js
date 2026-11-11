@@ -133,6 +133,7 @@ export class QuestionCard {
     });
     this.view = root.ownerDocument.defaultView;
     this.scheduleReserve = () => {
+      if (this.frozen) return;
       if (this.frame != null) return;
       this.frame = this.view.requestAnimationFrame(() => {
         this.frame = null; this.reserve();
@@ -157,7 +158,9 @@ export class QuestionCard {
     this.optionsScroll = () => this.fadeOptions();
     this.connect();
   }
+  freeze() { this.frozen = true; this.destroy(); }
   connect() {
+    if (this.frozen) return;
     this.card.querySelector('.qopts').addEventListener('scroll', this.optionsScroll, { passive: true });
     const Resize = this.root.ownerDocument.defaultView?.ResizeObserver;
     if (Resize) {
@@ -171,6 +174,7 @@ export class QuestionCard {
     this.view?.visualViewport?.addEventListener('resize', this.viewportResize);
   }
   reserve() {
+    if (this.frozen) return;
     if (this.root.querySelector('.conversation').hidden) return;
     const shell = this.root.querySelector('.transcript-shell');
     const viewportChanged = this.followOnResize !== undefined;
@@ -247,6 +251,7 @@ export class QuestionCard {
     this.onResize?.({ following });
   }
   fadeOptions() {
+    if (this.frozen) return;
     const opts = this.card.querySelector('.qopts'), horizontal = this.card.hasAttribute('data-compact');
     const offset = horizontal ? opts.scrollLeft : opts.scrollTop;
     const end = horizontal ? opts.scrollWidth - opts.clientWidth : opts.scrollHeight - opts.clientHeight;
@@ -254,12 +259,14 @@ export class QuestionCard {
     opts.toggleAttribute('data-more-end', end - offset > 1);
   }
   positionOptions(reset = false) {
+    if (this.frozen) return;
     if (!this.card.hasAttribute('data-compact')) return;
     const opts = this.card.querySelector('.qopts'), active = this.root.activeElement;
     if (opts.contains(active)) active.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     else if (reset) opts.scrollLeft = 0;
   }
   update(question, copy, unavailable, sending = false) {
+    if (this.frozen) return;
     const focused = this.card.contains(this.root.activeElement);
     this.card.hidden = !question;
     if (!question) {
@@ -306,7 +313,7 @@ export class QuestionCard {
     this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.removeEventListener('resize', this.viewportResize);
-    this.card.querySelector('.qopts').removeEventListener('scroll', this.optionsScroll);
+    this.card.querySelector('.qopts')?.removeEventListener('scroll', this.optionsScroll);
     if (this.frame != null) this.view.cancelAnimationFrame(this.frame);
     this.frame = null;
   }

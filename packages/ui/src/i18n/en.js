@@ -2,6 +2,7 @@ import { reasonSeparator } from '../consent-line.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  conversationUnavailable: 'This conversation is no longer available.',
   actorRole: {
     label: 'Role', inferred: 'inferred', why: 'How we read it:', chosen: 'Chosen by you.',
     unset: 'not set', notAssessed: 'Not assessed yet.',

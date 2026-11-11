@@ -140,6 +140,7 @@ export class EmailAsk {
   }
   format(value) { return Number.isFinite(value) ? formatCredits(value, this.session().locale ?? 'en') : ''; }
   paint() {
+    if (this.root.host?.hasAttribute('data-aithema-erased')) return;
     const a = this.copy.hostSurface.emailAsk, e = this.copy.hostSurface.email, v = this.copy.hostSurface.verify;
     const low = this.lowCredits && this.credits?.emailAskLowCredits !== false && lowCredit(this.credits), n = this.email.numbers, owner = this.credits?.balance?.owner;
     const confirmRaises = this.credits?.tiers?.canConfirm === true && this.credits.tiers.allowancesMicro?.emailConfirmed > this.credits.tiers.allowancesMicro?.emailGiven;

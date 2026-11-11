@@ -5,10 +5,15 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
   // Per-document identity: sessionStorage is copied into auxiliary windows and
   // cannot prove ownership. Only the server's epoch grants command authority.
   const tabId = crypto.randomUUID(), epochs = new Map();
+  let erased = false;
   const base = `${baseUrl.replace(/\/$/u, '')}/api/sessions/${sessionId}/voice`;
   const post = async (url, body, options = {}) => {
+    if (erased) return { closureConfirmed: true };
     const response = await postJson(url, body, { sessionToken, signal: options.signal });
+    const refusal = response.status === 404 ? response.clone() : null;
     const value = await response.json().catch(() => null);
+    if (refusal && value?.error === 'session-not-found' && Object.keys(value).length === 1)
+      receive({ type: 'session.not-found', sessionId, data: { url, response: refusal } });
     options.signal?.throwIfAborted();
     if (!response.ok) {
       const error = new Error('Voice control failed'), seconds = Number(response.headers.get('retry-after'));
@@ -23,8 +28,12 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
   for (const name of ['pause', 'resume', 'heartbeat', 'recover', 'takeover']) {
     control[name] = (identity, options) => post(`${base}/${identity.callId}/${name}`, authority(identity), options);
   }
-  control.close = (identity, options) => post(`${base}/${identity.callId}/close`, { ...authority(identity), background: true }, options);
-  control.stopReplyReplay = identity => post(identity.callId ? `${base}/${identity.callId}/replay` : `${base}/replay`, authority({ ...identity, stop: true }));
+  const locallyEnded = (identity, options) => {
+    if (identity?.reason === 'session-erased' || options?.reason === 'session-erased') erased = true;
+    return erased;
+  };
+  control.close = (identity, options) => locallyEnded(identity, options) ? Promise.resolve({ closureConfirmed: true }) : post(`${base}/${identity.callId}/close`, { ...authority(identity), background: true }, options);
+  control.stopReplyReplay = (identity, options) => locallyEnded(identity, options) ? Promise.resolve({ closureConfirmed: true }) : post(identity.callId ? `${base}/${identity.callId}/replay` : `${base}/replay`, authority({ ...identity, stop: true }));
   control.speakText = (identity, options) => post(identity.callId ? `${base}/${identity.callId}/replay` : `${base}/replay`, authority(identity), options);
   control.reportActivity = (event, options) => post(`${base}/${event.callId}/events`, { ...authority(event), event }, options);
   return { control, async persistEvent(event, identity, options) {

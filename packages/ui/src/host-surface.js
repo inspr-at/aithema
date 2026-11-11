@@ -18,6 +18,7 @@ import { EmailAsk, lowCredit } from './email-ask.js';
 export const defaultCreditFormat = formatCredits;
 
 export class HostSurface {
+  #erased = null; #request;
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
   #limitGeneration = 0;
@@ -28,8 +29,8 @@ export class HostSurface {
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming, replyInFlight = streaming, initialCreditScope }) {
-    this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
+  constructor({ request, root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming, replyInFlight = streaming, initialCreditScope }) {
+    this.#request = request; this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#initialCreditScope = initialCreditScope ?? options?.credits?.scope;
     this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
     this.#admissionDenied = admissionDenied; this.#creditContext = creditContext;
@@ -61,19 +62,21 @@ export class HostSurface {
       request: (path, body) => this.#call(this.#sessionPath(path), body), session, streaming,
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     this.#mountHandover(); this.#mountFoot();
-    if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole, session,
+    if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole,
+      session: () => this.#erased ? { ...session(), processingPreset: this.#erased.processingPreset } : session(),
       request: (path, body) => this.#call(this.#sessionPath(path), body), settings: opener => openSettings?.(opener, { processing: true }) });
     root.querySelector('.credits-email').addEventListener('click', event => { event.preventDefault(); this.#openSettings?.(); });
     this.#handover = this.#session().handover ?? null;
     this.#paintCredits(); this.#paintHandover();
   }
+  setSessionToken(token) { this.#token = token; }
   setCopy(copy) {
     this.#copy = copy;
     const s = copy.hostSurface, root = this.#root;
     root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
     this.#menu?.setCopy(copy);
-    this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
-    this.#emailAsk?.setCopy(copy); this.#actorRole?.setCopy(copy);
+    if (!this.#erased) this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
+    if (!this.#erased) this.#emailAsk?.setCopy(copy); this.#actorRole?.setCopy(copy);
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
     root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));
@@ -86,6 +89,7 @@ export class HostSurface {
   get low() { return !this.usedUp && lowCredit(this.#credits); }
   get emailAsk() { return this.#emailAsk; }
   get endReason() {
+    if (this.#erased) return this.#erased.endReason;
     const state = this.#session().credits;
     return this.#ended ?? (['ending', 'ended'].includes(state?.status) ? state.endReason ?? 'session' : null);
   }
@@ -120,7 +124,7 @@ export class HostSurface {
     // Restored host limits wait for the tier receipt before announcing their variant.
     return { ...state, announce: this.endReason === 'host-limit' && this.#options.credits && !this.#credits && !this.#creditsFailed ? '' : `${state.title} ${state.body}` };
   }
-  get usedUp() { return Boolean(this.endReason) || this.#credits?.exhausted === true; }
+  get usedUp() { if (this.#erased) return this.#erased.usedUp; return Boolean(this.endReason) || this.#credits?.exhausted === true; }
   get fullHold() {
     const owner = this.#credits?.balance?.owner;
     return !this.usedUp && (this.#credits?.fullHold === true || owner?.availableMicro === 0 && owner.reservedMicro > 0);
@@ -149,9 +153,10 @@ export class HostSurface {
   get library() { return this.#library; }
   /** Starts host reads once the element is in the page. */
   connect() {
+    this.#menu?.connect();
+    if (this.#erased) return;
     this.#connected = true;
     this.#emailAsk?.connect();
-    this.#menu?.connect();
     void this.#actorRole?.load();
     void this.#verification?.load(); this.#verification?.connect();
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
@@ -164,6 +169,17 @@ export class HostSurface {
       this.#creditsPoll.unref?.();
     }
   }
+  erased(id) {
+    if (this.#erased || id !== this.#session().id) return;
+    this.#erased = { id, usedUp: this.usedUp, endReason: this.endReason, processingPreset: this.#session().processingPreset };
+    clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
+    clearInterval(this.#creditsPoll); this.#creditsPoll = null; this.#creditsLoad++;
+    this.#verification?.disconnect(); this.#emailAsk?.disconnect();
+  }
+  async newAfterErased() {
+    const response = await this.#call('/api/library', { locale: this.#options.locale?.() ?? this.#session().locale ?? 'en' });
+    if (response.ok && response.body?.session) this.#adopt(response.body.session, 'deleted');
+  }
   disconnect() {
     this.#connected = false; this.#verification?.disconnect();
     this.#emailAsk?.disconnect();
@@ -173,6 +189,8 @@ export class HostSurface {
   destroy() { this.#alive = false; this.disconnect(); this.#emailAsk?.destroy(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); this.#actorRole?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
   receive(event) {
+    if (event.type === 'session.erased') { this.erased(this.#session().id); return; }
+    if (this.#erased) return;
     if (event.type === 'turn.final' && event.data?.role === 'assistant' && this.#emailAsk) this.#emailAsk.awaitingCredits = true;
     this.#verification?.receive(event);
     this.#actorRole?.sync();
@@ -201,6 +219,7 @@ export class HostSurface {
   }
   /** A restored snapshot replaces the projection: identity and handover follow it. */
   resync() {
+    if (this.#erased) return;
     const session = this.#session();
     this.#actorRole?.set(session.roleChoice); this.#actorRole?.sync();
     if (session.identity !== undefined) this.#verification?.set(session.identity ?? null);
@@ -208,15 +227,18 @@ export class HostSurface {
     this.#refreshCredits(); this.update();
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
-  updateStreaming() { this.#verification?.update(); }
-  update() { this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
+  updateStreaming() { if (this.#erased) return; this.#verification?.update(); }
+  update() { if (this.#erased) return; this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
   async #call(path, body, verb = 'POST') {
+    if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
     const sessionId = this.#session().id, url = sameOrigin(this.#view, `${this.#base}${path}`);
+    const request = this.#request ?? ((url, body, options) => options ? postJson(url, body, options) : fetch(url, body));
     const response = body === undefined
-      ? await fetch(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store' })
-      : await postJson(url, body, { sessionToken: this.#token, verb });
+      ? await request(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store' })
+      : await request(url, body, { sessionToken: this.#token, verb });
+    if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
     let value = null; try { value = await response.json(); } catch { /* A body-less reply carries its status only. */ }
     if (!this.#alive || sessionId !== this.#session().id) throw new Error('Conversation changed');
     return { ok: response.ok, status: response.status, body: value };
@@ -283,10 +305,11 @@ export class HostSurface {
   }
   // Credits project the allowance selected by the host for this conversation. Reads never start a time slot.
   #refreshCredits() {
-    if (!this.#options.credits || !this.#connected) return;
+    if (this.#erased || !this.#options.credits || !this.#connected) return;
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
   }
   async #loadCredits() {
+    if (this.#erased) return;
     const limitGeneration = this.#limitGeneration;
     const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current, endedCall = this.#creditContext?.();
     // Only receipts requested after this call's durable closing/ended can settle it.

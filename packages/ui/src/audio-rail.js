@@ -197,6 +197,13 @@ export class AudioRail {
     }
   }
   render() {
+    if (this.erased) {
+      this.root.removeAttribute('data-call-reconciling'); this.root.removeAttribute('data-message');
+      this.root.dataset.call = 'none'; this.root.dataset.state = 'idle'; this.root.inert = true;
+      for (const node of this.root.querySelectorAll('.voice-state,.voice-caption')) { node.replaceChildren(); node.setAttribute('aria-live', 'off'); }
+      for (const button of this.root.querySelectorAll('button')) button.disabled = true;
+      return;
+    }
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
     const c = this.copy, active = Boolean(this.session || this.waitingCall), available = this.feature(),
       transitional = this.retryConnecting || ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
@@ -437,7 +444,9 @@ export class AudioRail {
       // 30 s provider deadline. Cleanup/cooldown above remain outside both.
       if (microphonePhases) connectDeadline();
       const continuing = Boolean(this.waitingCall);
-      const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
+      const startingCall = this.waitingCall ?? { callId: crypto.randomUUID() };
+      this.startingCall = startingCall;
+      const opening = this.client.start(startingCall, {
         signal: controller.signal, holdSignal: holdController.signal,
         // Today's clients retain main's option and their own deadline scopes.
         ...(!microphonePhases || !this.input ? { deadlineAt: Date.now() + 30_000 } : {}),
@@ -464,7 +473,7 @@ export class AudioRail {
       // Ports which ignore AbortSignal still cannot retain this click. Close any late session.
       void opening.then(late => { if (generation !== this.generation || controller.signal.aborted) void late.close().catch(() => {}); }, () => {});
       try { session = await startupWait(opening, controller.signal); }
-      finally { if (this.opening === opening) this.opening = null; }
+      finally { if (this.opening === opening) { this.opening = null; this.startingCall = null; } }
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.startupPhase = null; this.state = 'listening';
       clearTimeout(connectTimer); this.stopReplyWatch();
@@ -736,11 +745,20 @@ export class AudioRail {
     if (this.errorKey === 'voiceClosureUncertain') this.errorKey = 'voiceEnded';
     this.render();
   }
-  close(reason) {
+  close(reason, { serverEnded = false } = {}) {
+    if (serverEnded) {
+      const call = this.session ?? this.closingSession ?? this.waitingCall ?? this.startingCall ?? {};
+      // Latch the control even before startup returns a session; abort can close its grant.
+      if (this.client?.closeWaiting) void this.client.closeWaiting({ callId: call.callId,
+        providerSessionId: call.providerSessionId, epoch: call.epoch }, { reason: 'session-erased' }).catch(() => {});
+      this.erased = true; this.journal?.clear(); this.endedCall = null; this.errorKey = null;
+      this.root.removeAttribute('data-call-reconciling');
+    }
     const returnFocus = this.button('close').getRootNode().activeElement === this.button('close');
-    this.client?.stopReplay?.(); this.stopReplyWatch(); this.cooldownController?.abort();
+    this.client?.stopReplay?.({ reason }); this.stopReplyWatch(); this.cooldownController?.abort();
     if (this.closing && !this.session && this.state !== 'connecting') {
-      if (reason) void this.closingSession?.close({ reason }).catch(() => {});
+      if (serverEnded) { this.render(); void this.closingSession?.close({ reason }).catch(() => {}); }
+      else if (reason) void this.closingSession?.close({ reason }).catch(() => {});
       return this.closing;
     }
     const waiting = this.waitingCall;
@@ -754,11 +772,11 @@ export class AudioRail {
     // startup before its late acknowledgement or the waiting-call POST can run.
     if (!this.session) { this.holdController?.abort(); this.controller?.abort(); }
     this.stopHeartbeat?.(); clearInterval(this.meter); this.quiet();
-    this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
+    this.endedCall = !serverEnded && session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
     this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null;
     this.startupPhase = null; this.retryConnecting = false; this.retryAt = 0; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.notices.clear();
-    this.errorKey = session ? 'voiceClosureUncertain' : null;
+    this.errorKey = !serverEnded && session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
     if (returnFocus) this.button('start').focus({ preventScroll: true });
@@ -767,7 +785,7 @@ export class AudioRail {
     const closing = (async () => {
       try {
         const terminal = await session?.close({ deadlineAt: Date.now() + 45_000, reason: reason ?? 'closed' });
-        if (generation !== this.generation) return;
+        if (generation !== this.generation || this.erased) return;
         if (session) {
           this.journal?.clear();
           this.settlement({ callId: session.callId, providerSessionId: session.providerSessionId, terminal });

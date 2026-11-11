@@ -124,6 +124,7 @@ export class ConversationFold {
     this.root.querySelector('.fold-question').hidden = !openQuestion;
   }
   set(on) {
+    if (this.root.host?.hasAttribute('data-aithema-erased')) return;
     if (on && !this.canFold()) return;
     if (on === this.folded) return;
     const panes = [...this.root.querySelectorAll('.transcript-shell, .analysis-content')];

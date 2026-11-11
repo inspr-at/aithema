@@ -13,7 +13,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
   let current;
   const pageReplay = createPageReplay({ control, document, playAudio });
   const client = { manifest, tabId: control.tabId,
-    replayReply: (reply, opts) => pageReplay.replay(reply, opts), stopReplay: () => pageReplay.stop(),
+    replayReply: (reply, opts) => pageReplay.replay(reply, opts), stopReplay: options => pageReplay.stop(options),
     health: options => voiceOperation(options, async () => ({ available: true })),
     takeover: (identity, options) => voiceOperation(options, opts => control.takeover({ ...identity, explicit: true }, opts)),
     closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),

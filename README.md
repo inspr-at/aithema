@@ -74,6 +74,8 @@ shards, with ten-minute job limits. Nightly units keep ten-minute limits.
 DCO checks run separately.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.
 The unit watchdog always reports the active/last subtest and uncaught-error stacks.
+On remote evidence runs, `AITHEMA_EVIDENCE_DIR` also collects per-file unit
+summaries under `unit-timings/`, alongside browser timing and geometry evidence.
 Async hooks and exact handle origins are opt-in (the default uses current/last subtest context): run `AITHEMA_UNIT_TRACE_HANDLES=1 npm test`
 on the permitted test runner when investigating a leaked timer or handle. Leave
 this flag unset for normal runs to avoid capturing a stack for every handle.
@@ -406,7 +408,13 @@ fact comes from the routes above. Without `host` nothing changes.
   `aithema-open-conversation` event with `{session, reason, previousSessionId}`
   (`reason` is `open`, `new`, `reset` or `deleted`). A host that owns per-conversation
   clients (voice) calls `preventDefault()` and reconfigures; otherwise the element
-  switches itself.
+  switches itself. Erasing the current conversation leaves a terminal, localized end
+  state in its existing stage (including the folded view), with the composer and
+  question-card boxes held. The library and conversations menu remain available.
+  Its **Start a new conversation** action uses the library create path with only
+  `{locale}`, so the server supplies the owner's last settings, then emits
+  `aithema-open-conversation` with reason `deleted`; the element switches itself
+  when the host does not handle the event.
 - **Handover** (`handover: true`): a band under the assessment, shown when the host
   offer is available, with the `handover-offer` slot, one action (Arrange,
   Send update, Retry) whose box never changes, and its state in words, including
@@ -491,6 +499,38 @@ when the visitor starts a separate conversation (General tab, or crossing into o
 out of On my device once a conversation has started), and `aithema-consent` with
 `{sessionId, reason, features}` when a choice needs consent; the host's consent
 interface answers it outside the modal dialog.
+
+A journal `session.erased`, or a snapshot 404 with exactly
+`{error: 'session-not-found'}`, enters the erased state. An exact refusal from
+another session route first shares one confirming snapshot read per conversation,
+limited to once every 15 seconds. Other 404 bodies do not erase the view. Entry
+sets `data-aithema-erased` and dispatches the bubbling, composed, non-cancelable
+`aithema-erased` event with detail `{sessionId, via}`. The `via` value is `journal`
+for a journal `session.erased` (also for a newly seen tombstoned snapshot), or
+`not-found` for the exact snapshot 404 above, including the confirming snapshot
+404 after another session route refuses. The element keeps an `announced` latch
+per erased conversation id and sets it before dispatch: each id is announced
+once for that element instance. Removing and appending the element preserves
+the latch. `configure()` to the same id only repaints locale/copy and updates the
+token; configuring a different id clears the current erased view, but returning
+to the erased id restores its terminal view without another event. Session
+requests and timers stop while erased. The copy key `conversationUnavailable`
+supplies “This conversation is no longer available.” / “Dieses Gespräch ist nicht mehr verfügbar.” and
+repaints on locale changes; the action reuses `hostSurface.library.new`. Locale
+changes while erased repaint local text and dispatch `aithema-locale` without
+requesting the session. Geometry holds are released on resize or rotation so
+responsive layout can adapt. The request gate preserves the existing origin
+policy: uploads, concept and host routes require same origin; other session
+routes retain `baseUrl` support.
+
+Without a library, the end action emits `aithema-new-conversation` with
+`{previousSessionId, reason: 'deleted', confirm: false}`, omitting `processingPreset`
+and `settings`. No preset/settings means the server's last choice. Other
+new-conversation entry points route to this action while erased.
+
+Hosts should stop their own per-session requests (for example consent, locale or
+handover) on `aithema-erased`, `aithema-open-conversation` with reason `deleted`,
+or `aithema-new-conversation`.
 
 | Request | Result |
 | --- | --- |

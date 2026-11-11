@@ -97,7 +97,7 @@ export function createElevenLabsClient(ports = {}) {
   const client = {
     manifest,
     replayReply: (reply, opts) => pageReplay.replay(reply, opts),
-    stopReplay: () => pageReplay.stop(),
+    stopReplay: options => pageReplay.stop(options),
     tabId: control.tabId,
     takeover: (identity, options) => voiceOperation(options, opts => control.takeover({ ...identity, explicit: true }, opts)),
     async health(options) { return voiceOperation(options, async () => ({ available: typeof (await getSdk())?.startSession === 'function' })); },
@@ -129,6 +129,7 @@ export function createElevenLabsClient(ports = {}) {
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       let lastReply, lastPlaybackTurnId, lastActivity, capturePhase;
       let silenceReply = () => {};
+      let closingReason;
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId,
         ...(grant?.epoch !== undefined ? { epoch: grant.epoch } : {}) });
       const pauseControl = opts => {
@@ -146,7 +147,7 @@ export function createElevenLabsClient(ports = {}) {
         current: reply => !ended && !paused && !transportBlocked && outputOn && !lifecycle.state.holds.length &&
           reply.turnId === lastReply?.turnId && reply.text === lastReply?.text && (!lastPlaybackTurnId || lastPlaybackTurnId === reply.turnId),
         synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId, replayId: opts.replayId }, opts),
-        release: replayId => control.stopReplyReplay?.({ ...identity(), replayId }),
+        release: replayId => control.stopReplyReplay?.({ ...identity(), replayId, ...(closingReason ? { reason: closingReason } : {}) }),
         playAudio: (audio, opts) => {
           conversation?.output?.interrupt?.(0);
           playbackInterrupted = false; conversation?.setVolume({ volume: outputVolume() });
@@ -281,6 +282,7 @@ export function createElevenLabsClient(ports = {}) {
         } catch (error) { if (!target || target === conversation) void close('pause-failed').catch(() => {}); throw error; }
       };
       const close = (reason = 'closed', commandOptions = {}, recoveryAttempts) => {
+        closingReason = reason;
         if (['cancelled', 'turn-withdrawn', 'upload-withdrawn', 'session-erased', 'consent-revised',
           'call-authorization-lost', 'session-revoked', 'transcript-persistence-failed'].includes(reason)) stopPersistence();
         if (closing) return closing;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createSession, inputRevision } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { createVoiceControl } from '../src/voice-control.js';
 import { EmailAsk } from '../src/email-ask.js';
 import { window, tick, identity, entry, setup, userTurn } from './host-surface-helpers.js';
 
@@ -243,6 +244,241 @@ function fixture464(t, options = {}) {
     event470(h.c, 'session.erased', { at: new Date().toISOString() });
   } };
 }
+// Raw URLs are recorded outside setup's current-id-stripping mock.
+function fixture484(t, options = {}) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const h = fixture470(t, { ...options, session: { ...options.session, id: 'conversation-a' } });
+  const original = globalThis.fetch, raw = [], erasedEvents = [], newEvents = [], openEvents = [];
+  let erased = false, stream, streamClosed = false;
+  const state = { snapshot: null, body: { error: 'session-not-found' } };
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    const path = String(url), isA = /^\/api\/sessions\/conversation-a(?:[/?]|$)/u.test(path);
+    if (erased && isA) {
+      raw.push({ path, init });
+      if (path === '/api/sessions/conversation-a' && state.snapshot) return state.snapshot();
+      return Response.json(state.body, { status: 404 });
+    }
+    if (path === '/api/sessions/conversation-a/events') return new Response(new ReadableStream({ start(controller) {
+      stream = controller; streamClosed = false;
+      init.signal?.addEventListener('abort', () => { if (!streamClosed) { streamClosed = true; controller.close(); } }, { once: true });
+    } }));
+    return original(url, init);
+  });
+  for (const [name, target] of [['erased', erasedEvents], ['new-conversation', newEvents], ['open-conversation', openEvents]])
+    h.c.addEventListener(`aithema-${name}`, e => target.push(e.detail));
+  return { ...h, raw, state, erasedEvents, newEvents, openEvents,
+    serverErase() { erased = true; },
+    streamErase() {
+      erased = true;
+      const event = { seq: h.c.session.seq + 1, type: 'session.erased', data: { at: new Date().toISOString() } };
+      stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+    },
+    dropStream() { if (!streamClosed) { streamClosed = true; stream.close(); } },
+    async reconnect() { h.c.remove(); await tick(8); document.body.append(h.c); await tick(8); },
+  };
+}
+async function quiet484(t, h, max = 0) {
+  const before = h.raw.length; assert.ok(before <= max, `A requests ${before} > ${max}: ${h.raw.map(r => r.path)}`);
+  for (const ms of [1000, 3000, 4000, 8000, 16000, 16000]) { t.mock.timers.tick(ms); await tick(12); }
+  assert.equal(h.raw.length, before, 'no further request for erased A after 48 seconds');
+}
+for (const copy of [en, de]) test(`AIT-484 journal: one end state, silent host, local call teardown (${copy.display.locale})`, async t => {
+  const client = await voice470(t); let closes = 0, reason;
+  const start = client.start; client.start = async (...args) => { const call = await start(...args), close = call.close; call.close = async options => { closes++; reason = options?.reason; return close(options); }; return call; };
+  const h = fixture484(t, { copy, voiceClient: client, host: { library: true, verification: true, credits: true },
+    session: { identity: pending470({ pollVerification: true }), featureMatrix: unlocked470 } });
+  await h.reconnect(); userTurn(h.c); h.root.querySelector('.voice-start').click(); await tick(8);
+  h.root.querySelector('textarea').focus();
+  const stage = h.root.querySelector('.workspace').dataset.stage, preset = h.c.session.processingPreset;
+  h.streamErase(); await tick(12);
+  assert.ok(h.c.hasAttribute('data-aithema-erased')); assert.ok(h.c.session.tombstone);
+  assert.equal(h.root.querySelector('.workspace').dataset.stage, stage);
+  assert.equal(h.root.querySelectorAll('ol > li.erased-end').length, 1);
+  assert.equal(h.root.querySelector('[data-copy="conversationUnavailable"]').textContent,
+    copy === en ? 'This conversation is no longer available.' : 'Dieses Gespräch ist nicht mehr verfügbar.');
+  assert.equal(h.root.querySelector('.erased-end__new').textContent, copy.hostSurface.library.new);
+  assert.equal(h.root.activeElement === h.root.querySelector('.erased-end__new'), true, 'erasure transfers focus to the action');
+  assert.equal(h.root.querySelector('form.composer').inert, true);
+  assert.equal(h.root.querySelector('.transcript-shell').inert, false);
+  assert.equal(h.root.querySelector('.composer-out').inert, true);
+  assert.equal(h.root.querySelector('.export').getAttribute('aria-disabled'), 'true');
+  assert.equal(h.root.querySelector('.audio-rail').hasAttribute('data-call-reconciling'), false);
+  assert.equal(h.root.querySelector('.voice-state').textContent, '');
+  assert.equal(closes, 1); assert.equal(reason, 'session-erased'); assert.equal(h.c.session.processingPreset, preset);
+  assert.deepEqual(h.erasedEvents, [{ sessionId: 'conversation-a', via: 'journal' }]);
+  for (const n of h.root.querySelectorAll('[aria-live]')) if (!n.closest('.erased-end')) assert.equal(n.getAttribute('aria-live'), 'off');
+  h.c.receive({ type: 'session.erased', data: {} }); h.c.openSettings(); await tick(8);
+  assert.equal(h.root.querySelector('dialog.settings').open, false);
+  await quiet484(t, h); await h.reconnect(); await quiet484(t, h);
+  assert.equal(closes, 1); assert.equal(h.erasedEvents.length, 1);
+});
+for (const route of ['events', 'credits', 'identity/unlock', 'restore', 'voice-close']) test(`AIT-484 exact not-found: ${route} confirms once then stops`, async t => {
+  const h = fixture484(t, { voiceClient: await voice470(t), host: { verification: { delivery: true }, credits: true },
+    session: { identity: pending470({ pollVerification: true }), featureMatrix: unlocked470 } });
+  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) });
+  await h.reconnect();
+  h.serverErase();
+  if (route === 'events') { h.dropStream(); await tick(8); }
+  if (route === 'credits') { h.c.receive({ type: 'voice.state', data: { state: 'closing' } }); t.mock.timers.tick(300); }
+  if (route === 'identity/unlock') t.mock.timers.tick(4000);
+  if (route === 'restore') h.c.receive({ seq: h.c.session.seq + 2, type: 'turn.final', data: { id: 'gap', role: 'assistant', content: 'gap' } });
+  // Isolate the suspect route: rail onEnd also owns a natural snapshot read.
+  if (route === 'voice-close') void control.close({ callId: 'fixture-call', providerSessionId: 'fixture-provider', reason: 'closed' }).catch(() => {});
+  t.mock.timers.tick(1000); await tick(16);
+  assert.ok(h.c.hasAttribute('data-aithema-erased'));
+  assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 1);
+  assert.equal(h.raw.find(r => r.path === '/api/sessions/conversation-a')?.init.cache, 'no-store');
+  assert.deepEqual(h.erasedEvents, [{ sessionId: 'conversation-a', via: 'not-found' }]);
+  await quiet484(t, h, route === 'restore' ? 1 : 2);
+});
+for (const result of ['200', 'network', '503']) test(`AIT-484 confirmation ${result} changes nothing; one read per 15 seconds`, async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect(); h.serverErase();
+  h.state.snapshot = () => { if (result === 'network') throw new TypeError('fixture offline'); return Response.json(h.c.session, { status: Number(result) }); };
+  h.dropStream();
+  for (let i = 0; i < 14; i++) { t.mock.timers.tick(1000); await tick(8); }
+  assert.equal(h.c.hasAttribute('data-aithema-erased'), false);
+  assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 1);
+  for (let i = 0; i < 3; i++) { t.mock.timers.tick(1000); await tick(8); }
+  assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 2);
+});
+for (const body of [{ error: 'not-found' }, {}, { error: 'session-not-found', extra: true }]) test(`AIT-484 ignores unrelated 404 ${JSON.stringify(body)}`, async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect(); h.serverErase(); h.state.body = body; h.dropStream();
+  for (let i = 0; i < 4; i++) { t.mock.timers.tick(1000); await tick(8); }
+  assert.equal(h.c.hasAttribute('data-aithema-erased'), false);
+  assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 0);
+});
+for (const stage of ['entrance', 'ready', 'live', 'folded']) test(`AIT-484 placement and frozen stage: ${stage}`, async t => {
+  const h = fixture484(t, { host: {}, session: { settings: { origin: stage === 'ready' ? 'chosen' : 'default' } } }); await h.reconnect();
+  if (['live', 'folded'].includes(stage)) userTurn(h.c);
+  if (stage === 'folded') h.root.querySelector('.fold').click();
+  const previous = h.root.querySelector('.workspace').dataset.stage;
+  h.streamErase(); await tick(8);
+  assert.equal(h.root.querySelector('.workspace').dataset.stage, previous);
+  const container = stage === 'folded' ? '.canvas-empty' : stage === 'live' ? 'ol' : '.intro__card';
+  assert.ok(h.root.querySelector(`${container} .erased-end__new`));
+  assert.equal(h.root.querySelector('textarea').disabled, true);
+  await quiet484(t, h);
+});
+for (const library of [false, true]) test(`AIT-484 new action: ${library ? 'library creates once and self-switches' : 'event uses server last choice'}`, async t => {
+  const next = createSession({ id: 'conversation-b', demo: true }); next.featureMatrix = unlocked470;
+  const h = fixture484(t, { host: { library }, routes: { 'POST /library': () => Response.json({ session: next }, { status: 201 }) } }); await h.reconnect();
+  h.streamErase(); await tick(8); const action = h.root.querySelector('.erased-end__new'); assert.ok(action);
+  action.click(); action.click(); await tick(16);
+  if (library) {
+    assert.equal(h.calls.filter(c => c.method === 'POST' && c.path === '/library').length, 1);
+    assert.equal(h.openEvents.length, 1, 'double activation opens one replacement');
+    assert.equal(h.openEvents[0].reason, 'deleted'); assert.equal(h.c.session.id, next.id);
+    assert.equal(h.c.hasAttribute('data-aithema-erased'), false);
+  } else {
+    assert.deepEqual(h.newEvents[0], { previousSessionId: 'conversation-a', reason: 'deleted', confirm: false });
+    assert.equal(h.newEvents.length, 1, 'double activation dispatches one new-conversation event');
+  }
+});
+test('AIT-484 late snapshot cannot undo erasure; configure B works and A stays remembered', async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect(); const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const before = h.c.session; h.state.snapshot = () => held.promise.then(() => Response.json(before)); h.serverErase();
+  h.c.receive({ seq: before.seq + 2, type: 'turn.final', data: { id: 'gap', role: 'assistant', content: 'gap' } });
+  event470(h.c, 'session.erased', { at: new Date().toISOString() }); held.resolve(); await tick(12);
+  assert.ok(h.c.session.tombstone); assert.equal(h.erasedEvents.length, 1);
+  const b = createSession({ id: 'conversation-b', demo: true }); b.featureMatrix = unlocked470;
+  h.c.configure({ session: b, copy: en, host: {} }); await tick(8);
+  assert.equal(h.c.hasAttribute('data-aithema-erased'), false); userTurn(h.c); assert.equal(h.c.session.transcript.length, 1);
+  h.c.configure({ session: before, copy: en, host: {} }); await tick(8);
+  assert.ok(h.c.hasAttribute('data-aithema-erased')); assert.equal(h.erasedEvents.length, 1);
+});
+
+test('AIT-484 a burst shares one held confirmation and late success changes nothing', async t => {
+  const h = fixture484(t, { host: { credits: true, verification: { delivery: true } }, session: { identity: pending470({ pollVerification: true }) } });
+  await h.reconnect(); const held = Promise.withResolvers(); t.after(() => held.resolve());
+  h.serverErase(); h.state.snapshot = () => held.promise.then(() => Response.json(h.c.session));
+  h.dropStream(); await tick(8); t.mock.timers.tick(1000); await tick(8);
+  // The verification timer provides the second suspect route without a journal
+  // event that also owns an independent natural feature snapshot read.
+  t.mock.timers.tick(4000); await tick(12);
+  assert.ok(h.raw.length >= 3, 'several routes saw the refusal');
+  assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 1);
+  held.resolve(); await tick(12);
+  assert.equal(h.c.hasAttribute('data-aithema-erased'), false);
+});
+for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 ${provider}: real client and voice control tear down once without voice POSTs`, async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const { createElevenLabsClient } = await import('../../../plugins/elevenlabs/src/client.js');
+  const { createGrokVoiceClient } = await import('../../../plugins/grok-voice/src/client.js');
+  const { fakeSdk } = await import('../../../plugins/elevenlabs/test/fixtures.js');
+  let h, sdk = fakeSdk(), disconnected = 0;
+  const ports = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) }), { control } = ports;
+  const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
+    AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control, now: () => Date.now(),
+    async openRelay() { const frames = voiceEvents(); return { frames, async disconnect() { disconnected++; frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } }; },
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
+  h = fixture484(t, { voiceClient: client, host: {}, session: { featureMatrix: unlocked470 }, routes: {
+    'POST /voice': request => {
+      const providerSessionId = 'fixture-provider', until = Date.now() + 180000;
+      return Response.json({ callId: request.callId, providerSessionId, epoch: 1,
+        spendDeadlineAt: until, browserLivenessDeadlineAt: until,
+        credential: { providerSessionId, ttlMs: 60000, connectionType: 'webrtc', conversationToken: 'fixture-token-fixture-provider' },
+        mediaGrant: { callId: request.callId, providerSessionId, expiresAt: until, opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } } });
+    } } });
+  await h.reconnect(); userTurn(h.c); h.root.querySelector('.voice-start').click(); await tick(24);
+  assert.equal(h.root.querySelector('.audio-rail').dataset.call, 'active');
+  h.streamErase(); await tick(24); event470(h.c, 'session.erased', {}); await tick(12);
+  assert.equal(h.raw.filter(r => r.path.includes('/voice')).length, 0);
+  assert.equal(h.root.querySelector('.audio-rail').hasAttribute('data-call-reconciling'), false);
+  assert.equal(h.root.querySelector('.voice-state').textContent, '');
+  if (provider === 'elevenlabs') assert.equal(sdk.effects.filter(e => e[0] === 'endSession').length, 1);
+  else assert.equal(disconnected, 1);
+  await quiet484(t, h);
+});
+
+test('AIT-484 actor account and device choice stay mounted; all id dialogs close', async t => {
+  const labels = { en: { private: 'Private', company: 'Company', representative: 'Representative', agency: 'Agency' } };
+  const roleChoice = { available: true, roles: Object.keys(labels.en), role: 'company', source: 'chosen', revision: 1 };
+  const h = fixture484(t, { host: { actorRole: { labels }, verification: true }, session: { processingPreset: 'device', roleChoice, identity: identity() } }); await tick(8);
+  const actor = h.root.querySelector('.actor-role'), account = h.root.querySelector('slot[name="account"]'), parent = account.parentNode;
+  const dialogs = ['dialog.settings', 'dialog.verify-dialog', 'dialog.actor-sheet'];
+  for (const selector of dialogs) h.root.querySelector(selector).showModal();
+  event470(h.c, 'session.erased', { at: new Date().toISOString() }); await tick(8);
+  assert.equal(h.root.querySelector('.actor-role'), actor); assert.equal(account.parentNode, parent);
+  for (const selector of dialogs) assert.equal(h.root.querySelector(selector).open, false);
+  assert.equal(h.root.querySelector('.workspace').dataset.stage, 'entrance');
+  assert.match(h.root.querySelector('.erased-end').textContent, /no longer available/u);
+  h.c.openSettings(); await tick(8); assert.equal(h.root.querySelector('dialog.settings').open, false);
+  assert.equal(h.root.querySelector('.actor-role'), actor);
+});
+test('AIT-484 freezes the used-up composer and empties the question card in its held box', async t => {
+  const h = fixture484(t, { host: { credits: true, usedUp: { newConversation: { enabled: true } } }, routes: {
+    'GET /credits': () => Response.json({ exhausted: true, balance: { owner: { availableMicro: 0 } } }),
+  } }); await h.reconnect();
+  event470(h.c, 'turn.final', { id: 'question', role: 'assistant', content: 'Choose?', question_short: 'Choose?',
+    inputRevision: inputRevision(h.c.session), options: [{ text: 'One' }, { text: 'Two' }] });
+  const shell = h.root.querySelector('.composer-shell'), card = h.root.querySelector('.qcard');
+  const panel = shell.hasAttribute('data-used-up'), hidden = card.hidden;
+  h.streamErase(); await tick(8);
+  assert.equal(shell.hasAttribute('data-used-up'), panel); assert.equal(card.hidden, hidden);
+  assert.equal(card.textContent, ''); assert.equal(card.inert, true);
+  assert.equal(h.root.querySelector('.composer-out').inert, true);
+  assert.equal(h.root.querySelector('.composer-out__export').getAttribute('aria-disabled'), 'true');
+  await quiet484(t, h);
+});
+for (const source of ['.purpose-new', '.composer-out__new']) test(`AIT-484 ${source} routes to the deleted action`, async t => {
+  const h = fixture484(t, { host: { credits: true, usedUp: { newConversation: { enabled: true } } }, session: { credits: { status: 'ended', endReason: 'session' } } });
+  await h.reconnect(); h.streamErase(); await tick(8);
+  const button = h.root.querySelector(source); assert.ok(button); button.click(); await tick(8);
+  assert.deepEqual(h.newEvents[0], { previousSessionId: 'conversation-a', reason: 'deleted', confirm: false });
+});
+
+test('AIT-484 configuring the current erased id preserves its mounted frozen view and repaints copy', async t => {
+  const h = fixture484(t, { host: {}, session: { processingPreset: 'device', settings: { origin: 'chosen' } } }); await tick(8);
+  h.serverErase(); event470(h.c, 'session.erased', { at: new Date().toISOString() }); await tick(8);
+  const row = h.root.querySelector('.erased-end'), form = h.root.querySelector('form.composer'), stage = h.root.querySelector('.workspace').dataset.stage;
+  h.c.configure({ session: h.c.session, copy: de, host: {} }); await tick(8);
+  assert.equal(h.root.querySelector('.erased-end') === row, true, 'the erased row stays mounted for the same id');
+  assert.equal(h.root.querySelector('form.composer') === form, true, 'the composer stays mounted for the same id');
+  assert.equal(h.root.querySelector('.workspace').dataset.stage, stage);
+  assert.equal(row.querySelector('[data-copy="conversationUnavailable"]').textContent, 'Dieses Gespräch ist nicht mehr verfügbar.');
+  assert.equal(h.erasedEvents.length, 1); await quiet484(t, h);
+});
+
 function noErasedReads464(t, h) {
   const counts = `snapshot=${h.reads.snapshot}, consent=${h.reads.consent}`;
   t.diagnostic(`AIT-464 erased A reads: ${counts}`);
@@ -293,24 +529,15 @@ test('AIT-464 U2: erasure and credit-denied callbacks never read A', async t => 
   h.erase(); await tick(8);
   assert.ok(h.c.session.tombstone); noErasedReads464(t, h);
 });
-test('AIT-464 U3: an erased consent window fails closed at its watchdog without reads or backoff reads', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+test('AIT-464 U3: erasure silently cancels the consent window and every concept timer', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const h = fixture464(t), held = Promise.withResolvers(); t.after(() => held.resolve()); await tick(8);
-  const armed = new Map(), scheduledAfterWatchdog = [], firedAfterWatchdog = [];
-  let watching = false;
-  // Observe the public timer surface, including handles that never fire or re-arm.
+  const armed = new Set();
   for (const kind of ['Timeout', 'Interval']) {
     const schedule = globalThis[`set${kind}`], clear = globalThis[`clear${kind}`];
-    t.mock.method(globalThis, `set${kind}`, (callback, delay, ...args) => {
-      const timer = { kind, delay };
-      const handle = schedule(function (...values) {
-        if (kind === 'Timeout') armed.delete(handle);
-        if (watching) firedAfterWatchdog.push(timer);
-        return callback.apply(this, values);
-      }, delay, ...args);
-      armed.set(handle, timer);
-      if (watching) scheduledAfterWatchdog.push(timer);
-      return handle;
+    t.mock.method(globalThis, `set${kind}`, (fn, ms, ...args) => {
+      const handle = schedule(() => { if (kind === 'Timeout') armed.delete(handle); fn(...args); }, ms);
+      armed.add(handle); return handle;
     });
     t.mock.method(globalThis, `clear${kind}`, handle => { armed.delete(handle); return clear(handle); });
   }
@@ -318,32 +545,14 @@ test('AIT-464 U3: an erased consent window fails closed at its watchdog without 
   event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true });
   assert.equal(h.calls.filter(call => call.method === 'GET' && call.path === '').length, 1, 'the pre-erasure consent read is in flight');
   h.erase(); await tick(8);
-  assert.deepEqual([...armed.values()], [{ kind: 'Timeout', delay: 2000 }, { kind: 'Timeout', delay: 4000 }],
-    'the original watchdog and withdrawal notice remain armed until the watchdog fails closed');
-  watching = true;
-  t.mock.timers.tick(2000); await tick(8);
-  assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
-  const expectedRetry = [{ kind: 'Timeout', delay: 2000 }];
-  assert.deepEqual(scheduledAfterWatchdog, expectedRetry, 'the watchdog arms exactly one consent-failure retry');
-  assert.deepEqual([...armed.values()], expectedRetry, 'only that one retry remains armed');
-  const watchdogReads = { ...h.reads };
-  for (const ms of [4000, 8000]) { t.mock.timers.tick(ms); await tick(8); }
-  const assertQuiescent = () => {
-    assert.deepEqual(scheduledAfterWatchdog, expectedRetry, 'no timeout or interval re-arms after the one retry');
-    assert.equal(armed.size, 0, 'no timer stays armed for the erased consent window');
-    assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
-    noErasedReads464(t, h);
-  };
-  assertQuiescent();
-  for (const ms of [16_000, 60_000]) { t.mock.timers.tick(ms); await tick(8); assertQuiescent(); }
-  noErasedReads464(t, h);
-  assert.deepEqual(watchdogReads, { snapshot: 0, consent: 0 }, 'the 2 s watchdog also sends no read');
-  held.resolve(); await tick(8); noErasedReads464(t, h);
-  assertQuiescent();
-  journal470(h.c); await tick(8);
-  assertQuiescent();
-  assert.deepEqual(firedAfterWatchdog, [...expectedRetry, ...expectedRetry], 'only the original watchdog and its one retry fire');
-  t.diagnostic('AIT-464 U3: post-watchdog timers scheduled=1, remaining=0; late read completion and journal event add no read or timer');
+  assert.equal(armed.size, 0, 'no erased consent watchdog, retry or withdrawn notice remains armed');
+  held.resolve(); await tick(8);
+  for (const ms of [2000, 4000, 8000, 16000, 60000]) {
+    t.mock.timers.tick(ms); await tick(8);
+    assert.equal(armed.size, 0); noErasedReads464(t, h);
+    assert.equal(h.root.querySelector('.concept-access').hasAttribute('data-refresh-failed'), false);
+    assert.equal(h.root.querySelector('.concept-withdrawn').textContent, '');
+  }
 });
 test('AIT-464 U4: live-call erasure and the closing voice state never read A', async t => {
   const h = fixture464(t, { voiceClient: await voice470(t) }); await tick(8);
@@ -376,7 +585,7 @@ test('AIT-464 U6: erased stream reconnect 404s never read A through rail onEnd',
   });
   document.body.append(h.c); await tick(8);
   for (let i = 0; i < 3; i++) { t.mock.timers.tick(1000); await tick(8); }
-  assert.equal(streams, 4, 'one erased stream and three genuine reconnect 404s');
+  assert.equal(streams, 1, 'the erased stream is terminal and never reconnects');
   noErasedReads464(t, h);
 });
 test('AIT-464 positive U3: a non-erased 404 issues one read with no timer retry', async t => {
@@ -469,4 +678,109 @@ test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent wind
   assert.equal(h.reads, 3); clear470(h);
   held.resolve(); await tick(8); t.mock.timers.tick(60_000); await tick(8);
   assert.equal(streams, 1); assert.equal(h.reads, 3);
+});
+
+for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 connecting ${provider}: erasure latches control before abort cleanup`, async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const { createElevenLabsClient } = await import('../../../plugins/elevenlabs/src/client.js');
+  const { createGrokVoiceClient } = await import('../../../plugins/grok-voice/src/client.js');
+  const { fakeSdk } = await import('../../../plugins/elevenlabs/test/fixtures.js');
+  const opened = Promise.withResolvers(), release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  let h;
+  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) });
+  const sdk = fakeSdk(); sdk.beforeCreated = async () => { opened.resolve(); await release.promise; };
+  const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
+    AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control, now: () => Date.now(),
+    async openRelay() { opened.resolve(); await release.promise; const frames = voiceEvents(); return { frames,
+      async disconnect() { frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } }; },
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
+  h = fixture484(t, { voiceClient: client, host: {}, session: { featureMatrix: unlocked470 }, routes: {
+    'POST /voice': request => {
+      const providerSessionId = 'fixture-provider', until = Date.now() + 180000;
+      return Response.json({ callId: request.callId, providerSessionId, epoch: 1,
+        spendDeadlineAt: until, browserLivenessDeadlineAt: until,
+        credential: { providerSessionId, ttlMs: 60000, connectionType: 'webrtc', conversationToken: 'fixture-token-fixture-provider' },
+        mediaGrant: { callId: request.callId, providerSessionId, expiresAt: until,
+          opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } } });
+    } } });
+  await h.reconnect(); userTurn(h.c); h.root.querySelector('.voice-start').click();
+  await opened.promise; await tick(8);
+  assert.equal(h.calls.filter(call => call.path === '/voice' && call.method === 'POST').length, 1, 'start POST already resolved');
+  assert.equal(h.root.querySelector('.audio-rail').dataset.state, 'connecting');
+  h.streamErase(); await tick(12); release.resolve(); await tick(32);
+  assert.equal(h.raw.filter(call => call.path.includes('/voice')).length, 0, 'no voice request after erasure, including late startup cleanup');
+  await quiet484(t, h);
+});
+
+for (const configure of [false, true]) test(`AIT-484 erased locale text repaint via ${configure ? 'same-id configure' : 'changeLocale'}`, async t => {
+  const h = fixture484(t, { host: { library: true } }); await h.reconnect();
+  h.c.configure({ session: h.c.session, copy: en, host: { library: true }, copyForLocale: locale => ({ en, de })[locale] });
+  await tick(8); h.streamErase(); await tick(8);
+  const events = []; h.c.addEventListener('aithema-locale', e => events.push(e.detail));
+  const row = h.root.querySelector('.erased-end');
+  if (configure) h.c.configure({ session: { ...h.c.session, locale: 'de' }, copy: de });
+  else assert.equal(await h.c.changeLocale('de'), true);
+  await tick(8);
+  assert.equal(h.root.querySelector('.erased-end') === row, true, 'locale repaint preserves the row');
+  assert.equal(row.querySelector('[data-copy]').textContent, de.conversationUnavailable);
+  assert.equal(h.root.querySelector('.settings-open span').textContent, de.settings.open);
+  assert.equal(h.root.querySelector('.conversations-toggle span').textContent, de.hostSurface.library.open);
+  assert.equal(h.root.querySelector('.conversations-new span').textContent, de.display.newConversation);
+  assert.equal(h.root.querySelector('.library-new').textContent, de.hostSurface.library.new);
+  assert.equal(h.root.querySelector('#library-title').textContent, de.hostSurface.library.title);
+  assert.deepEqual(events, [{ locale: 'de' }]);
+  await quiet484(t, h);
+});
+
+test('AIT-484 focus on fold moves to the end action; Settings controls are disabled', async t => {
+  const labels = { en: { private: 'Private', company: 'Company', representative: 'Representative', agency: 'Agency' } };
+  const h = fixture484(t, { host: { actorRole: { labels } }, session: { roleChoice: {
+    available: true, roles: Object.keys(labels.en), role: 'company', source: 'chosen', revision: 1 } } });
+  await h.reconnect(); userTurn(h.c); h.root.querySelector('.fold').focus();
+  assert.equal(h.root.activeElement === h.root.querySelector('.fold'), true, 'fixture focuses the fold control');
+  h.streamErase(); await tick(8);
+  assert.equal(h.root.activeElement === h.root.querySelector('.erased-end__new'), true, 'erasure transfers focus to the action');
+  for (const selector of ['.settings-open', '.actor-processing button']) {
+    const control = h.root.querySelector(selector);
+    assert.equal(control.getAttribute('aria-disabled'), 'true', selector);
+    assert.equal(control.disabled, true, selector);
+  }
+  await quiet484(t, h);
+});
+
+test('AIT-484 erased reattachment reconnects footer interactions without requests', async t => {
+  const h = fixture484(t, { host: { version: { version: '1.2.3', version_scheme: 'legacy', commit: 'abcdef1234' } } }); await h.reconnect(); h.streamErase(); await tick(8);
+  await h.reconnect();
+  const info = h.root.querySelector('.footer-info'), button = info.querySelector('button');
+  button.click(); assert.equal(button.getAttribute('aria-expanded'), 'true');
+  h.root.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(button.getAttribute('aria-expanded'), 'false', 'reconnected popup closes on Escape');
+  assert.ok(h.root.querySelector('#build-info').textContent.trim(), 'version details restored');
+  await quiet484(t, h);
+});
+
+test('AIT-484 resize releases frozen pixel heights without requesting the session', async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect(); userTurn(h.c);
+  const composer = h.root.querySelector('form.composer');
+  t.mock.method(composer, 'getBoundingClientRect', () => ({ height: 120 }));
+  h.streamErase(); await tick(8);
+  assert.equal(composer.style.height, '120px', 'fixed-size geometry held at erasure');
+  window.dispatchEvent(new window.Event('resize')); await tick(8);
+  assert.equal(composer.style.height, '', 'responsive CSS can size the composer again');
+  assert.equal(composer.style.minHeight, '', 'old minimum does not block a smaller viewport');
+  await quiet484(t, h);
+});
+
+test('AIT-484 end live region is empty on insertion and filled on the next frame', async t => {
+  const h = fixture484(t, { host: {} }); await h.reconnect();
+  const frames = []; t.mock.method(window, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  h.streamErase(); await tick(8);
+  const row = h.root.querySelector('.erased-end'), region = row.querySelector('[role="status"]');
+  assert.equal(row.querySelector('[data-copy]').textContent, en.conversationUnavailable);
+  assert.equal(row.querySelector('button').textContent, en.hostSurface.library.new);
+  assert.equal(region.textContent, '', 'region is registered before its announcement');
+  for (const callback of frames.splice(0)) callback(0);
+  assert.equal(region.textContent, en.conversationUnavailable);
+  await quiet484(t, h);
 });
