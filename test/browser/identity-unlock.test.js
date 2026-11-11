@@ -22,29 +22,88 @@ async function waitFor(fn) {
   for (let i = 0; i < 900; i++) { if (fn()) return; await delay(50); }
   throw new Error('Timed out waiting for proxy/SMTP evidence');
 }
+// Every source hook must fail closed when production source moves.
+function rewrite(source, needle, replacement) {
+  assert.equal(source.split(needle).length, 2, `unique fixture hook: ${needle}`);
+  return source.replace(needle, () => replacement);
+}
+async function settle(page, f) {
+  const started = performance.now();
+  let previous;
+  for (;;) {
+    // Cursor, blockers and the read boundary belong to this one page task.
+    const sample = await shadow(page, c => {
+      const host = c.ait483Host, busy = c.ait483Busy, unmet = [];
+      if (typeof busy !== 'number' || !Number.isSafeInteger(busy) || busy < 0) throw new Error('Missing ait483Busy hook');
+      if (c.ait470Options.host && (!host || typeof host.timer !== 'boolean' || !Number.isSafeInteger(host.reads) || host.reads < 0)) {
+        throw new Error('Missing ait483Host credit hook');
+      }
+      const cursor = c.ait470Fence.cursor, consent = c.ait470Consent, repeatAt = c.ait470Fence.repeatAt;
+      if (host?.timer) unmet.push('credit-timer');
+      if (host?.reads !== undefined && host.reads !== 0) unmet.push('credit-read');
+      if (busy !== 0) unmet.push('feature-read');
+      if (consent !== null && !consent.exhausted) unmet.push('consent-window');
+      if (repeatAt !== undefined && repeatAt > cursor) unmet.push('feature-repeat');
+      if (!c.shadowRoot.querySelector('.verify-lock .verify-send[aria-disabled="false"]')) unmet.push('verify-send');
+      if (c.session.identity.delivery === 'requested') unmet.push('delivery-final');
+      for (const path of window.__ait483Inflight.values()) unmet.push(`fetch:${path}`);
+      return { unmet, cursor, readsLength: window.__ait470.reads.length, t: performance.now(),
+        creditState: { reconciling: host?.reconciling ?? null, usedUp: host?.usedUp ?? null, admissionDenied: host?.admissionDenied ?? null } };
+    });
+    if (!f.streamOpen) sample.unmet.push('stream-closed');
+    if (f.sseHead > sample.cursor) sample.unmet.push('stream');
+    sample.unmet = [...new Set(sample.unmet)].sort();
+    sample.duration = performance.now() - started;
+    const key = JSON.stringify(sample.unmet);
+    if (key !== previous) { f.settleBlockers.push(sample); previous = key; }
+    f.settleProbe?.(sample);
+    if (!sample.unmet.length) {
+      f.settleRelease = { ...sample, release: true };
+      return sample;
+    }
+    if (sample.duration >= 45_000) throw new Error(`Settle barrier timed out: ${key}`);
+    await delay(25);
+  }
+}
 async function listen(server) { server.listen(0, '127.0.0.1'); await once(server, 'listening'); return server.address().port; }
-async function fixture(t, variant) {
+async function fixture(t, variant, lateDelivery) {
   const directory = await mkdtemp(join(tmpdir(), 'ait470-')), messages = [], log = [];
+  let releaseDelivery = () => false, deliveryGuard;
+  const deliveryFailure = Promise.withResolvers(), settleBlockers = [];
+  deliveryFailure.promise.catch(() => {});
+  t.after(() => clearTimeout(deliveryGuard));
+  t.after(() => releaseDelivery());
   const smtp = createSmtpServer(socket => {
-    let buffer = '', data = false, content = '';
+    let buffer = '', data = false, content = '', holding = false;
     socket.write('220 sink ESMTP\r\n');
-    socket.on('data', bytes => {
-      buffer += bytes.toString();
-      while (buffer.includes('\r\n')) {
+    const processLines = () => {
+      while (!holding && buffer.includes('\r\n')) {
         const end = buffer.indexOf('\r\n'), line = buffer.slice(0, end); buffer = buffer.slice(end + 2);
         if (data) {
-          if (line === '.') { messages.push(content); content = ''; data = false; socket.write('250 accepted\r\n'); }
+          if (line === '.') {
+            messages.push(content); content = ''; data = false;
+            if (lateDelivery) {
+              holding = true;
+              deliveryGuard = setTimeout(() => deliveryFailure.reject(new Error(
+                `SMTP acknowledgement held for 10 s; blockers: ${JSON.stringify(settleBlockers.at(-1)?.unmet ?? ['barrier-not-started'])}`)), 10_000);
+              releaseDelivery = () => {
+                if (!holding) return false;
+                clearTimeout(deliveryGuard); holding = false; socket.write('250 accepted\r\n'); processLines(); return true;
+              };
+            } else socket.write('250 accepted\r\n');
+          }
           else content += line + '\r\n';
         } else if (line.startsWith('EHLO')) socket.write('250-sink\r\n250 PIPELINING\r\n');
         else if (line === 'DATA') { data = true; socket.write('354 send message\r\n'); }
         else if (line === 'QUIT') socket.end('221 bye\r\n');
         else socket.write('250 ok\r\n');
       }
-    });
+    };
+    socket.on('data', bytes => { buffer += bytes.toString(); processLines(); });
     socket.on('error', () => {});
   });
   const smtpPort = await listen(smtp); t.after(() => smtp.close());
-  let upstream, hold = false, frozen = false, liveStream, holdBarrier, grantStreamHeld = false;
+  let upstream, hold = false, frozen = false, liveStream, sseHead = 0, holdBarrier, grantStreamHeld = false;
   const grantChunks = [];
   t.after(() => holdBarrier?.resolve());
   const proxy = createServer((req, res) => {
@@ -65,42 +124,83 @@ async function fixture(t, variant) {
     const forward = request(new URL(req.url, upstream), { method: req.method, headers: req.headers }, response => {
       entry.upstream = Date.now(); entry.status = response.statusCode;
       if (path.endsWith('/events')) {
-        const stream = { frozen: false }; liveStream = stream;
+        const stream = { frozen: false, open: response.statusCode === 200, buffer: '' }; liveStream = stream;
+        const close = () => { stream.open = false; };
+        response.on('close', close); response.on('error', close); res.on('close', close);
         res.writeHead(response.statusCode, response.headers);
         response.on('data', bytes => {
+          stream.buffer += bytes.toString();
+          while (stream.buffer.includes('\n')) {
+            const end = stream.buffer.indexOf('\n'), line = stream.buffer.slice(0, end); stream.buffer = stream.buffer.slice(end + 1);
+            const id = /^id:\s*(\d+)\s*$/u.exec(line);
+            if (id) sseHead = Math.max(sseHead, Number(id[1]));
+          }
           if (grantStreamHeld) grantChunks.push(() => { if (!res.destroyed) res.write(bytes); });
           else if (!stream.frozen) res.write(bytes);
         });
-        response.on('end', () => res.end());
-      } else if (snapshot || path.endsWith('/concepts/eligibility') || path === '/packages/ui/src/session-element.js') {
+        response.on('end', () => { close(); res.end(); });
+      } else if (snapshot || path.endsWith('/concepts/eligibility') || ['/packages/ui/src/session-element.js', '/packages/ui/src/host-surface.js'].includes(path)) {
         const chunks = []; response.on('data', bytes => chunks.push(bytes));
         response.on('end', async () => {
           let body = Buffer.concat(chunks);
-          if (path === '/packages/ui/src/session-element.js') {
-            // Read-only fixture instrumentation of the private consent window. No production changes.
-            const source = body.toString(), needle = '  receive(event) { this.#anchored';
-            assert.ok(source.includes(needle), 'consent trace hook still matches the component');
-            body = Buffer.from(source.replace(needle, `  get ait470Consent() {
-              const p = this.#consentRefresh;
-              return p ? { failed: !!p.failed, exhausted: !!p.exhausted, retries: p.retries,
-                attempt: !!p.attempt, scopedGrant: p.scopedGrant,
-                windowId: window.__ait470Id(p), attemptId: p.attempt ? window.__ait470Id(p.attempt) : null } : null;
-            }\n  get ait470Options() { return this.#options; }\n  get ait470Fence() { const read = ${source.includes('#featureRead = null;') ? 'this.#featureRead' : 'null'}; return { invalidatedAt: this.#invalidatedAt, cursor: this.#cursor, generation: this.#rail?.generation, chain: read?.chain, repeatAt: read?.repeatAt }; }\n${needle}`));
-            body = Buffer.from(body.toString().replace('  #receive(event) {', `  #receive(event) {
-              window.__ait470?.arrivals.push({ t: performance.now(), event, fence: this.ait470Fence,
-                source: new Error().stack.includes('#events') ? 'stream' : 'host',
-                duplicate: !!event.seq && event.seq <= this.#cursor });`));
-            body = Buffer.from(body.toString().replace('        onEnd: () => {', `        onEnd: () => {
-              window.__ait470?.closes.push({ t: performance.now(), fence: this.ait470Fence,
-                refreshAllowed: this.isConnected && !this.#rail?.unloading && this.#invalidatedAt <= this.#cursor });`));
-            // Source length changed; let HTTP chunk it.
-            delete response.headers['content-length'];
+          if (path === '/packages/ui/src/session-element.js' || path === '/packages/ui/src/host-surface.js') {
+            try {
+              let source = body.toString();
+              if (path.endsWith('/host-surface.js')) {
+                source = rewrite(source, 'setTimeout(() => void this.#loadCredits(), 300);',
+                  'setTimeout(() => { this.#creditsTimer = null; void this.#loadCredits(); }, 300);');
+                // The extra receipt flags are diagnostic, never release conditions.
+                const needle = '  get creditScope() {';
+                source = rewrite(source, needle, `  get ait483Credits() {
+                  return { timer: this.#creditsTimer !== null, reads: this.#creditsReads,
+                    reconciling: this.#credits?.reconciling ?? false, usedUp: this.usedUp, admissionDenied: !!this.#admissionDenied?.() };
+                }\n${needle}`);
+              } else {
+                source = rewrite(source, '  #featureRead = null;', '  #featureRead = null;\n  #ait483Busy = 0;');
+                const refresh = '  async #refreshFeatures(consentRetry = false, { unlockEdge = false, chain = 0 } = {}) {';
+                source = rewrite(source, refresh, `${refresh}\n    this.#ait483Busy++; try {`);
+                source = rewrite(source, '    } catch { fail(); }\n  }\n  async #restore() {',
+                  '    } catch { fail(); }\n    } finally { this.#ait483Busy--; }\n  }\n  async #restore() {');
+                const restore = '  async #restore() {';
+                source = rewrite(source, restore, `${restore}\n    this.#ait483Busy++; try {`);
+                source = rewrite(source, '  }\n  #connect() {', '    } finally { this.#ait483Busy--; }\n  }\n  #connect() {');
+                const needle = '  receive(event) { this.#anchored';
+                source = rewrite(source, needle, `  get ait483Busy() { return this.#ait483Busy; }
+                  get ait483Host() { return this.#host?.ait483Credits ?? null; }
+                  get ait470Consent() {
+                    const p = this.#consentRefresh;
+                    return p ? { failed: !!p.failed, exhausted: !!p.exhausted, retries: p.retries,
+                      attempt: !!p.attempt, scopedGrant: p.scopedGrant,
+                      windowId: window.__ait470Id(p), attemptId: p.attempt ? window.__ait470Id(p.attempt) : null } : null;
+                  }
+                  get ait470Options() { return this.#options; }
+                  get ait470Fence() { const read = this.#featureRead; return { invalidatedAt: this.#invalidatedAt, cursor: this.#cursor, generation: this.#rail?.generation, chain: read?.chain, repeatAt: read?.repeatAt }; }
+${needle}`);
+                source = rewrite(source, '  #receive(event) {', `  #receive(event) {
+                  window.__ait470?.arrivals.push({ t: performance.now(), event, fence: this.ait470Fence,
+                    source: new Error().stack.includes('#events') ? 'stream' : 'host',
+                    duplicate: !!event.seq && event.seq <= this.#cursor });`);
+                source = rewrite(source, '        onEnd: () => {', `        onEnd: () => {
+                  window.__ait470?.closes.push({ t: performance.now(), fence: this.ait470Fence,
+                    refreshAllowed: this.isConnected && !this.#rail?.unloading && this.#invalidatedAt <= this.#cursor });`);
+              }
+              body = Buffer.from(source);
+              delete response.headers['content-length'];
+            } catch (error) {
+              entry.rewriteError = error.message;
+              res.writeHead(500, { 'content-type': 'text/plain' }); res.end(error.stack); return;
+            }
           }
           try { const s = JSON.parse(body); entry.seq = s.seq; entry.locked = s.identity?.assessmentUnlocked !== true; } catch { /* error response */ }
           entry.forwarded = Date.now();
           try { entry.eventSeq = JSON.parse(body).event?.seq; } catch { /* no event */ }
-          if (entry.held) { await holdBarrier?.promise; await delay(3000); }
-          if (!res.destroyed) { res.writeHead(response.statusCode, response.headers); res.end(body); }
+          if (entry.held) {
+            // Expose no-store before holding the body, so identical browser GETs
+            // do not queue behind the first response's cache lock.
+            if (!res.destroyed) { res.writeHead(response.statusCode, response.headers); res.flushHeaders(); entry.headersForwarded = Date.now(); }
+            await holdBarrier?.promise; await delay(3000);
+          }
+          if (!res.destroyed) { if (!res.headersSent) res.writeHead(response.statusCode, response.headers); entry.bodyForwarded = Date.now(); res.end(body); }
         });
       } else {
         response.on('end', () => { entry.forwarded = Date.now(); });
@@ -116,6 +216,7 @@ async function fixture(t, variant) {
   const child = fork(new URL('../fixtures/identity-unlock-host.mjs', import.meta.url), [], { silent: true, env: {
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
+    ...(lateDelivery ? { AIT483_SYNC_DELIVERY: '1' } : {}),
     ...(variant === 'P-continue-slow' ? { AIT470_STABLE_TIER: '1' } : {}),
     ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AIT470_INPLACE: variant === 'V-inplace-false' ? 'false' : '1', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
@@ -135,7 +236,10 @@ async function fixture(t, variant) {
     assert.equal((await adminRequest(socketPath, 'set-confirmation', { baseRevision: settings.revision, confirmationEnabled: true })).status, 200);
 
   }
-  return { url, directory, messages, log, holdGrantStream() { grantStreamHeld = true; },
+  return { url, directory, messages, log, settleBlockers,
+    guard(promise) { return Promise.race([promise, deliveryFailure.promise]); },
+    get streamOpen() { return liveStream?.open === true; }, get sseHead() { return sseHead; },
+    releaseDelivery() { return releaseDelivery(); }, holdGrantStream() { grantStreamHeld = true; },
     releaseGrantStream() { grantStreamHeld = false; for (const send of grantChunks.splice(0)) send(); }, hold(barrier = false) {
     hold = true; if (barrier) holdBarrier = Promise.withResolvers();
   }, release() { holdBarrier?.resolve(); }, freeze() {
@@ -144,11 +248,12 @@ async function fixture(t, variant) {
 }
 
 const variants = full ? ['V-inplace-false', 'V-inplace', 'V-reconfigure', 'P-page', 'P-token', 'P-continue-slow', 'P-stalled', 'V-outbox', 'P-page-slow', 'V-outbox-slow', 'control'] : ['V-inplace', 'P-stalled', 'P-continue-slow'];
-for (const variant of variants) for (const locale of ['en', 'de']) for (const width of [390, 1440]) {
+for (const variant of variants) for (const locale of ['en', 'de']) for (const width of [390, 1440]) for (const lateDelivery of variant === 'P-stalled' && (full || (locale === 'en' && width === 1440)) ? [false, true] : [false]) {
   if (!full && variant === 'P-continue-slow' && width === 390) continue;
-  test(`AIT-470 ${variant} ${locale} ${width}: confirmation clears every lock indicator`, { timeout: 130_000 }, async t => {
+  const suffix = lateDelivery ? '-late-delivery' : '';
+  test(`AIT-470 ${variant} ${locale} ${width}${suffix}: confirmation clears every lock indicator`, { timeout: 130_000 }, async t => {
     const copy = locale === 'de' ? de : en, reason = copy.reasons['verification required'];
-    const f = await fixture(t, variant), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser') });
+    const f = await fixture(t, variant, lateDelivery), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser') });
     let collectEvidence = async () => {};
     t.after(async () => { try { await collectEvidence(); } finally { await browser.close(); } });
     const context = await browser.createBrowserContext(), page = await context.newPage();
@@ -213,6 +318,19 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
           return response;
         } catch (error) { read.outcome = 'error'; throw error; }
       };
+      const observedFetch = window.fetch;
+      window.__ait483Inflight = new Map(); let fetchId = 0;
+      window.fetch = async function (url, options) {
+        const path = new URL(url instanceof Request ? url.url : url, location.href).pathname;
+        if (!path.startsWith('/api/') || path.endsWith('/events')) return observedFetch.call(this, url, options);
+        const id = ++fetchId, inflight = window.__ait483Inflight;
+        inflight.set(id, path);
+        try {
+          const response = await observedFetch.call(this, url, options);
+          void response.clone().arrayBuffer().then(() => inflight.delete(id), () => inflight.delete(id));
+          return response;
+        } catch (error) { inflight.delete(id); throw error; }
+      };
       document.addEventListener('aithema-event', e => {
         window.__ait470.events.push({ t: performance.now(), ...e.detail });
         if (e.detail.type === 'identity.unlocked') window.__ait470.toasts.push({ t: performance.now(), wall: Date.now(),
@@ -225,14 +343,14 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
         if (read) read.outcome = 'applied';
       });
     }, locale);
-    const samples = [], evidence = { variant, locale, width, generationFence: 'n/a: no call', samples };
+    const samples = [], evidence = { variant, locale, width, lateDelivery, generationFence: 'n/a: no call', samples };
     const evidenceDir = process.env.AITHEMA_EVIDENCE_DIR;
     collectEvidence = async () => {
-      evidence.proxy = f.log;
+      evidence.proxy = f.log; evidence.settleBlockers = f.settleBlockers; evidence.settleRelease = f.settleRelease;
       evidence.browser = await page.evaluate(() => window.__ait470).catch(() => null);
       if (evidence.grant) evidence.grantArrivals = evidence.browser?.arrivals.filter(a =>
         a.event.seq === evidence.grant.seq && a.event.type === 'consent.revised');
-      if (evidenceDir) { await mkdir(evidenceDir, { recursive: true }); await writeFile(join(evidenceDir, `ait470-${variant}-${locale}-${width}.json`), JSON.stringify(evidence, null, 2)); }
+      if (evidenceDir) { await mkdir(evidenceDir, { recursive: true }); await writeFile(join(evidenceDir, `ait470-${variant}-${locale}-${width}${suffix}.json`), JSON.stringify(evidence, null, 2)); }
       console.log(`AIT-470 evidence ${JSON.stringify(evidence)}`);
     };
     await page.goto(f.url, { waitUntil: 'domcontentloaded' });
@@ -264,10 +382,29 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.verify-lock')?.hidden === false);
     if (variant !== 'control') await until(page, reason => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-activity-text').textContent.includes(reason), reason);
     await shadow(page, c => { c.shadowRoot.querySelector('#verify-lock-email').value = 'visitor@example.test'; c.shadowRoot.querySelector('.verify-lock .verify-send').click(); });
-    await until(page, () => document.querySelector('aithema-session').session.identity?.status === 'verification-pending');
+    await f.guard(until(page, () => document.querySelector('aithema-session').session.identity?.status === 'verification-pending'));
     // Settle request-time credit reads before arming faults.
-    await delay(700);
-    const before = await page.evaluate(() => window.__ait470.reads.length);
+    let deliveryReleasedByProbe = false;
+    if (lateDelivery) f.settleProbe = ({ unmet }) => {
+      if (unmet.includes('delivery-final') && unmet.every(blocker => blocker === 'delivery-final' || blocker === 'verify-send' ||
+          blocker.startsWith('fetch:') && blocker.endsWith('/identity/request'))) {
+        if (f.releaseDelivery()) deliveryReleasedByProbe = true;
+      }
+    };
+    const settled = await f.guard(settle(page, f)), before = settled.readsLength;
+    if (lateDelivery) {
+      assert.equal(await shadow(page, c => c.session.identity.delivery), 'sent', 'late delivery succeeded before release');
+      assert.equal(deliveryReleasedByProbe, true, 'the barrier probe released the SMTP acknowledgement');
+      const proof = await page.evaluate(() => {
+        const { arrivals, reads } = window.__ait470;
+        const s3 = arrivals.find(a => !a.duplicate && a.event.type === 'identity.state' && a.event.data.delivery === 'sent');
+        return { s3, readIndex: s3 ? reads.findIndex(r => r.t0 >= s3.t && r.startCursor >= s3.event.seq) : -1 };
+      });
+      evidence.lateDeliveryProof = proof;
+      assert.ok(proof.s3 && f.settleBlockers.some(s => s.t >= proof.s3.t &&
+        s.unmet.some(b => b === 'credit-timer' || b === 'feature-read')), 'a post-S3 barrier sample observed timer or busy work');
+      assert.ok(proof.readIndex >= 0 && proof.readIndex < before, 'the S3-triggered read is below the atomic read boundary');
+    }
     let freezeAt;
     if (variant.startsWith('V-inplace') || variant === 'V-reconfigure') {
       const link = await shadow(page, async c => {
@@ -391,7 +528,7 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     }
     if (evidenceDir) {
       const capture = async surface => {
-        const name = `ait470-${variant}-${locale}-${width}-${surface}.png`;
+        const name = `ait470-${variant}-${locale}-${width}${suffix}-${surface}.png`;
         const png = await page.screenshot({ path: join(evidenceDir, name), fullPage: false });
         // Preserve fixture evidence in the runner log as well: artifact fetches
         // can be capacity-refused after a successful remote run.

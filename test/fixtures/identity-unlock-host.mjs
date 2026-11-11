@@ -6,9 +6,15 @@ import { registerHooks } from 'node:module';
 const consentURL = new URL('../../demo/mock-consent.js', import.meta.url).href;
 const smtpURL = new URL('../../plugins/mail-smtp/src/index.js', import.meta.url).href;
 const creditsURL = new URL('../../demo/visitor-credits.js', import.meta.url).href;
+const hostPortsURL = new URL('../../demo/host-ports.js', import.meta.url).href;
 const serverURL = new URL('../../demo/server.js', import.meta.url).href;
 registerHooks({ load(url, context, nextLoad) {
   const result = nextLoad(url, context);
+  if (url === hostPortsURL && process.env.AIT483_SYNC_DELIVERY === '1') {
+    const source = String(result.source), needle = 'asynchronousDelivery: mailPlugin?.deliversVerification === true,';
+    assert.equal(source.split(needle).length, 2, 'fixture synchronous delivery hook is unique');
+    return { ...result, source: source.replace(needle, () => 'asynchronousDelivery: false,') };
+  }
   if (url === consentURL && process.env.AIT470_INPLACE === '1') {
     const source = String(result.source), needle = 'return { ...ledger, describe(';
     assert.ok(source.includes(needle), 'fixture consent port still matches the demo');
