@@ -1,6 +1,6 @@
 # Aithema 2026.10
 
-Version **261111070532.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261111083713.0.0**. Licensed under **AGPL-3.0-only**.
 
 Hosts get fewer duplicate identity events, no console 404 after deleting a conversation, and a mail-parser security fix. This release adds no new visitor-facing behaviour.
 
@@ -36,12 +36,14 @@ Hosts that also depend on nodemailer directly should move to the same 10.1.x.
 This is not breaking: configured from and reply-to keep RC21's rules; ambiguous
 visitor input receives the existing invalid-delivery error.
 
-**CI-only (AIT-480, AIT-483, AIT-474, AIT-477; #418, #420, #421, #423).**
+**CI-only (AIT-480, AIT-483, AIT-474, AIT-477, AIT-491; #418, #420, #421, #423, #425).**
 Release and test fixtures find real git and bash on any host; the identity-unlock
 browser test uses a deterministic settle barrier; preview-security runs on the
 pinned Playwright's supported ubuntu-24.04 runner; measured browser weights
 replace two bootstrap reservations, and every browser test goes through the
-measured-weight check. No shipped runtime behaviour changes in these four items.
+measured-weight check; the release gate and pack verification read history-growing
+subprocess output within explicit bounds and fail closed. No shipped runtime
+behaviour changes in these five items.
 
 [RC14's host requirements](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#for-hosts)
 still apply, including its breaking changes; Aithema recommends checking those
@@ -70,7 +72,7 @@ Release assets include module tarballs, the workspace archive, dependency locks,
 an SPDX SBOM and `release-set.json`. Verify the published attestations and
 `SHA256SUMS` before installation, following
 [RC14's verification and installation instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261111070532.0.0` in every download and installation URL. Retain the
+with tag `v261111083713.0.0` in every download and installation URL. Retain the
 verified assets, manifest and deployment pin for rollback to those exact bytes.
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261111070532.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261111083713.0.0/docs/embedding.md)
 for host integration.
