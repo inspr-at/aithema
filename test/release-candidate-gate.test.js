@@ -411,13 +411,18 @@ for (const annotated of [true, false]) test(`sibling marker bound failure escape
   const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
   writeFileSync(join(f.root, 'bin/git'), `#!${process.execPath}
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
 const args = process.argv.slice(2);
 if (args[0] === 'cat-file' && args[1] === '-p' && args[2] === ${JSON.stringify(tag)}) {
-  process.stdout.write('x'.repeat(128 * 1024));
-} else {
-  const child = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
-  process.exit(child.status ?? 1);
+  const repeated = fs.existsSync('sibling-read');
+  fs.writeFileSync('sibling-read', 'read');
+  if (!${annotated} || !repeated) {
+    process.stdout.write('x'.repeat(128 * 1024));
+    process.exit(0);
+  }
 }
+const child = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
+process.exit(child.status ?? 1);
 `, { mode: 0o755 });
   const result = f.run({ maxBuffer: 64 * 1024 });
   refused(result, /exceeded maxBuffer=65536 bytes/u);
