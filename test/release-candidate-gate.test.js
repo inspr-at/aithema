@@ -447,3 +447,39 @@ for (const key of ['maxBuffer', 'timeout']) test(`non-enumerable ${key} cannot h
   assert.throws(() => gateModule.candidateGate('invalid', { execBounds: bounds }),
     /exec bound.*positive finite number/iu);
 });
+
+for (const key of ['maxBuffer', 'timeout', 'killSignal']) {
+  for (const enumerable of [true, false]) test(`release exec rejects misplaced ${key} (${enumerable ? 'enumerable' : 'hidden'})`, async () => {
+    const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+    const options = Object.defineProperty({}, key, { value: undefined, enumerable });
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], options), TypeError);
+  });
+}
+
+for (const key of ['maxBuffer', 'timeout']) {
+  for (const value of [1.5, Number.MAX_VALUE]) test(`release exec rejects unsafe integer ${key}: ${value}`, async () => {
+    const { validateExecBounds, releaseExecFileSync } = await import('../release/lib/exec.mjs');
+    assert.throws(() => validateExecBounds({ [key]: value }), TypeError);
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, { [key]: value }), TypeError);
+  });
+}
+
+for (const encoding of [undefined, 'utf8']) {
+  for (const bounded of [false, true]) test(`release exec caps appended stderr (${encoding ?? 'buffer'}, ${bounded ? 'bound' : 'exit'} failure)`, async () => {
+    const { releaseExecFileSync, ReleaseExecBoundError } = await import('../release/lib/exec.mjs');
+    const script = 'require("node:fs").writeSync(2, "x".repeat(256 * 1024) + "stderr tail detail"); process.exit(1)';
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', script], { encoding },
+      { maxBuffer: bounded ? 64 * 1024 : 512 * 1024 }), error => {
+      assert.equal(error instanceof ReleaseExecBoundError, bounded);
+      const captured = bounded ? error.cause.stderr : error.stderr;
+      assert.ok(captured.length > 4096, 'the original stderr remains available');
+      const tail = Buffer.from(captured).subarray(-4096).toString();
+      for (const failure of bounded ? [error, error.cause] : [error]) {
+        assert.match(failure.message, /\[truncated\]/u);
+        assert.ok(failure.message.endsWith(tail), 'diagnostics retain the stderr tail');
+        assert.ok(Buffer.byteLength(failure.message) < 5120, 'diagnostic messages stay small');
+      }
+      return true;
+    });
+  });
+}
