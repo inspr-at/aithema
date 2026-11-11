@@ -1091,7 +1091,7 @@ export class AithemaSession extends HTMLElement {
     return match ? { id: decodeURIComponent(match[1]), snapshot: !match[2] } : null;
   }
   async #api(url, bodyOrInit = {}, options) {
-    sameOrigin(this.ownerDocument.defaultView, url);
+    // Uploads, concept and host routes enforce their existing origin policy at the caller.
     const route = this.#sessionRoute(url);
     if (route && this.#erasedIds.has(route.id)) throw new DOMException('Conversation erased', 'AbortError');
     let response;
