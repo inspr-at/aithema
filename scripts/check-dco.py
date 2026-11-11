@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Check DCO trailers on contribution commits, without executing their contents."""
 
+import math
+import os
+import selectors
 import subprocess
 import sys
+import tempfile
+import time
 
 
 # Dependabot's native sign-off uses its service contact, while its commit
@@ -16,11 +21,66 @@ DEPENDABOT_AUTHOR = (
 DEPENDABOT_SIGNOFF = "dependabot[bot] <support@github.com>"
 
 
-def git(*args, input_text=None, max_buffer=64 * 1024 * 1024, timeout=5 * 60 * 1000):
-    return subprocess.run(
-        ["git", *args], input=input_text, text=True, encoding="utf-8",
-        errors="strict", capture_output=True, check=True,
-    ).stdout
+# Match the shared JavaScript reader's 64 MiB / five-minute defaults. This
+# checker remains Python-only so isolated DCO checks need no Node runtime.
+EXEC_MAX_BUFFER = 64 * 1024 * 1024
+EXEC_TIMEOUT_MS = 5 * 60 * 1000
+
+
+class DcoExecBoundError(ValueError):
+    pass
+
+
+def git(*args, input_text=None, max_buffer=EXEC_MAX_BUFFER, timeout=EXEC_TIMEOUT_MS):
+    for name, value in [("maxBuffer", max_buffer), ("timeout", timeout)]:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"Invalid exec bound {name}: expected a positive finite number")
+
+    def exceeded(bound):
+        return DcoExecBoundError(
+            f'Release command "git {" ".join(args)}" exceeded {bound}; '
+            'review the required bound and raise it explicitly in scripts/check-dco.py.')
+
+    # File-backed stdin avoids blocking on a large commit message while draining
+    # both output pipes. Read at most one chunk beyond the cap, then kill/reap.
+    with tempfile.TemporaryFile() as source:
+        if input_text is not None:
+            source.write(input_text.encode("utf-8"))
+        source.seek(0)
+        deadline = time.monotonic() + timeout / 1000
+        with subprocess.Popen(["git", *args], stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as child:
+            stdout, stderr = bytearray(), bytearray()
+            try:
+                with selectors.DefaultSelector() as selector:
+                    selector.register(child.stdout, selectors.EVENT_READ, stdout)
+                    selector.register(child.stderr, selectors.EVENT_READ, stderr)
+                    while selector.get_map():
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise exceeded(f"timeout={timeout} ms")
+                        ready = selector.select(remaining)
+                        if not ready:
+                            raise exceeded(f"timeout={timeout} ms")
+                        for key, _ in ready:
+                            chunk = os.read(key.fd, 64 * 1024)
+                            if not chunk:
+                                selector.unregister(key.fileobj)
+                                continue
+                            key.data.extend(chunk)
+                            if len(stdout) + len(stderr) > max_buffer:
+                                raise exceeded(f"maxBuffer={max_buffer} bytes")
+                try:
+                    status = child.wait(timeout=max(0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    raise exceeded(f"timeout={timeout} ms") from None
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                child.wait()
+            output = stdout.decode("utf-8", errors="strict")
+            if status:
+                raise subprocess.CalledProcessError(status, ["git", *args], output, stderr.decode("utf-8", errors="strict"))
+            return output
 
 
 def queue_merges(base, head):
@@ -86,6 +146,9 @@ def main():
         return 2
     try:
         return check(*sys.argv[1:3], merge_group=merge_group)
+    except DcoExecBoundError as error:
+        print(f"DCO: {error}", file=sys.stderr)
+        return 2
     except (subprocess.CalledProcessError, UnicodeError, ValueError) as error:
         # Fail closed on missing/shallow history or malformed input. Do not
         # dump commit messages or arbitrary git diagnostics into CI logs.

@@ -15,6 +15,8 @@ for (const family of ['browser', 'unit']) test(`${family} collector imports only
   const root = mkdtempSync(join(tmpdir(), `merge-group-${family}-`));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const path of ['scripts', 'test/browser']) mkdirSync(join(root, path), { recursive: true });
+  mkdirSync(join(root, 'release/lib'), { recursive: true });
+  writeFileSync(join(root, 'release/lib/exec.mjs'), readFileSync(new URL('../release/lib/exec.mjs', import.meta.url)));
   writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module', scripts: { test: 'node --test test/*.test.js' } }));
   for (const script of ['browser-timings.js', 'update-browser-timings.js', 'unit-shards.js', 'check-unit-results.js', 'update-unit-timings.js']) {
     writeFileSync(join(root, 'scripts', script), readFileSync(new URL(`../scripts/${script}`, import.meta.url)));

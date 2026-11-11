@@ -1,15 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { releaseExecFileSync } from '../release/lib/exec.mjs';
 import { assertUnitMeasuredHeadroom, unitJobTargetSeconds, unitPlan } from './unit-shards.js';
 
 // filter=all includes jobs retained from earlier attempts after a partial rerun.
 // Paginate: counting just the first page could hide a more recent failed job.
-export function fetchUnitJobs(runId, repository = process.env.GITHUB_REPOSITORY) {
+export function fetchUnitJobs(runId, repository = process.env.GITHUB_REPOSITORY, execBounds = {}) {
   if (!/^\d+$/u.test(runId ?? '') || !/^[a-z\d][a-z\d-]*\/[a-z\d][\w.-]*$/iu.test(repository ?? '')) throw new Error('Invalid unit jobs API scope');
-  const pages = JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp',
-    `repos/${repository}/actions/runs/${runId}/jobs?filter=all&per_page=100`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  const pages = JSON.parse(releaseExecFileSync('gh', ['api', '--paginate', '--slurp',
+    `repos/${repository}/actions/runs/${runId}/jobs?filter=all&per_page=100`], { ...execBounds, encoding: 'utf8' }));
   if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page.jobs))) throw new Error('Missing unit jobs API pages');
   return pages.flatMap(page => page.jobs);
 }

@@ -154,6 +154,8 @@ test('updater verifies GitHub provenance before importing and rejects local or P
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'scripts'));
   mkdirSync(join(root, 'test/browser'), { recursive: true });
+  mkdirSync(join(root, 'release/lib'), { recursive: true });
+  writeFileSync(join(root, 'release/lib/exec.mjs'), readFileSync(new URL('../release/lib/exec.mjs', import.meta.url)));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   for (const script of ['browser-timings.js', 'update-browser-timings.js']) {
     writeFileSync(join(root, 'scripts', script), readFileSync(new URL(`../scripts/${script}`, import.meta.url)));
