@@ -926,6 +926,8 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
     if (this.#erased) {
       status.title = this.#copy.conversationUnavailable;
+      const label = root.querySelector('.composer-dock > .status__label');
+      if (label) { label.setAttribute('aria-hidden', 'true'); label.removeAttribute('role'); }
       status.querySelector('.status__dot').dataset.state = 'disconnected';
       status.querySelector('.status__dot').setAttribute('aria-label', this.#copy.conversationUnavailable);
       status.removeAttribute('data-connected'); status.removeAttribute('data-message');
