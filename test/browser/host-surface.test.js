@@ -1250,7 +1250,11 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url); await other.goto(demo.url);
   await shadow(page, 'textarea');
-  await inShadow(page, c => c.addEventListener('aithema-erased', event => window.erased484?.push(event.detail)));
+  await inShadow(page, c => c.addEventListener('aithema-erased', event => {
+    window.erased484?.push(event.detail);
+    const rect = c.shadowRoot.querySelector('.erased-end__new').getBoundingClientRect();
+    window.erasedAction484 = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }));
   const settle484 = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); });
   const results = [];
   for (const width of [390, 1440]) for (const stage of ['ready', 'live', 'folded']) {
@@ -1286,20 +1290,17 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
       if (!response.ok) throw new Error(`fixture delete ${response.status}`);
     }, session.id);
     await until(page, () => document.querySelector('aithema-session').hasAttribute('data-aithema-erased'));
-    // A synchronous DOM read can precede the first paint's queued announcement.
-    const actionFirst = await inShadow(page, c => new Promise(resolve => requestAnimationFrame(() => {
-      const rect = c.shadowRoot.querySelector('.erased-end__new').getBoundingClientRect();
-      resolve({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
-    })));
+    // The event listener samples in the same synchronous update as erasure entry.
+    const actionSync = await page.evaluate(() => window.erasedAction484);
     await settle484();
     const after = await Promise.all(selectors.map(selector => box(page, selector)));
     const actionSettled = await box(page, '.erased-end__new');
     selectors.forEach((selector, i) => sameBox(before[i], after[i], `${width} ${stage} ${selector}`));
-    sameBox(actionFirst, actionSettled, `${width} ${stage} action first/settled`);
+    sameBox(actionSync, actionSettled, `${width} ${stage} action synchronous/settled`);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage), beforeStage);
     assert.equal(await page.evaluate(() => window.erased484.length), 1);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-folded')), stage === 'folded');
-    results.push({ width, stage, selectors, before, after, actionFirst, actionSettled });
+    results.push({ width, stage, selectors, before, after, actionSync, actionSettled });
   }
   t.diagnostic(JSON.stringify(results));
   if (process.env.AITHEMA_EVIDENCE_DIR) {
