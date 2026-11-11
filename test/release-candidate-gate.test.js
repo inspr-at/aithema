@@ -351,3 +351,35 @@ test('another v-tag without version.json refuses admission', t => {
   f.git(['checkout', '--detach', f.commit]);
   refused(f.run(), /unreadable.*sequence|sequence.*unreadable/iu);
 });
+
+for (const key of ['maxBuffer', 'timeout']) {
+  for (const value of [0, -1, NaN, Infinity, '1024', null, undefined]) {
+    test(`release exec rejects invalid ${key}: ${String(value)}`, async () => {
+      const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+      assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, { [key]: value }),
+        /exec bound.*positive finite number/iu);
+    });
+  }
+}
+for (const bounds of [{ env: {} }, { shell: true }, { stdio: 'inherit' }, null, [], 'bounds']) {
+  test(`release exec rejects non-bound options: ${JSON.stringify(bounds)}`, async () => {
+    const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, bounds), /exec bound/iu);
+  });
+  test(`candidate gate rejects non-bound options: ${JSON.stringify(bounds)}`, t => {
+    const f = fixture(t); f.tag();
+    const result = f.run(bounds);
+    refused(result, /exec bound/iu);
+    assert.equal(result.stdout, '');
+    assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')));
+  });
+}
+for (const key of ['maxBuffer', 'timeout']) {
+  for (const value of [0, -1, '1024', null]) {
+    test(`candidate gate rejects invalid ${key}: ${String(value)}`, t => {
+      const f = fixture(t); f.tag();
+      refused(f.run({ [key]: value }), /exec bound.*positive finite number/iu);
+      assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')));
+    });
+  }
+}
