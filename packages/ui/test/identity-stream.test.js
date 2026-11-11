@@ -465,6 +465,18 @@ for (const source of ['.purpose-new', '.composer-out__new']) test(`AIT-484 ${sou
   assert.deepEqual(h.newEvents[0], { previousSessionId: 'conversation-a', reason: 'deleted', confirm: false });
 });
 
+test('AIT-484 configuring the current erased id preserves its mounted frozen view and repaints copy', async t => {
+  const h = fixture484(t, { host: {}, session: { processingPreset: 'device', settings: { origin: 'chosen' } } }); await tick(8);
+  h.serverErase(); event470(h.c, 'session.erased', { at: new Date().toISOString() }); await tick(8);
+  const row = h.root.querySelector('.erased-end'), form = h.root.querySelector('form.composer'), stage = h.root.querySelector('.workspace').dataset.stage;
+  h.c.configure({ session: h.c.session, copy: de, host: {} }); await tick(8);
+  assert.equal(h.root.querySelector('.erased-end'), row, 'the erased row stays mounted for the same id');
+  assert.equal(h.root.querySelector('form.composer'), form, 'the composer stays mounted for the same id');
+  assert.equal(h.root.querySelector('.workspace').dataset.stage, stage);
+  assert.equal(row.querySelector('[data-copy="conversationUnavailable"]').textContent, 'Dieses Gespräch ist nicht mehr verfügbar.');
+  assert.equal(h.erasedEvents.length, 1); await quiet484(t, h);
+});
+
 function noErasedReads464(t, h) {
   const counts = `snapshot=${h.reads.snapshot}, consent=${h.reads.consent}`;
   t.diagnostic(`AIT-464 erased A reads: ${counts}`);
