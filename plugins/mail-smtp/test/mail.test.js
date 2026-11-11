@@ -67,6 +67,50 @@ test('C1 SMTP config has value-free secret references, safe TLS defaults and mis
 
 const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 };
 
+
+
+test('AIT-487 characterizes the nodemailer 10.1.0 nested-comment parser', async t => {
+  const { default: addressparser } = await import('nodemailer/lib/addressparser');
+  const parsed = addressparser('x(y(z)@evil.example)');
+  t.diagnostic(JSON.stringify(parsed));
+  assert.deepEqual(parsed, [{ address: 'x@evil.example)', name: 'y(z' }]);
+});
+
+// The semicolon in '"a;b"@example.test' is already rejected; isolate quotes here.
+for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment)@example.test', 'a\\b@example.test',
+  'a(comment@example.test', 'a)@example.test']) {
+  test(`AIT-487 requestVerification rejects parser-ambiguous address ${JSON.stringify(recipient)}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [];
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    // Check both outcomes even while the regression is red.
+    const delivery = plugin.requestVerification({ ...effect, address: recipient });
+    await Promise.all([
+      assert.rejects(delivery, new TypeError('Invalid confirmation delivery')),
+      delivery.catch(() => {}).then(() => assert.equal(messages.length, 0, 'sendMail must not receive an ambiguous address')),
+    ]);
+  });
+}
+
+for (const recipient of ['visitor@example.test', 'visitor@sub.example.test', 'first.last+tag@example.test']) {
+  test(`AIT-487 requestVerification preserves ordinary address ${recipient}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [];
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    assert.deepEqual(await plugin.requestVerification({ ...effect, address: recipient }), { status: 'sent' });
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].to, recipient);
+  });
+}
+
 for (const abort of [false, true]) {
   test(`AIT-393 close during deferred lookup prevents transport creation and sending (abort=${abort})`, async t => {
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');
