@@ -1,136 +1,28 @@
 {
-  "seconds": 51.966,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 87.868,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "a44c0c00cc81f271ecf838d1b732e7795452e83eb5a6a1f40f279fa7b6f8ce7c",
+    "workload": "6b530a92348936836ad8c9512ce3af39a78146e3473180a191932b868151c4ac",
     "samples": [
       {
-        "runId": "39112261287",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
-        "observedAt": "2026-10-18T08:39:25.944Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:01.260Z",
         "tests": [
           {
             "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 45.514124783
+            "seconds": 35.785374592
           },
           {
             "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.298074857
-          }
-        ]
-      },
-      {
-        "runId": "39113978451",
-        "attempt": 1,
-        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
-        "observedAt": "2026-10-18T09:05:56.915Z",
-        "tests": [
-          {
-            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 47.395974417999994
+            "seconds": 2.010190418
           },
           {
-            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.257823063
-          }
-        ]
-      },
-      {
-        "runId": "39114014147",
-        "attempt": 1,
-        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
-        "observedAt": "2026-10-18T09:12:34.458Z",
-        "tests": [
-          {
-            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 47.493385316
-          },
-          {
-            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.3453738090000003
-          }
-        ]
-      },
-      {
-        "runId": "39116626384",
-        "attempt": 1,
-        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
-        "observedAt": "2026-10-18T09:46:18.628Z",
-        "tests": [
-          {
-            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 47.792075731
-          },
-          {
-            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.259842462
-          }
-        ]
-      },
-      {
-        "runId": "39119045746",
-        "attempt": 1,
-        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
-        "observedAt": "2026-10-18T10:23:35.197Z",
-        "tests": [
-          {
-            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 47.309162343000004
-          },
-          {
-            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.251708467
-          }
-        ]
-      },
-      {
-        "runId": "39119554362",
-        "attempt": 1,
-        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
-        "observedAt": "2026-10-18T10:31:14.673Z",
-        "tests": [
-          {
-            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 49.620044779000004
-          },
-          {
-            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.3405557829999997
-          }
-        ]
-      },
-      {
-        "runId": "39119578412",
-        "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:21.308Z",
-        "tests": [
-          {
-            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 48.765895059
-          },
-          {
-            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.305823516
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:05.361Z",
-        "tests": [
-          {
-            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
-            "seconds": 38.343305447
-          },
-          {
-            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
-            "seconds": 2.269400866
+            "name": "AIT-404: takeback clears the composer in the listening tick with zero movement",
+            "seconds": 32.498392349
           }
         ]
       }

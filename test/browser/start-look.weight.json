@@ -1,104 +1,24 @@
 {
-  "seconds": 40.534,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 41.053,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "6f393b991a3fd90e1ad82629f0ced5f83cd2de5df7212744ab302d1743bdaa13",
+    "workload": "823218e1ffc10cd311e72da5d1595396254d4e5d4446a1c80dadec713de4ecda",
     "samples": [
       {
-        "runId": "39114014147",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
-        "observedAt": "2026-10-18T09:12:42.795Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:02.049Z",
         "tests": [
           {
             "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
-            "seconds": 10.080487354999999
+            "seconds": 7.757184038
           },
           {
             "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 28.360916905
-          }
-        ]
-      },
-      {
-        "runId": "39116626384",
-        "attempt": 1,
-        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
-        "observedAt": "2026-10-18T09:46:18.869Z",
-        "tests": [
-          {
-            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
-            "seconds": 9.697558873
-          },
-          {
-            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 28.263881458
-          }
-        ]
-      },
-      {
-        "runId": "39119045746",
-        "attempt": 1,
-        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
-        "observedAt": "2026-10-18T10:23:38.720Z",
-        "tests": [
-          {
-            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
-            "seconds": 9.597225515
-          },
-          {
-            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 27.994516436
-          }
-        ]
-      },
-      {
-        "runId": "39119554362",
-        "attempt": 1,
-        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
-        "observedAt": "2026-10-18T10:31:16.829Z",
-        "tests": [
-          {
-            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
-            "seconds": 10.04498422
-          },
-          {
-            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 29.091347364
-          }
-        ]
-      },
-      {
-        "runId": "39119578412",
-        "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:19.177Z",
-        "tests": [
-          {
-            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
-            "seconds": 7.922595487
-          },
-          {
-            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 26.019958754
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:07.077Z",
-        "tests": [
-          {
-            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
-            "seconds": 10.628954018
-          },
-          {
-            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 29.904543844
+            "seconds": 25.084064165
           }
         ]
       }

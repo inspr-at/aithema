@@ -1,40 +1,32 @@
 {
-  "seconds": 45.559,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 118.037,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "e5089ca32341a62a1ad829308008a4afd2f36784c2ddaeb464728facc1821e51",
+    "workload": "0819c70b58d39bbb3449c4ea89f872faa5f112cec2df1ce3fdce3b60b98b55e7",
     "samples": [
       {
-        "runId": "39119578412",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:22.830Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:04.606Z",
         "tests": [
           {
             "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
-            "seconds": 13.10933264
+            "seconds": 12.832091044
           },
           {
             "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
-            "seconds": 23.336756635
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:02.918Z",
-        "tests": [
-          {
-            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
-            "seconds": 9.931446301
+            "seconds": 23.07905901
           },
           {
-            "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
-            "seconds": 19.062988401
+            "name": "AIT-304: demo phone legal links each occupy one line; full names, clear targets and 0px holds",
+            "seconds": 19.148328967
+          },
+          {
+            "name": "AIT-357: first credits receipt moves nothing at 320/390/700/1024/1100/1440, DE/EN, light/dark, legal/no-legal",
+            "seconds": 39.368737137
           }
         ]
       }

@@ -189,6 +189,25 @@ test('weights cannot replace observations with an estimate or a manually lowered
   }
 });
 
+for (const name of ['email-unlock-reply', 'identity-unlock']) {
+  test(`repository weights reject an unmeasured reservation for ${name}`, () => {
+    // Patch only the child process's file reads: exercise repositoryRoot without
+    // changing the real measurements or their trusted CI provenance.
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const read = fs.readFileSync;
+      fs.readFileSync = (path, ...args) => String(path).endsWith('/${name}.weight.json')
+        ? JSON.stringify({ seconds: 45, evidence: 'unmeasured reservation', provisional: true })
+        : read(path, ...args);
+      syncBuiltinESMExports();
+      await import('./scripts/browser-shards.js');
+    `], { cwd: new URL('../', import.meta.url), encoding: 'utf8' });
+    assert.equal(result.status, 1, `${name}: an unmeasured repository weight must fail`);
+    assert.match(result.stderr, /Missing rolling p95 CI timing samples/u);
+  });
+}
+
 test('current measured packing keeps every shard at or below the 405s headroom target', () => {
   assertBrowserShardHeadroom();
 });

@@ -308,7 +308,7 @@ raised the target once to 405 s under LEAD's AIT-410 decision (2026-10-20);
 AIT-423 implements its standing answer to the next overshoot: an eighth shard,
 not a 410 s target. The current target is 405 s; the hard ceiling remains 420 s.
 AIT-470 adds a ninth bin because the new unlock workload projects eight bins
-at 425.784–428.702 s. Its 240 s bootstrap reservation remains provisional;
+at 425.784–428.702 s;
 no weights, headroom target, hard ceiling or required summary names are lowered.
 
 Each CI shard writes `browser-timings-N-of-9` artifacts (14-day retention).

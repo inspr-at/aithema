@@ -1,104 +1,36 @@
 {
-  "seconds": 94.136,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39112261287-1, 39113978451-1, 39114014147-1, 39116626384-1, 39119045746-1, 39119554362-1, 39119578412-1, 39119980802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 178.983,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "9898ca04fa5895e82ae18a935bc1f8dcd61c8d1da093a934307a74932acb7b8e",
+    "workload": "4501c3ff54addf51baffc388aa697f320a865c05feb5daa9e0d8bafe654e7a3e",
     "samples": [
       {
-        "runId": "39112261287",
+        "runId": "42947874534",
         "attempt": 1,
-        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
-        "observedAt": "2026-10-18T08:39:22.258Z",
+        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
+        "observedAt": "2026-11-11T02:43:01.867Z",
         "tests": [
           {
             "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 82.661818167
-          }
-        ]
-      },
-      {
-        "runId": "39113978451",
-        "attempt": 1,
-        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
-        "observedAt": "2026-10-18T09:05:54.259Z",
-        "tests": [
+            "seconds": 69.531445901
+          },
           {
-            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 86.475647185
-          }
-        ]
-      },
-      {
-        "runId": "39114014147",
-        "attempt": 1,
-        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
-        "observedAt": "2026-10-18T09:12:33.922Z",
-        "tests": [
+            "name": "AIT-406 v2: top-up reserves ready, running, denied and ready again",
+            "seconds": 39.137378727000005
+          },
           {
-            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 81.18435530500001
-          }
-        ]
-      },
-      {
-        "runId": "39116626384",
-        "attempt": 1,
-        "sha": "3c99bd62ebb86ab0904ee926137c0c120d151e98",
-        "observedAt": "2026-10-18T09:46:18.869Z",
-        "tests": [
+            "name": "AIT-406: composer reserves every credit state across all widths, locales and themes",
+            "seconds": 21.687176129
+          },
           {
-            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 93.825750813
-          }
-        ]
-      },
-      {
-        "runId": "39119045746",
-        "attempt": 1,
-        "sha": "5142319e1e8fdc9b02a92152705f245fea8d8b7f",
-        "observedAt": "2026-10-18T10:23:35.888Z",
-        "tests": [
+            "name": "AIT-410 v4: every reply keeps usable controls without moving across calls and recovery",
+            "seconds": 11.497087717000001
+          },
           {
-            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 93.559412729
-          }
-        ]
-      },
-      {
-        "runId": "39119554362",
-        "attempt": 1,
-        "sha": "d227aeaef413d10bedc86bf00e20c6b7ad2ecf38",
-        "observedAt": "2026-10-18T10:31:13.423Z",
-        "tests": [
-          {
-            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 82.707622803
-          }
-        ]
-      },
-      {
-        "runId": "39119578412",
-        "attempt": 1,
-        "sha": "beb35ba280feb95668d87386ff60d747405af42d",
-        "observedAt": "2026-10-18T10:37:23.631Z",
-        "tests": [
-          {
-            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 92.950888515
-          }
-        ]
-      },
-      {
-        "runId": "39119980802",
-        "attempt": 1,
-        "sha": "ee435d8fcb630021945bac000d1bba155182d7cf",
-        "observedAt": "2026-10-18T10:43:04.048Z",
-        "tests": [
-          {
-            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 94.13578351700001
+            "name": "AIT-426: impersonal German sent copy and notice evidence stay isolated from the credit matrix",
+            "seconds": 1.332402164
           }
         ]
       }
