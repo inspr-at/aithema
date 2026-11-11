@@ -194,8 +194,13 @@ ${needle}`);
           try { const s = JSON.parse(body); entry.seq = s.seq; entry.locked = s.identity?.assessmentUnlocked !== true; } catch { /* error response */ }
           entry.forwarded = Date.now();
           try { entry.eventSeq = JSON.parse(body).event?.seq; } catch { /* no event */ }
-          if (entry.held) { await holdBarrier?.promise; await delay(3000); }
-          if (!res.destroyed) { res.writeHead(response.statusCode, response.headers); res.end(body); }
+          if (entry.held) {
+            // Expose no-store before holding the body, so identical browser GETs
+            // do not queue behind the first response's cache lock.
+            if (!res.destroyed) { res.writeHead(response.statusCode, response.headers); res.flushHeaders(); entry.headersForwarded = Date.now(); }
+            await holdBarrier?.promise; await delay(3000);
+          }
+          if (!res.destroyed) { if (!res.headersSent) res.writeHead(response.statusCode, response.headers); entry.bodyForwarded = Date.now(); res.end(body); }
         });
       } else {
         response.on('end', () => { entry.forwarded = Date.now(); });
