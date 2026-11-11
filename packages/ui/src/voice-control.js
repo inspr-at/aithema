@@ -12,7 +12,8 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
     const response = await postJson(url, body, { sessionToken, signal: options.signal });
     const refusal = response.status === 404 ? response.clone() : null;
     const value = await response.json().catch(() => null);
-    if (refusal) receive({ type: 'session.not-found', sessionId, data: { url, response: refusal } });
+    if (refusal && value?.error === 'session-not-found' && Object.keys(value).length === 1)
+      receive({ type: 'session.not-found', sessionId, data: { url, response: refusal } });
     options.signal?.throwIfAborted();
     if (!response.ok) {
       const error = new Error('Voice control failed'), seconds = Number(response.headers.get('retry-after'));
