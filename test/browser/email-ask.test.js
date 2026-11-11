@@ -398,3 +398,76 @@ test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, mai
   }
   if (evidence) await writeFile(join(evidence, 'ait-172-email-ask-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, baseline: baseline.sourceHead, rows, shots }, null, 2));
 });
+
+
+// AIT-490: measure the shipped send paths before deciding the SMTP joiner rule.
+// BEH + BEH are dual-joining Persian letters, so the intervening ZWNJ satisfies
+// IDNA2008 CONTEXTJ's joining-type context (RFC 5892, Appendix A.2).
+test('AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-recipient-joiner-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), rows = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  const unicode = 'user@ب\u200cب.example';
+  for (const path of ['verification', 'email-ask', 'visitor-email']) {
+    // The ASCII control proves each fixture actually reaches its send handler.
+    for (const recipient of ['control@example.test', unicode]) {
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1440, height: 1000 });
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await until(page, () => document.querySelector('aithema-session')?.session);
+      await fixture(page, 'en', { delivery: true, ...(path === 'verification' ? { address: 'prior@example.test' } : {}) });
+      let selector;
+      if (path === 'email-ask') {
+        await page.evaluate(() => window.ait164.reply()); await gateReady(page);
+        selector = '#email-ask-input';
+      } else {
+        await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+        if (path === 'verification') {
+          await click(page, '.m-change-mail');
+          await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
+          selector = '#verify-dialog-email';
+        } else selector = '#email-input';
+      }
+      await page.evaluate(() => {
+        const previous = window.fetch;
+        window.recipientRequests = [];
+        window.fetch = async (url, init = {}) => {
+          const address = init.body && JSON.parse(init.body).address;
+          if (address) {
+            window.recipientRequests.push({ path: new URL(url, location.href).pathname, address });
+            // Count at the host-route fixture; never contact a mail provider.
+            return Response.json({ error: 'measurement' }, { status: 400 });
+          }
+          return previous(url, init);
+        };
+      });
+      const input = await page.evaluateHandle(selector => document.querySelector('aithema-session').shadowRoot.querySelector(selector), selector);
+      await input.evaluate(input => { input.value = ''; });
+      await input.type(recipient);
+      const observed = await input.evaluate(input => ({ value: input.value, valid: input.checkValidity(), typeMismatch: input.validity.typeMismatch }));
+      await input.evaluate(input => input.form.requestSubmit());
+      await until(page, selector => window.recipientRequests.length > 0 || document.querySelector('aithema-session').shadowRoot.querySelector(selector).getAttribute('aria-invalid') === 'true', selector);
+      const requests = await page.evaluate(() => window.recipientRequests);
+      rows.push({ engine: await browser.browser().version(), path, typed: recipient, ...observed, sends: requests.length, requests });
+      await input.dispose(); await page.close();
+    }
+  }
+  t.diagnostic(JSON.stringify(rows));
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait490-joiner-measurement.json'), JSON.stringify(rows, null, 2));
+  }
+  for (const row of rows) {
+    if (row.typed !== unicode) { assert.ok(row.sends > 0, `${row.path}: ASCII control reaches the fixture`); continue; }
+    if (row.value === unicode) {
+      assert.equal(row.typeMismatch, true, `${row.path}: unconverted Unicode is invalid`);
+      assert.equal(row.valid, false, `${row.path}: unconverted Unicode fails checkValidity()`);
+      assert.equal(row.sends, 0, `${row.path}: STOP: Unicode joiner recipient left the page`);
+    } else {
+      assert.match(row.value, /^user@xn--[a-z0-9-]+\.example$/u, `${row.path}: browser ToASCII conversion`);
+      assert.equal(row.valid, true);
+      assert.ok(row.requests.every(request => request.address === row.value), `${row.path}: only the converted recipient leaves the page`);
+    }
+  }
+});
