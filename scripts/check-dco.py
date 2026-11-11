@@ -16,7 +16,7 @@ DEPENDABOT_AUTHOR = (
 DEPENDABOT_SIGNOFF = "dependabot[bot] <support@github.com>"
 
 
-def git(*args, input_text=None):
+def git(*args, input_text=None, max_buffer=64 * 1024 * 1024, timeout=5 * 60 * 1000):
     return subprocess.run(
         ["git", *args], input=input_text, text=True, encoding="utf-8",
         errors="strict", capture_output=True, check=True,

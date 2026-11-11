@@ -15,7 +15,10 @@ const repository = 'inspr-at/aithema';
 const bootstrapRun = '39699662257';
 const bootstrapHead = '1cd43c080d52b9e825a19088d1aa521e95ae1e85';
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-const api = path => JSON.parse(gh(['api', `repos/${repository}/${path}`]));
+export function fetchUnitTimingApi(path, execBounds = {}) {
+  return JSON.parse(gh(['api', `repos/${repository}/${path}`]));
+}
+const api = fetchUnitTimingApi;
 
 export function unitFileMeasurements(records) {
   const summaries = records.filter(record => record.type === 'test:summary');
