@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertReleaseTag, compareVersions, migrationGate, parseVersion } from './lib/version.mjs';
 import { normalizedDigest } from './normalize.mjs';
-import { releaseExecFileSync, ReleaseExecBoundError } from './lib/exec.mjs';
+import { releaseExecFileSync, ReleaseExecBoundError, validateExecBounds } from './lib/exec.mjs';
 
 const isDigest = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value);
 const isCommit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value);
@@ -33,7 +33,8 @@ export function parseCandidateMarker(tag, object) {
 }
 
 export function candidateGate(ref, { root = process.cwd(), directory = join(root, 'dist/release'), execBounds = {} } = {}) {
-  const git = args => releaseExecFileSync('git', args, { ...execBounds, cwd: root, encoding: 'utf8' }).trim();
+  const bounds = validateExecBounds(execBounds);
+  const git = args => releaseExecFileSync('git', args, { cwd: root, encoding: 'utf8' }, bounds).trim();
   const source = JSON.parse(readFileSync(join(root, 'release/version.json')));
   assertReleaseTag(ref, source);
   git(['fetch', '--no-tags', 'origin',
@@ -77,7 +78,7 @@ export function candidateGate(ref, { root = process.cwd(), directory = join(root
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repo ?? '')) throw new Error('GITHUB_REPOSITORY required for published release admission');
   // gh uses this workflow's GH_TOKEN. Only GET requests; every page is read.
   const pages = JSON.parse(releaseExecFileSync('gh', ['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`],
-    { ...execBounds, cwd: root, encoding: 'utf8' }));
+    { cwd: root, encoding: 'utf8' }, bounds));
   if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page))) throw new Error('Invalid published release response');
   const history = JSON.parse(readFileSync(join(root, 'release/history.json'))).releases;
   const publishedTags = new Set();

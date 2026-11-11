@@ -9,7 +9,7 @@ import { assertUnitMeasuredHeadroom, unitJobTargetSeconds, unitPlan } from './un
 export function fetchUnitJobs(runId, repository = process.env.GITHUB_REPOSITORY, execBounds = {}) {
   if (!/^\d+$/u.test(runId ?? '') || !/^[a-z\d][a-z\d-]*\/[a-z\d][\w.-]*$/iu.test(repository ?? '')) throw new Error('Invalid unit jobs API scope');
   const pages = JSON.parse(releaseExecFileSync('gh', ['api', '--paginate', '--slurp',
-    `repos/${repository}/actions/runs/${runId}/jobs?filter=all&per_page=100`], { ...execBounds, encoding: 'utf8' }));
+    `repos/${repository}/actions/runs/${runId}/jobs?filter=all&per_page=100`], { encoding: 'utf8' }, execBounds));
   if (!Array.isArray(pages) || pages.some(page => !Array.isArray(page.jobs))) throw new Error('Missing unit jobs API pages');
   return pages.flatMap(page => page.jobs);
 }

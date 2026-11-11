@@ -111,8 +111,8 @@ test('release exec helper fails closed with the command and output bound on ENOB
   const f = fixture(t);
   writeFileSync(join(f.root, 'published.json'), 'x'.repeat(128 * 1024));
   assert.throws(() => releaseExecFileSync('gh', releaseApiArgs, {
-    cwd: f.root, env: f.env, encoding: 'utf8', maxBuffer: 64 * 1024,
-  }), error => {
+    cwd: f.root, env: f.env, encoding: 'utf8',
+  }, { maxBuffer: 64 * 1024 }), error => {
     assert.equal(error.message, boundMessage('maxBuffer=65536 bytes'));
     assert.equal(error.cause.code, 'ENOBUFS');
     return true;
@@ -127,8 +127,8 @@ process.stdout.write('[[]]');
 setTimeout(() => {}, 5000);
 `, { mode: 0o755 });
   assert.throws(() => releaseExecFileSync('gh', releaseApiArgs, {
-    cwd: f.root, env: f.env, encoding: 'utf8', timeout: 50,
-  }), error => {
+    cwd: f.root, env: f.env, encoding: 'utf8',
+  }, { timeout: 50 }), error => {
     assert.equal(error.message, boundMessage('timeout=50 ms'));
     assert.equal(error.cause.code, 'ETIMEDOUT');
     return true;

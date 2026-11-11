@@ -14,7 +14,7 @@ const repository = 'inspr-at/aithema';
 // only for this exact run/head; this exception cannot admit a failed test.
 const bootstrapRun = '39699662257';
 const bootstrapHead = '1cd43c080d52b9e825a19088d1aa521e95ae1e85';
-const gh = (args, execBounds = {}) => releaseExecFileSync('gh', args, { ...execBounds, encoding: 'utf8' });
+const gh = (args, execBounds = {}) => releaseExecFileSync('gh', args, { encoding: 'utf8' }, execBounds);
 export function fetchUnitTimingApi(path, execBounds = {}) {
   return JSON.parse(gh(['api', `repos/${repository}/${path}`], execBounds));
 }
