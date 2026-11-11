@@ -159,6 +159,10 @@ test('required aggregates allow only verified duplicate skips and never mask a f
   }
 });
 
+test('preview-security pins the runner supported by its Playwright engines (AIT-474)', () => {
+  assert.equal(ci.jobs['preview-security']['runs-on'], 'ubuntu-24.04');
+});
+
 test('resource caps and required summaries stay fixed while AIT-470 adds browser capacity', () => {
   assert.deepEqual(Object.keys(ci.on), ['pull_request', 'merge_group', 'push']);
   assert.deepEqual(Object.fromEntries(Object.entries(ci.jobs).map(([id, job]) => [id, [job.name ?? id, job['timeout-minutes'], job.strategy?.matrix.shard]])), {

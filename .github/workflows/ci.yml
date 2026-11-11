@@ -307,7 +307,9 @@ jobs:
   preview-security:
     needs: changes
     if: ${{ !cancelled() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '') }}
-    runs-on: ubuntu-latest
+    # AIT-474: the pinned Playwright engines support this image.
+    # Move this runner pin forward together with Playwright.
+    runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
       - name: Docs-only success
