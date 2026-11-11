@@ -141,6 +141,14 @@ export class AithemaSession extends HTMLElement {
   configure(options) {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
+    if (this.#erased && session.id === this.#session.id) {
+      this.#copy = copy; this.#copyLocale = session.locale; this.#session.locale = session.locale;
+      this.#options.copy = copy; this.#sessionToken = sessionToken; this.#options.sessionToken = sessionToken;
+      if (options.copyForLocale) this.#options.copyForLocale = options.copyForLocale;
+      this.#host?.setSessionToken(sessionToken);
+      if (this.#concept) this.#concept.sessionToken = sessionToken;
+      this.#paintErased(); return;
+    }
     this.#cancelUploads();
     clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;

@@ -68,6 +68,7 @@ export class HostSurface {
     this.#handover = this.#session().handover ?? null;
     this.#paintCredits(); this.#paintHandover();
   }
+  setSessionToken(token) { this.#token = token; }
   setCopy(copy) {
     this.#copy = copy;
     const s = copy.hostSurface, root = this.#root;
