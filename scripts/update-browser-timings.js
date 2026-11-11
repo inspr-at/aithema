@@ -1,5 +1,5 @@
 // Read-only GitHub access; writes only measured sibling .weight.json files.
-import { execFileSync } from 'node:child_process';
+import { releaseExecFileSync } from '../release/lib/exec.mjs';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -13,7 +13,7 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--run' && /^\d+$/u.test(args[i + 1] ?? '')) runIds.push(args[++i]);
   else throw new Error('Use [--run RUN_ID ...]; only verified canonical main push or merge-group artifacts are accepted');
 }
-const gh = (...args) => execFileSync('gh', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const gh = (...args) => releaseExecFileSync('gh', args, { cwd: root, encoding: 'utf8' });
 const observations = new Map();
 function readDirectory(directory, expectedRun) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {

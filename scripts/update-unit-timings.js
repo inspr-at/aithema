@@ -1,5 +1,5 @@
 // Import small timing artifacts only; never execute tests or download screenshots.
-import { execFileSync } from 'node:child_process';
+import { releaseExecFileSync } from '../release/lib/exec.mjs';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -14,8 +14,11 @@ const repository = 'inspr-at/aithema';
 // only for this exact run/head; this exception cannot admit a failed test.
 const bootstrapRun = '39699662257';
 const bootstrapHead = '1cd43c080d52b9e825a19088d1aa521e95ae1e85';
-const gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-const api = path => JSON.parse(gh(['api', `repos/${repository}/${path}`]));
+const gh = (args, execBounds = {}) => releaseExecFileSync('gh', args, { encoding: 'utf8' }, execBounds);
+export function fetchUnitTimingApi(path, execBounds = {}) {
+  return JSON.parse(gh(['api', `repos/${repository}/${path}`], execBounds));
+}
+const api = fetchUnitTimingApi;
 
 export function unitFileMeasurements(records) {
   const summaries = records.filter(record => record.type === 'test:summary');

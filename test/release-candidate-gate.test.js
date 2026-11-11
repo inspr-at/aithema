@@ -111,8 +111,8 @@ test('release exec helper fails closed with the command and output bound on ENOB
   const f = fixture(t);
   writeFileSync(join(f.root, 'published.json'), 'x'.repeat(128 * 1024));
   assert.throws(() => releaseExecFileSync('gh', releaseApiArgs, {
-    cwd: f.root, env: f.env, encoding: 'utf8', maxBuffer: 64 * 1024,
-  }), error => {
+    cwd: f.root, env: f.env, encoding: 'utf8',
+  }, { maxBuffer: 64 * 1024 }), error => {
     assert.equal(error.message, boundMessage('maxBuffer=65536 bytes'));
     assert.equal(error.cause.code, 'ENOBUFS');
     return true;
@@ -127,8 +127,8 @@ process.stdout.write('[[]]');
 setTimeout(() => {}, 5000);
 `, { mode: 0o755 });
   assert.throws(() => releaseExecFileSync('gh', releaseApiArgs, {
-    cwd: f.root, env: f.env, encoding: 'utf8', timeout: 50,
-  }), error => {
+    cwd: f.root, env: f.env, encoding: 'utf8',
+  }, { timeout: 50 }), error => {
     assert.equal(error.message, boundMessage('timeout=50 ms'));
     assert.equal(error.cause.code, 'ETIMEDOUT');
     return true;
@@ -351,3 +351,135 @@ test('another v-tag without version.json refuses admission', t => {
   f.git(['checkout', '--detach', f.commit]);
   refused(f.run(), /unreadable.*sequence|sequence.*unreadable/iu);
 });
+
+for (const key of ['maxBuffer', 'timeout']) {
+  for (const value of [0, -1, NaN, Infinity, '1024', null, undefined]) {
+    test(`release exec rejects invalid ${key}: ${String(value)}`, async () => {
+      const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+      assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, { [key]: value }),
+        /exec bound.*positive finite number/iu);
+    });
+  }
+}
+for (const bounds of [{ env: {} }, { shell: true }, { stdio: 'inherit' }, null, [], 'bounds']) {
+  test(`release exec rejects non-bound options: ${JSON.stringify(bounds)}`, async () => {
+    const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, bounds), /exec bound/iu);
+  });
+  test(`candidate gate rejects non-bound options: ${JSON.stringify(bounds)}`, t => {
+    const f = fixture(t); f.tag();
+    const result = f.run(bounds);
+    refused(result, /exec bound/iu);
+    assert.equal(result.stdout, '');
+    assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')));
+  });
+}
+for (const key of ['maxBuffer', 'timeout']) {
+  for (const value of [0, -1, '1024', null]) {
+    test(`candidate gate rejects invalid ${key}: ${String(value)}`, t => {
+      const f = fixture(t); f.tag();
+      refused(f.run({ [key]: value }), /exec bound.*positive finite number/iu);
+      assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')));
+    });
+  }
+}
+
+for (const encoding of [undefined, 'utf8']) test(`release exec forwards successful stderr (${encoding ?? 'buffer'})`, () => {
+  const helper = new URL('../release/lib/exec.mjs', import.meta.url).href;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { releaseExecFileSync } from ${JSON.stringify(helper)};
+    const output = releaseExecFileSync(process.execPath, ['-e',
+      'process.stdout.write("listing"); console.error("fixture warning")'],
+      ${JSON.stringify({ encoding })});
+    process.stdout.write(output);
+  `], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'listing');
+  assert.equal(result.stderr, 'fixture warning\n');
+});
+
+test('release exec retains captured stderr in a failure message', async () => {
+  const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+  assert.throws(() => releaseExecFileSync(process.execPath, ['-e',
+    'process.stderr.write("fixture failure detail"); process.exit(1)']), /fixture failure detail/u);
+});
+
+for (const annotated of [true, false]) test(`sibling marker bound failure escapes the ${annotated ? 'outer' : 'fallback'} rethrow guard`, t => {
+  const f = fixture(t); f.tag();
+  const sibling = '261019120001.0.0', tag = `refs/tags/candidate/v${sibling}`;
+  f.tag({ ...f.marker, version: sibling, release_sequence: version.release_sequence - 1 }, f.commit, sibling, annotated);
+  const realGit = join(f.git(['--exec-path']), 'git');
+  writeFileSync(join(f.root, 'bin/git'), `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === 'cat-file' && args[1] === '-p' && args[2] === ${JSON.stringify(tag)}) {
+  const repeated = fs.existsSync('sibling-read');
+  fs.writeFileSync('sibling-read', 'read');
+  if (!${annotated} || !repeated) {
+    process.stdout.write('x'.repeat(128 * 1024));
+    process.exit(0);
+  }
+}
+const child = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
+process.exit(child.status ?? 1);
+`, { mode: 0o755 });
+  const result = f.run({ maxBuffer: 64 * 1024 });
+  refused(result, /exceeded maxBuffer=65536 bytes/u);
+  assert.ok(result.stderr.includes(`git cat-file -p ${tag}`), result.stderr);
+  assert.doesNotMatch(result.stderr, /ignoring malformed/u);
+  assert.equal(result.stdout, '', 'a sibling read failure never emits an admitted marker');
+  assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')), 'API admission is never reached');
+});
+
+test('bound errors identify their class in logs and stack traces', async () => {
+  const { ReleaseExecBoundError } = await import('../release/lib/exec.mjs');
+  const error = new ReleaseExecBoundError('fixture bound');
+  assert.equal(error.name, 'ReleaseExecBoundError');
+  assert.match(error.stack, /^ReleaseExecBoundError: fixture bound/u);
+});
+
+for (const key of ['maxBuffer', 'timeout']) test(`non-enumerable ${key} cannot hide an invalid bound`, async () => {
+  const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+  const bounds = Object.defineProperty({}, key, { value: 0 });
+  assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, bounds),
+    /exec bound.*positive finite number/iu);
+  assert.throws(() => gateModule.candidateGate('invalid', { execBounds: bounds }),
+    /exec bound.*positive finite number/iu);
+});
+
+for (const key of ['maxBuffer', 'timeout', 'killSignal']) {
+  for (const enumerable of [true, false]) test(`release exec rejects misplaced ${key} (${enumerable ? 'enumerable' : 'hidden'})`, async () => {
+    const { releaseExecFileSync } = await import('../release/lib/exec.mjs');
+    const options = Object.defineProperty({}, key, { value: undefined, enumerable });
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], options), TypeError);
+  });
+}
+
+for (const key of ['maxBuffer', 'timeout']) {
+  for (const value of [1.5, Number.MAX_VALUE]) test(`release exec rejects unsafe integer ${key}: ${value}`, async () => {
+    const { validateExecBounds, releaseExecFileSync } = await import('../release/lib/exec.mjs');
+    assert.throws(() => validateExecBounds({ [key]: value }), TypeError);
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', ''], {}, { [key]: value }), TypeError);
+  });
+}
+
+for (const encoding of [undefined, 'utf8']) {
+  for (const bounded of [false, true]) test(`release exec caps appended stderr (${encoding ?? 'buffer'}, ${bounded ? 'bound' : 'exit'} failure)`, async () => {
+    const { releaseExecFileSync, ReleaseExecBoundError } = await import('../release/lib/exec.mjs');
+    const script = 'require("node:fs").writeSync(2, "x".repeat(256 * 1024) + "stderr tail detail"); process.exit(1)';
+    assert.throws(() => releaseExecFileSync(process.execPath, ['-e', script], { encoding },
+      { maxBuffer: bounded ? 64 * 1024 : 512 * 1024 }), error => {
+      assert.equal(error instanceof ReleaseExecBoundError, bounded);
+      const captured = bounded ? error.cause.stderr : error.stderr;
+      assert.ok(captured.length > 4096, 'the original stderr remains available');
+      const tail = Buffer.from(captured).subarray(-4096).toString();
+      for (const failure of bounded ? [error, error.cause] : [error]) {
+        assert.match(failure.message, /\[truncated\]/u);
+        assert.ok(failure.message.endsWith(tail), 'diagnostics retain the stderr tail');
+        assert.ok(Buffer.byteLength(failure.message) < 5120, 'diagnostic messages stay small');
+      }
+      return true;
+    });
+  });
+}
