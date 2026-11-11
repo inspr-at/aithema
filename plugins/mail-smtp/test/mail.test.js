@@ -66,10 +66,30 @@ test('C1 SMTP config has value-free secret references, safe TLS defaults and mis
 });
 
 const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 };
+const configuredAddressExample = 'o(ps)@example.test';
+
+for (const setting of ['SMTP_FROM', 'SMTP_REPLY_TO']) {
+  test(`AIT-487 preserves RC21 configured address syntax in ${setting}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const config = smtpConfig({ ...values, [setting]: configuredAddressExample });
+    const messages = [];
+    const plugin = createSmtpMail({ config, publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    assert.deepEqual(await plugin.requestVerification(effect), { status: 'sent' });
+    assert.equal(messages.length, 1);
+    assert.deepEqual(messages[0].from, { name: values.SMTP_FROM_NAME,
+      address: setting === 'SMTP_FROM' ? configuredAddressExample : values.SMTP_FROM });
+    assert.equal(messages[0].replyTo, setting === 'SMTP_REPLY_TO' ? configuredAddressExample : values.SMTP_REPLY_TO);
+    assert.equal(messages[0].to, effect.address);
+  });
+}
 
 // The semicolon in '"a;b"@example.test' is already rejected; isolate quotes here.
 for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment)@example.test', 'a\\b@example.test',
-  'a(comment@example.test', 'a)@example.test']) {
+  'a(comment@example.test', 'a)@example.test', configuredAddressExample]) {
   test(`AIT-487 requestVerification rejects parser-ambiguous address ${JSON.stringify(recipient)}`, async t => {
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');
     const messages = [];
