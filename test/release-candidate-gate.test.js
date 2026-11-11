@@ -431,3 +431,10 @@ process.exit(child.status ?? 1);
   assert.equal(result.stdout, '', 'a sibling read failure never emits an admitted marker');
   assert.throws(() => readFileSync(join(f.root, 'gh-calls.jsonl')), 'API admission is never reached');
 });
+
+test('bound errors identify their class in logs and stack traces', async () => {
+  const { ReleaseExecBoundError } = await import('../release/lib/exec.mjs');
+  const error = new ReleaseExecBoundError('fixture bound');
+  assert.equal(error.name, 'ReleaseExecBoundError');
+  assert.match(error.stack, /^ReleaseExecBoundError: fixture bound/u);
+});
