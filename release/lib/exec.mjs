@@ -25,20 +25,32 @@ export function validateExecBounds(bounds = {}) {
     timeout: Object.hasOwn(bounds, 'timeout') ? bounds.timeout : RELEASE_EXEC_TIMEOUT_MS,
   };
   for (const [key, value] of Object.entries(values)) {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-      throw new TypeError(`Invalid exec bound ${key}: expected a positive finite number`);
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new TypeError(`Invalid exec bound ${key}: expected a positive finite number (safe integer)`);
     }
   }
   return values;
 }
 
+// Keep failure diagnostics small while retaining the original captured stderr.
+function stderrMessage(stderr) {
+  if (!stderr?.length) return '';
+  const limit = 4 * 1024;
+  const tail = Buffer.isBuffer(stderr) ? stderr.subarray(-limit) : Buffer.from(stderr.slice(-limit));
+  const truncated = stderr.length > limit || tail.length > limit;
+  return `\n${truncated ? '[truncated]\n' : ''}${tail.subarray(-limit).toString()}`;
+}
+
 // Bounds are injectable by tests through function arguments, never environment.
 export function releaseExecFileSync(command, args, options = {}, bounds = {}) {
+  for (const key of ['maxBuffer', 'timeout', 'killSignal']) {
+    if (Object.hasOwn(options, key)) throw new TypeError(`Unsupported exec option: ${key}; pass bounds separately`);
+  }
   const { maxBuffer, timeout } = validateExecBounds(bounds);
   try {
     const result = spawnSync(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options, maxBuffer, timeout });
     if (result.error || result.status !== 0) {
-      const stderr = result.stderr?.length ? `\n${result.stderr}` : '';
+      const stderr = stderrMessage(result.stderr);
       const cause = result.error ?? new Error(`Command failed: ${[command, ...args].join(' ')}${stderr}`);
       if (result.error && stderr) cause.message += stderr;
       Object.assign(cause, { status: result.status, signal: result.signal, output: result.output,
@@ -53,6 +65,6 @@ export function releaseExecFileSync(command, args, options = {}, bounds = {}) {
     if (!bound) throw cause;
     throw new ReleaseExecBoundError(`Release command "${[command, ...args].join(' ')}" exceeded ${bound}; ` +
       'review the required bound and raise it explicitly in release/lib/exec.mjs.' +
-      (cause.stderr?.length ? `\n${cause.stderr}` : ''), { cause });
+      stderrMessage(cause.stderr), { cause });
   }
 }
