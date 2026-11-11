@@ -1,34 +1,47 @@
 # Aithema 2026.10
 
-Version **261110175455.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261111070532.0.0**. Licensed under **AGPL-3.0-only**.
 
-After you confirm your email, the lock indicator clears without a reload, including in open Settings and on a paused draft line.
+Hosts get fewer duplicate identity events, no console 404 after deleting a conversation, and a mail-parser security fix. This release adds no new visitor-facing behaviour.
 
 ## What visitors notice
 
-- **Email unlock (AIT-470):** After email confirmation, the lock indicator clears
-  from the concept line and overview without reloading the page. An open Settings
-  dialog refreshes its option statuses, and a paused draft line updates its lock
-  wording. An open option menu keeps its rows until you close it.
+No new visitor-facing behaviour or copy.
 
 ## For hosts
 
-**Email unlock UI (AIT-470).** Outside a live consent window (while a consent
-change is still being confirmed), the page repeats a dropped feature read when
-new journal movement arrives, at most five times and without a timer, while the
-server's verdicts differ from those on screen or the read was refused with 409;
-inside one, the window's own retries apply. The verification poll's unlock edge
-starts one feature read, plus one reconnect if the page has fallen behind,
-including on a 409 response. Outside a live consent window, a 409 no longer
-rolls back an acknowledged voice Resume. A paused draft line updates its lock
-wording when the lock lifts; an open Settings dialog refreshes its option
-statuses after unlock, preserving an open menu's rows until it closes. This is
-UI-only: existing copy and states, including host copy overrides, are
-preserved; no server behaviour changes.
+**Erased conversations (AIT-464, #417).** An erased (deleted or reset)
+conversation no longer requests its feature snapshot, so there is no console
+404 after deleting the open conversation. Existing copy and states are unchanged.
 
-**CI-only (AIT-470, #415).** A ninth browser shard keeps the 405 s target and
-420 s ceiling. Shard checks are named `browser (n/9)`; the four required
-`browser (1/4)`–`browser (4/4)` contexts are unchanged.
+**Identity journal (AIT-485, #419).** An unchanged pending identity no longer
+re-journals `identity.state` during the resend cooldown. That means fewer duplicate
+events and fewer follow-up feature reads. Event shape, fields and status codes
+are unchanged. This is not breaking: journals and transcript exports only lose
+duplicates.
+
+**Mail-parser security (AIT-487, #422).** The mail-smtp plugin updates nodemailer
+to 10.1.7, which fixes three address-parser advisories (GHSA-m943-m63m-w62w,
+GHSA-85x2-q946-cp5h, GHSA-8c8m-p3m8-cjg8).
+
+Visitor-typed recipients that nodemailer would parse ambiguously (quotes,
+comments, escapes, groups, control characters) are refused before delivery with
+the existing invalid-delivery error. Configured sender addresses are unchanged.
+Character checks also refuse format characters; a round-trip through nodemailer's
+own addressparser must yield exactly one plain address equal to the input.
+The delivered address is the same mailbox as the stored string, though nodemailer
+lowercases the domain and sends IDN domains as punycode.
+
+Hosts that also depend on nodemailer directly should move to the same 10.1.x.
+This is not breaking: configured from and reply-to keep RC21's rules; ambiguous
+visitor input receives the existing invalid-delivery error.
+
+**CI-only (AIT-480, AIT-483, AIT-474, AIT-477; #418, #420, #421, #423).**
+Release and test fixtures find real git and bash on any host; the identity-unlock
+browser test uses a deterministic settle barrier; preview-security runs on the
+pinned Playwright's supported ubuntu-24.04 runner; measured browser weights
+replace two bootstrap reservations, and every browser test goes through the
+measured-weight check. No shipped runtime behaviour changes in these four items.
 
 [RC14's host requirements](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#for-hosts)
 still apply, including its breaking changes; Aithema recommends checking those
@@ -36,10 +49,13 @@ requirements before upgrading from an earlier release.
 
 ## Breaking for hosts
 
-**None relative to RC20 (`v261110120839.0.0`).** #415 changes UI behaviour and
-CI/test infrastructure without changing public export contracts, configuration
-keys, HTTP status codes, events or host integration requirements. The server
-implementation is unchanged; #414 prepared RC20.
+**None relative to RC21 (`v261110175455.0.0`).** Public export contracts,
+configuration keys, HTTP status codes, event shapes and fields, and host
+integration requirements are unchanged. #417 suppresses feature reads for erased
+conversations; #419 removes duplicate identity events from journals and transcript
+exports; #422 fixes the mail parser and rejects ambiguous visitor recipients with
+the existing error while preserving configured sender syntax. #418, #420, #421
+and #423 change only CI or tests; #416 prepared RC21.
 START integrates and pins this release separately.
 
 ## Availability and verification
@@ -54,7 +70,7 @@ Release assets include module tarballs, the workspace archive, dependency locks,
 an SPDX SBOM and `release-set.json`. Verify the published attestations and
 `SHA256SUMS` before installation, following
 [RC14's verification and installation instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261110175455.0.0` in every download and installation URL. Retain the
+with tag `v261111070532.0.0` in every download and installation URL. Retain the
 verified assets, manifest and deployment pin for rollback to those exact bytes.
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261110175455.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261111070532.0.0/docs/embedding.md)
 for host integration.
