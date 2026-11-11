@@ -321,7 +321,7 @@ for (const route of ['events', 'credits', 'identity/unlock', 'restore', 'voice-c
   await h.reconnect();
   if (route === 'voice-close') { h.root.querySelector('.voice-start').click(); await tick(8); }
   h.serverErase();
-  if (route === 'events') h.dropStream();
+  if (route === 'events') { h.dropStream(); await tick(8); }
   if (route === 'credits') { h.c.receive({ type: 'voice.state', data: { state: 'closing' } }); t.mock.timers.tick(300); }
   if (route === 'identity/unlock') t.mock.timers.tick(4000);
   if (route === 'restore') h.c.receive({ seq: h.c.session.seq + 2, type: 'turn.final', data: { id: 'gap', role: 'assistant', content: 'gap' } });
@@ -389,7 +389,7 @@ test('AIT-484 a burst shares one held confirmation and late success changes noth
   const h = fixture484(t, { host: { credits: true, verification: { delivery: true } }, session: { identity: pending470({ pollVerification: true }) } });
   await h.reconnect(); const held = Promise.withResolvers(); t.after(() => held.resolve());
   h.serverErase(); h.state.snapshot = () => held.promise.then(() => Response.json(h.c.session));
-  h.dropStream(); t.mock.timers.tick(1000); await tick(8);
+  h.dropStream(); await tick(8); t.mock.timers.tick(1000); await tick(8);
   h.c.receive({ type: 'voice.state', data: { state: 'closing' } }); t.mock.timers.tick(4000); await tick(12);
   assert.ok(h.raw.length >= 3, 'several routes saw the refusal');
   assert.equal(h.raw.filter(r => r.path === '/api/sessions/conversation-a').length, 1);
@@ -404,7 +404,7 @@ for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 ${provider}: real c
   let h, sdk = fakeSdk(), disconnected = 0;
   const ports = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) }), { control } = ports;
   const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
-    AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control,
+    AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control, now: () => Date.now(),
     async openRelay() { const frames = voiceEvents(); return { frames, async disconnect() { disconnected++; frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } }; },
     capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
   h = fixture484(t, { voiceClient: client, host: {}, session: { featureMatrix: unlocked470 }, routes: {

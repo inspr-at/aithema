@@ -242,7 +242,10 @@ export class ConceptView {
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
     this.root.querySelector('.concept-withdrawn').textContent = '';
-    for (const control of this.root.querySelectorAll('.concept-bar button,.concept-viewer button,.drafts-canvas button,.concept-bar a')) {
+    this.clearBackdrop(); this.clearThumbnail(); this.suspendCanvas();
+    this.root.querySelector('.concept-html').artifact = null;
+    this.close(); this.root.querySelector('.concept-access').inert = true;
+    for (const control of this.root.querySelectorAll('.concept-access button,.concept-viewer button,.drafts-canvas button,.concept-access a')) {
       control.disabled = true; control.setAttribute('aria-disabled', 'true');
     }
   }

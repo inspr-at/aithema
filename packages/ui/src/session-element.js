@@ -1159,7 +1159,7 @@ export class AithemaSession extends HTMLElement {
       const transcript = root.querySelector('.transcript-shell'); transcript.inert = false;
       const list = transcript.querySelector('ol'); list.replaceChildren();
       if (frozen.folded) {
-        root.querySelector('.canvas-empty').replaceChildren(makeEnd());
+        const empty = root.querySelector('.canvas-empty'); empty.hidden = false; empty.replaceChildren(makeEnd());
         // The old strip was a button. Preserve its box without nesting actions.
         const strip = root.querySelector('.fold-strip'), replacement = node('div', 'fold-strip');
         replacement.style.cssText = strip.style.cssText; replacement.append(makeEnd('div', false)); strip.replaceWith(replacement);
