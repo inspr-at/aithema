@@ -297,7 +297,7 @@ for (const copy of [en, de]) test(`AIT-484 journal: one end state, silent host, 
   assert.equal(h.root.querySelector('[data-copy="conversationUnavailable"]').textContent,
     copy === en ? 'This conversation is no longer available.' : 'Dieses Gespräch ist nicht mehr verfügbar.');
   assert.equal(h.root.querySelector('.erased-end__new').textContent, copy.hostSurface.library.new);
-  assert.equal(h.root.activeElement, h.root.querySelector('.erased-end__new'));
+  assert.equal(h.root.activeElement === h.root.querySelector('.erased-end__new'), true, 'erasure transfers focus to the action');
   assert.equal(h.root.querySelector('form.composer').inert, true);
   assert.equal(h.root.querySelector('.transcript-shell').inert, false);
   assert.equal(h.root.querySelector('.composer-out').inert, true);
@@ -721,7 +721,7 @@ for (const configure of [false, true]) test(`AIT-484 erased locale text repaint 
   if (configure) h.c.configure({ session: { ...h.c.session, locale: 'de' }, copy: de });
   else assert.equal(await h.c.changeLocale('de'), true);
   await tick(8);
-  assert.equal(h.root.querySelector('.erased-end'), row);
+  assert.equal(h.root.querySelector('.erased-end') === row, true, 'locale repaint preserves the row');
   assert.equal(row.querySelector('[data-copy]').textContent, de.conversationUnavailable);
   assert.equal(h.root.querySelector('.settings-open span').textContent, de.settings.open);
   assert.equal(h.root.querySelector('.conversations-toggle span').textContent, de.hostSurface.library.open);
@@ -735,9 +735,9 @@ test('AIT-484 focus on fold moves to the end action; Settings controls are disab
   const h = fixture484(t, { host: { actorRole: { labels } }, session: { roleChoice: {
     available: true, roles: Object.keys(labels.en), role: 'company', source: 'chosen', revision: 1 } } });
   await h.reconnect(); userTurn(h.c); h.root.querySelector('.fold').focus();
-  assert.equal(h.root.activeElement, h.root.querySelector('.fold'));
+  assert.equal(h.root.activeElement === h.root.querySelector('.fold'), true, 'fixture focuses the fold control');
   h.streamErase(); await tick(8);
-  assert.equal(h.root.activeElement, h.root.querySelector('.erased-end__new'));
+  assert.equal(h.root.activeElement === h.root.querySelector('.erased-end__new'), true, 'erasure transfers focus to the action');
   for (const selector of ['.settings-open', '.actor-processing button']) {
     const control = h.root.querySelector(selector);
     assert.equal(control.getAttribute('aria-disabled'), 'true', selector);
