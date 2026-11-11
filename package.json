@@ -29,7 +29,7 @@
   "devDependencies": {
     "@puppeteer/browsers": "3.2.4",
     "axe-core": "4.10.3",
-    "happy-dom": "^20.11.2",
+    "happy-dom": "^21.0.4",
     "puppeteer-core": "25.13.0",
     "typescript": "5.9.3",
     "ws": "8.22.0",
