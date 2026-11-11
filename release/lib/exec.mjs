@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 
 // Release notes grow by roughly 33 KiB per release; refs and source inventories
 // also grow. Keep ample headroom while retaining a conscious, finite output cap.
@@ -31,12 +31,23 @@ export function validateExecBounds(bounds = {}) {
 export function releaseExecFileSync(command, args, options = {}, bounds = {}) {
   const { maxBuffer, timeout } = validateExecBounds(bounds);
   try {
-    return execFileSync(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options, maxBuffer, timeout });
+    const result = spawnSync(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options, maxBuffer, timeout });
+    if (result.error || result.status !== 0) {
+      const stderr = result.stderr?.length ? `\n${result.stderr}` : '';
+      const cause = result.error ?? new Error(`Command failed: ${[command, ...args].join(' ')}${stderr}`);
+      if (result.error && stderr) cause.message += stderr;
+      Object.assign(cause, { status: result.status, signal: result.signal, output: result.output,
+        pid: result.pid, stdout: result.stdout, stderr: result.stderr });
+      throw cause;
+    }
+    if (result.stderr?.length) process.stderr.write(result.stderr);
+    return result.stdout;
   } catch (cause) {
     const bound = cause.code === 'ENOBUFS' ? `maxBuffer=${maxBuffer} bytes` :
       cause.code === 'ETIMEDOUT' ? `timeout=${timeout} ms` : null;
     if (!bound) throw cause;
     throw new ReleaseExecBoundError(`Release command "${[command, ...args].join(' ')}" exceeded ${bound}; ` +
-      'review the required bound and raise it explicitly in release/lib/exec.mjs.', { cause });
+      'review the required bound and raise it explicitly in release/lib/exec.mjs.' +
+      (cause.stderr?.length ? `\n${cause.stderr}` : ''), { cause });
   }
 }
