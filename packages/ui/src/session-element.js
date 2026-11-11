@@ -1134,8 +1134,8 @@ export class AithemaSession extends HTMLElement {
     this.#dialog?.close();
     for (const dialog of root.querySelectorAll('dialog.verify-dialog,dialog.actor-sheet,.voice-reply-dialog')) if (dialog.open) dialog.close();
     if (!this.#session.tombstone) {
-      const event = via === 'journal' ? this.#erasureJournal : { seq: this.#cursor + 1, type: 'session.erased', data: { at: new Date().toISOString() } };
-      if (event) { this.#session = applyEvent(this.#session, event); this.#cursor = this.#session.seq; }
+      const event = via === 'journal' ? this.#erasureJournal ?? remembered?.event : { seq: this.#cursor + 1, type: 'session.erased', data: { at: new Date().toISOString() } };
+      if (event) { this.#erasedIds.get(id).event = structuredClone(event); this.#session = applyEvent(this.#session, event); this.#cursor = this.#session.seq; }
     }
     this.#erasureJournal = null; this.#partials.clear(); this.#notice = '';
     if (!this.#anchorDepth) this.#paintErased();

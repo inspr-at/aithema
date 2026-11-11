@@ -1247,6 +1247,7 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url); await other.goto(demo.url);
   await shadow(page, 'textarea');
+  await inShadow(page, c => c.addEventListener('aithema-erased', event => window.erased484?.push(event.detail)));
   const settle484 = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); });
   const results = [];
   for (const width of [390, 1440]) for (const stage of ['ready', 'live', 'folded']) {
@@ -1267,7 +1268,6 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
       }
       if (stage === 'folded') c.shadowRoot.querySelector('.fold').click();
       window.erased484 = [];
-      c.addEventListener('aithema-erased', event => window.erased484.push(event.detail));
     }, { session, stage });
     await settle484();
     if (stage === 'live') await rest(page, '.transcript-shell');
