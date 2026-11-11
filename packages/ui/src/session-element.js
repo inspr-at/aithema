@@ -1075,7 +1075,8 @@ export class AithemaSession extends HTMLElement {
     if (pane.matches('.transcript-shell')) this.#phoneViewport?.recordTranscriptAnchor();
   }
   #sessionRoute(url) {
-    const path = new URL(url, this.ownerDocument.defaultView.location.href).pathname;
+    const href = this.ownerDocument.defaultView.location.href;
+    const path = new URL(url, /^https?:/u.test(href) ? href : 'http://localhost/').pathname;
     const match = /\/api\/sessions\/([^/]+)(\/.*)?$/u.exec(path);
     return match ? { id: decodeURIComponent(match[1]), snapshot: !match[2] } : null;
   }
