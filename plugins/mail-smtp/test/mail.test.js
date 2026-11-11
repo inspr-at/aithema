@@ -89,7 +89,8 @@ for (const setting of ['SMTP_FROM', 'SMTP_REPLY_TO']) {
 
 // The semicolon in '"a;b"@example.test' is already rejected; isolate quotes here.
 for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment)@example.test', 'a\\b@example.test',
-  'a(comment@example.test', 'a)@example.test', configuredAddressExample]) {
+  'a(comment@example.test', 'a)@example.test', configuredAddressExample,
+  'x:attacker@evil.example', 'group:a@evil.example', 'a\u0001b@example.test', 'a\u200bb@example.test']) {
   test(`AIT-487 requestVerification rejects parser-ambiguous address ${JSON.stringify(recipient)}`, async t => {
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');
     const messages = [];
@@ -107,7 +108,8 @@ for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment
   });
 }
 
-for (const recipient of ['visitor@example.test', 'visitor@sub.example.test', 'first.last+tag@example.test']) {
+for (const recipient of ['visitor@example.test', 'visitor@sub.example.test', 'first.last+tag@example.test',
+  "o'brien@example.test", 'user@bücher.example', 'user@xn--bcher-kva.example']) {
   test(`AIT-487 requestVerification preserves ordinary address ${recipient}`, async t => {
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');
     const messages = [];
