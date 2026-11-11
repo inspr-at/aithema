@@ -48,3 +48,23 @@ print(reader['git']('rev-list', '--reverse', 'base..head', max_buffer=${max_buff
   assert.match(refused.stderr, /git rev-list --reverse base\.\.head.*exceeded maxBuffer=65536 bytes/u);
   assert.equal(refused.stdout, '');
 });
+
+test('DCO history reader fails closed on an argument-injected timeout', t => {
+  const options = fixture(t, 'git', '');
+  writeFileSync(join(options.cwd, 'git'), `#!${process.execPath}\nsetTimeout(() => {}, 5000);\n`, { mode: 0o755 });
+  const script = fileURLToPath(new URL('../scripts/check-dco.py', import.meta.url));
+  const refused = spawnSync('python3', ['-I', '-c', `
+import runpy
+reader = runpy.run_path(${JSON.stringify(script)})
+print(reader['git']('rev-list', '--reverse', 'base..head', timeout=50))
+`], options);
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /git rev-list --reverse base\.\.head.*exceeded timeout=50 ms/u);
+  assert.equal(refused.stdout, '');
+});
+
+test('DCO existing history and trailer regressions remain covered', () => {
+  const result = spawnSync('python3', ['-I', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_dco.py', '-v'],
+    { cwd: fileURLToPath(new URL('../', import.meta.url)), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
