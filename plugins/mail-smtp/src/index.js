@@ -1,4 +1,5 @@
 import { createTransport as nodemailerTransport } from 'nodemailer';
+import addressparser from 'nodemailer/lib/addressparser';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import { formatCredits } from '@inspr/aithema-ui/display';
@@ -7,9 +8,18 @@ export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js'
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
 // AIT-487: trusted host configuration keeps RC21's grammar for compatibility.
 // Recipient checks exclude quoted strings, comments, escapes, groups, and
-// control/format characters so nodemailer's parser cannot reinterpret the identity.
+// control/format characters; the parser round-trip also fails closed on changes.
 const configuredAddress = value => clean(value) && /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/u.test(value);
-const recipientAddress = value => clean(value) && /^[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+@[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+\.[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+$/u.test(value);
+const recipientAddress = (value, parseAddress) => {
+  if (!clean(value) || !/^[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+@[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+\.[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+$/u.test(value)) return false;
+  try {
+    // Use the same parser module as nodemailer's To handling. It preserves IDN
+    // and punycode here; mime-node normalizes domains later, leaving to unchanged.
+    const parsed = parseAddress(value);
+    return Array.isArray(parsed) && parsed.length === 1 && parsed[0]?.group === undefined &&
+      parsed[0]?.name === '' && parsed[0]?.address === value.trim();
+  } catch { return false; }
+};
 const boolean = (value, fallback = false) => {
   if (value === undefined || value === '') return fallback;
   if (['true', '1'].includes(value)) return true;
@@ -45,7 +55,7 @@ export function smtpConfig(values = process.env, { production = false } = {}) {
 
 /** Implements the existing requestVerification delivery port. Redemption remains host-owned. */
 export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => process.env[ref],
-  createTransport = nodemailerTransport, lookup = dnsLookup, getSocket, htmlTemplate, copy, privacyUrl } = {}) {
+  createTransport = nodemailerTransport, parseAddress = addressparser, lookup = dnsLookup, getSocket, htmlTemplate, copy, privacyUrl } = {}) {
   if (!config) return null;
   let origin;
   try { origin = new URL(publicOrigin); } catch { throw new TypeError('SMTP requires AITHEMA_PUBLIC_ORIGIN'); }
@@ -102,7 +112,7 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
   return { id: 'smtp', deliversVerification: true,
     async requestVerification({ address: to, token, locale = 'en', expiresAt, confirmedAllowanceMicro, privacyDocumentConfigured = false }, { signal } = {}) {
       assertOpen();
-      if (!recipientAddress(to) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
+      if (!recipientAddress(to, parseAddress) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
       signal?.throwIfAborted();
       const link = new URL('/confirm-email', origin); link.searchParams.set('token', token); link.searchParams.set('lang', locale === 'de' ? 'de' : 'en');
       locale = locale === 'de' ? 'de' : 'en';
