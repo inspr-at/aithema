@@ -389,7 +389,7 @@ for (const encoding of [undefined, 'utf8']) test(`release exec forwards successf
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
     import { releaseExecFileSync } from ${JSON.stringify(helper)};
     const output = releaseExecFileSync(process.execPath, ['-e',
-      'process.stdout.write("listing"); process.stderr.write("fixture warning\\n")'],
+      'process.stdout.write("listing"); console.error("fixture warning")'],
       ${JSON.stringify({ encoding })});
     process.stdout.write(output);
   `], { encoding: 'utf8' });
@@ -408,7 +408,7 @@ for (const annotated of [true, false]) test(`sibling marker bound failure escape
   const f = fixture(t); f.tag();
   const sibling = '261019120001.0.0', tag = `refs/tags/candidate/v${sibling}`;
   f.tag({ ...f.marker, version: sibling, release_sequence: version.release_sequence - 1 }, f.commit, sibling, annotated);
-  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  const realGit = join(f.git(['--exec-path']), 'git');
   writeFileSync(join(f.root, 'bin/git'), `#!${process.execPath}
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
