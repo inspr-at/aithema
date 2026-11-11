@@ -406,7 +406,13 @@ fact comes from the routes above. Without `host` nothing changes.
   `aithema-open-conversation` event with `{session, reason, previousSessionId}`
   (`reason` is `open`, `new`, `reset` or `deleted`). A host that owns per-conversation
   clients (voice) calls `preventDefault()` and reconfigures; otherwise the element
-  switches itself.
+  switches itself. Erasing the current conversation leaves a terminal, localized end
+  state in its existing stage (including the folded view), with the composer and
+  question-card boxes held. The library and conversations menu remain available.
+  Its **Start a new conversation** action uses the library create path with only
+  `{locale}`, so the server supplies the owner's last settings, then emits
+  `aithema-open-conversation` with reason `deleted`; the element switches itself
+  when the host does not handle the event.
 - **Handover** (`handover: true`): a band under the assessment, shown when the host
   offer is available, with the `handover-offer` slot, one action (Arrange,
   Send update, Retry) whose box never changes, and its state in words, including
@@ -491,6 +497,22 @@ when the visitor starts a separate conversation (General tab, or crossing into o
 out of On my device once a conversation has started), and `aithema-consent` with
 `{sessionId, reason, features}` when a choice needs consent; the host's consent
 interface answers it outside the modal dialog.
+
+A journal `session.erased`, or a snapshot 404 with exactly
+`{error: 'session-not-found'}`, enters the erased state. An exact refusal from
+another session route first shares one confirming snapshot read per conversation,
+limited to once every 15 seconds. Other 404 bodies do not erase the view. Entry
+sets `data-aithema-erased` and dispatches one bubbling, composed
+`aithema-erased` event with `{sessionId, via: 'journal' | 'not-found'}`. Session
+requests and timers stop; changing to a different id with `configure()` clears
+this state. The copy key `conversationUnavailable` supplies “This conversation
+is no longer available.” / “Dieses Gespräch ist nicht mehr verfügbar.” and
+repaints on locale changes; the action reuses `hostSurface.library.new`.
+
+Without a library, the end action emits `aithema-new-conversation` with
+`{previousSessionId, reason: 'deleted', confirm: false}`, omitting `processingPreset`
+and `settings`. No preset/settings means the server's last choice. Other
+new-conversation entry points route to this action while erased.
 
 | Request | Result |
 | --- | --- |
