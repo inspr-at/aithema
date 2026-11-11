@@ -176,7 +176,7 @@
     },
     {
       "name": "nodemailer",
-      "version": "10.1.0",
+      "version": "10.1.7",
       "license": "MIT-0",
       "use": "SMTP confirmation delivery in plugins/mail-smtp only. Registry SPDX: MIT-0; bundled LICENSE retains the MIT permission and copyright notice. No runtime dependencies."
     },

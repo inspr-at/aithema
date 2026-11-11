@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Duplex } from 'node:stream';
+import addressparser from 'nodemailer/lib/addressparser';
 
 // Actual SMTP dialogue over a Duplex: no listener, DNS or network connection.
 function smtpSink(messages, commands, failure = {}) {
@@ -66,6 +67,95 @@ test('C1 SMTP config has value-free secret references, safe TLS defaults and mis
 });
 
 const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 };
+const configuredAddressExample = 'o(ps)@example.test';
+
+for (const setting of ['SMTP_FROM', 'SMTP_REPLY_TO']) {
+  test(`AIT-487 preserves RC21 configured address syntax in ${setting}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const config = smtpConfig({ ...values, [setting]: configuredAddressExample });
+    const messages = [];
+    const plugin = createSmtpMail({ config, publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    assert.deepEqual(await plugin.requestVerification(effect), { status: 'sent' });
+    assert.equal(messages.length, 1);
+    assert.deepEqual(messages[0].from, { name: values.SMTP_FROM_NAME,
+      address: setting === 'SMTP_FROM' ? configuredAddressExample : values.SMTP_FROM });
+    assert.equal(messages[0].replyTo, setting === 'SMTP_REPLY_TO' ? configuredAddressExample : values.SMTP_REPLY_TO);
+    assert.equal(messages[0].to, effect.address);
+  });
+}
+
+// The semicolon in '"a;b"@example.test' is already rejected; isolate quotes here.
+for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment)@example.test', 'a\\b@example.test',
+  'a(comment@example.test', 'a)@example.test', configuredAddressExample,
+  'x:attacker@evil.example', 'group:a@evil.example', 'a\u0001b@example.test', 'a\u200bb@example.test']) {
+  test(`AIT-487 requestVerification rejects parser-ambiguous address ${JSON.stringify(recipient)}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [];
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    // Check both outcomes even while the regression is red.
+    const delivery = plugin.requestVerification({ ...effect, address: recipient });
+    await Promise.all([
+      assert.rejects(delivery, new TypeError('Invalid confirmation delivery')),
+      delivery.catch(() => {}).then(() => assert.equal(messages.length, 0, 'sendMail must not receive an ambiguous address')),
+    ]);
+  });
+}
+
+// The character rules exclude the pinned parser's operators. Model a future
+// reinterpretation through the factory seam using an otherwise ordinary input.
+for (const [kind, result] of [
+  ['empty', []],
+  ['split', [{ name: '', address: effect.address }, { name: '', address: 'other@example.test' }]],
+  ['group', [{ name: '', address: effect.address, group: [] }]],
+  ['display name', [{ name: 'Visitor', address: effect.address }]],
+  ['changed mailbox', [{ name: '', address: 'other@example.test' }]],
+]) {
+  test(`AIT-487 requestVerification refuses a parser round-trip with ${kind}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [];
+    const parseAddress = t.mock.fn(() => result);
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      parseAddress,
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    const delivery = plugin.requestVerification(effect);
+    await Promise.all([
+      assert.rejects(delivery, new TypeError('Invalid confirmation delivery')),
+      delivery.catch(() => {}).then(() => assert.equal(messages.length, 0, 'sendMail must not receive a reinterpreted address')),
+    ]);
+    assert.equal(parseAddress.mock.callCount(), 1);
+    assert.deepEqual(parseAddress.mock.calls[0].arguments, [effect.address]);
+  });
+}
+
+for (const recipient of ['visitor@example.test', 'visitor@sub.example.test', 'first.last+tag@example.test',
+  "o'brien@example.test", 'user@bücher.example', 'user@xn--bcher-kva.example']) {
+  test(`AIT-487 requestVerification preserves ordinary address ${recipient}`, async t => {
+    // addressparser preserves IDN and punycode verbatim; mime-node converts IDN
+    // domains later, so the round-trip can compare exactly without rewriting to.
+    assert.deepEqual(addressparser(recipient), [{ address: recipient, name: '' }]);
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [];
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    assert.deepEqual(await plugin.requestVerification({ ...effect, address: recipient }), { status: 'sent' });
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].to, recipient);
+  });
+}
 
 for (const abort of [false, true]) {
   test(`AIT-393 close during deferred lookup prevents transport creation and sending (abort=${abort})`, async t => {

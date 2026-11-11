@@ -2809,7 +2809,7 @@ save/edit/delete form and credit states. Phase C1 supplies SMTP confirmation
 delivery and explicit redemption; Tick's designed HTML mail and landing page
 follow in C2. Admin authentication later uses Zitadel SSO.
 
-Phase C1 uses `plugins/mail-smtp` (nodemailer 10.1.0, pinned) through the existing
+Phase C1 uses `plugins/mail-smtp` (nodemailer 10.1.7, pinned) through the existing
 host `requestVerification` delivery port. Core and server have no mail dependency.
 OPS supplies these environment names through the host/container wiring; no
 credentials belong in source, public config, logs or CLI output:
