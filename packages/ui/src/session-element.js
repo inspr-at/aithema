@@ -1193,10 +1193,16 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.composer-shell').toggleAttribute('data-used-up', frozen.panel);
       const makeEnd = (tag = 'div', announce = true) => {
         const row = node(tag, 'erased-end');
-        if (announce) { row.setAttribute('role', 'status'); row.setAttribute('aria-live', 'polite'); }
         const message = node('span'); message.dataset.copy = 'conversationUnavailable';
+        setText(message, this.#copy.conversationUnavailable);
         const action = node('button', 'erased-end__new'); action.type = 'button';
-        action.addEventListener('click', () => void this.#newAfterErased()); row.append(message, action); return row;
+        setText(action, this.#copy.hostSurface.library.new);
+        action.addEventListener('click', () => void this.#newAfterErased()); row.append(message, action);
+        if (announce) {
+          message.setAttribute('aria-hidden', 'true');
+          const status = node('span', 'sr-only'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); row.append(status);
+        }
+        return row;
       };
       const transcript = root.querySelector('.transcript-shell'); transcript.inert = false;
       const list = transcript.querySelector('ol'); list.replaceChildren();
@@ -1227,9 +1233,10 @@ export class AithemaSession extends HTMLElement {
       transcript.scrollTop = 0;
       if (frozen.focus) root.querySelector('.erased-end__new')?.focus({ preventScroll: true });
     }
+    for (const element of root.querySelectorAll('[data-copy="conversationUnavailable"]')) setText(element, this.#copy.conversationUnavailable);
+    for (const element of root.querySelectorAll('.erased-end__new')) setText(element, this.#copy.hostSurface.library.new);
     if (frozen.announcementReady) {
-      for (const element of root.querySelectorAll('[data-copy="conversationUnavailable"]')) setText(element, this.#copy.conversationUnavailable);
-      for (const element of root.querySelectorAll('.erased-end__new')) setText(element, this.#copy.hostSurface.library.new);
+      for (const element of root.querySelectorAll('.erased-end [role="status"]')) setText(element, this.#copy.conversationUnavailable);
     }
     this.#paintStatus();
     const record = this.#erasedIds.get(frozen.id);
