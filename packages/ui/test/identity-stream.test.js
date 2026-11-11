@@ -352,7 +352,7 @@ for (const body of [{ error: 'not-found' }, {}, { error: 'session-not-found', ex
 for (const stage of ['entrance', 'ready', 'live', 'folded']) test(`AIT-484 placement and frozen stage: ${stage}`, async t => {
   const h = fixture484(t, { host: {}, session: { settings: { origin: stage === 'ready' ? 'chosen' : 'default' } } }); await h.reconnect();
   if (['live', 'folded'].includes(stage)) userTurn(h.c);
-  if (stage === 'folded') { h.root.querySelector('.workspace').setAttribute('data-folded', ''); }
+  if (stage === 'folded') h.root.querySelector('.fold').click();
   const previous = h.root.querySelector('.workspace').dataset.stage;
   h.streamErase(); await tick(8);
   assert.equal(h.root.querySelector('.workspace').dataset.stage, previous);
@@ -401,8 +401,8 @@ for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 ${provider}: real c
   const { createElevenLabsClient } = await import('../../../plugins/elevenlabs/src/client.js');
   const { createGrokVoiceClient } = await import('../../../plugins/grok-voice/src/client.js');
   const { fakeSdk } = await import('../../../plugins/elevenlabs/test/fixtures.js');
-  let ports, h, sdk = fakeSdk(), disconnected = 0;
-  const control = new Proxy({}, { get: (_, name) => (...args) => ports.control[name](...args) });
+  let h, sdk = fakeSdk(), disconnected = 0;
+  const ports = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) }), { control } = ports;
   const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
     AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control,
     async openRelay() { const frames = voiceEvents(); return { frames, async disconnect() { disconnected++; frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } }; },
@@ -415,7 +415,6 @@ for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 ${provider}: real c
         credential: { providerSessionId, ttlMs: 60000, connectionType: 'webrtc', conversationToken: 'fixture-token-fixture-provider' },
         mediaGrant: { callId: request.callId, providerSessionId, expiresAt: until, opaque: { epoch: 1, spendDeadlineAt: until, browserLivenessDeadlineAt: until } } });
     } } });
-  ports = createVoiceControl({ sessionId: h.c.session.id, receive: event => h.c.receive(event) });
   await h.reconnect(); userTurn(h.c); h.root.querySelector('.voice-start').click(); await tick(24);
   assert.equal(h.root.querySelector('.audio-rail').dataset.call, 'active');
   h.streamErase(); await tick(24); event470(h.c, 'session.erased', {}); await tick(12);
@@ -491,6 +490,7 @@ test('AIT-464 U3: erasure silently cancels the consent window and every concept 
   }
   h.state.snapshot = () => { const response = Response.json(h.c.session); return held.promise.then(() => response); };
   event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true });
+  assert.equal(h.calls.filter(call => call.method === 'GET' && call.path === '').length, 1, 'the pre-erasure consent read is in flight');
   h.erase(); await tick(8);
   assert.equal(armed.size, 0, 'no erased consent watchdog, retry or withdrawn notice remains armed');
   held.resolve(); await tick(8);

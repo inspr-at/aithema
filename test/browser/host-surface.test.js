@@ -1247,6 +1247,7 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url); await other.goto(demo.url);
   await shadow(page, 'textarea');
+  const settle484 = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); });
   const results = [];
   for (const width of [390, 1440]) for (const stage of ['ready', 'live', 'folded']) {
     await page.setViewport({ width, height: 1000 });
@@ -1258,19 +1259,16 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
     await inShadow(page, async (c, { session, stage }) => {
       const { en } = await import('/packages/ui/src/i18n/en.js');
       session.settings = { ...session.settings, origin: 'chosen' };
+      session.featureMatrix = { best: { text: { available: true }, images: { available: true }, analysis: { available: true } } };
       c.configure({ copy: en, session, host: { library: true } });
       if (stage !== 'ready') {
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'fixture-question', role: 'assistant', content: 'Which option?', question_short: 'Which option?', answer_options: ['One', 'Two'] } });
       }
-      if (stage === 'folded') {
-        c.shadowRoot.querySelector('.workspace').setAttribute('data-folded', '');
-        for (const node of c.shadowRoot.querySelectorAll('.conversation,.understanding')) node.hidden = true;
-        c.shadowRoot.querySelector('.fold-view').hidden = false;
-      }
+      if (stage === 'folded') c.shadowRoot.querySelector('.fold').click();
       window.erased484 = [];
       c.addEventListener('aithema-erased', event => window.erased484.push(event.detail));
     }, { session, stage });
-    await settleEvidenceFrame(page);
+    await settle484();
     if (stage === 'live') await rest(page, '.transcript-shell');
     const selectors = ['form.composer', '.composer-dock', ...(stage === 'ready' ? ['.intro__card'] : [])];
     const before = await Promise.all(selectors.map(selector => box(page, selector)));
@@ -1281,7 +1279,7 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
     }, session.id);
     await until(page, () => document.querySelector('aithema-session').hasAttribute('data-aithema-erased'));
     const actionFirst = await box(page, '.erased-end__new');
-    await settleEvidenceFrame(page);
+    await settle484();
     const after = await Promise.all(selectors.map(selector => box(page, selector)));
     const actionSettled = await box(page, '.erased-end__new');
     selectors.forEach((selector, i) => sameBox(before[i], after[i], `${width} ${stage} ${selector}`));
