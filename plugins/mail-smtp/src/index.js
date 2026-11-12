@@ -8,13 +8,15 @@ export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js'
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
 // AIT-487: trusted host configuration keeps RC21's grammar for compatibility.
 // Recipient checks exclude quoted strings, comments, escapes, groups, and
-// control/format characters; the parser round-trip also fails closed on changes.
+// control, format, surrogate, private-use and unassigned characters; the parser
+// round-trip also fails closed on changes.
 const configuredAddress = value => clean(value) && /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/u.test(value);
-const recipientAddress = (value, parseAddress) => {
-  if (!clean(value) || !/^[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+@[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+\.[^\s@<>;,:"()\\\p{Cc}\p{Cf}]+$/u.test(value)) return false;
+export const acceptsRecipient = (value, parseAddress = addressparser) => {
+  if (!clean(value) || !/^[^\s@<>;,:"()\\\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]+@[^\s@<>;,:"()\\\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]+\.[^\s@<>;,:"()\\\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]+$/u.test(value)) return false;
   try {
-    // Use the same parser module as nodemailer's To handling. It preserves IDN
-    // and punycode here; mime-node normalizes domains later, leaving to unchanged.
+    // Use the same parser module as nodemailer's To handling. Delivery is the
+    // same mailbox, not byte-identical: mime-node lowercases domains, converts
+    // IDN to punycode and quotes non-dot-atom local parts.
     const parsed = parseAddress(value);
     return Array.isArray(parsed) && parsed.length === 1 && parsed[0]?.group === undefined &&
       parsed[0]?.name === '' && parsed[0]?.address === value.trim();
@@ -112,7 +114,7 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
   return { id: 'smtp', deliversVerification: true,
     async requestVerification({ address: to, token, locale = 'en', expiresAt, confirmedAllowanceMicro, privacyDocumentConfigured = false }, { signal } = {}) {
       assertOpen();
-      if (!recipientAddress(to, parseAddress) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
+      if (!acceptsRecipient(to, parseAddress) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
       signal?.throwIfAborted();
       const link = new URL('/confirm-email', origin); link.searchParams.set('token', token); link.searchParams.set('lang', locale === 'de' ? 'de' : 'en');
       locale = locale === 'de' ? 'de' : 'en';

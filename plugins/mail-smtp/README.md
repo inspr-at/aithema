@@ -4,6 +4,10 @@
 The host owns redemption, SMTP configuration and its privacy policy. With no
 `config`, the factory returns `null`. The transport connects only on delivery.
 
+`acceptsRecipient(value, parseAddress = addressparser)` exports the synchronous
+pre-send syntax check for a host's `identity.acceptsAddress` hook. Apply the same
+address normalization as delivery; only boolean `true` accepts.
+
 Pass `copy: { en: { ... }, de: { ... } }` to override individual `mailCopy`
 fields. Missing fields and locales keep the demo defaults. One merged,
 immutable copy supplies the subject, text and HTML (including a custom

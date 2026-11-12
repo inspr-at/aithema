@@ -166,8 +166,9 @@ export class VisitorEmail {
     const verified = this.identity?.status === 'verified', pending = this.identity?.status === 'verification-pending';
     this.q('[data-view="mail"]').dataset.address = String(Boolean(this.address));
     this.paintLead('.m-lead-mail', this.tiers ? this.tiers.canConfirm ? e.leadMail : givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
-    setText(this.q('.m-sent-prefix'), pending ? e.sentTo + ' ' : ''); setText(this.q('.verify-entry-address'), this.address);
-    setText(this.q('.verify-entry-status'), pending ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
+    const sent = pending && this.identity.delivery !== 'failed';
+    setText(this.q('.m-sent-prefix'), sent ? e.sentTo + ' ' : ''); setText(this.q('.verify-entry-address'), this.address);
+    setText(this.q('.verify-entry-status'), sent ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
     setText(this.q('.verify-done > span'), this.tiers ? e.confirmedLabel : v.verifiedShort); this.q('.verify-done').hidden = !verified;
     setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? reasonSeparator + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
     // Reserve the pending tier even before an address exists or after confirmation.

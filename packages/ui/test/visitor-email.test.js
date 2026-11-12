@@ -95,3 +95,20 @@ for (const copy of [de, en]) for (const privacy of [false, true]) test(`AIT-411 
   email.set({ canDelete: true });
   entry.querySelector('.m-delete-mail').click(); assert.equal(email.state, 'confirm');
 });
+
+for (const copy of [de, en]) test(`AIT-494 failed pending Settings row has no sent claim (${copy.display.locale})`, t => {
+  const window = new Window({ url: 'http://localhost/' }), host = window.document.createElement('div');
+  window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' }), entry = window.document.createElement('section'); root.append(entry);
+  const email = new VisitorEmail({ root, entry, copy, delivery: true, demo: true });
+  t.after(() => { email.destroy(); window.happyDOM.abort(); });
+  const identity = { status: 'verification-pending', address: 'a(b)@example.com', delivery: 'sent' };
+  email.set({ identity });
+  assert.equal(entry.querySelector('.m-sent-prefix').textContent, copy.hostSurface.email.sentTo + ' ');
+  assert.equal(entry.querySelector('.verify-entry-status').textContent, copy.hostSurface.verify.linkSent);
+  email.set({ identity: { ...identity, delivery: 'failed' } });
+  assert.equal(entry.querySelector('.m-sent-prefix').textContent, '');
+  assert.equal(entry.querySelector('.verify-entry-status').textContent, copy.hostSurface.verify.unverified);
+  assert.equal(entry.querySelector('.verify-entry-address').textContent, identity.address);
+  assert.equal(entry.querySelector('.verify-entry').textContent, copy.hostSurface.verify.resendOrChange);
+});
