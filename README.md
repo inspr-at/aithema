@@ -293,9 +293,10 @@ Host adapter contract:
   enables `host.policy.verificationRequired`.
 - `identity.canonicalizeAddress(value)` optionally normalizes new input only;
   throw a `TypeError` to refuse it. Request/change check the normalized form.
-  Visitor-email POST/PUT checks a normalized copy, then passes the original
-  input to `saveEmail`; if that host normalizes differently, the delivery
-  backstop checks the stored form before calling `requestVerification`.
+  Visitor-email POST/PUT always passes the original input to `saveEmail`.
+  When `acceptsAddress` is present, it first checks a normalized copy;
+  if that host normalizes differently, the delivery backstop checks the stored
+  form before calling `requestVerification`.
 - `identity.acceptsAddress(value)` is a synchronous, pure syntax predicate:
   only boolean `true` accepts; thrown errors and other results refuse. It must
   do no I/O and consult no stored state, quotas or facts about other visitors.
@@ -3009,7 +3010,9 @@ audit records report relay failures. Quota/IP/global suppression, relay refusal
 and OPS `confirmationEnabled=false` can therefore still report `sent` without
 mail. Older refused saved addresses retain their email-given credit until the
 visitor changes them or 90-day retention removes them; no migration is needed.
-RC22 rows already marked `sent` keep that state until their 30-minute link expires.
+RC22 rows already marked `sent` keep that state until the visitor resends,
+changes the address, confirms within the 30-minute verification window, or
+deletes/erases the address, or the 24-hour pending cleanup removes the pending state.
 SMTP 4xx replies, including Postfix's
 451/452 rate-limit responses, are temporary delivery failures mapped to the
 existing private `failed` delivery status. One
