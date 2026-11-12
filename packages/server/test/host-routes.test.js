@@ -1544,7 +1544,7 @@ for (const outcome of ['undefined', 'number', 'string', 'promise', 'throws']) {
 }
 
 test('AIT-494 canonical input reaches the hook and original save input is preserved', async t => {
-  const f = fixture(t), s = await f.create(), raw = ' user@BÜCHER.example ', canonical = 'user@bücher.example';
+  const f = fixture(t), s = await f.create(), raw = ' user@BÜCHER.example ', canonical = 'user@xn--bcher-kva.example';
   const accepts = t.mock.fn(() => true); f.host.identity.acceptsAddress = accepts;
   for (const route of ['request', 'change']) {
     assert.equal((await f.call(`/api/sessions/${s.id}/identity/${route}`, { address: raw })).status, 200);
