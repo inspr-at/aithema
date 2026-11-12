@@ -42,7 +42,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     throw new TypeError('Verification lock requires a delivering identity port');
   }
   if (host?.identity?.asynchronousDelivery === true && typeof host.identity.acceptsAddress !== 'function') {
-    throw new TypeError('asynchronousDelivery requires acceptsAddress; see README Host contract');
+    throw new TypeError('asynchronousDelivery requires acceptsAddress; see README Host adapter contract');
   }
   const deliverable = address => {
     if (typeof host.identity?.acceptsAddress !== 'function') return true;

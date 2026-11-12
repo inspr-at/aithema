@@ -18,7 +18,7 @@ function fixture(t, mode, storage = new SQLiteStorage()) {
   const host = createDemoHost({ storage, demo: mode === 'demo', mailPlugin, now: () => time,
     privacyDocumentConfigured: () => true });
   const settings = host.visitorCredits.settings();
-  host.visitorCredits.saveSettings({ baseRevision: settings.revision, confirmationEnabled: true }, { actor: 'ops-cli:test', source: 'ops-cli' });
+  if (mode !== 'off') host.visitorCredits.saveSettings({ baseRevision: settings.revision, confirmationEnabled: true }, { actor: 'ops-cli:test', source: 'ops-cli' });
   const handlers = createHandlers({ storage, host, consent: mockConsent });
   t.after(async () => { await handlers.close(); mailPlugin?.close(); storage.close(); });
   const call = (owner, path, body, method = body === undefined ? 'GET' : 'POST') => handlers.handle(new Request(`http://local${path}`, {
