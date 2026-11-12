@@ -636,8 +636,10 @@ for (const width of [390, 1440]) test(`AIT-494 real routes and failed Settings r
 });
 
 // AIT-497: measure the real Settings row before considering any production hold.
-for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to failed to sent ${width}`, { timeout: 150_000 }, async t => {
-  const f = await fixture(t, 'AIT497', false), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser-497') });
+for (const width of [390, 1440]) for (const [initialState, finalState] of [['sent', 'failed'], ['failed', 'sent']])
+test(`AIT-497 wrapping Settings row ${initialState} to requested to ${finalState} ${width}`, { timeout: 150_000 }, async t => {
+  const f = await fixture(t, 'AIT497', false, { smtpDelivery: finalState });
+  const browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser-497') });
   t.after(() => browser.close());
   const page = await browser.newPage();
   // Select the same address using the actual phone row, including in the desktop case.
@@ -648,12 +650,12 @@ for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to fai
   await mockConsent(page);
   await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
   await until(page, () => document.querySelector('aithema-session')?.ait494Host?.verification?.email?.notice?.version);
-  const seed = address => shadow(page, async (c, address) => {
+  const seed = address => shadow(page, async (c, address, delivery) => {
     const response = await fetch('/fixture-494-address', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: c.session.id, address }) });
+      body: JSON.stringify({ sessionId: c.session.id, address, delivery }) });
     if (!response.ok) throw new Error('Address seed failed');
     await c.ait494Host.verification.load();
-  }, address);
+  }, address, initialState);
   await seed('wrap@example.com');
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
   await page.mouse.move(0, 0);
@@ -685,9 +687,9 @@ for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to fai
   await page.setViewport({ width, height: 900 });
   await page.mouse.move(0, 0);
   await delay(350);
-  const evidence = { width, wrap, samples: [] };
+  const evidence = { width, initialState, finalState, wrap, samples: [] };
   t.after(async () => {
-    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-geometry-${width}.json`), JSON.stringify(evidence, null, 2));
+    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-geometry-${width}-${initialState}-${finalState}.json`), JSON.stringify(evidence, null, 2));
   });
   const sample = async state => {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -714,32 +716,31 @@ for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to fai
     for (const [selector, box] of Object.entries(result.rects)) {
       assert.ok(box.width > 0, `${state} ${selector} has positive width`);
       assert.ok(box.height > 0, `${state} ${selector} has positive height`);
-      const before = (evidence.samples.at(-2) ?? evidence.samples[0]).rects[selector];
-      for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(box[key] - before[key]) <= .5,
-        `${state} ${selector} ${key}: ${before[key]} -> ${box[key]}`);
+      for (const reference of [evidence.samples.at(-2) ?? evidence.samples[0], evidence.samples[0]]) {
+        const before = reference.rects[selector];
+        for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(box[key] - before[key]) <= .5,
+          `${state} ${selector} ${key} against ${reference.state}: ${before[key]} -> ${box[key]}`);
+      }
     }
     if (width === 390) assert.equal(result.readability.lineCount, state === 'failed' ? 1 : 2);
     // Report vertical scrolling rather than changing the existing overflow rule.
     assert.ok(result.readability.scrollWidth <= result.readability.clientWidth, 'the address needs no horizontal scrolling');
     return result;
   };
-  await sample('sent');
-  for (const state of ['failed', 'sent']) {
-    const resend = shadow(page, async c => {
-      const response = await fetch(`/api/sessions/${c.session.id}/identity/resend`, { method: 'POST',
-        headers: { 'content-type': 'application/json' }, body: '{}' });
-      if (!response.ok) throw new Error(`Resend failed: ${response.status}`);
-      const body = await response.json(); await c.ait494Host.verification.load(); return body.identity;
-    });
-    await f.guard(waitFor(() => f.messages.length === (state === 'failed' ? 1 : 2)));
-    await shadow(page, c => c.ait494Host.verification.load());
-    await sample('requested');
-    assert.equal(f.releaseDelivery(), true, 'release the local SMTP result after measuring pending');
-    const identity = await f.guard(resend);
-    assert.equal(identity.delivery, state, 'real resend uses the local SMTP refusal, then acceptance');
-    await sample(state);
-    if (state === 'failed') await delay(identity.resendAfterMs + 100);
-  }
-  assert.equal(f.messages.length, 2, 'both resends reached only the local SMTP sink');
-  if (process.env.AITHEMA_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-settings-${width}.png`) });
+  await sample(initialState);
+  const resend = shadow(page, async c => {
+    const response = await fetch(`/api/sessions/${c.session.id}/identity/resend`, { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: '{}' });
+    if (!response.ok) throw new Error(`Resend failed: ${response.status}`);
+    const body = await response.json(); await c.ait494Host.verification.load(); return body.identity;
+  });
+  await f.guard(Promise.race([waitFor(() => f.messages.length === 1), resend]));
+  await shadow(page, c => c.ait494Host.verification.load());
+  await sample('requested');
+  assert.equal(f.releaseDelivery(), true, 'release the local SMTP result after measuring pending');
+  const identity = await f.guard(resend);
+  assert.equal(identity.delivery, finalState, 'real resend uses the local SMTP result');
+  await sample(finalState);
+  assert.equal(f.messages.length, 1, 'the resend reached only the local SMTP sink');
+  if (process.env.AITHEMA_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-settings-${width}-${initialState}-${finalState}.png`) });
 });
