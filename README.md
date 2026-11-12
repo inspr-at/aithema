@@ -291,6 +291,23 @@ Host adapter contract:
   must be compared in constant time, single-use, expiry-bound and revision-bound.
   `deliversVerification: true` attests real delivery capability when the host
   enables `host.policy.verificationRequired`.
+- `identity.canonicalizeAddress(value)` optionally normalizes new input only;
+  throw a `TypeError` to refuse it. Request/change check the normalized form.
+  Visitor-email POST/PUT checks a normalized copy, then passes the original
+  input to `saveEmail`; if that host normalizes differently, the delivery
+  backstop checks the stored form before calling `requestVerification`.
+- `identity.acceptsAddress(value)` is a synchronous, pure syntax predicate:
+  only boolean `true` accepts; thrown errors and other results refuse. It must
+  do no I/O and consult no stored state, quotas or facts about other visitors.
+  For new input it receives the canonical form; at delivery it receives what
+  `requestVerification` receives, including older stored forms. Apply the same
+  normalization in both hooks and accept exactly the addresses delivery's
+  pre-send check accepts. A refusal returns 400 `invalid-request` for new
+  input; a refused stored-address resend records delivery `failed` without
+  calling delivery or reserving mail slots or tokens.
+- `identity.asynchronousDelivery === true` reports `sent` before delivery runs
+  and requires an `acceptsAddress` function; a missing hook throws a value-free
+  `TypeError` at startup. Synchronous hosts may omit the hook for compatibility.
 - `library(ownerToken,hooks)` supplies the Part A library port. Use `hooks.create`
   for settings-aware conversation creation and await `hooks.erase(id)` for the
   storage erasure, lane cancellation and durable invalidation path; `hooks.publish`
@@ -2716,6 +2733,7 @@ The visitor API uses the existing ownership cookie/token:
   notice, including `notice.version = "ait-135-v1"`, retention and delivery facts.
 - `POST` (or `PUT`) `/api/visitor/email` accepts only
   `{ "address": "visitor@example.test", "noticeVersion": "ait-135-v1" }`.
+  A host `identity.acceptsAddress` refusal returns 400 `invalid-request`.
   Saving grants email-given credit and sends no mail. A changed address revokes
   confirmation; repeating the same saved address cannot add credit.
 - `DELETE /api/visitor/email` removes the address and confirmation evidence,
@@ -2981,11 +2999,18 @@ log contains only the event, window and 12-character bucket-HMAC prefix; alert
 rows use the same 24-hour expiry. IP checks and delivery run after the response,
 so IP suppression keeps the same response and scheduling as acceptance.
 
-Accepted, address-suppressed, IP-suppressed and globally suppressed HTTP requests
-return the same status, body and headers and show “Link gesendet …”. Delivery
+Among deliverable addresses, accepted, address-suppressed, IP-suppressed and
+globally suppressed HTTP requests return the same status, body and headers and
+show “Link gesendet …”. A refused stored address instead records `failed`; this
+depends only on the visitor's own address, not another visitor's activity. Delivery
 starts asynchronously after the response; SMTP duration, failure and shared
 address/global activity never change the visitor-visible state. Host-private
-audit records report relay failures. SMTP 4xx replies, including Postfix's
+audit records report relay failures. Quota/IP/global suppression, relay refusal
+and OPS `confirmationEnabled=false` can therefore still report `sent` without
+mail. Older refused saved addresses retain their email-given credit until the
+visitor changes them or 90-day retention removes them; no migration is needed.
+RC22 rows already marked `sent` keep that state until their 30-minute link expires.
+SMTP 4xx replies, including Postfix's
 451/452 rate-limit responses, are temporary delivery failures mapped to the
 existing private `failed` delivery status. One
 `{"event":"mail-delivery-failed","temporary":true}` log line contains no address,

@@ -366,3 +366,18 @@ test('C1 fix1 plaintext requires opt-in on port 25; other connections verify TLS
     assert.equal(options.ignoreTLS, false); assert.equal(options.tls.rejectUnauthorized, true);
   }
 });
+
+
+test('AIT-494 acceptsRecipient directly checks the delivery syntax table', async () => {
+  const { acceptsRecipient } = await import('../src/index.js');
+  for (const address of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment)@example.test',
+    'a\\b@example.test', 'a(comment@example.test', 'a)@example.test', configuredAddressExample,
+    'x:attacker@evil.example', 'group:a@evil.example', 'a\u0001b@example.test', 'a\u200bb@example.test',
+    ...['\ud800', '\ue000', '\u0378'].flatMap(c => [`a${c}b@example.test`, `user@a${c}b.example`]),
+    `user@${joinerDomain}`]) assert.equal(acceptsRecipient(address), false, JSON.stringify(address));
+  for (const address of ['visitor@example.test', 'visitor@sub.example.test', 'first.last+tag@example.test',
+    "o'brien@example.test", 'user@bücher.example', 'user@BÜCHER.example', 'user@xn--bcher-kva.example',
+    'user@例え.テスト', `user@${domainToASCII(joinerDomain)}`]) {
+    assert.equal(acceptsRecipient(address), true, address);
+  }
+});

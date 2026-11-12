@@ -5,6 +5,7 @@ import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js
 import { createConfirmationStore } from './confirmation-store.js';
 import { privacyDocumentConfigured as hasPrivacyDocument } from '@inspr/aithema-server';
 import { canonicalEmail } from './email-address.js';
+import { acceptsRecipient } from '@inspr/aithema-plugin-mail-smtp';
 import { createClientIpResolver } from './client-ip.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -129,6 +130,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     deliversVerification: deliveryEnabled,
     asynchronousDelivery: mailPlugin?.deliversVerification === true,
     canonicalizeAddress: canonicalEmail,
+    acceptsAddress: a => { try { return acceptsRecipient(canonicalEmail(a)); } catch { return false; } },
     configuration() { return { demoBypass, ...(identityPolicy ? { policy: identityPolicy } : {}) }; },
     project({ session }, state) { return visitorCredits.projectIdentity(session.ownerHash, state); },
     persist({ session }, state) { const result = visitorCredits.persistIdentity(session.ownerHash, state); purgeMail(); return result; },

@@ -1487,3 +1487,113 @@ test('AIT-466 S4: unavailable assessment refuses before budget while unlocked re
   assert.equal(after.some(attempt => attempt.lane === 'understanding'), false);
   assert.equal((await f.snapshot()).transcript.filter(turn => turn.role === 'assistant').length, 1);
 });
+
+// AIT-494: delivery syntax is a host contract, independent of the demo wiring.
+test('AIT-494 async startup requires acceptsAddress; sync hosts remain compatible', async t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const host = createDemoHost({ storage });
+  delete host.identity.acceptsAddress;
+  host.identity.asynchronousDelivery = true;
+  assert.throws(() => createHandlers({ storage, host, consent: mockConsent }), error =>
+    error instanceof TypeError && /acceptsAddress/u.test(error.message) && /README.*Host/u.test(error.message));
+  host.identity.asynchronousDelivery = false;
+  const handlers = createHandlers({ storage, host, consent: mockConsent });
+  t.after(() => handlers.close());
+});
+
+const refused494 = ['a(b)@example.com', '"a"@example.com', 'a\ud800b@example.com', 'a\ue000b@example.com', 'a\u0378b@example.com'];
+for (const route of ['request', 'change', 'PUT', 'POST']) {
+  test(`AIT-494 ${route} refuses before saving, delivery or journal writes`, async t => {
+    const f = fixture(t), s = await f.create();
+    const accepts = t.mock.fn(() => false); f.host.identity.acceptsAddress = accepts;
+    const send = t.mock.method(f.host.identity, 'requestVerification');
+    const save = t.mock.method(f.host, 'saveEmail');
+    await f.call(`/api/sessions/${s.id}/identity`); // warm initialization and pause sync
+    const journal = f.storage.read(s.id), state = f.storage.hostState(s.id);
+    const call = address => ['PUT', 'POST'].includes(route)
+      ? f.call('/api/visitor/email', { address, noticeVersion: 'ait-135-v1' }, owner, route)
+      : f.call(`/api/sessions/${s.id}/identity/${route}`, { address });
+    const snapshot = async response => ({ status: response.status, headers: [...response.headers], body: await response.json() });
+    const malformed = await snapshot(await call('not-an-address'));
+    for (const address of refused494) {
+      const response = await snapshot(await call(address));
+      assert.equal(response.status, 400); assert.deepEqual(response.body, { error: 'invalid-request' });
+      assert.deepEqual(response, malformed);
+      assert.deepEqual(f.storage.read(s.id), journal); assert.deepEqual(f.storage.hostState(s.id), state);
+    }
+    assert.equal(send.mock.callCount(), 0); assert.equal(save.mock.callCount(), 0);
+    assert.equal(accepts.mock.callCount(), refused494.length);
+  });
+}
+
+for (const outcome of ['undefined', 'number', 'string', 'promise', 'throws']) {
+  test(`AIT-494 only boolean true accepts (${outcome})`, async t => {
+    const f = fixture(t), s = await f.create();
+    f.host.identity.acceptsAddress = () => {
+      if (outcome === 'throws') throw new Error('private hook diagnostic');
+      return { undefined: undefined, number: 1, string: 'true', promise: Promise.resolve(true) }[outcome];
+    };
+    for (const route of ['request', 'change']) {
+      const response = await f.call(`/api/sessions/${s.id}/identity/${route}`, { address: 'user@example.com' });
+      assert.equal(response.status, 400); assert.deepEqual(await response.json(), { error: 'invalid-request' });
+    }
+    for (const method of ['POST', 'PUT']) {
+      assert.equal((await f.call('/api/visitor/email', { address: 'user@example.com' }, owner, method)).status, 400);
+    }
+  });
+}
+
+test('AIT-494 canonical input reaches the hook and original save input is preserved', async t => {
+  const f = fixture(t), s = await f.create(), raw = ' user@BÜCHER.example ', canonical = 'user@xn--bcher-kva.example';
+  const accepts = t.mock.fn(() => true); f.host.identity.acceptsAddress = accepts;
+  for (const route of ['request', 'change']) {
+    if (route === 'change') f.at(1_100);
+    assert.equal((await f.call(`/api/sessions/${s.id}/identity/${route}`, { address: raw })).status, 200);
+  }
+  const save = t.mock.method(f.host, 'saveEmail');
+  for (const method of ['POST', 'PUT']) {
+    assert.equal((await f.call('/api/visitor/email', { address: raw, noticeVersion: 'ait-135-v1' }, owner, method)).status, 200);
+  }
+  assert.ok(accepts.mock.calls.length >= 4);
+  assert.ok(accepts.mock.calls.every(call => call.arguments[0] === canonical));
+  assert.ok(save.mock.calls.every(call => call.arguments[1].address === raw));
+  accepts.mock.resetCalls();
+  f.host.identity.canonicalizeAddress = () => { throw new TypeError('Invalid address'); };
+  assert.equal((await f.call(`/api/sessions/${s.id}/identity/request`, { address: raw })).status, 400);
+  assert.equal((await f.call('/api/visitor/email', { address: raw }, owner, 'PUT')).status, 400);
+  assert.equal(accepts.mock.callCount(), 0);
+});
+
+test('AIT-494 refusal precedes cooldown and has the malformed-address response', async t => {
+  const f = fixture(t), s = await f.create();
+  const path = `/api/sessions/${s.id}/identity/request`;
+  const snapshot = async address => {
+    const r = await f.call(path, { address });
+    return { status: r.status, headers: [...r.headers], body: await r.json() };
+  };
+  f.host.identity.acceptsAddress = a => !refused494.includes(a);
+  const fresh = await snapshot(refused494[0]), malformed = await snapshot('not-an-address');
+  assert.equal(fresh.status, 400); assert.deepEqual(fresh, malformed);
+  assert.equal((await snapshot('user@example.com')).status, 200);
+  const journal = f.storage.read(s.id);
+  assert.deepEqual(await snapshot(refused494[0]), fresh);
+  assert.deepEqual(f.storage.read(s.id), journal);
+});
+
+for (const asynchronousDelivery of [false, true]) {
+  for (const throwing of [false, true]) {
+    test(`AIT-494 stored resend fails without entering delivery (${asynchronousDelivery}, throws=${throwing})`, async t => {
+      const f = fixture(t), s = await f.create();
+      f.host.identity.acceptsAddress = () => true;
+      await f.call(`/api/sessions/${s.id}/identity/request`, { address: refused494[0] });
+      f.at(1_100);
+      f.host.identity.asynchronousDelivery = asynchronousDelivery;
+      f.host.identity.acceptsAddress = () => { if (throwing) throw new Error('private diagnostic'); return false; };
+      const send = t.mock.method(f.host.identity, 'requestVerification');
+      const r = await f.call(`/api/sessions/${s.id}/identity/resend`, {});
+      assert.equal(r.status, 200); assert.equal((await r.json()).identity.delivery, 'failed');
+      await f.handlers.idle(); assert.equal(send.mock.callCount(), 0);
+      assert.equal(f.storage.hostState(s.id).identity.delivery, 'failed');
+    });
+  }
+}

@@ -31,6 +31,8 @@ export class PrivacyDocumentRequiredError extends Error {
 /** Host ports are trusted server configuration, never request payloads.
  * identity: configuration({sessionId,ownerToken}), requestVerification(effect),
  * verify({sessionId,ownerToken,address,revision,token?}) -> authoritative evidence.
+ * canonicalizeAddress(value) normalizes new input; acceptsAddress(value) is a pure,
+ * synchronous syntax predicate. asynchronousDelivery requires acceptsAddress.
  * library(ownerToken,hooks), handover(ownerToken), wallet(ownerToken, {sessionId}) are owner-authorized.
  * All asynchronous replies recheck ownership before publication. */
 export function createHostHandlers({ storage, host, ownership, readBody, publish, snapshot, createConversation,
@@ -39,6 +41,13 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       typeof host.identity.requestVerification !== 'function' || typeof host.identity.verify !== 'function')) {
     throw new TypeError('Verification lock requires a delivering identity port');
   }
+  if (host?.identity?.asynchronousDelivery === true && typeof host.identity.acceptsAddress !== 'function') {
+    throw new TypeError('asynchronousDelivery requires acceptsAddress; see README Host adapter contract');
+  }
+  const deliverable = address => {
+    if (typeof host.identity?.acceptsAddress !== 'function') return true;
+    try { return host.identity.acceptsAddress(address) === true; } catch { return false; }
+  };
   const touchVisitor = createTouchVisitor({ host, log });
   const deliveries = new Map();
   const clock = state => Math.max(now(), state?.lastNow ?? 0);
@@ -281,7 +290,12 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             privacyDocumentConfigured: privacyDocumentConfigured(host) });
           if (request.method === 'POST' || request.method === 'PUT') {
             assertAddressCollectionAllowed();
-            return json({ visitor: host.saveEmail(ownerToken, await body(request, ['address', 'noticeVersion'])) });
+            const input = await body(request, ['address', 'noticeVersion']);
+            if (typeof host.identity?.acceptsAddress === 'function') {
+              const address = host.identity.canonicalizeAddress ? host.identity.canonicalizeAddress(input.address) : input.address;
+              if (!deliverable(address)) throw new TypeError('Invalid email address');
+            }
+            return json({ visitor: host.saveEmail(ownerToken, input) });
           }
           if (request.method === 'DELETE') { await body(request, []); return json({ visitor: host.deleteEmail(ownerToken) }); }
         } else if (request.method === 'POST') {
@@ -432,6 +446,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         const command = action.slice('identity/'.length);
         const options = await body(request, ['request', 'change'].includes(command) ? ['address'] : command === 'confirm' ? ['token'] : []);
         if (['request', 'change'].includes(command) && host.identity.canonicalizeAddress) options.address = host.identity.canonicalizeAddress(options.address);
+        if (['request', 'change'].includes(command) && !deliverable(options.address)) throw new TypeError('Invalid email address');
         if (command === 'confirm' && (typeof options.token !== 'string' || !options.token || options.token.length > 2048)) throw new TypeError('Invalid verification token');
         if (command === 'confirm' || command === 'unlock') {
           let state = storage.hostState(id).identity;
@@ -469,7 +484,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         // and the mail effect. Other identity routes retain their own limits.
         const deliveryOptions = callOptions => command === 'request' && host.identity.clientIpBucket
           ? { ...callOptions, clientIpBucket: host.identity.clientIpBucket(request, context) } : callOptions;
-        if (effect && host.identity.asynchronousDelivery === true) {
+        if (effect && !deliverable(effect.data.address)) {
+          identityTransition(id, ownerToken, { type: 'delivery', revision: effect.data.revision,
+            address: effect.data.address, status: 'failed' });
+        } else if (effect && host.identity.asynchronousDelivery === true) {
           // Give every accepted request the same visitor state and response.
           // Reserve/throttle and SMTP both start on the next event-loop turn,
           // after the response has been returned to the HTTP adapter. Neither

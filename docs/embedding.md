@@ -1327,6 +1327,33 @@ and actual verification methods. Host collection requires a configured privacy
 document. Pass the same consent port to handlers and plugin runtime. Consent,
 budgets, ownership and pause are checked before every dispatch.
 
+The identity delivery contract also provides these hooks:
+
+- `canonicalizeAddress(value)` optionally normalizes new input only and throws
+  a `TypeError` to refuse it. Identity request/change checks that canonical form.
+  Visitor-email POST/PUT checks a canonicalized copy and passes the original
+  input to `saveEmail`; a host that normalizes it differently is still checked
+  on the stored form by the delivery backstop.
+- `acceptsAddress(value)` must be synchronous and pure, checking syntax only:
+  no I/O, stored state, quotas or facts about other visitors. Only boolean `true`
+  accepts; thrown errors and other results refuse. New input is canonicalized
+  first; at delivery the hook receives what `requestVerification` receives,
+  including older stored forms. Apply the same normalization in both hooks,
+  accepting exactly what delivery's pre-send check accepts. New input refusals
+  return 400 `invalid-request`; refused stored-address resends record `failed`
+  without delivery calls, slots or tokens.
+- `asynchronousDelivery === true` reports `sent` before delivery runs and
+  requires an `acceptsAddress` function. Missing it throws a value-free
+  `TypeError` at startup (README “Host adapter contract”). Synchronous hosts
+  may omit the hook for compatibility.
+
+Among deliverable addresses, quota/IP/global suppression, relay refusal and
+OPS `confirmationEnabled=false` can still report `sent` without mail, preserving
+the identical asynchronous response. Refusing a stored address depends only on
+that visitor's own address. Older saved addresses keep email-given credit until
+changed or removed by 90-day retention; no migration is needed. RC22 rows already
+marked `sent` retain that state until their 30-minute link expires.
+
 `POST /api/sessions/:id/pause` checks privacy permission before unpausing an
 address-bearing identity. A `privacy-document-required` refusal leaves the
 session paused and its journal unchanged, and schedules no work.
