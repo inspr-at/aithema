@@ -44,9 +44,10 @@ registerHooks({ load(url, context, nextLoad) {
     assert.equal(source.split(needle).length, 2, 'fixture stored-address seed hook is unique');
     return { ...result, source: source.replace(needle, `
       if (request.method === 'POST' && new URL(request.url).pathname === '/fixture-494-address') {
-        const { sessionId } = await request.json(), ownerToken = ownership.token(request);
+        const { sessionId, address } = await request.json(), ownerToken = ownership.token(request);
         const session = storage.authorize(sessionId, ownerToken), state = storage.hostState(sessionId).identity;
-        host.visitorCredits.persistIdentity(session.ownerHash, { ...state, address: 'a(b)@example.com',
+        host.visitorCredits.persistIdentity(session.ownerHash, { ...state, address: process.env.AIT497_FIXTURE === '1' ? address : 'a(b)@example.com',
+          ...(process.env.AIT497_FIXTURE === '1' ? { policy: { ...state.policy, resendCooldownMs: 0 } } : {}),
           status: 'verification-pending', delivery: 'sent', verificationRevision: state.verificationRevision + 1,
           expiresAt: Date.now() + 1_800_000, resendAt: 0, expired: false, lastNow: Date.now() });
         return Response.json({ seeded: true });
