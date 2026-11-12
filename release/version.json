@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261111083713.0.0",
+  "version": "261112091755.0.0",
   "release_channel": "stable",
-  "release_sequence": 33,
+  "release_sequence": 34,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-489 twenty-second candidate re-preparation (attempt 2), superseding unpublished 261111070532.0.0 after AIT-491; base 3edea35337e487879c11f86164022eaeeb04523f; MAC-LEAD 2026-11-11 08:33 approves this re-preparation route; fourteenth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and MAC-LEAD 2026-11-10 22:31: No RC tonight; cut in the daytime under the standing go; Markus away (OPS-581); sequence 33 under coordinator-held release-lock/seq-33 at 2d4b30bdc383ab4bdc426f2bf742683cdb52df15; final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder review gate, push, PR, tag, tag push, GitHub release or publication"
+  "reservation_purpose": "AIT-498 twenty-third candidate preparation; base afbf4eea074b5fdd5c81b3da496fa9f9256b8005; fifteenth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and MAC-LEAD 2026-11-12 10:08: RC23 is unblocked, draft the RC23 preparation brief now under the standing release go; brief approved 10:12 with changes applied; Markus away (OPS-581); sequence 34 under coordinator-held release-lock/seq-34 at afbf4eea074b5fdd5c81b3da496fa9f9256b8005; final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder review gate, push, PR, tag, tag push, GitHub release or publication"
 }
