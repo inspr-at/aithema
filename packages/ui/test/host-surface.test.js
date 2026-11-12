@@ -58,7 +58,7 @@ for (const blockedEvent of [true, false]) for (const retry of [9_000, 45_000, nu
   root.querySelector('.verify-lock .verify-resend').click(); await tick(4);
   // The server's blocked event may arrive before the HTTP acknowledgement.
   if (blockedEvent) {
-    c.receive({ type: 'identity.resend-blocked', data: { resendAfterMs: 15_000 } });
+    c.receive({ seq: c.session.seq + 1, type: 'identity.resend-blocked', data: { resendAfterMs: 15_000 } });
     assert.equal(root.querySelector('.verify__note').textContent, v.cooldown.replace('{seconds}', 15));
   }
   reply.resolve(Response.json(retry === null ? { error: 'resend-rate-limit' } : { error: 'resend-rate-limit', identity: pending({ resendAfterMs: retry }) }, { status: 429 }));
