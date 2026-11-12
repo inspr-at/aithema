@@ -634,7 +634,7 @@ for (const width of [390, 1440]) test(`AIT-494 real routes and failed Settings r
 });
 
 // AIT-497: measure the real Settings row before considering any production hold.
-for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to failed to sent ${width}`, { timeout: 90_000 }, async t => {
+for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to failed to sent ${width}`, { timeout: 150_000 }, async t => {
   const f = await fixture(t, 'AIT497', false), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser-497') });
   t.after(() => browser.close());
   const page = await browser.newPage();
@@ -731,6 +731,7 @@ for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to fai
     });
     assert.equal(identity.delivery, state, 'real resend uses the local SMTP refusal, then acceptance');
     await sample(state);
+    if (state === 'failed') await delay(identity.resendAfterMs + 100);
   }
   assert.equal(f.messages.length, 2, 'both resends reached only the local SMTP sink');
   if (process.env.AITHEMA_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-settings-${width}.png`) });
