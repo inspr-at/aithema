@@ -8,6 +8,64 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
+// AIT-486: one injected clock owns the local countdown and all fixture views.
+for (const scenario of [
+  { name: 'fresh view shortens a running countdown', initial: 60_000, fresh: 9_000, interim: 39, final: 9 },
+  { name: 'fresh view never raises a running countdown', initial: 60_000, fresh: 60_000, interim: 39, final: 39 },
+  { name: 'failed fresh view keeps a running countdown', initial: 60_000, fails: true, interim: 39, final: 39 },
+  { name: 'no running countdown uses the snapshot until the fresh view', initial: 0, fresh: 9_000, interim: 60, final: 9 },
+  { name: 'failed fresh view keeps the snapshot fallback', initial: 0, fails: true, interim: 60, final: 60 },
+]) test(`AIT-486 resync: ${scenario.name}`, async t => {
+  let now = 100_000, resync = false;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const reply = Promise.withResolvers();
+  const { c, root, calls } = setup(t, { host: { verification: true }, session: { identity: pending({ resendAfterMs: scenario.initial }) }, routes: {
+    'GET ': () => Response.json({ ...c.session, identity: pending() }),
+    'GET /identity': () => resync ? reply.promise : Response.json({ identity: pending({ resendAfterMs: scenario.initial }), visitorEmail: { canSave: false, canDelete: false } }),
+  } });
+  t.after(() => reply.resolve(Response.json({}, { status: 503 })));
+  await tick(12);
+  now += 21_000; t.mock.timers.tick(1000);
+  const reads = calls.filter(call => call.path === '/identity').length;
+  resync = true;
+  // A journal gap takes the real snapshot restore -> HostSurface.resync path.
+  c.receive({ seq: c.session.seq + 2, type: 'session.paused', data: { paused: false } });
+  await tick(16);
+  const assertSeconds = seconds => {
+    for (const note of root.querySelectorAll('.verify__note')) assert.equal(note.textContent, v.cooldown.replace('{seconds}', seconds));
+  };
+  assertSeconds(scenario.interim);
+  assert.equal(calls.filter(call => call.path === '/identity').length, reads + 1, 'resync requests a fresh identity view');
+  if (scenario.fails) reply.reject(new Error('identity read unavailable'));
+  else reply.resolve(Response.json({ identity: pending({ resendAfterMs: scenario.fresh }), visitorEmail: { canSave: false, canDelete: false } }));
+  await tick(12);
+  assertSeconds(scenario.final);
+  now += 1_000; t.mock.timers.tick(1000);
+  assertSeconds(scenario.final - 1);
+});
+
+for (const retry of [9_000, 45_000, null]) test(`AIT-486: 429 retry ${retry} re-anchors down and never up`, async t => {
+  let now = 100_000;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const reply = Promise.withResolvers();
+  const { c, root } = setup(t, { host: { verification: true }, session: { identity: pending({ resendAfterMs: 0 }) }, routes: {
+    'POST /identity/resend': () => reply.promise,
+  } });
+  t.after(() => reply.resolve(Response.json({}, { status: 503 })));
+  await tick(12);
+  root.querySelector('.verify-lock .verify-resend').click(); await tick(4);
+  // The server's blocked event may arrive before the HTTP acknowledgement.
+  c.receive({ type: 'identity.resend-blocked', data: { resendAfterMs: 15_000 } });
+  assert.equal(root.querySelector('.verify__note').textContent, v.cooldown.replace('{seconds}', 15));
+  reply.resolve(Response.json(retry === null ? { error: 'resend-rate-limit' } : { error: 'resend-rate-limit', identity: pending({ resendAfterMs: retry }) }, { status: 429 }));
+  await tick(12);
+  const seconds = retry === 9_000 ? 9 : 15;
+  assert.equal(root.querySelector('.verify__note').textContent, v.cooldown.replace('{seconds}', seconds));
+  assert.equal(root.querySelector('.verify__message').textContent, v.rateLimited);
+});
+
 for (const fails of [false, true]) test(`AIT-195: reattach after cooldown repaints immediately when load ${fails ? 'fails' : 'is pending'}`, async t => {
   let now = Date.now(), reattaching = false;
   t.mock.method(Date, 'now', () => now);
