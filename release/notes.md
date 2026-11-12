@@ -1,49 +1,73 @@
 # Aithema 2026.10
 
-Version **261111083713.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261112091755.0.0**. Licensed under **AGPL-3.0-only**.
 
-Hosts get fewer duplicate identity events, no console 404 after deleting a conversation, and a mail-parser security fix. This release adds no new visitor-facing behaviour.
+Deleted conversations now show a clear end state and stop their requests. An email address our mail service would refuse is rejected on entry, and Settings no longer claims a link was sent after a refused resend. Hosts using asynchronous identity delivery must add `identity.acceptsAddress`; the new `aithema-erased` event lets hosts stop their own per-session requests.
 
 ## What visitors notice
 
-No new visitor-facing behaviour or copy.
+- **Deleted chats end clearly (AIT-484, #428).** If a conversation is deleted elsewhere, the open page says it is no longer available and offers a new conversation, instead of continuing to make requests in the background.
+- **Honest delivery status (AIT-494, #431).** An email address our mail service would refuse (for example one with brackets or quotes) is now rejected as you enter it, and Settings no longer says a link was sent when it was not.
+
+This checks mail-service syntax, not whether a mailbox exists: a well-formed
+address that does not exist still shows `sent`. Quota, IP or global suppression,
+relay refusal and OPS `confirmationEnabled=false` can also still report `sent`
+without mail.
 
 ## For hosts
 
-**Erased conversations (AIT-464, #417).** An erased (deleted or reset)
-conversation no longer requests its feature snapshot, so there is no console
-404 after deleting the open conversation. Existing copy and states are unchanged.
+**Erased conversations (AIT-484, #428).** A journal `session.erased`, or a snapshot
+404 with exactly `{error: 'session-not-found'}`, enters one terminal state:
+“This conversation is no longer available.” / “Dieses Gespräch ist nicht mehr verfügbar.”
+The element stops all its requests and timers for that conversation and keeps
+the existing new-conversation action. The new copy key is `conversationUnavailable`;
+other German visitor copy is unchanged.
 
-**Identity journal (AIT-485, #419).** An unchanged pending identity no longer
-re-journals `identity.state` during the resend cooldown. That means fewer duplicate
-events and fewer follow-up feature reads. Event shape, fields and status codes
-are unchanged. This is not breaking: journals and transcript exports only lose
-duplicates.
+The public `aithema-erased` event bubbles, is composed and is not cancelable.
+Its detail is `{sessionId, via: 'journal' | 'not-found'}`; each erased id is
+announced once per element instance, at the moment of erasure. Hosts should stop
+their own per-session requests (for example consent, locale, handover) on
+`aithema-erased`, `aithema-open-conversation` with reason `deleted`, or
+`aithema-new-conversation`. The event is additive.
 
-**Mail-parser security (AIT-487, #422).** The mail-smtp plugin updates nodemailer
-to 10.1.7, which fixes three address-parser advisories (GHSA-m943-m63m-w62w,
-GHSA-85x2-q946-cp5h, GHSA-8c8m-p3m8-cjg8).
+**Address acceptance (AIT-490, AIT-494; #430, #431).** Breaking for hosts using
+`identity.asynchronousDelivery`: add a synchronous, pure `identity.acceptsAddress`
+hook before upgrading (for example the mail plugin's exported `acceptsRecipient`,
+with the same normalization as delivery). `createHostHandlers` now throws at
+startup if it is missing. Only `true` accepts; a throw counts as refusal.
+Syntax refusals return 400 `invalid-request` on identity request/change and
+`POST|PUT /api/visitor/email`; forms show their existing invalid message.
+Resends to a refused stored address record delivery `failed` without mail,
+slots or tokens. Synchronous hosts may omit the hook for compatibility.
 
-Visitor-typed recipients that nodemailer would parse ambiguously (quotes,
-comments, escapes, groups, control characters) are refused before delivery with
-the existing invalid-delivery error. Configured sender addresses are unchanged.
-Character checks also refuse format characters; a round-trip through nodemailer's
-own addressparser must yield exactly one plain address equal to the input.
-The delivered address is the same mailbox as the stored string, though nodemailer
-lowercases the domain and sends IDN domains as punycode.
+The mail-smtp plugin exports `acceptsRecipient(value, parseAddress = addressparser)`,
+the exact pre-send check. Refused visitor syntax includes quotes, comments,
+brackets, escapes, groups, control and format characters, plus lone surrogates
+(`Cs`), private-use (`Co`) and unassigned (`Cn`) code points next to AIT-487's
+classes. Unicode ZWJ/ZWNJ domains stay refused; Chromium sends their punycode
+form, and that form is delivered. Delivery reaches the same mailbox, not
+necessarily byte-identical text: nodemailer may lowercase domains and encode
+IDN as punycode. Configured sender addresses are unchanged.
 
-Hosts that also depend on nodemailer directly should move to the same 10.1.x.
-This is not breaking: configured from and reply-to keep RC21's rules; ambiguous
-visitor input receives the existing invalid-delivery error.
+The demo now refuses addresses that its mail pre-send check refuses in every
+mode, including SMTP off; email-ask and Settings show the existing invalid
+message, and Settings no longer says a link was sent after a refused resend.
+The hook is syntax-only: it must do no I/O and consult no stored state, quotas
+or facts about other visitors. A well-formed nonexistent mailbox still shows
+`sent`; quota, IP or global suppression, relay refusal and OPS
+`confirmationEnabled=false` remain by-design cases of `sent` without mail.
+Older refused stored addresses keep email-given credit until changed or removed
+by 90-day retention; no migration is needed. RC22 rows already marked `sent`
+retain that state until resend, address change, confirmation within the 30-minute
+verification window, deletion/erasure, or the 24-hour pending cleanup.
 
-**CI-only (AIT-480, AIT-483, AIT-474, AIT-477, AIT-491; #418, #420, #421, #423, #425).**
-Release and test fixtures find real git and bash on any host; the identity-unlock
-browser test uses a deterministic settle barrier; preview-security runs on the
-pinned Playwright's supported ubuntu-24.04 runner; measured browser weights
-replace two bootstrap reservations, and every browser test goes through the
-measured-weight check; the release gate and pack verification read history-growing
-subprocess output within explicit bounds and fail closed. No shipped runtime
-behaviour changes in these five items.
+**CI-only (AIT-492, AIT-488 part A, AIT-497; #427, #429, #432).** Release tooling
+and scripts use bounded subprocess output with explicit maxBuffer and timeout,
+failing closed; the AIT-491 gate Lows are addressed. Dev dependencies update
+yaml to 2.8.3 and zod to 4.6.6 through `overrides.chromium-bidi.zod`.
+A browser check proves the Settings row and its controls stay within ±0.5 px
+across sent/failed for wrapping addresses; README and embedding caveats are
+clarified. These items change no shipped runtime behaviour or release closure.
 
 [RC14's host requirements](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#for-hosts)
 still apply, including its breaking changes; Aithema recommends checking those
@@ -51,14 +75,15 @@ requirements before upgrading from an earlier release.
 
 ## Breaking for hosts
 
-**None relative to RC21 (`v261110175455.0.0`).** Public export contracts,
-configuration keys, HTTP status codes, event shapes and fields, and host
-integration requirements are unchanged. #417 suppresses feature reads for erased
-conversations; #419 removes duplicate identity events from journals and transcript
-exports; #422 fixes the mail parser and rejects ambiguous visitor recipients with
-the existing error while preserving configured sender syntax. #418, #420, #421
-and #423 change only CI or tests; #416 prepared RC21.
-START integrates and pins this release separately.
+**One requirement relative to RC22 (`v261111083713.0.0`): AIT-494 requires
+`identity.acceptsAddress` when `identity.asynchronousDelivery === true`.**
+`createHostHandlers` throws at startup without it, so affected hosts must add
+the hook before upgrading. Use the mail plugin's exported `acceptsRecipient`
+with the same normalization as delivery. Only `true` accepts; a throw refuses.
+The new 400 refusals use the existing `invalid-request` error; `aithema-erased`
+and `acceptsRecipient` are additive. #426 prepared RC22; #427, #429 and #432
+change only tooling, dev dependencies, tests and docs. START integrates and
+pins this release separately.
 
 ## Availability and verification
 
@@ -72,7 +97,7 @@ Release assets include module tarballs, the workspace archive, dependency locks,
 an SPDX SBOM and `release-set.json`. Verify the published attestations and
 `SHA256SUMS` before installation, following
 [RC14's verification and installation instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261111083713.0.0` in every download and installation URL. Retain the
+with tag `v261112091755.0.0` in every download and installation URL. Retain the
 verified assets, manifest and deployment pin for rollback to those exact bytes.
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261111083713.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261112091755.0.0/docs/embedding.md)
 for host integration.
