@@ -159,7 +159,7 @@ export class Verification {
   // fresh identity/retry view arrives; even a fresh view may only shorten it.
   #anchorCooldown(ms, { preserve = false } = {}) {
     const now = Date.now(), remaining = Math.max(0, this.#resendUntil - now);
-    if (preserve && remaining > 0 || !Number.isFinite(ms) || ms < 0) return;
+    if ((preserve && remaining > 0) || !Number.isFinite(ms) || ms < 0) return;
     this.#resendUntil = now + (remaining > 0 ? Math.min(remaining, ms) : ms);
   }
   #cooldown() { return Math.max(0, Math.ceil((this.#resendUntil - Date.now()) / 1000)); }

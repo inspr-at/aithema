@@ -45,7 +45,7 @@ for (const scenario of [
   assertSeconds(scenario.final - 1);
 });
 
-for (const retry of [9_000, 45_000, null]) test(`AIT-486: 429 retry ${retry} re-anchors down and never up`, async t => {
+for (const blockedEvent of [true, false]) for (const retry of [9_000, 45_000, null]) test(`AIT-486: 429 retry ${retry}, blocked event ${blockedEvent}, re-anchors down and never up`, async t => {
   let now = 100_000;
   t.mock.method(Date, 'now', () => now);
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
@@ -57,12 +57,18 @@ for (const retry of [9_000, 45_000, null]) test(`AIT-486: 429 retry ${retry} re-
   await tick(12);
   root.querySelector('.verify-lock .verify-resend').click(); await tick(4);
   // The server's blocked event may arrive before the HTTP acknowledgement.
-  c.receive({ type: 'identity.resend-blocked', data: { resendAfterMs: 15_000 } });
-  assert.equal(root.querySelector('.verify__note').textContent, v.cooldown.replace('{seconds}', 15));
+  if (blockedEvent) {
+    c.receive({ type: 'identity.resend-blocked', data: { resendAfterMs: 15_000 } });
+    assert.equal(root.querySelector('.verify__note').textContent, v.cooldown.replace('{seconds}', 15));
+  }
   reply.resolve(Response.json(retry === null ? { error: 'resend-rate-limit' } : { error: 'resend-rate-limit', identity: pending({ resendAfterMs: retry }) }, { status: 429 }));
   await tick(12);
-  const seconds = retry === 9_000 ? 9 : 15;
-  assert.equal(root.querySelector('.verify__note').textContent, v.cooldown.replace('{seconds}', seconds));
+  const seconds = blockedEvent ? retry === 9_000 ? 9 : 15 : (retry ?? 0) / 1000;
+  assert.equal(root.querySelector('.verify__note').textContent, seconds ? v.cooldown.replace('{seconds}', seconds) : '');
+  if (seconds) {
+    now += 1_000; t.mock.timers.tick(1000);
+    assert.equal(root.querySelector('.verify__note').textContent, v.cooldown.replace('{seconds}', seconds - 1));
+  }
   assert.equal(root.querySelector('.verify__message').textContent, v.rateLimited);
 });
 
