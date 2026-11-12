@@ -222,7 +222,8 @@ export class HostSurface {
     if (this.#erased) return;
     const session = this.#session();
     this.#actorRole?.set(session.roleChoice); this.#actorRole?.sync();
-    if (session.identity !== undefined) this.#verification?.set(session.identity ?? null);
+    if (session.identity !== undefined) this.#verification?.set(session.identity ?? null, { preserveCooldown: true });
+    void this.#verification?.load();
     if (session.handover !== undefined) this.#handover = session.handover;
     this.#refreshCredits(); this.update();
   }

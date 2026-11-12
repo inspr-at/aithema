@@ -17,7 +17,7 @@ export class Verification {
   #streamingBlocked = false;
   #email; #creditsChanged; #dialogDelivery = true; #identityGeneration = 0;
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
-  #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
+  #identity = null; #resendUntil = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
   /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}; notice() is the AI notice line. */
   constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale, creditsChanged, streaming = () => false }) {
@@ -103,10 +103,12 @@ export class Verification {
     this.#onChange?.({ saved: true });
     return { ...saved, sent: link?.ok === true && link.body?.identity?.delivery !== 'failed', identity: link?.body?.identity };
   }
-  set(identity, { quiet = false } = {}) {
+  set(identity, { quiet = false, preserveCooldown = false } = {}) {
     this.#identityGeneration++;
     const before = this.#identity;
-    this.#identity = identity && !identity.erased ? structuredClone(identity) : null; this.#at = Date.now();
+    this.#identity = identity && !identity.erased ? structuredClone(identity) : null;
+    if (!this.#identity) this.#resendUntil = 0;
+    else this.#anchorCooldown(this.#identity.resendAfterMs, { preserve: preserveCooldown });
     this.#email.set({ identity: this.#identity,
       ...(this.#email.visitor && before && before.address !== this.#identity?.address ? { visitor: { ...this.#email.visitor, address: this.#identity?.address ?? null } } : {}) });
     // A new verification round or a changed address ends a stale message.
@@ -128,7 +130,7 @@ export class Verification {
   receive(event) {
     if (event.type === 'identity.state') this.set(event.data);
     else if (event.type === 'identity.unlocked') this.#status(event.data?.manualPaused ? this.#v.unlockedPaused : this.#v.unlocked);
-    else if (event.type === 'identity.resend-blocked') { this.#ui.message = this.#v.rateLimited; this.#ui.error = true; this.#paint(); }
+    else if (event.type === 'identity.resend-blocked') { this.#anchorCooldown(event.data?.resendAfterMs); this.#schedule(); this.#ui.message = this.#v.rateLimited; this.#ui.error = true; this.#paint(); }
   }
   connect() { this.#connected = true; this.#paint(); this.#schedule(); }
   disconnect() {
@@ -153,8 +155,14 @@ export class Verification {
     if (!this.#dialog.open) this.#dialog.showModal?.();
     this.#focusForm(form); if (this.#ui.editing) form?.input.select();
   }
-  // Remaining resend cooldown, counted down from the moment the view arrived.
-  #cooldown() { return Math.max(0, Math.ceil(((this.#identity?.resendAfterMs ?? 0) - (Date.now() - this.#at)) / 1000)); }
+  // A snapshot may carry an old duration. Preserve the running deadline until a
+  // fresh identity/retry view arrives; even a fresh view may only shorten it.
+  #anchorCooldown(ms, { preserve = false } = {}) {
+    const now = Date.now(), remaining = Math.max(0, this.#resendUntil - now);
+    if (preserve && remaining > 0 || !Number.isFinite(ms) || ms < 0) return;
+    this.#resendUntil = now + (remaining > 0 ? Math.min(remaining, ms) : ms);
+  }
+  #cooldown() { return Math.max(0, Math.ceil((this.#resendUntil - Date.now()) / 1000)); }
   #mode() {
     const status = this.#identity?.status;
     if (status === 'verified' && !this.#ui.editing) return 'verified';
