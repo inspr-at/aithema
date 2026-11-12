@@ -1547,6 +1547,7 @@ test('AIT-494 canonical input reaches the hook and original save input is preser
   const f = fixture(t), s = await f.create(), raw = ' user@BÜCHER.example ', canonical = 'user@xn--bcher-kva.example';
   const accepts = t.mock.fn(() => true); f.host.identity.acceptsAddress = accepts;
   for (const route of ['request', 'change']) {
+    if (route === 'change') f.at(1_100);
     assert.equal((await f.call(`/api/sessions/${s.id}/identity/${route}`, { address: raw })).status, 200);
   }
   const save = t.mock.method(f.host, 'saveEmail');
