@@ -166,6 +166,7 @@ async function fixture(t, variant, lateDelivery) {
                 source = rewrite(source, '  }\n  #connect() {', '    } finally { this.#ait483Busy--; }\n  }\n  #connect() {');
                 const needle = '  receive(event) { this.#anchored';
                 source = rewrite(source, needle, `  get ait483Busy() { return this.#ait483Busy; }
+                  get ait494Host() { return this.#host; }
                   get ait483Host() { return this.#host?.ait483Credits ?? null; }
                   get ait470Consent() {
                     const p = this.#consentRefresh;
@@ -217,6 +218,7 @@ ${needle}`);
     PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_DEMO_VERIFY: '1',
     AITHEMA_ADMIN_SOCKET: socketPath, AITHEMA_PUBLIC_ORIGIN: url,
     ...(lateDelivery ? { AIT483_SYNC_DELIVERY: '1' } : {}),
+    ...(variant === 'AIT494' ? { AIT494_FIXTURE: '1' } : {}),
     ...(variant === 'P-continue-slow' ? { AIT470_STABLE_TIER: '1' } : {}),
     ...(variant.startsWith('V-inplace') || variant === 'V-reconfigure' ? { AIT470_INPLACE: variant === 'V-inplace-false' ? 'false' : '1', AITHEMA_HTML_MODE: 'off' } : {}),
     ...(variant === 'control' ? { AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' } : {}),
@@ -548,3 +550,84 @@ for (const variant of variants) for (const locale of ['en', 'de']) for (const wi
     }
   });
 }
+
+
+for (const width of [390, 1440]) test(`AIT-494 real routes and failed Settings row geometry ${width}`, { timeout: 90_000 }, async t => {
+  const f = await fixture(t, 'AIT494', false), browser = await puppeteer.launch({ headless: true, userDataDir: join(f.directory, 'browser-494') });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.setViewport({ width, height: 900 });
+  await page.evaluateOnNewDocument(() => localStorage.setItem('aithema-demo-locale', 'en'));
+  await page.goto(f.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.chooser__continue'));
+  await mockConsent(page);
+  await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+  await until(page, () => document.querySelector('aithema-session')?.ait494Host?.verification?.email?.notice?.version);
+  // Open the actual conversation ask without replacing fetch or any host port.
+  await shadow(page, c => {
+    const ask = c.ait494Host.emailAsk; ask.manual = true; ask.open = true; ask.paint();
+    const form = ask.gate.querySelector('form'); ask.input.value = 'a(b)@example.com'; form.requestSubmit();
+  });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email-ask-input').getAttribute('aria-invalid') === 'true');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email-ask-message').textContent), en.hostSurface.verify.invalid);
+  assert.equal(await shadow(page, c => c.ait494Host.emailAsk.step), 'idle');
+  await shadow(page, c => c.ait494Host.emailAsk.dismiss(false));
+  // The verification dialog retains its browser-side validation.
+  await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+  await shadow(page, c => c.shadowRoot.querySelector('.host-verify .verify-entry').click());
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
+  await shadow(page, c => {
+    const form = c.shadowRoot.querySelector('dialog.verify-dialog .verify-form');
+    form.querySelector('input').value = 'a(b)@example.com'; form.requestSubmit();
+  });
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog input').checkValidity()), false);
+  assert.equal(await shadow(page, c => c.ait494Host.verification.identity.address), null);
+  await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog').close());
+  // Use the real VisitorEmail save form in its existing save-only UI mode.
+  await shadow(page, c => {
+    const dialog = c.shadowRoot.querySelector('dialog.settings'); if (dialog.open) dialog.close();
+    c.ait494Host.verification.email.endSettings(); c.ait494Host.verification.email.delivery = false;
+    c.openSettings(undefined, { tab: 'general', anchor: '#email' });
+    const input = c.shadowRoot.querySelector('#email-input'); input.value = 'a(b)@example.com';
+    c.shadowRoot.querySelector('.host-verify .m-form').requestSubmit();
+  });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email-input').getAttribute('aria-invalid') === 'true');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify .m-msg-text').textContent), en.hostSurface.verify.invalid);
+  assert.equal(f.messages.length, 0);
+  await shadow(page, async c => {
+    c.shadowRoot.querySelector('dialog.settings').close(); c.ait494Host.verification.email.endSettings();
+    const response = await fetch('/fixture-494-address', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: c.session.id }) });
+    if (!response.ok) throw new Error('Legacy seed failed');
+    await c.ait494Host.verification.load();
+    c.openSettings(undefined, { tab: 'general', anchor: '#email' });
+  });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.m-sent-prefix').textContent.includes('Link sent to'));
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => document.fonts.ready);
+  const sample = () => shadow(page, c => Object.fromEntries(['.verify-entry-state', '.verify-entry'].map(selector => {
+    const box = c.shadowRoot.querySelector('.host-verify ' + selector).getBoundingClientRect();
+    return [selector, { x: box.x, y: box.y, width: box.width, height: box.height }];
+  })));
+  const before = await sample();
+  for (const box of Object.values(before)) { assert.ok(box.width > 0); assert.ok(box.height > 0); }
+  await shadow(page, async c => {
+    const response = await fetch(`/api/sessions/${c.session.id}/identity/resend`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    if (!response.ok || (await response.json()).identity.delivery !== 'failed') throw new Error('Refused resend did not fail');
+    await c.ait494Host.verification.load();
+  });
+  await delay(350);
+  const after = await sample();
+  for (const [selector, box] of Object.entries(after)) {
+    assert.ok(box.width > 0); assert.ok(box.height > 0);
+    for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(box[key] - before[selector][key]) <= .5,
+      `${selector} ${key}: ${before[selector][key]} -> ${box[key]}`);
+  }
+  const evidence = { width, before, after };
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-494-geometry-${width}.json`), JSON.stringify(evidence, null, 2));
+    await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-494-settings-${width}.png`) });
+  }
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.m-sent-prefix').textContent), '');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.verify-entry-status').textContent), en.hostSurface.verify.unverified);
+  assert.equal(f.messages.length, 0);
+});
