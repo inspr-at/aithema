@@ -741,5 +741,6 @@ for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to fai
     if (state === 'failed') await delay(identity.resendAfterMs + 100);
   }
   assert.equal(f.messages.length, 2, 'both resends reached only the local SMTP sink');
+  t.diagnostic('AIT-497 geometry ' + JSON.stringify(evidence));
   if (process.env.AITHEMA_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-settings-${width}.png`) });
 });
