@@ -82,15 +82,17 @@ async function fixture(t, variant, lateDelivery) {
         if (data) {
           if (line === '.') {
             messages.push(content); content = ''; data = false;
-            if (lateDelivery) {
+            if (lateDelivery || variant === 'AIT497') {
               holding = true;
               deliveryGuard = setTimeout(() => deliveryFailure.reject(new Error(
                 `SMTP acknowledgement held for 10 s; blockers: ${JSON.stringify(settleBlockers.at(-1)?.unmet ?? ['barrier-not-started'])}`)), 10_000);
               releaseDelivery = () => {
                 if (!holding) return false;
-                clearTimeout(deliveryGuard); holding = false; socket.write('250 accepted\r\n'); processLines(); return true;
+                clearTimeout(deliveryGuard); holding = false;
+                socket.write(variant === 'AIT497' && messages.length === 1 ? '550 fixture refusal\r\n' : '250 accepted\r\n');
+                processLines(); return true;
               };
-            } else socket.write(variant === 'AIT497' && messages.length === 1 ? '550 fixture refusal\r\n' : '250 accepted\r\n');
+            } else socket.write('250 accepted\r\n');
           }
           else content += line + '\r\n';
         } else if (line.startsWith('EHLO')) socket.write('250-sink\r\n250 PIPELINING\r\n');
@@ -712,7 +714,7 @@ for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to fai
     for (const [selector, box] of Object.entries(result.rects)) {
       assert.ok(box.width > 0, `${state} ${selector} has positive width`);
       assert.ok(box.height > 0, `${state} ${selector} has positive height`);
-      const before = evidence.samples[0].rects[selector];
+      const before = (evidence.samples.at(-2) ?? evidence.samples[0]).rects[selector];
       for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(box[key] - before[key]) <= .5,
         `${state} ${selector} ${key}: ${before[key]} -> ${box[key]}`);
     }
@@ -723,12 +725,17 @@ for (const width of [390, 1440]) test(`AIT-497 wrapping Settings row sent to fai
   };
   await sample('sent');
   for (const state of ['failed', 'sent']) {
-    const identity = await shadow(page, async c => {
+    const resend = shadow(page, async c => {
       const response = await fetch(`/api/sessions/${c.session.id}/identity/resend`, { method: 'POST',
         headers: { 'content-type': 'application/json' }, body: '{}' });
       if (!response.ok) throw new Error(`Resend failed: ${response.status}`);
       const body = await response.json(); await c.ait494Host.verification.load(); return body.identity;
     });
+    await f.guard(waitFor(() => f.messages.length === (state === 'failed' ? 1 : 2)));
+    await shadow(page, c => c.ait494Host.verification.load());
+    await sample('requested');
+    assert.equal(f.releaseDelivery(), true, 'release the local SMTP result after measuring pending');
+    const identity = await f.guard(resend);
     assert.equal(identity.delivery, state, 'real resend uses the local SMTP refusal, then acceptance');
     await sample(state);
     if (state === 'failed') await delay(identity.resendAfterMs + 100);
