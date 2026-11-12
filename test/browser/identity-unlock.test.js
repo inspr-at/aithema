@@ -66,7 +66,7 @@ async function settle(page, f) {
   }
 }
 async function listen(server) { server.listen(0, '127.0.0.1'); await once(server, 'listening'); return server.address().port; }
-async function fixture(t, variant, lateDelivery) {
+async function fixture(t, variant, lateDelivery, { smtpDelivery = 'failed' } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'ait470-')), messages = [], log = [];
   let releaseDelivery = () => false, deliveryGuard;
   const deliveryFailure = Promise.withResolvers(), settleBlockers = [];
@@ -89,7 +89,7 @@ async function fixture(t, variant, lateDelivery) {
               releaseDelivery = () => {
                 if (!holding) return false;
                 clearTimeout(deliveryGuard); holding = false;
-                socket.write(variant === 'AIT497' && messages.length === 1 ? '550 fixture refusal\r\n' : '250 accepted\r\n');
+                socket.write(variant === 'AIT497' && smtpDelivery === 'failed' ? '550 fixture refusal\r\n' : '250 accepted\r\n');
                 processLines(); return true;
               };
             } else socket.write('250 accepted\r\n');

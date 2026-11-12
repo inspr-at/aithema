@@ -1331,9 +1331,10 @@ The identity delivery contract also provides these hooks:
 
 - `canonicalizeAddress(value)` optionally normalizes new input only and throws
   a `TypeError` to refuse it. Identity request/change checks that canonical form.
-  When `acceptsAddress` is present, visitor-email POST/PUT checks a canonicalized
-  copy and passes the original input to `saveEmail`; a host that normalizes it
-  differently is still checked on the stored form by the delivery backstop.
+  Visitor-email POST/PUT always passes the original input to `saveEmail`.
+  When `acceptsAddress` is present, it first checks a canonicalized copy;
+  a host that normalizes it differently is still checked on the stored form
+  by the delivery backstop.
 - `acceptsAddress(value)` must be synchronous and pure, checking syntax only:
   no I/O, stored state, quotas or facts about other visitors. Only boolean `true`
   accepts; thrown errors and other results refuse. New input is canonicalized
@@ -1352,7 +1353,8 @@ OPS `confirmationEnabled=false` can still report `sent` without mail, preserving
 the identical asynchronous response. Refusing a stored address depends only on
 that visitor's own address. Older saved addresses keep email-given credit until
 changed or removed by 90-day retention; no migration is needed. RC22 rows already
-marked `sent` retain that state until the visitor resends or changes the address,
+marked `sent` retain that state until the visitor resends, changes the address,
+confirms within the 30-minute verification window, or deletes/erases the address,
 or the 24-hour pending cleanup removes the pending state.
 
 `POST /api/sessions/:id/pause` checks privacy permission before unpausing an
