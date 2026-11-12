@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Duplex } from 'node:stream';
+import { domainToASCII } from 'node:url';
 import addressparser from 'nodemailer/lib/addressparser';
 
 // Actual SMTP dialogue over a Duplex: no listener, DNS or network connection.
-function smtpSink(messages, commands, failure = {}) {
+function smtpSink(messages, commands, failure = {}, dialogue = []) {
   let buffer = '', data = false, content = '';
   const socket = new Duplex({ read() {}, write(bytes, encoding, done) {
     buffer += bytes.toString();
@@ -15,7 +16,7 @@ function smtpSink(messages, commands, failure = {}) {
           socket.push(failure.command === 'END-DATA' ? `${failure.code} temporary failure visitor@example.test\r\n` : '250 accepted\r\n'); }
         else content += line + '\r\n';
       } else {
-        commands.push(line.split(' ')[0]);
+        commands.push(line.split(' ')[0]); dialogue.push(line);
         if (/^EHLO/u.test(line)) socket.push('250-sink\r\n250 PIPELINING\r\n');
         else if (line.split(' ')[0] === failure.command) socket.push(`${failure.code} temporary failure visitor@example.test\r\n`);
         else if (line === 'DATA') { data = true; socket.push('354 send message\r\n'); }
@@ -50,6 +51,18 @@ test('C1 SMTP sink receives DE/EN headers and multipart text/HTML without remote
   }
   assert.match(messages[1], /Subject: Confirm your email address/u);
   assert.deepEqual(logs, []);
+});
+
+test('AIT-490 SMTP sink receives the exact ToASCII IDN recipient envelope', async t => {
+  const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+  const messages = [], dialogue = [];
+  const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+    lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+    getSocket: (options, cb) => cb(null, { connection: smtpSink(messages, [], {}, dialogue) }) });
+  t.after(() => plugin.close());
+  assert.deepEqual(await plugin.requestVerification({ address: 'user@bücher.example', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 }), { status: 'sent' });
+  assert.deepEqual(dialogue.filter(line => line.startsWith('RCPT TO:')), ['RCPT TO:<user@xn--bcher-kva.example>']);
+  assert.equal(messages.length, 1);
 });
 
 test('C1 SMTP config has value-free secret references, safe TLS defaults and missing-config behavior', async () => {
@@ -109,6 +122,32 @@ for (const recipient of ['x(y(z)@evil.example)', '"ab"@example.test', 'a(comment
   });
 }
 
+// Keep refusing the Unicode joiner form: Chromium converts typed UI input
+// before sending (the browser measurement covers each of the three inputs).
+const joinerDomain = 'ب\u200cب.example';
+for (const [kind, recipient] of [
+  ...[['Cs', '\ud800'], ['Co', '\ue000'], ['Cn', '\u0378']].flatMap(([kind, character]) => [
+    [`${kind} in local part`, `a${character}b@example.test`],
+    [`${kind} in domain`, `user@a${character}b.example`],
+  ]),
+  ['Cf ZWNJ in domain', `user@${joinerDomain}`],
+]) {
+  test(`AIT-490 requestVerification refuses ${kind}`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [];
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      createTransport: () => ({ async sendMail(message) { messages.push(message); }, close() {} }),
+    });
+    t.after(() => plugin.close());
+    const delivery = plugin.requestVerification({ ...effect, address: recipient });
+    await Promise.all([
+      assert.rejects(delivery, new TypeError('Invalid confirmation delivery')),
+      delivery.catch(() => {}).then(() => assert.equal(messages.length, 0, 'sendMail must not receive a refused Unicode recipient')),
+    ]);
+  });
+}
+
 // The character rules exclude the pinned parser's operators. Model a future
 // reinterpretation through the factory seam using an otherwise ordinary input.
 for (const [kind, result] of [
@@ -139,7 +178,8 @@ for (const [kind, result] of [
 }
 
 for (const recipient of ['visitor@example.test', 'visitor@sub.example.test', 'first.last+tag@example.test',
-  "o'brien@example.test", 'user@bücher.example', 'user@xn--bcher-kva.example']) {
+  "o'brien@example.test", 'user@bücher.example', 'user@xn--bcher-kva.example', 'user@例え.テスト',
+  `user@${domainToASCII(joinerDomain)}`]) {
   test(`AIT-487 requestVerification preserves ordinary address ${recipient}`, async t => {
     // addressparser preserves IDN and punycode verbatim; mime-node converts IDN
     // domains later, so the round-trip can compare exactly without rewriting to.
