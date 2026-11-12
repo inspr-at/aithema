@@ -4,6 +4,7 @@ import { SQLiteStorage, createHandlers } from '../../packages/server/src/index.j
 import { createIdentity } from '@inspr/aithema-core';
 import { createSmtpMail, smtpConfig } from '../../plugins/mail-smtp/src/index.js';
 import { createDemoHost } from '../host-ports.js';
+import { createConfirmationPage } from '../confirmation-page.js';
 import { mockConsent } from '../../test/helpers.js';
 
 const refused = ['a(b)@example.com', '"a"@example.com', 'a\ud800b@example.com', 'a\ue000b@example.com', 'a\u0378b@example.com'];
@@ -85,6 +86,16 @@ for (const mode of ['smtp', 'demo']) for (const address of ['a(b)@example.com', 
       f.host.confirmation.delivered(token.token, 'sent');
       assert.doesNotThrow(() => f.host.confirmation.inspect(token.token));
       assert.doesNotThrow(() => f.host.confirmation.redeem(token.token + 'wrong'));
+      const origin = 'https://public.example.test', page = createConfirmationPage({ host: f.host, publicOrigin: origin, now: f.now });
+      const response = await page.handle(new Request(`${origin}/confirm-email?token=${encodeURIComponent(token.token)}`));
+      assert.equal(response.status, 200); assert.match(await response.text(), /data-confirmation-state="valid"/u);
+      const cookie = response.headers.get('set-cookie').split(';')[0], cookieValue = cookie.slice(cookie.indexOf('=') + 1);
+      const wrongToken = token.token + 'wrong';
+      const redeemed = await page.handle(new Request(`${origin}/confirm-email`, { method: 'POST',
+        headers: { origin, cookie, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token: wrongToken, csrf: f.host.confirmation.csrf(cookieValue, wrongToken), lang: 'en' }),
+      }));
+      assert.equal(redeemed.status, 400); assert.match(await redeemed.text(), /data-confirmation-state="invalid"/u);
       // Remove only fixture reservations; the refused resend must create none.
       for (const table of tables) storage.db.exec(`DELETE FROM ${table}`);
       const r = await f.call(owner, `/api/sessions/${session.id}/identity/resend`, {});
