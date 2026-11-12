@@ -82,8 +82,7 @@ the hook before upgrading. Use the mail plugin's exported `acceptsRecipient`
 with the same normalization as delivery. Only `true` accepts; a throw refuses.
 The new 400 refusals use the existing `invalid-request` error; `aithema-erased`
 and `acceptsRecipient` are additive. #426 prepared RC22; #427, #429 and #432
-change only tooling, dev dependencies, tests and docs. START integrates and
-pins this release separately.
+change only tooling, dev dependencies, tests and docs.
 
 ## Availability and verification
 
