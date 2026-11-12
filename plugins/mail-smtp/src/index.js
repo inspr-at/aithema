@@ -11,7 +11,7 @@ const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r
 // control, format, surrogate, private-use and unassigned characters; the parser
 // round-trip also fails closed on changes.
 const configuredAddress = value => clean(value) && /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/u.test(value);
-const recipientAddress = (value, parseAddress) => {
+export const acceptsRecipient = (value, parseAddress = addressparser) => {
   if (!clean(value) || !/^[^\s@<>;,:"()\\\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]+@[^\s@<>;,:"()\\\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]+\.[^\s@<>;,:"()\\\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]+$/u.test(value)) return false;
   try {
     // Use the same parser module as nodemailer's To handling. Delivery is the
@@ -114,7 +114,7 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
   return { id: 'smtp', deliversVerification: true,
     async requestVerification({ address: to, token, locale = 'en', expiresAt, confirmedAllowanceMicro, privacyDocumentConfigured = false }, { signal } = {}) {
       assertOpen();
-      if (!recipientAddress(to, parseAddress) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
+      if (!acceptsRecipient(to, parseAddress) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
       signal?.throwIfAborted();
       const link = new URL('/confirm-email', origin); link.searchParams.set('token', token); link.searchParams.set('lang', locale === 'de' ? 'de' : 'en');
       locale = locale === 'de' ? 'de' : 'en';
