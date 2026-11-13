@@ -316,7 +316,6 @@ test('AIT-503 diagnostic excludes arbitrary server strings, transport messages a
   ]);
 });
 
-
 test('AIT-503 rejected selected-item retry keeps its row branch and records HTTP status', async t => {
   const f = fixture(t), warnings = [];
   t.mock.method(console, 'warn', (...args) => warnings.push(args));

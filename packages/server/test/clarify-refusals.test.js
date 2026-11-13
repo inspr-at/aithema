@@ -91,7 +91,7 @@ for (const healthMs of [undefined, 2000]) test(`AIT-503 health preflight deadlin
   assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 0);
 });
 
-test('AIT-503 accepted focus can fail parsing later in the reaction lane', async t => {
+test('AIT-503 accepted focus can fail parsing later in the reaction lane', { timeout: 10_000 }, async t => {
   const f = fixture(t, { parseFailure: true }), failures = [], failed = Promise.withResolvers();
   const response = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${f.session.id}/events?after=${f.storage.get(f.session.id).seq}`));
   const reader = response.body.getReader();
