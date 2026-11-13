@@ -13,6 +13,9 @@ function fixture(t, options = {}) {
   const window = new Window({ url: 'http://local/' }), document = window.document;
   globalThis.document = document;
   const host = document.createElement('div'); document.body.append(host);
+  if (options.privacyDocumentConfigured) {
+    const privacy = document.createElement('a'); privacy.slot = 'legal'; privacy.dataset.aithemaPrivacy = ''; privacy.href = '/privacy'; host.append(privacy);
+  }
   const root = host.attachShadow({ mode: 'open' });
   const entry = document.createElement('section'), lock = document.createElement('section'), dialog = document.createElement('dialog');
   root.append(entry, lock, dialog);
@@ -22,7 +25,7 @@ function fixture(t, options = {}) {
   const verification = new Verification({ root, entry, lock, dialog, copy: en, demo: true, identity: pending,
     onChange: change => changes.push(change), ...options, request: (path, body) => {
       calls.push({ path, body });
-      return options.reply?.() ?? Promise.resolve({ ok: true, body: { identity: pending } });
+      return options.reply?.(path, body) ?? Promise.resolve({ ok: true, body: { identity: pending } });
     } });
   t.after(async () => { verification.destroy(); await window.happyDOM.close(); delete globalThis.document; });
   return { verification, calls, changes, lock, entry, document, window,
@@ -148,4 +151,66 @@ for (const outcome of ['rejected', 'unavailable']) test(`AIT-518: ${outcome} imm
   const f = fixture(t, { reply: () => outcome === 'rejected' ? Promise.reject(new Error('fixture unavailable')) : Promise.resolve({ ok: false, status: 503 }) });
   f.verification.connect(); await flush(); assert.equal(f.calls.length, 1);
   await f.advance(POLL_MS); assert.equal(f.calls.length, 2);
+});
+
+test('AIT-518 M1: loading delivery on a non-demo host performs the owed connect check', async t => {
+  const f = fixture(t, { demo: false, delivery: false, privacyDocumentConfigured: true,
+    reply: path => Promise.resolve({ ok: true, body: path === 'identity' ?
+      { identity: pending, delivery: true, visitorEmail: { canSave: false, canDelete: false } } : { identity: pending } }) });
+  f.verification.connect(); await flush();
+  assert.deepEqual(f.calls, []);
+  await f.verification.load(); await flush();
+  assert.deepEqual(f.calls.map(call => call.path), ['identity', 'identity/unlock']);
+  f.focus(); f.visible(true); await flush();
+  assert.equal(f.calls.length, 2, 'load, focus and visibility burst coalesces');
+  await f.advance(POLL_MS - 1); assert.equal(f.calls.length, 2);
+  await f.advance(1); assert.equal(f.calls.length, 3);
+});
+
+test('AIT-518 M1: non-demo delivery loaded while hidden refreshes on tab return', async t => {
+  const f = fixture(t, { demo: false, delivery: false, privacyDocumentConfigured: true, hidden: true,
+    reply: path => Promise.resolve({ ok: true, body: path === 'identity' ?
+      { identity: pending, delivery: true, visitorEmail: { canSave: false, canDelete: false } } : { identity: pending } }) });
+  f.verification.connect(); await f.verification.load(); await flush();
+  await f.advance(POLL_MS * 2);
+  assert.deepEqual(f.calls.map(call => call.path), ['identity']);
+  f.visible(true); await flush(); f.focus(); await flush();
+  assert.deepEqual(f.calls.map(call => call.path), ['identity', 'identity/unlock']);
+  await f.advance(POLL_MS); assert.equal(f.calls.length, 3);
+});
+
+test('AIT-518 M1: an identity gate opening after connect performs the first check', async t => {
+  const f = fixture(t, { identity: null });
+  f.verification.connect(); await flush(); assert.equal(f.calls.length, 0);
+  f.verification.set(pending); await flush();
+  assert.deepEqual(f.calls, [{ path: 'identity/unlock', body: {} }]);
+  f.verification.set(pending); f.focus(); await flush(); assert.equal(f.calls.length, 1);
+});
+
+test('AIT-518 L1: reconnect during a held check refreshes after its stale reply', async t => {
+  let resolve;
+  const confirmed = { ...pending, status: 'verified', assessmentUnlocked: true, pollVerification: false };
+  const replies = [];
+  const f = fixture(t, { reply: () => {
+    if (!replies.length) { replies.push('held'); return new Promise(done => { resolve = done; }); }
+    return Promise.resolve({ ok: true, body: { identity: confirmed } });
+  } });
+  f.verification.connect(); assert.equal(f.calls.length, 1);
+  f.verification.disconnect(); f.verification.connect(); f.focus();
+  assert.equal(f.calls.length, 1, 'reconnect never overlaps the old request');
+  resolve({ ok: true, body: { identity: pending } }); await flush();
+  await f.advance(250); // A fast stale reply may still be inside the burst window.
+  assert.equal(f.calls.length, 2, 'the reconnect refresh is owed before the regular poll');
+  assert.deepEqual(f.verification.identity, confirmed);
+  assert.equal(f.lock.hidden, true);
+  await f.advance(POLL_MS * 2); assert.equal(f.calls.length, 2);
+});
+
+test('AIT-518 L2: a backwards wall clock jump cannot suppress regular polls', async t => {
+  const f = fixture(t);
+  f.verification.connect(); await flush(); assert.equal(f.calls.length, 1);
+  const jumpedNow = Date.now() - 60_000;
+  t.mock.method(Date, 'now', () => jumpedNow);
+  await f.advance(POLL_MS); assert.equal(f.calls.length, 2);
+  await f.advance(POLL_MS); assert.equal(f.calls.length, 3);
 });
