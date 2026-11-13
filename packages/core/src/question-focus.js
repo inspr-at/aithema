@@ -7,10 +7,10 @@ export const FOCUS_REFUSAL_CLASSES = Object.freeze({
   'admission deadline': 'transient', 'budget reconciling': 'transient',
   'plugin unhealthy': 'transient', 'consent port unavailable': 'transient', 'reply-in-flight': 'transient',
   'budget denied': 'terminal', session: 'terminal', 'one-hour': 'terminal', 'host-limit': 'terminal',
-  'consent-required': 'terminal', 'current processing consent required': 'terminal',
+  'consent-required': 'terminal', 'current processing consent required': 'terminal', 'invalid-request': 'terminal',
 });
 export function classifyFocusRefusal(error) {
-  for (const reason of [error?.reason, error?.admissionReason]) {
+  for (const reason of [error?.reason, error?.admissionReason, error?.error]) {
     if (Object.hasOwn(FOCUS_REFUSAL_CLASSES, reason)) return FOCUS_REFUSAL_CLASSES[reason];
   }
   return null;
