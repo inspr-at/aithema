@@ -171,3 +171,30 @@ test('AIT-502 v2.2: voice control preserves resumed bound refusal metadata', asy
   const { control } = createVoiceControl({ sessionId: 'fixture', sessionToken: 'fixture' });
   await assert.rejects(control.recover({ callId: 'call' }), error => error.code === 'deadline' && error.reason === 'time-limit' && error.timeLimit === 'call');
 });
+
+for (const reason of ['purpose', 'session-revoked']) test(`AIT-502 gate M1: ${reason} closes quietly with Call ended`, async t => {
+  const { rail } = fixture(t); await rail.start(); await rail.close(reason);
+  assert.equal(rail.state, 'idle'); assert.equal(label(rail), en.voiceEnded);
+  assert.equal(rail.root.hasAttribute('data-message'), false);
+  assert.equal(rail.root.querySelector('.voice-message-close').hidden, true);
+  assert.equal(rail.button('retry').disabled, true);
+});
+for (const reason of ['host-limit', 'session', 'voiceVisitor']) test(`AIT-502 gate M1: ${reason} uses credits and clears after recovery`, async t => {
+  const { rail } = fixture(t); let exhausted = false;
+  rail.usedUp = () => exhausted; rail.endReason = () => reason;
+  await rail.start(); exhausted = true; await rail.close(reason);
+  assert.equal(rail.errorKey, 'voiceAdmissionDenied'); assert.equal(rail.errorReason, reason);
+  assert.equal(rail.allowanceDenied, true); assert.equal(rail.root.hasAttribute('data-used-up'), true);
+  assert.equal(label(rail), reason === 'host-limit' ? en.voiceCreditStatus.hostLimit : en.voiceCreditStatus.session);
+  assert.equal(rail.button('start').disabled, true); assert.equal(rail.button('retry').disabled, true);
+  exhausted = false; rail.reconcileAdmission(); rail.render();
+  assert.equal(rail.errorKey, null); assert.equal(rail.errorReason, null);
+  assert.equal(rail.root.hasAttribute('data-used-up'), false); assert.equal(rail.root.hasAttribute('data-message'), false);
+  assert.equal(rail.button('start').disabled, false);
+  assert.notEqual(label(rail), en.voiceConnectionFailed);
+});
+test('AIT-502 gate M1: an unlisted transport close remains a connection failure', async t => {
+  const { rail } = fixture(t); await rail.start(); await rail.close('unlisted-transport-end');
+  assert.equal(rail.state, 'failed'); assert.equal(rail.errorKey, 'voiceConnectionFailed');
+  assert.equal(label(rail), en.voiceConnectionFailed); assert.equal(rail.button('retry').disabled, false);
+});

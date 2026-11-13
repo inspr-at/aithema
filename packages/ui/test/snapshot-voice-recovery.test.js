@@ -141,13 +141,16 @@ test('AIT-391: a duplicate paused snapshot cannot fence the visitor Resume alrea
 });
 
 for (const state of ['waiting', 'ended']) test(`AIT-391: recovered ${state} lifecycle reaches the matching active voice session once`, async t => {
-  const f = await fixture(t), reason = state === 'waiting' ? 'browser-liveness-deadline' : 'visitor-ended';
+  const f = await fixture(t), reason = state === 'waiting' ? 'browser-liveness-deadline' : 'purpose';
   await f.recover([{ type: 'verification.requested', data: {} }], { voiceLifecycle: {
     callId: f.voice.callId, providerSessionId: f.voice.providerSessionId, state, reason,
   } });
   assert.deepEqual(f.commands, state === 'waiting' ? [['wait', reason]] : [['close']]);
-  assert.equal(f.c.shadowRoot.querySelector('.audio-rail').dataset.state, state === 'waiting' ? 'waiting' : 'failed');
-  if (state === 'ended') assert.equal(f.c.shadowRoot.querySelector('.voice-state').getAttribute('aria-label'), en.voiceConnectionFailed);
+  assert.equal(f.c.shadowRoot.querySelector('.audio-rail').dataset.state, state === 'waiting' ? 'waiting' : 'idle');
+  if (state === 'ended') {
+    assert.equal(f.c.shadowRoot.querySelector('.voice-state').getAttribute('aria-label'), en.voiceEnded);
+    assert.equal(f.c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-message'), false);
+  }
   await f.repeat();
   assert.equal(f.commands.length, 1, 'repeated lifecycle snapshots are idempotent');
 });

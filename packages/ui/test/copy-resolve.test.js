@@ -27,3 +27,10 @@ test('AIT-502 N7: cloned structured defaults preserve legacy precedence for late
   host.voiceStates.listening = 'Host state text';
   assert.equal(resolveCopy(host, 'voiceStates', 'voiceDeadline'), host.voiceStates);
 });
+
+test('AIT-502 gate L1: missing bundle locale uses the active component locale', () => {
+  assert.equal(resolveCopy({}, 'voiceMessageClose', undefined, 'de'), de.voiceMessageClose);
+  assert.equal(resolveCopy({}, 'voiceMessagesNarrow.voiceConnectFailed', undefined, 'de'), de.voiceMessagesNarrow.voiceConnectFailed);
+  assert.equal(resolveCopy({}, 'voiceConnectFailed', 'voiceConnectionFailed', 'de'), de.voiceConnectFailed);
+  assert.equal(resolveCopy({ voiceConnectionFailed: de.voiceConnectionFailed }, 'voiceConnectFailed', 'voiceConnectionFailed', 'de'), de.voiceConnectFailed);
+});
