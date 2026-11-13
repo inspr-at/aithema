@@ -198,3 +198,16 @@ test('AIT-502 gate M1: an unlisted transport close remains a connection failure'
   assert.equal(rail.state, 'failed'); assert.equal(rail.errorKey, 'voiceConnectionFailed');
   assert.equal(label(rail), en.voiceConnectionFailed); assert.equal(rail.button('retry').disabled, false);
 });
+
+for (const [reason, key, state] of [
+  ['turn-expired', null, 'idle'], ['upload-expired', null, 'idle'], ['start-cancelled', null, 'idle'],
+  ['call-authorization-lost', 'voiceAdmissionDenied', 'failed'], ['voice-host-unavailable', 'voiceAdmissionDenied', 'failed'],
+  ['transcript-persistence-failed', 'voiceAdmissionDenied', 'failed'], ['transcript-limit', 'voiceAdmissionDenied', 'failed'],
+  ['pause-failed', 'voicePauseFailed', 'failed'], ['tab-takeover', 'voiceMoved', 'idle'],
+]) test(`AIT-502 gate M1 audit: ${reason} retains its actual cause`, async t => {
+  const { rail } = fixture(t); await rail.start(); await rail.close(reason);
+  assert.equal(rail.state, state);
+  assert.equal(rail.errorKey, key ?? 'voiceEnded');
+  assert.notEqual(label(rail), en.voiceConnectionFailed);
+  if (key === 'voiceAdmissionDenied') { assert.equal(rail.errorReason, reason); assert.equal(label(rail), en.reasons[reason]); }
+});
