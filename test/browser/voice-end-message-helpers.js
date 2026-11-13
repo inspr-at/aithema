@@ -18,10 +18,19 @@ export async function checkVoiceEndMessages(t) {
   page.on('pageerror', error => errors.push(error.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
-  page.on('request', request => {
+  page.on('request', async request => {
     if (!request.url().startsWith(demo.url) && !request.url().startsWith('data:')) return request.abort();
-    if (new URL(request.url()).pathname.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: '{}' });
-    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/turns')) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'turn.final', data: { id: 'typed', role: 'user', content: 'Continue typing' } }) });
+    const path = new URL(request.url()).pathname;
+    // Closing refreshes the session snapshot. Retain the same synthetic admission
+    // as configure(), rather than restoring this server fixture's voice-off state.
+    if (request.method() === 'GET' && /^\/api\/sessions\/[^/]+$/.test(path)) {
+      const session = await page.evaluate(() => window.endSeed && document.querySelector('aithema-session').session);
+      if (session) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
+    }
+    if (request.method() === 'POST' && path.endsWith('/turns')) {
+      const seq = await page.evaluate(() => document.querySelector('aithema-session').session.seq + 1);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ seq, type: 'turn.final', data: { id: `typed-${seq}`, role: 'user', content: 'Continue typing' } }) });
+    }
     return request.continue();
   });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -89,7 +98,8 @@ export async function checkVoiceEndMessages(t) {
       else if (action === 'typed') await page.evaluate(() => { const root = document.querySelector('aithema-session').shadowRoot; root.querySelector('textarea').value = 'Continue typing'; root.querySelector('form').requestSubmit(); });
       else if (action === 'retry') await page.evaluate(() => window.endRail.button('retry').click());
       else await page.evaluate(() => window.endRail.close());
-      await until(page, () => !window.endRail.root.hasAttribute('data-message'));
+      try { await until(page, () => !window.endRail.root.hasAttribute('data-message')); }
+      catch (error) { throw new Error(`${locale}/${theme}/${width}/${action}: message did not clear`, { cause: error }); }
       const cleared = await page.evaluate(() => window.readEnds()); unchanged(before.controls, cleared.controls);
       assert.equal(cleared.errorKey, null); assert.equal(cleared.close, null);
       checks.push({ locale, theme, width, action, before: before.controls, shown, connection, cleared: cleared.controls, tolerancePx: .5, pointer: { x: 0, y: 500 } });
