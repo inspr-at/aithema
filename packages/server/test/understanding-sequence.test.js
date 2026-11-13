@@ -8,7 +8,7 @@ import { purposePolicy } from '../../../test/safeguards-corpus.js';
 // One subscriber represents one continuously focused tab. No visibility events,
 // timers, polling or live providers participate in this server fixture.
 for (const variant of ['normal', 'failed-second', 'held-second', 'reconnect']) {
-  test(`AIT-504 five persisted typed answers: ${variant}`, async t => {
+  test(`AIT-504 five persisted typed answers: ${variant}`, { timeout: 15_000 }, async t => {
     t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
     const now = () => Date.now(), storage = new SQLiteStorage(':memory:', { now });
     const mock = createMockReasoning(), entered = [], gates = [], arrivals = [];
@@ -74,6 +74,7 @@ for (const variant of ['normal', 'failed-second', 'held-second', 'reconnect']) {
       assert.ok(pending.operations.running.includes('understanding'), 'current revision has authoritative running status');
       if (!held) {
         gates[answer - 1].resolve(); await handlers.idle();
+        await waitEvent(e => e.type === 'lane.status' && e.data.inputRevision === revision && e.data.running.length === 0);
       }
       const current = await snapshot();
       const seq = current.seq;
@@ -95,6 +96,8 @@ for (const variant of ['normal', 'failed-second', 'held-second', 'reconnect']) {
     if (variant === 'held-second') {
       gates[1].resolve(); await enteredCount(3); gates[2].resolve(); await handlers.idle();
       assert.equal(entered.length, 3, 'superseded input coalesces to the newest revision');
+      const revisions = storage.read(session.id).filter(e => e.type === 'understanding.updated').map(e => e.data.inputRevision);
+      assert.deepEqual(revisions, [records[0].inputRevision, records[4].inputRevision], 'held stale result never publishes');
     }
     const final = await snapshot();
     assert.equal(final.understanding.inputRevision, final.operations.inputRevision);
