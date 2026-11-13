@@ -20,3 +20,10 @@ test('AIT-502 N7: brand-new keys use locale then English, never empty', () => {
   assert.equal(resolveCopy({ display: { locale: 'de' } }, 'voiceMessagesNarrow.voiceConnectFailed'), 'Keine Verbindung');
   assert.equal(resolveCopy({ voiceMessagesNarrow: { voiceTimeLimit: 'Host short' } }, 'voiceMessagesNarrow.voiceTimeLimit'), 'Host short');
 });
+
+test('AIT-502 N7: cloned structured defaults preserve legacy precedence for later counted copy', () => {
+  const host = structuredClone(en); host.voiceDeadline = 'Legacy host text';
+  assert.equal(resolveCopy(host, 'voiceStates', 'voiceDeadline'), 'Legacy host text');
+  host.voiceStates.listening = 'Host state text';
+  assert.equal(resolveCopy(host, 'voiceStates', 'voiceDeadline'), host.voiceStates);
+});
