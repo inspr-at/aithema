@@ -115,3 +115,11 @@ test('AIT-501: erasure clears both memory and the tab mirror', async t => {
   assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
   await f.grant(); assert.equal(f.starts.length, 0);
 });
+
+test('AIT-501: back/forward cache return never auto-starts voice', async t => {
+  const f = fixture(t, 'voice', true); f.start();
+  window.dispatchEvent(new window.Event('pagehide'));
+  await f.grant();
+  assert.equal(f.starts.length, 0);
+  assert.equal(f.c.shadowRoot.activeElement, f.c.shadowRoot.querySelector('.voice-start'));
+});

@@ -915,6 +915,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#pausePrompt && this.#session.paused && !this.#composerUsedUp) this.shadowRoot.querySelector('.pause, .composer-resume')?.focus();
   }
   #pagehide = () => {
+    if (this.#startIntent) this.#startFromNavigation = true;
     const record = this.#journal?.read(), rail = this.#rail;
     if (!rail || !rail.session && !rail.waitingCall && rail.state !== 'connecting') return;
     rail.unloading = true;
@@ -924,7 +925,10 @@ export class AithemaSession extends HTMLElement {
     if (!record) return;
     void closeVoiceCall({ request: (...args) => this.#api(...args), baseUrl: this.#base, sessionId: this.#session.id, sessionToken: this.#sessionToken, record, reason: 'page-hidden' }).catch(() => {});
   };
-  #pageshow = () => { if (this.#rail) this.#rail.unloading = false; this.#syncBandScroll(); };
+  #pageshow = () => {
+    if (this.#rail) this.#rail.unloading = false; this.#syncBandScroll();
+    if (this.#startIntent) void this.#refreshFeatures();
+  };
   #syncBandScroll = () => {
     const band = this.shadowRoot.querySelector('.band'), workspace = this.shadowRoot.querySelector('.workspace');
     if (!band || !workspace) return;
@@ -2516,7 +2520,8 @@ export class AithemaSession extends HTMLElement {
       storage?.removeItem(START_INTENT_KEY);
       const intent = JSON.parse(value ?? 'null'), now = Date.now();
       return intent?.sessionId === sessionId && ['type', 'voice'].includes(intent.mode) &&
-        Number.isSafeInteger(intent.settingsRevision) && Number.isSafeInteger(intent.consentRevision) &&
+        Number.isSafeInteger(intent.settingsRevision) && intent.settingsRevision >= 0 &&
+        Number.isSafeInteger(intent.consentRevision) && intent.consentRevision >= 0 &&
         Number.isFinite(intent.expiresAt) && intent.expiresAt > now && intent.expiresAt <= now + START_INTENT_TTL ? intent : null;
     } catch { return null; }
   }
@@ -2558,6 +2563,7 @@ export class AithemaSession extends HTMLElement {
       try { tabStorage()?.setItem(START_INTENT_KEY, JSON.stringify(this.#startIntent)); } catch { /* Storage is optional. */ }
       this.#expireStartIntent(); this.#requestConsent('ready', undefined, 'start'); return;
     }
+    this.#clearStartIntent();
     const focus = this.#mayFocus();
     this.#started = true; this.#render('transcript'); this.#render('composer');
     if (mode === 'voice') { void this.#rail.start({ focus }); if (focus) this.shadowRoot.querySelector('.audio-rail').focus(); }
