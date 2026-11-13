@@ -1473,3 +1473,13 @@ for (const copy of [de, en]) {
     }
   });
 }
+
+for (const nested of [false, true]) test(`AIT-501 v2.2: rail Start keeps focus on a host control (nested ${nested})`, async t => {
+  const { rail } = fixture(t);
+  const host = document.createElement(nested ? 'div' : 'button'); document.body.append(host);
+  const control = nested ? host.attachShadow({ mode: 'open' }).appendChild(document.createElement('button')) : host;
+  t.after(() => host.remove()); control.focus();
+  await rail.start({ focus: true });
+  assert.equal(document.activeElement, host);
+  if (nested) assert.equal(host.shadowRoot.activeElement, control);
+});
