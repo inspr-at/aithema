@@ -282,3 +282,18 @@ for (const output of ['valid', 'invalid']) test(`AIT-183 revoke during ${output}
   assert.deepEqual(settlements, [{ failed: false }]);
   assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
 });
+
+for (const locale of ['en', 'de']) test(`AIT-503 canonical multi-turn ${locale} assessment drops the answered prior question`, async () => {
+  const h = harness(createMockReasoning(), { locale, demo: true });
+  const turns = locale === 'de'
+    ? ['Wir brauchen einen Freigabeprozess.', 'Unsere Buchhaltung prüft jede Rechnung.', 'Nützlich wäre eine Freigabe innerhalb eines Tages.']
+    : ['We need an approval workflow.', 'Our accounting team reviews every invoice.', 'Success means an approval within one day.'];
+  h.turn(turns[0]); await h.lanes.run(h.session.id, 'understanding');
+  const question = locale === 'de' ? 'Welches Ergebnis wäre für Sie nützlich?' : 'What outcome would make this useful?';
+  assert.deepEqual(h.session.understanding.openQuestions, [question]);
+  h.turn(turns[1]); await h.lanes.run(h.session.id, 'understanding');
+  h.turn(turns[2]); await h.lanes.run(h.session.id, 'understanding');
+  assert.deepEqual(h.session.understanding.openQuestions, []);
+  assert.equal(h.session.understanding.inputRevision, inputRevision(h.session));
+  assert.equal(h.published.filter(event => event.type === 'understanding.updated').length, 3);
+});

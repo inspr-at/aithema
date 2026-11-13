@@ -62,3 +62,24 @@ test('snapshot question items follow SSE assessment replacement and erase on wit
   const withdrawn = applyEvent(replaced, { seq: 4, type: 'turn.withdrawn', data: { turnId: 'person' } });
   assert.deepEqual(withdrawn.openQuestionItems, []);
 });
+
+for (const [reason, expected] of [
+  ['admission deadline', 'transient'], ['budget reconciling', 'transient'], ['plugin unhealthy', 'transient'],
+  ['consent port unavailable', 'transient'], ['reply-in-flight', 'transient'],
+  ['budget denied', 'terminal'], ['session', 'terminal'], ['one-hour', 'terminal'], ['host-limit', 'terminal'],
+  ['consent-required', 'terminal'], ['current processing consent required', 'terminal'],
+]) test(`AIT-503 focus refusal classification: ${reason}`, async () => {
+  const core = await import('../src/index.js');
+  assert.equal(typeof core.classifyFocusRefusal, 'function');
+  const error = ['reply-in-flight', 'consent-required'].includes(reason) ? { reason } : { reason: 'not-admitted', admissionReason: reason };
+  assert.equal(core.classifyFocusRefusal(error), expected);
+});
+
+test('AIT-503 unknown focus refusals stay unclassified and cannot inherit object properties', async () => {
+  const core = await import('../src/index.js');
+  assert.equal(typeof core.classifyFocusRefusal, 'function');
+  for (const reason of [null, undefined, 'invalid-request', 'paused', 'unknown', 'constructor', '__proto__']) {
+    assert.equal(core.classifyFocusRefusal({ reason }), null);
+  }
+  assert.equal(core.classifyFocusRefusal({ reason: 'consent-required', admissionReason: 'unknown' }), 'terminal');
+});
