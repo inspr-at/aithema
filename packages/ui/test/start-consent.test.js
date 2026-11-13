@@ -100,3 +100,18 @@ test('AIT-501: consent continuation keeps focus on a host control', async t => {
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, true);
   assert.equal(document.activeElement, host);
 });
+
+test('AIT-501: hidden page waits for a visible refresh before consuming Start', async t => {
+  const f = fixture(t, 'voice', true); let visibility = 'hidden';
+  t.mock.getter(document, 'visibilityState', () => visibility);
+  f.start(); await f.grant(); assert.equal(f.starts.length, 0);
+  visibility = 'visible'; document.dispatchEvent(new window.Event('visibilitychange')); await tick();
+  assert.equal(f.starts.length, 1);
+});
+test('AIT-501: erasure clears both memory and the tab mirror', async t => {
+  const f = fixture(t, 'voice', true); f.start();
+  assert.ok(sessionStorage.getItem('aithema-start-intent'));
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'session.erased', data: { at: new Date().toISOString() } });
+  assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
+  await f.grant(); assert.equal(f.starts.length, 0);
+});

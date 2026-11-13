@@ -40,7 +40,7 @@ test('AIT-501: consent continuation in the browser, including default gesture po
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(() => browser.close());
   const checks = [];
-  for (const scenario of ['text', 'voice', 'inactive-voice', 'host-focus', 'text-navigation', 'voice-navigation', 'review']) {
+  for (const scenario of ['text', 'voice', 'inactive-voice', 'host-focus', 'host-focus-voice', 'text-navigation', 'voice-navigation', 'review']) {
     await t.test(scenario, async () => {
       const page = await browser.newPage();
       try {
@@ -49,7 +49,7 @@ test('AIT-501: consent continuation in the browser, including default gesture po
         page.on('request', request => { void (async () => {
           const url = new URL(request.url());
           if (url.pathname === '/start-fixture') return request.respond({ status: 200, contentType: 'text/html', body: fixture });
-          if (url.pathname.endsWith('/events')) return request.respond({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' });
+          if (url.pathname.endsWith('/events')) return; // Hold SSE open; reconnects must not add unrelated refreshes.
           if (url.pathname.startsWith('/api/sessions/')) {
             const body = await page.$eval('aithema-session', (c, consent) => {
               if (consent) return { consentRevision: c.session.consentRevision, selected: [], features: {} };
@@ -66,7 +66,7 @@ test('AIT-501: consent continuation in the browser, including default gesture po
         await page.click('aithema-session >>> .ready__start');
         assert.equal(await page.evaluate(() => events.at(-1).intent), 'start');
         if (scenario === 'review') await page.click('aithema-session >>> .ready__consent');
-        if (scenario === 'host-focus') await page.click('#host');
+        if (scenario.startsWith('host-focus')) await page.click('#host');
         if (scenario === 'inactive-voice') await page.waitForFunction(() => !navigator.userActivation.isActive, { polling: 100 });
         if (scenario.endsWith('navigation')) {
           await page.$eval('aithema-session', c => { const s=c.session;s.consentRevision++;sessionStorage.setItem('fixture-session',JSON.stringify(s)); });
@@ -75,9 +75,9 @@ test('AIT-501: consent continuation in the browser, including default gesture po
         if (scenario !== 'review') await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden);
         const result = await state(page); checks.push({ scenario, ...result });
         assert.equal(result.ready, scenario === 'review');
-        assert.equal(result.starts, scenario === 'voice' ? 1 : 0);
+        assert.equal(result.starts, ['voice', 'host-focus-voice'].includes(scenario) ? 1 : 0);
         if (scenario === 'inactive-voice' || scenario === 'voice-navigation') assert.equal(result.focus, 'voice-start');
-        if (scenario === 'host-focus') assert.equal(result.host, 'host');
+        if (scenario.startsWith('host-focus')) assert.equal(result.host, 'host');
         if (scenario === 'text' || scenario === 'text-navigation') assert.equal(result.focus, ''); // textarea has no class
       } finally { await page.close(); }
     });
