@@ -224,7 +224,7 @@ for (const [reason, error, key] of [
   ['microphone missing', { name: 'NotFoundError' }, 'voiceMicMissing'],
   ['connection failed', new Error('fixture'), 'voiceConnectionFailed'],
   ['conflicting call', { code: 'voice-conflict' }, 'voiceConflict'],
-  ['deadline', { code: 'deadline' }, 'voiceDeadline'],
+  ['deadline', { code: 'deadline' }, 'voiceConnectionFailed'],
   ['deployment cap', { code: 'not-admitted', reason: 'Voice minute cap reached for this deployment' }],
   ['daily cap', { code: 'not-admitted', reason: 'Voice minute cap reached for this UTC day' }],
   ['unknown admission reason', { code: 'not-admitted', reason: 'unknown-fixture-reason' }, 'voiceAdmissionDenied'],

@@ -60,7 +60,7 @@ export type VoiceEvent = { callId: string; providerSessionId?: string; generatio
   { type: 'waiting'; reason?: string; /** Absolute, capped retry-after deadline. */ retryAt?: number } |
   { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string; filler?: boolean } |
   { type: 'heard'; turnId: string; prefix: string } |
-  { type: 'ended'; reason: string }
+  { type: 'ended'; reason: string; /** Bound selected for spend-deadline; absent on legacy plugins. */ timeLimit?: 'call' | 'conversation' }
 );
 export interface VoiceUsage {
   providerSeconds: number; providerMinutes: number; pausedSeconds: number; visitorSeconds: number;

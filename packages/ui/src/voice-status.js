@@ -2,7 +2,7 @@ import { isConsentReason } from '../../core/src/settings.js';
 
 const reasonGroups = {
   paused: ['session paused'], credits: ['budget denied', 'host-limit'],
-  providerLimit: ['spend cap reached', 'OpenRouter spend cap exhausted', 'spend-deadline'],
+  providerLimit: ['spend cap reached', 'OpenRouter spend cap exhausted'],
   voiceLimit: ['Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day'],
   checking: ['budget reconciling'], off: ['voice off'], verification: ['verification required'],
   setup: ['not configured', 'plugin not registered', 'preset not configured', 'template-agent-required'],
@@ -17,8 +17,38 @@ const reasonGroups = {
   erased: ['session-erased'],
 };
 
-const reasonMessages = { 'recovery-failed': 'voiceRecoveryFailed', 'start-failed': 'voiceConnectionFailed',
-  'closure-uncertain': 'voiceClosureUncertain' };
+// One cause/phase classification for failures, stream ends, durable closes and labels.
+// An unqualified deadline is not evidence that the per-call maximum elapsed.
+export function classifyVoiceEnd({ error, reason, timeLimit, key, phase = 'start', legacyMicrophone = false } = {}) {
+  let state = 'failed', timeExpired = false, errorReason = null;
+  if (!key && error) {
+    key = error.status === 429 ? 'voiceConnectionFailed'
+      : error.name === 'NotAllowedError' ? 'voiceMicDenied'
+      : error.name === 'NotFoundError' ? 'voiceMicMissing'
+      : error.name === 'NotReadableError' ? 'voiceMicBusy'
+      : error.name === 'NoMediaAPIError' ? 'voiceMicUnavailable'
+      : error.code === 'not-admitted' ? 'voiceAdmissionDenied'
+      : error.code === 'voice-conflict' ? 'voiceConflict'
+      : error.code === 'deadline' ? error.status === 504 && phase === 'start' && error.source !== 'connect-timer' ? 'voiceDeadline' : 'voiceConnectionFailed'
+      : error.name === 'OverconstrainedError' || error.phase === 'microphone' ||
+        error.name === 'AbortError' && !error.phase && legacyMicrophone && typeof error.code !== 'string' ? 'voiceMicFailed'
+      : 'voiceConnectionFailed';
+    errorReason = error.status !== 429 && error.code === 'not-admitted' ? error.reason : null;
+  } else if (!key) {
+    timeExpired = reason === 'one-hour' || reason === 'spend-deadline' && timeLimit === 'conversation';
+    if (timeExpired) key = null;
+    else if (reason === 'spend-deadline') key = timeLimit === 'call' ? 'voiceTimeLimit' : 'voiceDeadline';
+    else if (reason === 'budget-limit') { key = 'voiceAdmissionDenied'; errorReason = 'budget denied'; }
+    else if (reason === 'recovery-failed') key = 'voiceRecoveryFailed';
+    else if (['provider-end', 'closure-uncertain'].includes(reason)) { key = 'voiceClosureUncertain'; state = 'idle'; }
+    else if (['closed', 'cancelled', 'page-hidden', 'provider-changed', 'turn-withdrawn', 'session-erased', 'consent-revised', 'consent-withdrawn', 'upload-withdrawn', 'server-stopping', 'server-restart'].includes(reason)) { key = null; state = 'idle'; }
+    else key = 'voiceConnectionFailed';
+  }
+  return { key, state, timeExpired, errorReason,
+    retryAnchor: ['voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict'].includes(key),
+    fallback: key === 'voiceTimeLimit' ? 'voiceDeadline' : key,
+  };
+}
 
 // Tick v1, AIT-422: receipt ownership outranks a lower-level host refusal.
 export function creditVoiceStatus(copy, { reason, creditReason, exhausted = false } = {}) {
@@ -28,7 +58,7 @@ export function creditVoiceStatus(copy, { reason, creditReason, exhausted = fals
 }
 
 /** All header copy sources get a bounded visual label, including host-defined refusals. */
-export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditReason } = {}) {
+export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditReason, messageKey } = {}) {
   if (rawReason === 'agent-api-unavailable' && sentence === copy.reasons[rawReason]) return copy.voiceReasonsNarrow.unavailable;
   if (sentence === copy.voiceStates.usedUp || rawReason && sentence === copy.reasons?.[rawReason]) {
     const credit = creditVoiceStatus(copy, { reason: rawReason, creditReason, exhausted: sentence === copy.voiceStates.usedUp });
@@ -40,10 +70,17 @@ export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditRea
   if (sentence === copy.featureConsent.voice) return copy.featureConsent.textNarrow;
   const state = Object.keys(copy.voiceStates).find(key => copy.voiceStates[key] === sentence);
   if (state) return copy.voiceStatesNarrow[state];
-  const message = Object.keys(copy.voiceMessagesNarrow).find(key => copy[key] === sentence);
-  if (message) return copy.voiceMessagesNarrow[message];
+  const message = messageKey && (copy[messageKey] === sentence || messageKey === 'voiceTimeLimit' && sentence === copy.voiceDeadline)
+    ? messageKey : Object.keys(copy.voiceMessagesNarrow).find(key => copy[key] === sentence);
+  if (message) {
+    const classified = classifyVoiceEnd({ key: message });
+    return copy.voiceMessagesNarrow[classified.key] ?? copy.voiceMessagesNarrow[classified.fallback] ?? sentence;
+  }
   const reason = Object.keys(copy.reasons).find(key => copy.reasons[key] === sentence);
-  if (reasonMessages[reason]) return copy.voiceMessagesNarrow[reasonMessages[reason]];
+  if (['recovery-failed', 'start-failed', 'closure-uncertain', 'spend-deadline'].includes(reason)) {
+    const classified = classifyVoiceEnd({ reason });
+    return copy.voiceMessagesNarrow[classified.key] ?? copy.voiceMessagesNarrow[classified.fallback] ?? sentence;
+  }
   const group = isConsentReason(reason) ? 'consent'
     : Object.keys(reasonGroups).find(key => reasonGroups[key].includes(reason)) ?? 'unavailable';
   return copy.voiceReasonsNarrow[group];

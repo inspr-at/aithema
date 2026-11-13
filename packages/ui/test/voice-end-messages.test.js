@@ -62,7 +62,7 @@ for (const [reason, timeLimit, expected] of [
     assert.equal(label(rail), en.voiceStates.timeExpired);
     assert.equal(rail.button('start').disabled, true); assert.equal(rail.button('retry').disabled, true);
   } else {
-    assert.equal(rail.errorKey, expected); assert.equal(rail.button('retry').disabled, false);
+    assert.equal(rail.errorKey, expected); assert.equal(rail.button('retry').disabled, reason === 'budget-limit');
     if (reason === 'budget-limit') assert.equal(label(rail), en.voiceCreditStatus.session);
     if (expected === 'voiceTimeLimit') assert.equal(label(rail), en.voiceTimeLimit);
   }
@@ -100,4 +100,22 @@ test('AIT-502: 429 cooldown still defers the explicit retry', async t => {
   t.mock.timers.tick(4999); await flush(); assert.equal(requests.length, 1);
   t.mock.timers.tick(1); await flush(); assert.equal(requests.length, 1);
   t.mock.timers.tick(1); await flush(); assert.equal(requests.length, 2); await rail.close(); await pending;
+});
+
+test('AIT-502: a host adding full time-limit copy can retain its legacy narrow override', async t => {
+  const copy = structuredClone(en); delete copy.voiceMessagesNarrow.voiceTimeLimit;
+  copy.voiceMessagesNarrow.voiceDeadline = 'Host short limit';
+  const { rail } = fixture(t, { copy }); await rail.start(); await rail.close('spend-deadline', { timeLimit: 'call' });
+  assert.equal(label(rail), en.voiceTimeLimit);
+  assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, 'Host short limit');
+});
+test('AIT-502: active operation 504 is a connection failure, not a start limit', async t => {
+  const { rail } = fixture(t); await rail.start(); rail.failure({ code: 'deadline', status: 504 });
+  assert.equal(rail.errorKey, 'voiceConnectionFailed');
+});
+for (const sameCall of [true, false]) test(`AIT-502: ended uses bound metadata only for ${sameCall ? 'the same' : 'a different'} call`, async t => {
+  const { rail, events } = fixture(t); await rail.start();
+  rail.receiveState({ callId: sameCall ? 'call' : 'previous-call', providerSessionId: 'segment', epoch: 1, state: 'active', timeLimit: 'call' });
+  events.push({ type: 'ended', callId: 'call', reason: 'spend-deadline' }); await flush();
+  assert.equal(rail.errorKey, sameCall ? 'voiceTimeLimit' : 'voiceDeadline');
 });

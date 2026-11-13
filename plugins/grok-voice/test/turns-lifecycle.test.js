@@ -297,7 +297,7 @@ for (const code of ['auth', 'deadline', 'rate-limit']) test(`AIT-348: relay ${co
   t.after(() => session.close());
   void (async () => { for await (const event of session.events) events.push(event); })();
   for (let i = 0; i < 12; i++) await tick();
-  if (code === 'rate-limit') {
+  if (code === 'rate-limit' || code === 'deadline') {
     assert.equal(recoveries, 3); assert.ok(events.some(x => x.type === 'waiting' && x.reason === 'recovery-failed'));
   } else {
     assert.equal(recoveries, 0);

@@ -594,7 +594,7 @@ test('three failed reconnects expose recovery and typing controls, with distinct
   assert.equal(rail.button('retry').disabled, false); assert.equal(root.querySelector('.voice-state').textContent, en.voiceRecoveryFailed);
   rail.failure({ name: 'NotAllowedError' }); assert.equal(rail.error, en.voiceMicDenied);
   rail.failure({ name: 'NotFoundError' }); assert.equal(rail.error, en.voiceMicMissing);
-  rail.failure({ code: 'deadline' }); assert.equal(rail.error, en.voiceDeadline);
+  rail.failure({ code: 'deadline' }); assert.equal(rail.error, en.voiceConnectionFailed);
 });
 test('voice admission cap races carry the reason through control and render plain English or formal German', async t => {
   const { rail, root } = fixture(t);

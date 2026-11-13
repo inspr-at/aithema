@@ -1094,6 +1094,26 @@ JSON bound, because details include the full transcript and telemetry; token
 receipts retain their 64 KiB bound. Start2 logs safe closure observations, lookup
 error codes, elapsed time and retained liability through its private `log` port.
 
+### Voice end messages
+
+`voice.state` and the `voiceLifecycle` snapshot add optional `timeLimit: 'call' | 'conversation'`.
+It identifies which bound selected the retained `spendDeadlineAt` (ties select the conversation cap);
+identity, epoch and existing reason values are unchanged. The server includes it on connection,
+closing, terminal settlement and snapshot projections. Browser plugins may include the same field
+on an `ended` event. The UI uses metadata for the same call only. A conversation cap uses
+`voiceStates.timeExpired` and disables further calls; only a known per-call maximum uses
+`voiceTimeLimit`. Unknown spend bounds retain the legacy limit fallback.
+
+`voiceDeadline` remains exported for custom copy bundles but is deprecated. New bundles should
+supply `voiceTimeLimit`, `voiceMessagesNarrow.voiceTimeLimit` and `voiceMessageClose`.
+Missing time-limit copy falls back to `voiceDeadline`; connection messages fall back to
+`voiceConnectionFailed`. Connection timeouts and expired media grants show the connection
+failure, with no automatic retry. A server start 504 `deadline` retains the limit path.
+The existing **Retry call** label remains. Failed messages have a separate close control and
+Escape support on desktop. There is no close control in the phone's 36 px status row;
+Retry, a typed send and a new start clear the message there too.
+
+
 ## Plugins, bindings and admission
 
 Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional

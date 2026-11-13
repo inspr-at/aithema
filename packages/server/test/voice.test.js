@@ -3721,3 +3721,22 @@ test('AIT-381 r2 / AIT-388: streaming admissions hash the dispatched request aft
     instruction: 'Continue after the committed speech without repeating it. This host context is not a person turn.',
   });
 });
+
+for (const timeLimit of ['call', 'conversation']) test(`AIT-502: public voice.state and snapshots identify the ${timeLimit} bound`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = voiceFixture(t, { host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  await h.route('/turns', { clientEventId: 'begin-clock', content: 'A website.' }); await h.handlers.idle();
+  if (timeLimit === 'conversation') {
+    h.presets.best.bindings.voice.legal.evidence.expiresAt += 3_600_000;
+    h.advance(3_590_000); t.mock.timers.tick(3_590_000); await new Promise(setImmediate);
+  }
+  const { waitFor } = await observeVoice(h, t), grant = await h.start();
+  const connected = await waitFor(e => e.type === 'voice.state' && e.data.providerSessionId === grant.providerSessionId);
+  assert.equal(connected.data.timeLimit, timeLimit);
+  const snapshot = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}`, { headers: { 'x-aithema-session-token': 'voice-owner' } })).then(r => r.json());
+  assert.equal(snapshot.voiceLifecycle.timeLimit, timeLimit);
+  await h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
+  const closing = await waitFor(e => e.type === 'voice.state' && e.data.state === 'closing');
+  const ended = await waitFor(e => e.type === 'voice.state' && e.data.state === 'ended');
+  assert.equal(closing.data.timeLimit, timeLimit); assert.equal(ended.data.timeLimit, timeLimit);
+});

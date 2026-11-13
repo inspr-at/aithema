@@ -124,7 +124,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const before = requests.length, session = rail.session, continuing = rail.pause(false); await flush();
     await session.close({ reason: 'browser-liveness-deadline' }); await flush();
     assert.equal(rail.session, null); assert.equal(rail.root.dataset.state, 'failed');
-    assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(rail.button('retry').disabled, false);
+    assert.equal(rail.errorKey, 'voiceConnectionFailed'); assert.equal(rail.button('retry').disabled, false);
     t.mock.timers.tick(5000); await continuing; await flush(); assert.equal(requests.length, before);
     record(provider, 'retry-after-deadline', ['a terminal deadline during wait restores F2 Retry and fences the delayed continuation']);
   });
@@ -150,7 +150,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
   test(`AIT-361 ${provider}: F1/F2 remain failures, including misleading 429 admission codes`, async t => {
     const { rail } = fixture(t, provider);
     for (const [error, key] of [[{ name: 'NotAllowedError' }, 'voiceMicDenied'], [{ name: 'NotFoundError' }, 'voiceMicMissing'],
-      [{}, 'voiceConnectionFailed'], [{ code: 'deadline' }, 'voiceDeadline'], [{ code: 'voice-conflict' }, 'voiceConflict'],
+      [{}, 'voiceConnectionFailed'], [{ code: 'deadline' }, 'voiceConnectionFailed'], [{ code: 'voice-conflict' }, 'voiceConflict'],
       [{ status: 429, code: 'not-admitted', reason: 'host-limit' }, 'voiceConnectionFailed']]) {
       rail.state = 'failed'; rail.failure(error); assert.equal(rail.errorKey, key); assert.equal(rail.button('pause').disabled, true);
       assert.equal(rail.button('pause').getAttribute('aria-pressed'), 'false'); noLimit(rail);
@@ -173,7 +173,7 @@ function existingFailureCopy(actual, expected, path) {
   });
 }
 
-test('AIT-361: failure rendering reads only existing, unchanged DE and EN copy', async t => {
+test('AIT-361/AIT-502: failure rendering matches binding DE and EN copy', async t => {
   for (const [locale, copy] of [['de', de], ['en', en]]) {
     const expected = failureCopy[locale];
     for (const provider of ['elevenlabs', 'grok-voice']) {

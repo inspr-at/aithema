@@ -132,7 +132,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: result.usage?.costEstimated === true });
         const logical = storage.voiceLifecycle(record.sessionId, record.callId);
         publish(record.sessionId, { type: 'voice.state', data: { callId: record.callId, providerSessionId: record.providerSessionId,
-          ...tabAuthority(record.sessionId, record.callId),
+          ...tabAuthority(record.sessionId, record.callId), ...timeLimit(record.sessionId, logical?.spendDeadlineAt),
           state: logical && logical.state !== 'idle' ? logical.state : recoverableVoiceEnd(record.reason)
             ? record.reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'ended',
           reason: logical?.terminalReason ?? record.reason, reconciliationPending: result.usage?.costEstimated === true,
@@ -202,7 +202,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     onClose?.(entry.sessionId);
     if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
     publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
-      ...tabAuthority(entry.sessionId, entry.callId),
+      ...tabAuthority(entry.sessionId, entry.callId), ...timeLimit(entry.sessionId, storage.voiceLifecycle(entry.sessionId, entry.callId)?.spendDeadlineAt),
       providerSessionId: entry.call?.providerSessionId,
       state: resumable ? storage.voiceLifecycle(entry.sessionId, entry.callId).state : 'closing', reason } });
     const settle = async () => {
@@ -228,7 +228,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         // An old recovery's settlement cannot publish over or remove its successor.
         const logical = storage.voiceLifecycle(entry.sessionId, entry.callId);
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
-          ...tabAuthority(entry.sessionId, entry.callId),
+          ...tabAuthority(entry.sessionId, entry.callId), ...timeLimit(entry.sessionId, logical?.spendDeadlineAt),
           callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: logical?.state ?? (resumable ? 'recovering' : 'ended'),
           reason: logical?.terminalReason ?? reason,
           reconciliationPending: terminal.outcome === 'uncertain' || terminal.usage?.costEstimated === true,
@@ -252,6 +252,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (voiceConfigurationRefused(error)) void close(entry, error.reason, 'cancelled');
       throw error;
     }
+  }
+  // Additive public metadata: the retained spend bound can also be the conversation cap.
+  function timeLimit(sessionId, spendDeadlineAt) {
+    if (!Number.isFinite(spendDeadlineAt)) return {};
+    const conversation = runtime.conversationLimits?.deadline(sessionId) ?? Infinity;
+    return { timeLimit: conversation <= spendDeadlineAt ? 'conversation' : 'call' };
   }
   async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false, tabId = null, explicitResume = false) {
     const session = storage.authorize(sessionId, ownerToken);
@@ -307,7 +313,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         } catch { /* Diagnostics cannot interrupt recovery. */ }
       }
       publish(sessionId, { type: 'voice.state', data: { callId, providerSessionId: state.providerSessionId,
-        epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state } });
+        epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state, ...timeLimit(sessionId, end) } });
       return receipt(entry.call);
     } catch (error) {
       if (voiceConfigurationRefused(error)) {
@@ -521,7 +527,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const { callId, providerSessionId, providerGeneration, state, attempts, needsRecovery,
         spendDeadlineAt, browserLivenessDeadlineAt, epoch, controllingTabId } = logical;
       return { callId, providerSessionId, providerGeneration, state, attempts, needsRecovery,
-        spendDeadlineAt, browserLivenessDeadlineAt, epoch, controllingTabId,
+        spendDeadlineAt, browserLivenessDeadlineAt, epoch, controllingTabId, ...timeLimit(id, spendDeadlineAt),
         ...(logical.holds.includes('server-restart') ? { reason: 'server-restart' } : {}) };
     },
     typedContext(id, ownerToken, callId, providerSessionId) {
