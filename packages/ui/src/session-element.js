@@ -2525,7 +2525,11 @@ export class AithemaSession extends HTMLElement {
     this.#startIntentTimer = setTimeout(() => this.#clearStartIntent(), Math.max(0, this.#startIntent.expiresAt - Date.now()));
     this.#startIntentTimer.unref?.();
   }
-  #mayFocus() { const active = this.ownerDocument.activeElement; return !active || active === this.ownerDocument.body || active === this; }
+  #mayFocus() {
+    let active = this.ownerDocument.activeElement;
+    while (active !== this && active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    return !active || active === this.ownerDocument.body || active === this;
+  }
   #consumeStartIntent() {
     const intent = this.#startIntent;
     if (!intent) return;

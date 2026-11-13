@@ -310,8 +310,10 @@ export class AudioRail {
     this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
     this.retryAt = voiceRetryAt(error);
     this.render();
-    const active = this.root.ownerDocument.activeElement;
-    if (this.state === 'failed' && (!active || active === this.root.ownerDocument.body || active === this.root.host)) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+    const host = this.root.getRootNode().host;
+    let active = this.root.ownerDocument.activeElement;
+    while (active !== host && active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    if (this.state === 'failed' && (!active || active === this.root.ownerDocument.body || active === host || this.root.contains(active))) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
   }
   async cooldown(until, signal) {
     const deadline = Math.min(until, Date.now() + 60_000);
