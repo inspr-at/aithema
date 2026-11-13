@@ -222,9 +222,9 @@ test('AIT-127 gate: cached library row actions and rename labels repaint in plac
 for (const [reason, error, key] of [
   ['microphone denied', { name: 'NotAllowedError' }, 'voiceMicDenied'],
   ['microphone missing', { name: 'NotFoundError' }, 'voiceMicMissing'],
-  ['connection failed', new Error('fixture'), 'voiceConnectionFailed'],
+  ['connection failed', new Error('fixture'), 'voiceConnectFailed'],
   ['conflicting call', { code: 'voice-conflict' }, 'voiceConflict'],
-  ['deadline', { code: 'deadline' }, 'voiceConnectionFailed'],
+  ['deadline', { code: 'deadline' }, 'voiceConnectFailed'],
   ['deployment cap', { code: 'not-admitted', reason: 'Voice minute cap reached for this deployment' }],
   ['daily cap', { code: 'not-admitted', reason: 'Voice minute cap reached for this UTC day' }],
   ['unknown admission reason', { code: 'not-admitted', reason: 'unknown-fixture-reason' }, 'voiceAdmissionDenied'],

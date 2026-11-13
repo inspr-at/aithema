@@ -1,8 +1,9 @@
 // AIT-361 copy read by failure rendering, pinned from the pre-AIT-361 binding base 5d015ba6.
-// AIT-502 v2/v2.1 supersedes connection copy and adds the close label.
+// AIT-502 v2.2 splits startup copy and restores legacy connection copy and adds the close label.
 // Keep this scoped to voice rendering; unrelated locale additions are deliberately absent.
 export const failureCopy = {
   de: {
+    display: { locale: "de" },
     // Tick AIT-422 v1: related copy required by the voice status renderer.
     voiceCreditStatus: { dailyCap: 'Tageslimit erreicht', session: 'Credits aufgebraucht', hostLimit: 'Sprache gerade nicht verfügbar' },
     pause: "Pausieren",
@@ -25,7 +26,8 @@ export const failureCopy = {
     voiceAdmissionDenied: "Sprache ist nicht verfügbar. Prüfen Sie die Einwilligung und die verfügbaren Credits.",
     voiceConflict: "Für dieses Gespräch läuft bereits ein Anruf in einem anderen Tab oder Fenster. Beenden Sie ihn dort oder wählen Sie gleich „Erneut anrufen“.",
     voiceDeadline: "Der Anruf hat sein Zeit- oder Verbindungslimit erreicht.",
-    voiceConnectionFailed: "Der Anruf konnte nicht aufgebaut werden. Wählen Sie „Erneut anrufen“ oder schreiben Sie weiter.",
+    voiceConnectFailed: "Der Anruf konnte nicht aufgebaut werden. Wählen Sie „Erneut anrufen“ oder schreiben Sie weiter.",
+    voiceConnectionFailed: "Die Sprachverbindung ist fehlgeschlagen. Versuchen Sie es erneut oder tippen Sie weiter.",
     voiceMessageClose: "Meldung schließen",
     voiceRecoveryFailed: "Drei Versuche, die Verbindung wiederherzustellen, sind fehlgeschlagen. Rufen Sie erneut an oder tippen Sie weiter.",
     voiceMoved: "Gespräch läuft in einem anderen Tab",
@@ -46,10 +48,11 @@ export const failureCopy = {
     voiceReplayClose: "Schließen",
     voiceStates: {"low":"Noch wenig Guthaben","idle":"Bereit zum Sprechen","connecting":"Verbindung wird aufgebaut …","listening":"Ich höre zu","speaking":"Antwort wird gesprochen","paused":"Anruf pausiert","recovering":"Verbindung wird wiederhergestellt …","waiting":"Sprache pausiert. Fortsetzen, wenn Sie bereit sind.","closing":"Anruf wird beendet …","failed":"Anruf beendet","usedUp":"Credits aufgebraucht","timeExpired":"Zeit abgelaufen","creditEnding":"Anruf wird beendet …"},
     voiceStatesNarrow: {"low":"Wenig Guthaben","idle":"Bereit","connecting":"Verbindet …","listening":"Ich höre zu","speaking":"Antwortet","paused":"Pausiert","recovering":"Verbindet erneut …","waiting":"Pausiert","closing":"Wird beendet …","failed":"Anruf beendet","usedUp":"Credits aufgebraucht","timeExpired":"Zeit abgelaufen","creditEnding":"Wird beendet …"},
-    voiceMessagesNarrow: {"voiceMicDenied":"Mikrofon gesperrt","voiceMicMissing":"Kein Mikrofon","voiceAdmissionDenied":"Nicht verfügbar","voiceConflict":"Anruf in anderem Tab","voiceDeadline":"Zeitlimit erreicht","voiceConnectionFailed":"Keine Verbindung","voiceRecoveryFailed":"Verbindung gestört","voiceMoved":"In anderem Tab","voiceClosureUncertain":"Kostenabgleich …","voiceEnded":"Anruf beendet","voicePauseFailed":"Pause unbestätigt","voicePlaybackBlocked":"Ton gesperrt"},
+    voiceMessagesNarrow: {"voiceMicDenied":"Mikrofon gesperrt","voiceMicMissing":"Kein Mikrofon","voiceAdmissionDenied":"Nicht verfügbar","voiceConflict":"Anruf in anderem Tab","voiceDeadline":"Zeitlimit erreicht","voiceConnectFailed":"Keine Verbindung","voiceConnectionFailed":"Verbindung gestört","voiceRecoveryFailed":"Verbindung gestört","voiceMoved":"In anderem Tab","voiceClosureUncertain":"Kostenabgleich …","voiceEnded":"Anruf beendet","voicePauseFailed":"Pause unbestätigt","voicePlaybackBlocked":"Ton gesperrt"},
     featureConsent: { voice: "Sprache braucht Ihre Einwilligung" },
   },
   en: {
+    display: { locale: "en" },
     voiceCreditStatus: { dailyCap: 'Daily limit reached', session: 'Credits used up', hostLimit: 'Voice unavailable right now' },
     pause: "Pause",
     resume: "Resume",
@@ -71,7 +74,8 @@ export const failureCopy = {
     voiceAdmissionDenied: "Voice is unavailable. Check consent and available credits.",
     voiceConflict: "This conversation already has a call in another tab or window. End it there, or wait a moment and select Retry call.",
     voiceDeadline: "The call reached its time or connection limit.",
-    voiceConnectionFailed: "The call couldn't connect. Select Retry call, or continue typing.",
+    voiceConnectFailed: "The call couldn't connect. Select Retry call, or continue typing.",
+    voiceConnectionFailed: "Voice connection failed. Retry or continue typing.",
     voiceMessageClose: "Close message",
     voiceRecoveryFailed: "Three reconnect attempts failed. Retry the call or continue typing.",
     voiceMoved: "Call is open in another tab",
@@ -92,7 +96,7 @@ export const failureCopy = {
     voiceReplayClose: "Close",
     voiceStates: {"low":"Credit running low","idle":"Ready to talk","connecting":"Connecting voice…","listening":"Listening","speaking":"Speaking the reply","paused":"Call paused","recovering":"Reconnecting voice…","waiting":"Voice paused. Resume when you're ready.","closing":"Settling call…","failed":"Call ended","usedUp":"Credits used up","timeExpired":"Time up","creditEnding":"Ending the call…"},
     voiceStatesNarrow: {"low":"Low credit","idle":"Ready","connecting":"Connecting …","listening":"Listening","speaking":"Replying","paused":"Paused","recovering":"Reconnecting …","waiting":"Paused","closing":"Ending …","failed":"Call ended","usedUp":"Credits used up","timeExpired":"Time up","creditEnding":"Ending …"},
-    voiceMessagesNarrow: {"voiceMicDenied":"Microphone blocked","voiceMicMissing":"No microphone","voiceAdmissionDenied":"Unavailable","voiceConflict":"Call in another tab","voiceDeadline":"Time limit reached","voiceConnectionFailed":"Couldn't connect","voiceRecoveryFailed":"Reconnect failed","voiceMoved":"In another tab","voiceClosureUncertain":"Reconciling costs …","voiceEnded":"Call ended","voicePauseFailed":"Pause unconfirmed","voicePlaybackBlocked":"Sound blocked"},
+    voiceMessagesNarrow: {"voiceMicDenied":"Microphone blocked","voiceMicMissing":"No microphone","voiceAdmissionDenied":"Unavailable","voiceConflict":"Call in another tab","voiceDeadline":"Time limit reached","voiceConnectFailed":"Couldn't connect","voiceConnectionFailed":"Connection failed","voiceRecoveryFailed":"Reconnect failed","voiceMoved":"In another tab","voiceClosureUncertain":"Reconciling costs …","voiceEnded":"Call ended","voicePauseFailed":"Pause unconfirmed","voicePlaybackBlocked":"Sound blocked"},
     featureConsent: { voice: "Voice needs your consent" },
   },
 };

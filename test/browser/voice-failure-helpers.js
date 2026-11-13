@@ -64,7 +64,7 @@ export async function checkVoiceFailures(t) {
         const inkFill = getComputedStyle(probe).backgroundColor; probe.remove();
         const css = getComputedStyle(pause), anchor = rail.errorKey === 'voicePlaybackBlocked' ? rail.button('playback')
           : ['voiceMicDenied', 'voiceMicMissing'].includes(rail.errorKey) ? rail.button('start')
-          : ['voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict'].includes(rail.errorKey) && rail.state === 'failed' ? rail.button('retry') : root.querySelector('.voice-signal');
+          : ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict'].includes(rail.errorKey) && rail.state === 'failed' ? rail.button('retry') : root.querySelector('.voice-signal');
         return { boxes: ['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => rect(root.querySelector(s))),
           inkFill, pause: { disabled: pause.disabled, background: css.backgroundColor, border: css.borderColor, color: getComputedStyle(pause.querySelector('svg')).color,
             cursor: css.cursor, glyph: pause.getAttribute('aria-pressed') },
@@ -82,7 +82,7 @@ export async function checkVoiceFailures(t) {
     }, { provider, locale });
     await page.evaluate(() => document.fonts.ready);
     let baseline, reference;
-    const states = ['idle', 'recovering', 'voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429', 'voicePlaybackBlocked', 'voiceAdmissionDenied', 'consent', 'waiting', 'voiceRecoveryFailed', 'used-up', 'idle'];
+    const states = ['idle', 'recovering', 'voiceMicDenied', 'voiceMicMissing', 'voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429', 'voicePlaybackBlocked', 'voiceAdmissionDenied', 'consent', 'waiting', 'voiceRecoveryFailed', 'used-up', 'idle'];
     for (const state of states) {
       await page.evaluate(state => {
         const rail = window.ait361Rail;
@@ -115,12 +115,12 @@ export async function checkVoiceFailures(t) {
         } else expect(result.narrow !== 'none' && result.callout.width > result.anchor.width && result.callout.top === result.boxes[4].top + 44,
           { ...meta, assert: 'phone narrow status below controls, no floating callout', actual: result });
       }
-      if (['voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state))
+      if (['voiceMicDenied', 'voiceMicMissing', 'voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state))
         expect(!result.live && result.retryVisible, { ...meta, assert: 'F1/F2 no live call; Retry visible in end slot' });
       expect(result.svgIcons && !result.italic, { ...meta, assert: 'SVG control icons and no italic failure copy' });
       if (state === 'start429') expect(!result.text.includes(result.providerLimit) && !result.accessibleName.includes(result.providerLimit), { ...meta, assert: '429 never providerLimit, full and narrow' });
       if (state === 'voicePlaybackBlocked') expect(result.live && result.playbackVisible && result.playbackLabel === (locale === 'de' ? 'Ton aktivieren' : 'Enable sound'), { ...meta, assert: 'F3 stays live with existing playback label' });
-      const shot = ['voiceMicDenied'].includes(state) || width === 1440 && theme === 'light' && locale === 'de' && ['voiceConnectionFailed', 'voicePlaybackBlocked', 'waiting', 'voiceRecoveryFailed', 'recovering'].includes(state);
+      const shot = ['voiceMicDenied'].includes(state) || width === 1440 && theme === 'light' && locale === 'de' && ['voiceConnectFailed', 'voiceConnectionFailed', 'voicePlaybackBlocked', 'waiting', 'voiceRecoveryFailed', 'recovering'].includes(state);
       if (shot && evidence) {
         await page.evaluate(async () => {
           const root = document.querySelector('aithema-session').shadowRoot;

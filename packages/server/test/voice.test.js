@@ -3743,7 +3743,6 @@ for (const timeLimit of ['call', 'conversation']) test(`AIT-502: public voice.st
 
 test('AIT-502 v2.2: resumed waiting-call bound refusal carries additive reason and bound', async t => {
   const h = voiceFixture(t), first = await h.start();
-  assert.equal(first.timeLimit, 'call', 'start receipt includes optional bound metadata');
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
   await h.handlers.idle();
   const admit = h.runtime.admitVoice;
@@ -3751,4 +3750,8 @@ test('AIT-502 v2.2: resumed waiting-call bound refusal carries additive reason a
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
   assert.equal(response.status, 504);
   assert.deepEqual(await response.json(), { error: 'deadline', reason: 'time-limit', timeLimit: 'call' });
+});
+
+test('AIT-502 v2.2: start receipt identifies the optional bound', async t => {
+  const h = voiceFixture(t); assert.equal((await h.start()).timeLimit, 'call');
 });

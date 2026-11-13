@@ -61,7 +61,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
     const { rail, requests } = fixture(t, provider, { startError: rateLimit(retryAfterMs) });
     await rail.start(); assert.equal(rail.state, 'failed'); assert.equal(rail.session, null);
-    assert.equal(rail.errorKey, 'voiceConnectionFailed'); assert.equal(rail.button('retry').disabled, false); noLimit(rail);
+    assert.equal(rail.errorKey, 'voiceConnectFailed'); assert.equal(rail.button('retry').disabled, false); noLimit(rail);
     const began = Date.now(), wait = Math.min(retryAfterMs ?? 0, 60_000), retry = rail.start(); await flush();
     if (wait) {
       assert.equal(rail.root.dataset.state, 'connecting'); assert.equal(rail.errorKey, null);
@@ -150,8 +150,8 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
   test(`AIT-361 ${provider}: F1/F2 remain failures, including misleading 429 admission codes`, async t => {
     const { rail } = fixture(t, provider);
     for (const [error, key] of [[{ name: 'NotAllowedError' }, 'voiceMicDenied'], [{ name: 'NotFoundError' }, 'voiceMicMissing'],
-      [{}, 'voiceConnectionFailed'], [{ code: 'deadline' }, 'voiceConnectionFailed'], [{ code: 'voice-conflict' }, 'voiceConflict'],
-      [{ status: 429, code: 'not-admitted', reason: 'host-limit' }, 'voiceConnectionFailed']]) {
+      [{}, 'voiceConnectFailed'], [{ code: 'deadline' }, 'voiceConnectFailed'], [{ code: 'voice-conflict' }, 'voiceConflict'],
+      [{ status: 429, code: 'not-admitted', reason: 'host-limit' }, 'voiceConnectFailed']]) {
       rail.state = 'failed'; rail.failure(error); assert.equal(rail.errorKey, key); assert.equal(rail.button('pause').disabled, true);
       assert.equal(rail.button('pause').getAttribute('aria-pressed'), 'false'); noLimit(rail);
       record(provider, key, ['F1/F2 error mapping and disabled Pause; unchanged pause glyph', '429 overrides admission/provider-limit reason']);
@@ -179,7 +179,7 @@ test('AIT-361/AIT-502: failure rendering matches binding DE and EN copy', async 
     for (const provider of ['elevenlabs', 'grok-voice']) {
       const { rail } = fixture(t, provider);
       rail.copy = existingFailureCopy(copy, expected, locale);
-      for (const errorKey of ['voiceMicDenied', 'voiceMicMissing', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'voiceRecoveryFailed', 'voicePlaybackBlocked']) {
+      for (const errorKey of ['voiceMicDenied', 'voiceMicMissing', 'voiceConnectFailed', 'voiceConnectionFailed', 'voiceDeadline', 'voiceConflict', 'voiceRecoveryFailed', 'voicePlaybackBlocked']) {
         rail.state = errorKey === 'voicePlaybackBlocked' ? 'listening' : 'failed';
         rail.session = errorKey === 'voicePlaybackBlocked' ? { callId: 'offline-copy-fixture' } : null;
         rail.errorKey = errorKey; rail.render();
