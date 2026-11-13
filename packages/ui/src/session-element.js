@@ -6,6 +6,7 @@ import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stag
 import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
+import { warnFocusRefusal } from './clarify-diagnostic.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
 import { understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
@@ -250,15 +251,19 @@ export class AithemaSession extends HTMLElement {
   /** Select an open point without creating a person turn. Refusals remain structured. */
   async focusQuestion(questionId) {
     if (this.#erased) return;
-    if (this.#clarifyBusy()) throw Object.assign(new Error('reply-in-flight'), { reason: 'reply-in-flight', status: 409 });
+    if (this.#clarifyBusy()) {
+      const error = Object.assign(new Error('reply-in-flight'), { reason: 'reply-in-flight', status: 409 });
+      warnFocusRefusal(error); throw error;
+    }
     const item = this.openQuestionItems.find(item => item.id === questionId);
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
-    const attempt = {}; this.#clarifyRequest = attempt;
-    this.#clarify = { questionId, question: item?.question, inputRevision: revision, state: 'requesting', pending: true };
+    const attempt = { status: null, accepted: false, failureReported: false }; this.#clarifyRequest = attempt;
+    this.#clarify = { questionId, question: item?.question, inputRevision: revision, state: 'requesting', pending: true, diagnostic: attempt };
     this.#render('aside');
     try {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/focus-question`,
         { questionId, inputRevision: revision }, { sessionToken: this.#sessionToken });
+      attempt.status = response.status; attempt.accepted = response.status === 202;
       if (this.#erased) return;
       const result = await response.json();
       if (this.#erased) return;
@@ -266,6 +271,7 @@ export class AithemaSession extends HTMLElement {
       if (!this.#erased && sessionId === this.#session.id && revision === inputRevision(this.#session)) this.receive(result.event);
       return result;
     } catch (error) {
+      warnFocusRefusal(error, attempt);
       if (!this.#erased && sessionId === this.#session.id && revision === inputRevision(this.#session)) await this.#clarifyRefused(error);
       if (this.#erased) return;
       throw error;
@@ -303,6 +309,7 @@ export class AithemaSession extends HTMLElement {
   async #retryClarify() {
     if (this.#clarify?.state !== 'retry' || this.#clarify.pending) return;
     const focus = this.#clarify, sessionId = this.#session.id;
+    const diagnostic = focus.diagnostic = { status: null, accepted: false, failureReported: false };
     focus.pending = true; focus.state = 'requesting';
     // Retire the failure being retried before sending, so a newer failure that
     // arrives ahead of the HTTP acknowledgement cannot be erased by that ack.
@@ -314,12 +321,14 @@ export class AithemaSession extends HTMLElement {
     this.#failure = Boolean(operations?.lastFailure); this.#render('aside');
     try {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/retry`, {}, { sessionToken: this.#sessionToken });
+      diagnostic.status = response.status; diagnostic.accepted = response.status === 202;
       if (sessionId !== this.#session.id || this.#clarify !== focus) return;
       if (!response.ok) {
         const result = await response.json();
-        throw Object.assign(new Error(result.reason ?? result.error), result);
+        throw Object.assign(new Error(result.reason ?? result.error), result, { status: response.status });
       }
     } catch (error) {
+      warnFocusRefusal(error, diagnostic);
       if (sessionId === this.#session.id && this.#clarify === focus) {
         if (['paused', 'consent-required'].includes(error.reason) || error.admissionReason === 'one-hour') await this.#clarifyRefused(error);
         else { focus.state = 'retry'; this.#clarifyAnnouncement = ''; }
@@ -339,7 +348,8 @@ export class AithemaSession extends HTMLElement {
     }
     if (chosen?.inputRevision === revision && this.#session.focusedQuestion && !answered && chosen.requestId !== this.#clarify?.requestId) {
       const question = this.#session.focusedQuestion;
-      this.#clarify = { ...chosen, question, state: 'requesting', pending: Boolean(this.#clarifyRequest) };
+      this.#clarify = { ...chosen, question, state: 'requesting', pending: Boolean(this.#clarifyRequest),
+        diagnostic: this.#clarify?.diagnostic ?? { status: null, accepted: false, failureReported: false } };
       this.#clarifyReplies.set(chosen.requestId, question);
     }
     const focus = this.#clarify;
@@ -357,6 +367,14 @@ export class AithemaSession extends HTMLElement {
     if (focus.requestId && !focus.pending && focus.state !== 'asked' && failures.some(f => f.lane === 'reaction' && f.retryable !== false)) focus.state = 'retry';
     if (focus.state === 'refused' && focus.reason === 'paused' && !this.#session.paused && focus.resuming) this.#clarify = null;
     if (focus.state === 'refused' && focus.reason === 'consent' && this.#feature('text').available && focus.reviewing) this.#clarify = null;
+  }
+  #diagnoseClarifyFailure(failure, laneFailed = false) {
+    const focus = this.#clarify;
+    if (!focus?.requestId) return;
+    const diagnostic = focus.diagnostic ??= { status: null, accepted: false, failureReported: false };
+    if (diagnostic.failureReported) return;
+    diagnostic.failureReported = true;
+    warnFocusRefusal(failure, diagnostic, laneFailed);
   }
   #renderQuestions() {
     this.#syncClarify();
@@ -2962,10 +2980,13 @@ export class AithemaSession extends HTMLElement {
       }
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
       this.#session.operations = event.data; this.#restoreFailure();
+      const failure = event.data.failures?.find(f => f.lane === 'reaction');
+      if (failure && this.#clarify?.state !== 'asked') this.#diagnoseClarifyFailure(failure);
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#retryPending = null;
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
       if (this.#clarify?.requestId && event.data.lane === 'reaction') {
+        this.#diagnoseClarifyFailure(event.data, true);
         if (event.data.retryable === false) this.#clarify = null;
         else this.#clarify.state = 'retry';
       }

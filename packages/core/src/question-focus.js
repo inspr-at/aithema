@@ -1,6 +1,21 @@
 import { inputRevision, openQuestionItems } from './session.js';
 export { openQuestionItems } from './session.js';
 
+// Recovery data only. Retrying a command still needs ordinary admission and
+// consent; an unknown refusal never implies that another attempt is safe.
+export const FOCUS_REFUSAL_CLASSES = Object.freeze({
+  'admission deadline': 'transient', 'budget reconciling': 'transient',
+  'plugin unhealthy': 'transient', 'consent port unavailable': 'transient', 'reply-in-flight': 'transient',
+  'budget denied': 'terminal', session: 'terminal', 'one-hour': 'terminal', 'host-limit': 'terminal',
+  'consent-required': 'terminal', 'current processing consent required': 'terminal',
+});
+export function classifyFocusRefusal(error) {
+  for (const reason of [error?.reason, error?.admissionReason]) {
+    if (Object.hasOwn(FOCUS_REFUSAL_CLASSES, reason)) return FOCUS_REFUSAL_CLASSES[reason];
+  }
+  return null;
+}
+
 export function pendingQuestionFocus(session) {
   const focus = session.questionFocus;
   // Once accepted, the command outlives assessment-local question IDs. The
