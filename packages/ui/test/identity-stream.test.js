@@ -651,9 +651,12 @@ test('AIT-470 U16 waiting-call: a 409 cannot roll back the acknowledged Resume p
 test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent window is live', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const held = Promise.withResolvers(); t.after(() => held.resolve()); let polls = 0, conflicts = 0;
+  // Connect may send the check before fixture470 returns its component and probes.
+  const unlock = Promise.withResolvers(); t.after(() => unlock.resolve());
   const h = fixture470(t, { session: { identity: pending470({ pollVerification: true }) }, routes: {
-    'POST /identity/unlock': () => {
+    'POST /identity/unlock': async () => {
       polls++;
+      await unlock.promise;
       // Start consent after the poll was sent, so its rescheduling cannot move the edge.
       h.state.snapshot = () => held.promise.then(() => Response.json(h.c.session));
       event470(h.c, 'consent.revised', { granted: true, conversationUnchanged: true });
@@ -674,6 +677,7 @@ test('AIT-470 U9 live consent: a poll-edge 409 reconnects while the consent wind
     }
     return original(url, options);
   });
+  unlock.resolve();
   t.mock.timers.tick(4000); await tick(8);
   assert.equal(polls, 1, 'the poll response reaches the live-window unlock edge');
   assert.equal(conflicts, 1, 'the edge read receives the injected conflict');
