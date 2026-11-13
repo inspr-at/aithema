@@ -341,3 +341,18 @@ test('AIT-503 malformed accepted JSON preserves observed 202 without claiming la
     status: 202, error: null, reason: null, admissionReason: null, accepted: true, acceptedThenLaneFailed: false,
   }]]);
 });
+
+for (const index of [0, 1]) test(`AIT-503 SSE-only focus ${index} never inherits an earlier local 202`, async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  await firstReply(f);
+  const item = f.c.openQuestionItems[index];
+  f.event('question.focused', { question: item.question, questionId: item.id, requestId: 'peer-focus',
+    chosenBy: 'user', inputRevision: inputRevision(f.c.session) });
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', inputRevision: inputRevision(f.c.session), error: 'reasoning-unavailable', retryable: true } });
+  assert.equal(f.calls.length, 1, 'this UI observed only the older local request');
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: null, error: 'reasoning-unavailable', reason: null, admissionReason: null,
+    accepted: false, acceptedThenLaneFailed: false,
+  }]]);
+});
