@@ -49,11 +49,11 @@ test('AIT-502 v2.2: unknown durable spend bound has no message and offers Start'
   assert.equal(root.querySelector('.voice-start').disabled, false); assert.equal(root.querySelector('.voice-retry').disabled, true);
 });
 
-test('AIT-502 gate L1: German component supplies locale for a host bundle without display', async t => {
+test('AIT-502 gate L1: German component supplies locale for a host bundle without display.locale', async t => {
   const session = createSession({ demo: true, locale: 'de' }), c = document.createElement('aithema-session');
   session.locale = 'de';
   session.featureMatrix = { best: Object.fromEntries(['text', 'voice', 'analysis'].map(key => [key, { available: true }])) };
-  const copy = structuredClone(de); delete copy.display; delete copy.voiceConnectFailed; delete copy.voiceMessageClose;
+  const copy = structuredClone(de); delete copy.display.locale; delete copy.voiceConnectFailed; delete copy.voiceMessageClose;
   delete copy.voiceMessagesNarrow.voiceConnectFailed;
   c.configure({ session, copy, voiceClient: { manifest, async start() { throw { code: 'deadline', status: 504 }; } } });
   t.after(() => c.remove());
