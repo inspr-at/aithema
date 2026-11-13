@@ -68,6 +68,7 @@ for (const [reason, expected] of [
   ['consent port unavailable', 'transient'], ['reply-in-flight', 'transient'],
   ['budget denied', 'terminal'], ['session', 'terminal'], ['one-hour', 'terminal'], ['host-limit', 'terminal'],
   ['consent-required', 'terminal'], ['current processing consent required', 'terminal'],
+  ['invalid-request', 'terminal'],
 ]) test(`AIT-503 focus refusal classification: ${reason}`, async () => {
   const core = await import('../src/index.js');
   assert.equal(typeof core.classifyFocusRefusal, 'function');
@@ -78,8 +79,14 @@ for (const [reason, expected] of [
 test('AIT-503 unknown focus refusals stay unclassified and cannot inherit object properties', async () => {
   const core = await import('../src/index.js');
   assert.equal(typeof core.classifyFocusRefusal, 'function');
-  for (const reason of [null, undefined, 'invalid-request', 'paused', 'unknown', 'constructor', '__proto__']) {
+  for (const reason of [null, undefined, 'paused', 'unknown', 'constructor', '__proto__']) {
     assert.equal(core.classifyFocusRefusal({ reason }), null);
   }
   assert.equal(core.classifyFocusRefusal({ reason: 'consent-required', admissionReason: 'unknown' }), 'terminal');
+});
+
+test('AIT-503 malformed-command error without a reason is terminal', async () => {
+  const core = await import('../src/index.js');
+  assert.equal(core.classifyFocusRefusal({ status: 400, error: 'invalid-request' }), 'terminal');
+  assert.equal(core.classifyFocusRefusal({ error: 'reasoning-unavailable' }), null, 'opaque failure codes do not prove a cause');
 });
