@@ -1,3 +1,4 @@
+import { resolveCopy } from './copy-resolve.js';
 import { isConsentReason } from '../../core/src/settings.js';
 
 const reasonGroups = {
@@ -20,33 +21,43 @@ const reasonGroups = {
 // One cause/phase classification for failures, stream ends, durable closes and labels.
 // An unqualified deadline is not evidence that the per-call maximum elapsed.
 export function classifyVoiceEnd({ error, reason, timeLimit, key, phase = 'start', legacyMicrophone = false } = {}) {
+  // Only the server's explicit bound refusal on Resume is a time-bound start failure.
+  if (!key && error?.code === 'deadline' && error.reason === 'time-limit' &&
+    error.source !== 'connect-timer' && phase === 'resume') {
+    return classifyVoiceEnd({ reason: 'spend-deadline', timeLimit: error.timeLimit });
+  }
   let state = 'failed', timeExpired = false, errorReason = null;
+  const neutral = reason === 'one-hour' || reason === 'spend-deadline';
   if (!key && error) {
-    key = error.status === 429 ? 'voiceConnectionFailed'
+    const connection = phase === 'start' ? 'voiceConnectFailed' : 'voiceConnectionFailed';
+    key = error.status === 429 ? connection
       : error.name === 'NotAllowedError' ? 'voiceMicDenied'
       : error.name === 'NotFoundError' ? 'voiceMicMissing'
       : error.name === 'NotReadableError' ? 'voiceMicBusy'
       : error.name === 'NoMediaAPIError' ? 'voiceMicUnavailable'
       : error.code === 'not-admitted' ? 'voiceAdmissionDenied'
       : error.code === 'voice-conflict' ? 'voiceConflict'
-      : error.code === 'deadline' ? error.status === 504 && phase === 'start' && error.source !== 'connect-timer' ? 'voiceDeadline' : 'voiceConnectionFailed'
+      : error.code === 'deadline' ? connection
       : error.name === 'OverconstrainedError' || error.phase === 'microphone' ||
         error.name === 'AbortError' && !error.phase && legacyMicrophone && typeof error.code !== 'string' ? 'voiceMicFailed'
-      : 'voiceConnectionFailed';
+      : connection;
     errorReason = error.status !== 429 && error.code === 'not-admitted' ? error.reason : null;
   } else if (!key) {
     timeExpired = reason === 'one-hour' || reason === 'spend-deadline' && timeLimit === 'conversation';
     if (timeExpired) key = null;
-    else if (reason === 'spend-deadline') key = timeLimit === 'call' ? 'voiceTimeLimit' : 'voiceDeadline';
+    else if (reason === 'spend-deadline') {
+      key = timeLimit === 'call' ? 'voiceTimeLimit' : null;
+      if (!key) state = 'idle';
+    }
     else if (reason === 'budget-limit') { key = 'voiceAdmissionDenied'; errorReason = 'budget denied'; }
     else if (reason === 'recovery-failed') key = 'voiceRecoveryFailed';
     else if (['provider-end', 'closure-uncertain'].includes(reason)) { key = 'voiceClosureUncertain'; state = 'idle'; }
     else if (['closed', 'cancelled', 'page-hidden', 'provider-changed', 'turn-withdrawn', 'session-erased', 'consent-revised', 'consent-withdrawn', 'upload-withdrawn', 'server-stopping', 'server-restart'].includes(reason)) { key = null; state = 'idle'; }
     else key = 'voiceConnectionFailed';
   }
-  return { key, state, timeExpired, errorReason,
-    retryAnchor: ['voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict'].includes(key),
-    fallback: key === 'voiceTimeLimit' ? 'voiceDeadline' : key,
+  return { key, state, timeExpired, errorReason, neutral,
+    retryAnchor: ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict'].includes(key),
+    fallback: key === 'voiceTimeLimit' ? 'voiceDeadline' : key === 'voiceConnectFailed' ? 'voiceConnectionFailed' : key,
   };
 }
 
@@ -70,16 +81,16 @@ export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditRea
   if (sentence === copy.featureConsent.voice) return copy.featureConsent.textNarrow;
   const state = Object.keys(copy.voiceStates).find(key => copy.voiceStates[key] === sentence);
   if (state) return copy.voiceStatesNarrow[state];
-  const message = messageKey && (copy[messageKey] === sentence || messageKey === 'voiceTimeLimit' && sentence === copy.voiceDeadline)
+  const message = messageKey && (copy[messageKey] === sentence || ['voiceTimeLimit', 'voiceConnectFailed'].includes(messageKey) && sentence === resolveCopy(copy, messageKey, classifyVoiceEnd({ key: messageKey }).fallback))
     ? messageKey : Object.keys(copy.voiceMessagesNarrow).find(key => copy[key] === sentence);
   if (message) {
     const classified = classifyVoiceEnd({ key: message });
-    return copy.voiceMessagesNarrow[classified.key] ?? copy.voiceMessagesNarrow[classified.fallback] ?? sentence;
+    return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`) ?? sentence : copy.voiceStatesNarrow.failed;
   }
   const reason = Object.keys(copy.reasons).find(key => copy.reasons[key] === sentence);
   if (['recovery-failed', 'start-failed', 'closure-uncertain', 'spend-deadline'].includes(reason)) {
     const classified = classifyVoiceEnd({ reason });
-    return copy.voiceMessagesNarrow[classified.key] ?? copy.voiceMessagesNarrow[classified.fallback] ?? sentence;
+    return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`) ?? sentence : copy.voiceStatesNarrow.failed;
   }
   const group = isConsentReason(reason) ? 'consent'
     : Object.keys(reasonGroups).find(key => reasonGroups[key].includes(reason)) ?? 'unavailable';

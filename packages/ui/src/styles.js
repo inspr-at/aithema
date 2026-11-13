@@ -146,7 +146,7 @@ svg { display:block; flex:none; }
 .audio-rail[data-message] .voice-state { position:absolute; z-index:2; top:calc(100% + 6px); left:56px; right:0; padding:.6rem .85rem; border:1px solid var(--aithema-line);
   border-radius:12px; background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); text-align:left; font-size:.8rem; line-height:1.45; color:var(--aithema-ink); }
 /* A separate fixed hit area leaves the polite status text and rail cells alone. */
-.audio-rail .voice-message-close { position:absolute; z-index:3; width:44px; height:44px;
+.audio-rail .voice-message-close { position:absolute; z-index:3; width:44px; height:44px; place-self:start; margin:0;
   left:calc(var(--voice-message-left,0px) + var(--voice-message-width,280px) - 44px);
   top:var(--voice-message-top,calc(100% + 8px)); border:0; border-radius:12px;
   color:var(--aithema-muted); background:transparent; box-shadow:none; }
@@ -157,7 +157,7 @@ svg { display:block; flex:none; }
 /* A live caption takes the pill while words arrive; the state stays readable to assistive technology. */
 .voice-signal:has(.voice-caption:not(:empty)) .voice-state { opacity:0; }
 .voice-caption { color:var(--aithema-ink); white-space:nowrap; text-overflow:clip; direction:rtl; }
-.audio-rail[data-state="failed"][data-message] .voice-state { color:var(--aithema-error); }
+.audio-rail[data-state="failed"][data-message]:not([data-time-bound]) .voice-state { color:var(--aithema-error); }
 
 /* Notices fill from the top; the permanent reservation leaves free room below them. */
 .voice-notices { grid-column:1/-1; min-width:0; display:flex; flex-direction:column; height:108px; font-size:.8rem; line-height:1.4; }

@@ -2,6 +2,7 @@ import { neutralBindingReason } from './reason-text.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { featureConsentText, paintConsentLine, paintNarrowText } from './consent-line.js';
 import { classifyVoiceEnd, creditVoiceStatus, narrowVoiceStatus } from './voice-status.js';
+import { resolveCopy } from './copy-resolve.js';
 import { icon } from './icons.js';
 import { setText } from './dom.js';
 import { Waveform } from './waveform.js';
@@ -84,7 +85,7 @@ export class AudioRail {
     }
     this.root.querySelector('.voice-message-close').addEventListener('click', () => this.clearMessage());
     this.root.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && this.state === 'failed' && this.root.hasAttribute('data-message')) { event.preventDefault(); this.clearMessage(); }
+      if (event.key === 'Escape' && this.root.contains(this.root.getRootNode().activeElement) && this.state === 'failed' && this.root.hasAttribute('data-message')) { event.preventDefault(); this.clearMessage(); }
     });
     this.button('start').addEventListener('click', () => void this.start());
     this.button('close').addEventListener('click', () => void this.close());
@@ -190,7 +191,8 @@ export class AudioRail {
     if (neutral !== undefined) return neutral;
     if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
     if (this.errorKey === 'voiceEnded' && this.endedCall?.visitorDurationSource === 'aithema-measured') return this.copy.voiceEndedAithemaMeasured;
-    if (this.errorKey === 'voiceTimeLimit') return this.copy.voiceTimeLimit ?? this.copy.voiceDeadline;
+    if (this.errorKey === 'voiceConnectFailed') return resolveCopy(this.copy, 'voiceConnectFailed', 'voiceConnectionFailed') ?? this.copy.voiceConnectionFailed;
+    if (this.errorKey === 'voiceTimeLimit') return resolveCopy(this.copy, 'voiceTimeLimit', 'voiceDeadline') ?? this.copy.voiceDeadline;
     return this.copy[this.errorKey] ?? this.copy.voiceConnectionFailed;
   }
   // Reconcile only after a fresh server feature read. A repaint immediately
@@ -231,17 +233,18 @@ export class AudioRail {
     this.root.dataset.startupPhase = this.startupPhase ?? '';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
     this.root.toggleAttribute('data-moved', Boolean(this.moved));
+    this.root.toggleAttribute('data-time-bound', Boolean(this.timeBoundEnd || this.errorKey === 'voiceTimeLimit'));
     this.root.toggleAttribute('data-message', !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded', 'voiceMoved'].includes(this.errorKey));
     const dismiss = this.root.querySelector('.voice-message-close');
     dismiss.hidden = this.state !== 'failed' || !this.root.hasAttribute('data-message');
-    dismiss.setAttribute('aria-label', c.voiceMessageClose ?? (c.display?.locale === 'de' ? 'Meldung schließen' : 'Close message'));
+    dismiss.setAttribute('aria-label', resolveCopy(c, 'voiceMessageClose'));
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
     // The session's one exhaustion announcement describes both credits and the saved conversation.
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
     paintConsentLine(this.root.querySelector('.voice-state'), { copy: c, feature: 'voice',
       verdict: active || transitional || usedUp || this.error ? { available: true } : available,
       text: usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
-      this.startupPhase ? c.voiceStates[this.startupPhase] : active || transitional ? c.voiceStates[this.root.dataset.state] :
+      this.startupPhase ? c.voiceStates[this.startupPhase] : this.timeBoundEnd && !active && !transitional ? c.voiceStates.failed : active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
@@ -317,12 +320,14 @@ export class AudioRail {
     const bound = timeLimit ?? (callId && known?.callId === callId ? known.timeLimit : undefined);
     const result = classifyVoiceEnd({ reason, timeLimit: bound });
     this.state = result.state; this.errorKey = result.key; this.errorReason = result.errorReason;
-    this.conversationTimeExpired ||= result.timeExpired;
+    this.conversationTimeExpired ||= result.timeExpired; this.timeBoundEnd = result.neutral;
     return result;
   }
-  failure(error) {
-    const result = classifyVoiceEnd({ error, phase: this.session ? 'active' : 'start', legacyMicrophone: !this.declaredSignal('onMicrophoneState') });
+  failure(error, { phase = this.session ? 'active' : this.waitingCall ? 'resume' : 'start' } = {}) {
+    const result = classifyVoiceEnd({ error, phase, legacyMicrophone: !this.declaredSignal('onMicrophoneState') });
     this.errorKey = result.key; this.errorReason = result.errorReason;
+    this.timeBoundEnd = result.neutral; this.conversationTimeExpired ||= result.timeExpired;
+    if (result.neutral) { this.waitingCall = null; this.paused = false; this.requiresTakeover = false; this.state = result.state; }
     this.retryAt = voiceRetryAt(error);
     this.render();
     if (this.state === 'failed') this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
@@ -424,7 +429,7 @@ export class AudioRail {
     }
     if (this.session) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
-    this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
+    this.resumeRequests.clear(); this.endedCall = null; this.timeBoundEnd = false; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
     this.button('close').focus({ preventScroll: true });
     this.notices.recoveryContext = false; this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
@@ -533,7 +538,7 @@ export class AudioRail {
       this.startupPhase = null; this.stopReplyWatch();
       this.state = this.waitingCall ? 'waiting' : 'failed';
       if (resumeProjected) this.onPause?.(true);
-      this.failure(error);
+      this.failure(error, { phase: resuming ? 'resume' : 'start' });
     } finally { clearTimeout(connectTimer); }
   }
   receiveState(state) {
@@ -789,10 +794,11 @@ export class AudioRail {
     this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null;
     this.startupPhase = null; this.retryConnecting = false; this.retryAt = 0; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.notices.clear();
+    this.timeBoundEnd = false;
     this.errorKey = !serverEnded && session ? 'voiceClosureUncertain' : null;
     const classified = reason && !serverEnded ? this.endMessage(reason, { timeLimit, callId: session?.callId }) : null;
     // Local hangup keeps the receipt message; only classified failures replace it.
-    if (classified?.state === 'idle' && !classified.key && session) this.errorKey = 'voiceClosureUncertain';
+    if (classified?.state === 'idle' && !classified.key && !classified.neutral && session) this.errorKey = 'voiceClosureUncertain';
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
     if (returnFocus) this.button('start').focus({ preventScroll: true });
     this.onEnd?.();
@@ -805,7 +811,7 @@ export class AudioRail {
           this.journal?.clear();
           this.settlement({ callId: session.callId, providerSessionId: session.providerSessionId, terminal });
         }
-        if (session && this.state === 'idle' && !this.endedCall?.settled) this.errorKey =
+        if (!this.timeBoundEnd && session && this.state === 'idle' && !this.endedCall?.settled) this.errorKey =
           terminal?.closureConfirmed && !terminal.usage?.costEstimated ? 'voiceEnded' : 'voiceClosureUncertain';
       } catch { /* Local hangup is complete; the durable server lease and journal retain unresolved closure. */ }
       finally { controller?.abort(); if (generation === this.generation) this.render(); }
