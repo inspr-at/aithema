@@ -204,10 +204,10 @@ for (const mode of ['type', 'voice']) test(`AIT-501 v2.2: copied tab storage can
   snapshot.featureMatrix.best = { text: allowed, voice: allowed, analysis: allowed };
   f.c.remove();
   // A live source tab answers the same identity ping used by the voice journal.
-  t.mock.method(globalThis, 'BroadcastChannel', class {
-    unref() {} close() {}
-    postMessage(data) { if (data.type === 'ping') queueMicrotask(() => this.onmessage?.({ data: { ...data, type: 'pong' } })); }
-  });
+  t.mock.method(globalThis, 'BroadcastChannel', function () { return {
+    unref() {}, close() {},
+    postMessage(data) { if (data.type === 'ping') queueMicrotask(() => this.onmessage?.({ data: { ...data, type: 'pong' } })); },
+  }; });
   f.configure(document.createElement('aithema-session'), snapshot); await tick();
   assert.equal(f.starts.length, 0);
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, mode === 'voice');
