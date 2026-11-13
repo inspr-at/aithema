@@ -8,6 +8,7 @@ import { startChild } from '../helpers.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 
 import { browserPath } from '../../scripts/install-test-browser.js';
+const browserArgs = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [];
 async function setup(t, settings = {}, server = '../../demo/server.js') {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-start-journey-'));
   const demo = await startChild(new URL(server, import.meta.url), join(directory, 'session.sqlite'), settings);
@@ -15,7 +16,7 @@ async function setup(t, settings = {}, server = '../../demo/server.js') {
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); } });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
     env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
-    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    args: browserArgs });
   const page = await browser.newPage(); page.setDefaultTimeout(30_000);
   const problems = []; page.on('pageerror', error => problems.push(error.message));
   t.after(() => assert.deepEqual(problems, []));
@@ -309,7 +310,7 @@ test('AIT-501: consent continuation in the browser, including default gesture po
   });
   t.after(() => server.kill());
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: browserArgs });
   t.after(() => browser.close());
   const checks = [];
   for (const scenario of ['text', 'voice', 'inactive-voice', 'host-focus', 'host-focus-voice', 'text-navigation', 'voice-navigation', 'review']) {
