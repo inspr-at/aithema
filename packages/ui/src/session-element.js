@@ -349,7 +349,7 @@ export class AithemaSession extends HTMLElement {
     if (chosen?.inputRevision === revision && this.#session.focusedQuestion && !answered && chosen.requestId !== this.#clarify?.requestId) {
       const question = this.#session.focusedQuestion;
       this.#clarify = { ...chosen, question, state: 'requesting', pending: Boolean(this.#clarifyRequest),
-        diagnostic: this.#clarify?.diagnostic ?? { status: null, accepted: false, failureReported: false } };
+        diagnostic: this.#clarifyRequest ?? { status: null, accepted: false, failureReported: false } };
       this.#clarifyReplies.set(chosen.requestId, question);
     }
     const focus = this.#clarify;
