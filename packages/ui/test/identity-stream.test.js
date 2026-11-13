@@ -176,8 +176,10 @@ test('AIT-470 U8: a repeat due while detached runs once on attach', async t => {
 });
 for (const conflict of [false, true]) test(`AIT-470 U9 ${conflict ? '409' : 'ahead'}: poll-only unlock reads and reconnects once`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
+  // AIT-518 checks on connect: hold that reply until the stream/read probes exist.
+  const unlock = Promise.withResolvers(); t.after(() => unlock.resolve(Response.json({})));
   const h = fixture470(t, { session: { identity: pending470({ pollVerification: true }) }, routes: {
-    'POST /identity/unlock': () => Response.json({ identity: verified470() }) } }); await tick(8);
+    'POST /identity/unlock': () => unlock.promise } }); await tick(8);
   h.state.snapshot = () => conflict ? new Response(null, { status: 409 }) : Response.json({ ...h.c.session, seq: h.c.session.seq + 1, identity: verified470(), featureMatrix: unlocked470 });
   const original = globalThis.fetch; let streams = 0;
   t.mock.method(globalThis, 'fetch', (url, options) => {
@@ -191,6 +193,7 @@ for (const conflict of [false, true]) test(`AIT-470 U9 ${conflict ? '409' : 'ahe
     }
     return original(url, options);
   });
+  unlock.resolve(Response.json({ identity: verified470() }));
   t.mock.timers.tick(4000); await tick(8);
   assert.equal(streams, 1); assert.equal(h.reads, 2); clear470(h);
   t.mock.timers.tick(60_000); await tick(8); assert.equal(streams, 1); assert.equal(h.reads, 2);
