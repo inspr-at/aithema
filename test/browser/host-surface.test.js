@@ -1308,3 +1308,81 @@ test('AIT-484: another page erases ready, live and folded conversations at 390 a
     await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-484-rects.json'), JSON.stringify(results, null, 2));
   }
 });
+
+test('AIT-486: resync countdown jumps down without moving Resend or its slot', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-resend-anchor-'));
+  const demo = await startDemo(directory); let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); } });
+  browser = await launch(directory, 'resend-anchor');
+  const page = await browser.newPage(), checks = [], problems = [];
+  await preparePage(page, ['en'], problems);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await inShadow(page, c => {
+    window.ait486 = { seed: structuredClone(c.session), now: 100_000, fresh: null };
+    Date.now = () => window.ait486.now;
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (url, init = {}) => {
+      const path = new URL(url, location.href).pathname, state = window.ait486;
+      if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        if (init.signal?.aborted) controller.close();
+        else init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+      if (path.endsWith('/identity')) {
+        if (state.fresh) await new Promise(resolve => { state.resolve = resolve; });
+        return Response.json({ identity: { ...c.session.identity, resendAfterMs: state.fresh ?? 59_000 }, visitorEmail: { canSave: false, canDelete: false } });
+      }
+      if (path === `/api/sessions/${c.session.id}`) return Response.json(c.session);
+      return nativeFetch(url, init);
+    };
+  });
+  for (const locale of ['en', 'de']) for (const width of [390, 1440]) for (const surface of ['inline', 'dialog']) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await inShadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const state = window.ait486; state.now = 100_000; state.fresh = null; state.resolve = null;
+      const session = structuredClone(state.seed); session.locale = locale; session.demo = true; session.settings.origin = 'chosen';
+      session.identity = { status: 'verification-pending', address: 'visitor@example.test', verificationRevision: 1, delivery: 'sent',
+        resendAfterMs: 59_000, pollVerification: false, verificationRequired: true, assessmentUnlocked: false };
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      c.configure({ session, copy, host: { verification: true } });
+    }, locale);
+    const prefix = surface === 'inline' ? '.verify-lock' : '.verify-dialog';
+    if (surface === 'dialog') {
+      await click(page, '.settings-open'); await click(page, '[data-tab="general"]'); await click(page, '.verify-entry');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.verify-dialog').open);
+    }
+    await visible(page, `${prefix} .verify-resend`);
+    await rest(page, `${prefix} .verify-resend`); await settleEvidenceFrame(page);
+    const measure = () => inShadow(page, (c, prefix) => {
+      const root = c.shadowRoot, read = selector => { const n = root.querySelector(`${prefix} ${selector}`), r = n.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+      return { resend: read('.verify-resend'), slot: read('.verify__note'), text: root.querySelector(`${prefix} .verify__note`).textContent,
+        figures: getComputedStyle(root.querySelector(`${prefix} .verify__note`)).fontVariantNumeric };
+    }, prefix);
+    const before = await measure();
+    assert.match(before.text, /59/u); assert.equal(before.figures, 'tabular-nums');
+    await inShadow(page, c => { window.ait486.fresh = 9_000; c.receive({ seq: c.session.seq + 2, type: 'session.paused', data: { paused: false } }); });
+    await until(page, () => typeof window.ait486.resolve === 'function');
+    const pending = await measure();
+    assert.equal(pending.text, before.text, 'snapshot keeps the running countdown');
+    await page.evaluate(() => window.ait486.resolve());
+    await until(page, prefix => /\b9\b/u.test(document.querySelector('aithema-session').shadowRoot.querySelector(`${prefix} .verify__note`).textContent), prefix);
+    const jumped = await measure();
+    await page.evaluate(() => { window.ait486.now += 1_000; });
+    await until(page, prefix => /\b8\b/u.test(document.querySelector('aithema-session').shadowRoot.querySelector(`${prefix} .verify__note`).textContent), prefix);
+    const ticked = await measure();
+    for (const [phase, state] of Object.entries({ before, pending, jumped, ticked })) for (const name of ['resend', 'slot']) {
+      const rect = state[name]; assert.ok(rect.width > 0 && rect.height > 0, `${locale}/${width}/${surface}/${phase}/${name}: visible box`);
+      for (const axis of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(rect[axis] - before[name][axis]) <= .5,
+        `${locale}/${width}/${surface}/${phase}/${name}/${axis}: ${before[name][axis]} -> ${rect[axis]}`);
+    }
+    checks.push({ locale, width, surface, before, pending, jumped, ticked });
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-486-rects.json'), JSON.stringify(checks, null, 2));
+  }
+  assert.deepEqual(problems, []);
+});
