@@ -92,10 +92,13 @@ function textKeys(values) {
 const lockedIdentity = identity => identity?.verificationRequired === true && identity.assessmentUnlocked !== true;
 // Each natural read owns at most five journal-driven repeats, with no timer.
 const REPEAT_LIMIT = 5;
+const START_INTENT_KEY = 'aithema-start-intent';
+const START_INTENT_TTL = 180_000;
 
 export class AithemaSession extends HTMLElement {
   #erased = null; #erasedIds = new Map(); #confirmations = new Map(); #anchorDepth = 0; #erasureJournal = null; #erasedCreating = false;
   #consentRefresh;
+  #startIntent = null; #startIntentTimer; #startFromNavigation = false;
   #featureRead = null;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
@@ -149,6 +152,8 @@ export class AithemaSession extends HTMLElement {
       if (this.#concept) this.#concept.sessionToken = sessionToken;
       this.#repaintLocale(copy); return;
     }
+    const returningStart = this.#session ? null : this.#readStartIntent(session.id);
+    if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     this.#cancelUploads();
@@ -190,6 +195,11 @@ export class AithemaSession extends HTMLElement {
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
     // On my device in place, and a device conversation never starts a call, so its journal stays empty.
     this.#journal = voiceJournal(tabStorage(), session.id);
+    if (returningStart) {
+      this.#startIntent = returningStart; this.#startFromNavigation = true; this.#inputMode = returningStart.mode;
+      this.#expireStartIntent();
+    }
+    if (session.tombstone || session.consentWithdrawn) this.#clearStartIntent();
     const erased = Boolean(session.tombstone) || this.#erasedIds.has(session.id);
     this.#erased = null; this.#erasedCreating = false; this.removeAttribute('data-aithema-erased');
     if (erased && !this.#erasedIds.has(session.id)) this.#erasedIds.set(session.id, { via: 'journal', announced: false });
@@ -202,6 +212,7 @@ export class AithemaSession extends HTMLElement {
     if (this.isConnected) { this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); }
     if (reopen) this.shadowRoot.querySelector('.settings-open').focus();
     if (this.#refocus) { this.shadowRoot.querySelector(this.#refocus)?.focus(); this.#refocus = null; }
+    if (this.#startIntent && this.isConnected) void this.#refreshFeatures();
   }
   connectedCallback() {
     if (!this.#session) return;
@@ -219,6 +230,7 @@ export class AithemaSession extends HTMLElement {
     this.#concept?.connect(); this.#connect();
     if (this.#consentRefresh) { this.#consentRefresh.retryTimer = null; void this.#refreshFeatures(); }
     this.#repeatFeatures();
+    if (this.#startIntent) void this.#refreshFeatures();
     this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
@@ -227,6 +239,7 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    clearTimeout(this.#startIntentTimer); this.#startIntent = null;
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
@@ -840,6 +853,7 @@ export class AithemaSession extends HTMLElement {
   // A conversation from the library (open, new, reset, or the replacement of a deleted one). The host
   // usually handles it (its voice clients belong to one conversation); otherwise this element switches.
   #adopt(session, reason) {
+    this.#clearStartIntent();
     const event = new CustomEvent('aithema-open-conversation', { detail: { session: structuredClone(session), reason, previousSessionId: this.#session.id },
       bubbles: true, composed: true, cancelable: true });
     this.#refocus = '.conversations-toggle';
@@ -929,8 +943,10 @@ export class AithemaSession extends HTMLElement {
     const next = Math.max(0, Math.min(bounds.height + inset, band.getBoundingClientRect().bottom - bounds.top + inset));
     if (next !== inset) shell.style.setProperty('--transcript-top-inset', `${next}px`);
   };
+  #startVisible = () => { if (this.#startIntent && this.ownerDocument.visibilityState === 'visible') void this.#refreshFeatures(); };
   #watchPage(on) {
     const view = this.ownerDocument.defaultView, listen = on ? 'addEventListener' : 'removeEventListener';
+    this.ownerDocument[listen]('visibilitychange', this.#startVisible);
     view?.[listen]('pagehide', this.#pagehide); view?.[listen]('pageshow', this.#pageshow);
     view?.[listen]('scroll', this.#syncBandScroll, { passive: true, capture: true });
     view?.[listen]('resize', this.#syncBandScroll);
@@ -1139,6 +1155,7 @@ export class AithemaSession extends HTMLElement {
   }
   #enterErased(id, via) {
     if (id !== this.#session.id || this.#erased) return;
+    this.#clearStartIntent();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
     const remembered = this.#erasedIds.get(id);
     this.#erased = { id, via, stage: workspace.dataset.stage, understanding: workspace.dataset.understanding,
@@ -1399,6 +1416,7 @@ export class AithemaSession extends HTMLElement {
     else if (before === 'device' && this.isConnected) this.#connect();
   }
   #newConversation({ processingPreset, settings }) {
+    this.#clearStartIntent();
     if (this.#erased) { void this.#newAfterErased(); return; }
     this.#dialog.close();
     this.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: { processingPreset, settings: structuredClone(settings ?? {}),
@@ -1430,10 +1448,12 @@ export class AithemaSession extends HTMLElement {
     await this.#refreshFeatures();
     if (this.#erased) return;
   }
-  #requestConsent(reason, features = FEATURES.filter(f => isConsentReason(this.#feature(f).reason))) {
+  #requestConsent(reason, features = FEATURES.filter(f => isConsentReason(this.#feature(f).reason)), intent = 'review') {
+    if (intent !== 'start') this.#clearStartIntent();
+    const mode = this.#mode(), required = features.filter(f => f === (mode === 'voice' ? 'voice' : 'text'));
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
-    this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId: this.#session.id, reason, features: [...features] },
+    this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId: this.#session.id, reason, features: [...features], intent, mode, required },
       bubbles: true, composed: true }));
   }
   #restoreFailure() {
@@ -2415,7 +2435,7 @@ export class AithemaSession extends HTMLElement {
     for (const [mode, glyph, label] of [['voice', 'mic', r.voice], ['type', 'keyboard', r.type]]) {
       const choice = node('button', 'ready__mode'); choice.type = 'button'; choice.dataset.mode = mode; choice.dataset.focusKey = `mode-${mode}`;
       choice.innerHTML = icon(glyph); choice.append(node('span', '', label));
-      choice.addEventListener('click', () => { if (choice.getAttribute('aria-disabled') !== 'true') { this.#inputMode = mode; this.#render('transcript'); } });
+      choice.addEventListener('click', () => { if (choice.getAttribute('aria-disabled') !== 'true') { this.#clearStartIntent(); this.#inputMode = mode; this.#render('transcript'); } });
       modes.append(choice);
     }
     return modes;
@@ -2486,13 +2506,58 @@ export class AithemaSession extends HTMLElement {
   }
   // The explicit start: typing opens the composer; speaking starts the call, the only path to the
   // microphone. A start the current consent does not cover goes to the host's consent first.
+  #clearStartIntent() {
+    clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#startFromNavigation = false;
+    try { tabStorage()?.removeItem(START_INTENT_KEY); } catch { /* In-memory intent still works without storage. */ }
+  }
+  #readStartIntent(sessionId) {
+    try {
+      const storage = tabStorage(), value = storage?.getItem(START_INTENT_KEY);
+      storage?.removeItem(START_INTENT_KEY);
+      const intent = JSON.parse(value ?? 'null'), now = Date.now();
+      return intent?.sessionId === sessionId && ['type', 'voice'].includes(intent.mode) &&
+        Number.isSafeInteger(intent.settingsRevision) && Number.isSafeInteger(intent.consentRevision) &&
+        Number.isFinite(intent.expiresAt) && intent.expiresAt > now && intent.expiresAt <= now + START_INTENT_TTL ? intent : null;
+    } catch { return null; }
+  }
+  #expireStartIntent() {
+    clearTimeout(this.#startIntentTimer);
+    this.#startIntentTimer = setTimeout(() => this.#clearStartIntent(), Math.max(0, this.#startIntent.expiresAt - Date.now()));
+    this.#startIntentTimer.unref?.();
+  }
+  #mayFocus() { const active = this.ownerDocument.activeElement; return !active || active === this.ownerDocument.body || active === this; }
+  #consumeStartIntent() {
+    const intent = this.#startIntent;
+    if (!intent) return;
+    if (intent.expiresAt <= Date.now() || intent.sessionId !== this.#session.id || intent.mode !== this.#mode() ||
+      intent.settingsRevision !== this.#session.settings.revision || this.#session.consentWithdrawn || this.#session.tombstone) {
+      this.#clearStartIntent(); return;
+    }
+    // A lagging host ledger owns its refresh window. Only a settled verdict can cancel Start.
+    if (this.#consentRefresh) return;
+    if (isConsentReason(this.#feature(intent.mode === 'voice' ? 'voice' : 'text').reason)) { this.#clearStartIntent(); return; }
+    if (this.#session.consentRevision <= intent.consentRevision || this.ownerDocument.visibilityState !== 'visible') return;
+    const navigation = this.#startFromNavigation;
+    this.#clearStartIntent(); // Consume before rendering or calling a host port.
+    if (intent.mode === 'voice' && (navigation || !globalThis.navigator?.userActivation?.isActive)) {
+      const focus = this.#mayFocus();
+      this.#started = true; this.#inputMode = 'voice'; this.#render('transcript'); this.#render('composer');
+      if (focus) this.shadowRoot.querySelector('.voice-start')?.focus({ preventScroll: true });
+    } else this.#start();
+  }
   #start() {
     const mode = this.#mode(), feature = this.#feature(mode === 'voice' ? 'voice' : 'text');
-    if (!feature.available && isConsentReason(feature.reason)) { this.#requestConsent('ready'); return; }
+    if (!feature.available && isConsentReason(feature.reason)) {
+      this.#clearStartIntent();
+      this.#startIntent = { sessionId: this.#session.id, mode, settingsRevision: this.#session.settings.revision,
+        consentRevision: this.#session.consentRevision, expiresAt: Date.now() + START_INTENT_TTL };
+      try { tabStorage()?.setItem(START_INTENT_KEY, JSON.stringify(this.#startIntent)); } catch { /* Storage is optional. */ }
+      this.#expireStartIntent(); this.#requestConsent('ready', undefined, 'start'); return;
+    }
+    const focus = this.#mayFocus();
     this.#started = true; this.#render('transcript'); this.#render('composer');
-    // Focus lands where the conversation continues: the composer, or the call's own group (no key there ends it).
-    if (mode === 'voice') { void this.#rail.start(); this.shadowRoot.querySelector('.audio-rail').focus(); }
-    else this.shadowRoot.querySelector('textarea').focus();
+    if (mode === 'voice') { void this.#rail.start({ focus }); if (focus) this.shadowRoot.querySelector('.audio-rail').focus(); }
+    else if (focus) this.shadowRoot.querySelector('textarea').focus();
   }
   #withdrawButton(row) {
     const copy = this.#copy, button = document.createElement('button');
@@ -2838,7 +2903,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#erased) return;
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.type === 'session.not-found') { void this.#observeResponse(event.data.url, event.data.response); return; }
-    if (event.type === 'session.erased') { this.#erasureJournal = event; this.#enterErased(this.#session.id, 'journal'); return; }
+    if (event.type === 'session.erased') { this.#clearStartIntent(); this.#erasureJournal = event; this.#enterErased(this.#session.id, 'journal'); return; }
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.seq) {
       if (event.seq <= this.#cursor) return;
@@ -2847,6 +2912,7 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
+      if (event.type === 'settings.changed' || event.type === 'turn.withdrawn' || consentRevised && !event.data.granted) this.#clearStartIntent();
       if (consentRevised) { this.#watchConsentRefresh(event.data.granted, event.data.changed, event.data.removed); this.#concept.reviseConsent(event.data.changed, event.data.granted, event.data.removed); }
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
@@ -3148,6 +3214,7 @@ export class AithemaSession extends HTMLElement {
           clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer); clearTimeout(pending?.documentTimer);
           this.#consentRefresh = null;
           this.#concept.update(this.#session, doc, true);
+          this.#consumeStartIntent();
         } else if (pending?.scopedGrant && !session.consentWithdrawn && Number.isSafeInteger(doc?.consentRevision) && doc.consentRevision >= 0 && doc.consentRevision < revision && !pending.failed) {
           // A grant can lead its host ledger. Withdrawals retain AIT-364
           // rejection in this response tick; only grants may use the original

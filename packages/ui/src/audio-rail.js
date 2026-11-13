@@ -310,7 +310,8 @@ export class AudioRail {
     this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
     this.retryAt = voiceRetryAt(error);
     this.render();
-    if (this.state === 'failed') this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+    const active = this.root.ownerDocument.activeElement;
+    if (this.state === 'failed' && (!active || active === this.root.ownerDocument.body || active === this.root.host)) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
   }
   async cooldown(until, signal) {
     const deadline = Math.min(until, Date.now() + 60_000);
@@ -371,7 +372,7 @@ export class AudioRail {
       if (this.ownershipWait === wait) this.ownershipWait = null;
     }
   }
-  async start() {
+  async start({ focus = true } = {}) {
     if (this.state === 'connecting' || !this.canContinue() || !this.client) return;
     if (this.moved || this.requiresTakeover) {
       if (this.busy) return;
@@ -410,7 +411,7 @@ export class AudioRail {
     if (this.session) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
-    this.button('close').focus({ preventScroll: true });
+    if (focus) this.button('close').focus({ preventScroll: true });
     this.notices.recoveryContext = false; this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;

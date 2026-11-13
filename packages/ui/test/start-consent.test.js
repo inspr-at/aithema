@@ -10,7 +10,7 @@ await import('../src/session-element.js');
 const blocked = { available: false, reason: 'current processing consent required' };
 const allowed = { available: true, reason: null };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture(t, mode = 'type', active = false) {
+function fixture(t, mode = 'type', active) {
   sessionStorage.clear();
   const starts = [];
   t.mock.method(AudioRail.prototype, 'start', function () { starts.push(this); return Promise.resolve(); });
@@ -41,7 +41,7 @@ for (const mode of ['type', 'voice']) test(`AIT-501: ${mode} Start resumes exact
   const f = fixture(t, mode, true), events = [];
   f.c.addEventListener('aithema-consent', e => events.push(e.detail));
   f.start();
-  assert.deepEqual(events, [{ sessionId: f.c.session.id, reason: 'ready', features: ['text', 'voice', 'analysis'], intent: 'start', mode, required: [mode === 'voice' ? 'voice' : 'text'] }]);
+  assert.deepEqual(events, [{ sessionId: f.c.session.id, reason: 'ready', features: ['text', 'analysis', 'voice'], intent: 'start', mode, required: [mode === 'voice' ? 'voice' : 'text'] }]);
   await f.grant();
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, true);
   assert.equal(f.starts.length, mode === 'voice' ? 1 : 0);
