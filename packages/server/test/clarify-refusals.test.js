@@ -20,7 +20,7 @@ function fixture(t, { healthMs, unhealthy = false, parseFailure = false } = {}) 
         verifiedAt: now() - 1000, expiresAt: now() + 60_000 } } };
     presets.best.bindings.reaction = binding;
     presets.best.policy = { endpoints: [binding.endpoint] };
-    consent.coverage = ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, expiresAt: now() + 60_000 });
+    consent.coverage = ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: now(), expiresAt: now() + 60_000 });
     registry = new PluginRegistry().register({ ...mock, binding, health: async () => ({ available: false }) });
   }
   const runtime = createPluginRuntime({ storage, reasoning: mock, consent, presets, now,

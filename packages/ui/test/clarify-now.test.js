@@ -315,3 +315,30 @@ test('AIT-503 diagnostic excludes arbitrary server strings, transport messages a
     { status: null, error: null, reason: null, admissionReason: null, accepted: false, acceptedThenLaneFailed: false },
   ]);
 });
+
+
+test('AIT-503 rejected selected-item retry keeps its row branch and records HTTP status', async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', inputRevision: inputRevision(f.c.session), error: 'reasoning-unavailable', retryable: true } });
+  warnings.length = 0;
+  f.post(() => Response.json({ error: 'focus-refused', reason: 'not-admitted', admissionReason: 'budget reconciling' }, { status: 403 }));
+  f.button(1).click(); await tick();
+  assert.equal(f.rows()[1].dataset.state, 'retry');
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: 403, error: 'focus-refused', reason: 'not-admitted', admissionReason: 'budget reconciling',
+    accepted: false, acceptedThenLaneFailed: false,
+  }]]);
+});
+
+test('AIT-503 malformed accepted JSON preserves observed 202 without claiming lane.failed', async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => new Response('{', { status: 202, headers: { 'content-type': 'application/json' } }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: 202, error: null, reason: null, admissionReason: null, accepted: true, acceptedThenLaneFailed: false,
+  }]]);
+});
