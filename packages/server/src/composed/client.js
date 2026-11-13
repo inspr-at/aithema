@@ -115,7 +115,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
         }
       } catch (error) {
         if (!stopped && source === transport) {
-          if (error?.code === 'deadline' && now() >= lifecycle.state.spendDeadlineAt) await session.close({ reason: 'spend-deadline' });
+          if (now() >= lifecycle.state.spendDeadlineAt) await session.close({ reason: 'spend-deadline' });
           else if (voiceAuthorityLost(error)) await session.close({ reason: 'call-authorization-lost' });
           else await lifecycle.recover();
         }
