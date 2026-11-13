@@ -81,6 +81,8 @@ export function createOrb(document, { motion = true } = {}) {
     }
     pose = prism.animate([{ transform: from }, { transform: on ? 'rotateX(0deg) rotateY(0deg)' : home || 'rotateX(10deg) rotateY(0deg)' }],
       { duration: 700, easing: on ? 'cubic-bezier(.2,.9,.25,1.2)' : 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards' });
+    // Web Animations: cancel() rejects finished with AbortError and marks it handled; mirror that so non-browser DOMs (happy-dom ≥20.12) don't report an unhandled rejection.
+    pose.finished.catch(() => {});
     if (!on) pose.onfinish = () => { pose?.cancel(); pose = null; if (!document.hidden && mounted) turn?.play(); turn = null; home = null; };
     visibility();
   };
@@ -110,7 +112,8 @@ export function createOrb(document, { motion = true } = {}) {
     setMotion(on) { requested = Boolean(on); syncMotion(); },
     destroy() {
       mounted = false; document.removeEventListener('visibilitychange', visibility); preference?.removeEventListener('change', syncMotion);
-      element.removeEventListener('aithema-orb-reveal', onReveal); pose?.cancel(); pose = null; turn?.cancel(); turn = null; home = null;
+      element.removeEventListener('aithema-orb-reveal', onReveal); pose?.cancel(); pose = null;
+      turn?.finished.catch(() => {}); turn?.cancel(); turn = null; home = null;
       paused.clear(); element.dataset.orbPaused = '';
     },
   };

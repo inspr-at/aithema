@@ -140,7 +140,7 @@
     },
     {
       "name": "happy-dom",
-      "version": "20.11.2",
+      "version": "21.0.4",
       "license": "MIT",
       "use": "Browser DOM implementation for web component tests."
     },

@@ -64,7 +64,9 @@ test('AIT-140: assistive activation opens without DOM focus and is removed on de
   const f = fixture(t); const before = f.document.activeElement;
   f.orb.element.click(); assert.equal(f.state(), 'open'); assert.equal(f.document.activeElement, before);
   assert.equal(f.orb.element.getAttribute('aria-expanded'), 'true'); assert.ok(f.controls.every(node => node.inert));
-  f.reveal.destroy(); f.orb.element.click(); assert.equal(f.band.querySelector('nav'), null); assert.equal(f.timers.size, 0);
+  f.reveal.destroy(); f.orb.element.click(); assert.equal(f.band.querySelector('nav'), null);
+  // happy-dom 21 schedules animation finishes via window.setTimeout (lib/animation/Animation.js:212), counted by this fixture's fake.
+  f.orb.destroy(); assert.equal(f.timers.size, 0);
 });
 
 test('AIT-140: exit waits for the last control to finish its delayed 800ms return', t => {
