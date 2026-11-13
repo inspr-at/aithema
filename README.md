@@ -413,9 +413,13 @@ fact comes from the routes above. Without `host` nothing changes.
   **Verify your email** / **Resend or change** closes Settings and opens the
   verification dialog; closing it returns focus to the gear.
   Send, resend with a visible cooldown, change address; 400 and 429 answers are
-  plain words. While a link is pending the component polls `S/identity/unlock`
-  (every 4 s, not while the page is hidden). Unlocking keeps a manual pause and
-  says so; focus in the form moves to Resume or the composer.
+  plain words. While a link is pending, the component immediately calls
+  `POST S/identity/unlock` after connect and when the page becomes visible or the
+  window regains focus. At most one request is in flight per conversation; bursts
+  within 250 ms are coalesced. It then polls every 4 s while visible.
+  `host.identity.verify()` may run sooner and slightly more often. No API change.
+  Unlocking keeps a manual pause and says so; focus in the form moves to Resume
+  or the composer.
 - **Library** (`library: true`): a dialog listing the owner's conversations with
   search (server side), sortable Title and Last activity columns, open, inline
   rename, delete and reset with a confirmation that states the erasure, and New.

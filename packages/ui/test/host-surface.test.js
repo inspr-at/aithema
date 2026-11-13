@@ -132,7 +132,8 @@ test('AIT-193: an identity response after disconnect cannot restart countdown or
   const reply = Promise.withResolvers();
   let serverIdentity = pending({ resendAfterMs: 0 });
   const { c, root, calls } = setup(t, { host: { verification: true }, session: { identity: pending({ resendAfterMs: 0 }) },
-    routes: { 'GET /identity': () => Response.json({ identity: serverIdentity }), 'POST /identity/resend': () => reply.promise } });
+    routes: { 'GET /identity': () => Response.json({ identity: serverIdentity }),
+      'POST /identity/unlock': () => Response.json({ identity: serverIdentity }), 'POST /identity/resend': () => reply.promise } });
   t.after(() => reply.resolve(Response.json({ identity: pending() })));
   await tick(8); root.querySelector('.verify-lock .verify-resend').click(); await tick(8);
   assert.ok(calls.some(call => call.path === '/identity/resend'));
