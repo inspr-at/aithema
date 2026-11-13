@@ -3745,7 +3745,7 @@ test('AIT-502 v2.2: resumed waiting-call bound refusal carries additive reason a
   const h = voiceFixture(t), first = await h.start();
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
   await h.handlers.idle();
-  const admit = h.runtime.admitVoice;
+  const admit = h.runtime.admitVoice.bind(h.runtime);
   h.runtime.admitVoice = async args => { const admitted = await admit(args); h.advance(60_001); return admitted; };
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
   assert.equal(response.status, 504);
