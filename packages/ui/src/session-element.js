@@ -676,7 +676,7 @@ export class AithemaSession extends HTMLElement {
       }
     });
     if (this.#voiceBound) {
-      this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
+      this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, locale: () => this.#session.locale, client: this.#voiceClientFor(),
         noticesRoot: root.querySelector('.voice-notices'),
         waitingCall: this.#session.voiceLifecycle,
         replyVisible: (text, turnId) => Boolean(text && this.#session.transcript.some(t => (!turnId || t.id === turnId) && t.role === 'assistant' && !t.erased && !t.withdrawn && t.content === text &&

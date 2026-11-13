@@ -1096,6 +1096,11 @@ error codes, elapsed time and retained liability through its private `log` port.
 
 ### Voice end messages
 
+Credit closes (`host-limit`, `session`, `voiceVisitor`, `budget-limit`) use the
+existing used-up status and clear after admission recovers. Purpose pauses and
+session revocation end quietly with “Call ended”; unlisted transport ends retain
+`voiceConnectionFailed`.
+
 `voice.state`, the start receipt and the `voiceLifecycle` snapshot add optional
 `timeLimit: 'call' | 'conversation'`. It identifies which bound selected the retained
 `spendDeadlineAt` (ties select the conversation cap). Identity, epoch and existing end
@@ -1122,6 +1127,8 @@ default wins; otherwise the shipped new-key default wins. The split keys are
 `voiceConnectFailed` ← `voiceConnectionFailed` and `voiceTimeLimit` ← `voiceDeadline`.
 Brand-new keys without a legacy key (including close and narrow labels) use the host
 value, then the active locale's shipped text, then English, and never render empty text.
+When a host omits `copy.display.locale`, the component uses the session's active
+locale for these fallbacks, including narrow labels and the close control.
 
 The existing **Retry call** label remains. Time-bound ends use neutral colour. Failed
 messages have a separate close control; Escape dismisses only while focus is inside

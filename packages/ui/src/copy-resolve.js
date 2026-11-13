@@ -12,9 +12,10 @@ const value = copy => present(copy) ? copy : undefined;
 
 /** Resolve additive copy keys without hiding a host's legacy override.
  * Dot paths also support nested copy, such as voiceMessagesNarrow.*.
+ * The component supplies its active locale when a host omits display.locale.
  */
-export function resolveCopy(copy, key, legacyKey) {
-  const shipped = bundles[read(copy, 'display.locale')] ?? en;
+export function resolveCopy(copy, key, legacyKey, locale) {
+  const shipped = bundles[read(copy, 'display.locale') ?? locale] ?? en;
   const fallback = value(read(shipped, key)) ?? value(read(en, key));
   const current = value(read(copy, key));
   if (current && !same(current, fallback)) return current;
