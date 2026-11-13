@@ -29,3 +29,21 @@ for (const timeLimit of ['call', 'conversation']) test(`AIT-502: durable voice.s
     assert.equal(root.querySelector('.audio-rail').hasAttribute('data-message'), false);
   }
 });
+
+test('AIT-502 v2.2: unknown durable spend bound has no message and offers Start', async t => {
+  const session = createSession({ demo: true }), events = voiceEvents(), c = document.createElement('aithema-session');
+  session.featureMatrix = { best: Object.fromEntries(['text', 'voice', 'analysis'].map(key => [key, { available: true }])) };
+  const call = { callId: 'unknown-call', providerSessionId: 'segment', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { events.end(); return { closureConfirmed: true, usage: { costEstimated: false } }; } };
+  t.mock.method(globalThis, 'fetch', async (_url, init = {}) => new Response(new ReadableStream({ start(controller) {
+    init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+  } })));
+  c.configure({ session, copy: en, voiceClient: { manifest, async start() { return call; } } });
+  document.body.append(c); t.after(async () => { c.remove(); events.end(); await window.happyDOM.abort(); });
+  const root = c.shadowRoot; root.querySelector('.voice-start').click(); await flush();
+  c.receive({ type: 'voice.state', data: { callId: 'unknown-call', providerSessionId: 'segment', state: 'ended', reason: 'spend-deadline' } });
+  await flush();
+  assert.equal(root.querySelector('.voice-state').getAttribute('aria-label'), en.voiceStates.failed);
+  assert.equal(root.querySelector('.audio-rail').hasAttribute('data-message'), false);
+  assert.equal(root.querySelector('.voice-start').disabled, false); assert.equal(root.querySelector('.voice-retry').disabled, true);
+});
