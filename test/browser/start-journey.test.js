@@ -286,6 +286,19 @@ c.configure({copy:en,session, ...(mode==='voice'?{voiceClient:{async start({call
 globalThis.grant = () => {covering=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
 globalThis.fixtureReady=true;
 </script></body></html>`;
+// Puppeteer's convenience evaluations carry a user gesture. Consent snapshots and
+// asynchronous grants must not manufacture activation for the inactive-voice case.
+async function withoutGesture(page, fn, argument) {
+  const client = await page.createCDPSession();
+  try {
+    const { result, exceptionDetails } = await client.send('Runtime.evaluate', {
+      expression: `(${fn.toString()})(${JSON.stringify(argument) ?? 'undefined'})`,
+      userGesture: false, returnByValue: true, awaitPromise: true,
+    });
+    if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+    return result.value;
+  } finally { await client.detach(); }
+}
 const consentStartState = page => page.$eval('aithema-session', c => ({ ready: !c.shadowRoot.querySelector('.intro').hidden,
   focus: c.shadowRoot.activeElement?.className, host: document.activeElement.id, starts: globalThis.starts }));
 
@@ -310,7 +323,8 @@ test('AIT-501: consent continuation in the browser, including default gesture po
           if (url.pathname === '/start-fixture') return request.respond({ status: 200, contentType: 'text/html', body: startConsentFixture });
           if (url.pathname.endsWith('/events')) return; // Hold SSE open; reconnects must not add unrelated refreshes.
           if (url.pathname.startsWith('/api/sessions/')) {
-            const body = await page.$eval('aithema-session', (c, consent) => {
+            const body = await withoutGesture(page, consent => {
+              const c = document.querySelector('aithema-session');
               if (consent) return { consentRevision: c.session.consentRevision, selected: [], features: {} };
               const s = c.session;
               if (globalThis.covering) s.featureMatrix.best = { text: { available: true }, voice: { available: true }, analysis: { available: true } };
@@ -330,8 +344,15 @@ test('AIT-501: consent continuation in the browser, including default gesture po
         if (scenario.endsWith('navigation')) {
           await page.$eval('aithema-session', c => { const s=c.session;s.consentRevision++;sessionStorage.setItem('fixture-session',JSON.stringify(s)); });
           await page.goto('about:blank'); await page.goto(url); await page.waitForFunction(() => globalThis.fixtureReady);
-        } else await page.evaluate(() => grant());
-        if (scenario !== 'review') await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden);
+        } else await withoutGesture(page, () => grant());
+        if (scenario === 'inactive-voice') await withoutGesture(page, async () => {
+          const deadline = performance.now() + 10_000;
+          while (!document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden) {
+            if (performance.now() > deadline) throw new Error('consent continuation did not settle');
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+        });
+        else if (scenario !== 'review') await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden);
         const result = await consentStartState(page); checks.push({ scenario, ...result });
         assert.equal(result.ready, scenario === 'review');
         assert.equal(result.starts, ['voice', 'host-focus-voice'].includes(scenario) ? 1 : 0);
