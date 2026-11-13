@@ -2439,7 +2439,7 @@ export class AithemaSession extends HTMLElement {
     for (const [mode, glyph, label] of [['voice', 'mic', r.voice], ['type', 'keyboard', r.type]]) {
       const choice = node('button', 'ready__mode'); choice.type = 'button'; choice.dataset.mode = mode; choice.dataset.focusKey = `mode-${mode}`;
       choice.innerHTML = icon(glyph); choice.append(node('span', '', label));
-      choice.addEventListener('click', () => { if (choice.getAttribute('aria-disabled') !== 'true') { this.#clearStartIntent(); this.#inputMode = mode; this.#render('transcript'); } });
+      choice.addEventListener('click', () => { if (choice.getAttribute('aria-disabled') !== 'true') { if (mode !== this.#mode()) this.#clearStartIntent(); this.#inputMode = mode; this.#render('transcript'); } });
       modes.append(choice);
     }
     return modes;
