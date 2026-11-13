@@ -20,8 +20,8 @@ export class Verification {
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #resendUntil = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
-  #checking = false; #lastCheck = null; #connectionGeneration = 0;
-  #refresh = () => { this.#schedule(); void this.#check(); };
+  #checking = false; #checkedSinceConnect = false; #lastCheck = null; #connectionGeneration = 0;
+  #refresh = () => { void this.#check({ coalesce: true }); this.#schedule(); };
   /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}; notice() is the AI notice line. */
   constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale, creditsChanged, streaming = () => false }) {
     this.#root = root; this.#copy = copy; this.#request = request; this.#status = status; this.#onChange = onChange;
@@ -49,7 +49,7 @@ export class Verification {
       for (const key of ['send', 'resend', 'cancel', 'change']) setText(form[key], v[key]);
       setText(form.root.querySelector('.verify-primary-measure'), v.send);
     }
-    this.#paint();
+    this.#paint(); if (!this.#checkedSinceConnect) this.#schedule();
   }
   get #v() { return this.#copy.hostSurface.verify; }
   /** A host identity port exists for this conversation (erased identities count as none). */
@@ -66,6 +66,7 @@ export class Verification {
         this.#email.set({ canDelete: response.body.visitorEmail?.canDelete === true, ...(typeof response.body.delivery === 'boolean' ? { delivery: response.body.delivery } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
         if (generation === this.#identityGeneration) this.set(response.body.identity);
+        else if (!this.#checkedSinceConnect) this.#schedule();
       }
     } catch { /* No identity port: the entry stays away. */ }
     if (this.#visitorEmail?.canSave === false && this.#visitorEmail.canDelete === false) return;
@@ -76,12 +77,12 @@ export class Verification {
         this.#email.set({ visitor: response.body.visitor, notice: response.body.notice,
           ...(typeof response.body.notice?.deliveryEnabled === 'boolean' ? { delivery: response.body.notice.deliveryEnabled } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
-        this.#paint(); this.#onChange?.();
+        this.#paint(); if (!this.#checkedSinceConnect) this.#schedule(); this.#onChange?.();
       }
     } catch { /* Hosts without the optional visitor port keep verification. */ }
   }
   setCreditsState(creditsState) { this.#email.set({ creditsState }); }
-  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner, creditsState: 'loaded' }); this.#paint(); }
+  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner, creditsState: 'loaded' }); this.#paint(); if (!this.#checkedSinceConnect) this.#schedule(); }
   focusEntry() { this.#email.focus(); }
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
@@ -138,6 +139,8 @@ export class Verification {
   connect() {
     if (!this.#alive || this.#connected) return;
     this.#connected = true;
+    // A reconnect owes a fresh check even while the previous connection awaits a reply.
+    this.#checkedSinceConnect = false;
     this.#root.ownerDocument.addEventListener('visibilitychange', this.#refresh);
     this.#root.ownerDocument.defaultView?.addEventListener('focus', this.#refresh);
     this.#paint(); this.#refresh();
@@ -341,12 +344,18 @@ export class Verification {
     return this.#alive && this.#connected && this.enabled && this.canCollect && this.#email.delivery &&
       this.#identity.pollVerification && this.#root.ownerDocument.visibilityState !== 'hidden';
   }
-  async #check() {
+  #coalesceDelay() {
+    if (this.#lastCheck === null) return 0;
+    const elapsed = Date.now() - this.#lastCheck;
+    // A wall-clock rollback must not postpone a refresh; timer checks bypass this guard.
+    return elapsed < 0 ? 0 : Math.max(0, Math.min(REFRESH_COALESCE_MS, this.#pollMs) - elapsed);
+  }
+  async #check({ coalesce = false } = {}) {
     if (!this.#canCheck || this.#checking) return;
     // Focus and visibility often arrive together, even after a fast reply settles.
-    if (this.#lastCheck !== null && Date.now() - this.#lastCheck < Math.min(REFRESH_COALESCE_MS, this.#pollMs)) { this.#schedule(); return; }
+    if (coalesce && this.#coalesceDelay() > 0) return;
     clearTimeout(this.#poll); this.#poll = null;
-    this.#checking = true; this.#lastCheck = Date.now();
+    this.#checking = true; this.#checkedSinceConnect = true; this.#lastCheck = Date.now();
     const generation = this.#connectionGeneration;
     try {
       const response = await this.#request('identity/unlock', {});
@@ -362,9 +371,13 @@ export class Verification {
     if (!counting && this.#tick) { clearInterval(this.#tick); this.#tick = null; }
     clearTimeout(this.#poll); this.#poll = null;
     if (!this.#canCheck || this.#checking) return;
+    // load() and later gate changes can enable the first check after connect.
+    // finally also comes here when a stale request had blocked a reconnect.
+    const delay = this.#checkedSinceConnect ? this.#pollMs : this.#coalesceDelay();
+    if (delay === 0) { void this.#check(); return; }
     this.#poll = setTimeout(() => {
       this.#poll = null;
       void this.#check();
-    }, this.#pollMs);
+    }, delay);
   }
 }
