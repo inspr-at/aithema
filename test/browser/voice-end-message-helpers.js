@@ -54,6 +54,7 @@ export async function checkVoiceEndMessages(t) {
           close: visible(close) ? rect(close) : null, closeLabel: close?.getAttribute('aria-label'), outsideLive: close?.parentElement === status.parentElement && !status.contains(close),
           header: rect(root.querySelector('.band')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
           narrowVisible: visible(status.querySelector('.consent-narrow')), label: status.getAttribute('aria-label'), errorKey: rail.errorKey,
+          color: getComputedStyle(status).color, neutralColor: getComputedStyle(root.querySelector('textarea')).color,
           messagePresent: rail.root.hasAttribute('data-message') };
       };
     }, locale);
@@ -63,17 +64,18 @@ export async function checkVoiceEndMessages(t) {
       await page.evaluate(() => { const r = window.endRail; r.session = null; r.state = 'failed'; r.errorKey = 'voiceTimeLimit'; r.render(); });
       const shown = await page.evaluate(() => window.readEnds()); unchanged(before.controls, shown.controls); box(shown.message); box(shown.retry);
       assert.equal(shown.label, locale === 'en' ? 'The call reached its maximum length. Start a new call or continue typing.' : 'Der Anruf hat seine maximale Dauer erreicht. Starten Sie einen neuen Anruf oder schreiben Sie weiter.');
-      assert.equal(shown.outsideLive, true);
+      assert.equal(shown.outsideLive, true); assert.equal(shown.color, shown.neutralColor, 'time-limit uses neutral ink');
       if (width < 600) { assert.equal(shown.close, null); assert.equal(shown.narrowVisible, true); assert.equal(shown.narrow, locale === 'en' ? 'Time limit reached' : 'Zeitlimit erreicht'); }
       else {
         box(shown.close); assert.ok(shown.close.width >= 44 && shown.close.height >= 44);
+        assert.ok(shown.close.y - shown.retry.y - shown.retry.height >= 0, 'close and Retry targets do not overlap');
         assert.equal(shown.closeLabel, locale === 'en' ? 'Close message' : 'Meldung schließen');
         assert.ok(Math.abs(shown.message.y - shown.retry.y - shown.retry.height - 8) <= .5, 'message under Retry');
         const left = Math.max(16, shown.header.x), right = Math.min(width - 16, shown.header.x + shown.header.width);
         const anchoredLeft = Math.max(left, Math.min(shown.retry.x + shown.retry.width / 2 - shown.message.width / 2, right - shown.message.width));
         assert.ok(Math.abs(shown.message.x - anchoredLeft) <= .5, 'message centred on Retry or clamped inside header');
       }
-      await page.evaluate(() => { window.endRail.errorKey = 'voiceConnectionFailed'; window.endRail.render(); });
+      await page.evaluate(() => { window.endRail.errorKey = 'voiceConnectFailed'; window.endRail.render(); });
       const connection = await page.evaluate(() => window.readEnds()); unchanged(before.controls, connection.controls);
       assert.equal(connection.label, locale === 'en' ? "The call couldn't connect. Select Retry call, or continue typing." : 'Der Anruf konnte nicht aufgebaut werden. Wählen Sie „Erneut anrufen“ oder schreiben Sie weiter.');
       if (width < 600) { assert.equal(connection.narrowVisible, true); assert.equal(connection.narrow, locale === 'en' ? "Couldn't connect" : 'Keine Verbindung'); }
@@ -81,7 +83,7 @@ export async function checkVoiceEndMessages(t) {
       await page.evaluate(() => { window.endRail.errorKey = 'voiceTimeLimit'; window.endRail.render(); });
       if (action === 'dismiss' && width < 600) await page.evaluate(() => window.endRail.clearMessage());
       else if (action === 'dismiss') await page.evaluate(() => window.endRail.root.querySelector('.voice-message-close').click());
-      else if (action === 'escape') await page.evaluate(() => window.endRail.root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+      else if (action === 'escape') await page.evaluate(() => (window.endRail.button('retry').focus(), window.endRail.root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))));
       else if (action === 'typed') await page.evaluate(() => { const root = document.querySelector('aithema-session').shadowRoot; root.querySelector('textarea').value = 'Continue typing'; root.querySelector('form').requestSubmit(); });
       else if (action === 'retry') await page.evaluate(() => window.endRail.button('retry').click());
       else await page.evaluate(() => window.endRail.close());

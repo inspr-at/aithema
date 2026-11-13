@@ -31,14 +31,14 @@ test('AIT-502: connect timer is tagged, never automatically retries, and a follo
   let attempt = 0;
   const { rail, requests } = fixture(t, { start() { if (++attempt === 1) return new Promise(() => {}); throw { status: 409, code: 'voice-conflict' }; } });
   const pending = rail.start(); await flush(); t.mock.timers.tick(30_000); await pending;
-  assert.equal(rail.errorKey, 'voiceConnectionFailed'); assert.equal(requests[0].signal.reason.source, 'connect-timer');
+  assert.equal(rail.errorKey, 'voiceConnectFailed'); assert.equal(requests[0].signal.reason.source, 'connect-timer');
   assert.equal(requests.length, 1); assert.equal(rail.button('retry').disabled, false);
   await rail.start(); assert.equal(requests.length, 2); assert.equal(rail.errorKey, 'voiceConflict');
 });
-test('AIT-502: server start 504 deadline takes the legacy limit path without retry', async t => {
+test('AIT-502: slow provider Start 504 request deadline is a connect failure with explicit Retry', async t => {
   const { rail, requests } = fixture(t, { start() { throw { code: 'deadline', status: 504 }; } });
-  await rail.start(); assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(requests.length, 1);
-  assert.equal(label(rail), en.voiceDeadline);
+  await rail.start(); assert.equal(rail.errorKey, 'voiceConnectFailed'); assert.equal(requests.length, 1); assert.equal(rail.button('retry').disabled, false);
+  assert.equal(label(rail), en.voiceConnectFailed);
 });
 test('AIT-502: media grant expiry during microphone permission is a connection failure', async t => {
   const permission = Promise.withResolvers();
@@ -47,13 +47,13 @@ test('AIT-502: media grant expiry during microphone permission is a connection f
     assertVoiceMediaGrant({ callId: 'call', providerSessionId: 'segment', expiresAt: 110_000, opaque: {} });
   } });
   const pending = rail.start(); await flush(); t.mock.timers.tick(20_000); permission.resolve(); await pending;
-  assert.equal(rail.errorKey, 'voiceConnectionFailed'); assert.equal(rail.button('retry').disabled, false);
+  assert.equal(rail.errorKey, 'voiceConnectFailed'); assert.equal(rail.button('retry').disabled, false);
 });
 for (const [reason, timeLimit, expected] of [
   ['spend-deadline', 'call', 'voiceTimeLimit'], ['spend-deadline', 'conversation', null],
   ['one-hour', undefined, null], ['browser-liveness-deadline', undefined, 'voiceConnectionFailed'],
   ['transport-lost', undefined, 'voiceConnectionFailed'], ['recovery-failed', undefined, 'voiceRecoveryFailed'],
-  ['budget-limit', undefined, 'voiceAdmissionDenied'], ['spend-deadline', undefined, 'voiceDeadline'],
+  ['budget-limit', undefined, 'voiceAdmissionDenied'], ['spend-deadline', undefined, null],
 ]) for (const via of ['ended', 'close']) test(`AIT-502: ${via} ${reason}/${timeLimit ?? 'unknown'} is honest with correct buttons`, async t => {
   const { rail, events } = fixture(t); await rail.start();
   if (via === 'close') await rail.close(reason, { timeLimit });
@@ -62,16 +62,20 @@ for (const [reason, timeLimit, expected] of [
     assert.equal(label(rail), en.voiceStates.timeExpired);
     assert.equal(rail.button('start').disabled, true); assert.equal(rail.button('retry').disabled, true);
   } else {
-    assert.equal(rail.errorKey, expected); assert.equal(rail.button('retry').disabled, reason === 'budget-limit');
+    assert.equal(rail.errorKey, expected); assert.equal(rail.button('retry').disabled, reason === 'budget-limit' || reason === 'spend-deadline' && !timeLimit);
+    if (reason === 'spend-deadline' && !timeLimit) {
+      assert.equal(label(rail), en.voiceStates.failed); assert.equal(rail.root.hasAttribute('data-message'), false);
+      assert.equal(rail.button('start').disabled, false);
+    }
     if (reason === 'budget-limit') assert.equal(label(rail), en.voiceCreditStatus.session);
     if (expected === 'voiceTimeLimit') assert.equal(label(rail), en.voiceTimeLimit);
   }
 });
 for (const copy of [en, de]) test(`AIT-502: ${copy === en ? 'EN' : 'DE'} approved copy and narrow labels`, t => {
   const { rail } = fixture(t, { copy });
-  assert.equal(copy.voiceConnectionFailed, copy === en ? "The call couldn't connect. Select Retry call, or continue typing." : 'Der Anruf konnte nicht aufgebaut werden. Wählen Sie „Erneut anrufen“ oder schreiben Sie weiter.');
+  assert.equal(copy.voiceConnectFailed, copy === en ? "The call couldn't connect. Select Retry call, or continue typing." : 'Der Anruf konnte nicht aufgebaut werden. Wählen Sie „Erneut anrufen“ oder schreiben Sie weiter.');
   assert.equal(copy.voiceTimeLimit, copy === en ? 'The call reached its maximum length. Start a new call or continue typing.' : 'Der Anruf hat seine maximale Dauer erreicht. Starten Sie einen neuen Anruf oder schreiben Sie weiter.');
-  for (const [key, narrow] of [['voiceConnectionFailed', copy === en ? "Couldn't connect" : 'Keine Verbindung'], ['voiceTimeLimit', copy === en ? 'Time limit reached' : 'Zeitlimit erreicht']]) {
+  for (const [key, narrow] of [['voiceConnectFailed', copy === en ? "Couldn't connect" : 'Keine Verbindung'], ['voiceTimeLimit', copy === en ? 'Time limit reached' : 'Zeitlimit erreicht']]) {
     rail.state = 'failed'; rail.errorKey = key; rail.render();
     assert.equal(label(rail), copy[key]); assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, narrow);
   }
@@ -91,7 +95,7 @@ for (const action of ['retry', 'close', 'dismiss', 'escape']) test(`AIT-502: ${a
   if (action === 'retry') await rail.start();
   else if (action === 'close') await rail.close();
   else if (action === 'dismiss') dismiss.click();
-  else root.dispatchEvent(new root.ownerDocument.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  else { rail.button('retry').focus(); root.dispatchEvent(new root.ownerDocument.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }
   assert.equal(rail.errorKey, null); assert.equal(root.hasAttribute('data-message'), false); assert.equal(dismiss.hidden, true);
 });
 test('AIT-502: 429 cooldown still defers the explicit retry', async t => {
@@ -102,12 +106,12 @@ test('AIT-502: 429 cooldown still defers the explicit retry', async t => {
   t.mock.timers.tick(1); await flush(); assert.equal(requests.length, 2); await rail.close(); await pending;
 });
 
-test('AIT-502: a host adding full time-limit copy can retain its legacy narrow override', async t => {
+test('AIT-502: missing new narrow label uses shipped text', async t => {
   const copy = structuredClone(en); delete copy.voiceMessagesNarrow.voiceTimeLimit;
   copy.voiceMessagesNarrow.voiceDeadline = 'Host short limit';
   const { rail } = fixture(t, { copy }); await rail.start(); await rail.close('spend-deadline', { timeLimit: 'call' });
   assert.equal(label(rail), en.voiceTimeLimit);
-  assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, 'Host short limit');
+  assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, en.voiceMessagesNarrow.voiceTimeLimit);
 });
 test('AIT-502: active operation 504 is a connection failure, not a start limit', async t => {
   const { rail } = fixture(t); await rail.start(); rail.failure({ code: 'deadline', status: 504 });
@@ -117,5 +121,53 @@ for (const sameCall of [true, false]) test(`AIT-502: ended uses bound metadata o
   const { rail, events } = fixture(t); await rail.start();
   rail.receiveState({ callId: sameCall ? 'call' : 'previous-call', providerSessionId: 'segment', epoch: 1, state: 'active', timeLimit: 'call' });
   events.push({ type: 'ended', callId: 'call', reason: 'spend-deadline' }); await flush();
-  assert.equal(rail.errorKey, sameCall ? 'voiceTimeLimit' : 'voiceDeadline');
+  assert.equal(rail.errorKey, sameCall ? 'voiceTimeLimit' : null);
+});
+
+for (const timeLimit of ['call', 'conversation', undefined]) test(`AIT-502 v2.2: resumed bound refusal ${timeLimit ?? 'unknown'}`, async t => {
+  const { rail } = fixture(t, { start() { throw { code: 'deadline', status: 504, reason: 'time-limit', timeLimit }; } });
+  rail.waitingCall = { callId: 'call', providerSessionId: 'old' };
+  await rail.start();
+  assert.equal(rail.waitingCall, null);
+  assert.equal(label(rail), timeLimit === 'call' ? en.voiceTimeLimit : timeLimit === 'conversation' ? en.voiceStates.timeExpired : en.voiceStates.failed);
+  assert.equal(rail.root.hasAttribute('data-message'), timeLimit === 'call');
+  assert.equal(rail.button('start').disabled, timeLimit === 'conversation');
+});
+test('AIT-502 v2.2: fresh Start cannot use a resumed time-limit refusal', async t => {
+  const { rail } = fixture(t, { start() { throw { code: 'deadline', status: 504, reason: 'time-limit', timeLimit: 'call' }; } });
+  await rail.start(); assert.equal(label(rail), en.voiceConnectFailed);
+});
+test('AIT-502 v2.2: Escape ignores focus outside the rail', async t => {
+  const { rail, root } = fixture(t); rail.state = 'failed'; rail.failure({ code: 'deadline' });
+  const outside = root.ownerDocument.createElement('button'); root.ownerDocument.body.append(outside); outside.focus();
+  root.dispatchEvent(new root.ownerDocument.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(root.hasAttribute('data-message'), true);
+  rail.button('retry').focus(); root.dispatchEvent(new root.ownerDocument.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(root.hasAttribute('data-message'), false);
+});
+for (const copy of [en, de]) for (const [key, legacy] of [['voiceConnectFailed', 'voiceConnectionFailed'], ['voiceTimeLimit', 'voiceDeadline']]) {
+  test(`AIT-502 v2.2: legacy ${legacy} override wins over new shipped default (${copy.display.locale})`, async t => {
+    const host = structuredClone(copy); host[legacy] = 'Host legacy override';
+    const { rail } = fixture(t, { copy: host }); rail.state = 'failed'; rail.errorKey = key; rail.render();
+    assert.equal(label(rail), 'Host legacy override');
+    host[key] = 'Host new override'; rail.render(); assert.equal(label(rail), 'Host new override');
+  });
+  test(`AIT-502 v2.2: absent ${key} uses shipped locale (${copy.display.locale})`, t => {
+    const host = structuredClone(copy); delete host[key]; delete host.voiceMessageClose; delete host.voiceMessagesNarrow[key];
+    const { rail } = fixture(t, { copy: host }); rail.state = 'failed'; rail.errorKey = key; rail.render();
+    assert.equal(label(rail), copy === en ? key === 'voiceConnectFailed' ? "The call couldn't connect. Select Retry call, or continue typing." : en.voiceTimeLimit : key === 'voiceConnectFailed' ? 'Der Anruf konnte nicht aufgebaut werden. Wählen Sie „Erneut anrufen“ oder schreiben Sie weiter.' : de.voiceTimeLimit);
+    assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, key === 'voiceConnectFailed' ? copy === en ? "Couldn't connect" : 'Keine Verbindung' : copy.voiceMessagesNarrow.voiceTimeLimit);
+    assert.equal(rail.root.querySelector('.voice-message-close').getAttribute('aria-label'), copy.voiceMessageClose);
+  });
+}
+for (const [copy, text] of [[en, 'Voice connection failed. Retry or continue typing.'], [de, 'Die Sprachverbindung ist fehlgeschlagen. Versuchen Sie es erneut oder tippen Sie weiter.']]) test(`AIT-502 v2.2: mid-call legacy copy unchanged (${copy.display.locale})`, async t => {
+  const { rail } = fixture(t, { copy }); await rail.start(); rail.failure({ code: 'deadline', status: 504 });
+  assert.equal(label(rail), text); assert.equal(copy.voiceConnectionFailed, text);
+});
+
+test('AIT-502 v2.2: voice control preserves resumed bound refusal metadata', async t => {
+  const { createVoiceControl } = await import('../src/voice-control.js');
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'deadline', reason: 'time-limit', timeLimit: 'call' }, { status: 504 }));
+  const { control } = createVoiceControl({ sessionId: 'fixture', sessionToken: 'fixture' });
+  await assert.rejects(control.recover({ callId: 'call' }), error => error.code === 'deadline' && error.reason === 'time-limit' && error.timeLimit === 'call');
 });
