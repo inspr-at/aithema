@@ -346,3 +346,33 @@ test('AIT-501: consent continuation in the browser, including default gesture po
     await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-501-browser.json'), JSON.stringify(checks, null, 2));
   }
 });
+
+
+test('AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot', { timeout: 120_000 }, async t => {
+  const { page, demo } = await setup(t, { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' }, '../fixtures/no-provider-server.js');
+  for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: 900 });
+    await page.goto(demo.url); await ready(page);
+    const sessionId = await page.evaluate(async () => {
+      const { sessionKey } = await import('/demo/page-preferences.js');
+      const response = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true, settings: { voice: 'off' } }) });
+      if (!response.ok) throw new Error('fixture session refused');
+      const session = await response.json(); localStorage.setItem(sessionKey, session.id); return session.id;
+    });
+    await page.reload(); await ready(page);
+    assert.equal(await page.$eval('aithema-session', c => c.session.id), sessionId);
+    await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.click('aithema-session >>> .ready__start')]);
+    await consentReady(page); await page.click('[data-select-all]'); await saveAndReturn(page, '[data-grant]');
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('aithema-start-intent')), null);
+    for (const selector of ['.composer', '.composer-dock']) {
+      const box = await page.$eval('aithema-session', (c, selector) => {
+        const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return { width: r.width, height: r.height };
+      }, selector);
+      assert.ok(box.width > 0 && box.height > 0, `${width}: ${selector} must be visible: ${JSON.stringify(box)}`);
+    }
+    await page.reload(); await ready(page);
+    assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.intro').hidden), false, 'reload must not reuse the intent');
+  }
+});
