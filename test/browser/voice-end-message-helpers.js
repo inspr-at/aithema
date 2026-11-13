@@ -49,12 +49,14 @@ export async function checkVoiceEndMessages(t) {
       window.readEnds = () => {
         const rail = window.endRail, root = c.shadowRoot, status = root.querySelector('.voice-state'), close = root.querySelector('.voice-message-close');
         const rect = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+        const ink = document.createElement('span'); ink.style.color = 'var(--aithema-ink)'; root.append(ink);
+        const neutralColor = getComputedStyle(ink).color; ink.remove();
         const visible = n => n && !n.hidden && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
         return { controls: Object.fromEntries(['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => [s, rect(root.querySelector(s))])),
           close: visible(close) ? rect(close) : null, closeLabel: close?.getAttribute('aria-label'), outsideLive: close?.parentElement === status.parentElement && !status.contains(close),
           header: rect(root.querySelector('.band')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
           narrowVisible: visible(status.querySelector('.consent-narrow')), label: status.getAttribute('aria-label'), errorKey: rail.errorKey,
-          color: getComputedStyle(status).color, neutralColor: getComputedStyle(root.querySelector('textarea')).color,
+          color: getComputedStyle(status).color, neutralColor,
           messagePresent: rail.root.hasAttribute('data-message') };
       };
     }, locale);
@@ -93,6 +95,33 @@ export async function checkVoiceEndMessages(t) {
       checks.push({ locale, theme, width, action, before: before.controls, shown, connection, cleared: cleared.controls, tolerancePx: .5, pointer: { x: 0, y: 500 } });
       await page.evaluate(() => window.endRail.close());
     }
+  }
+  // The compact band's phone row intentionally has no close target. Exercise
+  // the base rail separately at both widths to measure its actual 44px target.
+  for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: 900 }); await page.mouse.move(0, 500);
+    const geometry = await page.evaluate(async () => {
+      const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+      const { styles } = await import('/packages/ui/src/styles.js');
+      const { en: copy } = await import('/packages/ui/src/i18n/en.js');
+      const host = document.createElement('div'); host.style.cssText = 'position:fixed;top:100px;left:16px;right:16px';
+      const shadow = host.attachShadow({ mode: 'open' }), sheet = document.createElement('style'); sheet.textContent = styles;
+      const root = document.createElement('div'); root.className = 'audio-rail'; shadow.append(sheet, root); document.body.append(host);
+      const rail = new AudioRail({ root, copy, client: {}, feature: () => ({ available: true }) });
+      const rect = node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+      const controls = () => Object.fromEntries(['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => [s, rect(root.querySelector(s))]));
+      const before = controls(); rail.endMessage('spend-deadline', { timeLimit: 'call' }); rail.render();
+      const shown = controls(), close = rect(root.querySelector('.voice-message-close')), retry = rect(rail.button('retry'));
+      rail.clearMessage(); const cleared = controls();
+      rail.endMessage('spend-deadline'); rail.render();
+      const unknown = { label: root.querySelector('.voice-state').getAttribute('aria-label'), message: root.hasAttribute('data-message'), startDisabled: rail.button('start').disabled };
+      rail.destroy(); host.remove(); return { before, shown, close, retry, cleared, unknown };
+    });
+    unchanged(geometry.before, geometry.shown); unchanged(geometry.before, geometry.cleared); box(geometry.close); box(geometry.retry);
+    assert.ok(geometry.close.width >= 44 && geometry.close.height >= 44);
+    assert.ok(geometry.close.y - geometry.retry.y - geometry.retry.height >= 0, 'base rail close hit area does not overlap Retry');
+    assert.equal(geometry.unknown.label, 'Call ended'); assert.equal(geometry.unknown.message, false); assert.equal(geometry.unknown.startDisabled, false);
+    checks.push({ kind: 'base-rail', width, ...geometry, gap: geometry.close.y - geometry.retry.y - geometry.retry.height, pointer: { x: 0, y: 500 }, tolerancePx: .5 });
   }
   assert.deepEqual(errors, []);
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
