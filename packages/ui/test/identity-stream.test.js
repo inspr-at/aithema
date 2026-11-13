@@ -320,6 +320,8 @@ for (const route of ['events', 'credits', 'identity/unlock', 'restore', 'voice-c
     session: { identity: pending470({ pollVerification: true }), featureMatrix: unlocked470 } });
   const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) });
   await h.reconnect();
+  // Settle the coalesced reconnect refresh before isolating the selected not-found route.
+  t.mock.timers.tick(250); await tick(8);
   h.serverErase();
   if (route === 'events') { h.dropStream(); await tick(8); }
   if (route === 'credits') { h.c.receive({ type: 'voice.state', data: { state: 'closing' } }); t.mock.timers.tick(300); }
