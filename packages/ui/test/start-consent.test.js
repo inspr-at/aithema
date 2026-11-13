@@ -20,7 +20,7 @@ function fixture(t, mode = 'type', active) {
   session.settings = { ...session.settings, origin: 'chosen', ...(mode === 'voice' ? { voice: 'fixture-voice' } : {}) };
   session.featureMatrix = { best: { text: blocked, voice: blocked, analysis: blocked } };
   const options = { copy: structuredClone(en), session, ...(mode === 'voice' ? { voiceClient: {} } : {}) };
-  const configure = (next = c, snapshot = session) => { c = next; c.configure({ ...options, session: snapshot }); document.body.append(c); return c; };
+  const configure = (next = c, snapshot = session, extra = {}) => { c = next; c.configure({ ...options, ...extra, session: snapshot }); document.body.append(c); return c; };
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
       options.signal?.addEventListener('abort', () => controller.close(), { once: true });
@@ -155,9 +155,10 @@ for (const mode of ['type', 'voice']) test(`AIT-501 v2.2: open/adopt/configure c
     if (url.endsWith('/events')) return new Response(new ReadableStream());
     throw new Error('no reconnect, credit change or feature GET on this return');
   });
-  f.configure(document.createElement('aithema-session'), snapshot); await tick();
+  f.configure(document.createElement('aithema-session'), snapshot, { voiceClient: {} }); await tick();
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, true);
   assert.equal(f.starts.length, 0);
+  assert.equal(f.c.shadowRoot.activeElement, f.c.shadowRoot.querySelector(mode === 'voice' ? '.voice-start' : 'textarea'));
   assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
   f.c.remove(); f.configure(document.createElement('aithema-session'), snapshot); await tick();
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false, 'reload cannot reuse a consumed intent');

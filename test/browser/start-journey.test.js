@@ -371,6 +371,7 @@ test('AIT-501: consent continuation in the browser, including default gesture po
 
 test('AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot', { timeout: 120_000 }, async t => {
   const { page, demo } = await setup(t, { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' }, '../fixtures/no-provider-server.js');
+  const boxes = [];
   for (const width of [390, 1440]) {
     await page.setViewport({ width, height: 900 });
     await page.goto(demo.url); await ready(page);
@@ -389,11 +390,16 @@ test('AIT-501 v2.2: the real host open/adopt/configure return resumes typing fro
     assert.equal(await page.evaluate(() => sessionStorage.getItem('aithema-start-intent')), null);
     for (const selector of ['.composer', '.composer-dock']) {
       const box = await page.$eval('aithema-session', (c, selector) => {
-        const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return { width: r.width, height: r.height };
+        return c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON();
       }, selector);
+      boxes.push({ viewport: width, selector, ...box });
       assert.ok(box.width > 0 && box.height > 0, `${width}: ${selector} must be visible: ${JSON.stringify(box)}`);
     }
     await page.reload(); await ready(page);
     assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.intro').hidden), false, 'reload must not reuse the intent');
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-501-host-return-boxes.json'), JSON.stringify(boxes, null, 2));
   }
 });
