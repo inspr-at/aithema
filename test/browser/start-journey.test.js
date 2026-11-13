@@ -300,8 +300,11 @@ async function withoutGesture(page, fn, argument) {
     return result.value;
   } finally { await client.detach(); }
 }
-const consentStartState = page => page.$eval('aithema-session', c => ({ ready: !c.shadowRoot.querySelector('.intro').hidden,
-  focus: c.shadowRoot.activeElement?.className, host: document.activeElement.id, starts: globalThis.starts }));
+const consentStartState = page => withoutGesture(page, () => {
+  const c = document.querySelector('aithema-session');
+  return { ready: !c.shadowRoot.querySelector('.intro').hidden,
+    focus: c.shadowRoot.activeElement?.className, host: document.activeElement.id, starts: globalThis.starts };
+});
 
 test('AIT-501: consent continuation in the browser, including default gesture policy and navigation', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-start-consent-'));
@@ -341,11 +344,20 @@ test('AIT-501: consent continuation in the browser, including default gesture po
         assert.equal(await page.evaluate(() => events.at(-1).intent), 'start');
         if (scenario === 'review') await page.click('aithema-session >>> .ready__consent');
         if (scenario.startsWith('host-focus')) await page.click('#host');
-        if (scenario === 'inactive-voice') await page.waitForFunction(() => !navigator.userActivation.isActive, { polling: 100 });
+        if (scenario === 'inactive-voice') await withoutGesture(page, async () => {
+          const deadline = performance.now() + 10_000;
+          while (navigator.userActivation.isActive) {
+            if (performance.now() > deadline) throw new Error('fixture activation did not expire');
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        });
         if (scenario.endsWith('navigation')) {
           await page.$eval('aithema-session', c => { const s=c.session;s.consentRevision++;sessionStorage.setItem('fixture-session',JSON.stringify(s)); });
           await page.goto('about:blank'); await page.goto(url); await page.waitForFunction(() => globalThis.fixtureReady);
-        } else await withoutGesture(page, () => grant());
+        } else {
+          const active = await withoutGesture(page, () => { const active = navigator.userActivation.isActive; grant(); return active; });
+          if (scenario === 'inactive-voice') assert.equal(active, false, 'the host grant must arrive without browser activation');
+        }
         if (scenario === 'inactive-voice') await withoutGesture(page, async () => {
           const deadline = performance.now() + 10_000;
           while (!document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden) {
