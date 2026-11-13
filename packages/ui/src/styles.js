@@ -151,7 +151,7 @@ svg { display:block; flex:none; }
   top:var(--voice-message-top,calc(100% + 8px)); border:0; border-radius:12px;
   color:var(--aithema-muted); background:transparent; box-shadow:none; }
 .voice-message-close span { display:grid; place-items:center; width:24px; height:24px; font-size:24px; line-height:1; }
-.audio-rail .voice-message-close[hidden] { display:none; }
+.audio-rail .voice-message-close[hidden] { display:none; visibility:hidden; }
 .audio-rail[data-state="failed"][data-message] .voice-state { padding-right:44px; min-height:44px; }
 .voice-state:empty, .voice-caption:empty { visibility:hidden; }
 /* A live caption takes the pill while words arrive; the state stays readable to assistive technology. */
