@@ -141,7 +141,7 @@ test('AIT-391: a duplicate paused snapshot cannot fence the visitor Resume alrea
 });
 
 for (const state of ['waiting', 'ended']) test(`AIT-391: recovered ${state} lifecycle reaches the matching active voice session once`, async t => {
-  const f = await fixture(t), reason = state === 'waiting' ? 'browser-liveness-deadline' : 'visitor-ended';
+  const f = await fixture(t), reason = state === 'waiting' ? 'browser-liveness-deadline' : 'closed';
   await f.recover([{ type: 'verification.requested', data: {} }], { voiceLifecycle: {
     callId: f.voice.callId, providerSessionId: f.voice.providerSessionId, state, reason,
   } });

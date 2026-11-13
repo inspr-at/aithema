@@ -49,6 +49,7 @@ export function classifyVoiceEnd({ error, reason, timeLimit, key, phase = 'start
       key = timeLimit === 'call' ? 'voiceTimeLimit' : null;
       if (!key) state = 'idle';
     }
+    else if (reason === 'start-failed') key = 'voiceConnectFailed';
     else if (reason === 'budget-limit') { key = 'voiceAdmissionDenied'; errorReason = 'budget denied'; }
     else if (reason === 'recovery-failed') key = 'voiceRecoveryFailed';
     else if (['provider-end', 'closure-uncertain'].includes(reason)) { key = 'voiceClosureUncertain'; state = 'idle'; }
@@ -81,13 +82,16 @@ export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditRea
   if (sentence === copy.featureConsent.voice) return copy.featureConsent.textNarrow;
   const state = Object.keys(copy.voiceStates).find(key => copy.voiceStates[key] === sentence);
   if (state) return copy.voiceStatesNarrow[state];
-  const message = messageKey && (copy[messageKey] === sentence || ['voiceTimeLimit', 'voiceConnectFailed'].includes(messageKey) && sentence === resolveCopy(copy, messageKey, classifyVoiceEnd({ key: messageKey }).fallback))
+  const reason = rawReason && sentence === copy.reasons?.[rawReason] ? rawReason
+    : Object.keys(copy.reasons).find(key => copy.reasons[key] === sentence);
+  // Explicit reason metadata outranks a reverse lookup of identical legacy text.
+  const message = !messageKey && rawReason && rawReason === reason ? null
+    : messageKey && (copy[messageKey] === sentence || ['voiceTimeLimit', 'voiceConnectFailed'].includes(messageKey) && sentence === resolveCopy(copy, messageKey, classifyVoiceEnd({ key: messageKey }).fallback))
     ? messageKey : Object.keys(copy.voiceMessagesNarrow).find(key => copy[key] === sentence);
   if (message) {
     const classified = classifyVoiceEnd({ key: message });
     return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`) ?? sentence : copy.voiceStatesNarrow.failed;
   }
-  const reason = Object.keys(copy.reasons).find(key => copy.reasons[key] === sentence);
   if (['recovery-failed', 'start-failed', 'closure-uncertain', 'spend-deadline'].includes(reason)) {
     const classified = classifyVoiceEnd({ reason });
     return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`) ?? sentence : copy.voiceStatesNarrow.failed;

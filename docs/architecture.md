@@ -263,6 +263,7 @@ they are not test coverage switches.
 | `test/browser/start2-display-helpers.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/tick-followups.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload |
+| `test/browser/voice-end-message-helpers.js` | `CI` ×1 | Linux headless Chrome sandbox selection for the AIT-502 voice end-message matrix |
 | `test/browser/voice-failure-helpers.js` | `CI` ×1, `GITHUB_EVENT_PATH` ×2 | Linux headless Chrome sandbox selection and AIT-361 PR-head evidence provenance |
 | `test/browser/voice-presentation.test.js` | `CI` ×4, `GITHUB_EVENT_PATH` ×4 | Linux headless Chrome sandbox selection and AIT-179/AIT-302/AIT-377 PR-head evidence provenance |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
