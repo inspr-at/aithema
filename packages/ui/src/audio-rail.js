@@ -310,10 +310,13 @@ export class AudioRail {
     this.errorReason = error?.status !== 429 && error?.code === 'not-admitted' ? error.reason : null;
     this.retryAt = voiceRetryAt(error);
     this.render();
+    if (this.state === 'failed' && this.#mayFocus()) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+  }
+  #mayFocus() {
     const host = this.root.getRootNode().host;
     let active = this.root.ownerDocument.activeElement;
     while (active !== host && active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-    if (this.state === 'failed' && (!active || active === this.root.ownerDocument.body || active === host || this.root.contains(active))) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+    return !active || active === this.root.ownerDocument.body || active === host || this.root.contains(active);
   }
   async cooldown(until, signal) {
     const deadline = Math.min(until, Date.now() + 60_000);
@@ -413,7 +416,7 @@ export class AudioRail {
     if (this.session) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
-    if (focus) this.button('close').focus({ preventScroll: true });
+    if (focus && this.#mayFocus()) this.button('close').focus({ preventScroll: true });
     this.notices.recoveryContext = false; this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
@@ -782,7 +785,7 @@ export class AudioRail {
     this.errorKey = !serverEnded && session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
-    if (returnFocus) this.button('start').focus({ preventScroll: true });
+    if (returnFocus && this.#mayFocus()) this.button('start').focus({ preventScroll: true });
     this.onEnd?.();
     const controller = this.controller;
     const closing = (async () => {
