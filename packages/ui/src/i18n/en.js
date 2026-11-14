@@ -173,7 +173,7 @@ export const en = {
 
     open: 'Settings', title: 'Settings', tabs: { general: 'General', model: 'AI model', local: 'Advanced' },
     processing: 'Data processing', model: 'Model', responseStyle: 'Response style', faster: 'Faster', moreThorough: 'More thorough',
-    fixedEffort: 'This model does not offer adjustable effort.', deviceNote: 'Choose and test your local model under Advanced.',
+    fixedEffort: 'This model does not offer adjustable processing effort.', deviceNote: 'Choose and test your local model under Advanced.',
     efforts: { none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Maximum' },
     voice: 'Speaking and listening', voiceOff: 'Text chat: read and type', visuals: 'Visual concepts', visualsOff: 'Off',
     voiceUnverified: 'Not yet qualified in live use', voiceConfigured: 'Voice with {provider}', notConfigured: 'Not configured',
