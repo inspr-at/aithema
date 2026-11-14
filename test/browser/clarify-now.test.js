@@ -529,13 +529,16 @@ test('AIT-504 follow-up: long host consent keeps its action visible, focusable a
       session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
       c.configure({ copy, session });
       const slot = c.shadowRoot.querySelector('.notice'), action = slot.querySelector('.consent-action'), text = slot.querySelector('.consent-line-copy');
+      const initialSlot = slot.getBoundingClientRect(), initialAction = action.getBoundingClientRect();
+      const beforeFocus = { top: initialAction.top - initialSlot.top, bottom: initialAction.bottom - initialSlot.top };
       action.focus();
       const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect(), x = text.getBoundingClientRect();
-      return { fullText, accessibleText: c.shadowRoot.getElementById(action.getAttribute('aria-describedby')).textContent,
+      return { fullText, beforeFocus, accessibleText: c.shadowRoot.getElementById(action.getAttribute('aria-describedby')).textContent,
         focused: c.shadowRoot.activeElement === action, disabled: action.disabled,
         slot: { width: b.width, height: b.height }, text: { width: x.width, height: x.height }, action: { width: a.width, height: a.height, top: a.top - b.top, bottom: a.bottom - b.top } };
     }, locale);
     assert.ok(result.slot.width > 0 && result.slot.height > 0 && result.text.width > 0 && result.text.height > 0 && result.action.width > 0 && result.action.height > 0);
+    assert.ok(result.beforeFocus.top >= 0 && result.beforeFocus.bottom <= result.slot.height, `${locale}: consent action is visible before focus`);
     assert.ok(result.action.top >= 0 && result.action.bottom <= result.slot.height, `${locale}: consent action stays inside fixed slot`);
     assert.equal(result.focused, true); assert.equal(result.disabled, false);
     assert.ok(result.accessibleText.includes(result.fullText), 'full override remains the action’s accessible description');
