@@ -432,9 +432,10 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
           ? { available: false, reason: 'current processing consent required' } : { available: true }, text: value, open() {} });
         action.hidden = !['staleIdle', 'understandingFailed'].includes(key);
         const label = key === 'consent' ? text.querySelector('.consent-line-copy') : text;
-        const b = slot.getBoundingClientRect(), a = (key === 'consent' ? text.querySelector('.consent-action') : action).getBoundingClientRect();
+        const shownAction = key === 'consent' ? text.querySelector('.consent-action') : action.hidden ? null : action;
+        const b = slot.getBoundingClientRect(), a = shownAction?.getBoundingClientRect();
         results.push({ key, value, hasAction: key === 'consent' || !action.hidden, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
-          textScrollHeight: label.scrollHeight, textClientHeight: label.clientHeight, textClientWidth: label.clientWidth, actionWidth: a.width, actionHeight: a.height, actionBottom: a.bottom - b.top });
+          textScrollHeight: label.scrollHeight, textClientHeight: label.clientHeight, textClientWidth: label.clientWidth, actionWidth: a?.width ?? null, actionHeight: a?.height ?? null, actionBottom: a ? a.bottom - b.top : null });
       }
       paintConsentLine(text, { copy, feature: 'analysis', verdict: { available: true }, text: 'Long host override '.repeat(100), open() {} }); action.hidden = false;
       const actionBox = action.getBoundingClientRect();
@@ -458,7 +459,6 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
   }
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-overflow.json'), JSON.stringify(records, null, 2)); }
 });
-
 
 async function followupPage(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-overview-followups-'));
@@ -544,7 +544,6 @@ test('AIT-504 follow-up: long host consent keeps its action visible, focusable a
     assert.ok(result.accessibleText.includes(result.fullText), 'full override remains the action’s accessible description');
   }
 });
-
 
 test('AIT-504 follow-up: capture every overview state for the release design check', { timeout: 180_000 }, async t => {
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
