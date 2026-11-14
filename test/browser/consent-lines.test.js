@@ -142,7 +142,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
   for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (const feature of ['html', 'voice', 'analysis']) {
     const label = `${locale}-${theme}-${width}-${feature}`;
     await scene(page, locale, theme, width, [feature]);
-    const selector = places[feature], expected = `${words[locale][feature]}\u00a0· ${words[locale].action}`;
+    const selector = places[feature], expected = `${words[locale][feature]}${feature === 'analysis' ? '' : '\u00a0· '}${words[locale].action}`;
     const state = await shadow(page, (c, { selector, expected }) => {
       const r = c.shadowRoot, line = r.querySelector(selector);
       return { text: line.textContent, lines: [...r.querySelectorAll('[data-consent-feature]')].filter(n => n.textContent === expected).length,
@@ -1024,7 +1024,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
         if (!starts.length || starts.some(start => start.glyph === '·')) throw new Error(`${feature}: separator starts a line`);
         if (narrow) {
           if (line !== `${copy.featureConsent.textNarrow} ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
-        } else if (line !== `${copy.featureConsent[feature]}\u00a0· ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
+        } else if (line !== `${copy.featureConsent[feature]}${feature === 'analysis' ? '\n' : '\u00a0· '}${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
         return [feature, line];
       }));
       if (innerWidth >= 600) {

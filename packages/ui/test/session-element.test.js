@@ -907,7 +907,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
     assert.equal(root.querySelector('.composer-reason .consent-action .consent-wide').getAttribute('aria-label'), `${en.featureConsent.action}: ${en.featureConsent.textActionReason}`);
-    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent\u00a0· Give consent…');
+    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consentGive consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
 });
@@ -1149,7 +1149,7 @@ for (const copy of [de, en]) for (const reason of ['not configured', 'budget den
   c.configure({ session, copy });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.notice').textContent, reason === 'current processing consent required'
-    ? `${copy.featureConsent.analysis}\u00a0· ${copy.featureConsent.action}` : copy.reasons[reason]);
+    ? `${copy.featureConsent.analysis}${copy.featureConsent.action}` : copy.reasons[reason]);
   assert.equal(root.querySelector('.notice button') !== null, reason === 'current processing consent required');
   assert.equal(root.querySelector('.understanding').hasAttribute('aria-disabled'), reason !== 'current processing consent required', 'the consent action stays interactive');
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');

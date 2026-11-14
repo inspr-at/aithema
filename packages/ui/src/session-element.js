@@ -2102,7 +2102,7 @@ export class AithemaSession extends HTMLElement {
     notice.setAttribute('aria-label', resolveCopy(copy, 'overviewStatusLabel', null, this.#session.locale));
     // One named status slot keeps every overview state in the same place.
     const blocked = !this.#host?.usedUp && paintConsentLine(root.querySelector('.notice-text'), {
-      copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
+      copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText, separator: '',
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
     notice.toggleAttribute('data-current', !blocked && currentOverview);

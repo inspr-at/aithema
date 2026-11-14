@@ -428,7 +428,7 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
 
       const results = [];
       for (const [key, value] of Object.entries(states)) {
-        paintConsentLine(text, { copy, feature: 'analysis', verdict: key === 'consent'
+        paintConsentLine(text, { copy, feature: 'analysis', separator: '', verdict: key === 'consent'
           ? { available: false, reason: 'current processing consent required' } : { available: true }, text: value, open() {} });
         action.hidden = !['staleIdle', 'understandingFailed'].includes(key);
         const label = key === 'consent' ? text.querySelector('.consent-line-copy') : text;
@@ -530,7 +530,8 @@ test('AIT-504 follow-up: long host consent keeps its action visible, focusable a
       c.configure({ copy, session });
       const slot = c.shadowRoot.querySelector('.notice'), action = slot.querySelector('.consent-action'), text = slot.querySelector('.consent-line-copy');
       const initialSlot = slot.getBoundingClientRect(), initialAction = action.getBoundingClientRect();
-      const beforeFocus = { top: initialAction.top - initialSlot.top, bottom: initialAction.bottom - initialSlot.top };
+      const beforeFocus = { slotWidth: initialSlot.width, slotHeight: initialSlot.height, actionWidth: initialAction.width, actionHeight: initialAction.height,
+        top: initialAction.top - initialSlot.top, bottom: initialAction.bottom - initialSlot.top };
       action.focus();
       const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect(), x = text.getBoundingClientRect();
       return { fullText, beforeFocus, accessibleText: c.shadowRoot.getElementById(action.getAttribute('aria-describedby')).textContent,
@@ -538,7 +539,8 @@ test('AIT-504 follow-up: long host consent keeps its action visible, focusable a
         slot: { width: b.width, height: b.height }, text: { width: x.width, height: x.height }, action: { width: a.width, height: a.height, top: a.top - b.top, bottom: a.bottom - b.top } };
     }, locale);
     assert.ok(result.slot.width > 0 && result.slot.height > 0 && result.text.width > 0 && result.text.height > 0 && result.action.width > 0 && result.action.height > 0);
-    assert.ok(result.beforeFocus.top >= 0 && result.beforeFocus.bottom <= result.slot.height, `${locale}: consent action is visible before focus`);
+    assert.ok(result.beforeFocus.slotWidth > 0 && result.beforeFocus.slotHeight > 0 && result.beforeFocus.actionWidth > 0 && result.beforeFocus.actionHeight > 0);
+    assert.ok(result.beforeFocus.top >= 0 && result.beforeFocus.bottom <= result.beforeFocus.slotHeight, `${locale}: consent action is visible before focus`);
     assert.ok(result.action.top >= 0 && result.action.bottom <= result.slot.height, `${locale}: consent action stays inside fixed slot`);
     assert.equal(result.focused, true); assert.equal(result.disabled, false);
     assert.ok(result.accessibleText.includes(result.fullText), 'full override remains the action’s accessible description');
@@ -552,19 +554,23 @@ test('AIT-504 follow-up: capture every overview state for the release design che
   const shots = join(evidence, 'shots'); await mkdir(shots, { recursive: true });
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    for (const state of ['empty', 'current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'long-consent', 'paused', 'reconciling']) {
+    for (const state of ['empty', 'current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'failed-at-limit', 'reply-pending', 'no-details', 'unavailable', 'consent', 'long-consent', 'paused', 'reconciling']) {
       await setupOverviewFixture(page, locale, theme);
       await shadow(page, async (c, locale, state) => {
         let copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
         const session = c.session, u = session.understanding, ops = session.operations;
         const failures = lanes => { ops.failures = lanes.map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true })); ops.lastFailure = ops.failures.at(-1); };
-        if (state === 'empty') session.transcript = [];
+        if (state === 'empty') {
+          const { applyEvent } = await import('/packages/core/src/session.js');
+          Object.assign(session, applyEvent(session, { seq: session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'u', reason: 'withdrawal' } }));
+        }
         if (['updating', 'idle', 'reconciling'].includes(state)) u.inputRevision = 'older';
         if (state === 'updating') ops.running = ['understanding'];
         if (state === 'draft') { u.draft = true; ops.running = ['understanding']; }
         if (state === 'preparing') { u.readinessAssessed = false; ops.running = ['understanding']; }
         if (state === 'failed') failures(['understanding']);
         if (state === 'both-failed') failures(['reaction', 'understanding']);
+        if (state === 'failed-at-limit') { failures(['understanding']); session.credits = { ...session.credits, status: 'ended', endReason: 'host-limit' }; }
         if (state === 'reply-pending') { u.readinessAssessed = false; session.transcript.pop(); failures(['reaction']); }
         if (state === 'no-details') u.readinessAssessed = false;
         if (state === 'unavailable') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: 'admission deadline' }; }
@@ -574,8 +580,7 @@ test('AIT-504 follow-up: capture every overview state for the release design che
         }
         if (state === 'paused') session.paused = true;
         if (state === 'reconciling') session.featureMatrix.best.analysis = { available: false, reason: 'budget reconciling' };
-        c.configure({ copy, session });
-        if (state === 'empty') c.shadowRoot.querySelector('.ready__start')?.click();
+        c.configure({ copy, session, ...(state === 'failed-at-limit' ? { host: {} } : {}) });
       }, locale, state);
       await settle(page);
       await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start', behavior: 'instant' }); });
