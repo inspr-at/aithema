@@ -1048,7 +1048,7 @@ export class AithemaSession extends HTMLElement {
     return Boolean(!this.#longReply && (this.#navigation || this.#follow && !this.#onTranscript) && !this.#fold?.folded);
   }
   #beginNavigation() {
-    this.#navigation = { point: this.#pointer && { ...this.#pointer }, revision: null, userId: null };
+    this.#navigation = { point: this.#pointer && { ...this.#pointer }, userId: null };
     this.#follow = true; this.#longReply = null; this.#tailReply = null;
     const shell = this.shadowRoot.querySelector('.transcript-shell'), before = shell.scrollTop;
     clearSlack(shell); this.#recordTranscriptScroll(before);
@@ -2013,12 +2013,10 @@ export class AithemaSession extends HTMLElement {
       this.#restoreLongReply();
       this.#syncPanes();
       const intent = this.#navigation, turns = activeTurns(this.#session), reply = turns.at(-1);
-      if (intent && reply?.role === 'assistant' &&
+      if (intent?.userId && reply?.role === 'assistant' && turns.some(turn => turn.role === 'user' && turn.id === intent.userId) &&
         (reply.inputRevision === undefined && reply.replyRevision === undefined || replyIsCurrent(this.#session, reply))) {
-        const revision = inputRevision(this.#session);
         // Recovery can contain both the missed acknowledgement and its completed reply.
-        if (intent.revision === null && turns.findLast(turn => turn.role === 'user')?.id === intent.userId) intent.revision = revision;
-        if (intent.revision === revision) this.#finishNavigation();
+        this.#finishNavigation();
       }
       return;
     }
@@ -3127,10 +3125,7 @@ export class AithemaSession extends HTMLElement {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') {
           this.#partials.clear(); this.#failure = false;
-          if (this.#navigation) {
-            this.#navigation.revision = inputRevision(this.#session);
-            this.#navigation.userId ??= event.data.id;
-          }
+          if (this.#navigation) this.#navigation.userId ??= event.data.id;
           // turn.final and lane.status are separate events; only a status or
           // snapshot for this revision can confirm that no work was scheduled.
           if (this.#session.processingPreset !== 'device') this.#laneStatusPending = inputRevision(this.#session);
