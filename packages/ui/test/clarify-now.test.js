@@ -512,6 +512,7 @@ test('RC24 a different peer focus never inherits a pending local acceptance or s
   const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
   t.after(async () => { body.resolve(local); await request.catch(() => {}); });
   await tick();
+  f.c.receive(local.event); // The later peer gets its own canonical journal sequence.
   const peer = f.c.openQuestionItems[0];
   f.event('question.focused', { question: peer.question, questionId: peer.id, requestId: 'peer-pending', chosenBy: 'user', inputRevision: inputRevision(f.c.session) });
   f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: inputRevision(f.c.session) } });
@@ -558,4 +559,62 @@ for (const status of [200, 202]) test(`RC24 invalid ${status} acknowledgement re
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
   assert.equal(snapshots, 1); assert.equal(f.calls.length, 1);
   assert.equal(f.rows()[1].dataset.state, 'unavailable');
+});
+
+for (const locale of ['en', 'de']) test(`RC24 ${locale}: existing row-only copy overrides survive beneath explicit root overrides`, async t => {
+  const f = fixture(t, locale), copy = structuredClone(locale === 'de' ? de : en);
+  copy.clarify.failed = 'Host row failure'; copy.clarify.failedShort = 'Host short'; copy.clarify.say.retry = 'Host announcement';
+  f.c.configure({ session: f.c.session, copy });
+  f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.lane([], [{ lane: 'reaction', retryable: true }]);
+  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, 'Host row failure');
+  assert.equal(f.rows()[1].querySelector('.question-failed-short').textContent, 'Host short');
+  assert.equal(f.root.querySelector('.clarify-announcement').textContent, 'Host announcement');
+  copy.reasoningFailed = 'Generic host failure'; f.c.configure({ session: f.c.session, copy });
+  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, 'Generic host failure');
+  assert.equal(f.root.querySelector('.clarify-announcement').textContent, 'Generic host failure');
+  copy.clarifyFailed = 'New host failure'; copy.clarifyFailedShort = 'New host short'; f.c.configure({ session: f.c.session, copy });
+  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, 'New host failure');
+  assert.equal(f.rows()[1].querySelector('.question-failed-short').textContent, 'New host short');
+  assert.equal(f.root.querySelector('.clarify-announcement').textContent, 'New host failure');
+});
+test('RC24 choosing another point after a reaction failure keeps the new row requesting', async t => {
+  const f = fixture(t); f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.lane([], [{ lane: 'reaction', retryable: true }]); assert.equal(f.rows()[1].dataset.state, 'retry');
+  const item = f.c.openQuestionItems[0], pending = Promise.withResolvers();
+  const ack = { accepted: true, event: { seq: f.c.session.seq + 1, type: 'question.focused', data: {
+    question: item.question, questionId: item.id, requestId: 'after-failure', chosenBy: 'user', inputRevision: inputRevision(f.c.session),
+  } } };
+  f.post(() => pending.promise); const request = f.c.focusQuestion(item.id);
+  t.after(async () => { pending.resolve(Response.json(ack, { status: 202 })); await request.catch(() => {}); });
+  assert.equal(f.rows()[0].dataset.state, 'requesting');
+  pending.resolve(Response.json(ack, { status: 202 })); await request;
+  assert.equal(f.c.session.questionFocus.questionId, item.id);
+  assert.equal(f.rows()[0].dataset.state, 'requesting', 'a new accepted focus cannot inherit the old reaction failure');
+});
+test('RC24 a newer HTTP focus event supersedes a peer event and retains its actual acceptance', async t => {
+  const f = fixture(t), body = Promise.withResolvers(), warnings = [], response = Response.json({}, { status: 202 });
+  t.mock.method(response, 'json', () => body.promise); t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => response); const item = f.c.openQuestionItems[1];
+  const request = f.c.focusQuestion(item.id);
+  t.after(async () => { body.resolve(f.accept()); await request.catch(() => {}); });
+  await tick(); const peer = f.c.openQuestionItems[0];
+  f.event('question.focused', { question: peer.question, questionId: peer.id, requestId: 'earlier-peer', chosenBy: 'user', inputRevision: inputRevision(f.c.session) });
+  body.resolve(f.accept()); await request;
+  assert.equal(f.c.session.questionFocus.questionId, item.id);
+  assert.equal(f.rows()[1].dataset.state, 'requesting');
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: inputRevision(f.c.session) } });
+  assert.equal(warnings.at(-1)[1].accepted, true);
+  assert.equal(warnings.at(-1)[1].acceptedThenLaneFailed, true);
+});
+test('RC24 a retryable local refusal cannot re-ask a point completed by a peer since the click', async t => {
+  const f = fixture(t), pending = Promise.withResolvers(); f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.c.receive(f.accept().event);
+  f.event('turn.final', { id: 'peer-completed', role: 'assistant', content: 'Who approves?', focusRequestId: 'focus-1', inputRevision: inputRevision(f.c.session) });
+  pending.resolve(Response.json({ reason: 'not-admitted', admissionReason: 'plugin unhealthy' }, { status: 403 }));
+  await assert.rejects(request); await tick();
+  assert.equal(f.calls.length, 1); assert.equal(f.rows()[1].dataset.state, 'asked');
 });
