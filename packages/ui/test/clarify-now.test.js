@@ -509,7 +509,9 @@ test('RC24 a different peer focus never inherits a pending local acceptance or s
   t.mock.method(response, 'json', () => body.promise);
   t.mock.method(console, 'warn', (...args) => warnings.push(args));
   f.post(() => response);
-  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id); await tick();
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  t.after(async () => { body.resolve(local); await request.catch(() => {}); });
+  await tick();
   const peer = f.c.openQuestionItems[0];
   f.event('question.focused', { question: peer.question, questionId: peer.id, requestId: 'peer-pending', chosenBy: 'user', inputRevision: inputRevision(f.c.session) });
   f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: inputRevision(f.c.session) } });
