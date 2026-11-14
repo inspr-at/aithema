@@ -2642,7 +2642,7 @@ export class AithemaSession extends HTMLElement {
       await this.#refreshFeatures();
       if (this.#startIntent !== intent || !this.isConnected || this.#consentRefresh) return;
       this.#consumeStartIntent();
-      if (this.#startIntent !== intent) return;
+      if (this.#startIntent !== intent || !isConsentReason(this.#feature(intent.mode === 'voice' ? 'voice' : 'text').reason)) return;
       if (attempt < 2) this.#retryRestoredStart(intent, attempt + 1);
       else this.#clearStartIntent();
     };
