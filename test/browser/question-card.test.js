@@ -956,7 +956,8 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
   await t.test('long reply at 390 with visual keyboard holds its top through final/card paints', async () => {
     await reset(390);
     await page.evaluate(() => {
-      globalThis.navigationNativeViewport = visualViewport;
+      globalThis.navigationNativeViewport = visualViewport; globalThis.navigationTouch = Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints');
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
       const viewport = new EventTarget(); Object.assign(viewport, { height: 844, offsetTop: 0, scale: 1 });
       Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
       const c = document.querySelector('aithema-session'), parent = c.parentNode; c.remove(); parent.append(c);
@@ -964,7 +965,9 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
       visualViewport.height = 420; visualViewport.dispatchEvent(new Event('resize'));
     });
     try {
-      await nextFrame(page); await page.keyboard.press('Control+Enter'); await acknowledged();
+      await nextFrame(page);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard')), true, 'the visual keyboard is open');
+      await page.keyboard.down('Control'); await page.keyboard.press('Enter'); await page.keyboard.up('Control'); await acknowledged();
       const long = 'A detailed reply with several points. '.repeat(90);
       await page.evaluate(long => globalThis.navigationPartial(long), long); await nextFrame(page);
       const held = await snapshot(); positive(held, ['latest', 'composer', 'dock', 'shell']);
@@ -977,7 +980,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
       assert.equal((await snapshot()).scroll, final.scroll, 'a later paint does not pin a held long reply to its bottom');
       rectEvidence.push({ width: 390, keyboardOpen: true, held, final });
     } finally {
-      await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.navigationNativeViewport }); });
+      await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.navigationNativeViewport }); if (globalThis.navigationTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.navigationTouch); else delete navigator.maxTouchPoints; });
     }
   });
   await t.test('same-point double click cannot activate the newly painted card', async () => {
@@ -1013,7 +1016,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
       globalThis.navigationOverviewAnchor = n; return [b.left + 20, b.top + b.height / 2]; });
     await page.mouse.move(...point);
     await shadow(page, c => { const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'Both choices'; });
-    await page.keyboard.press('Control+Enter'); await acknowledged();
+    await page.keyboard.down('Control'); await page.keyboard.press('Enter'); await page.keyboard.up('Control'); await acknowledged();
     const before = await page.evaluate(() => globalThis.navigationOverviewAnchor.getBoundingClientRect().toJSON());
     await page.evaluate(async () => { const { inputRevision } = await import('/packages/core/src/session.js'); const c = document.querySelector('aithema-session');
       c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
