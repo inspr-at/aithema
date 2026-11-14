@@ -626,7 +626,7 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')), shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);
     assert.equal(response.status(), 202);
     await until(page, () => document.querySelector('aithema-session').session.operations.running.includes('understanding'));
-    const updating = locale === 'de' ? de.stale : en.stale;
+    const updating = locale === 'de' ? de.preparingOverview : en.preparingOverview;
     await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === text, updating);
     await settle(page);
     assert.deepEqual(await boxes(page, targets), before, 'updating after successful reply shifts 0 px');

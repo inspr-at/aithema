@@ -1,8 +1,11 @@
-import { FOCUS_REFUSAL_CLASSES } from '../../core/src/index.js';
 import { PLUGIN_ERROR_CODES } from '../../core/src/invocation.js';
 import { BINDING_REASON_CODES } from '../../core/src/presets.js';
 
-const codes = new Set([...Object.keys(FOCUS_REFUSAL_CLASSES), ...PLUGIN_ERROR_CODES, ...BINDING_REASON_CODES,
+// The diagnostic owns a value-free allowlist, not the core's private recovery policy.
+const codes = new Set([...PLUGIN_ERROR_CODES, ...BINDING_REASON_CODES,
+  'admission deadline', 'budget reconciling', 'plugin unhealthy', 'consent port unavailable',
+  'reply-in-flight', 'network', 'budget denied', 'session', 'one-hour', 'host-limit',
+  'consent-required', 'current processing consent required',
   'focus-refused', 'invalid-request', 'not-admitted', 'stale-question', 'stale-revision', 'paused',
   'reasoning-unavailable', 'focused-question-removed', 'identity-changed',
   'session-not-found', 'not-found', 'server-error', 'size-limit', 'idempotency-conflict',

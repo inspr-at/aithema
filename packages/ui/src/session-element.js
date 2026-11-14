@@ -263,7 +263,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#erased) return;
     if (this.#clarifyBusy()) {
       const error = Object.assign(new Error('reply-in-flight'), { reason: 'reply-in-flight', status: 409 });
-      warnFocusRefusal(error); throw error;
+      throw error;
     }
     const item = this.openQuestionItems.find(item => item.id === questionId);
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
@@ -1616,6 +1616,20 @@ export class AithemaSession extends HTMLElement {
     this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId: this.#session.id, reason, features: [...features] },
       bubbles: true, composed: true }));
   }
+  // Apply a journal snapshot without opening a stream or scheduling any work.
+  // Gap recovery and the bounded status read must restore the same projection.
+  #applySnapshot(session) {
+    // Accepted snapshots fence older responses to concurrent restores.
+    this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
+    const before = this.#session;
+    this.#session = session; this.#cursor = session.seq; this.#featureRead = null;
+    this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
+    this.#restoreVoiceEffects(before); this.#repaintLocale();
+    this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session);
+    this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
+    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
+    this.#host?.updateStreaming();
+  }
   #clearLaneStatusPending() {
     clearTimeout(this.#laneStatusTimer); this.#laneStatusTimer = null; this.#laneStatusPending = null; this.#laneStatusRead = null;
   }
@@ -1626,29 +1640,34 @@ export class AithemaSession extends HTMLElement {
     if (!this.isConnected) return;
     this.#laneStatusTimer = setTimeout(async () => {
       if (this.#erased || this.#session.id !== sessionId || this.#laneStatusPending !== revision) return;
-      this.#clearLaneStatusPending();
-      this.#render('aside');
+      this.#laneStatusTimer = null;
       const read = this.#laneStatusRead = {};
       const active = () => !this.#erased && this.#laneStatusRead === read && this.#session.id === sessionId && inputRevision(this.#session) === revision;
       // One read, never a Retry or reconnect: this barrier cannot schedule paid work.
       try {
-        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
+        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers(), signal: AbortSignal.timeout(2000) });
         const snapshot = response.ok ? await response.json() : null;
         if (!active()) return;
-        if (snapshot?.id === sessionId && snapshot.seq >= this.#cursor && inputRevision(snapshot) === revision) {
-          this.#session = snapshot; this.#cursor = snapshot.seq;
-          this.#invalidatedAt = Math.max(this.#invalidatedAt, snapshot.seq);
-          this.#restoreFailure(); this.#concept.update(this.#session);
-          this.#render('transcript'); this.#render('features'); this.#render('composer');
+        if (snapshot?.id === sessionId && Number.isSafeInteger(snapshot.seq) && snapshot.seq >= this.#invalidatedAt) {
+          if (snapshot.seq > this.#cursor) this.#applySnapshot(snapshot);
+          else if (snapshot.seq === this.#cursor && inputRevision(snapshot) === revision) {
+            // The journal is unchanged; only transient lane operations can differ.
+            this.#session.operations = snapshot.operations;
+            this.#restoreFailure();
+          }
         }
       } catch { /* The bounded pending state ends even when its one read fails. */ }
-      if (!this.#erased && this.#session.id === sessionId && inputRevision(this.#session) === revision) this.#render('aside');
+      if (this.#laneStatusRead === read) this.#clearLaneStatusPending();
+      if (!this.#erased && this.#session.id === sessionId) this.#render('aside');
     }, 18_000);
     this.#laneStatusTimer.unref?.();
   }
   #restoreFailure() {
     const operations = this.#session.operations;
-    if (operations?.inputRevision === inputRevision(this.#session)) this.#clearLaneStatusPending();
+    // A reaction-only status is the first half of a topic-policy turn. It
+    // cannot settle the understanding still chained behind that reply.
+    if (operations?.inputRevision === inputRevision(this.#session) &&
+      (!operations.running.includes('reaction') || operations.running.includes('understanding') || operations.lastFailure)) this.#clearLaneStatusPending();
     const failure = operations?.inputRevision === inputRevision(this.#session) ? operations.lastFailure : null;
     this.#recordFailure(failure);
     this.#settleRetry();
@@ -2158,7 +2177,8 @@ export class AithemaSession extends HTMLElement {
     // Real pending work owns the slot before failure; an existing assessment
     // keeps its draft/stale copy while its replacement runs.
     const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
-    const scheduledAnalysis = this.#laneStatusPending === revision || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || missingReply && waiting;
+    const replyBeforeAssessment = operations?.inputRevision === revision && operations.running.includes('reaction') && stale && !this.#failure;
+    const scheduledAnalysis = replyBeforeAssessment || this.#laneStatusPending === revision || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || missingReply && waiting;
     const preparing = !u.readinessAssessed && (analysisRunning || (analysis.available || cached) && scheduledAnalysis && !this.#failure);
     const consentMissing = hasPersonTurn && isConsentReason(analysis.rawReason);
     // A purpose stop deliberately schedules no replacement reply after consent
@@ -2221,18 +2241,23 @@ export class AithemaSession extends HTMLElement {
     aside.dataset.overview = currentOverview ? 'current' : 'unavailable';
     const create = root.querySelector('.create-project');
     if (create) create.inert = !currentOverview || this.#session.processingPreset === 'device';
-    // Local deferral is eligibility, not proof that an understanding job exists.
-    const updatingOverview = analysisRunning || this.#laneStatusPending === revision;
+    // Reaction-first turns still owe their chained assessment. Preserve that
+    // scheduled state even if the bounded status read happens during the reply.
+    // A current draft retains its host's draft copy during the full assessment.
+    const updatingOverview = (analysisRunning || this.#laneStatusPending === revision || replyBeforeAssessment) &&
+      (stale || !u.draft);
     const idleOverview = hasPersonTurn && u.readinessAssessed && stale &&
       !consentMissing && (analysis.available || cached) && !updatingOverview && !failedOverview && !this.#failure;
-    const overviewText = !hasPersonTurn ? copy.empty : updatingOverview ? copy.stale : preparing ? copy.preparingOverview
+    const overviewText = !hasPersonTurn ? copy.empty
+      : updatingOverview && u.readinessAssessed ? copy.stale
+      : preparing ? copy.preparingOverview
       : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : reasonSeparator}`
       : this.#failure && !replyFailed && !reconciling ? resolveCopy(copy, 'reasoningFailed', null, this.#session.locale)
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
       : !u.readinessAssessed ? copy.noProjectDetails
       : stale && this.#session.pauseReason !== 'purpose' ? resolveCopy(copy, 'staleIdle', null, this.#session.locale)
-      : u.draft ? copy.draft : resolveCopy(copy, 'overviewCurrent', null, this.#session.locale);
+      : u.draft ? copy.draft : resolveCopy(copy, 'overviewCurrent', 'final', this.#session.locale);
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
     notice.setAttribute('aria-label', resolveCopy(copy, 'overviewStatusLabel', null, this.#session.locale));
     // One named status slot keeps every overview state in the same place.
@@ -3172,6 +3197,9 @@ export class AithemaSession extends HTMLElement {
       if (['closing', 'ended'].includes(event.data.state) && this.isConnected) void this.#refreshFeatures();
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session) &&
       (event.data.settingsRevision === undefined || event.data.settingsRevision >= this.#reasoningRevision)) {
+      // A snapshot can finalize this turn while older fragments remain queued
+      // in the original stream. Its replayed final cannot clear them again.
+      if (this.#session.transcript.some(turn => turn.id === event.data.id)) return;
       const existing = this.#partials.get(event.data.id);
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,
         content: (existing?.content ?? '') + event.data.delta,
@@ -3401,14 +3429,7 @@ export class AithemaSession extends HTMLElement {
         if (this.#cursor > requestedCursor && this.isConnected) this.#connect();
         return;
       }
-      // An accepted snapshot protects its state from older responses to concurrent restores.
-      this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
-      const before = this.#session;
-      this.#session = session; this.#cursor = this.#session.seq; this.#featureRead = null; this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
-      this.#restoreVoiceEffects(before);
-      this.#repaintLocale();
-      this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
-      this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
+      this.#applySnapshot(session);
       if (this.isConnected) {
         this.#connect();
         if (this.#consentRefresh) void this.#refreshFeatures();

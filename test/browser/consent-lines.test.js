@@ -214,7 +214,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
       overview: c.shadowRoot.querySelector('.notice').textContent }));
     assert.equal(saved.sameDocument, true); assert.equal(saved.sameNodes, true); assert.equal(saved.consentLines, 0);
     const copyEmpty = await page.evaluate(async locale => (await import(`/packages/ui/src/i18n/${locale}.js`))[locale].empty, locale);
-    assert.equal(saved.overview, locale === 'de' ? de.stale : en.stale, 'a person turn never shows the first-sentence placeholder');
+    assert.equal(saved.overview, locale === 'de' ? de.preparingOverview : en.preparingOverview, 'a person turn never shows the first-sentence placeholder');
     assert.notEqual(saved.overview, copyEmpty);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true, 'running analysis has no bare retry');
     await record(t, page, label + '-saved', { ...saved, shiftPx: 0 });
@@ -337,7 +337,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await page.keyboard.press('Space'); await page.locator('aithema-session >>> .consent-save').click();
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.stale, 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.preparingOverview, 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…', 'drafts keep their separate refusal');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
@@ -432,7 +432,7 @@ test('AIT-197 R2 A and real save: consent starts overview and missing reply exac
   const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));
   assert.deepEqual(stats, { reaction: 1, understanding: 1 }, 'both pending lanes start once without a retry click');
   assert.equal(posts, 1); assert.equal(retries, 0);
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.stale);
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.preparingOverview);
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true);
   assert.equal(await shadow(page, c => globalThis.r2Nodes.every(n => n.isConnected)), true);
   assert.deepEqual(await boxes(page, geometry), before, 'real consent.revised invalidation shifts 0 px');
@@ -544,7 +544,7 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
     // Park it outside controls so the viewport evidence has no incidental tooltip.
     await page.mouse.move(1, 1); await frame(page);
     const notice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
-    assert.equal(notice, project ? locale === 'de' ? de.stale : en.stale : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
+    assert.equal(notice, project ? locale === 'de' ? de.preparingOverview : en.preparingOverview : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
     assert.deepEqual(await boxes(page, geometry), before, 'paused real consent save shifts 0 px');
     assert.equal(posts, 1); assert.equal(retries, 0);
     const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));
@@ -757,7 +757,7 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
       const next = r.querySelector('.signals-section'), nextHeading = next.querySelector('h3').getBoundingClientRect();
       return { dividerVisible: divider.top >= 90 && divider.bottom <= innerHeight, summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
         noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
-        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: 2.9 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: parseFloat(contentStyle.rowGap),
+        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: 5.8 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: parseFloat(contentStyle.rowGap),
         statusRole: notice.getAttribute('role'), statusName: notice.getAttribute('aria-label'), statusText: notice.textContent,
         regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
     });
@@ -765,7 +765,7 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
     assert.equal(overview.statusText, locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.equal(overview.statusRole, 'status'); assert.ok(overview.statusName?.trim(), 'status slot has an accessible name');
     assert.ok(overview.statusWidth > 0 && overview.statusHeight > 0, 'status slot has a positive box');
-    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}: status reserves 2.9em`);
+    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}: status reserves 5.8em`);
     assert.equal(overview.summaryVisible, true);
     assert.equal(overview.dividerVisible, true, 'readiness divider is visible below the sticky header');
     assert.equal(overview.noticeOutOfFlow, false);

@@ -41,7 +41,7 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
     if (observed.operations.running.includes('understanding') && !observed.understanding.readinessAssessed) {
       await until(page, () => document.querySelector('aithema-session').session.operations?.running.includes('understanding'));
       const pendingNotice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
-      assert.equal(pendingNotice, de.stale, 'authoritative understanding recovery owns the Updating slot until settled');
+      assert.equal(pendingNotice, de.preparingOverview, 'authoritative understanding recovery owns the Updating slot until settled');
     }
     const recovery = await page.evaluate(async () => (await fetch('/settle-recovery')).json());
     assert.deepEqual(recovery.session.operations.running, []);

@@ -149,7 +149,7 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     await mockConsent(page); await startTyping(page);
     await fastUploadBackoff(page);
     await sendTurn(page, locale === 'de' ? 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international' : `We are a bakery and want a preorder app. ${content}`);
-    await waitForShadow(page, 'aside .notice', { text: (locale === 'de' ? de : en).final }); await revealed(page);
+    await waitForShadow(page, 'aside .notice[data-current]'); await revealed(page);
     // Keep the real route/extractors for accepted requests. Fail limits discovery and inject one
     // deterministic busy response, since fast extraction can otherwise free the first reservation.
     await page.evaluate(() => {
