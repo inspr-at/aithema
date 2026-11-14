@@ -264,3 +264,94 @@ test('AIT-463 BC9: an identity unlock keeps the answered reply card without Retr
   assert.equal(shown(c), true);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, true);
 });
+
+// Layout contracts use a clamped scroll box; real geometry is covered on the browser lane.
+function navigationScene(t) {
+  const c = setup(); question(c);
+  const root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
+  let top = 0;
+  Object.defineProperties(shell, {
+    clientHeight: { configurable: true, get: () => 200 },
+    scrollHeight: { configurable: true, get: () => 1000 + root.querySelector('ol').textContent.length },
+    scrollTop: { configurable: true, get: () => top, set: value => { top = Math.max(0, Math.min(value, shell.scrollHeight - 200)); } },
+  });
+  shell.getBoundingClientRect = () => ({ top: 0, bottom: 200, height: 200, width: 300 });
+  t.mock.method(window, 'getComputedStyle', () => ({ paddingTop: '0px' }));
+  root.elementFromPoint = () => shell.querySelector('.turn');
+  const move = (x, y = 20, pointerType = 'mouse') => c.dispatchEvent(new window.PointerEvent('pointermove', { clientX: x, clientY: y, pointerType }));
+  move(20); shell.dispatchEvent(new window.Event('pointerenter'));
+  shell.scrollTop = 100; shell.dispatchEvent(new window.Event('scroll'));
+  const partial = (id, delta = 'New reply') => c.receive({ type: 'turn.partial', data: { id, delta, inputRevision: inputRevision(c.session) } });
+  const acknowledge = async (_url, request) => {
+    const body = JSON.parse(request.body);
+    return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+  };
+  return { c, root, shell, move, partial, acknowledge, bottom: () => shell.scrollHeight - shell.clientHeight };
+}
+
+test('AIT-512: persisted user row exists before the card hides, in the same task', t => {
+  const { c, root } = navigationScene(t), card = root.querySelector('.qcard');
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'hidden');
+  const observed = [];
+  Object.defineProperty(card, 'hidden', { configurable: true, get() { return descriptor.get.call(this); }, set(value) {
+    if (value) observed.push(Boolean(root.querySelector('[data-id="persisted-answer"]')));
+    descriptor.set.call(this, value);
+  } });
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'persisted-answer', role: 'user', content: 'Both' } });
+  assert.ok(observed.length > 0);
+  assert.ok(observed.every(Boolean), 'append the persisted user row before hiding/releasing the card');
+  assert.equal(root.querySelector('.conversation').style.getPropertyValue('--question-card-height'), '0px');
+});
+
+test('AIT-512: keyboard option pick follows from a scrolled-up, hovered transcript', async t => {
+  const { root, shell, acknowledge, bottom, partial } = navigationScene(t);
+  t.mock.method(globalThis, 'fetch', acknowledge);
+  root.querySelector('.qopt').click(); await tick();
+  assert.equal(shell.scrollTop, bottom(), 'the persisted answer is pinned after the card releases its space');
+  partial('short');
+  assert.equal(shell.scrollTop, bottom(), 'a resting transcript pointer does not undo the visitor navigation');
+});
+
+test('AIT-512: mouse jitter stays in the intent; movement beyond eight pixels ends it', async t => {
+  const { root, shell, c, move, partial, acknowledge, bottom } = navigationScene(t);
+  t.mock.method(globalThis, 'fetch', acknowledge);
+  c.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: 20, clientY: 20, pointerType: 'mouse' }));
+  root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 })); await tick();
+  move(23, 22); partial('reply', 'First');
+  assert.equal(shell.scrollTop, bottom(), '1–3 px jitter retains the pick intent');
+  move(29, 20); const before = shell.scrollTop; partial('reply', ' longer');
+  assert.equal(shell.scrollTop, before, 'movement beyond eight pixels restores the hover gate');
+});
+
+for (const failure of ['send', 'lane']) test(`AIT-512: ${failure} failure ends the navigation intent`, async t => {
+  const { c, root, shell, partial, acknowledge } = navigationScene(t);
+  t.mock.method(globalThis, 'fetch', failure === 'send' ? async () => new Response(null, { status: 503 }) : acknowledge);
+  root.querySelector('.qopt').click(); await tick();
+  if (failure === 'lane') c.receive({ type: 'lane.failed', data: { lane: 'understanding', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true } });
+  const before = shell.scrollTop; partial('after-failure');
+  assert.equal(shell.scrollTop, before, 'a failed send/lane cannot retain the hover exception');
+});
+
+test('AIT-512: jump control requires new content and includes a growing reply while scrolled up', t => {
+  const { root, shell, partial } = navigationScene(t), jump = root.querySelector('.transcript-latest');
+  shell.scrollTop = shell.scrollHeight; shell.dispatchEvent(new window.Event('scroll'));
+  shell.scrollTop = 100; shell.dispatchEvent(new window.Event('scroll'));
+  assert.equal(jump.style.visibility, 'hidden', 'scrolling alone does not invent new messages');
+  partial('new');
+  assert.notEqual(jump.style.visibility, 'hidden', 'new content while scrolled up exposes the jump control');
+  jump.click(); assert.equal(jump.style.visibility, 'hidden');
+  partial('new', ' another chunk');
+  assert.notEqual(jump.style.visibility, 'hidden', 'stream growth under the parked pointer is also new content');
+});
+
+test('AIT-512: a new card ignores an immediate second pointer click; keyboard activation remains available', async t => {
+  const { c, root, acknowledge } = navigationScene(t); let requests = 0;
+  t.mock.method(globalThis, 'fetch', (...args) => { requests++; return acknowledge(...args); });
+  c.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: 20, clientY: 20, pointerType: 'mouse' }));
+  root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 })); await tick();
+  question(c); await tick();
+  root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 2 })); await tick();
+  assert.equal(requests, 1, 'a second click cannot activate a newly painted card under the resting pointer');
+  root.querySelector('.qopt').click(); await tick();
+  assert.equal(requests, 2, 'keyboard activation bypasses the pointer-only guard');
+});

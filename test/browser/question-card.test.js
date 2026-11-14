@@ -828,3 +828,200 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
   if (evidence) await writeFile(join(evidence, 'ait-229-checks.json'), JSON.stringify({
     ticket: 'AIT-229', commit: /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], createdAt: new Date().toISOString(), checks, viewport: true, reducedMotion: true, blurred: true, fontStack: 'Chrome baseline' }, null, 2));
 });
+
+test('AIT-512: picks and sends keep the new turn visible without stealing reading position', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-navigation-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  t.after(() => demo.kill());
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome') });
+  t.after(() => browser.close());
+  const page = await browser.newPage(), rectEvidence = [];
+  let requests = 0, refuse = false;
+  await page.setRequestInterception(true);
+  page.on('request', request => { void (async () => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/events')) return request.respond({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' });
+    if (/^\/api\/sessions\/[^/]+$/u.test(path) && request.method() === 'GET') {
+      const session = await shadow(page, c => globalThis.navigationSeed ? c.session : null);
+      if (session) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
+    }
+    if (path.endsWith('/turns') && request.method() === 'POST') {
+      requests++;
+      if (refuse) return request.respond({ status: 503 });
+      const body = JSON.parse(request.postData());
+      const event = await shadow(page, (c, body) => ({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: body.clientEventId, role: 'user', content: body.content,
+      } }), body);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(event) });
+    }
+    return request.continue();
+  })().catch(error => { globalThis.navigationInterceptionError = error; }); });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { globalThis.navigationSeed = structuredClone(c.session); c.addEventListener('pointerdown', e => { globalThis.navigationClickPoint = { x: e.clientX, y: e.clientY }; }); });
+  const reset = async width => {
+    refuse = false; requests = 0;
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.mouse.move(0, 0);
+    await page.evaluate(async () => {
+      const { en } = await import('/packages/ui/src/i18n/en.js');
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const c = document.querySelector('aithema-session'), s = structuredClone(globalThis.navigationSeed);
+      s.locale = 'en'; s.seq = 1; s.inputRevision = 1; s.settings.origin = 'chosen';
+      s.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `history-${i}`, role: i % 2 ? 'assistant' : 'user',
+        content: `Earlier turn ${i}. ` + 'A useful detail for the conversation. '.repeat(4) }));
+      s.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: false } };
+      s.understanding = { ...s.understanding, inputRevision: inputRevision(s), draft: false,
+        summary: 'A website for cushions.', openQuestions: ['Should customers choose their own design?'] };
+      c.configure({ copy: en, session: s });
+      globalThis.navigationPartial = (delta, id = 'navigation-reply') => c.receive({ type: 'turn.partial', data: { id, delta, inputRevision: inputRevision(c.session) } });
+      globalThis.navigationFinal = (patch = {}) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: 'navigation-reply', role: 'assistant', content: 'A short new reply.', inputRevision: inputRevision(c.session),
+        question_short: 'Choose a design?', options: [{ text: 'Finished cushions', likely: true }, { text: 'Choose a design' }], ...patch,
+      } });
+      globalThis.navigationFinal({ id: 'initial-question' });
+    });
+    await nextFrame(page);
+  };
+  const snapshot = () => shadow(page, c => {
+    const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), rows = [...shell.querySelectorAll('.turn')];
+    return { scroll: shell.scrollTop, max: shell.scrollHeight - shell.clientHeight,
+      shell: shell.getBoundingClientRect().toJSON(), latest: rows.at(-1).getBoundingClientRect().toJSON(),
+      composer: r.querySelector('.composer').getBoundingClientRect().toJSON(), dock: r.querySelector('.composer-dock').getBoundingClientRect().toJSON(),
+      jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility, card: !r.querySelector('.qcard').hidden };
+  });
+  const positive = (state, names) => { for (const name of names) assert.ok(state[name].width > 0 && state[name].height > 0, `${name} must be a positive box: ${JSON.stringify(state)}`); };
+  const acknowledged = () => page.waitForFunction(() => {
+    const c = document.querySelector('aithema-session'); return c.session.transcript.at(-1)?.role === 'user' && c.shadowRoot.querySelector('.qcard').hidden;
+  });
+  const pick = async keyboard => {
+    if (keyboard) {
+      const point = await shadow(page, c => { const b = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect(); return [b.left + 25, b.top + 25]; });
+      await page.mouse.move(...point);
+      await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+      await page.keyboard.press('Enter');
+    } else {
+      const option = await page.$('aithema-session >>> .qopt'); await option.click(); await option.dispose();
+    }
+    await acknowledged();
+  };
+  for (const width of [390, 1440]) for (const keyboard of [true, false]) await t.test(`${width}: ${keyboard ? 'keyboard pick under parked pointer' : 'mouse pick without movement'}, short reply and stable dock`, async () => {
+    await reset(width);
+    await shadow(page, c => { const s = c.shadowRoot.querySelector('.transcript-shell'); s.scrollTop = 80; }); await nextFrame(page);
+    const before = await snapshot(); positive(before, ['composer', 'dock']);
+    await pick(keyboard);
+    const persisted = await snapshot();
+    assert.ok(Math.abs(persisted.max - persisted.scroll) <= 2, `persisted user pinned after card closes: ${JSON.stringify(persisted)}`);
+    await page.evaluate(() => { globalThis.navigationPartial('A short new reply.'); globalThis.navigationFinal(); }); await nextFrame(page);
+    const final = await snapshot(); positive(final, ['latest', 'composer', 'dock', 'shell']);
+    assert.ok(final.latest.bottom <= final.composer.top + 1, `reply clears the composer: ${JSON.stringify(final)}`);
+    assert.ok(final.latest.top >= final.shell.top - 1, 'the short reply is in view');
+    assert.deepEqual(final.composer, before.composer, 'composer moves 0 px');
+    assert.deepEqual(final.dock, before.dock, 'dock moves 0 px');
+    await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
+    assert.equal((await snapshot()).scroll, final.scroll, 'the next paint does not scroll back');
+    rectEvidence.push({ width, keyboard, before, persisted, final });
+  });
+  await t.test('mouse jitter of 1–3 px keeps following; deliberate movement and scrolling end it', async () => {
+    await reset(390); await pick(false);
+    const point = await shadow(page, c => { const b = c.shadowRoot.querySelector('.composer').getBoundingClientRect(); return [b.left + 25, b.top - 20]; });
+    // Establish the origin at the actual pick coordinate, then stay within 3 px.
+    const origin = await page.evaluate(() => globalThis.navigationClickPoint);
+    assert.ok(origin, 'the fixture records the real pointerdown coordinate');
+    await page.mouse.move(origin.x + 2, origin.y + 1);
+    await page.evaluate(() => globalThis.navigationPartial('A short reply.')); await nextFrame(page);
+    let state = await snapshot(); assert.ok(Math.abs(state.max - state.scroll) <= 2, 'jitter does not end following');
+    await page.mouse.move(...point); await page.mouse.wheel({ deltaY: -200 }); await nextFrame(page);
+    const before = (await snapshot()).scroll;
+    await page.evaluate(() => globalThis.navigationPartial(' More words. '.repeat(30))); await nextFrame(page);
+    state = await snapshot(); assert.equal(state.scroll, before, 'scrolling up mid-stream stops following');
+    assert.equal(state.jump, 'visible');
+  });
+  await t.test('jump appears for new content under hover and while scrolled up, never from scrolling alone', async () => {
+    await reset(390);
+    await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
+    const point = await shadow(page, c => { const b = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect(); return [b.left + 25, b.top + 25]; });
+    await page.mouse.move(...point);
+    await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 40; }); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'hidden');
+    await page.evaluate(() => globalThis.navigationPartial('New message while reading.')); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'visible');
+    await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'hidden');
+    await page.evaluate(() => globalThis.navigationPartial(' A growing message. '.repeat(12))); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'visible', 'growth of an existing partial also counts as new');
+  });
+  await t.test('long reply at 390 with visual keyboard holds its top through final/card paints', async () => {
+    await reset(390);
+    await page.evaluate(() => {
+      globalThis.navigationNativeViewport = visualViewport;
+      const viewport = new EventTarget(); Object.assign(viewport, { height: 844, offsetTop: 0, scale: 1 });
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+      const c = document.querySelector('aithema-session'), parent = c.parentNode; c.remove(); parent.append(c);
+      const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'A typed answer';
+      visualViewport.height = 420; visualViewport.dispatchEvent(new Event('resize'));
+    });
+    try {
+      await nextFrame(page); await page.keyboard.press('Control+Enter'); await acknowledged();
+      const long = 'A detailed reply with several points. '.repeat(90);
+      await page.evaluate(long => globalThis.navigationPartial(long), long); await nextFrame(page);
+      const held = await snapshot(); positive(held, ['latest', 'composer', 'dock', 'shell']);
+      assert.ok(Math.abs(held.latest.top - held.shell.top - 16) <= 20, `long reply holds its beginning: ${JSON.stringify(held)}`);
+      assert.equal(held.jump, 'visible');
+      await page.evaluate(long => globalThis.navigationFinal({ content: long + ' More.' }), long); await nextFrame(page);
+      const final = await snapshot();
+      assert.ok(Math.abs(final.latest.top - held.latest.top) <= 1, 'a final reply and its card cannot undo the long-reply hold');
+      await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
+      assert.equal((await snapshot()).scroll, final.scroll, 'a later paint does not pin a held long reply to its bottom');
+      rectEvidence.push({ width: 390, keyboardOpen: true, held, final });
+    } finally {
+      await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.navigationNativeViewport }); });
+    }
+  });
+  await t.test('same-point double click cannot activate the newly painted card', async () => {
+    await reset(390); await pick(false);
+    await page.evaluate(() => globalThis.navigationFinal());
+    const point = await page.evaluate(() => globalThis.navigationClickPoint);
+    await page.mouse.click(point.x, point.y, { clickCount: 2 });
+    await nextFrame(page);
+    assert.equal(requests, 1, 'immediate second click activates nothing new');
+    await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+    await page.keyboard.press('Enter'); await acknowledged();
+    assert.equal(requests, 2, 'keyboard activation remains available');
+  });
+  for (const kind of ['send', 'lane']) await t.test(`${kind} failure ends the pointer-rest exception`, async () => {
+    await reset(390); refuse = kind === 'send';
+    if (refuse) {
+      const option = await page.$('aithema-session >>> .qopt'); await option.click(); await option.dispose();
+      await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled);
+    } else {
+      await pick(false);
+      await page.evaluate(async () => { const { inputRevision } = await import('/packages/core/src/session.js'); const c = document.querySelector('aithema-session');
+        c.receive({ type: 'lane.failed', data: { lane: 'understanding', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true } }); });
+    }
+    const p = await shadow(page, c => { const b = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect(); return [b.left + 25, b.top + 25]; });
+    await page.mouse.move(...p); await nextFrame(page);
+    const before = (await snapshot()).scroll;
+    await page.evaluate(() => globalThis.navigationPartial('A later unrelated reply. '.repeat(12))); await nextFrame(page);
+    assert.equal((await snapshot()).scroll, before, 'failure restores reading protection');
+  });
+  await t.test('overview anchoring stays active during a typed-send navigation intent', async () => {
+    await reset(1440);
+    const point = await shadow(page, c => { const n = c.shadowRoot.querySelector('.open-questions li, .questions li'); const b = n.getBoundingClientRect();
+      globalThis.navigationOverviewAnchor = n; return [b.left + 20, b.top + b.height / 2]; });
+    await page.mouse.move(...point);
+    await shadow(page, c => { const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'Both choices'; });
+    await page.keyboard.press('Control+Enter'); await acknowledged();
+    const before = await page.evaluate(() => globalThis.navigationOverviewAnchor.getBoundingClientRect().toJSON());
+    await page.evaluate(async () => { const { inputRevision } = await import('/packages/core/src/session.js'); const c = document.querySelector('aithema-session');
+      c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
+        inputRevision: inputRevision(c.session), summary: 'The growing overview summary. '.repeat(40) } }); }); await nextFrame(page);
+    const after = await page.evaluate(() => globalThis.navigationOverviewAnchor.getBoundingClientRect().toJSON());
+    assert.ok(before.width > 0 && before.height > 0 && after.width > 0 && after.height > 0);
+    assert.equal(after.top, before.top, 'overview anchoring holds while transcript anchoring is suspended');
+  });
+  assert.equal(globalThis.navigationInterceptionError, undefined);
+  if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2));
+});
