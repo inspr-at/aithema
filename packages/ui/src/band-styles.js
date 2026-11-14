@@ -63,6 +63,7 @@ export const bandStyles = `
 .audio-rail[data-no-mic-api] .voice-retry { visibility:hidden; }
 .voice-state .consent-narrow::before { content:attr(data-copy); }
 @media(width < 600px) {
+  .audio-rail .voice-message-close { display:none; }
   /* A permanent two-line row below the 44px controls also fits at 320px. */
   .voice-signal { height:44px; }
   .voice-wave { align-self:start; margin-top:7px; }
@@ -72,6 +73,8 @@ export const bandStyles = `
     padding:3px 8px; border:0; border-radius:0; background:none; box-shadow:none;
     font-size:10px; line-height:1.25; text-align:center; white-space:normal; text-wrap:initial;
   }
+  .band .audio-rail[data-state="failed"][data-message] .voice-state { min-height:0; padding-right:.85rem; }
+  .band .audio-rail[data-state="failed"][data-message]:not([data-device-message]) .voice-state { padding:3px 8px; }
   .audio-rail .voice-state:empty { display:none; }
   .voice-state .consent-line-copy { display:contents; }
   /* Keep the full sentence in the accessibility tree and the live region. */

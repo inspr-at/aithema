@@ -654,3 +654,9 @@ test('AIT-377: startup/device/silent-agent viewport matrix and fixed targets', {
       'Grok has no unsolicited opener; its S5 shot follows a visitor turn. ElevenLabs watches its guaranteed initial opener.',
       'ElevenLabs native ended has no usage: retain pending charge until server settlement.'] }, null, 2));
 });
+
+// RC24 keeps voice geometry coverage in this existing weighted browser file.
+test('AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes', { timeout: 120_000 }, async t => {
+  const { checkVoiceEndMessages } = await import('./voice-end-message-helpers.js');
+  await checkVoiceEndMessages(t);
+});
