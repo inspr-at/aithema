@@ -47,7 +47,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     await advance(t, 60_000); assert.equal(rail.errorKey, null); assert.equal(rail.controller.signal.aborted, false);
     permission.resolve(); await flush(); assert.equal(rail.startupPhase, null);
     await advance(t, 29_999); assert.equal(rail.state, 'connecting');
-    await advance(t, 1); await start; assert.equal(rail.errorKey, 'voiceDeadline');
+    await advance(t, 1); await start; assert.equal(rail.errorKey, 'voiceConnectFailed');
     assert.equal(rail.controller.signal.aborted, true);
   });
   test(`AIT-383 ${provider}: grant at 20 s fails at 50 s`, async t => {
@@ -56,7 +56,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     t.after(() => { permission.resolve(); connection.resolve(); });
     const start = rail.start(); await flush(); await advance(t, 20_000); permission.resolve(); await flush();
     await advance(t, 29_999); assert.equal(rail.state, 'connecting');
-    await advance(t, 1); await start; assert.equal(Date.now(), 150_000); assert.equal(rail.errorKey, 'voiceDeadline');
+    await advance(t, 1); await start; assert.equal(Date.now(), 150_000); assert.equal(rail.errorKey, 'voiceConnectFailed');
   });
   test(`AIT-383 ${provider}: S5 excludes mode and holding audio, late reply clears it; recovery stays silent`, async t => {
     const { rail, current } = setup(t, provider);
@@ -79,7 +79,7 @@ for (const name of ['AbortError', 'OverconstrainedError', 'NotReadableError', 'E
 });
 test('AIT-383 non-microphone AbortError retains admission/deadline/connection copy', async t => {
   const { rail } = setup(t, 'grok-voice');
-  for (const [code, key] of [['not-admitted', 'voiceAdmissionDenied'], ['deadline', 'voiceDeadline'], [undefined, 'voiceConnectionFailed']]) {
+  for (const [code, key] of [['not-admitted', 'voiceAdmissionDenied'], ['deadline', 'voiceConnectFailed'], [undefined, 'voiceConnectFailed']]) {
     rail.failure(Object.assign(new Error('request aborted'), { name: 'AbortError', code })); assert.equal(rail.errorKey, key);
   }
 });
@@ -88,7 +88,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const credential = Promise.withResolvers(), { rail, current } = setup(t, provider, { credential: credential.promise });
     t.after(() => credential.resolve());
     const start = rail.start(); await flush(); assert.equal(rail.startupPhase, null); assert.equal(current.acquired, 0);
-    await advance(t, 30_000); await start; assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(current.acquired, 0);
+    await advance(t, 30_000); await start; assert.equal(rail.errorKey, 'voiceConnectFailed'); assert.equal(current.acquired, 0);
   });
   for (const name of ['NotReadableError', 'OverconstrainedError', 'AbortError', 'Error']) test(`AIT-383 ${provider}: real ${name} remains attributed to microphone acquisition`, async t => {
     const { rail } = setup(t, provider, { microphoneError: Object.assign(new Error('device failed'), { name }) });

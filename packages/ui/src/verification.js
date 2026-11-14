@@ -11,6 +11,7 @@ import { VisitorEmail, setTierText } from './visitor-email.js';
 const LOCK = '<svg viewBox="0 0 32 36" width="22" height="25" fill="none" aria-hidden="true"><path d="M9 16V10a7 7 0 0 1 14 0v6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><rect x="4" y="15" width="24" height="18" rx="5" fill="currentColor"/><path d="M16 22v4" stroke="var(--aithema-surface)" stroke-width="2.6" stroke-linecap="round"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
 export const POLL_MS = 4000;
+const REFRESH_COALESCE_MS = 250;
 
 export class Verification {
   #visitorEmail = null;
@@ -19,6 +20,8 @@ export class Verification {
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #resendUntil = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
+  #checking = false; #checkedSinceConnect = false; #lastCheck = null; #connectionGeneration = 0;
+  #refresh = () => { void this.#check({ coalesce: true }); this.#schedule(); };
   /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}; notice() is the AI notice line. */
   constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale, creditsChanged, streaming = () => false }) {
     this.#root = root; this.#copy = copy; this.#request = request; this.#status = status; this.#onChange = onChange;
@@ -46,7 +49,7 @@ export class Verification {
       for (const key of ['send', 'resend', 'cancel', 'change']) setText(form[key], v[key]);
       setText(form.root.querySelector('.verify-primary-measure'), v.send);
     }
-    this.#paint();
+    this.#paint(); if (!this.#checkedSinceConnect) this.#schedule();
   }
   get #v() { return this.#copy.hostSurface.verify; }
   /** A host identity port exists for this conversation (erased identities count as none). */
@@ -63,6 +66,7 @@ export class Verification {
         this.#email.set({ canDelete: response.body.visitorEmail?.canDelete === true, ...(typeof response.body.delivery === 'boolean' ? { delivery: response.body.delivery } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
         if (generation === this.#identityGeneration) this.set(response.body.identity);
+        else if (!this.#checkedSinceConnect) this.#schedule();
       }
     } catch { /* No identity port: the entry stays away. */ }
     if (this.#visitorEmail?.canSave === false && this.#visitorEmail.canDelete === false) return;
@@ -73,12 +77,12 @@ export class Verification {
         this.#email.set({ visitor: response.body.visitor, notice: response.body.notice,
           ...(typeof response.body.notice?.deliveryEnabled === 'boolean' ? { delivery: response.body.notice.deliveryEnabled } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
-        this.#paint(); this.#onChange?.();
+        this.#paint(); if (!this.#checkedSinceConnect) this.#schedule(); this.#onChange?.();
       }
     } catch { /* Hosts without the optional visitor port keep verification. */ }
   }
   setCreditsState(creditsState) { this.#email.set({ creditsState }); }
-  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner, creditsState: 'loaded' }); this.#paint(); }
+  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner, creditsState: 'loaded' }); this.#paint(); if (!this.#checkedSinceConnect) this.#schedule(); }
   focusEntry() { this.#email.focus(); }
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
@@ -132,9 +136,19 @@ export class Verification {
     else if (event.type === 'identity.unlocked') this.#status(event.data?.manualPaused ? this.#v.unlockedPaused : this.#v.unlocked);
     else if (event.type === 'identity.resend-blocked') { this.#anchorCooldown(event.data?.resendAfterMs); this.#schedule(); this.#ui.message = this.#v.rateLimited; this.#ui.error = true; this.#paint(); }
   }
-  connect() { this.#connected = true; this.#paint(); this.#schedule(); }
+  connect() {
+    if (!this.#alive || this.#connected) return;
+    this.#connected = true;
+    // A reconnect owes a fresh check even while the previous connection awaits a reply.
+    this.#checkedSinceConnect = false;
+    this.#root.ownerDocument.addEventListener('visibilitychange', this.#refresh);
+    this.#root.ownerDocument.defaultView?.addEventListener('focus', this.#refresh);
+    this.#paint(); this.#refresh();
+  }
   disconnect() {
-    this.#connected = false;
+    this.#connected = false; this.#connectionGeneration++;
+    this.#root.ownerDocument.removeEventListener('visibilitychange', this.#refresh);
+    this.#root.ownerDocument.defaultView?.removeEventListener('focus', this.#refresh);
     clearTimeout(this.#poll); this.#poll = null;
     clearInterval(this.#tick); this.#tick = null;
   }
@@ -326,23 +340,44 @@ export class Verification {
     }
   }
   // The cooldown counts down each second; polling asks the host whether the link was confirmed.
+  get #canCheck() {
+    return this.#alive && this.#connected && this.enabled && this.canCollect && this.#email.delivery &&
+      this.#identity.pollVerification && this.#root.ownerDocument.visibilityState !== 'hidden';
+  }
+  #coalesceDelay() {
+    if (this.#lastCheck === null) return 0;
+    const elapsed = Date.now() - this.#lastCheck;
+    // A wall-clock rollback must not postpone a refresh; timer checks bypass this guard.
+    return elapsed < 0 ? 0 : Math.max(0, Math.min(REFRESH_COALESCE_MS, this.#pollMs) - elapsed);
+  }
+  async #check({ coalesce = false } = {}) {
+    if (!this.#canCheck || this.#checking) return;
+    // Focus and visibility often arrive together, even after a fast reply settles.
+    if (coalesce && this.#coalesceDelay() > 0) return;
+    clearTimeout(this.#poll); this.#poll = null;
+    this.#checking = true; this.#checkedSinceConnect = true; this.#lastCheck = Date.now();
+    const generation = this.#connectionGeneration;
+    try {
+      const response = await this.#request('identity/unlock', {});
+      if (this.#alive && this.#connected && this.enabled && generation === this.#connectionGeneration && response.ok && response.body?.identity) this.set(response.body.identity);
+    } catch { /* Polling resumes on the next round. */ }
+    finally { this.#checking = false; this.#schedule(); }
+  }
   #schedule() {
     // Detached elements retain their identity for reconnect, but own no timers.
-    // In-flight identity replies can call set() after disconnect too.
+    // Every refresh uses the same gate and owns at most one in-flight check.
     const counting = this.#alive && this.#connected && this.#mode() === 'pending' && this.#cooldown() > 0;
     if (counting && !this.#tick) this.#tick = setInterval(() => { if (!this.#alive) return; this.#paint(); if (this.#cooldown() === 0) { clearInterval(this.#tick); this.#tick = null; } }, 1000);
     if (!counting && this.#tick) { clearInterval(this.#tick); this.#tick = null; }
     clearTimeout(this.#poll); this.#poll = null;
-    if (!this.#alive || !this.#connected || !this.canCollect || !this.#email.delivery || !this.#identity?.pollVerification) return;
-    this.#poll = setTimeout(async () => {
+    if (!this.#canCheck || this.#checking) return;
+    // load() and later gate changes can enable the first check after connect.
+    // finally also comes here when a stale request had blocked a reconnect.
+    const delay = this.#checkedSinceConnect ? this.#pollMs : this.#coalesceDelay();
+    if (delay === 0) { void this.#check(); return; }
+    this.#poll = setTimeout(() => {
       this.#poll = null;
-      if (globalThis.document?.visibilityState !== 'hidden') {
-        try {
-          const response = await this.#request('identity/unlock', {});
-          if (this.#alive && response.ok && response.body?.identity) { this.set(response.body.identity); return; }
-        } catch { /* Polling resumes on the next round. */ }
-      }
-      if (this.#alive) this.#schedule();
-    }, this.#pollMs);
+      void this.#check();
+    }, delay);
   }
 }

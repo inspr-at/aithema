@@ -18,6 +18,7 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
     if (!response.ok) {
       const error = new Error('Voice control failed'), seconds = Number(response.headers.get('retry-after'));
       error.status = response.status; error.code = value?.error; if (typeof value?.reason === 'string') error.reason = value.reason;
+      if (['call', 'conversation'].includes(value?.timeLimit)) error.timeLimit = value.timeLimit;
       if (seconds > 0) error.retryAfterMs = seconds * 1000; throw error;
     }
     if (value?.callId && Number.isSafeInteger(value.epoch)) epochs.set(value.callId, value.epoch);
