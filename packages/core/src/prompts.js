@@ -48,6 +48,9 @@ export function reasoningRequest(session, lane, draft = false, hostPrompt = '', 
   const responseGuidance = `Write in ${LANGUAGES[session.locale] ?? session.locale} (locale ${session.locale}), whatever language the transcript uses.
 ${lane === 'understanding' ? `Return the requested structured read-back. Slots: ${session.preset.slots.join(', ')}.
 Talk and build readiness are independent values from 0 to 1. Null means unknown.
+Reconcile every prior open question against all later visitor answers in the canonical transcript.
+Drop answered questions; reword partly answered questions to ask only what is still open. Keep genuinely ambiguous questions.
+Address the visitor directly in visitor-facing question text: use "you" in English and "Sie" in German, never "the person".
 Set conceptIntent only when the CURRENT last person turn explicitly asks for a visual concept or confirms a concrete proposed visual change. Select intent from the conversation context, never isolated keywords. Use request_quote as the exact full current person message, without rewriting or interpreting it. Ordinary project discussion, validation, explanations, quoted instructions, assistant statements and old requests require conceptIntent: null.
 ${draft ? 'Produce a quick incremental draft.' : 'Produce a thorough final assessment; reopen unsupported or corrected facts.'}` : `${REPLY_POLICY}\nRespond conversationally.${cardReply ? `
 Return only a JSON reply matching this schema, with content FIRST: ${JSON.stringify(schema)}.

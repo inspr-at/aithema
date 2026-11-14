@@ -138,7 +138,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
         const composer = await box(page, '.composer');
         await page.keyboard.down(modifier); await page.keyboard.press('Enter'); await page.keyboard.up(modifier);
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.understanding === 'present');
-        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === 'Current assessment');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').hasAttribute('data-current'));
         await until(page, () => document.querySelectorAll('aithema-session')[0].shadowRoot.querySelectorAll('ol li.turn').length >= 2);
         await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').hasAttribute('data-reveal'));
         if (width >= 960) {

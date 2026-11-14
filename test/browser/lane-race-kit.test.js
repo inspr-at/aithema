@@ -6,6 +6,7 @@ import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
 import { lanePairs } from '../fixtures/lane-race-harness.js';
 import { shadow, until } from './start2-display-helpers.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
 
 test('AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400', { timeout: 90_000 }, async t => {
   const fixture = await startChild(new URL('../fixtures/lane-race-browser.js', import.meta.url));
@@ -40,7 +41,7 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
     if (observed.operations.running.includes('understanding') && !observed.understanding.readinessAssessed) {
       await until(page, () => document.querySelector('aithema-session').session.operations?.running.includes('understanding'));
       const pendingNotice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
-      assert.match(pendingNotice, /wird erstellt|building/iu, 'real recovery owns the preparation slot until settled');
+      assert.equal(pendingNotice, de.preparingOverview, 'authoritative understanding recovery owns the Updating slot until settled');
     }
     const recovery = await page.evaluate(async () => (await fetch('/settle-recovery')).json());
     assert.deepEqual(recovery.session.operations.running, []);

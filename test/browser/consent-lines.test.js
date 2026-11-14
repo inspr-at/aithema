@@ -10,6 +10,8 @@ import audit from '../fixtures/consent-copy-audit.json' with { type: 'json' };
 import { comparePhoneConsentBase } from '../consent-base-comparison.js';
 import { CONSENT_ITEMS } from '../../demo/processing-consent.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
 
 const features = { uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
@@ -212,7 +214,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
       overview: c.shadowRoot.querySelector('.notice').textContent }));
     assert.equal(saved.sameDocument, true); assert.equal(saved.sameNodes, true); assert.equal(saved.consentLines, 0);
     const copyEmpty = await page.evaluate(async locale => (await import(`/packages/ui/src/i18n/${locale}.js`))[locale].empty, locale);
-    assert.equal(saved.overview, locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …', 'a person turn never shows the first-sentence placeholder');
+    assert.equal(saved.overview, locale === 'de' ? de.preparingOverview : en.preparingOverview, 'a person turn never shows the first-sentence placeholder');
     assert.notEqual(saved.overview, copyEmpty);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true, 'running analysis has no bare retry');
     await record(t, page, label + '-saved', { ...saved, shiftPx: 0 });
@@ -335,7 +337,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await page.keyboard.press('Space'); await page.locator('aithema-session >>> .consent-save').click();
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …', 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.preparingOverview, 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…', 'drafts keep their separate refusal');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
@@ -430,7 +432,7 @@ test('AIT-197 R2 A and real save: consent starts overview and missing reply exac
   const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));
   assert.deepEqual(stats, { reaction: 1, understanding: 1 }, 'both pending lanes start once without a retry click');
   assert.equal(posts, 1); assert.equal(retries, 0);
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.preparingOverview);
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true);
   assert.equal(await shadow(page, c => globalThis.r2Nodes.every(n => n.isConnected)), true);
   assert.deepEqual(await boxes(page, geometry), before, 'real consent.revised invalidation shifts 0 px');
@@ -542,7 +544,7 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
     // Park it outside controls so the viewport evidence has no incidental tooltip.
     await page.mouse.move(1, 1); await frame(page);
     const notice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
-    assert.equal(notice, project ? locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …' : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
+    assert.equal(notice, project ? locale === 'de' ? de.preparingOverview : en.preparingOverview : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
     assert.deepEqual(await boxes(page, geometry), before, 'paused real consent save shifts 0 px');
     assert.equal(posts, 1); assert.equal(retries, 0);
     const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));
@@ -718,7 +720,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
 });
 
 
-test('AIT-290 round 4: overview label has no slot, matching section gap DE/EN 1440/1024/390', async t => {
+test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', async t => {
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const width of [1440, 1024, 390]) {
     await scene(page, locale, 'light', width, []);
@@ -742,32 +744,45 @@ test('AIT-290 round 4: overview label has no slot, matching section gap DE/EN 14
     });
     await frame(page);
     const overviewSelectors = ['.understanding', '.notice', '.summary', '.summary-text', '.understanding > .foot', '.composer', '.send'];
+    await page.mouse.move(-10, -10); await frame(page);
     const overviewBefore = await boxes(page, overviewSelectors);
+    for (const [i, box] of overviewBefore.entries()) assert.ok(box[2] > 0 && box[3] > 0, `positive ${overviewSelectors[i]} baseline`);
     const overview = await shadow(page, c => {
       const r = c.shadowRoot, section = r.querySelector('.summary'), heading = r.getElementById(section.getAttribute('aria-labelledby'));
       const summary = r.querySelector('.summary-text').getBoundingClientRect();
       const divider = r.querySelector('.readiness').getBoundingClientRect();
+      const notice = r.querySelector('.notice'), status = notice.getBoundingClientRect();
+      const contentStyle = getComputedStyle(r.querySelector('.analysis-content'));
+      const statusFont = parseFloat(getComputedStyle(notice).fontSize);
       const next = r.querySelector('.signals-section'), nextHeading = next.querySelector('h3').getBoundingClientRect();
       return { dividerVisible: divider.top >= 90 && divider.bottom <= innerHeight, summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
         noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
+        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: 5.8 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: parseFloat(contentStyle.rowGap),
+        statusRole: notice.getAttribute('role'), statusName: notice.getAttribute('aria-label'), statusText: notice.textContent,
         regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
     });
-    assert.equal(overview.noticeVisible, false, 'completed overview has no visible current-assessment label');
+    assert.equal(overview.noticeVisible, true, 'current overview keeps the quiet status visible');
+    assert.equal(overview.statusText, locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
+    assert.equal(overview.statusRole, 'status'); assert.ok(overview.statusName?.trim(), 'status slot has an accessible name');
+    assert.ok(overview.statusWidth > 0 && overview.statusHeight > 0, 'status slot has a positive box');
+    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}: status reserves 5.8em`);
     assert.equal(overview.summaryVisible, true);
     assert.equal(overview.dividerVisible, true, 'readiness divider is visible below the sticky header');
-    assert.equal(overview.noticeOutOfFlow, true);
-    assert.ok(Math.abs(overview.summaryGap - overview.nextHeadingGap) <= 2, `${locale}/${width}: divider-to-summary gap equals next divider-to-heading gap ±2px: ${JSON.stringify(overview)}`);
+    assert.equal(overview.noticeOutOfFlow, false);
+    assert.ok(Math.abs(overview.summaryStatusGap - overview.expectedStatusGap) <= .5, `${locale}/${width}: summary follows the status by the unchanged grid gap: ${JSON.stringify(overview)}`);
     const ax = await page.accessibility.snapshot({ interestingOnly: false });
     const namedRegion = n => n.role === 'region' && n.name === overview.regionName || n.children?.some(namedRegion);
     assert.ok(namedRegion(ax), 'summary keeps its accessible region name');
     for (const draft of [true, false]) {
       await shadow(page, (c, draft) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...structuredClone(c.session.understanding), draft } }), draft);
       await frame(page);
-      assert.deepEqual(await boxes(page, overviewSelectors), overviewBefore, 'draft/current label change moves summary and surrounding layout 0 px');
-      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.notice-text')).visibility !== 'hidden'), draft);
+      const after = await boxes(page, overviewSelectors);
+      for (const [i, box] of after.entries()) assert.ok(box[2] > 0 && box[3] > 0, `positive ${overviewSelectors[i]} after ${draft ? 'draft' : 'current'}`);
+      assert.deepEqual(after, overviewBefore, 'draft/current label change moves summary and surrounding layout 0 px');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.notice-text')).visibility !== 'hidden'), true);
     }
-    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: gap ${overview.summaryGap}px = next section ${overview.nextHeadingGap}px ±2px; draft/current 0px; named region`);
-    if (width === 1440 || locale === 'de' && width === 390) await capture215(t, page, `${locale}-light-${width}-overview-no-label`, { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
+    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: status ${overview.statusHeight}px; summary gap ${overview.summaryStatusGap}px; draft/current 0px; named status and summary region`);
+    if (width === 1440 || locale === 'de' && width === 390) await capture215(t, page, `${locale}-light-${width}-overview-status-slot`, { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
   }
 });
 
