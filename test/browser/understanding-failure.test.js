@@ -163,7 +163,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     assert.equal(response.status(), 202);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.deepEqual(await boxes(page, targets), before, 'next success causes 0 px surrounding displacement');
     assert.equal(await shadow(page, c => c === window.fixtureComponent), true);
     const pass = { head: evidenceCommit, locale, width, verdict, visitorCharge: 0, layoutShiftPx: 0, recoveredWithoutReload: true, pass: true };
@@ -564,7 +564,7 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     assert.equal(statsAfter.attempts.length, statsBefore.attempts.length + 2);
     assert.ok(statsAfter.attempts.slice(-2).every(attempt => attempt.state === 'settled'));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure').hidden), true);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.create-project')).visibility), 'visible', 'recovered overview can become a project');
     assert.deepEqual(await boxes(page, targets), before, 'both successful lanes settle in place at exactly 0 px');
     await capture(locale, width, theme, 'recovered');
@@ -630,7 +630,7 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     await page.evaluate(() => fetch('/settle?verdict=success'));
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment', 'normal overview copy after assessment');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date', 'normal overview copy after assessment');
     assert.deepEqual(await boxes(page, targets), before, 'assessment shifts 0 px');
     const pass = { head: evidenceCommit, locale, width, theme: 'light', notice: expected, occurrences: 1, retries: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true };
     passes.push(pass);
