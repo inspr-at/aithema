@@ -4,6 +4,7 @@ import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
+import { classifyFocusRefusal, FOCUS_REFUSAL_CLASSES } from '../../core/src/question-focus.js';
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { warnFocusRefusal } from './clarify-diagnostic.js';
@@ -103,7 +104,7 @@ export class AithemaSession extends HTMLElement {
   #clarifyWaitTimer; #clarifyRefresh = 0;
   #clarifyDiagnostics = new Map();
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
-  #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
+  #open = []; #cleared = []; #reactionFailureVersion = 0; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #postCallMatrix = null;
   #voiceResumeProjection = null;
@@ -269,8 +270,8 @@ export class AithemaSession extends HTMLElement {
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
     const focus = this.#clarify = { questionId, question: item?.question, inputRevision: revision,
       sessionId, clickSeq: this.#session.seq, priorRequestId: this.#session.questionFocus?.requestId, turnIds: new Set(this.#session.transcript.map(turn => turn.id)),
-      tries: 0, state: 'requesting', pending: false, waitOperations: this.#session.operations };
-    this.#retireReactionFailure();
+      tries: 0, state: 'requesting', pending: false, waitOperations: this.#session.operations,
+      replyFailureVersion: this.#reactionFailureVersion };
     return this.#sendClarify(focus);
   }
   #activeClarify(focus) {
@@ -311,15 +312,18 @@ export class AithemaSession extends HTMLElement {
           warnFocusRefusal(error, attempt);
           if (!this.#activeClarify(focus)) { if (this.#erased) return; throw error; }
           const structured = [403, 409].includes(error.status) && typeof error.reason === 'string';
-          const reason = error.admissionReason ?? error.reason;
-          const wait = structured && ['reply-in-flight', 'budget reconciling'].includes(reason);
-          const retryable = structured && ['admission deadline', 'plugin unhealthy', 'consent port unavailable'].includes(reason);
+          const refusalClass = classifyFocusRefusal(error);
+          const reason = [error.reason, error.admissionReason, error.error].find(value => FOCUS_REFUSAL_CLASSES[value] === refusalClass);
+          const wait = structured && refusalClass === 'wait';
+          const retryable = structured && refusalClass === 'retryable';
           const networkOrServer = attempt.status == null || attempt.status >= 500;
           const uncertain = networkOrServer || attempt.status >= 200 && attempt.status < 300;
           if ((wait || retryable) && focus.requestId) {
             // A peer's accepted focus already owns this question's recovery.
             focus.waiting = null;
-          } else if (wait && focus.tries < 2) {
+          } else if (wait && focus.tries >= 2) {
+            focus.waiting = null; focus.state = 'focus-retry';
+          } else if (wait) {
             focus.waiting = reason; focus.waitVersion = this.#clarifyRefresh;
             focus.waitOperations ??= this.#session.operations; focus.replyRefreshed ??= false;
             this.#clarifyWaitTimer = setTimeout(() => {
@@ -328,7 +332,7 @@ export class AithemaSession extends HTMLElement {
             }, 60_000);
             this.#clarifyWaitTimer.unref?.();
             if (this.isConnected) void this.#refreshFeatures();
-          } else if (retryable || uncertain || wait) {
+          } else if (retryable || uncertain) {
             // N5: ambiguous acknowledgements need a successful fresh read, even
             // at the retry cap. Never turn an unread snapshot into permission.
             const safe = uncertain ? await this.#clarifySnapshot(focus) : true;
@@ -351,6 +355,7 @@ export class AithemaSession extends HTMLElement {
       const chosen = session.questionFocus;
       const matches = chosen?.questionId === focus.questionId || session.focusedQuestion === focus.question;
       if (matches && chosen?.requestId && chosen.requestId !== focus.priorRequestId) {
+        if (focus.replyFailureVersion === this.#reactionFailureVersion) this.#retireReactionFailure();
         focus.requestId = chosen.requestId; this.#clarifyReplies.set(chosen.requestId, focus.question);
         focus.state = session.transcript?.some(t => !t.erased && !t.withdrawn && t.focusRequestId === chosen.requestId) ? 'asked' : 'requesting';
         if (focus.state === 'asked') this.#clarifyAsked.add(focus.question);
@@ -452,6 +457,9 @@ export class AithemaSession extends HTMLElement {
       const previous = this.#clarify;
       const request = this.#clarifyRequest;
       const owns = previous?.pending && previous.questionId === chosen.questionId;
+      // A canonical focus confirms acceptance even when its HTTP receipt is
+      // delayed or lost. A newer failure observed since the click must survive.
+      if (owns && previous.replyFailureVersion === this.#reactionFailureVersion) this.#retireReactionFailure();
       const local = request?.sessionId === this.#session.id && request.inputRevision === revision &&
         request.questionId === chosen.questionId && request.priorRequestId !== chosen.requestId;
       const diagnostic = this.#clarifyDiagnostics.get(chosen.requestId) ??
@@ -519,13 +527,15 @@ export class AithemaSession extends HTMLElement {
       resolveCopy(this.#copy, key, null, this.#session.locale) !== resolveCopy({}, key, null, this.#session.locale));
     const acceptedFailed = rootOverride ? primaryFailed : resolveCopy(this.#copy, 'clarifyFailed', 'clarify.failed', this.#session.locale);
     const acceptedShort = resolveCopy(this.#copy, 'clarifyFailedShort', 'clarify.failedShort', this.#session.locale);
-    const acceptedSay = !rootOverride && resolveCopy(this.#copy, 'clarify.say.retry', null, this.#session.locale) !==
-      resolveCopy({}, 'clarify.say.retry', null, this.#session.locale) ? copy.say.retry : acceptedFailed;
+    const defaultAcceptedSay = resolveCopy({}, 'clarify.say.retry', null, this.#session.locale)
+      .replace(resolveCopy({}, 'clarify.failed', null, this.#session.locale), () => acceptedFailed);
+    const acceptedSay = rootOverride ? acceptedFailed : resolveCopy(this.#copy, 'clarify.say.retry', null, this.#session.locale) !==
+      resolveCopy({}, 'clarify.say.retry', null, this.#session.locale) ? copy.say.retry : defaultAcceptedSay;
     const available = this.openQuestionItems, questions = this.#session.understanding.openQuestions;
     reconcile(root.querySelector('.questions'), questions.length ? textKeys(questions) : [[NONE, null]], value => {
       const row = node('li', value === null ? 'none-yet' : 'open-question');
       if (value !== null) {
-        row.innerHTML = '<span class="question-text"></span><span class="question-state"><span class="clarify-reserve" aria-hidden="true"></span><span class="question-status"></span><span class="question-separator" aria-hidden="true">·</span><button class="clarify-action" type="button"><span class="clarify-icon"></span><span class="clarify-label"></span></button></span>';
+        row.innerHTML = '<span class="question-text"></span><span class="question-state"><span class="question-status"></span><span class="question-separator" aria-hidden="true">·</span><button class="clarify-action" type="button"><span class="clarify-content"><span class="clarify-icon"></span><span class="clarify-label"></span></span></button></span>';
         row.querySelector('button').addEventListener('click', e => {
           const button = e.currentTarget;
           if (button.getAttribute('aria-disabled') === 'true') return;
@@ -545,14 +555,6 @@ export class AithemaSession extends HTMLElement {
       row.dataset.questionId = item?.id ?? '';
       row.id = `open-${item?.id ?? questions.indexOf(question)}`;
       const text = row.querySelector('.question-text'); text.id = `${row.id}-text`; setText(text, question);
-      const reserve = row.querySelector('.clarify-reserve');
-      const labels = [[copy.action, true], [copy.asking, true], [copy.chosen, true], [copy.asked, true],
-        [copy.retry, false], [this.#copy.resume, false], [copy.review, false]];
-      const reserveKey = JSON.stringify(labels);
-      if (reserve.dataset.labels !== reserveKey) {
-        reserve.replaceChildren(...labels.map(([label, withIcon]) => node('span', withIcon ? 'with-icon' : null, label)));
-        reserve.dataset.labels = reserveKey;
-      }
       const own = focus?.question === question;
       const state = own ? focus.state : terminal ? 'none' : this.#clarifyAsked.has(question) ? 'asked' : this.#clarifyBusy() ? 'disabled' : item ? 'rest' : 'none';
       row.dataset.state = state;
@@ -596,12 +598,15 @@ export class AithemaSession extends HTMLElement {
     });
     const notice = root.querySelector('.question-notice');
     notice.toggleAttribute('data-on', this.#clarifyNotice); setText(notice.querySelector('span'), copy.stale);
-    const signature = this.#clarifyNotice ? 'stale' : focus ? `${focus.requestId ?? focus.questionId}/${focus.state}/${focus.reason ?? ''}/${acceptedSay}/${primaryFailed}` : '';
+    const unavailableSay = focus?.state === 'unavailable' ? [...root.querySelectorAll('.open-question')]
+      .find(row => row.dataset.questionId === focus.questionId)?.querySelector('.question-why')?.textContent
+      ?? resolveCopy(this.#copy, 'clarifyUnavailable', null, this.#session.locale) : '';
+    const signature = this.#clarifyNotice ? 'stale' : focus ? `${focus.requestId ?? focus.questionId}/${focus.state}/${focus.reason ?? ''}/${acceptedSay}/${primaryFailed}/${unavailableSay}` : '';
     if (signature !== this.#clarifyAnnouncement) {
       this.#clarifyAnnouncement = signature;
       const say = this.#clarifyNotice ? copy.stale : ['retry', 'focus-retry'].includes(focus?.state)
         ? focus.state === 'retry' ? acceptedSay : primaryFailed
-        : focus?.state === 'unavailable' ? resolveCopy(this.#copy, 'clarifyUnavailable', null, this.#session.locale)
+        : focus?.state === 'unavailable' ? unavailableSay
         : focus ? copy.say[focus.reason ?? focus.state] : '';
       setText(root.querySelector('.clarify-announcement'), (say ?? '').replace('{q}', focus?.question ?? ''));
     }
@@ -838,7 +843,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.overview-retry').addEventListener('click', () => root.querySelector('.retry').click());
     root.querySelector('.retry').addEventListener('click', async e => {
       const button = e.currentTarget, sessionId = this.#session.id, revision = inputRevision(this.#session);
-      if (button.getAttribute('aria-disabled') === 'true' ||
+      if (button.getAttribute('aria-disabled') === 'true' || this.#clarifyRequest ||
         this.#retryPending?.sessionId === sessionId && this.#retryPending.revision === revision) return;
       if (!this.#feature(this.#replyOwnsRetry() ? 'text' : 'analysis').available) return;
       const marker = this.#retryPending = { sessionId, revision, settled: false };
@@ -1673,6 +1678,7 @@ export class AithemaSession extends HTMLElement {
     this.#settleRetry();
   }
   #recordFailure(failure) {
+    if (failure?.lane === 'reaction') this.#reactionFailureVersion++;
     const reconciling = failure && (failure.reason === 'budget reconciling' ||
       this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.analysis?.reason === 'budget reconciling');
     if (reconciling) {
@@ -2209,7 +2215,7 @@ export class AithemaSession extends HTMLElement {
     const managedReply = slot?.managed && !itemRetry;
     const replyRetry = replyFailed && (managedReply ? slot.inline : overviewFailed) && !itemRetry;
     if (managedReply && !this.#host?.usedUp) {
-      const pending = this.#retryPending?.sessionId === this.#session.id && this.#retryPending.revision === revision;
+      const pending = Boolean(this.#clarifyRequest) || this.#retryPending?.sessionId === this.#session.id && this.#retryPending.revision === revision;
       const replyRunning = operations?.inputRevision === revision && operations.running.includes('reaction');
       retryNode.hidden = false; retryNode.disabled = false;
       retryNode.setAttribute('aria-disabled', String(pending || Boolean(running) || callRunning || !this.#feature(ownReply ? 'text' : 'analysis').available));
@@ -2228,8 +2234,11 @@ export class AithemaSession extends HTMLElement {
     // order. Keep its handler and node while the project action keeps its slot.
     const retry = root.querySelector('.retry'), retrySlot = replyRetry ? replyNotice : root.querySelector('.understanding > .foot');
     if (retry.parentNode !== retrySlot) retrySlot.insertBefore(retry, replyRetry ? null : retrySlot.querySelector('.export-reason'));
+    const typing = this.#feature('text', true);
+    const composerUsable = !this.#composerUsedUp && !locked && !this.#session.paused &&
+      (typing.available || typing.rawReason === 'budget reconciling') && !root.querySelector('textarea').disabled && !root.querySelector('.composer').inert;
     setText(replyNotice.querySelector('.reaction-failure-text'), replyFailed
-      ? `${resolveCopy(copy, 'replyFailed', 'reasoningFailed', this.#session.locale)}${!retry.hidden && !this.#host?.usedUp || itemRetry && !locked && !this.#host?.usedUp ? ''
+      ? `${resolveCopy(copy, 'replyFailed', 'reasoningFailed', this.#session.locale)}${!composerUsable || !retry.hidden && !this.#host?.usedUp || itemRetry && !locked && !this.#host?.usedUp ? ''
         : ` ${resolveCopy(copy, 'replyKeepTyping', null, this.#session.locale)}`}${replyRetry && !retry.hidden && !this.#host?.usedUp ? reasonSeparator : ''}` : '');
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
       (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck && !(u.readinessAssessed && stale)) &&

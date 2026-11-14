@@ -434,26 +434,41 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       window.rc24Reset = () => c.configure({ session, copy });
       c.setAttribute('motion', 'off'); c.setAttribute('theme', theme); window.rc24Reset();
     }, locale, theme);
-    for (const state of ['retry', 'focus-retry', 'unavailable']) {
+    for (const state of ['rest', 'requesting', 'wait', 'retry', 'focus-retry', 'unavailable', 'cleared']) {
       await shadow(page, c => { window.rc24Reset(); c.shadowRoot.querySelector('.open-questions').scrollIntoView({ block: 'center' }); });
       await settle(page);
       const before = await boxes(page, state === 'unavailable');
       const resting = await shadow(page, c => {
         const row = c.shadowRoot.querySelector('.open-question');
-        return { question: row.querySelector('.question-text').getBoundingClientRect().x,
-          label: row.querySelector('.clarify-icon').getBoundingClientRect().x };
+        const boxes = ['.question-text', '.clarify-icon'].map(selector => {
+          const r = row.querySelector(selector).getBoundingClientRect();
+          return { selector, x: r.x, width: r.width, height: r.height };
+        });
+        return { question: boxes[0].x, label: boxes[1].x, boxes };
       });
+      for (const box of resting.boxes) assert.ok(box.width > 0 && box.height > 0, `${box.selector}: positive resting box`);
       assert.equal(resting.label, resting.question, 'gate1 M3 A: resting action begins under the question');
       const point = before[1]; await page.mouse.move(point.x + 2, point.y + 2);
       await shadow(page, async (c, state) => {
         window.rc24Posts = [];
         const revision = c.session.operations.inputRevision, item = c.openQuestionItems[0];
-        if (state === 'retry') {
+        if (state === 'rest') return;
+        if (state === 'requesting') {
+          window.rc24Post = () => new Promise(resolve => { window.rc24Release = resolve; });
+          void c.focusQuestion(item.id).catch(() => {}); return;
+        }
+        if (state === 'wait') {
+          window.rc24Post = () => { c.receive({ type: 'lane.status', data: { inputRevision: revision, running: ['reaction'], failures: [] } });
+            return Response.json({ reason: 'reply-in-flight' }, { status: 409 }); };
+          await c.focusQuestion(item.id).catch(() => {}); return;
+        }
+        if (state === 'retry' || state === 'cleared') {
           window.rc24Post = () => Response.json({ event: { seq: c.session.seq + 1, type: 'question.focused', data: {
             ...item, questionId: item.id, requestId: 'visible-focus', chosenBy: 'user', inputRevision: revision,
           } } }, { status: 202 });
           await c.focusQuestion(item.id);
           c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: revision } });
+          if (state === 'cleared') window.rc24Reset();
         } else if (state === 'focus-retry') {
           // Inject the wait deadline; no calendar or elapsed wall-clock comparison.
           const original = window.setTimeout;
@@ -473,7 +488,10 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       for (let index = 0; index < before.length; index++) {
         assert.ok(before[index].width > 0 && before[index].height > 0);
         assert.ok(after[index].width > 0 && after[index].height > 0);
-        for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(before[index][key] - after[index][key]) <= 0.5, `${locale}/${theme}/${width}/${state}/${before[index].selector}/${key}`);
+        for (const key of ['x', 'y', 'width', 'height']) {
+          assert.ok(Math.abs(before[index][key] - after[index][key]) <= 0.5, `${locale}/${theme}/${width}/${state}/${before[index].selector}/${key}`);
+          assert.equal(after[index][key], before[index][key], `gate1: exact 0 px/${locale}/${theme}/${width}/${state}/${before[index].selector}/${key}`);
+        }
       }
       await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
       await settle(page);
@@ -481,17 +499,34 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       for (let i = 0; i < after.length; i++) for (const key of ['x', 'y', 'width', 'height']) {
         assert.ok(repainted[i].width > 0 && repainted[i].height > 0);
         assert.ok(Math.abs(repainted[i][key] - after[i][key]) <= 0.5, `resting pointer repaint/${state}/${after[i].selector}/${key}`);
+        assert.equal(repainted[i][key], after[i][key], `gate1: exact 0 px repaint/${state}/${after[i].selector}/${key}`);
       }
       const check = await shadow(page, c => {
         const row = c.shadowRoot.querySelector('.open-question'), line = row.querySelector('.question-state');
         return { state: row.dataset.state, noOverflow: line.scrollWidth <= line.clientWidth + 0.5,
           text: row.textContent, posts: window.rc24Posts.length, actionHidden: row.querySelector('button').hidden };
       });
-      assert.equal(check.state, state); assert.ok(check.noOverflow); assert.ok(!check.text.includes('undefined'));
-      assert.equal(check.posts, state === 'unavailable' ? 2 : 1);
+      if (state === 'wait' || state === 'cleared') assert.equal(check.state, state === 'wait' ? 'requesting' : 'rest');
+      else assert.equal(check.state, state);
+      assert.ok(check.noOverflow); assert.ok(!check.text.includes('undefined'));
+      if (state === 'rest') assert.equal(check.posts, 0);
+      else assert.equal(check.posts, state === 'unavailable' ? 2 : 1);
       if (state === 'unavailable') assert.ok(check.actionHidden);
-      else assert.match(check.text, locale === 'de' ? /Gerade nicht/ : /Not now|Couldn't ask just now/);
-      rects.push({ locale, theme, width, state, before, after, repainted, check });
+      else if (['retry', 'focus-retry'].includes(state)) assert.match(check.text, locale === 'de' ? /Gerade nicht/ : /Not now|Couldn't ask just now/);
+      if (['retry', 'focus-retry'].includes(state)) {
+        const inline = await shadow(page, c => {
+          const row = c.shadowRoot.querySelector('.open-question');
+          return ['.question-status', '.question-separator', '.clarify-label'].map(selector => {
+            const r = row.querySelector(selector).getBoundingClientRect();
+            return { selector, x: r.x, y: r.y, right: r.right, width: r.width, height: r.height };
+          });
+        });
+        for (const box of inline) assert.ok(box.width > 0 && box.height > 0, `${box.selector}: positive inline box`);
+        assert.ok(inline[1].x >= inline[0].right && inline[2].x >= inline[1].right);
+        assert.ok(inline[2].x - inline[0].right <= 18, 'status and Retry share an adjacent separator');
+        check.inline = inline;
+      }
+      rects.push({ locale, theme, width, state, resting, before, after, repainted, check });
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
         await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait503-${locale}-${theme}-${width}-${state}.png`) });
@@ -669,4 +704,39 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
     }
   }
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-overflow.json'), JSON.stringify(records, null, 2)); }
+});
+
+test('gate1 L3: MAC-LEAD EN/DE copy proof sheets', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-copy-proof-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: 844 });
+    const words = await page.evaluate(async (locale, theme) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      // A labelled evidence sheet renders the exact bundle values, including the
+      // placeholder. It is copy evidence, not a simulated provider interaction.
+      const sheet = document.createElement('main'); sheet.lang = locale;
+      sheet.style.cssText = `position:fixed;inset:0;z-index:999999;overflow:auto;padding:24px;box-sizing:border-box;font:16px/1.5 system-ui;background:${theme === 'dark' ? '#18181b' : '#fff'};color:${theme === 'dark' ? '#fafafa' : '#18181b'}`;
+      const heading = document.createElement('h1'); heading.textContent = `MAC-LEAD copy proof · ${locale.toUpperCase()}`; sheet.append(heading);
+      const entries = [['settings.fixedEffort', copy.settings.fixedEffort], ['reasons.delegated', copy.reasons.delegated], ['host.loadingBinding', copy.host.loadingBinding]];
+      for (const [key, value] of entries) {
+        const label = document.createElement('h2'); label.textContent = key; label.style.fontSize = '14px';
+        const text = document.createElement('p'); text.textContent = value; sheet.append(label, text);
+      }
+      document.querySelector('[data-copy-proof]')?.remove(); sheet.dataset.copyProof = ''; document.body.append(sheet);
+      return entries.map(([key, value]) => ({ key, value }));
+    }, locale, theme);
+    assert.equal(words.length, 3); assert.ok(words.every(({ value }) => value.length > 0));
+    if (locale === 'de') {
+      assert.match(words[0].value, /einstellbaren Verarbeitungsaufwand/);
+      assert.equal(words[1].value, 'Sprachverarbeitung: {reason}');
+      assert.equal(words[2].value, 'Verarbeitungseinstellungen werden geladen …');
+    }
+    if (evidence) await page.screenshot({ path: join(evidence, `l3-copy-${locale}-${theme}-${width}.png`) });
+  }
 });

@@ -580,15 +580,16 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .analysis-content .open-question { display:grid; grid-template-columns:6px minmax(0,1fr); column-gap:12px; padding:7px 10px 0; margin-inline:-10px; border-radius:12px; }
 .open-question::before { background:var(--aithema-amber) !important; position:static !important; width:6px !important; height:6px !important; margin-top:.62em; }
 .question-text { font-size:14.5px; line-height:1.45; color:var(--aithema-ink); text-wrap:pretty; }
-.question-state { grid-column:2; display:grid; grid-template-columns:minmax(0,1fr) 18px max-content; align-items:center; height:36px; min-width:0; font-size:13.5px; line-height:1.3; white-space:nowrap; }
+/* The native action keeps the whole reserved line as its hit area. Its
+   inline label shares status columns, without moving that control box. */
+.question-state { grid-column:2; display:grid; grid-template-columns:minmax(0,max-content) 18px minmax(max-content,1fr); align-items:center; height:36px; min-width:0; font-size:13.5px; line-height:1.3; white-space:nowrap; }
 .open-question:is([data-state="selected"],[data-state="retry"]) { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-tint),transparent); }
-.clarify-action, .question-status { display:inline-flex; align-items:center; gap:7px; height:36px; }
-.clarify-action { grid-column:3; grid-row:1; width:100%; justify-content:flex-start; position:relative; padding:0 9px; margin-left:-9px; border-radius:8px; color:var(--aithema-accent); font-weight:600; }
-.question-status { grid-column:1; grid-row:1; }
-.question-separator { grid-column:2; grid-row:1; text-align:center; }
-.clarify-reserve { grid-column:3; grid-row:1; display:grid; height:0; overflow:hidden; visibility:hidden; pointer-events:none; font-weight:600; }
-.clarify-reserve > span { grid-area:1/1; padding:0 9px; white-space:nowrap; }
-.clarify-reserve > .with-icon { padding-left:30px; }
+.clarify-content, .question-status { display:inline-flex; align-items:center; gap:7px; height:36px; }
+.clarify-action { grid-column:1/-1; grid-row:1; display:grid; grid-template-columns:subgrid; align-items:center; height:36px; width:calc(100% + 9px); text-align:left; position:relative; padding:0 9px; margin-left:-9px; border-radius:8px; color:var(--aithema-accent); font-weight:600; }
+.clarify-content { grid-column:1/-1; justify-self:start; min-width:0; }
+.question-state:has(.question-status:not([hidden])) .clarify-content { grid-column:3; }
+.question-status { grid-column:1; grid-row:1; z-index:1; pointer-events:none; }
+.question-separator { grid-column:2; grid-row:1; text-align:center; z-index:1; pointer-events:none; }
 .open-question[data-state="refused"] .question-why { white-space:normal; }
 .open-question[data-state="unavailable"] .question-status,
 .open-question[data-state="refused"]:has(.clarify-action[hidden]) .question-status { grid-column:1/-1; }

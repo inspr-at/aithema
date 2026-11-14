@@ -653,14 +653,17 @@ for (const accepted of [false, true]) test(`gate1 L1: reply failure retires only
   const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
   const settled = accepted ? request : assert.rejects(request);
   const pendingVisibility = { notice: notice.hidden, retry: retry.hidden };
+  const pendingRetryDisabled = retry.getAttribute('aria-disabled'); retry.click();
   pending.resolve(accepted ? Response.json(f.accept(), { status: 202 }) : Response.json({ reason: 'invalid-request' }, { status: 400 }));
   await settled;
   assert.deepEqual(pendingVisibility, { notice: false, retry: false }, 'pending POST preserves the reply failure');
+  assert.equal(pendingRetryDisabled, 'true');
+  assert.equal(f.calls.length, 1, 'the visible reply Retry cannot race a pending Clarify POST');
   assert.equal(notice.hidden, accepted);
   if (!accepted) assert.equal(retry.hidden, false, 'refused POST preserves server reply Retry');
 });
 for (const locale of ['en', 'de']) {
-  for (const reason of ['session', 'host-limit']) test(`gate1 L2: ${locale}/${reason} announces the displayed terminal reason`, async t => {
+  for (const reason of ['session', 'budget denied', 'host-limit']) test(`gate1 L2: ${locale}/${reason} announces the displayed terminal reason`, async t => {
     const f = fixture(t, locale);
     f.post(() => Response.json({ reason: 'not-admitted', admissionReason: reason }, { status: 403 }));
     await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
@@ -676,3 +679,55 @@ for (const locale of ['en', 'de']) {
     assert.ok(f.root.querySelector('.clarify-announcement').textContent.includes(copy.clarifyFailed));
   });
 }
+
+test('gate1 L1: accepting focus preserves a newer server reaction failure', async t => {
+  const f = fixture(t), pending = Promise.withResolvers();
+  f.lane([], [{ lane: 'reaction', retryable: true, error: 'old-failure' }]);
+  f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.lane([], [{ lane: 'reaction', retryable: true, error: 'new-failure' }]);
+  pending.resolve(Response.json(f.accept(), { status: 202 })); await request;
+  assert.equal(f.c.session.operations.lastFailure.error, 'new-failure');
+  assert.equal(f.rows()[1].dataset.state, 'retry');
+});
+
+test('gate1 L1: canonical acceptance retires the old reply failure before a lost HTTP receipt', async t => {
+  const f = fixture(t), pending = Promise.withResolvers();
+  f.lane([], [{ lane: 'reaction', retryable: true }]);
+  f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id), settled = assert.rejects(request, TypeError);
+  f.c.receive(f.accept().event);
+  const noticeHiddenOnAcceptance = f.root.querySelector('.reaction-failure').hidden;
+  pending.reject(new TypeError('offline')); await settled;
+  assert.equal(noticeHiddenOnAcceptance, true);
+  assert.equal(f.root.querySelector('.reaction-failure').hidden, true);
+  assert.equal(f.rows()[1].dataset.state, 'requesting');
+  assert.equal(f.calls.length, 1, 'accepted canonical work prevents another POST');
+});
+
+test('gate1 L1: a fresh snapshot confirms acceptance after a lost receipt', async t => {
+  const f = fixture(t);
+  f.lane([], [{ lane: 'reaction', retryable: true }]);
+  f.post(() => { throw new TypeError('offline'); });
+  const fetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', (url, init) => {
+    if (init?.method === 'POST' || url.endsWith('/events')) return fetch(url, init);
+    const snapshot = f.c.session, { event } = f.accept();
+    snapshot.seq = event.seq; snapshot.questionFocus = event.data; snapshot.focusedQuestion = event.data.question;
+    return Promise.resolve(Response.json(snapshot));
+  });
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), TypeError);
+  assert.equal(f.root.querySelector('.reaction-failure').hidden, true);
+  assert.equal(f.rows()[1].dataset.state, 'requesting');
+  assert.equal(f.calls.length, 1);
+});
+
+test('gate1 L2: accepted retry guidance preserves literal host failure copy', async t => {
+  const f = fixture(t), copy = structuredClone(en); copy.clarify.failed = 'Host $& status';
+  f.c.configure({ session: f.c.session, copy });
+  f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.lane([], [{ lane: 'reaction', retryable: true }]);
+  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, 'Host $& status');
+  assert.equal(f.root.querySelector('.clarify-announcement').textContent, 'Host $& status. You can retry.');
+});

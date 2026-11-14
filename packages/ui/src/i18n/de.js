@@ -175,7 +175,7 @@ export const de = {
 
     open: 'Einstellungen', title: 'Einstellungen', tabs: { general: 'Allgemein', model: 'KI-Modell', local: 'Erweitert' },
     processing: 'Datenverarbeitung', model: 'Modell', responseStyle: 'Antwortstil', faster: 'Schneller', moreThorough: 'Gründlicher',
-    fixedEffort: 'Bei diesem Modell lässt sich die Gründlichkeit nicht einstellen.', deviceNote: 'Wählen und testen Sie Ihr lokales Modell unter „Erweitert“.',
+    fixedEffort: 'Dieses Modell bietet keinen einstellbaren Verarbeitungsaufwand.', deviceNote: 'Wählen und testen Sie Ihr lokales Modell unter „Erweitert“.',
     efforts: { none: 'Keine', minimal: 'Minimal', low: 'Niedrig', medium: 'Mittel', high: 'Hoch', xhigh: 'Sehr hoch', max: 'Maximal' },
     voice: 'Sprechen und Zuhören', voiceOff: 'Textchat: lesen und tippen', visuals: 'Visuelle Entwürfe', visualsOff: 'Aus',
     voiceUnverified: 'Noch nicht im Live-Betrieb geprüft', voiceConfigured: 'Sprache mit {provider}', notConfigured: 'Nicht eingerichtet',
@@ -550,7 +550,7 @@ export const de = {
     'plugin kind unsupported': 'Anbieter kann das nicht', 'operation unsupported': 'Anbieter kann das nicht',
     'invalid mock budget': 'Test-Einrichtung ungültig', 'plugin unhealthy': 'Anbieter antwortet nicht',
     'admission deadline': 'Verfügbarkeitsprüfung hat zu lange gedauert', 'budget reconciling': 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.', 'budget denied': 'Credits aufgebraucht', 'verification required': 'E‑Mail-Bestätigung erforderlich',
-    'concept storage limit': 'Speicher für Entwürfe ist voll', delegated: 'Auswertung im Sprachgespräch: {reason}',
+    'concept storage limit': 'Speicher für Entwürfe ist voll', delegated: 'Sprachverarbeitung: {reason}',
     'voice off': 'Sprache ist in Ihren Einstellungen aus', 'visuals off': 'Visuelle Entwürfe sind in Ihren Einstellungen aus',
     'visual kind not selected': 'Eine andere Art visueller Entwürfe ist gewählt',
     'model not offered': 'Dieses Modell wird nicht mehr angeboten', 'effort not offered': 'Dieser Antwortstil wird nicht mehr angeboten',
@@ -650,7 +650,7 @@ export const de = {
     },
   },
   host: {
-    title: 'Demo: Aithema, Ausbaustufe 1', loadingBinding: 'Auswertung wird geladen …',
+    title: 'Demo: Aithema, Ausbaustufe 1', loadingBinding: 'Verarbeitungseinstellungen werden geladen …',
     newConversation: 'Neues Gespräch beginnen', resumeHint: 'Nach einem Neuladen oder Serverneustart geht es hier weiter.',
     mockHint: 'In dieser Demo zum Beispiel: Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international',
     settingsHint: 'Die Einstellungen (im Verarbeitungsbereich unten) wählen Verarbeitung, Modell, Antwortstil, Stimme und visuelle Entwürfe. Der Reiter „Erweitert“ verbindet ein OpenAI-kompatibles Modell, das auf diesem Gerät läuft.',
