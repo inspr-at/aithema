@@ -11,7 +11,8 @@ import { captureEvidence, settleEvidenceFrame, evidenceBrowserArgs } from './sta
 
 // PR artifacts must not enable evidence-only captures or the exhaustive sweep.
 // Run separately on mbp2606 with EVIDENCE_OUT for the original full matrix.
-const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
+const laneEvidenceDirectory = process.env.AITHEMA_EVIDENCE_DIR;
+const evidenceDirectory = fullMatrix ? laneEvidenceDirectory : undefined;
 
 import { browserPath } from '../../scripts/install-test-browser.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
@@ -1026,5 +1027,5 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     assert.equal(after.top, before.top, 'overview anchoring holds while transcript anchoring is suspended');
   });
   assert.equal(globalThis.navigationInterceptionError, undefined);
-  if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2));
+  if (laneEvidenceDirectory) await writeFile(join(laneEvidenceDirectory, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2));
 });
