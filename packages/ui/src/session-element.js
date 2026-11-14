@@ -1463,6 +1463,7 @@ export class AithemaSession extends HTMLElement {
     this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
     const before = this.#session;
     this.#session = session; this.#cursor = session.seq; this.#featureRead = null;
+    this.#reasoningRevision = Math.max(this.#reasoningRevision, session.settings?.revision ?? 0);
     this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
     this.#restoreVoiceEffects(before); this.#repaintLocale();
     this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session);
