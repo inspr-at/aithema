@@ -1134,6 +1134,20 @@ value, then the active locale's shipped text, then English, and never render emp
 When a host omits `copy.display.locale`, the component uses the session's active
 locale for these fallbacks, including narrow labels and the close control.
 
+Clarify adds `clarifyFailed`, `clarifyFailedShort` and `clarifyUnavailable`; general
+Retry and reply failures use `retryFailed` and `replyFailed`. The three long failure
+keys resolve against the legacy `reasoningFailed` override with the precedence above.
+The updated `reasoningFailed` default remains exported. `clarifyFailedShort`,
+`clarifyUnavailable` and `replyKeepTyping` are brand-new keys with shipped locale
+fallbacks. A reply failure with no visible Retry appends `replyKeepTyping`.
+
+Reply-in-flight and budget-reconciling refusals keep the row requesting for at most
+60 seconds, then expose its Retry. Clearing the condition permits one resend.
+Transient admission refusals allow two total focus attempts. After transport or 5xx
+failures, a fresh snapshot must establish that no reaction has started or completed
+since the click before a resend. Terminal refusals hide the action. Budget denial
+during a live call immediately shows unavailable, without waiting.
+
 The overview adds `overviewCurrent`, `staleIdle` and `overviewStatusLabel`. These
 brand-new keys use the same resolver and the active locale's shipped defaults when
 an older host bundle omits them. The named status slot keeps its height across

@@ -173,7 +173,7 @@ export const en = {
 
     open: 'Settings', title: 'Settings', tabs: { general: 'General', model: 'AI model', local: 'Advanced' },
     processing: 'Data processing', model: 'Model', responseStyle: 'Response style', faster: 'Faster', moreThorough: 'More thorough',
-    fixedEffort: 'This model does not offer adjustable reasoning effort.', deviceNote: 'Choose and test your local model under Advanced.',
+    fixedEffort: 'This model does not offer adjustable effort.', deviceNote: 'Choose and test your local model under Advanced.',
     efforts: { none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Maximum' },
     voice: 'Speaking and listening', voiceOff: 'Text chat: read and type', visuals: 'Visual concepts', visualsOff: 'Off',
     voiceUnverified: 'Not yet qualified in live use', voiceConfigured: 'Voice with {provider}', notConfigured: 'Not configured',
@@ -359,7 +359,10 @@ export const en = {
   connectionLabels: { connecting: 'Connecting …', connected: 'Connected', reconnecting: 'Reconnecting …', paused: 'Paused', voiceInAnotherTab: 'Other tab' },
   reconnecting: 'Reconnecting…', sending: 'Saving…', saved: 'Saved', failed: 'Could not save. Retry your message.', failedShort: 'Not saved.',
   understandingFailed: "The overview couldn't be built just now", understandingRetry: 'Try again',
-  reasoningFailed: 'Reasoning is unavailable. Your messages are saved.', empty: 'Your overview appears here after the first sentence.', noProjectDetails: 'No details about your project yet.', overviewPendingReply: 'The overview follows once the reply is in.', preparingOverview: 'Preparing your overview …',
+  reasoningFailed: "That didn't work just now. Your messages are saved.",
+  clarifyFailed: "Couldn't ask just now", clarifyFailedShort: 'Not now', clarifyUnavailable: 'Not available right now',
+  retryFailed: "That didn't work just now. Keep writing; your messages are saved.",
+  replyFailed: "The reply didn't come through. Your messages are saved.", replyKeepTyping: 'Keep typing.', empty: 'Your overview appears here after the first sentence.', noProjectDetails: 'No details about your project yet.', overviewPendingReply: 'The overview follows once the reply is in.', preparingOverview: 'Preparing your overview …',
   draft: 'Draft — a thorough assessment is being prepared.', stale: 'Updating — showing the last assessment.',
   overviewCurrent: 'Up to date', staleIdle: 'Showing the latest overview.', overviewStatusLabel: 'Overview status',
   final: 'Current assessment', notAssessed: 'Not yet assessed', talk: 'Ready to talk', build: 'Ready to build',
@@ -547,7 +550,7 @@ export const en = {
     'plugin kind unsupported': 'Provider cannot do this', 'operation unsupported': 'Provider cannot do this',
     'invalid mock budget': 'Invalid test configuration', 'plugin unhealthy': 'Provider not responding',
     'admission deadline': 'Availability check timed out', 'budget reconciling': "One moment, the call's costs are still being reconciled.", 'budget denied': 'Credits used up', 'verification required': 'Email confirmation required',
-    'concept storage limit': 'Storage for concepts is full', delegated: 'Voice reasoning: {reason}',
+    'concept storage limit': 'Storage for concepts is full', delegated: 'Voice processing: {reason}',
     // Refusals introduced by processing settings.
     'voice off': 'Voice is off in your settings', 'visuals off': 'Visual concepts are off in your settings',
     'visual kind not selected': 'Another kind of visual concept is selected',
@@ -645,7 +648,7 @@ export const en = {
   },
   // Demo host page. Embedding hosts supply their own page copy.
   host: {
-    title: 'Demo — Aithema reset slice 1', loadingBinding: 'Loading reasoning binding…',
+    title: 'Demo — Aithema reset slice 1', loadingBinding: 'Loading processing settings…',
     newConversation: 'New conversation', resumeHint: 'Reload or restart the server to resume.',
     mockHint: 'In this demo, try: operations: hosted; data: public; systems: API; reach: international',
     settingsHint: 'Settings (in the processing panel below) chooses the preset, model, response style, voice and visual concepts. Its Advanced tab connects an OpenAI-compatible model running on this device.',
