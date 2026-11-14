@@ -576,6 +576,7 @@ test('AIT-504 follow-up: capture every overview state for the release design che
         if (state === 'paused') session.paused = true;
         if (state === 'reconciling') session.featureMatrix.best.analysis = { available: false, reason: 'budget reconciling' };
         c.configure({ copy, session });
+        if (state === 'empty') c.shadowRoot.querySelector('.ready__start')?.click();
       }, locale, state);
       await settle(page);
       await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start', behavior: 'instant' }); });
