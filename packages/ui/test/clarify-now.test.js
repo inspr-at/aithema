@@ -356,3 +356,78 @@ for (const index of [0, 1]) test(`AIT-503 SSE-only focus ${index} never inherits
     accepted: false, acceptedThenLaneFailed: false,
   }]]);
 });
+
+for (const locale of ['en', 'de']) test(`RC24 split failure copy ${locale}: shipped fallback and legacy override`, async t => {
+  const f = fixture(t, locale), shipped = locale === 'de' ? de : en;
+  f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.lane([], [{ lane: 'reaction', retryable: true }]);
+  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, shipped.clarifyFailed);
+  assert.equal(f.rows()[1].querySelector('.question-failed-short').textContent, locale === 'de' ? 'Gerade nicht' : 'Not now');
+  const copy = structuredClone(shipped); copy.reasoningFailed = 'Host legacy failure';
+  f.c.configure({ session: f.c.session, copy });
+  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, 'Host legacy failure');
+});
+for (const admissionReason of ['admission deadline', 'plugin unhealthy', 'consent port unavailable']) test(`RC24 retryable ${admissionReason}: two focus POSTs then unavailable`, async t => {
+  const f = fixture(t);
+  f.post(() => Response.json({ reason: 'not-admitted', admissionReason }, { status: 403 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(f.calls.length, 2);
+  assert.ok(f.calls.every(call => call.url.endsWith('/focus-question')));
+  assert.equal(f.rows()[1].dataset.state, 'unavailable');
+  assert.equal(f.rows()[1].querySelector('.question-status').textContent, en.clarifyUnavailable);
+});
+for (const admissionReason of ['budget reconciling', null]) test(`RC24 Wait ${admissionReason ?? 'reply'} expires at 60 seconds with row Retry`, async t => {
+  const f = fixture(t); t.mock.timers.enable({ apis: ['setTimeout'] });
+  f.lane(['reaction']);
+  f.post(() => Response.json(admissionReason ? { reason: 'not-admitted', admissionReason } : { reason: 'reply-in-flight' }, { status: 409 }));
+  // The simulated in-flight reply starts on the server after the click.
+  f.lane();
+  f.post(() => { f.lane(['reaction']); return Response.json(admissionReason ? { reason: 'not-admitted', admissionReason } : { reason: 'reply-in-flight' }, { status: 409 }); });
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  t.mock.timers.tick(59_999); assert.equal(f.rows()[1].dataset.state, 'requesting');
+  t.mock.timers.tick(1); assert.equal(f.rows()[1].dataset.state, 'focus-retry');
+  assert.equal(f.button(1).textContent, en.clarify.retry);
+  assert.equal(f.calls.length, 1);
+});
+test('RC24 Wait clears then re-sends exactly once', async t => {
+  const f = fixture(t); let calls = 0;
+  f.post(() => { if (++calls === 1) { f.lane(['reaction']); return Response.json({ reason: 'reply-in-flight' }, { status: 409 }); }
+    return Response.json(f.accept(), { status: 202 }); });
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  f.lane(); await tick();
+  assert.equal(f.calls.length, 2); assert.equal(f.rows()[1].dataset.state, 'requesting');
+  f.lane(); await tick(); assert.equal(f.calls.length, 2);
+});
+for (const failure of ['network', '5xx']) for (const outcome of ['absent', 'running', 'completed', 'read-failed']) test(`RC24 N5 ${failure}/${outcome}: snapshot precedes any re-send`, async t => {
+  const f = fixture(t), order = []; let posts = 0;
+  const fetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (init.method === 'POST') {
+      order.push('POST'); if (++posts > 1) return Response.json(f.accept(), { status: 202 });
+      if (failure === 'network') throw new TypeError('offline');
+      return Response.json({ error: 'server-error' }, { status: 503 });
+    }
+    if (url.endsWith('/events')) return fetch(url, init);
+    order.push('GET'); if (outcome === 'read-failed') return Response.json({}, { status: 503 });
+    const snapshot = f.c.session;
+    if (outcome === 'running' || outcome === 'completed') {
+      const item = f.c.openQuestionItems[1];
+      snapshot.seq += 1; snapshot.questionFocus = { questionId: item.id, requestId: 'lost-ack', inputRevision: inputRevision(snapshot) };
+      snapshot.focusedQuestion = item.question;
+      snapshot.operations.running = outcome === 'running' ? ['reaction'] : [];
+      if (outcome === 'completed') snapshot.transcript.push({ id: 'lost-reply', role: 'assistant', content: 'Who approves?', focusRequestId: 'lost-ack' });
+    }
+    return Response.json(snapshot);
+  });
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id).catch(() => {});
+  assert.deepEqual(order, outcome === 'absent' ? ['POST', 'GET', 'POST'] : ['POST', 'GET']);
+});
+test('RC24 budget denied during a live call rests immediately as unavailable', async t => {
+  const f = fixture(t), session = f.c.session;
+  session.voiceLifecycle = { state: 'active', callId: 'fixture-call' };
+  f.c.configure({ session, copy: en });
+  f.post(() => Response.json({ reason: 'not-admitted', admissionReason: 'budget denied' }, { status: 403 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(f.rows()[1].dataset.state, 'unavailable'); assert.equal(f.calls.length, 1);
+});

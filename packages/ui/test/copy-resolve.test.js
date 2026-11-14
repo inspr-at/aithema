@@ -34,3 +34,12 @@ test('AIT-502 gate L1: missing bundle locale uses the active component locale', 
   assert.equal(resolveCopy({}, 'voiceConnectFailed', 'voiceConnectionFailed', 'de'), de.voiceConnectFailed);
   assert.equal(resolveCopy({ voiceConnectionFailed: de.voiceConnectionFailed }, 'voiceConnectFailed', 'voiceConnectionFailed', 'de'), de.voiceConnectFailed);
 });
+
+for (const shipped of [en, de]) for (const key of ['clarifyFailed', 'retryFailed', 'replyFailed']) test(`AIT-503 N7 ${shipped.display.locale}/${key}`, () => {
+  assert.ok(shipped[key]);
+  const host = structuredClone(shipped); host.reasoningFailed = 'Legacy failure';
+  assert.equal(resolveCopy(host, key, 'reasoningFailed'), 'Legacy failure');
+  delete host[key]; delete host.reasoningFailed;
+  assert.equal(resolveCopy(host, key, 'reasoningFailed'), shipped[key]);
+  assert.ok(resolveCopy(host, 'clarifyUnavailable'));
+});
