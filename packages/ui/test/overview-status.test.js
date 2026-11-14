@@ -253,12 +253,14 @@ test('AIT-504 same-sequence snapshot applies operations only', async t => {
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
       init.signal?.addEventListener('abort', () => controller.close(), { once: true });
     } }));
-    return Response.json({ ...c.session, locale: 'de', paused: true, operations: { inputRevision: inputRevision(c.session), running: [], failures: [] } });
+    return Response.json({ ...c.session, paused: true, understanding: { ...c.session.understanding, summary: 'Unjournaled state' }, operations: { inputRevision: inputRevision(c.session), running: ['understanding'], failures: [] } });
   });
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   t.mock.timers.tick(18_000); await flush();
   assert.equal(c.session.locale, 'en'); assert.equal(c.session.paused, false);
+  assert.equal(c.session.understanding.summary, 'A project');
+  assert.deepEqual(c.session.operations.running, ['understanding']);
   c.remove();
 });
 
