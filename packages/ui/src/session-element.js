@@ -3035,6 +3035,9 @@ export class AithemaSession extends HTMLElement {
       if (['closing', 'ended'].includes(event.data.state) && this.isConnected) void this.#refreshFeatures();
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session) &&
       (event.data.settingsRevision === undefined || event.data.settingsRevision >= this.#reasoningRevision)) {
+      // A snapshot can finalize this turn while older fragments remain queued
+      // in the original stream. Its replayed final cannot clear them again.
+      if (this.#session.transcript.some(turn => turn.id === event.data.id)) return;
       const existing = this.#partials.get(event.data.id);
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,
         content: (existing?.content ?? '') + event.data.delta,

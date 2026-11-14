@@ -1148,7 +1148,8 @@ with one announcement. Pending status has an 18-second barrier followed by one
 snapshot GET with a two-second deadline, with no automatic Retry, reconnect or
 paid work. A same-sequence snapshot updates operations only; an ahead snapshot
 restores the complete journal
-projection, including partial text, voice, locale, pause and settings.
+projection, including partial text, voice, locale, pause and settings. Queued
+stream fragments cannot reopen a finalized turn.
 
 Clarify diagnostics use `console.warn('Aithema: clarify refusal', fields)` for
 backend refusals, transport errors and accepted commands whose reply lane fails.
