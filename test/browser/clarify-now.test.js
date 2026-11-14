@@ -474,19 +474,21 @@ test('AIT-503 MAC-LEAD: a typed chat answer removes its open question without Cl
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
-  for (const locale of ['en', 'de']) {
-    await shadow(page, async (c, locale) => {
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.mouse.move(0, 0);
+    await shadow(page, async (c, locale, theme) => {
       const { inputRevision } = await import('/packages/core/src/index.js');
       const response = await fetch('/reconciliation?locale=' + locale);
       const session = await response.json();
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', theme); c.configure({ session, copy });
       window.reconciliationCurrent = () => c.session.understanding.inputRevision === inputRevision(c.session) &&
         c.session.understanding.readinessAssessed && !c.session.understanding.draft;
       window.reconciliationFocusPosts = 0;
       const fetchOriginal = window.fetch;
       window.fetch = (...args) => { if (String(args[0]).endsWith('/focus-question')) window.reconciliationFocusPosts++; return fetchOriginal(...args); };
-    }, locale);
+    }, locale, theme);
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.open-question'));
     const before = await shadow(page, c => c.shadowRoot.querySelector('.question-text').textContent);
     await shadow(page, (c, locale) => {

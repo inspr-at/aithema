@@ -16,7 +16,7 @@ let storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture', OPENROUTER_ANALYSIS_EFFORT: 'low',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
-let replyHold = null;
+let replyHold = null, reconciliationStart = 0;
 let release, holdAssessment = false, success = false, current, analysisEntered, enterAnalysis;
 const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
   async fetchImpl(url, init) {
@@ -94,7 +94,7 @@ const { server, url } = await listen(async request => {
   }
   if (path === '/reconciliation-proof') {
     const answer = u.searchParams.get('locale') === 'de' ? 'Die Buchhaltung gibt alle Rechnungen frei.' : 'Accounting approves every invoice.';
-    const calls = kit.calls.filter(call => !call.body.stream && call.body.messages.some(message => message.content.includes(answer)));
+    const calls = kit.calls.slice(reconciliationStart).filter(call => !call.body.stream && call.body.messages.some(message => message.content.includes(answer)));
     const session = storage.get(current.id);
     return Response.json({
       promptRule: calls.some(call => call.body.messages.some(message => message.content.includes('Reconcile every prior open question'))),
@@ -103,6 +103,8 @@ const { server, url } = await listen(async request => {
     });
   }
   if (path === '/reconciliation') {
+    await handlers.idle();
+    reconciliationStart = kit.calls.length;
     // A controlled mock supplies the reconciled empty list after the typed answer.
     success = true; holdAssessment = false;
     const locale = u.searchParams.get('locale') ?? 'en';
