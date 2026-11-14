@@ -85,3 +85,38 @@ test('AIT-504 RC24: constant overview slot, positive boxes and five consecutive 
   assert.deepEqual(errors, []);
   if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-rects.json'), JSON.stringify(rows, null, 2));
 });
+
+test('AIT-504 real handler/SSE: five typed answers repaint overview and readiness on one focused page', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-rc24-sequence-'));
+  const fixture = await startChild(new URL('../fixtures/rc24-sequence.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), records = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  await page.evaluate(() => { window.rc24Now = 1_800_000_000_000; const NativeDate = Date; window.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [window.rc24Now])); } static now() { return window.rc24Now; } }; });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await shadow(page, async (c, locale, theme) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = await (await fetch(`/sequence?locale=${locale}`)).json();
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ copy, session });
+    }, locale, theme);
+    await page.mouse.move(0, 0); await settle(page);
+    let previous = await shadow(page, c => c.shadowRoot.querySelector('.scale').getAttribute('aria-valuetext'));
+    for (let answer = 1; answer <= 5; answer++) {
+      await shadow(page, async (c, answer) => {
+        window.rc24Now = (await (await fetch('/clock')).json()).now;
+        const textarea = c.shadowRoot.querySelector('textarea'); textarea.value = `Our project needs workflow step ${answer}.`;
+        textarea.dispatchEvent(new Event('input', { bubbles: true })); c.shadowRoot.querySelector('.send').click();
+      }, answer);
+      await until(page, answer => { const c = document.querySelector('aithema-session'); return c.shadowRoot.querySelector('.summary-text').textContent.includes(`workflow step ${answer}`) && c.shadowRoot.querySelector('.understanding').dataset.overview === 'current'; }, answer);
+      const result = await shadow(page, c => ({ summary: c.shadowRoot.querySelector('.summary-text').textContent,
+        readiness: c.shadowRoot.querySelector('.scale').getAttribute('aria-valuetext'),
+        revision: c.session.understanding.inputRevision, operations: c.session.operations }));
+      assert.notEqual(result.readiness, previous, `readiness advances after answer ${answer}`); previous = result.readiness;
+      assert.equal(result.revision, result.operations.inputRevision); assert.deepEqual(result.operations.running, []);
+      records.push({ locale, theme, width, answer, ...result });
+    }
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-five-answers.json'), JSON.stringify(records, null, 2)); }
+});
