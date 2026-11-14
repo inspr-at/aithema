@@ -87,6 +87,7 @@ test('AIT-504 pending expires at 18 seconds with one snapshot GET and no POST', 
     reads.push({ url: String(url), method: init.method ?? 'GET' });
     return Response.json({ ...c.session, operations: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
   });
+  t.after(() => c.remove());
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
@@ -115,6 +116,7 @@ for (const finish of ['status', 'disconnect', 'reconfigure']) test(`AIT-504 pend
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     snapshots.push(String(url)); return Response.json(c.session);
   });
+  t.after(() => c.remove());
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   if (finish === 'status') event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: ['understanding'], failures: [], lastFailure: null });
@@ -183,6 +185,7 @@ for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: settled denia
     calls.push({ url: String(url), method: init.method ?? 'GET' });
     return Response.json({ ...c.session, featureMatrix: matrix() });
   });
+  t.after(() => c.remove());
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'extra', role: 'user', content: 'More project details' });
   event(c, 'turn.final', { id: 'extra-reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
@@ -226,6 +229,7 @@ for (const changeLocale of [false, true]) test(`AIT-504 ahead snapshot fully res
     if (!/\/api\/sessions\/[^/]+$/.test(String(url))) return Response.json({}, { status: 404 });
     return Response.json(snapshot ?? c.session);
   });
+  t.after(() => c.remove());
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   c.receive({ type: 'turn.partial', data: { id: 'finished', delta: 'Partial reply', inputRevision: inputRevision(c.session) } });
@@ -266,6 +270,7 @@ test('AIT-504 same-sequence snapshot applies operations only', async t => {
     } }));
     return Response.json({ ...c.session, paused: true, understanding: { ...c.session.understanding, summary: 'Unjournaled state' }, operations: { inputRevision: inputRevision(c.session), running: ['understanding'], failures: [] } });
   });
+  t.after(() => c.remove());
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   t.mock.timers.tick(18_000); await flush();
@@ -284,6 +289,7 @@ test('AIT-504 one snapshot read cannot flash idle before its response settles', 
     } }));
     return pending.promise;
   });
+  t.after(() => c.remove());
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
