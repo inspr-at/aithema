@@ -387,6 +387,7 @@ test('AIT-188 V1: settled project overview replaces the placeholder after purpos
   const page = await fixture(t);
   for (const locale of ['de', 'en']) {
     const scenario = await pausedOverview(locale);
+    assert.deepEqual(scenario.after.operations.running, [], 'the authoritative post-settlement snapshot is idle');
     for (const theme of ['light', 'dark']) for (const width of [390, 393, 1440]) {
       await scene(page, locale, theme, width);
       await setViewport(page, { width, height: width === 393 ? 852 : width === 390 ? 844 : 900 });
@@ -400,7 +401,12 @@ test('AIT-188 V1: settled project overview replaces the placeholder after purpos
         .querySelector('.status')?.hasAttribute('data-connected'), { polling: 50, timeout: 5_000 })
         .catch(cause => { throw new Error('AIT-188 V1: paused overview event stream did not connect within 5 s', { cause }); });
       const baseline = (await metrics(page)).composer;
-      await shadow(page, (c, events) => { for (const event of events) c.receive({ ...event, sessionId: c.session.id }); }, scenario.events);
+      await shadow(page, (c, { events, operations }) => {
+        for (const event of events) c.receive({ ...event, sessionId: c.session.id });
+        // Storage replay contains durable events; lane.status is ephemeral.
+        // Complete the replay with the actual settled API snapshot's status.
+        c.receive({ type: 'lane.status', data: operations });
+      }, { events: scenario.events, operations: scenario.after.operations });
       await frame(page);
       const overview = await shadow(page, c => ({ summary: c.shadowRoot.querySelector('.summary-text').textContent,
         visible: !c.shadowRoot.querySelector('.summary').hidden, notice: c.shadowRoot.querySelector('.notice').textContent,
