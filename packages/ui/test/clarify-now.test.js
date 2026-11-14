@@ -287,7 +287,7 @@ test('AIT-503 lane failure before HTTP acceptance does not claim an earlier 202'
   }]]);
 });
 
-test('AIT-503 local busy refusal is diagnosed without another request', async t => {
+test('AIT-503 local busy refusal stays quiet without another request', async t => {
   const f = fixture(t), warnings = [], pending = Promise.withResolvers();
   t.mock.method(console, 'warn', (...args) => warnings.push(args));
   f.post(() => pending.promise);
@@ -295,9 +295,7 @@ test('AIT-503 local busy refusal is diagnosed without another request', async t 
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[0].id), { reason: 'reply-in-flight' });
   pending.resolve(Response.json(f.accept(), { status: 202 })); await request;
   assert.equal(f.calls.length, 1);
-  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
-    status: 409, error: null, reason: 'reply-in-flight', admissionReason: null, accepted: false, acceptedThenLaneFailed: false,
-  }]]);
+  assert.deepEqual(warnings, []);
 });
 
 test('AIT-503 diagnostic excludes arbitrary server strings, transport messages and conversation data', async t => {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, inputRevision } from '@inspr/aithema-core';
+import { applyEvent, createSession, inputRevision } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 const window = new Window();
@@ -18,18 +18,23 @@ function setup(copy) {
 }
 function event(c, type, data) { c.receive({ ...(type === 'lane.status' ? {} : { seq: c.session.seq + 1 }), type, data }); }
 for (const [copy, current, idle] of [[en, 'Up to date', 'Showing the latest overview.'], [de, 'Auf dem neuesten Stand', 'Der letzte Stand des Überblicks wird angezeigt.']]) {
-  test(`AIT-504 ${copy.display.locale}: named slot is current, pending, understanding-only running, then idle with Retry`, () => {
+  test(`AIT-504 ${copy.display.locale}: named slot is current, pending, reaction first, understanding later, then idle with Retry`, () => {
     const c = setup(copy), root = c.shadowRoot, notice = root.querySelector('.notice');
     assert.equal(notice.getAttribute('aria-label'), copy.display.locale === 'de' ? 'Überblickstatus' : 'Overview status');
     assert.equal(notice.querySelector('.notice-text').textContent, current);
     event(c, 'turn.final', { id: 'next', role: 'user', content: 'More details' });
     assert.equal(notice.querySelector('.notice-text').textContent, copy.stale);
     const revision = inputRevision(c.session);
-    event(c, 'lane.status', { inputRevision: revision, running: ['understanding'], failures: [], lastFailure: null });
+    const announcement = notice.querySelector('.notice-text').firstChild;
+    event(c, 'lane.status', { inputRevision: revision, running: ['reaction'], failures: [], lastFailure: null });
     assert.equal(notice.querySelector('.notice-text').textContent, copy.stale);
+    assert.equal(root.querySelector('.overview-retry').hidden, true);
+    assert.equal(notice.querySelector('.notice-text').firstChild, announcement);
     event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: revision });
     event(c, 'lane.status', { inputRevision: revision, running: ['reaction'], failures: [], lastFailure: null });
-    assert.equal(notice.querySelector('.notice-text').textContent, idle, 'another lane cannot claim the overview is updating');
+    assert.equal(notice.querySelector('.notice-text').textContent, copy.stale, 'the current reply still owes understanding');
+    event(c, 'lane.status', { inputRevision: revision, running: ['understanding'], failures: [], lastFailure: null });
+    assert.equal(notice.querySelector('.notice-text').firstChild, announcement, 'announce Updating once across the handoff');
     event(c, 'lane.status', { inputRevision: revision, running: [], failures: [], lastFailure: null });
     assert.equal(root.querySelector('.overview-retry').hidden, false);
     c.remove();
@@ -57,7 +62,7 @@ for (const copy of [en, de]) {
     const c = setup(host);
     assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Host current status'); c.remove();
   });
-  test(`AIT-504 N7 ${copy.display.locale}: idle status preserves a host's stale override`, () => {
+  test(`AIT-504 N7 ${copy.display.locale}: idle status is independent of a host's Updating override`, () => {
     for (const omitNew of [false, true]) {
       const host = structuredClone(copy); host.stale = 'Host previous assessment';
       if (omitNew) delete host.staleIdle;
@@ -66,7 +71,7 @@ for (const copy of [en, de]) {
       assert.equal(notice.querySelector('.notice-text').textContent, 'Host previous assessment');
       event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
       event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null });
-      assert.equal(notice.querySelector('.notice-text').textContent, 'Host previous assessment');
+      assert.equal(notice.querySelector('.notice-text').textContent, copy.staleIdle);
       assert.equal(notice.hasAttribute('data-current'), false);
       c.configure({ copy: { ...host, staleIdle: 'Host idle status' }, session: c.session });
       assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Host idle status'); c.remove();
@@ -190,4 +195,68 @@ for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: settled denia
   assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.reasons[reason]);
   assert.equal(c.shadowRoot.querySelector('.overview-retry').hidden, true);
   assert.ok(calls.every(call => call.method === 'GET'), 'status rendering cannot start paid work');
+});
+
+for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: first assessment preserves the host preparingOverview role`, () => {
+  const c = setup({ ...copy, preparingOverview: 'Host preparing' }), session = c.session;
+  session.understanding.readinessAssessed = false;
+  c.configure({ copy: { ...copy, preparingOverview: 'Host preparing' }, session });
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: ['understanding'], failures: [] });
+  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Host preparing');
+  c.remove();
+});
+
+test('AIT-504 ahead snapshot fully restores a stalled partial, locale, pause and settings without reconnecting', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  const c = setup(en), calls = [];
+  let snapshot;
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    calls.push({ url: String(url), method: init.method ?? 'GET' });
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    return Response.json(snapshot ?? c.session);
+  });
+  document.body.append(c); await flush();
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  c.receive({ type: 'turn.partial', data: { id: 'finished', delta: 'Partial reply', inputRevision: inputRevision(c.session) } });
+  snapshot = c.session;
+  for (const [type, data] of [
+    ['turn.final', { id: 'finished', role: 'assistant', content: 'Finished reply', inputRevision: inputRevision(snapshot) }],
+    ['session.locale-changed', { locale: 'de' }],
+    ['session.paused', { paused: true }],
+    ['settings.changed', { processingPreset: 'best', settings: { ...snapshot.settings, revision: snapshot.settings.revision + 1, model: 'recovered-model' } }],
+  ]) snapshot = applyEvent(snapshot, { seq: snapshot.seq + 1, type, data });
+  snapshot.operations = { inputRevision: inputRevision(snapshot), running: [], failures: [], lastFailure: null };
+  const streams = calls.filter(call => call.url.endsWith('/events')).length;
+  t.mock.timers.tick(18_000); await flush(); await flush();
+  const rows = [...c.shadowRoot.querySelectorAll('.turn')].filter(n => n.dataset.id === 'finished');
+  assert.equal(rows.length, 1, 'finished reply replaces its partial, never duplicate nodes');
+  assert.match(rows[0].textContent, /Finished reply/);
+  assert.doesNotMatch(c.shadowRoot.querySelector('.transcript-shell ol').textContent, /Partial reply/);
+  assert.equal(c.session.locale, 'de');
+  assert.equal(c.shadowRoot.querySelector('#understanding-title').textContent, de.understanding);
+  assert.equal(c.session.paused, true);
+  assert.equal(c.shadowRoot.querySelector('.composer-resume').textContent, de.resume);
+  assert.equal(c.session.settings.model, 'recovered-model');
+  assert.equal(calls.filter(call => call.url.endsWith('/events')).length, streams, 'no reconnect can schedule work');
+  assert.ok(calls.every(call => call.method === 'GET'));
+  c.remove();
+});
+
+test('AIT-504 same-sequence snapshot applies operations only', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  const c = setup(en);
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    return Response.json({ ...c.session, locale: 'de', paused: true, operations: { inputRevision: inputRevision(c.session), running: [], failures: [] } });
+  });
+  document.body.append(c); await flush();
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  t.mock.timers.tick(18_000); await flush();
+  assert.equal(c.session.locale, 'en'); assert.equal(c.session.paused, false);
+  c.remove();
 });

@@ -315,8 +315,14 @@ test('AIT-504 RC24: constant overview slot, positive boxes and five consecutive 
         const { inputRevision } = await import('/packages/core/src/session.js');
         const emit = (type, data) => c.receive({ ...(type === 'lane.status' ? {} : { seq: c.session.seq + 1 }), type, data, at: new Date().toISOString() });
         emit('turn.final', { id: `answer-${i}`, role: 'user', content: `Answer ${i}` });
-        emit('lane.status', { inputRevision: inputRevision(c.session), running: ['reaction', 'understanding'], failures: [], lastFailure: null });
+        const label = c.shadowRoot.querySelector('.notice-text'), announcement = label.firstChild;
+        const copy = (await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale];
+        emit('lane.status', { inputRevision: inputRevision(c.session), running: ['reaction'], failures: [], lastFailure: null });
+        if (label.textContent !== copy.stale || !c.shadowRoot.querySelector('.overview-retry').hidden) throw new Error('reaction-first status must keep Updating without Retry');
+        if (label.firstChild !== announcement) throw new Error('reaction-first status re-announced Updating');
         emit('turn.final', { id: `reply-${i}`, role: 'assistant', content: 'Thank you', inputRevision: inputRevision(c.session) });
+        emit('lane.status', { inputRevision: inputRevision(c.session), running: ['understanding'], failures: [], lastFailure: null });
+        if (label.firstChild !== announcement) throw new Error('understanding handoff re-announced Updating');
         emit('understanding.updated', { ...c.session.understanding, summary: `Overview ${i}`, progress: { talk: { value: i / 10 }, build: { value: i / 20 } }, inputRevision: inputRevision(c.session) });
         emit('lane.status', { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null });
         return { summary: c.shadowRoot.querySelector('.summary-text').textContent, readiness: c.shadowRoot.querySelector('.scale').getAttribute('aria-valuetext'), current: c.shadowRoot.querySelector('.understanding').dataset.overview };
@@ -333,6 +339,8 @@ test('AIT-504 real handler/SSE: five typed answers repaint overview and readines
   const directory = await mkdtemp(join(tmpdir(), 'aithema-rc24-sequence-'));
   const fixture = await startChild(new URL('../fixtures/rc24-sequence.js', import.meta.url), join(directory, 'fixture.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage(), records = [];
+  let snapshotReads = 0;
+  page.on('request', request => { if (request.method() === 'GET' && /\/api\/sessions\/[^/?]+$/.test(new URL(request.url()).pathname)) snapshotReads++; });
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
@@ -345,21 +353,83 @@ test('AIT-504 real handler/SSE: five typed answers repaint overview and readines
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ copy, session });
     }, locale, theme);
     await page.mouse.move(0, 0); await settle(page);
+    await shadow(page, c => {
+      if (window.rc24Receive) c.receive = window.rc24Receive;
+      const receive = c.receive.bind(c); window.rc24Receive = receive;
+      c.receive = event => {
+        const result = receive(event);
+        window.rc24Trace?.push({ type: event.type, running: c.session.operations?.running,
+          text: c.shadowRoot.querySelector('.notice-text').textContent,
+          retry: !c.shadowRoot.querySelector('.overview-retry').hidden });
+        return result;
+      };
+    });
     let previous = await shadow(page, c => c.shadowRoot.querySelector('.scale').getAttribute('aria-valuetext'));
     for (let answer = 1; answer <= 5; answer++) {
+      const readsBefore = snapshotReads;
       await shadow(page, async (c, answer) => {
         window.rc24Now = (await (await fetch('/clock')).json()).now;
+        window.rc24Trace = [];
         const textarea = c.shadowRoot.querySelector('textarea'); textarea.value = `Our project needs workflow step ${answer}.`;
         textarea.dispatchEvent(new Event('input', { bubbles: true })); c.shadowRoot.querySelector('.send').click();
       }, answer);
       await until(page, answer => { const c = document.querySelector('aithema-session'); return c.shadowRoot.querySelector('.summary-text').textContent.includes(`workflow step ${answer}`) && c.shadowRoot.querySelector('.understanding').dataset.overview === 'current'; }, answer);
       const result = await shadow(page, c => ({ summary: c.shadowRoot.querySelector('.summary-text').textContent,
         readiness: c.shadowRoot.querySelector('.scale').getAttribute('aria-valuetext'),
-        revision: c.session.understanding.inputRevision, operations: c.session.operations }));
+        revision: c.session.understanding.inputRevision, operations: c.session.operations, sequence: window.rc24Trace }));
+      assert.equal(snapshotReads, readsBefore, 'every answer arrives over SSE without the 18-second snapshot fallback');
+      const assessment = result.sequence.findIndex(state => state.type === 'understanding.updated');
+      assert.ok(assessment >= 0, 'assessment delivered through receive');
+      const due = result.sequence.slice(0, assessment);
+      assert.ok(due.some(state => state.type === 'lane.status' && state.running.includes('reaction') && !state.running.includes('understanding')), 'real server reaction-first order observed');
+      const copy = locale === 'de' ? (await import('../../packages/ui/src/i18n/de.js')).de : (await import('../../packages/ui/src/i18n/en.js')).en;
+      for (const state of due) { assert.equal(state.text, copy.stale, `${locale}/${width}/answer ${answer}: ${state.type} keeps Updating`); assert.equal(state.retry, false, 'no idle Retry while understanding is due'); }
       assert.notEqual(result.readiness, previous, `readiness advances after answer ${answer}`); previous = result.readiness;
       assert.equal(result.revision, result.operations.inputRevision); assert.deepEqual(result.operations.running, []);
       records.push({ locale, theme, width, answer, ...result });
     }
   }
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-five-answers.json'), JSON.stringify(records, null, 2)); }
+});
+
+test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-rc24-overflow-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), records = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  for (const locale of ['en', 'de']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await setupOverviewFixture(page, locale, 'light');
+    const results = await shadow(page, async (c, locale) => {
+      const copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
+      const slot = c.shadowRoot.querySelector('.notice'), text = slot.querySelector('.notice-text'), action = c.shadowRoot.querySelector('.overview-retry');
+      slot.append(action); action.hidden = false; action.textContent = copy.understandingRetry;
+      const states = Object.fromEntries(['empty', 'stale', 'staleIdle', 'overviewCurrent', 'draft', 'preparingOverview', 'understandingFailed', 'reasoningFailed', 'overviewPendingReply', 'noProjectDetails'].map(key => [key, copy[key]]));
+      Object.assign(states, copy.reasons, { consent: copy.featureConsent.analysis + ' · ' + copy.featureConsent.action });
+      const results = [];
+      for (const [key, value] of Object.entries(states)) {
+        text.textContent = value;
+        const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect();
+        results.push({ key, value, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
+          textScrollHeight: text.scrollHeight, textClientHeight: text.clientHeight, actionBottom: a.bottom - b.top });
+      }
+      text.textContent = 'Long host override '.repeat(100);
+      results.push({ key: 'host override', fullText: text.textContent, clamped: text.scrollHeight > text.clientHeight,
+        width: slot.getBoundingClientRect().width, height: slot.getBoundingClientRect().height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight });
+      return results;
+    }, locale);
+    for (const state of results) {
+      assert.ok(state.width > 0 && state.height > 0, 'visible positive slot');
+      assert.equal(state.height, results[0].height, 'every state keeps exactly the same height');
+      assert.ok(state.scrollHeight <= state.clientHeight, `${locale}/${width}/${state.key}: slot content fits`);
+      if (state.key !== 'host override') {
+        assert.ok(state.textScrollHeight <= state.textClientHeight, `${locale}/${width}/${state.key}: shipped text is not clamped`);
+        assert.ok(state.actionBottom <= state.height, 'action stays within slot');
+      } else { assert.equal(state.clamped, true); assert.ok(state.fullText.length > 1000, 'full override remains in the accessible DOM'); }
+      records.push({ locale, width, ...state });
+    }
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-overflow.json'), JSON.stringify(records, null, 2)); }
 });

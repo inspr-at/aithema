@@ -1137,7 +1137,7 @@ for (const copy of [de, en]) for (const draft of [false, true]) test(`AIT-504 ${
   session.operations = { inputRevision: inputRevision(session), running: ['understanding'], lastFailure: null };
   c.configure({ session, copy });
   const root = c.shadowRoot;
-  assert.equal(root.querySelector('.notice').textContent, copy.stale);
+  assert.equal(root.querySelector('.notice').textContent, draft ? copy.draft : copy.stale);
   assert.notEqual(root.querySelector('.notice').textContent, copy.preparingOverview);
   assert.equal(root.querySelector('.summary-text').textContent, '<script>untrusted</script>');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => !n.hidden));
