@@ -28,7 +28,7 @@ function inline(root, copy, disabled = false) {
   assert.equal(retry.hidden, false); assert.equal(retry.disabled, false);
   assert.equal(retry.getAttribute('aria-disabled'), String(disabled));
   assert.equal(retry.textContent, copy.retry);
-  assert.equal(root.querySelector('.reaction-failure-text').textContent, copy.reasoningFailed + reasonSeparator);
+  assert.equal(root.querySelector('.reaction-failure-text').textContent, copy.replyFailed + reasonSeparator);
   assert.equal(root.querySelector('.overview-retry').hidden, true);
 }
 for (const copy of [en, de]) for (const identity of [locked(), pending()]) {
@@ -99,7 +99,7 @@ test('AIT-466 U3 guards: non-retryable and used-up failures offer no activation'
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'session' } });
   const retry = root.querySelector('.retry'); assert.equal(retry.style.visibility, 'hidden'); assert.equal(retry.inert, true);
   assert.equal(retry.hidden, false); assert.equal(retry.parentNode, root.querySelector('.reaction-failure'));
-  assert.equal(root.querySelector('.reaction-failure-text').textContent, en.reasoningFailed); retry.click(); await tick(); assert.equal(retries(calls), 0);
+  assert.equal(root.querySelector('.reaction-failure-text').textContent, `${en.replyFailed} ${en.replyKeepTyping}`); retry.click(); await tick(); assert.equal(retries(calls), 0);
 });
 test('AIT-466 U3 guard: already ended session never shows Retry', async t => {
   const { c, root } = await fixture(t, { host: { verification: true, credits: true }, session: { credits: { status: 'ended', endReason: 'session' } } });
