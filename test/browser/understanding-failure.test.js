@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 import { startChild } from '../helpers.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
 
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
@@ -623,10 +625,11 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     }
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')), shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);
     assert.equal(response.status(), 202);
-    const preparing = locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …';
-    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === text, preparing);
+    await until(page, () => document.querySelector('aithema-session').session.operations.running.includes('understanding'));
+    const updating = locale === 'de' ? de.stale : en.stale;
+    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === text, updating);
     await settle(page);
-    assert.deepEqual(await boxes(page, targets), before, 'preparing after successful reply shifts 0 px');
+    assert.deepEqual(await boxes(page, targets), before, 'updating after successful reply shifts 0 px');
     await page.evaluate(() => fetch('/settle?verdict=success'));
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);

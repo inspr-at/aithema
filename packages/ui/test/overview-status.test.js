@@ -113,9 +113,51 @@ for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: deferred work
   const revision = inputRevision(c.session);
   event(c, 'lane.status', { inputRevision: revision, running: [], failures: [], lastFailure: null });
   c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', reason: 'budget reconciling' } });
-  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.stale);
+  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.staleIdle,
+    'local reconciliation is not an authoritative running understanding job');
   c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', error: 'reasoning-unavailable' } });
   assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.understandingFailed + '\u00a0· ');
   assert.equal(c.shadowRoot.querySelector('.overview-retry').hidden, false);
   c.remove();
+});
+
+for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: consent Review is the only overview action`, () => {
+  const c = setup(copy), session = c.session;
+  session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+  c.configure({ copy, session });
+  event(c, 'turn.final', { id: 'extra', role: 'user', content: 'More project details' });
+  event(c, 'turn.final', { id: 'extra-reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
+  event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null });
+  assert.equal(c.shadowRoot.querySelector('.overview-retry').hidden, true);
+  assert.equal(c.shadowRoot.querySelector('.notice').querySelectorAll('button:not([hidden])').length, 1);
+  c.remove();
+});
+
+for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: settled denial cannot retain a local Updating notice`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
+  const c = setup(copy), calls = [];
+  t.after(() => c.remove());
+  let reason = 'budget reconciling';
+  const matrix = () => ({ best: { text: { available: false, reason }, analysis: { available: false, reason } } });
+  c.configure({ copy, session: { ...c.session, featureMatrix: matrix() } });
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    calls.push({ url: String(url), method: init.method ?? 'GET' });
+    return Response.json({ ...c.session, featureMatrix: matrix() });
+  });
+  document.body.append(c); await flush();
+  event(c, 'turn.final', { id: 'extra', role: 'user', content: 'More project details' });
+  event(c, 'turn.final', { id: 'extra-reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
+  const revision = inputRevision(c.session);
+  event(c, 'lane.status', { inputRevision: revision, running: [], failures: [], lastFailure: null });
+  c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', reason } });
+  reason = 'budget denied';
+  c.receive({ type: 'voice.state', data: { state: 'ended' } });
+  for (let i = 0; i < 8; i++) await flush();
+  assert.equal(c.session.featureMatrix.best.analysis.reason, reason);
+  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.reasons[reason]);
+  assert.equal(c.shadowRoot.querySelector('.overview-retry').hidden, true);
+  assert.ok(calls.every(call => call.method === 'GET'), 'status rendering cannot start paid work');
 });
