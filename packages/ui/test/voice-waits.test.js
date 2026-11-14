@@ -57,7 +57,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     assert.equal(full(rail), de.voiceStates.connecting);
     t.mock.timers.tick(29_999); await flush(); assert.equal(rail.state, 'connecting');
     t.mock.timers.tick(1); await start;
-    assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(calls[0].options.signal.aborted, true);
+    assert.equal(rail.errorKey, 'voiceConnectFailed'); assert.equal(calls[0].options.signal.aborted, true);
     assert.equal(rail.root.getRootNode().activeElement, rail.button('retry'));
     opening.resolve(session); cleanup.resolve(); await flush(); assert.equal(closes.length, 1, 'late session closed');
     record(provider, 'cleanup 5 s; connect deadline 30 s; late session closed', { cleanupMs: 5000, connectMs: 30000, focusTargets: ['voice-close', 'voice-retry'] });
@@ -74,7 +74,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     calls.at(-1).options.onMicrophoneState('granted');
     assert.equal(full(rail), de.voiceStates.connecting);
     t.mock.timers.tick(29_999); await flush(); assert.equal(rail.state, 'connecting');
-    t.mock.timers.tick(1); await next; assert.equal(rail.errorKey, 'voiceDeadline');
+    t.mock.timers.tick(1); await next; assert.equal(rail.errorKey, 'voiceConnectFailed');
     record(provider, 'grant at 20 s fails at 50 s', { phaseContractFixture: true, grantMs: 20000, failedMs: 50000 });
   });
   test(`AIT-377 ${provider}: cooldown counts 12 to 0 every second before connect`, async t => {
@@ -210,7 +210,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     assert.equal(rail.state, 'connecting'); assert.equal(rail.controller.signal.aborted, false);
     calls[0].options.onMicrophoneState('granted');
     t.mock.timers.tick(29_999); await flush(); assert.equal(rail.state, 'connecting');
-    t.mock.timers.tick(1); await start; assert.equal(rail.errorKey, 'voiceDeadline');
+    t.mock.timers.tick(1); await start; assert.equal(rail.errorKey, 'voiceConnectFailed');
     record(provider, 'credentials show Connecting; requesting suspends deadline for 60 s; grant starts fresh 30 s');
   });
   test(`AIT-377 ${provider}: credentials before microphone requesting are bounded at 30 s`, async t => {
@@ -219,7 +219,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
     const start = rail.start(); await flush();
     t.mock.timers.tick(29_999); await flush(); assert.equal(rail.state, 'connecting');
     t.mock.timers.tick(1); await flush();
-    assert.equal(rail.errorKey, 'voiceDeadline'); assert.equal(calls[0].options.signal.aborted, true);
+    assert.equal(rail.errorKey, 'voiceConnectFailed'); assert.equal(calls[0].options.signal.aborted, true);
     await start;
     calls[0].options.onMicrophoneState('requesting'); assert.equal(rail.state, 'failed');
     opening.resolve(session); await flush(); assert.equal(closes.length, 1);
@@ -243,7 +243,7 @@ for (const provider of ['elevenlabs', 'grok-voice']) {
       await advance(t, 30_000); assert.equal(rail.state, 'connecting');
       permission.resolve(); await start; assert.equal(rail.state, 'listening');
     } else {
-      await start; assert.equal(rail.state, 'failed'); assert.equal(rail.errorKey, 'voiceDeadline');
+      await start; assert.equal(rail.state, 'failed'); assert.equal(rail.errorKey, 'voiceConnectFailed');
     }
     record(provider, 'capability-gated (today\'s behaviour): main connecting copy and client-owned permission deadline', { heldMs: provider === 'grok-voice' ? 60000 : 30000 });
   });

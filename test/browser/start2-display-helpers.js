@@ -1,6 +1,8 @@
 // Shared display helpers for the two file-based CI shards.
 import assert from 'node:assert/strict';
 import { inflateSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 import { browserPath } from '../../scripts/install-test-browser.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
@@ -212,5 +214,9 @@ export async function captureEvidence(page, options = {}) {
   return { png, iconBoxes, frame };
 }
 
-const evidenceCommit = process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'd886da3';
+// The remote lane transfers git archives, whose source stamp is export-substituted.
+// A normal checkout resolves HEAD at test start; no fixed revision can label evidence.
+const archivedCommit = readFileSync(new URL('../../release/archive-source.txt', import.meta.url), 'utf8').split('\n')[0];
+const evidenceCommit = process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT ??
+  (/^[a-f0-9]{40}$/u.test(archivedCommit) ? archivedCommit : execFileSync('git', ['rev-parse', 'HEAD'], { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).trim());
 export { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit };

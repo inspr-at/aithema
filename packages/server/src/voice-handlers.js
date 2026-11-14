@@ -132,7 +132,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: result.usage?.costEstimated === true });
         const logical = storage.voiceLifecycle(record.sessionId, record.callId);
         publish(record.sessionId, { type: 'voice.state', data: { callId: record.callId, providerSessionId: record.providerSessionId,
-          ...tabAuthority(record.sessionId, record.callId),
+          ...tabAuthority(record.sessionId, record.callId), ...timeLimit(record.sessionId, logical?.spendDeadlineAt),
           state: logical && logical.state !== 'idle' ? logical.state : recoverableVoiceEnd(record.reason)
             ? record.reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'ended',
           reason: logical?.terminalReason ?? record.reason, reconciliationPending: result.usage?.costEstimated === true,
@@ -176,6 +176,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     ...calls.get(call.callId)?.callbackContext?.receipt,
     ...(call.grant ? { mediaGrant: call.grant } : {}),
     spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
+    ...timeLimit(calls.get(call.callId)?.sessionId, call.spendDeadlineAt),
     presentation: calls.get(call.callId)?.presentation ?? 'opening',
     ...(call.overrides ? { overrides: call.overrides } : {}) });
   const options = request => ({ signal: request.signal, deadlineAt: now() + deadlineMs, now });
@@ -202,7 +203,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     onClose?.(entry.sessionId);
     if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
     publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
-      ...tabAuthority(entry.sessionId, entry.callId),
+      ...tabAuthority(entry.sessionId, entry.callId), ...timeLimit(entry.sessionId, storage.voiceLifecycle(entry.sessionId, entry.callId)?.spendDeadlineAt),
       providerSessionId: entry.call?.providerSessionId,
       state: resumable ? storage.voiceLifecycle(entry.sessionId, entry.callId).state : 'closing', reason } });
     const settle = async () => {
@@ -228,7 +229,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         // An old recovery's settlement cannot publish over or remove its successor.
         const logical = storage.voiceLifecycle(entry.sessionId, entry.callId);
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
-          ...tabAuthority(entry.sessionId, entry.callId),
+          ...tabAuthority(entry.sessionId, entry.callId), ...timeLimit(entry.sessionId, logical?.spendDeadlineAt),
           callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: logical?.state ?? (resumable ? 'recovering' : 'ended'),
           reason: logical?.terminalReason ?? reason,
           reconciliationPending: terminal.outcome === 'uncertain' || terminal.usage?.costEstimated === true,
@@ -253,6 +254,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       throw error;
     }
   }
+  // Additive public metadata: the retained spend bound can also be the conversation cap.
+  function timeLimit(sessionId, spendDeadlineAt) {
+    if (!Number.isFinite(spendDeadlineAt)) return {};
+    const conversation = runtime.conversationLimits?.deadline(sessionId) ?? Infinity;
+    return { timeLimit: conversation <= spendDeadlineAt ? 'conversation' : 'call' };
+  }
   async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false, tabId = null, explicitResume = false) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
@@ -276,7 +283,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       } }); entry.admission = admitted;
       const end = Math.min(spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000,
         runtime.conversationLimits?.deadline(sessionId) ?? Infinity);
-      if (end <= now()) throw new PluginError('deadline');
+      if (end <= now()) throw Object.assign(new PluginError('deadline'),
+        continuation ? { reason: 'time-limit', ...timeLimit(sessionId, end) } : {});
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale,
         continuation, explicitResume, hasPriorTurns: activeTurns(session).some(turn =>
@@ -307,7 +315,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         } catch { /* Diagnostics cannot interrupt recovery. */ }
       }
       publish(sessionId, { type: 'voice.state', data: { callId, providerSessionId: state.providerSessionId,
-        epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state } });
+        epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state, ...timeLimit(sessionId, end) } });
       return receipt(entry.call);
     } catch (error) {
       if (voiceConfigurationRefused(error)) {
@@ -521,7 +529,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const { callId, providerSessionId, providerGeneration, state, attempts, needsRecovery,
         spendDeadlineAt, browserLivenessDeadlineAt, epoch, controllingTabId } = logical;
       return { callId, providerSessionId, providerGeneration, state, attempts, needsRecovery,
-        spendDeadlineAt, browserLivenessDeadlineAt, epoch, controllingTabId,
+        spendDeadlineAt, browserLivenessDeadlineAt, epoch, controllingTabId, ...timeLimit(id, spendDeadlineAt),
         ...(logical.holds.includes('server-restart') ? { reason: 'server-restart' } : {}) };
     },
     typedContext(id, ownerToken, callId, providerSessionId) {
@@ -782,7 +790,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
-          ...(voiceConfigurationRefused(error) ? { reason: error.reason } : VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
+          ...(error.code === 'deadline' && error.reason === 'time-limit' ? { reason: error.reason, timeLimit: error.timeLimit }
+            : voiceConfigurationRefused(error) ? { reason: error.reason } : VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
           error.status === 429 && error.retryAfter !== undefined ? { 'retry-after': error.retryAfter } : {});
         return json({ error: 'voice-unavailable' }, 503);
       }

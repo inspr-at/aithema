@@ -1098,6 +1098,48 @@ JSON bound, because details include the full transcript and telemetry; token
 receipts retain their 64 KiB bound. Start2 logs safe closure observations, lookup
 error codes, elapsed time and retained liability through its private `log` port.
 
+### Voice end messages
+
+Credit closes (`host-limit`, `session`, `voiceVisitor`, `budget-limit`) use the
+existing used-up status and clear after admission recovers. Purpose pauses and
+session revocation end quietly with “Call ended”; unlisted transport ends retain
+`voiceConnectionFailed`.
+
+`voice.state`, the start receipt and the `voiceLifecycle` snapshot add optional
+`timeLimit: 'call' | 'conversation'`. It identifies which bound selected the retained
+`spendDeadlineAt` (ties select the conversation cap). Identity, epoch and existing end
+reasons are unchanged. The server includes it on connection, closing, terminal settlement
+and snapshot projections. Browser plugins may include the same field on an `ended`
+event; it is optional and additive for plugins and hosts. The UI uses metadata for the
+same call only. A conversation cap uses `voiceStates.timeExpired` and disables further
+calls; only a known per-call maximum uses `voiceTimeLimit`. Unknown spend bounds show
+the existing “Call ended” state with Start call and no message line.
+
+A refused Resume whose retained bound has elapsed adds `reason: 'time-limit'` and
+`timeLimit` to its 504 `deadline` receipt. These fields are optional and additive.
+Only this explicit refusal on a resumed call takes the time-limit path. An ordinary
+fresh-start 504, connection timeout or expired media grant is a connect failure with
+Retry; there is no automatic retry.
+
+`voiceDeadline` remains exported for custom copy bundles but is deprecated. New bundles
+should supply `voiceConnectFailed`, `voiceTimeLimit`, `voiceMessagesNarrow.voiceConnectFailed`,
+`voiceMessagesNarrow.voiceTimeLimit` and `voiceMessageClose`. `voiceConnectionFailed`
+keeps its existing text for mid-call failures and unlisted ends. The shared resolver
+in `packages/ui/src/copy-resolve.js` preserves host overrides: a new-key value differing
+from its shipped default wins; otherwise a legacy override differing from its shipped
+default wins; otherwise the shipped new-key default wins. The split keys are
+`voiceConnectFailed` ← `voiceConnectionFailed` and `voiceTimeLimit` ← `voiceDeadline`.
+Brand-new keys without a legacy key (including close and narrow labels) use the host
+value, then the active locale's shipped text, then English, and never render empty text.
+When a host omits `copy.display.locale`, the component uses the session's active
+locale for these fallbacks, including narrow labels and the close control.
+
+The existing **Retry call** label remains. Time-bound ends use neutral colour. Failed
+messages have a separate close control; Escape dismisses only while focus is inside
+the rail. There is no close control in the phone's 36 px status row; Retry, a typed
+send and a new start clear the message there too.
+
+
 ## Plugins, bindings and admission
 
 Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional

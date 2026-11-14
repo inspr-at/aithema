@@ -676,7 +676,7 @@ export class AithemaSession extends HTMLElement {
       }
     });
     if (this.#voiceBound) {
-      this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
+      this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, locale: () => this.#session.locale, client: this.#voiceClientFor(),
         noticesRoot: root.querySelector('.voice-notices'),
         waitingCall: this.#session.voiceLifecycle,
         replyVisible: (text, turnId) => Boolean(text && this.#session.transcript.some(t => (!turnId || t.id === turnId) && t.role === 'assistant' && !t.erased && !t.withdrawn && t.content === text &&
@@ -2780,7 +2780,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, input = root.querySelector('textarea'), button = root.querySelector('.send');
     const option = typeof answer === 'string', content = option ? answer : input.value;
     if (this.#sending || !this.#feature('text').available || !content.trim()) return;
-    this.#rail?.notices.clear();
+    this.#rail?.notices.clear(); this.#rail?.clearMessage();
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content, !option); return; }
     const sessionId = this.#session.id;
     const voiceSession = this.#rail && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
@@ -2982,7 +2982,7 @@ export class AithemaSession extends HTMLElement {
     if (voice && state.state === 'waiting' && voice.callId === state.callId &&
       voice.providerSessionId === state.providerSessionId && !['tab-takeover', 'server-restart'].includes(state.reason)) voice.lifecycle?.wait(state.reason);
     if (voice && ['closing', 'ended'].includes(state.state) && !recoverableVoiceEnd(state.reason) &&
-      voice.callId === state.callId && voice.providerSessionId === state.providerSessionId) void this.#rail.close(state.reason);
+      voice.callId === state.callId && voice.providerSessionId === state.providerSessionId) void this.#rail.close(state.reason, { timeLimit: state.timeLimit });
     this.#rail?.settlement(state);
   }
   #restoreVoiceEffects(before) {
