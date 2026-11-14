@@ -388,3 +388,14 @@ test('AIT-512: the pointer guard expires 500 ms after the last programmatic scro
   root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 })); await tick();
   assert.equal(requests, 2, 'a pointer click is available again after the bounded guard');
 });
+
+test('AIT-512: withdrawing already-read text does not invent new messages below', t => {
+  const { c, root, shell } = navigationScene(t);
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'short-statement', role: 'user', content: 'I' } });
+  shell.scrollTop = shell.scrollHeight; shell.dispatchEvent(new window.Event('scroll'));
+  shell.scrollTop = 100; shell.dispatchEvent(new window.Event('scroll'));
+  const jump = root.querySelector('.transcript-latest');
+  assert.equal(jump.style.visibility, 'hidden');
+  c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'short-statement', reason: 'withdrawal' } });
+  assert.equal(jump.style.visibility, 'hidden', 'a longer withdrawal placeholder is not a new message');
+});
