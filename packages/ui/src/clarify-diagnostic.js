@@ -1,4 +1,4 @@
-import { FOCUS_REFUSAL_CLASSES } from '../../core/src/index.js';
+import { FOCUS_REFUSAL_CLASSES } from '../../core/src/question-focus.js';
 import { PLUGIN_ERROR_CODES } from '../../core/src/invocation.js';
 import { BINDING_REASON_CODES } from '../../core/src/presets.js';
 
