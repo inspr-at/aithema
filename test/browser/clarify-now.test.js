@@ -469,14 +469,14 @@ test('AIT-504 follow-up: failure and idle Retry have no dangling separator or in
   for (const locale of ['en', 'de']) for (const width of [390, 1440]) for (const state of ['failure', 'idle']) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await setupOverviewFixture(page, locale, 'light');
-    const result = await shadow(page, (c, state) => {
-      const session = c.session;
+    const result = await shadow(page, async (c, state) => {
+      const session = c.session, copy = (await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale];
       if (state === 'idle') session.understanding.inputRevision = 'older';
       else {
         const failure = { lane: 'understanding', error: 'reasoning-unavailable', retryable: true };
         session.operations.failures = [failure]; session.operations.lastFailure = failure;
       }
-      c.configure({ session });
+      c.configure({ copy, session });
       const text = c.shadowRoot.querySelector('.notice-text'), action = c.shadowRoot.querySelector('.overview-retry');
       const lines = new Map(), range = document.createRange();
       const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
