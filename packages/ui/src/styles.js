@@ -551,11 +551,12 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   scroll-padding-block:28px 44px;
   display:grid; align-content:start; gap:1.15rem; padding:calc(28px + var(--aithema-slack-top,0px)) .75rem calc(44px + var(--aithema-slack-bottom,0px)) 0; }
-/* Shipped EN/DE reasons fit three lines plus one reserved action line. */
+/* Reachable EN/DE statuses fit three lines, including an action when present. */
 .notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
-.overview-status { height:5.8em; min-height:5.8em; overflow:hidden; }
+.overview-status { height:4.35em; min-height:4.35em; overflow:hidden; }
 /* Clamp long host overrides visually; their complete text stays in the live DOM. */
 .overview-status .notice-text:not([data-consent-feature]) { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
+.overview-status:has(> .overview-retry:not([hidden])) .notice-text { -webkit-line-clamp:2; }
 .overview-status .overview-retry { display:block; width:max-content; max-width:100%; margin-inline-start:0; }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 /* Readiness already draws the entry divider; keep the section's box stable. */
