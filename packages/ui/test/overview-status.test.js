@@ -8,13 +8,13 @@ const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function setup(copy) {
+function setup(copy, options = {}) {
   const session = createSession({ demo: true, locale: copy.display.locale });
   session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
   session.transcript = [{ id: 'u', role: 'user', content: 'A project' }, { id: 'a', role: 'assistant', content: 'Tell me more', inputRevision: inputRevision(session) }];
   Object.assign(session.understanding, { readinessAssessed: true, inputRevision: inputRevision(session), summary: 'A project', draft: false });
   session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
-  const c = document.createElement('aithema-session'); c.configure({ copy, session }); return c;
+  const c = document.createElement('aithema-session'); c.configure({ copy, session, ...options }); return c;
 }
 function event(c, type, data) { c.receive({ ...(type === 'lane.status' ? {} : { seq: c.session.seq + 1 }), type, data }); }
 for (const [copy, current, idle] of [[en, 'Up to date', 'Showing the latest overview.'], [de, 'Auf dem neuesten Stand', 'Der letzte Stand des Überblicks wird angezeigt.']]) {
@@ -207,9 +207,9 @@ for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: first assessm
   c.remove();
 });
 
-test('AIT-504 ahead snapshot fully restores a stalled partial, locale, pause and settings without reconnecting', async t => {
+for (const changeLocale of [false, true]) test(`AIT-504 ahead snapshot fully restores a stalled partial, pause and settings without reconnecting; locale change ${changeLocale}`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
-  const c = setup(en), calls = [];
+  const c = setup(en, { copyForLocale: locale => ({ en, de })[locale] }), calls = [];
   let snapshot;
   t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
     calls.push({ url: String(url), method: init.method ?? 'GET' });
@@ -224,7 +224,7 @@ test('AIT-504 ahead snapshot fully restores a stalled partial, locale, pause and
   snapshot = c.session;
   for (const [type, data] of [
     ['turn.final', { id: 'finished', role: 'assistant', content: 'Finished reply', inputRevision: inputRevision(snapshot) }],
-    ['session.locale-changed', { locale: 'de' }],
+    ...(changeLocale ? [['session.locale-changed', { locale: 'de' }]] : []),
     ['session.paused', { paused: true }],
     ['settings.changed', { processingPreset: 'best', settings: { ...snapshot.settings, revision: snapshot.settings.revision + 1, model: 'recovered-model' } }],
   ]) snapshot = applyEvent(snapshot, { seq: snapshot.seq + 1, type, data });
@@ -235,10 +235,11 @@ test('AIT-504 ahead snapshot fully restores a stalled partial, locale, pause and
   assert.equal(rows.length, 1, 'finished reply replaces its partial, never duplicate nodes');
   assert.match(rows[0].textContent, /Finished reply/);
   assert.doesNotMatch(c.shadowRoot.querySelector('.transcript-shell ol').textContent, /Partial reply/);
-  assert.equal(c.session.locale, 'de');
-  assert.equal(c.shadowRoot.querySelector('#understanding-title').textContent, de.understanding);
+  assert.equal(c.session.locale, changeLocale ? 'de' : 'en');
+  const copy = changeLocale ? de : en;
+  assert.equal(c.shadowRoot.querySelector('#understanding-title').textContent, copy.understanding);
   assert.equal(c.session.paused, true);
-  assert.equal(c.shadowRoot.querySelector('.composer-resume').textContent, de.resume);
+  assert.equal(c.shadowRoot.querySelector('.composer-resume').textContent, copy.resume);
   assert.equal(c.session.settings.model, 'recovered-model');
   assert.equal(calls.filter(call => call.url.endsWith('/events')).length, streams, 'no reconnect can schedule work');
   assert.ok(calls.every(call => call.method === 'GET'));
