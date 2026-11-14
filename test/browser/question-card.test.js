@@ -839,6 +839,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome') });
   t.after(() => browser.close());
   const page = await browser.newPage(), rectEvidence = [];
+  t.after(async () => { if (laneEvidenceDirectory) await writeFile(join(laneEvidenceDirectory, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2)); });
   let requests = 0, refuse = false;
   await page.setRequestInterception(true);
   page.on('request', request => { void (async () => {
@@ -890,6 +891,9 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), rows = [...shell.querySelectorAll('.turn')];
     return { scroll: shell.scrollTop, max: shell.scrollHeight - shell.clientHeight,
       shell: shell.getBoundingClientRect().toJSON(), latest: rows.at(-1).getBoundingClientRect().toJSON(),
+      cardBox: r.querySelector('.qcard').getBoundingClientRect().toJSON(), reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),
+      compact: r.querySelector('.workspace').hasAttribute('data-question-compact'),
+      pointerHit: globalThis.navigationPointerPoint && r.elementFromPoint(...globalThis.navigationPointerPoint)?.className,
       composer: r.querySelector('.composer').getBoundingClientRect().toJSON(), dock: r.querySelector('.composer-dock').getBoundingClientRect().toJSON(),
       jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility, card: !r.querySelector('.qcard').hidden };
   });
@@ -897,10 +901,20 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
   const acknowledged = () => page.waitForFunction(() => {
     const c = document.querySelector('aithema-session'); return c.session.transcript.at(-1)?.role === 'user' && c.shadowRoot.querySelector('.qcard').hidden;
   });
+  const hoverTranscript = async () => {
+    const point = await shadow(page, c => {
+      const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = shell.getBoundingClientRect();
+      const top = Math.max(b.top, r.querySelector('.band').getBoundingClientRect().bottom);
+      const bottom = Math.min(b.bottom, r.querySelector('.composer').getBoundingClientRect().top);
+      const point = [b.left + 25, top + Math.max(1, (bottom - top) / 2)]; globalThis.navigationPointerPoint = point; return point;
+    });
+    await page.mouse.move(...point);
+    assert.equal(await shadow(page, (c, point) => Boolean(c.shadowRoot.elementFromPoint(...point)?.closest('.transcript-shell')), point), true,
+      'the parked pointer hits the visible transcript, clear of the sticky header');
+  };
   const pick = async keyboard => {
     if (keyboard) {
-      const point = await shadow(page, c => { const b = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect(); return [b.left + 25, b.top + 25]; });
-      await page.mouse.move(...point);
+      await hoverTranscript();
       await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
       await page.keyboard.press('Enter');
     } else {
@@ -917,13 +931,14 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     assert.ok(Math.abs(persisted.max - persisted.scroll) <= 2, `persisted user pinned after card closes: ${JSON.stringify(persisted)}`);
     await page.evaluate(() => { globalThis.navigationPartial('A short new reply.'); globalThis.navigationFinal(); }); await nextFrame(page);
     const final = await snapshot(); positive(final, ['latest', 'composer', 'dock', 'shell']);
+    const evidence = { width, keyboard, before, persisted, final }; rectEvidence.push(evidence);
     assert.ok(final.latest.bottom <= final.composer.top + 1, `reply clears the composer: ${JSON.stringify(final)}`);
     assert.ok(final.latest.top >= final.shell.top - 1, 'the short reply is in view');
     assert.deepEqual(final.composer, before.composer, 'composer moves 0 px');
     assert.deepEqual(final.dock, before.dock, 'dock moves 0 px');
     await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
-    assert.equal((await snapshot()).scroll, final.scroll, 'the next paint does not scroll back');
-    rectEvidence.push({ width, keyboard, before, persisted, final });
+    evidence.afterPaint = await snapshot();
+    assert.equal(evidence.afterPaint.scroll, final.scroll, 'the next paint does not scroll back');
   });
   await t.test('mouse jitter of 1–3 px keeps following; deliberate movement and scrolling end it', async () => {
     await reset(390); await pick(false);
@@ -943,8 +958,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
   await t.test('jump appears for new content under hover and while scrolled up, never from scrolling alone', async () => {
     await reset(390);
     await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
-    const point = await shadow(page, c => { const b = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect(); return [b.left + 25, b.top + 25]; });
-    await page.mouse.move(...point);
+    await hoverTranscript();
     await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 40; }); await nextFrame(page);
     assert.equal((await snapshot()).jump, 'hidden');
     await page.evaluate(() => globalThis.navigationPartial('New message while reading.')); await nextFrame(page);
@@ -976,10 +990,10 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
       assert.equal(held.jump, 'visible');
       await page.evaluate(long => globalThis.navigationFinal({ content: long + ' More.' }), long); await nextFrame(page);
       const final = await snapshot();
-      assert.ok(Math.abs(final.latest.top - held.latest.top) <= 1, 'a final reply and its card cannot undo the long-reply hold');
+      rectEvidence.push({ width: 390, keyboardOpen: true, held, final });
+      assert.ok(Math.abs(final.latest.top - held.latest.top) <= 1, `a final reply and its card cannot undo the long-reply hold: ${JSON.stringify({ held, final })}`);
       await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
       assert.equal((await snapshot()).scroll, final.scroll, 'a later paint does not pin a held long reply to its bottom');
-      rectEvidence.push({ width: 390, keyboardOpen: true, held, final });
     } finally {
       await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.navigationNativeViewport }); if (globalThis.navigationTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.navigationTouch); else delete navigator.maxTouchPoints; });
     }
@@ -1005,11 +1019,11 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
       await page.evaluate(async () => { const { inputRevision } = await import('/packages/core/src/session.js'); const c = document.querySelector('aithema-session');
         c.receive({ type: 'lane.failed', data: { lane: 'understanding', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true } }); });
     }
-    const p = await shadow(page, c => { const b = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect(); return [b.left + 25, b.top + 25]; });
-    await page.mouse.move(...p); await nextFrame(page);
+    await hoverTranscript(); await nextFrame(page);
     const before = (await snapshot()).scroll;
     await page.evaluate(() => globalThis.navigationPartial('A later unrelated reply. '.repeat(12))); await nextFrame(page);
-    assert.equal((await snapshot()).scroll, before, 'failure restores reading protection');
+    const after = await snapshot(); rectEvidence.push({ failure: kind, before, after });
+    assert.equal(after.scroll, before, 'failure restores reading protection');
   });
   await t.test('overview anchoring stays active during a typed-send navigation intent', async () => {
     await reset(1440);
@@ -1027,5 +1041,4 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     assert.ok(Math.abs(after.top - before.top) < .5, 'overview anchoring holds within its existing subpixel tolerance while transcript anchoring is suspended');
   });
   assert.equal(globalThis.navigationInterceptionError, undefined);
-  if (laneEvidenceDirectory) await writeFile(join(laneEvidenceDirectory, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2));
 });
