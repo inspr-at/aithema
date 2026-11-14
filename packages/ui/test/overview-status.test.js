@@ -261,3 +261,25 @@ test('AIT-504 same-sequence snapshot applies operations only', async t => {
   assert.equal(c.session.locale, 'en'); assert.equal(c.session.paused, false);
   c.remove();
 });
+
+test('AIT-504 one snapshot read cannot flash idle before its response settles', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  const c = setup(en), pending = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    return pending.promise;
+  });
+  document.body.append(c); await flush();
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
+  const text = c.shadowRoot.querySelector('.notice-text'), announcement = text.firstChild;
+  t.mock.timers.tick(18_000); await flush();
+  assert.equal(text.textContent, en.stale, 'status is still unreported while the one read is in flight');
+  assert.equal(text.firstChild, announcement);
+  assert.equal(c.shadowRoot.querySelector('.overview-retry').hidden, true);
+  pending.resolve(Response.json({ ...c.session, operations: { inputRevision: inputRevision(c.session), running: [], failures: [] } }));
+  await flush(); assert.equal(text.textContent, en.staleIdle);
+  c.remove();
+});
