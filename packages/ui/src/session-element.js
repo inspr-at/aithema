@@ -662,7 +662,9 @@ export class AithemaSession extends HTMLElement {
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
     root.querySelector('.transcript-latest').addEventListener('click', () => {
-      this.#longReply = null; this.#tailReply = [...root.querySelectorAll('.transcript-shell .turn')].at(-1)?.dataset.id;
+      const latest = [...root.querySelectorAll('.transcript-shell .turn')].at(-1)?.dataset.id;
+      this.#tailReply = this.#longReply === latest ? latest : null;
+      this.#longReply = null;
       this.#scrollToLatest();
     });
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
