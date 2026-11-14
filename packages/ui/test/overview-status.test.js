@@ -56,3 +56,34 @@ test('AIT-504 pending expires at 18 seconds with one snapshot GET and no POST', 
   t.mock.timers.tick(60_000); await flush(); assert.equal(reads.filter(r => /\/api\/sessions\/[^/]+$/.test(r.url)).length, 1);
   c.remove();
 });
+
+test('AIT-504 pending → authoritative understanding status retains the same live text node', () => {
+  const c = setup(en), label = c.shadowRoot.querySelector('.notice-text');
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  const announcement = label.firstChild;
+  event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: ['understanding'], failures: [], lastFailure: null });
+  assert.equal(label.firstChild, announcement, 'no new live-region mutation for the same Updating notice');
+  assert.equal(label.textContent, en.stale);
+  c.remove();
+});
+for (const finish of ['status', 'disconnect', 'reconfigure']) test(`AIT-504 pending snapshot is cancelled by ${finish}`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  const c = setup(en), snapshots = [];
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+    snapshots.push(String(url)); return Response.json(c.session);
+  });
+  document.body.append(c); await flush();
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  if (finish === 'status') event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: ['understanding'], failures: [], lastFailure: null });
+  if (finish === 'disconnect') c.remove();
+  if (finish === 'reconfigure') c.configure({ copy: en, session: c.session });
+  t.mock.timers.tick(18_000); await flush(); assert.equal(snapshots.length, 0);
+  c.remove();
+});
+test('AIT-504 explicit host values win and an empty new status uses the active locale', () => {
+  const custom = { ...en, overviewCurrent: 'Host current' };
+  const c = setup(custom); assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Host current');
+  c.configure({ copy: { ...de, overviewCurrent: '' }, session: { ...c.session, locale: 'de' } });
+  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Auf dem neuesten Stand'); c.remove();
+});
