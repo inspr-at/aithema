@@ -1463,6 +1463,7 @@ export class AithemaSession extends HTMLElement {
     this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
     const before = this.#session;
     this.#session = session; this.#cursor = session.seq; this.#featureRead = null;
+    this.#reasoningRevision = Math.max(this.#reasoningRevision, session.settings?.revision ?? 0);
     this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
     this.#restoreVoiceEffects(before); this.#repaintLocale();
     this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session);
@@ -2090,7 +2091,7 @@ export class AithemaSession extends HTMLElement {
     const overviewText = !hasPersonTurn ? copy.empty
       : updatingOverview && u.readinessAssessed ? copy.stale
       : preparing ? copy.preparingOverview
-      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : reasonSeparator}`
+      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ''}`
       : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
@@ -2101,7 +2102,7 @@ export class AithemaSession extends HTMLElement {
     notice.setAttribute('aria-label', resolveCopy(copy, 'overviewStatusLabel', null, this.#session.locale));
     // One named status slot keeps every overview state in the same place.
     const blocked = !this.#host?.usedUp && paintConsentLine(root.querySelector('.notice-text'), {
-      copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
+      copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText, separator: '',
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
     notice.toggleAttribute('data-current', !blocked && currentOverview);

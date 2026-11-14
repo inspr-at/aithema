@@ -26,7 +26,7 @@ export function paintNarrowText(label, text, textNarrow) {
 }
 
 /** Stable status node and quiet action; its surrounding slot owns the geometry. */
-export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
+export function paintConsentLine(line, { copy, feature, verdict, text, open, separator = reasonSeparator }) {
   const blocked = !verdict.available && isConsentReason(verdict.rawReason ?? verdict.reason);
   if (!blocked) {
     setText(line, text ?? ''); delete line.dataset.consentFeature; return false;
@@ -48,18 +48,18 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
       for (const variant of action.children) variant.setAttribute('role', 'group');
       label.querySelector('.consent-narrow').setAttribute('aria-hidden', 'true');
     }
-    setText(label.querySelector('.consent-wide'), `${featureConsentText(copy, feature)}${reasonSeparator}`);
-    setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${reasonSeparator}`);
+    setText(label.querySelector('.consent-wide'), `${featureConsentText(copy, feature)}${separator}`);
+    setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${separator}`);
     setText(action.querySelector('.consent-wide'), copy.featureConsent.action);
     setText(action.querySelector('.consent-narrow'), copy.featureConsent.actionNarrow);
     const requirement = copy.featureConsent.textActionReason ?? featureConsentText(copy, feature);
     action.querySelector('.consent-wide').setAttribute('aria-label', `${copy.featureConsent.action}: ${requirement}`);
     action.querySelector('.consent-narrow').setAttribute('aria-label', `${copy.featureConsent.actionNarrow}: ${requirement}`);
   } else if (feature === 'voice' && line.classList.contains('voice-state')) {
-    paintNarrowText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`, copy.featureConsent.textNarrow);
+    paintNarrowText(label, `${featureConsentText(copy, feature)}${separator}`, copy.featureConsent.textNarrow);
     setText(action, copy.featureConsent.action);
   } else {
-    setText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`);
+    setText(label, `${featureConsentText(copy, feature)}${separator}`);
     setText(action, copy.featureConsent.action);
   }
   line.dataset.consentFeature = feature;
