@@ -130,16 +130,16 @@ test('AIT-501: selecting the current mode keeps the matching Start intent', asyn
   await f.grant(); assert.equal(f.starts.length, 1);
 });
 
-// Only consent-domain timers are advanced; no wall-clock fixture dates are involved.
+// Only consent and restored-Start timers are advanced; no wall-clock fixture dates are involved.
 function consentClock(t) {
   const timers = new Map(), nativeSet = globalThis.setTimeout, nativeClear = globalThis.clearTimeout;
   t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-    if (callback.name !== 'consentTimer') return nativeSet(callback, delay, ...args);
+    if (!['consentTimer', 'startRetryTimer'].includes(callback.name)) return nativeSet(callback, delay, ...args);
     const id = { unref() {} }; timers.set(id, { callback, delay }); return id;
   });
   t.mock.method(globalThis, 'clearTimeout', id => { if (!timers.delete(id)) nativeClear(id); });
   return {
-    has(delay) { return [...timers.values()].some(timer => timer.delay === delay); },
+    has(delay, domain) { return [...timers.values()].some(timer => timer.delay === delay && (!domain || timer.callback.name === domain)); },
     async elapse(delay) {
       for (const [id, timer] of [...timers]) {
         if (timer.delay <= delay) { timers.delete(id); timer.callback(); }
@@ -147,8 +147,8 @@ function consentClock(t) {
       }
       await tick();
     },
-    async next(delay) {
-      const entry = [...timers].find(([, timer]) => timer.delay === delay);
+    async next(delay, domain) {
+      const entry = [...timers].find(([, timer]) => timer.delay === delay && (!domain || timer.callback.name === domain));
       assert.ok(entry, `pending consent timer at ${delay} ms`);
       timers.delete(entry[0]); entry[1].callback(); await tick();
     } };
@@ -245,8 +245,8 @@ for (const mode of ['type', 'voice']) test(`AIT-501 v2.2: copied tab storage can
   if (mode === 'voice') assert.equal(f.c.shadowRoot.activeElement, f.c.shadowRoot.querySelector('.voice-start'));
 });
 
-async function restoredBackoff(t) {
-  const clock = consentClock(t), f = fixture(t, 'voice', true);
+async function restoredBackoff(t, mode = 'voice') {
+  const clock = consentClock(t), f = fixture(t, mode, true);
   f.start(); f.covering = false;
   const snapshot = f.c.session; snapshot.consentRevision++;
   f.c.remove(); f.configure(document.createElement('aithema-session'), snapshot); await tick();
@@ -303,4 +303,90 @@ test('AIT-501 gate2: switching to typing clears Start backoff and a later grant 
   normalOverview(f.c);
   assert.equal(clock.has(2000), false, 'verified document clears the new deadline');
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false, 'cleared Start is never resumed');
+});
+
+for (const outcome of ['409', 'slow', 'stale']) test(`AIT-501 gate3: grant during restored backoff gets its own full retry budget after ${outcome}`, async t => {
+  const { clock, f } = await restoredBackoff(t);
+  await clock.next(2000); await clock.next(4000);
+  const original = globalThis.fetch.bind(globalThis);
+  let fault = outcome, release, reads = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/events') || url.endsWith('/consent')) return original(url, options);
+    reads++;
+    if (fault === '409') return new Response(null, { status: 409 });
+    if (fault === 'stale') { const snapshot = f.c.session; snapshot.seq--; return Response.json(snapshot); }
+    if (fault === 'slow') await new Promise(resolve => { release = resolve; });
+    return original(url, options);
+  });
+  f.c.openSettings(); f.covering = true;
+  await f.grant();
+  if (outcome === 'slow') await clock.elapse(2101);
+  if (outcome === 'stale') assert.equal(reads, 2, 'one immediate stale retry belongs to the new consent window');
+  assert.equal(f.c.shadowRoot.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true);
+  assert.ok(clock.has(2000, 'consentTimer'), 'grant owns a fresh 2 second retry');
+  // Keep failing through 2 and 4 seconds, then recover on the grant's 8 second retry.
+  fault = '409';
+  await clock.next(2000, 'consentTimer');
+  assert.ok(clock.has(4000, 'consentTimer'));
+  await clock.next(4000, 'consentTimer');
+  assert.ok(clock.has(8000, 'consentTimer'));
+  fault = null;
+  await clock.next(8000, 'consentTimer');
+  if (release) { release(); await tick(); }
+  normalOverview(f.c);
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, true, 'verified later grant consumes the restored intent');
+  assert.equal(f.starts.length, 0, 'navigation never starts voice automatically');
+});
+test('AIT-501 gate3: ledger lag after a grant during backoff has an absolute event deadline', async t => {
+  const { clock, f } = await restoredBackoff(t);
+  await clock.next(2000); await clock.next(4000);
+  f.lag = true; f.covering = true; await f.grant();
+  assert.ok(clock.has(2000, 'consentTimer'), 'deadline begins at the event');
+  assert.ok(clock.has(100, 'consentTimer'), 'grant waits for its ledger');
+  await clock.elapse(1900); normalOverview(f.c);
+  assert.ok(clock.has(100, 'consentTimer'), 'ledger polling does not extend the remaining deadline');
+  await clock.elapse(100);
+  assert.equal(f.c.shadowRoot.querySelector('.concept-access').hasAttribute('data-refresh-failed'), true, 'fails closed exactly 2 seconds after the event');
+  assert.ok(clock.has(2000, 'consentTimer'), 'failure owns its full recovery budget');
+  f.lag = false; await clock.next(2000, 'consentTimer'); normalOverview(f.c);
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, true);
+});
+for (const action of ['typing', 'review', 'new-conversation']) test(`AIT-501 gate3: ${action} clears only Start timers during an unverified grant`, async t => {
+  const { clock, f } = await restoredBackoff(t);
+  await clock.next(2000); await clock.next(4000);
+  f.lag = true; await f.grant();
+  if (action === 'typing') f.c.shadowRoot.querySelector('.ready__mode[data-mode="type"]').click();
+  if (action === 'review') f.c.shadowRoot.querySelector('.ready__consent').click();
+  if (action === 'new-conversation') { f.c.openSettings(); f.c.shadowRoot.querySelector('.general-new').click(); }
+  assert.equal(clock.has(8000), false, 'clearing intent cancels the remaining Start retry');
+  assert.ok(clock.has(2000, 'consentTimer'), 'consent deadline survives intent clear');
+  assert.ok(clock.has(100, 'consentTimer'), 'ledger polling survives intent clear');
+  f.lag = false; f.covering = true; await clock.next(100, 'consentTimer');
+  normalOverview(f.c);
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false, 'cleared Start cannot resume');
+});
+for (const action of ['disconnect', 'reconfigure', 'erasure']) test(`AIT-501 gate3: ${action} stops the independent Start retry`, async t => {
+  const { clock, f } = await restoredBackoff(t);
+  await clock.next(2000);
+  assert.ok(clock.has(4000, 'startRetryTimer'), 'Start owns an independent timer');
+  if (action === 'disconnect') f.c.remove();
+  if (action === 'reconfigure') f.configure(f.c, f.c.session);
+  if (action === 'erasure') f.c.receive({ seq: f.c.session.seq + 1, type: 'session.erased', data: { at: new Date().toISOString() } });
+  assert.equal(clock.has(4000, 'startRetryTimer'), false);
+  await clock.elapse(16000);
+  assert.equal(f.starts.length, 0);
+});
+test('AIT-501 gate3: restored text starts once through a later consent window', async t => {
+  const { clock, f } = await restoredBackoff(t, 'type');
+  await clock.next(2000); await clock.next(4000);
+  assert.ok(clock.has(8000, 'startRetryTimer'));
+  f.lag = true; f.covering = true; await f.grant();
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false);
+  f.lag = false; await clock.next(100, 'consentTimer');
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, true);
+  assert.equal(clock.has(8000, 'startRetryTimer'), false, 'consumption cancels Start retry');
+  assert.equal(f.c.shadowRoot.activeElement, f.c.shadowRoot.querySelector('textarea'));
+  const snapshot = f.c.session;
+  f.c.remove(); f.configure(document.createElement('aithema-session'), snapshot); await tick();
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false, 'consumed intent cannot resume twice');
 });
