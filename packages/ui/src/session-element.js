@@ -98,7 +98,7 @@ const startIntentTTL = mode => mode === 'voice' ? 60_000 : 180_000;
 export class AithemaSession extends HTMLElement {
   #erased = null; #erasedIds = new Map(); #confirmations = new Map(); #anchorDepth = 0; #erasureJournal = null; #erasedCreating = false;
   #consentRefresh;
-  #startIntent = null; #startIntentTimer; #startFromNavigation = false; #checkingStartRestore = null;
+  #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
@@ -257,7 +257,7 @@ export class AithemaSession extends HTMLElement {
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
-    this.#clearRestoredStartRefresh();
+    this.#clearStartRetry();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
@@ -2629,14 +2629,28 @@ export class AithemaSession extends HTMLElement {
   }
   // The explicit start: typing opens the composer; speaking starts the call, the only path to the
   // microphone. A start the current consent does not cover goes to the host's consent first.
-  #clearRestoredStartRefresh() {
-    const pending = this.#consentRefresh;
-    if (!pending?.restoredStart) return;
-    clearTimeout(pending.timer); clearTimeout(pending.retryTimer); clearTimeout(pending.documentTimer);
-    this.#consentRefresh = null;
+  #clearStartRetry() {
+    clearTimeout(this.#startRetryTimer); this.#startRetryTimer = null;
+  }
+  #retryRestoredStart(intent, attempt = 0) {
+    this.#clearStartRetry();
+    const refresh = async () => {
+      if (this.#startIntent !== intent || !this.isConnected) return;
+      // A real consent event owns verification and its retry budget. Its normal
+      // post-refresh check will settle Start without an extra admission read.
+      if (this.#consentRefresh) return;
+      await this.#refreshFeatures();
+      if (this.#startIntent !== intent || !this.isConnected || this.#consentRefresh) return;
+      this.#consumeStartIntent();
+      if (this.#startIntent !== intent) return;
+      if (attempt < 2) this.#retryRestoredStart(intent, attempt + 1);
+      else this.#clearStartIntent();
+    };
+    this.#startRetryTimer = setTimeout(function startRetryTimer() { void refresh(); }, [2000, 4000, 8000][attempt]);
+    this.#startRetryTimer.unref?.();
   }
   #clearStartIntent() {
-    this.#clearRestoredStartRefresh();
+    this.#clearStartRetry();
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#startFromNavigation = false; this.#checkingStartRestore = null;
     try { tabStorage()?.removeItem(START_INTENT_KEY); } catch { /* In-memory intent still works without storage. */ }
   }
@@ -2668,11 +2682,9 @@ export class AithemaSession extends HTMLElement {
     this.#checkingStartRestore = null;
     this.#consumeStartIntent();
     if (this.#startIntent !== intent || !isConsentReason(this.#feature(intent.mode === 'voice' ? 'voice' : 'text').reason)) return;
-    // configure's own snapshot may precede the host ledger. This is a consent
-    // window too: now, then the existing bounded 2/4/8 second backoff.
-    this.#watchConsentRefresh(true, [intent.mode === 'voice' ? 'voice' : 'text'], []);
-    this.#consentRefresh.restoredStart = true;
-    void this.#refreshFeatures();
+    // A returned snapshot may still block Start. Retry feature admission
+    // independently; only journal consent events open verification windows.
+    this.#retryRestoredStart(intent);
   }
   #expireStartIntent() {
     clearTimeout(this.#startIntentTimer);
@@ -3262,19 +3274,11 @@ export class AithemaSession extends HTMLElement {
   }
   #failConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
-    // A verified Start admission retry is not a consent verification failure.
-    // A newer consent revision must still pass the ordinary verification fence.
-    if (!pending.startBackoff || pending.startRevision !== this.#session.consentRevision) {
-      this.#concept.failClosedConsent(); pending.failed = true;
-    }
-    this.#backoffConsentRefresh(pending);
-  }
-  #backoffConsentRefresh(pending) {
-    if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
     clearTimeout(pending.timer); clearTimeout(pending.documentTimer); pending.documentTimer = null;
-    pending.attempt = null;
+    pending.failed = true; pending.attempt = null;
+    this.#concept.failClosedConsent();
     if (pending.retryTimer || !this.isConnected) return;
-    if (pending.retries >= 3) { pending.exhausted = true; this.#clearStartIntent(); return; }
+    if (pending.retries >= 3) { pending.exhausted = true; return; }
     const delay = [2000, 4000, 8000][pending.retries++];
     pending.retryTimer = consentTimeout(() => {
       pending.retryTimer = null;
@@ -3284,9 +3288,6 @@ export class AithemaSession extends HTMLElement {
   }
   #retryStaleConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
-    if (pending.startBackoff && pending.startRevision === this.#session.consentRevision) {
-      this.#backoffConsentRefresh(pending); return;
-    }
     // Journal activity can overtake either read. Retry the current cursor once
     // immediately, without extending the event's original verification deadline.
     // A persistently stale host or a failed window uses the bounded backoff.
@@ -3322,7 +3323,7 @@ export class AithemaSession extends HTMLElement {
     if (pending) {
       pending.attempt = attempt;
       // Retries must also time out: a stalled attempt cannot hold the budget open.
-      if (pending.failed || pending.startBackoff) {
+      if (pending.failed) {
         clearTimeout(pending.timer);
         pending.timer = consentTimeout(() => this.#failConsentRefresh(pending), 2000);
         pending.timer.unref?.();
@@ -3394,12 +3395,6 @@ export class AithemaSession extends HTMLElement {
           this.#retryStaleConsentRefresh(pending); return;
         }
         if (doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) {
-          if (pending?.restoredStart && this.#startIntent && isConsentReason(this.#feature(this.#startIntent.mode === 'voice' ? 'voice' : 'text').reason)) {
-            this.#concept.update(this.#session, doc, true);
-            // The document is verified; only Start's feature admission needs a retry.
-            pending.startBackoff = true; pending.startRevision = revision; pending.failed = false;
-            this.#backoffConsentRefresh(pending); return;
-          }
           clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer); clearTimeout(pending?.documentTimer);
           this.#consentRefresh = null;
           this.#concept.update(this.#session, doc, true);
