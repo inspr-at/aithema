@@ -399,3 +399,28 @@ test('AIT-512: withdrawing already-read text does not invent new messages below'
   c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'short-statement', reason: 'withdrawal' } });
   assert.equal(jump.style.visibility, 'hidden', 'a longer withdrawal placeholder is not a new message');
 });
+
+for (const acknowledged of [true, false]) test(`AIT-512: a restored final reply ends navigation (user acknowledgement received: ${acknowledged})`, async t => {
+  const { applyEvent } = await import('../../core/src/session.js');
+  const { c, root, shell, partial } = navigationScene(t), frames = [];
+  t.mock.method(window, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  t.mock.method(window, 'cancelAnimationFrame', () => {});
+  let snapshot;
+  t.mock.method(globalThis, 'fetch', async (_url, request = {}) => {
+    if (request.method !== 'POST') return Response.json(snapshot);
+    const body = JSON.parse(request.body), before = c.session;
+    const answer = { seq: before.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } };
+    snapshot = applyEvent(before, answer);
+    snapshot = applyEvent(snapshot, { seq: answer.seq + 2, type: 'turn.final', data: { id: 'restored-final', role: 'assistant',
+      content: 'A restored final reply.', question_short: 'Choose again?', options, inputRevision: inputRevision(snapshot) } });
+    return Response.json(acknowledged ? answer : { ...answer, seq: snapshot.seq });
+  });
+  root.querySelector('.qopt').click(); await tick(); await tick();
+  if (acknowledged) c.receive({ seq: snapshot.seq, type: 'turn.final', data: snapshot.transcript.at(-1) });
+  await tick(); await tick();
+  assert.equal(c.session.transcript.at(-1).id, 'restored-final', 'the gap recovery snapshot contains the completed reply');
+  assert.equal(shown(c), true, 'the restored card has painted');
+  for (let round = 0; round < 4 && frames.length; round++) { const ready = frames.splice(0); for (const frame of ready) frame(); }
+  const before = shell.scrollTop; partial('after-snapshot-completion');
+  assert.equal(shell.scrollTop, before, 'later content cannot reuse a navigation completed by a snapshot');
+});
