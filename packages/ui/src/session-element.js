@@ -101,6 +101,7 @@ export class AithemaSession extends HTMLElement {
   #featureRead = null;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
+  #clarifyDiagnostics = new Map();
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
@@ -155,7 +156,7 @@ export class AithemaSession extends HTMLElement {
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     this.#cancelUploads();
-    clearTimeout(this.#clarifyWaitTimer); clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
+    clearTimeout(this.#clarifyWaitTimer); clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null; this.#clearLaneStatusPending(); this.#featureRead = null;
@@ -268,7 +269,8 @@ export class AithemaSession extends HTMLElement {
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
     const focus = this.#clarify = { questionId, question: item?.question, inputRevision: revision,
       sessionId, clickSeq: this.#session.seq, priorRequestId: this.#session.questionFocus?.requestId, turnIds: new Set(this.#session.transcript.map(turn => turn.id)),
-      tries: 0, state: 'requesting', pending: false };
+      tries: 0, state: 'requesting', pending: false, waitOperations: this.#session.operations };
+    this.#retireReactionFailure();
     return this.#sendClarify(focus);
   }
   #activeClarify(focus) {
@@ -282,7 +284,8 @@ export class AithemaSession extends HTMLElement {
     let attempt;
     try {
       while (this.#activeClarify(focus)) {
-        attempt = focus.diagnostic = { status: null, accepted: false, failureReported: false };
+        attempt = focus.diagnostic = { status: null, accepted: false, failureReported: false,
+          sessionId: focus.sessionId, inputRevision: focus.inputRevision, questionId: focus.questionId, priorRequestId: focus.priorRequestId };
         this.#clarifyRequest = attempt; focus.tries++; this.#render('aside');
         try {
           const response = await this.#api(`${this.#base}/api/sessions/${focus.sessionId}/focus-question`,
@@ -292,7 +295,17 @@ export class AithemaSession extends HTMLElement {
           const result = await response.json();
           if (this.#erased) return;
           if (!response.ok) throw Object.assign(new Error(result.reason ?? result.error), result, { status: response.status });
-          if (this.#activeClarify(focus) && result.event) this.receive(result.event);
+          const event = result?.event, receipt = event?.data;
+          if (event?.type !== 'question.focused' || !Number.isSafeInteger(event.seq) || event.seq < 1 ||
+            typeof receipt?.requestId !== 'string' || !receipt.requestId || receipt.questionId !== focus.questionId ||
+            receipt.inputRevision !== focus.inputRevision) throw new Error('Invalid focus acknowledgement');
+          // The canonical journal sequence decides whether this receipt supersedes
+          // a peer event. Keep HTTP acceptance attached to this request alone.
+          if (this.#clarifyRequest === attempt && !focus.detached && focus.sessionId === this.#session.id && focus.inputRevision === inputRevision(this.#session)) {
+            attempt.failureReported ||= this.#clarifyDiagnostics.get(receipt.requestId)?.failureReported ?? false;
+            this.#clarifyDiagnostics.set(receipt.requestId, attempt);
+            this.receive(event);
+          }
           return result;
         } catch (error) {
           warnFocusRefusal(error, attempt);
@@ -301,13 +314,14 @@ export class AithemaSession extends HTMLElement {
           const reason = error.admissionReason ?? error.reason;
           const wait = structured && ['reply-in-flight', 'budget reconciling'].includes(reason);
           const retryable = structured && ['admission deadline', 'plugin unhealthy', 'consent port unavailable'].includes(reason);
-          const uncertain = attempt.status == null || attempt.status >= 500 || attempt.accepted;
-          if (wait && focus.requestId) {
+          const networkOrServer = attempt.status == null || attempt.status >= 500;
+          const uncertain = networkOrServer || attempt.status >= 200 && attempt.status < 300;
+          if ((wait || retryable) && focus.requestId) {
             // A peer's accepted focus already owns this question's recovery.
             focus.waiting = null;
           } else if (wait && focus.tries < 2) {
             focus.waiting = reason; focus.waitVersion = this.#clarifyRefresh;
-            focus.waitOperations = this.#session.operations; focus.replyRefreshed = false;
+            focus.waitOperations ??= this.#session.operations; focus.replyRefreshed ??= false;
             this.#clarifyWaitTimer = setTimeout(() => {
               if (!this.#activeClarify(focus) || !focus.waiting) return;
               focus.waiting = null; focus.state = 'focus-retry'; this.#render('aside');
@@ -319,7 +333,7 @@ export class AithemaSession extends HTMLElement {
             // at the retry cap. Never turn an unread snapshot into permission.
             const safe = uncertain ? await this.#clarifySnapshot(focus) : true;
             if (!this.#activeClarify(focus)) { if (this.#erased) return; throw error; }
-            if (safe && !attempt.accepted && focus.tries < 2) continue;
+            if (safe && (retryable || networkOrServer) && !attempt.accepted && focus.tries < 2) continue;
             if (safe || !focus.requestId) focus.state = 'unavailable';
           } else await this.#clarifyRefused(error);
           throw error;
@@ -328,6 +342,7 @@ export class AithemaSession extends HTMLElement {
     } finally {
       if (this.#clarifyRequest === attempt) this.#clarifyRequest = null;
       if (this.#activeClarify(focus)) focus.pending = false;
+      if (this.#clarify?.diagnostic === attempt) this.#clarify.pending = false;
       if (!this.#erased && focus.sessionId === this.#session.id) this.#render('aside');
     }
   }
@@ -383,6 +398,14 @@ export class AithemaSession extends HTMLElement {
     return Boolean(this.#session.voiceLifecycle?.callId &&
       !['ended', 'closed'].includes(this.#session.voiceLifecycle.state));
   }
+  #retireReactionFailure() {
+    const operations = this.#session.operations;
+    if (operations) {
+      operations.failures = (operations.failures ?? [operations.lastFailure].filter(Boolean)).filter(f => f.lane !== 'reaction');
+      operations.lastFailure = operations.failures.at(-1) ?? null;
+    }
+    this.#recordFailure(operations?.lastFailure);
+  }
   async #retryClarify() {
     if (this.#clarify?.state === 'focus-retry' && !this.#clarify.pending) {
       void this.focusQuestion(this.#clarify.questionId).catch(() => {}); return;
@@ -393,12 +416,9 @@ export class AithemaSession extends HTMLElement {
     focus.pending = true; focus.state = 'requesting';
     // Retire the failure being retried before sending, so a newer failure that
     // arrives ahead of the HTTP acknowledgement cannot be erased by that ack.
-    const operations = this.#session.operations;
-    if (operations) {
-      operations.failures = (operations.failures ?? []).filter(f => f.lane !== 'reaction');
-      operations.lastFailure = operations.failures.at(-1) ?? null;
-    }
-    this.#failure = Boolean(operations?.lastFailure); this.#render('aside');
+    this.#retireReactionFailure();
+    if (focus.requestId) this.#clarifyDiagnostics.set(focus.requestId, diagnostic);
+    this.#render('aside');
     try {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/retry`, {}, { sessionToken: this.#sessionToken });
       diagnostic.status = response.status; diagnostic.accepted = response.status === 202;
@@ -426,25 +446,32 @@ export class AithemaSession extends HTMLElement {
       this.#clarifyReplies.set(chosen.requestId, this.#session.focusedQuestion);
       this.#clarifyAsked.add(this.#session.focusedQuestion);
     }
-    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && !answered && chosen.requestId !== this.#clarify?.requestId) {
+    const priorHistory = this.#clarify?.pending && !this.#clarify.requestId && chosen?.requestId === this.#clarify.priorRequestId;
+    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && !answered && !priorHistory && chosen.requestId !== this.#clarify?.requestId) {
       const question = this.#session.focusedQuestion;
       const previous = this.#clarify;
+      const request = this.#clarifyRequest;
       const owns = previous?.pending && previous.questionId === chosen.questionId;
-      this.#clarify = Object.assign(owns ? previous : {}, chosen, { question, state: 'requesting', pending: Boolean(owns),
-        diagnostic: owns ? previous.diagnostic : { status: null, accepted: false, failureReported: false } });
+      const local = request?.sessionId === this.#session.id && request.inputRevision === revision &&
+        request.questionId === chosen.questionId && request.priorRequestId !== chosen.requestId;
+      const diagnostic = this.#clarifyDiagnostics.get(chosen.requestId) ??
+        (local ? request : owns ? previous.diagnostic : { status: null, accepted: false, failureReported: false });
+      this.#clarifyDiagnostics.set(chosen.requestId, diagnostic);
+      this.#clarify = Object.assign(owns ? previous : {}, chosen, { sessionId: this.#session.id, question,
+        state: 'requesting', pending: diagnostic === request, diagnostic });
       this.#clarifyReplies.set(chosen.requestId, question);
     }
     const focus = this.#clarify;
     if (!focus) return;
     if (focus.waiting && !focus.pending && this.#clarifyRefresh !== focus.waitVersion &&
-      this.#feature('text').rawReason === 'budget denied') {
+      this.#feature('text').reason === 'budget denied') {
       clearTimeout(this.#clarifyWaitTimer); focus.waiting = null;
       focus.state = 'unavailable'; focus.terminal = !this.#clarifyDuringCall(); focus.refusalCode = 'budget denied';
     }
     if (focus.waiting && !focus.pending && !this.#clarifyRequest) {
       const operations = this.#session.operations;
       const blocked = focus.waiting === 'budget reconciling'
-        ? this.#clarifyRefresh === focus.waitVersion || this.#feature('text').rawReason === 'budget reconciling'
+        ? this.#clarifyRefresh === focus.waitVersion || this.#feature('text').reason === 'budget reconciling'
         : operations?.inputRevision !== revision || !Array.isArray(operations.running) ||
           !focus.replyRefreshed && operations === focus.waitOperations || operations.running.includes('reaction') || this.#rail?.state === 'speaking';
       if (!blocked) {
@@ -480,6 +507,13 @@ export class AithemaSession extends HTMLElement {
       focus.state = deadline ? 'refused' : 'unavailable'; focus.reason = deadline ? 'deadline' : null;
       if (!deadline) { focus.terminal = true; focus.refusalCode = this.#host?.endReason; }
     }
+    const primaryFailed = resolveCopy(this.#copy, 'clarifyFailed', 'reasoningFailed', this.#session.locale);
+    const rootOverride = ['clarifyFailed', 'reasoningFailed'].some(key =>
+      resolveCopy(this.#copy, key, null, this.#session.locale) !== resolveCopy({}, key, null, this.#session.locale));
+    const acceptedFailed = rootOverride ? primaryFailed : resolveCopy(this.#copy, 'clarifyFailed', 'clarify.failed', this.#session.locale);
+    const acceptedShort = resolveCopy(this.#copy, 'clarifyFailedShort', 'clarify.failedShort', this.#session.locale);
+    const acceptedSay = !rootOverride && resolveCopy(this.#copy, 'clarify.say.retry', null, this.#session.locale) !==
+      resolveCopy({}, 'clarify.say.retry', null, this.#session.locale) ? copy.say.retry : acceptedFailed;
     const available = this.openQuestionItems, questions = this.#session.understanding.openQuestions;
     reconcile(root.querySelector('.questions'), questions.length ? textKeys(questions) : [[NONE, null]], value => {
       const row = node('li', value === null ? 'none-yet' : 'open-question');
@@ -518,8 +552,8 @@ export class AithemaSession extends HTMLElement {
       const button = row.querySelector('button'), status = row.querySelector('.question-status'), separator = row.querySelector('.question-separator');
       const reason = own && state === 'refused' ? focus.reason : null;
       const failed = ['retry', 'focus-retry'].includes(state);
-      const failedText = resolveCopy(this.#copy, 'clarifyFailed', 'reasoningFailed', this.#session.locale);
-      const failedShort = resolveCopy(this.#copy, 'clarifyFailedShort', null, this.#session.locale);
+      const failedText = state === 'retry' ? acceptedFailed : primaryFailed;
+      const failedShort = state === 'retry' ? acceptedShort : resolveCopy(this.#copy, 'clarifyFailedShort', null, this.#session.locale);
       const withReason = failed || state === 'unavailable' || Boolean(reason);
       status.hidden = !withReason; separator.hidden = !withReason || reason === 'deadline' || state === 'unavailable';
       button.hidden = state === 'none' || reason === 'deadline' || state === 'unavailable';
@@ -555,11 +589,11 @@ export class AithemaSession extends HTMLElement {
     });
     const notice = root.querySelector('.question-notice');
     notice.toggleAttribute('data-on', this.#clarifyNotice); setText(notice.querySelector('span'), copy.stale);
-    const signature = this.#clarifyNotice ? 'stale' : focus ? `${focus.requestId ?? focus.questionId}/${focus.state}/${focus.reason ?? ''}` : '';
+    const signature = this.#clarifyNotice ? 'stale' : focus ? `${focus.requestId ?? focus.questionId}/${focus.state}/${focus.reason ?? ''}/${acceptedSay}/${primaryFailed}` : '';
     if (signature !== this.#clarifyAnnouncement) {
       this.#clarifyAnnouncement = signature;
       const say = this.#clarifyNotice ? copy.stale : ['retry', 'focus-retry'].includes(focus?.state)
-        ? resolveCopy(this.#copy, 'clarifyFailed', 'reasoningFailed', this.#session.locale)
+        ? focus.state === 'retry' ? acceptedSay : primaryFailed
         : focus?.state === 'unavailable' ? resolveCopy(this.#copy, 'clarifyUnavailable', null, this.#session.locale)
         : focus ? copy.say[focus.reason ?? focus.state] : '';
       setText(root.querySelector('.clarify-announcement'), (say ?? '').replace('{q}', focus?.question ?? ''));
@@ -864,7 +898,7 @@ export class AithemaSession extends HTMLElement {
         },
         // A call that starts, ends or fails moves the stage and the avatar with it.
         onState: state => {
-          if (this.#clarify?.waiting === 'reply-in-flight' && state !== 'speaking') this.#clarify.replyRefreshed = true;
+          if (this.#clarify && (this.#clarify.pending || this.#clarify.waiting === 'reply-in-flight') && state !== 'speaking') this.#clarify.replyRefreshed = true;
           if (this.#clarify?.waiting || this.#replyRetrySlot?.managed) this.#render('aside');
           if (state === 'speaking') this.#updateVoiceTranscript({ type: 'speaking' });
           if (['paused', 'recovering', 'waiting', 'closing', 'idle', 'failed'].includes(state)) this.#updateVoiceTranscript({ type: 'reset' });
@@ -3030,7 +3064,7 @@ export class AithemaSession extends HTMLElement {
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
         this.#clearLaneStatusPending();
-        this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear();
+        this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear();
         this.#updateVoiceTranscript({ type: 'reset' });
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         this.#deviceController?.abort();

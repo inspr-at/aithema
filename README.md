@@ -1139,7 +1139,11 @@ Retry and reply failures use `retryFailed` and `replyFailed`. The three long fai
 keys resolve against the legacy `reasoningFailed` override with the precedence above.
 The updated `reasoningFailed` default remains exported. `clarifyFailedShort`,
 `clarifyUnavailable` and `replyKeepTyping` are brand-new keys with shipped locale
-fallbacks. A reply failure with no visible Retry appends `replyKeepTyping`.
+fallbacks. A reply failure with no visible Retry appends `replyKeepTyping`. The existing
+accepted-row overrides `clarify.failed`, `clarify.failedShort` and
+`clarify.say.retry` remain supported beneath explicit root failure overrides.
+A malformed successful focus acknowledgement reads the snapshot and rests;
+it never authorizes another POST.
 
 Reply-in-flight and budget-reconciling refusals keep the row requesting for at most
 60 seconds, then expose its Retry. Clearing the condition permits one resend.
