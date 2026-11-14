@@ -257,6 +257,7 @@ export class AithemaSession extends HTMLElement {
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
+    this.#clearRestoredStartRefresh();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
@@ -2628,7 +2629,14 @@ export class AithemaSession extends HTMLElement {
   }
   // The explicit start: typing opens the composer; speaking starts the call, the only path to the
   // microphone. A start the current consent does not cover goes to the host's consent first.
+  #clearRestoredStartRefresh() {
+    const pending = this.#consentRefresh;
+    if (!pending?.restoredStart) return;
+    clearTimeout(pending.timer); clearTimeout(pending.retryTimer); clearTimeout(pending.documentTimer);
+    this.#consentRefresh = null;
+  }
   #clearStartIntent() {
+    this.#clearRestoredStartRefresh();
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#startFromNavigation = false; this.#checkingStartRestore = null;
     try { tabStorage()?.removeItem(START_INTENT_KEY); } catch { /* In-memory intent still works without storage. */ }
   }
@@ -3254,13 +3262,17 @@ export class AithemaSession extends HTMLElement {
   }
   #failConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
-    this.#concept.failClosedConsent();
+    // A verified Start admission retry is not a consent verification failure.
+    // A newer consent revision must still pass the ordinary verification fence.
+    if (!pending.startBackoff || pending.startRevision !== this.#session.consentRevision) {
+      this.#concept.failClosedConsent(); pending.failed = true;
+    }
     this.#backoffConsentRefresh(pending);
   }
   #backoffConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
     clearTimeout(pending.timer); clearTimeout(pending.documentTimer); pending.documentTimer = null;
-    pending.failed = true; pending.attempt = null;
+    pending.attempt = null;
     if (pending.retryTimer || !this.isConnected) return;
     if (pending.retries >= 3) { pending.exhausted = true; this.#clearStartIntent(); return; }
     const delay = [2000, 4000, 8000][pending.retries++];
@@ -3272,6 +3284,9 @@ export class AithemaSession extends HTMLElement {
   }
   #retryStaleConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
+    if (pending.startBackoff && pending.startRevision === this.#session.consentRevision) {
+      this.#backoffConsentRefresh(pending); return;
+    }
     // Journal activity can overtake either read. Retry the current cursor once
     // immediately, without extending the event's original verification deadline.
     // A persistently stale host or a failed window uses the bounded backoff.
@@ -3307,7 +3322,7 @@ export class AithemaSession extends HTMLElement {
     if (pending) {
       pending.attempt = attempt;
       // Retries must also time out: a stalled attempt cannot hold the budget open.
-      if (pending.failed) {
+      if (pending.failed || pending.startBackoff) {
         clearTimeout(pending.timer);
         pending.timer = consentTimeout(() => this.#failConsentRefresh(pending), 2000);
         pending.timer.unref?.();
@@ -3382,6 +3397,7 @@ export class AithemaSession extends HTMLElement {
           if (pending?.restoredStart && this.#startIntent && isConsentReason(this.#feature(this.#startIntent.mode === 'voice' ? 'voice' : 'text').reason)) {
             this.#concept.update(this.#session, doc, true);
             // The document is verified; only Start's feature admission needs a retry.
+            pending.startBackoff = true; pending.startRevision = revision; pending.failed = false;
             this.#backoffConsentRefresh(pending); return;
           }
           clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer); clearTimeout(pending?.documentTimer);
