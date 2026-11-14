@@ -873,7 +873,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
       s.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `history-${i}`, role: i % 2 ? 'assistant' : 'user',
         content: `Earlier turn ${i}. ` + 'A useful detail for the conversation. '.repeat(4) }));
       s.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: false } };
-      s.understanding = { ...s.understanding, inputRevision: inputRevision(s), draft: false,
+      s.understanding = { ...s.understanding, inputRevision: inputRevision(s), draft: false, readinessAssessed: true,
         summary: 'A website for cushions.', openQuestions: ['Should customers choose their own design?'] };
       c.configure({ copy: en, session: s });
       globalThis.navigationPartial = (delta, id = 'navigation-reply') => c.receive({ type: 'turn.partial', data: { id, delta, inputRevision: inputRevision(c.session) } });
