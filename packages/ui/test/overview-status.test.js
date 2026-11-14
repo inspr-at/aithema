@@ -43,6 +43,36 @@ for (const [copy, current, idle] of [[en, 'Up to date', 'Showing the latest over
     assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, idle); c.remove();
   });
 }
+for (const copy of [en, de]) {
+  test(`AIT-504 N7 ${copy.display.locale}: current status preserves a host's final override`, () => {
+    for (const omitNew of [false, true]) {
+      const host = structuredClone(copy); host.final = 'Host current assessment';
+      if (omitNew) delete host.overviewCurrent;
+      const c = setup(host), notice = c.shadowRoot.querySelector('.notice');
+      assert.equal(notice.querySelector('.notice-text').textContent, 'Host current assessment');
+      assert.equal(notice.hasAttribute('data-current'), true, 'current state does not depend on copy');
+      c.remove();
+    }
+    const host = { ...copy, final: 'Host current assessment', overviewCurrent: 'Host current status' };
+    const c = setup(host);
+    assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Host current status'); c.remove();
+  });
+  test(`AIT-504 N7 ${copy.display.locale}: idle status preserves a host's stale override`, () => {
+    for (const omitNew of [false, true]) {
+      const host = structuredClone(copy); host.stale = 'Host previous assessment';
+      if (omitNew) delete host.staleIdle;
+      const c = setup(host), notice = c.shadowRoot.querySelector('.notice');
+      event(c, 'turn.final', { id: 'next', role: 'user', content: 'More details' });
+      assert.equal(notice.querySelector('.notice-text').textContent, 'Host previous assessment');
+      event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
+      event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null });
+      assert.equal(notice.querySelector('.notice-text').textContent, 'Host previous assessment');
+      assert.equal(notice.hasAttribute('data-current'), false);
+      c.configure({ copy: { ...host, staleIdle: 'Host idle status' }, session: c.session });
+      assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Host idle status'); c.remove();
+    }
+  });
+}
 test('AIT-504 pending expires at 18 seconds with one snapshot GET and no POST', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
   const c = setup(en), reads = [];
