@@ -616,3 +616,14 @@ test('RC24 a retryable local refusal cannot re-ask a point completed by a peer s
   await assert.rejects(request); await tick();
   assert.equal(f.calls.length, 1); assert.equal(f.rows()[1].dataset.state, 'asked');
 });
+
+for (const refusal of [
+  { reason: 'network' },
+  { reason: 'network', admissionReason: 'invalid-request' },
+]) test(`RC24 shared core policy retries a structured network refusal: ${JSON.stringify(refusal)}`, async t => {
+  const f = fixture(t);
+  f.post(() => Response.json(refusal, { status: 409 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(f.calls.length, 2);
+  assert.equal(f.rows()[1].dataset.state, 'unavailable');
+});
