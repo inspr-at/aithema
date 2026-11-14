@@ -420,17 +420,23 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
         'plugin unhealthy', 'admission deadline', 'budget denied', 'verification required'])];
       const { reasonText } = await import('/packages/ui/src/settings-dialog.js');
       for (const reason of reasons) states[`analysis: ${reason}`] = reasonText(copy, reason, 'analysis');
+      states.consent = copy.featureConsent.analysis;
+      states.analysisBudgetDuringCall = copy.voiceBudgetDenied;
+      const { paintConsentLine } = await import('/packages/ui/src/consent-line.js');
       // Reconciliation and pauses preserve a cached assessment. Their visible
       // status is stale/current/draft above, rather than the unavailable reason.
 
       const results = [];
       for (const [key, value] of Object.entries(states)) {
-        text.textContent = value; action.hidden = !['staleIdle', 'understandingFailed'].includes(key);
-        const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect();
-        results.push({ key, value, hasAction: !action.hidden, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
-          textScrollHeight: text.scrollHeight, textClientHeight: text.clientHeight, textClientWidth: text.clientWidth, actionWidth: a.width, actionHeight: a.height, actionBottom: a.bottom - b.top });
+        paintConsentLine(text, { copy, feature: 'analysis', verdict: key === 'consent'
+          ? { available: false, reason: 'current processing consent required' } : { available: true }, text: value, open() {} });
+        action.hidden = !['staleIdle', 'understandingFailed'].includes(key);
+        const label = key === 'consent' ? text.querySelector('.consent-line-copy') : text;
+        const b = slot.getBoundingClientRect(), a = (key === 'consent' ? text.querySelector('.consent-action') : action).getBoundingClientRect();
+        results.push({ key, value, hasAction: key === 'consent' || !action.hidden, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
+          textScrollHeight: label.scrollHeight, textClientHeight: label.clientHeight, textClientWidth: label.clientWidth, actionWidth: a.width, actionHeight: a.height, actionBottom: a.bottom - b.top });
       }
-      text.textContent = 'Long host override '.repeat(100); action.hidden = false;
+      paintConsentLine(text, { copy, feature: 'analysis', verdict: { available: true }, text: 'Long host override '.repeat(100), open() {} }); action.hidden = false;
       const actionBox = action.getBoundingClientRect();
       results.push({ key: 'host override', hasAction: true, fullText: text.textContent, clamped: text.scrollHeight > text.clientHeight,
         width: slot.getBoundingClientRect().width, height: slot.getBoundingClientRect().height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
