@@ -10,6 +10,7 @@ import { clarifyRefusals } from '../../../test/clarify-refusals.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+test.after(async () => window.happyDOM.close());
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, locale = 'en') {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale });
@@ -118,7 +119,8 @@ test('duplicate backend reply-in-flight is requesting, not a failure', async t =
   f.lane(['reaction']);
   assert.equal(f.rows()[1].dataset.state, 'requesting');
   assert.equal(f.root.querySelector('.reaction-failure').hidden, true);
-  f.lane(); assert.equal(f.rows()[1].dataset.state, 'rest', 'the existing reply finishing releases the actions');
+  f.lane(); await tick(); assert.equal(f.calls.length, 2, 'RC24 N6 re-sends once after the existing reply finishes');
+  assert.equal(f.rows()[1].dataset.state, 'unavailable', 'a second refusal ends the bounded recovery');
 });
 for (const reason of ['stale-question', 'stale-revision']) test(`${reason} refreshes the list and reserves the heading notice for exactly 4 seconds`, async t => {
   const f = fixture(t);
@@ -147,11 +149,11 @@ for (const [reason, admissionReason, state] of [['paused', null, 'paused'], ['co
     else assert.equal(f.button(1).textContent, state === 'paused' ? en.resume : en.clarify.review);
   });
 }
-for (const reason of ['invalid-request', 'not-admitted', 'not-found', undefined]) test(`other refusal ${reason ?? 'network'} keeps structured failure and current actions`, async t => {
+for (const reason of ['invalid-request', 'not-admitted', 'not-found', undefined]) test(`other refusal ${reason ?? 'network'} keeps structured failure and rests unavailable`, async t => {
   const f = fixture(t);
   f.post(() => { if (!reason) throw new Error('offline'); return Response.json({ error: reason === 'not-found' ? reason : 'focus-refused', reason }, { status: 400 }); });
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
-  assert.equal(f.rows()[1].dataset.state, 'rest');
+  assert.equal(f.rows()[1].dataset.state, 'unavailable');
 });
 test('accepted reaction failure has warning, full accessible text, and exactly one retry per failure', async t => {
   const f = fixture(t); f.post(() => Response.json(f.accept(), { status: 202 }));
@@ -162,7 +164,7 @@ test('accepted reaction failure has warning, full accessible text, and exactly o
   assert.equal(f.root.querySelector('.overview-retry').hidden, true);
   assert.equal(f.root.querySelector('.reaction-failure').hidden, false);
   assert.ok(f.rows()[1].querySelector('.question-status svg'));
-  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, en.clarify.failed);
+  assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, en.clarifyFailed);
   const pending = Promise.withResolvers(); f.post(() => pending.promise);
   f.button(1).click(); f.button(1).click(); assert.equal(f.calls.length, 2, 'one focus and one retry');
   assert.ok(f.calls[1].url.endsWith('/retry'));
@@ -206,7 +208,7 @@ test('AIT-263 Low: removed focus is never passed to the active voice adapter', a
   assert.equal(contexts.at(-1).focusedQuestion, null, 'the intermediate voice update already excludes the removed question');
 });
 
-for (const finish of ['listening', 'ended', 'before-refusal']) test(`voice-busy refusal resolves to rest (${finish}) without new input`, async t => {
+for (const finish of ['listening', 'ended', 'before-refusal']) test(`voice-busy refusal re-sends once after speaking (${finish}) without new input`, async t => {
   const f = fixture(t), events = voiceEvents(); let callId;
   const session = f.c.session; session.featureMatrix.best.voice = { available: true };
   f.c.configure({ session, copy: en, voiceClient: { manifest, async start(request) {
@@ -228,18 +230,20 @@ for (const finish of ['listening', 'ended', 'before-refusal']) test(`voice-busy 
     f.lane(); assert.equal(f.rows()[0].dataset.state, 'requesting', 'idle reaction status cannot release a speaking reply');
     events.push({ type: finish, callId, ...(finish === 'ended' ? { reason: 'closed' } : {}) }); await tick();
   }
-  assert.equal(f.rows()[0].dataset.state, 'rest');
-  assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
-  assert.ok(f.rows().every(row => row.dataset.state === 'rest'));
+  await tick();
+  assert.equal(f.rows()[0].dataset.state, 'unavailable');
+  assert.equal(f.button(0).hidden, true);
+  assert.equal(f.calls.length, 2, 'RC24 N6 permits exactly one resend after speaking ends');
   assert.equal(f.c.session.transcript.filter(turn => turn.role === 'user').length, 1);
-  console.log(`AIT-274 VOICE BUSY PASS ${finish}: returned to rest; action available without new input`);
+  console.log(`AIT-274 VOICE BUSY PASS ${finish}: bounded resend settles unavailable; no fabricated input`);
 });
-test('final reply-in-flight refusal with no running reply returns to rest immediately', async t => {
+test('final reply-in-flight refusal with no running reply re-sends once then rests unavailable', async t => {
   const f = fixture(t);
   f.post(() => Response.json({ error: 'focus-refused', reason: 'reply-in-flight' }, { status: 409 }));
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[0].id), { reason: 'reply-in-flight' });
-  assert.equal(f.rows()[0].dataset.state, 'rest');
-  assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
+  f.lane(); await tick();
+  assert.equal(f.rows()[0].dataset.state, 'unavailable');
+  assert.equal(f.calls.length, 2);
 });
 
 for (const row of clarifyRefusals) test(`AIT-503 UI refusal branch and value-free diagnostic: ${row.name}`, async t => {
@@ -247,12 +251,14 @@ for (const row of clarifyRefusals) test(`AIT-503 UI refusal branch and value-fre
   t.mock.method(console, 'warn', (...args) => warnings.push(args));
   f.post(() => Response.json(row.body, { status: row.status }));
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), { status: row.status });
-  assert.equal(f.rows()[1].dataset.state, row.branch === 'generic' ? 'rest' : 'refused');
-  if (row.branch === 'generic') assert.equal(f.root.querySelector('.status__label').textContent, en.reasoningFailed);
-  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+  const retryable = ['admission deadline', 'plugin unhealthy', 'consent port unavailable'].includes(row.name);
+  assert.equal(f.rows()[1].dataset.state, row.name === 'budget reconciling' ? 'requesting' : row.branch === 'generic' ? 'unavailable' : 'refused');
+  if (row.branch === 'generic' && row.name !== 'budget reconciling') assert.equal(f.rows()[1].querySelector('button').hidden, true);
+  const expected = ['Aithema: clarify refusal', {
     status: row.status, error: row.body.error, reason: row.body.reason,
     admissionReason: row.body.admissionReason ?? null, accepted: false, acceptedThenLaneFailed: false,
-  }]]);
+  }];
+  assert.deepEqual(warnings, Array.from({ length: retryable ? 2 : 1 }, () => expected));
   assert.equal(f.c.session.transcript.length, 2, 'diagnostics add no conversation content or turns');
 });
 
@@ -307,13 +313,13 @@ test('AIT-503 diagnostic excludes arbitrary server strings, transport messages a
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
   f.post(() => { throw new Error(content); });
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
-  assert.equal(warnings.length, 2);
+  assert.equal(warnings.length, 4);
   assert.equal(JSON.stringify(warnings).includes(content), false);
   assert.equal(JSON.stringify(warnings).includes('Who approves invoices?'), false);
   assert.deepEqual(warnings.map(args => args[1]), [
     { status: 500, error: 'unclassified', reason: 'unclassified', admissionReason: 'unclassified', accepted: false, acceptedThenLaneFailed: false },
     { status: null, error: null, reason: null, admissionReason: null, accepted: false, acceptedThenLaneFailed: false },
-  ]);
+  ].flatMap(record => [record, record]));
 });
 
 test('AIT-503 rejected selected-item retry keeps its row branch and records HTTP status', async t => {
@@ -430,4 +436,87 @@ test('RC24 budget denied during a live call rests immediately as unavailable', a
   f.post(() => Response.json({ reason: 'not-admitted', admissionReason: 'budget denied' }, { status: 403 }));
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
   assert.equal(f.rows()[1].dataset.state, 'unavailable'); assert.equal(f.calls.length, 1);
+});
+
+for (const [status, reason] of [[400, 'invalid-request'], [403, 'configuration'], [409, undefined]]) test(`RC24 terminal ${status}/${reason}: no automatic retry and no row action`, async t => {
+  const f = fixture(t); f.post(() => Response.json({ reason }, { status }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(f.calls.length, 1);
+  assert.ok(f.rows().every(row => row.querySelector('button').hidden));
+  assert.ok(f.rows()[1].querySelector('.question-status').textContent.trim());
+});
+test('RC24 budget Wait clears on an authoritative refresh and re-sends once', async t => {
+  const f = fixture(t); let posts = 0;
+  f.post(() => ++posts === 1 ? Response.json({ reason: 'not-admitted', admissionReason: 'budget reconciling' }, { status: 403 })
+    : Response.json(f.accept(), { status: 202 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(f.rows()[1].dataset.state, 'requesting'); assert.equal(f.calls.length, 1);
+  f.lane(); await tick(); assert.equal(f.calls.length, 2);
+  assert.equal(f.rows()[1].dataset.state, 'requesting');
+});
+test('RC24 timed-out Wait Retry posts focus-question, with duplicate activation bounded', async t => {
+  const f = fixture(t); t.mock.timers.enable({ apis: ['setTimeout'] });
+  f.post(() => Response.json({ reason: 'not-admitted', admissionReason: 'budget reconciling' }, { status: 403 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  t.mock.timers.tick(60_000);
+  const pending = Promise.withResolvers(); f.post(() => pending.promise);
+  f.button(1).click(); f.button(1).click(); assert.equal(f.calls.length, 2);
+  assert.ok(f.calls[1].url.endsWith('/focus-question'));
+  pending.resolve(Response.json(f.accept(), { status: 202 })); await tick();
+});
+for (const locale of ['en', 'de']) test(`RC24 reply failure ${locale}: absent Retry offers typing`, t => {
+  const f = fixture(t, locale), copy = locale === 'de' ? de : en;
+  f.lane(['reaction'], [{ lane: 'reaction', retryable: true }]);
+  assert.equal(f.root.querySelector('.retry').hidden, true);
+  assert.equal(f.root.querySelector('.reaction-failure-text').textContent, `${copy.replyFailed} ${copy.replyKeepTyping}`);
+});
+test('RC24 a detached pending command cannot start automatic recovery', async t => {
+  const f = fixture(t), pending = Promise.withResolvers();
+  document.body.append(f.c); f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.c.remove(); pending.reject(new TypeError('offline'));
+  await assert.rejects(request, TypeError);
+  assert.equal(f.calls.length, 1);
+});
+test('RC24 a peer focus completed before a local Wait refusal is never re-sent', async t => {
+  const f = fixture(t), pending = Promise.withResolvers();
+  f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.c.receive(f.accept().event);
+  f.event('turn.final', { id: 'peer-reply', role: 'assistant', content: 'Who approves?', focusRequestId: 'focus-1', inputRevision: inputRevision(f.c.session) });
+  pending.resolve(Response.json({ reason: 'reply-in-flight' }, { status: 409 }));
+  await assert.rejects(request); f.lane(); await tick();
+  assert.equal(f.calls.length, 1); assert.equal(f.rows()[1].dataset.state, 'asked');
+});
+test('RC24 a connected budget Wait refreshes availability before its one resend', async t => {
+  const f = fixture(t); let posts = 0;
+  document.body.append(f.c);
+  f.post(() => ++posts === 1 ? Response.json({ reason: 'not-admitted', admissionReason: 'budget reconciling' }, { status: 403 })
+    : Response.json(f.accept(), { status: 202 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id)); await tick();
+  assert.equal(f.calls.length, 2); assert.equal(f.rows()[1].dataset.state, 'requesting');
+});
+test('RC24 a direct one-hour refusal keeps its specific reason and hides the action', async t => {
+  const f = fixture(t); f.post(() => Response.json({ reason: 'one-hour' }, { status: 403 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(f.rows()[1].querySelector('.question-status').textContent, en.clarify.deadline);
+  assert.ok(f.rows().every(row => row.querySelector('button').hidden));
+  assert.equal(f.calls.length, 1);
+});
+test('RC24 a different peer focus never inherits a pending local acceptance or stays pending', async t => {
+  const f = fixture(t), body = Promise.withResolvers(), warnings = [], local = f.accept();
+  const response = Response.json({}, { status: 202 });
+  t.mock.method(response, 'json', () => body.promise);
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => response);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id); await tick();
+  const peer = f.c.openQuestionItems[0];
+  f.event('question.focused', { question: peer.question, questionId: peer.id, requestId: 'peer-pending', chosenBy: 'user', inputRevision: inputRevision(f.c.session) });
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: inputRevision(f.c.session) } });
+  assert.equal(warnings.length, 1); assert.equal(warnings[0][1].accepted, false);
+  assert.equal(f.button(0).getAttribute('aria-disabled'), 'true');
+  body.resolve(local); assert.equal((await request).accepted, true);
+  assert.equal(f.rows()[0].dataset.state, 'retry');
+  assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
+  assert.equal(f.calls.length, 1);
 });

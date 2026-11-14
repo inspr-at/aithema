@@ -238,3 +238,9 @@ test('AIT-429: agent-api-unavailable keeps its diagnostic code and renders Tickâ
     assert.ok([...compact].length <= 22);
   }
 });
+
+for (const copy of [en, de]) test(`AIT-503 ${copy.display.locale}: visitor copy contains no reasoning wording`, () => {
+  const leaves = value => typeof value === 'string' ? [value]
+    : value && typeof value === 'object' ? Object.values(value).flatMap(leaves) : [];
+  for (const text of leaves(copy)) assert.doesNotMatch(text, /\breasoning\b/iu);
+});

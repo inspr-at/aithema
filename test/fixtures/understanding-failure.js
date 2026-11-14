@@ -92,6 +92,30 @@ const { server, url } = await listen(async request => {
     for (const lane of ['reaction', 'understanding']) storage.setLaneFailure(current.id, { inputRevision: inputRevision(storage.get(current.id)), lane });
     return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
   }
+  if (path === '/reconciliation-proof') {
+    const answer = u.searchParams.get('locale') === 'de' ? 'Die Buchhaltung gibt alle Rechnungen frei.' : 'Accounting approves every invoice.';
+    const calls = kit.calls.filter(call => !call.body.stream && call.body.messages.some(message => message.content.includes(answer)));
+    const session = storage.get(current.id);
+    return Response.json({
+      promptRule: calls.some(call => call.body.messages.some(message => message.content.includes('Reconcile every prior open question'))),
+      typedAnswer: calls.length > 0,
+      reconciled: session.understanding.inputRevision === inputRevision(session) && session.understanding.openQuestions.length === 0,
+    });
+  }
+  if (path === '/reconciliation') {
+    // A controlled mock supplies the reconciled empty list after the typed answer.
+    success = true; holdAssessment = false;
+    const locale = u.searchParams.get('locale') ?? 'en';
+    current = storage.create({ demo: true, ownerToken: owner, locale });
+    storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'user', content: 'Invoice approvals' });
+    const revision = inputRevision(storage.get(current.id));
+    storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant',
+      content: locale === 'de' ? 'Wer gibt Rechnungen frei?' : 'Who approves invoices?', inputRevision: revision });
+    storage.append(current.id, 'understanding.updated', { ...storage.get(current.id).understanding,
+      ...assessment, inputRevision: revision, readinessAssessed: true, draft: false,
+      openQuestions: [locale === 'de' ? 'Wer gibt Rechnungen frei?' : 'Who approves invoices?'] });
+    return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
+  }
   if (path === '/fixture') {
     success = false; release = undefined;
     analysisEntered = new Promise(resolve => { enterAnalysis = resolve; });
