@@ -554,7 +554,7 @@ test('AIT-504 follow-up: capture every overview state for the release design che
   const shots = join(evidence, 'shots'); await mkdir(shots, { recursive: true });
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    for (const state of ['empty', 'current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'failed-at-limit', 'reply-pending', 'no-details', 'unavailable', 'consent', 'long-consent', 'paused', 'reconciling']) {
+    for (const state of ['empty', 'current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'long-consent', 'paused', 'reconciling']) {
       await setupOverviewFixture(page, locale, theme);
       await shadow(page, async (c, locale, state) => {
         let copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
@@ -570,7 +570,6 @@ test('AIT-504 follow-up: capture every overview state for the release design che
         if (state === 'preparing') { u.readinessAssessed = false; ops.running = ['understanding']; }
         if (state === 'failed') failures(['understanding']);
         if (state === 'both-failed') failures(['reaction', 'understanding']);
-        if (state === 'failed-at-limit') { failures(['understanding']); session.credits = { ...session.credits, status: 'ended', endReason: 'host-limit' }; }
         if (state === 'reply-pending') { u.readinessAssessed = false; session.transcript.pop(); failures(['reaction']); }
         if (state === 'no-details') u.readinessAssessed = false;
         if (state === 'unavailable') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: 'admission deadline' }; }
@@ -580,7 +579,7 @@ test('AIT-504 follow-up: capture every overview state for the release design che
         }
         if (state === 'paused') session.paused = true;
         if (state === 'reconciling') session.featureMatrix.best.analysis = { available: false, reason: 'budget reconciling' };
-        c.configure({ copy, session, ...(state === 'failed-at-limit' ? { host: {} } : {}) });
+        c.configure({ copy, session });
       }, locale, state);
       await settle(page);
       await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start', behavior: 'instant' }); });

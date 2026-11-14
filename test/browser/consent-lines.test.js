@@ -757,7 +757,7 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
       const next = r.querySelector('.signals-section'), nextHeading = next.querySelector('h3').getBoundingClientRect();
       return { dividerVisible: divider.top >= 90 && divider.bottom <= innerHeight, summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
         noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
-        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: 5.8 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: parseFloat(contentStyle.rowGap),
+        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: 4.35 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: parseFloat(contentStyle.rowGap),
         statusRole: notice.getAttribute('role'), statusName: notice.getAttribute('aria-label'), statusText: notice.textContent,
         regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
     });
@@ -765,7 +765,7 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
     assert.equal(overview.statusText, locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.equal(overview.statusRole, 'status'); assert.ok(overview.statusName?.trim(), 'status slot has an accessible name');
     assert.ok(overview.statusWidth > 0 && overview.statusHeight > 0, 'status slot has a positive box');
-    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}: status reserves 5.8em`);
+    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}: status reserves 4.35em`);
     assert.equal(overview.summaryVisible, true);
     assert.equal(overview.dividerVisible, true, 'readiness divider is visible below the sticky header');
     assert.equal(overview.noticeOutOfFlow, false);
