@@ -10,7 +10,7 @@
     "plugins/*"
   ],
   "scripts": {
-    "test": "node --test --test-concurrency=3 --test-timeout=180000 --import ./scripts/unit-watchdog.js --test-reporter=spec --test-reporter=./scripts/unit-timing-reporter.js --test-reporter-destination=stdout --test-reporter-destination=stdout packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js test/*.test.js",
+    "test": "node --test --test-timeout=180000 --import ./scripts/unit-watchdog.js --test-reporter=spec --test-reporter=./scripts/unit-timing-reporter.js --test-reporter-destination=stdout --test-reporter-destination=stdout packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js test/*.test.js",
     "test:browser": "node scripts/test-browser.js",
     "test:unit": "node scripts/test-unit.js",
     "test:unit-shards": "node scripts/unit-shards.js",

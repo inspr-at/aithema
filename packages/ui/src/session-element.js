@@ -105,7 +105,7 @@ export class AithemaSession extends HTMLElement {
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null;
-  #pointerGuardUntil = 0; #pointerGuardPoint = null;
+  #pointerGuardUntil = 0; #pointerGuardPoint = null; #touchClickPoint = null;
   #postCallMatrix = null;
   #voiceResumeProjection = null;
   #voiceResumeRevision = 0;
@@ -136,8 +136,10 @@ export class AithemaSession extends HTMLElement {
   }
   #movePointer = event => {
     const point = { x: event.clientX, y: event.clientY }, origin = this.#navigation?.point, guard = this.#pointerGuardPoint;
-    if (guard && (point.x !== guard.x || point.y !== guard.y)) { this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; }
-    if (origin && ['mouse', 'pen'].includes(event.pointerType) && Math.hypot(point.x - origin.x, point.y - origin.y) > 8) this.#navigation = null;
+    // Touch taps may land at slightly different points; they retain the timed guard.
+    const pointing = ['mouse', 'pen'].includes(event.pointerType);
+    if (guard && pointing && Math.hypot(point.x - guard.x, point.y - guard.y) > 8) { this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; }
+    if (origin && pointing && Math.hypot(point.x - origin.x, point.y - origin.y) > 8) this.#navigation = null;
     this.#pointer = point;
   };
   /**
@@ -200,7 +202,7 @@ export class AithemaSession extends HTMLElement {
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
     this.#navigation = null; this.#programmaticScroll = null; this.#longReply = null; this.#tailReply = null; this.#seenTranscript = null;
-    this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; this.#latestScrollTop = null;
+    this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; this.#touchClickPoint = null; this.#latestScrollTop = null;
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false; this.#voiceResumeProjection = null;
@@ -592,7 +594,13 @@ export class AithemaSession extends HTMLElement {
       followsTranscript: () => this.#followsTranscript(),
       onResize: ({ following }) => { if (following && this.#followsTranscript()) this.#scrollToLatest(); } });
     root.addEventListener('click', event => {
-      if (event.detail > 0 && event.composedPath()[0]?.closest?.('.qopt, .transcript-latest') &&
+      // Touch has no resting hover pointer: pointerleave can precede its click.
+      if (event.pointerType === 'touch') {
+        this.#touchClickPoint = { x: event.clientX, y: event.clientY };
+        queueMicrotask(() => { this.#touchClickPoint = null; });
+      }
+      const control = event.composedPath().find(node => node.matches?.('button, a[href], input, select, textarea, summary, [role="button"], [role="link"], [tabindex]'));
+      if (event.detail > 0 && control?.closest('.transcript-shell, .qcard, .transcript-latest') &&
         this.ownerDocument.defaultView.performance.now() < this.#pointerGuardUntil) {
         event.preventDefault(); event.stopImmediatePropagation();
       }
@@ -1050,7 +1058,8 @@ export class AithemaSession extends HTMLElement {
     return Boolean(!this.#longReply && (this.#navigation || this.#follow && !this.#onTranscript) && !this.#fold?.folded);
   }
   #beginNavigation() {
-    this.#navigation = { point: this.#pointer && { ...this.#pointer }, userId: null };
+    const point = this.#pointer ?? this.#touchClickPoint;
+    this.#navigation = { point: point && { ...point }, userId: null };
     this.#follow = true; this.#longReply = null; this.#tailReply = null;
     const shell = this.shadowRoot.querySelector('.transcript-shell'), before = shell.scrollTop;
     clearSlack(shell); this.#recordTranscriptScroll(before);
@@ -1078,9 +1087,10 @@ export class AithemaSession extends HTMLElement {
     const shell = this.shadowRoot.querySelector('.transcript-shell');
     this.#programmaticScroll = shell.scrollTop;
     this.#phoneViewport?.recordTranscriptAnchor();
-    if (this.#navigation && Math.abs(shell.scrollTop - before) > .5 && this.#pointer) {
+    const point = this.#pointer ?? this.#navigation?.point;
+    if (this.#navigation && Math.abs(shell.scrollTop - before) > .5 && point) {
       this.#pointerGuardUntil = this.ownerDocument.defaultView.performance.now() + 500;
-      this.#pointerGuardPoint = { ...this.#pointer };
+      this.#pointerGuardPoint = { ...point };
     }
   }
   #transcriptContent() {
@@ -3241,9 +3251,13 @@ export class AithemaSession extends HTMLElement {
   }
   #failConsentRefresh(pending) {
     if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
+    this.#concept.failClosedConsent();
+    this.#backoffConsentRefresh(pending);
+  }
+  #backoffConsentRefresh(pending) {
+    if (!pending || pending !== this.#consentRefresh || pending.sessionId !== this.#session.id) return;
     clearTimeout(pending.timer); clearTimeout(pending.documentTimer); pending.documentTimer = null;
     pending.failed = true; pending.attempt = null;
-    this.#concept.failClosedConsent();
     if (pending.retryTimer || !this.isConnected) return;
     if (pending.retries >= 3) { pending.exhausted = true; this.#clearStartIntent(); return; }
     const delay = [2000, 4000, 8000][pending.retries++];
@@ -3364,7 +3378,8 @@ export class AithemaSession extends HTMLElement {
         if (doc?.consentRevision === revision && Array.isArray(doc.selected) && doc.features) {
           if (pending?.restoredStart && this.#startIntent && isConsentReason(this.#feature(this.#startIntent.mode === 'voice' ? 'voice' : 'text').reason)) {
             this.#concept.update(this.#session, doc, true);
-            fail(); return;
+            // The document is verified; only Start's feature admission needs a retry.
+            this.#backoffConsentRefresh(pending); return;
           }
           clearTimeout(pending?.timer); clearTimeout(pending?.retryTimer); clearTimeout(pending?.documentTimer);
           this.#consentRefresh = null;

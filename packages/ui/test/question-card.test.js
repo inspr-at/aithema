@@ -360,7 +360,13 @@ for (const pointerType of ['mouse', 'pen', 'touch']) test(`AIT-512 gate1: ${poin
   const { c, root, move, acknowledge } = navigationScene(t); let requests = 0;
   t.mock.method(globalThis, 'fetch', (...args) => { requests++; return acknowledge(...args); });
   const down = x => c.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: x, clientY: 20, pointerType }));
-  const click = detail => root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail, cancelable: true }));
+  const click = detail => {
+    // Native touch can leave the component before its synthesized click arrives.
+    if (pointerType === 'touch') c.dispatchEvent(new window.PointerEvent('pointerleave', { clientX: detail === 1 ? 20 : 22, clientY: 20, pointerType }));
+    return root.querySelector('.qopt').dispatchEvent(new window.PointerEvent('click', {
+      bubbles: true, composed: true, detail, cancelable: true, pointerType, clientX: detail === 1 ? 20 : 22, clientY: 20,
+    }));
+  };
   down(20); click(1); await tick(); question(c); await tick();
   if (pointerType === 'touch') root.querySelector('.qopt').dispatchEvent(new window.Event('touchstart', { bubbles: true, composed: true }));
   else move(22, 20, pointerType);
@@ -368,6 +374,29 @@ for (const pointerType of ['mouse', 'pen', 'touch']) test(`AIT-512 gate1: ${poin
   assert.equal(requests, 1, 'jitter or a second tap is not deliberate movement');
   root.querySelector('.qopt').click(); await tick();
   assert.equal(requests, 2, 'keyboard activation remains available during the guard');
+});
+
+for (const pointerType of ['mouse', 'pen']) test(`AIT-512 gate1: ${pointerType} guard lifts only beyond eight pixels`, async t => {
+  const { c, root, move, acknowledge } = navigationScene(t); let requests = 0;
+  t.mock.method(globalThis, 'fetch', (...args) => { requests++; return acknowledge(...args); });
+  c.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: 20, clientY: 20, pointerType }));
+  const click = () => root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 }));
+  click(); await tick(); question(c); await tick();
+  move(28, 20, pointerType); click(); await tick();
+  assert.equal(requests, 1, 'exactly eight pixels still retains the guard');
+  move(29, 20, pointerType); click(); await tick();
+  assert.equal(requests, 2, 'movement beyond eight pixels permits a new activation');
+});
+
+test('AIT-512 gate1: pointer guard expires at 500 ms without movement', async t => {
+  const { c, root, acknowledge } = navigationScene(t); let requests = 0, now = 0;
+  t.mock.method(window.performance, 'now', () => now);
+  t.mock.method(globalThis, 'fetch', (...args) => { requests++; return acknowledge(...args); });
+  c.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: 20, clientY: 20, pointerType: 'mouse' }));
+  const click = () => root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 }));
+  click(); await tick(); question(c); await tick();
+  now = 499; click(); await tick(); assert.equal(requests, 1, 'the pointer guard lasts through 499 ms');
+  now = 500; click(); await tick(); assert.equal(requests, 2, 'the pointer guard lifts at 500 ms');
 });
 
 for (const control of ['withdraw', 'link', 'read-full', 'card-link']) test(`AIT-512 gate1: moved ${control} ignores the second pointer click`, async t => {
