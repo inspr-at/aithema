@@ -138,11 +138,20 @@ function consentClock(t) {
     const id = { unref() {} }; timers.set(id, { callback, delay }); return id;
   });
   t.mock.method(globalThis, 'clearTimeout', id => { if (!timers.delete(id)) nativeClear(id); });
-  return { async next(delay) {
-    const entry = [...timers].find(([, timer]) => timer.delay === delay);
-    assert.ok(entry, `pending consent timer at ${delay} ms`);
-    timers.delete(entry[0]); entry[1].callback(); await tick();
-  } };
+  return {
+    has(delay) { return [...timers.values()].some(timer => timer.delay === delay); },
+    async elapse(delay) {
+      for (const [id, timer] of [...timers]) {
+        if (timer.delay <= delay) { timers.delete(id); timer.callback(); }
+        else timer.delay -= delay;
+      }
+      await tick();
+    },
+    async next(delay) {
+      const entry = [...timers].find(([, timer]) => timer.delay === delay);
+      assert.ok(entry, `pending consent timer at ${delay} ms`);
+      timers.delete(entry[0]); entry[1].callback(); await tick();
+    } };
 }
 for (const mode of ['type', 'voice']) test(`AIT-501 v2.2: open/adopt/configure consumes the granted ${mode} snapshot without an event or GET`, async t => {
   const f = fixture(t, mode, true); f.start();
@@ -234,4 +243,64 @@ for (const mode of ['type', 'voice']) test(`AIT-501 v2.2: copied tab storage can
   assert.equal(f.starts.length, 0);
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, mode === 'voice');
   if (mode === 'voice') assert.equal(f.c.shadowRoot.activeElement, f.c.shadowRoot.querySelector('.voice-start'));
+});
+
+async function restoredBackoff(t) {
+  const clock = consentClock(t), f = fixture(t, 'voice', true);
+  f.start(); f.covering = false;
+  const snapshot = f.c.session; snapshot.consentRevision++;
+  f.c.remove(); f.configure(document.createElement('aithema-session'), snapshot); await tick();
+  return { clock, f };
+}
+function normalOverview(c) {
+  const root = c.shadowRoot, access = root.querySelector('.concept-access');
+  assert.notEqual(access.dataset.state, 'gone', 'overview remains available');
+  assert.equal(access.hasAttribute('data-refresh-failed'), false, 'no failed consent projection');
+  assert.equal(root.querySelector('.concept-withdrawn').textContent, '', 'no Concept withdrawn announcement');
+}
+function snapshotOutcome(t, f, outcome) {
+  const original = globalThis.fetch.bind(globalThis);
+  let release, reads = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/events') || url.endsWith('/consent')) return original(url, options);
+    reads++;
+    if (outcome === '409') return new Response(null, { status: 409 });
+    if (outcome === 'slow') await new Promise(resolve => { release = resolve; });
+    if (outcome === 'stale') { const snapshot = f.c.session; snapshot.seq--; return Response.json(snapshot); }
+    return original(url, options);
+  });
+  return { release() { assert.ok(release, 'snapshot read is pending'); release(); }, get reads() { return reads; } };
+}
+for (const outcome of ['stale', '409', 'slow']) test(`AIT-501 gate2: ${outcome} during restored Start retry preserves verified overview`, async t => {
+  const { clock, f } = await restoredBackoff(t), read = snapshotOutcome(t, f, outcome);
+  await clock.next(2000);
+  if (outcome === 'slow') { await clock.elapse(2101); normalOverview(f.c); read.release(); await tick(); }
+  normalOverview(f.c);
+  assert.ok(read.reads > 0);
+  assert.ok(clock.has(4000), 'retry outcome uses the next Start backoff');
+});
+for (const outcome of ['stale', '409', 'slow']) test(`AIT-501 gate2: ${outcome} refresh after restored Start exhaustion behaves like main`, async t => {
+  const { clock, f } = await restoredBackoff(t);
+  for (const delay of [2000, 4000, 8000]) await clock.next(delay);
+  const read = snapshotOutcome(t, f, outcome);
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'session.paused', data: { paused: false } }); await tick();
+  if (outcome === 'slow') { await clock.elapse(2101); normalOverview(f.c); read.release(); await tick(); }
+  normalOverview(f.c);
+  assert.equal(clock.has(2000), false, 'ordinary refresh has no inherited consent watchdog');
+  assert.equal(clock.has(4000), false);
+  assert.equal(clock.has(8000), false);
+});
+test('AIT-501 gate2: switching to typing clears Start backoff and a later grant owns its deadline and ledger wait', async t => {
+  const { clock, f } = await restoredBackoff(t);
+  f.c.shadowRoot.querySelector('.ready__mode[data-mode="type"]').click();
+  assert.equal(clock.has(2000), false, 'switching mode removes the restored Start window and its retry');
+  f.lag = true;
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'consent.revised', data: { granted: true, changed: ['text'], removed: [] } }); await tick();
+  normalOverview(f.c);
+  assert.ok(clock.has(2000), 'later consent event has a new verification deadline');
+  assert.ok(clock.has(100), 'new scoped grant waits for the host ledger');
+  f.lag = false; f.covering = true; await clock.next(100);
+  normalOverview(f.c);
+  assert.equal(clock.has(2000), false, 'verified document clears the new deadline');
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false, 'cleared Start is never resumed');
 });
