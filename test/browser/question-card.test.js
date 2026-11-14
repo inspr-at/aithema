@@ -885,6 +885,12 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
       } });
       globalThis.navigationFinal({ id: 'initial-question' });
     });
+    // Settle only the seeded history. Future replies retain the normal motion policy.
+    await shadow(page, async c => {
+      await document.fonts.ready;
+      await Promise.allSettled(c.shadowRoot.querySelector('.transcript-shell ol').getAnimations({ subtree: true })
+        .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime)).map(animation => animation.finished));
+    });
     await nextFrame(page);
   };
   const snapshot = async () => { const state = await shadow(page, c => {
