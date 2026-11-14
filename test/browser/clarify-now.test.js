@@ -438,3 +438,86 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
   }
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-overflow.json'), JSON.stringify(records, null, 2)); }
 });
+
+
+async function followupPage(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-overview-followups-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  return page;
+}
+
+test('AIT-504 follow-up: failure and idle Retry have no dangling separator or indent', { timeout: 120_000 }, async t => {
+  const page = await followupPage(t);
+  for (const locale of ['en', 'de']) for (const width of [390, 1440]) for (const state of ['failure', 'idle']) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await setupOverviewFixture(page, locale, 'light');
+    const result = await shadow(page, (c, state) => {
+      const session = c.session;
+      if (state === 'idle') session.understanding.inputRevision = 'older';
+      else {
+        const failure = { lane: 'understanding', error: 'reasoning-unavailable', retryable: true };
+        session.operations.failures = [failure]; session.operations.lastFailure = failure;
+      }
+      c.configure({ session });
+      const text = c.shadowRoot.querySelector('.notice-text'), action = c.shadowRoot.querySelector('.overview-retry');
+      const lines = new Map(), range = document.createRange();
+      const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+      for (let node; (node = walker.nextNode());) for (let i = 0; i < node.length; i++) {
+        range.setStart(node, i); range.setEnd(node, i + 1);
+        const rect = range.getBoundingClientRect();
+        lines.set(rect.top, (lines.get(rect.top) ?? '') + node.data[i]);
+      }
+      const a = action.getBoundingClientRect(), b = text.getBoundingClientRect();
+      return { lines: [...lines.values()], action: { x: a.x, y: a.y, width: a.width, height: a.height }, text: { x: b.x, y: b.y, width: b.width, height: b.height }, hidden: action.hidden };
+    }, state);
+    const context = `${locale}/${width}/${state}`;
+    assert.equal(result.hidden, false, context);
+    assert.ok(result.action.width > 0 && result.action.height > 0 && result.text.width > 0 && result.text.height > 0, context);
+    assert.ok(result.lines.every(line => !line.trimEnd().endsWith('·')), `${context}: no line ends with a separator`);
+    assert.equal(result.action.x, result.text.x, `${context}: action aligns with text`);
+    assert.ok(result.action.y > result.text.y, `${context}: consistent action row`);
+  }
+});
+
+test('AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines', { timeout: 120_000 }, async t => {
+  const page = await followupPage(t);
+  for (const locale of ['en', 'de']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await setupOverviewFixture(page, locale, 'light');
+    const box = await shadow(page, c => {
+      const n = c.shadowRoot.querySelector('.notice'), rect = n.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, lineHeight: parseFloat(getComputedStyle(n).lineHeight) };
+    });
+    assert.ok(box.width > 0 && box.height > 0);
+    assert.ok(Math.abs(box.height - 3 * box.lineHeight) < 0.02, `${locale}/${width}: three lines, no fourth-line empty band`);
+  }
+});
+
+test('AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described', { timeout: 120_000 }, async t => {
+  const page = await followupPage(t);
+  await page.setViewport({ width: 390, height: 844 });
+  for (const locale of ['en', 'de']) {
+    await setupOverviewFixture(page, locale, 'light');
+    const result = await shadow(page, async (c, locale) => {
+      const defaults = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
+      const fullText = (locale === 'de' ? 'Lange Einwilligung des Hosts. ' : 'Long consent from a host. ').repeat(80);
+      const copy = { ...defaults, featureConsent: { ...defaults.featureConsent, analysis: fullText } }, session = c.session;
+      session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+      c.configure({ copy, session });
+      const slot = c.shadowRoot.querySelector('.notice'), action = slot.querySelector('.consent-action'), text = slot.querySelector('.consent-line-copy');
+      action.focus();
+      const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect(), x = text.getBoundingClientRect();
+      return { fullText, accessibleText: c.shadowRoot.getElementById(action.getAttribute('aria-describedby')).textContent,
+        focused: c.shadowRoot.activeElement === action, disabled: action.disabled,
+        slot: { width: b.width, height: b.height }, text: { width: x.width, height: x.height }, action: { width: a.width, height: a.height, top: a.top - b.top, bottom: a.bottom - b.top } };
+    }, locale);
+    assert.ok(result.slot.width > 0 && result.slot.height > 0 && result.text.width > 0 && result.text.height > 0 && result.action.width > 0 && result.action.height > 0);
+    assert.ok(result.action.top >= 0 && result.action.bottom <= result.slot.height, `${locale}: consent action stays inside fixed slot`);
+    assert.equal(result.focused, true); assert.equal(result.disabled, false);
+    assert.ok(result.accessibleText.includes(result.fullText), 'full override remains the action’s accessible description');
+  }
+});
