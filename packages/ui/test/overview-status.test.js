@@ -7,6 +7,7 @@ import { de } from '../src/i18n/de.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+const { HostSurface } = await import('../src/host-surface.js');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function setup(copy, options = {}) {
   const session = createSession({ demo: true, locale: copy.display.locale });
@@ -209,24 +210,32 @@ for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: first assessm
 
 for (const changeLocale of [false, true]) test(`AIT-504 ahead snapshot fully restores a stalled partial, pause and settings without reconnecting; locale change ${changeLocale}`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
-  const c = setup(en, { copyForLocale: locale => ({ en, de })[locale] }), calls = [];
+  let streamingState;
+  const updateStreaming = HostSurface.prototype.updateStreaming;
+  t.mock.method(HostSurface.prototype, 'updateStreaming', function () {
+    if (this.verification && this.emailAsk) streamingState = { replyInFlight: this.verification.streaming(), streaming: this.emailAsk.streaming() };
+    return updateStreaming.call(this);
+  });
+  const c = setup(en, { copyForLocale: locale => ({ en, de })[locale], host: { verification: true, credits: true } }), calls = [];
   let snapshot;
   t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
     calls.push({ url: String(url), method: init.method ?? 'GET' });
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
       init.signal?.addEventListener('abort', () => controller.close(), { once: true });
     } }));
+    if (!/\/api\/sessions\/[^/]+$/.test(String(url))) return Response.json({}, { status: 404 });
     return Response.json(snapshot ?? c.session);
   });
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   c.receive({ type: 'turn.partial', data: { id: 'finished', delta: 'Partial reply', inputRevision: inputRevision(c.session) } });
+  assert.deepEqual(streamingState, { streaming: true, replyInFlight: true });
   snapshot = c.session;
   for (const [type, data] of [
     ['turn.final', { id: 'finished', role: 'assistant', content: 'Finished reply', inputRevision: inputRevision(snapshot) }],
     ...(changeLocale ? [['session.locale-changed', { locale: 'de' }]] : []),
     ['session.paused', { paused: true }],
-    ['settings.changed', { processingPreset: 'best', settings: { ...snapshot.settings, revision: snapshot.settings.revision + 1, model: 'recovered-model' } }],
+    ['settings.changed', { processingPreset: 'device', settings: { ...snapshot.settings, revision: snapshot.settings.revision + 1, model: 'recovered-model' } }],
   ]) snapshot = applyEvent(snapshot, { seq: snapshot.seq + 1, type, data });
   snapshot.operations = { inputRevision: inputRevision(snapshot), running: [], failures: [], lastFailure: null };
   const streams = calls.filter(call => call.url.endsWith('/events')).length;
@@ -241,6 +250,8 @@ for (const changeLocale of [false, true]) test(`AIT-504 ahead snapshot fully res
   assert.equal(c.session.paused, true);
   assert.equal(c.shadowRoot.querySelector('.composer-resume').textContent, copy.resume);
   assert.equal(c.session.settings.model, 'recovered-model');
+  assert.equal(c.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true', 'renderMode follows the skipped processing change');
+  assert.deepEqual(streamingState, { streaming: false, replyInFlight: false });
   assert.equal(calls.filter(call => call.url.endsWith('/events')).length, streams, 'no reconnect can schedule work');
   assert.ok(calls.every(call => call.method === 'GET'));
   c.remove();
