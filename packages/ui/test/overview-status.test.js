@@ -340,6 +340,10 @@ test('AIT-504 ahead snapshot fences a superseded mid-reply settings revision wit
     processingPreset: c.session.processingPreset, settings: { ...c.session.settings, revision: settingsRevision + 1, model: 'replacement-model' },
   } };
   snapshot = applyEvent(c.session, settingsEvent);
+  snapshot = applyEvent(snapshot, { seq: snapshot.seq + 1, type: 'turn.final', data: {
+    id: 'replacement-final', role: 'assistant', content: 'Replacement completed',
+    inputRevision: inputRevision(snapshot), settingsRevision: settingsRevision + 1,
+  } });
   snapshot.operations = { inputRevision: inputRevision(snapshot), running: [], failures: [], lastFailure: null };
   t.mock.timers.tick(18_000); await flush(); await flush();
   assert.equal(c.session.settings.revision, settingsRevision + 1);
