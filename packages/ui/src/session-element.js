@@ -126,7 +126,7 @@ export class AithemaSession extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
-    this.addEventListener('pointerdown', e => { this.#pointer = { x: e.clientX, y: e.clientY }; }, { passive: true });
+    this.addEventListener('pointerdown', this.#movePointer, { passive: true });
     this.addEventListener('pointermove', this.#movePointer, { passive: true });
     this.addEventListener('pointerleave', e => {
       this.#movePointer(e);
@@ -1088,6 +1088,7 @@ export class AithemaSession extends HTMLElement {
     const before = shell.scrollTop;
     // Measure the visible card before finding the latest reply.
     this.#follow = true; this.#questionCard?.reserve();
+    if (this.#longReply) return;
     shell.scrollTop = shell.scrollHeight;
     const latest = [...shell.querySelectorAll('.turn')].at(-1);
     for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
@@ -1901,7 +1902,7 @@ export class AithemaSession extends HTMLElement {
       const replacingFailure = this.#replyRetrySlot?.inline && replyNotice && !replyNotice.hidden;
       const entries = this.#transcriptEntries(this.#session.transcript.filter(t => !t.erased || t.role === 'user'));
       const rows = new Map([...list.children].map(row => [row.dataset.id, row]));
-      const kept = new Set(entries.map(entry => entry.key));
+      const hovered = this.#onTranscript, kept = new Set(entries.map(entry => entry.key));
       // Rows that go are removed first, so a surviving row never moves past them: moving a node drops its focus.
       for (const [key, row] of rows) if (!kept.has(key)) { row.remove(); rows.delete(key); }
       let next = list.firstElementChild;
