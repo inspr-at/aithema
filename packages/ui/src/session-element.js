@@ -226,6 +226,7 @@ export class AithemaSession extends HTMLElement {
     this.#rail?.connect(); this.#reveal?.connect();
     this.#questionCard?.connect();
     this.#observePanes(); this.#syncReconciling();
+    if (this.#laneStatusPending !== null) this.#awaitLaneStatus();
     this.#render('composer');
   }
   disconnectedCallback() {
@@ -1462,6 +1463,7 @@ export class AithemaSession extends HTMLElement {
     this.#clearLaneStatusPending();
     const revision = inputRevision(this.#session), sessionId = this.#session.id;
     this.#laneStatusPending = revision;
+    if (!this.isConnected) return;
     this.#laneStatusTimer = setTimeout(async () => {
       if (this.#erased || this.#session.id !== sessionId || this.#laneStatusPending !== revision) return;
       this.#clearLaneStatusPending();

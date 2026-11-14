@@ -47,9 +47,11 @@ test('AIT-504 pending expires at 18 seconds with one snapshot GET and no POST', 
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
   const c = setup(en), reads = [];
   t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     reads.push({ url: String(url), method: init.method ?? 'GET' });
     return Response.json({ ...c.session, operations: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
   });
+  document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
   event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
   t.mock.timers.tick(17_999); await flush(); assert.equal(reads.length, 0);
@@ -88,6 +90,18 @@ for (const finish of ['status', 'disconnect', 'reconfigure']) test(`AIT-504 pend
 test('AIT-504 explicit host values win and an empty new status uses the active locale', () => {
   const custom = { ...en, overviewCurrent: 'Host current' };
   const c = setup(custom); assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Host current');
-  c.configure({ copy: { ...de, overviewCurrent: '' }, session: { ...c.session, locale: 'de' } });
+  const session = c.session; session.locale = 'de';
+  session.understanding.inputRevision = session.operations.inputRevision = inputRevision(session);
+  session.transcript.at(-1).inputRevision = inputRevision(session);
+  c.configure({ copy: { ...de, overviewCurrent: '' }, session });
   assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, 'Auf dem neuesten Stand'); c.remove();
+});
+
+test('AIT-504 detached pending elements cannot leak snapshot reads into a later session', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  const c = setup(en), reads = [];
+  t.mock.method(globalThis, 'fetch', async url => { reads.push(String(url)); return Response.json(c.session); });
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  t.mock.timers.tick(18_000); await flush(); assert.equal(reads.length, 0);
+  c.remove();
 });
