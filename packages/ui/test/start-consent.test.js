@@ -311,7 +311,7 @@ for (const outcome of ['409', 'slow', 'stale']) test(`AIT-501 gate3: grant durin
   const original = globalThis.fetch.bind(globalThis);
   let fault = outcome, release, reads = 0;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
-    if (url.endsWith('/events') || url.endsWith('/consent')) return original(url, options);
+    if (!url.endsWith(`/api/sessions/${f.c.session.id}`)) return original(url, options);
     reads++;
     if (fault === '409') return new Response(null, { status: 409 });
     if (fault === 'stale') { const snapshot = f.c.session; snapshot.seq--; return Response.json(snapshot); }

@@ -2682,9 +2682,13 @@ export class AithemaSession extends HTMLElement {
     this.#checkingStartRestore = null;
     this.#consumeStartIntent();
     if (this.#startIntent !== intent || !isConsentReason(this.#feature(intent.mode === 'voice' ? 'voice' : 'text').reason)) return;
-    // A returned snapshot may still block Start. Retry feature admission
-    // independently; only journal consent events open verification windows.
-    this.#retryRestoredStart(intent);
+    // Refresh a blocked return once before the bounded admission retries.
+    // Only journal consent events open verification windows.
+    if (this.#consentRefresh) return;
+    await this.#refreshFeatures();
+    if (this.#startIntent !== intent || this.#consentRefresh) return;
+    this.#consumeStartIntent();
+    if (this.#startIntent === intent && isConsentReason(this.#feature(intent.mode === 'voice' ? 'voice' : 'text').reason)) this.#retryRestoredStart(intent);
   }
   #expireStartIntent() {
     clearTimeout(this.#startIntentTimer);
