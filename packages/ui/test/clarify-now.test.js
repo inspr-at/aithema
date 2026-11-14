@@ -548,3 +548,14 @@ test('RC24 a terminal credit snapshot without a known time bound never claims a 
   assert.ok(f.rows().every(row => row.querySelector('button').hidden));
   assert.equal(f.rows()[1].querySelector('.question-status').textContent, en.clarifyUnavailable);
 });
+for (const status of [200, 202]) test(`RC24 invalid ${status} acknowledgement reads state, rests, and never re-posts`, async t => {
+  const f = fixture(t), fetch = globalThis.fetch; let snapshots = 0;
+  t.mock.method(globalThis, 'fetch', (url, init = {}) => {
+    if (init.method !== 'POST' && !url.endsWith('/events')) snapshots++;
+    return fetch(url, init);
+  });
+  f.post(() => Response.json({}, { status }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(snapshots, 1); assert.equal(f.calls.length, 1);
+  assert.equal(f.rows()[1].dataset.state, 'unavailable');
+});
