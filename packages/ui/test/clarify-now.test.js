@@ -540,3 +540,11 @@ test('RC24 a Wait snapshot with live-call budget denial settles without another 
   assert.equal(f.rows()[1].dataset.state, 'unavailable');
   assert.equal(f.rows()[1].querySelector('.question-status').textContent, en.clarifyUnavailable);
 });
+test('RC24 a terminal credit snapshot without a known time bound never claims a time limit', async t => {
+  const f = fixture(t); f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  const session = f.c.session; session.credits = { status: 'ended' };
+  f.c.configure({ session, copy: en });
+  assert.ok(f.rows().every(row => row.querySelector('button').hidden));
+  assert.equal(f.rows()[1].querySelector('.question-status').textContent, en.clarifyUnavailable);
+});
