@@ -1134,6 +1134,13 @@ value, then the active locale's shipped text, then English, and never render emp
 When a host omits `copy.display.locale`, the component uses the session's active
 locale for these fallbacks, including narrow labels and the close control.
 
+The overview adds `overviewCurrent`, `staleIdle` and `overviewStatusLabel`. These
+brand-new keys use the same resolver and the active locale's shipped defaults when
+an older host bundle omits them. The named status slot keeps its height across
+current, updating and idle states. Only the current revision's understanding lane
+claims updating; the first status after a typed message has an 18-second barrier,
+then one snapshot GET, with no automatic Retry or paid work.
+
 The existing **Retry call** label remains. Time-bound ends use neutral colour. Failed
 messages have a separate close control; Escape dismisses only while focus is inside
 the rail. There is no close control in the phone's 36 px status row; Retry, a typed

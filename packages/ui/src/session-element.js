@@ -7,6 +7,7 @@ import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestion
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { warnFocusRefusal } from './clarify-diagnostic.js';
+import { resolveCopy } from './copy-resolve.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
 import { understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
@@ -107,7 +108,7 @@ export class AithemaSession extends HTMLElement {
   #voiceResumeRevision = 0;
   #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
-  #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
+  #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null; #laneStatusTimer = null; #laneStatusRead = null;
   #retryPending = null; #replyRetrySlot = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #creditLayoutScope; #options; #refocus = null;
@@ -156,7 +157,7 @@ export class AithemaSession extends HTMLElement {
     clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
-    this.#postCallMatrix = null; this.#laneStatusPending = null; this.#featureRead = null;
+    this.#postCallMatrix = null; this.#clearLaneStatusPending(); this.#featureRead = null;
     this.#retryPending = null; this.#replyRetrySlot = null;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
@@ -232,7 +233,7 @@ export class AithemaSession extends HTMLElement {
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
     if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; this.#concept?.failClosedConsent(); }
-    clearTimeout(this.#clarifyNoticeTimer);
+    clearTimeout(this.#clarifyNoticeTimer); this.#clearLaneStatusPending();
     this.#cancelUploads();
     this.#stopReconciling();
     this.#disposeVersion?.(); this.#disposeVersion = null;
@@ -554,7 +555,7 @@ export class AithemaSession extends HTMLElement {
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
-        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
+        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
           <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
@@ -1174,7 +1175,7 @@ export class AithemaSession extends HTMLElement {
     this.ownerDocument.defaultView?.addEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.addEventListener('orientationchange', this.#releaseErasedHeights);
     this.setAttribute('data-aithema-erased', ''); this.setAttribute('data-aithema-mounted', '');
-    this.#abort?.abort(); this.#stopReconciling();
+    this.#abort?.abort(); this.#stopReconciling(); this.#clearLaneStatusPending();
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
     this.#featureRead = null; clearTimeout(this.#creditEndTimer); this.#cancelUploads();
     clearTimeout(this.#clarifyNoticeTimer); clearTimeout(this.#savedTimer); this.#timer?.setConnected(false);
@@ -1454,9 +1455,38 @@ export class AithemaSession extends HTMLElement {
     this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId: this.#session.id, reason, features: [...features] },
       bubbles: true, composed: true }));
   }
+  #clearLaneStatusPending() {
+    clearTimeout(this.#laneStatusTimer); this.#laneStatusTimer = null; this.#laneStatusPending = null; this.#laneStatusRead = null;
+  }
+  #awaitLaneStatus() {
+    this.#clearLaneStatusPending();
+    const revision = inputRevision(this.#session), sessionId = this.#session.id;
+    this.#laneStatusPending = revision;
+    this.#laneStatusTimer = setTimeout(async () => {
+      if (this.#erased || this.#session.id !== sessionId || this.#laneStatusPending !== revision) return;
+      this.#clearLaneStatusPending();
+      this.#render('aside');
+      const read = this.#laneStatusRead = {};
+      const active = () => !this.#erased && this.#laneStatusRead === read && this.#session.id === sessionId && inputRevision(this.#session) === revision;
+      // One read, never a Retry or reconnect: this barrier cannot schedule paid work.
+      try {
+        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
+        const snapshot = response.ok ? await response.json() : null;
+        if (!active()) return;
+        if (snapshot?.id === sessionId && snapshot.seq >= this.#cursor && inputRevision(snapshot) === revision) {
+          this.#session = snapshot; this.#cursor = snapshot.seq;
+          this.#invalidatedAt = Math.max(this.#invalidatedAt, snapshot.seq);
+          this.#restoreFailure(); this.#concept.update(this.#session);
+          this.#render('transcript'); this.#render('features'); this.#render('composer');
+        }
+      } catch { /* The bounded pending state ends even when its one read fails. */ }
+      if (!this.#erased && this.#session.id === sessionId && inputRevision(this.#session) === revision) this.#render('aside');
+    }, 18_000);
+    this.#laneStatusTimer.unref?.();
+  }
   #restoreFailure() {
     const operations = this.#session.operations;
-    if (operations?.inputRevision === inputRevision(this.#session)) this.#laneStatusPending = null;
+    if (operations?.inputRevision === inputRevision(this.#session)) this.#clearLaneStatusPending();
     const failure = operations?.inputRevision === inputRevision(this.#session) ? operations.lastFailure : null;
     this.#recordFailure(failure);
     this.#settleRetry();
@@ -1469,7 +1499,7 @@ export class AithemaSession extends HTMLElement {
       this.#failure = false;
     } else {
       this.#failure = Boolean(failure); this.#failureLane = failure?.lane ?? null;
-      if (failure) { this.#analysisRecovery = null; this.#laneStatusPending = null; }
+      if (failure) { this.#analysisRecovery = null; this.#clearLaneStatusPending(); }
     }
   }
   // AIT-466 option 1: the reply owns admission when assessment cannot run.
@@ -1966,7 +1996,7 @@ export class AithemaSession extends HTMLElement {
     // Real pending work owns the slot before failure; an existing assessment
     // keeps its draft/stale copy while its replacement runs.
     const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
-    const scheduledAnalysis = this.#deferredAnalysis === revision || this.#analysisRecovery === revision || missingReply && waiting;
+    const scheduledAnalysis = this.#laneStatusPending === revision || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || missingReply && waiting;
     const preparing = !u.readinessAssessed && (analysisRunning || (analysis.available || cached) && scheduledAnalysis && !this.#failure);
     const consentMissing = hasPersonTurn && isConsentReason(analysis.rawReason);
     // A purpose stop deliberately schedules no replacement reply after consent
@@ -2019,7 +2049,7 @@ export class AithemaSession extends HTMLElement {
     setText(replyNotice.querySelector('.reaction-failure-text'), replyFailed
       ? `${copy.reasoningFailed}${replyRetry && !retry.hidden && !this.#host?.usedUp ? reasonSeparator : ''}` : '');
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
-      (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck) &&
+      (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck && !(u.readinessAssessed && stale)) &&
       !locked && !reconciling && !this.#host?.usedUp;
     // Project creation follows the overview, independently of Retry placement.
     // Keep its measured slot while failed, stale or unfinished work is replaced.
@@ -2028,27 +2058,31 @@ export class AithemaSession extends HTMLElement {
     aside.dataset.overview = currentOverview ? 'current' : 'unavailable';
     const create = root.querySelector('.create-project');
     if (create) create.inert = !currentOverview || this.#session.processingPreset === 'device';
-    const overviewText = !hasPersonTurn ? copy.empty : preparing ? copy.preparingOverview
+    const updatingOverview = analysisRunning || this.#laneStatusPending === revision || this.#deferredAnalysis === revision || this.#analysisRecovery === revision;
+    const idleOverview = hasPersonTurn && u.readinessAssessed && stale && !updatingOverview && !failedOverview && !this.#failure;
+    const overviewText = !hasPersonTurn ? copy.empty : updatingOverview ? copy.stale : preparing ? copy.preparingOverview
       : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : reasonSeparator}`
       : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
       : !u.readinessAssessed ? copy.noProjectDetails
-      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
+      : stale && this.#session.pauseReason !== 'purpose' ? resolveCopy(copy, 'staleIdle', null, this.#session.locale)
+      : u.draft ? copy.draft : resolveCopy(copy, 'overviewCurrent', null, this.#session.locale);
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
-    // Assessment labels have no visual slot; consent, pending and failure notices stay visible.
+    notice.setAttribute('aria-label', resolveCopy(copy, 'overviewStatusLabel', null, this.#session.locale));
+    // One named status slot keeps every overview state in the same place.
     const blocked = !this.#host?.usedUp && paintConsentLine(root.querySelector('.notice-text'), {
       copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
-    notice.toggleAttribute('data-current', !blocked && overviewText === copy.final);
-    notice.toggleAttribute('data-assessment', !blocked && (overviewText === copy.final || overviewText === copy.draft));
-    overviewRetry.hidden = itemRetry || !failedOverview || replyFailed;
+    notice.toggleAttribute('data-current', !blocked && currentOverview);
+    const inlineOverviewRetry = (failedOverview || idleOverview) && !replyFailed && !itemRetry;
+    overviewRetry.hidden = !inlineOverviewRetry;
     overviewRetry.disabled = !analysis.available || Boolean(running);
-    setText(overviewRetry, failedOverview && !replyFailed ? copy.understandingRetry : '');
+    setText(overviewRetry, inlineOverviewRetry ? copy.understandingRetry : '');
     // Keep the same Retry node across live renders, and leave the consent
     // slot with exactly its own action when no inline retry is shown.
-    if (failedOverview && !replyFailed) {
+    if (inlineOverviewRetry) {
       if (overviewRetry.parentNode !== notice) notice.append(overviewRetry);
       root.querySelector('.retry').hidden = true;
     } else if (overviewRetry.parentNode === notice) notice.after(overviewRetry);
@@ -2872,6 +2906,7 @@ export class AithemaSession extends HTMLElement {
         consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
+        this.#clearLaneStatusPending();
         this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear();
         this.#updateVoiceTranscript({ type: 'reset' });
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
@@ -2936,7 +2971,7 @@ export class AithemaSession extends HTMLElement {
           this.#partials.clear(); this.#failure = false;
           // turn.final and lane.status are separate events; only a status or
           // snapshot for this revision can confirm that no work was scheduled.
-          if (this.#session.processingPreset !== 'device') this.#laneStatusPending = inputRevision(this.#session);
+          if (this.#session.processingPreset !== 'device') this.#awaitLaneStatus();
         }
       }
       // Every upload state is new input: a running reply belongs to the input before it.
@@ -2945,6 +2980,7 @@ export class AithemaSession extends HTMLElement {
         // "Reading them…" ends with the last pending file; each chip then says how it went.
         if (this.#reading && this.#notice === this.#reading && !this.#session.uploads.some(u => u.state === 'pending')) this.#notice = '';
       }
+      if (event.type === 'understanding.updated' && event.data.inputRevision === inputRevision(this.#session)) this.#clearLaneStatusPending();
       if (['understanding.updated', 'question.focused', 'turn.corrected'].includes(event.type)) {
         void this.#rail?.updateContext().catch(() => {});
       }

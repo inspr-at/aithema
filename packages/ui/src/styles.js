@@ -551,11 +551,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   scroll-padding-block:28px 44px;
   display:grid; align-content:start; gap:1.15rem; padding:calc(28px + var(--aithema-slack-top,0px)) .75rem calc(44px + var(--aithema-slack-bottom,0px)) 0; }
-/* Completed/draft labels keep their live status without a row or grid gap. */
-.analysis-content:has(> .notice[data-assessment]) { padding-top:calc(1rem + var(--aithema-slack-top,0px)); }
-.notice[data-assessment] { position:absolute; width:1px; height:1px; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-.notice[data-current] .notice-text { visibility:hidden; }
+/* Every overview state owns the same quiet, two-line status slot. */
 .notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
+.overview-status { height:2.9em; min-height:2.9em; }
+.overview-status .overview-retry { margin-inline-start:.35em; }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 /* Readiness already draws the entry divider; keep the section's box stable. */
 .analysis-content > section:nth-child(1 of section:not([hidden])) { border-top-color:transparent; }
