@@ -1082,7 +1082,9 @@ export class AithemaSession extends HTMLElement {
     }
   }
   #transcriptContent() {
+    const redacted = new Set(this.#session.transcript.filter(turn => turn.erased || turn.withdrawn).map(turn => turn.id));
     return new Map([...this.shadowRoot.querySelectorAll('.transcript-shell ol > .turn')]
+      .filter(row => !row.hidden && !redacted.has(row.dataset.id))
       .map(row => [row.dataset.id, row.querySelector('.turn-text')?.textContent.length ?? 0]));
   }
   #readTranscript() { this.#seenTranscript = this.#transcriptContent(); }
