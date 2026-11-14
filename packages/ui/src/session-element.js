@@ -104,6 +104,8 @@ export class AithemaSession extends HTMLElement {
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
+  #navigation = null; #programmaticScroll = null; #longReply = null; #tailReply = null; #seenTranscript = null;
+  #pointerGuardUntil = 0; #pointerGuardPoint = null;
   #postCallMatrix = null;
   #voiceResumeProjection = null;
   #voiceResumeRevision = 0;
@@ -124,12 +126,20 @@ export class AithemaSession extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
-    this.addEventListener('pointermove', e => { this.#pointer = { x: e.clientX, y: e.clientY }; }, { passive: true });
-    this.addEventListener('pointerleave', () => {
+    this.addEventListener('pointerdown', e => { this.#pointer = { x: e.clientX, y: e.clientY }; }, { passive: true });
+    this.addEventListener('pointermove', this.#movePointer, { passive: true });
+    this.addEventListener('pointerleave', e => {
+      this.#movePointer(e);
       this.#pointer = null;
       for (const pane of this.shadowRoot.querySelectorAll(PANES)) clearSlack(pane);
     });
   }
+  #movePointer = event => {
+    const point = { x: event.clientX, y: event.clientY }, origin = this.#navigation?.point, guard = this.#pointerGuardPoint;
+    if (guard && (point.x !== guard.x || point.y !== guard.y)) { this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; }
+    if (origin && ['mouse', 'pen'].includes(event.pointerType) && Math.hypot(point.x - origin.x, point.y - origin.y) > 8) this.#navigation = null;
+    this.#pointer = point;
+  };
   /**
    * `deviceConnector` is the browser device plugin factory for the settings Advanced tab;
    * `voiceClients` maps host voice option ids to browser clients (else `voiceClient`).
@@ -189,6 +199,8 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
+    this.#navigation = null; this.#programmaticScroll = null; this.#longReply = null; this.#tailReply = null; this.#seenTranscript = null;
+    this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; this.#latestScrollTop = null;
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false; this.#voiceResumeProjection = null;
@@ -215,6 +227,7 @@ export class AithemaSession extends HTMLElement {
     if (returningStart && this.#startIntent) void this.#checkRestoredStart();
   }
   connectedCallback() {
+    this.ownerDocument.addEventListener('pointermove', this.#movePointer, { passive: true });
     if (!this.#session) return;
     this.#disposeVersion?.();
     this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), this.#options.host?.version ?? {}, { locale: this.#session.locale });
@@ -239,6 +252,8 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
+    this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
@@ -574,8 +589,15 @@ export class AithemaSession extends HTMLElement {
           <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" data-footer-popup hidden><slot name="legal"></slot><button class="legal-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="legal-popup"><span id="legal-label" data-copy="legal"></span>${icon('chevron')}</button><div class="footer-popup legal-popup" id="legal-popup" role="dialog" aria-label="${this.#copy.legal}" hidden></div></div></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
-      followsTranscript: () => this.#follow && !this.#onTranscript,
-      onResize: ({ following }) => { if (following && !this.#onTranscript) this.#scrollToLatest(); } });
+      followsTranscript: () => this.#followsTranscript(),
+      onResize: ({ following }) => { if (following && this.#followsTranscript()) this.#scrollToLatest(); } });
+    root.addEventListener('click', event => {
+      if (event.detail > 0 && event.composedPath()[0]?.closest?.('.qopt, .transcript-latest') &&
+        this.ownerDocument.defaultView.performance.now() < this.#pointerGuardUntil) {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+    }, { capture: true });
+    for (const name of ['wheel', 'touchstart']) root.addEventListener(name, () => { this.#navigation = null; }, { passive: true, capture: true });
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
     for (const [index, line] of (this.#copy.entrance?.promise ?? []).entries()) { if (index) promise.append(' '); promise.append(node('span', '', line)); }
@@ -639,7 +661,10 @@ export class AithemaSession extends HTMLElement {
     this.#concept.update(this.#session);
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
-    root.querySelector('.transcript-latest').addEventListener('click', () => this.#scrollToLatest());
+    root.querySelector('.transcript-latest').addEventListener('click', () => {
+      this.#longReply = null; this.#tailReply = [...root.querySelectorAll('.transcript-shell .turn')].at(-1)?.dataset.id;
+      this.#scrollToLatest();
+    });
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
     if (paimosImportUrl(this.#options)) {
@@ -802,15 +827,20 @@ export class AithemaSession extends HTMLElement {
     // composer/export targets stable; #anchored keeps the element under the pointer in place.
     const shell = root.querySelector('.transcript-shell');
     shell.addEventListener('scroll', () => {
-      this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8 || this.#latestScrollTop !== null && Math.abs(shell.scrollTop - this.#latestScrollTop) <= 1;
+      const made = this.#programmaticScroll !== null && Math.abs(shell.scrollTop - this.#programmaticScroll) <= 1;
+      if (!made) this.#navigation = null;
+      this.#programmaticScroll = null;
+      const bottom = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8;
+      if (bottom && (!this.#longReply || !made)) { this.#longReply = null; this.#readTranscript(); }
+      this.#follow = !this.#longReply && (bottom || this.#latestScrollTop !== null && Math.abs(shell.scrollTop - this.#latestScrollTop) <= 1);
       this.#questionCard.scheduleReserve();
-      if (this.#follow) root.querySelector('.transcript-latest').style.visibility = 'hidden';
+      this.#updateTranscriptJump();
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
     shell.addEventListener('pointerleave', () => {
       this.#onTranscript = false;
       this.#questionCard.reserve();
-      if (this.#follow) this.#scrollToLatest();
+      if (this.#followsTranscript()) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ request: (...args) => this.#api(...args), root, initialCreditScope: this.#creditLayoutScope, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
@@ -830,9 +860,9 @@ export class AithemaSession extends HTMLElement {
           : this.#composerUsedUp ? root.querySelector('.composer-out__export')
           : this.#session.paused || input.disabled ? root.querySelector('.pause, .composer-resume') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
+    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => !this.#longReply && this.#follow, onNoticesChange: () => {
       // Growth preserves the upload target; shrink reservations release on row exit or scrolling.
-      if (this.#follow && !this.#hovered()?.closest('.upload') && !this.#fold.folded) this.#scrollToLatest();
+      if (this.#followsTranscript() && !this.#hovered()?.closest('.upload') && !this.#fold.folded) this.#scrollToLatest();
     } });
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
@@ -1014,20 +1044,60 @@ export class AithemaSession extends HTMLElement {
     // Late host replies can repaint after removal; they must not restart a clock.
     this.#timer?.setConnected(this.isConnected && connected);
   }
-  #scrollToLatest() {
-    if (this.#fold?.folded) return;
+  #followsTranscript() {
+    return Boolean(!this.#longReply && (this.#navigation || this.#follow && !this.#onTranscript) && !this.#fold?.folded);
+  }
+  #beginNavigation() {
+    this.#navigation = { point: this.#pointer && { ...this.#pointer }, revision: null };
+    this.#follow = true; this.#longReply = null; this.#tailReply = null;
+    const shell = this.shadowRoot.querySelector('.transcript-shell'), before = shell.scrollTop;
+    clearSlack(shell); this.#recordTranscriptScroll(before);
+  }
+  #finishNavigation() {
+    const intent = this.#navigation;
+    if (!intent) return;
+    const view = this.ownerDocument.defaultView;
+    // Keep the hover exception through the final row, card and their layout observers.
+    view.requestAnimationFrame(() => view.requestAnimationFrame(() => {
+      if (this.#navigation === intent) this.#navigation = null;
+    }));
+  }
+  #recordTranscriptScroll(before) {
     const shell = this.shadowRoot.querySelector('.transcript-shell');
+    this.#programmaticScroll = shell.scrollTop;
+    this.#phoneViewport?.recordTranscriptAnchor();
+    if (this.#navigation && Math.abs(shell.scrollTop - before) > .5 && this.#pointer) {
+      this.#pointerGuardUntil = this.ownerDocument.defaultView.performance.now() + 500;
+      this.#pointerGuardPoint = { ...this.#pointer };
+    }
+  }
+  #transcriptContent() {
+    return new Map([...this.shadowRoot.querySelectorAll('.transcript-shell ol > .turn')]
+      .map(row => [row.dataset.id, row.querySelector('.turn-text')?.textContent.length ?? 0]));
+  }
+  #readTranscript() { this.#seenTranscript = this.#transcriptContent(); }
+  #updateTranscriptJump() {
+    const content = this.#transcriptContent();
+    this.#seenTranscript ??= content;
+    const unread = [...content].some(([id, length]) => !this.#seenTranscript.has(id) || length > this.#seenTranscript.get(id));
+    this.shadowRoot.querySelector('.transcript-latest').style.visibility = unread ? '' : 'hidden';
+  }
+  #scrollToLatest() {
+    if (this.#fold?.folded || this.#longReply) return;
+    const shell = this.shadowRoot.querySelector('.transcript-shell');
+    const before = shell.scrollTop;
     // Measure the visible card before finding the latest reply.
     this.#follow = true; this.#questionCard?.reserve();
     shell.scrollTop = shell.scrollHeight;
-    const latest = shell.querySelector('.turn:last-child');
+    const latest = [...shell.querySelectorAll('.turn')].at(-1);
     for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
     const readFull = latest?.querySelector('.turn-read-full'), signal = this.shadowRoot.querySelector('.voice-signal');
     let mini = signal?.querySelector('.voice-read-full-mini');
     if (readFull) readFull.hidden = true;
     if (mini) mini.hidden = true;
     signal?.removeAttribute('data-read-full');
-    if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
+    let held = false;
+    if (latest && latest.dataset.id !== this.#tailReply && (!this.shadowRoot.querySelector('.qcard').hidden || this.#navigation && !latest.classList.contains('user'))) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
       if (latest.getBoundingClientRect().height > room) {
@@ -1056,10 +1126,15 @@ export class AithemaSession extends HTMLElement {
           button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
         }
         shell.scrollTop += latest.getBoundingClientRect().top - top;
+        if (this.#navigation && !latest.classList.contains('user')) {
+          this.#longReply = latest.dataset.id; this.#follow = false; held = true;
+        }
       }
     }
-    this.#latestScrollTop = shell.scrollTop;
-    this.shadowRoot.querySelector('.transcript-latest').style.visibility = 'hidden';
+    this.#latestScrollTop = held ? null : shell.scrollTop;
+    this.#recordTranscriptScroll(before);
+    if (!held) this.#readTranscript();
+    this.#updateTranscriptJump();
   }
   #hovered() {
     const point = this.#pointer;
@@ -1077,7 +1152,7 @@ export class AithemaSession extends HTMLElement {
   }
   #anchoredUpdate(update) {
     const hovered = this.#hovered();
-    if (!hovered) { update(); return; }
+    if (!hovered || this.#navigation && hovered.closest?.('.transcript-shell')) { update(); return; }
     // Host content in a slot belongs to the page: its chain ends at the document, never at this root.
     const chain = [];
     for (let node = hovered; node?.nodeType === 1; node = node.parentNode) chain.push([node, node.getBoundingClientRect().top]);
@@ -1595,7 +1670,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#erased) { if (!this.#anchorDepth) this.#paintErased(); return; }
     const root = this.shadowRoot, copy = this.#copy;
     this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session, hasOpenReplyQuestion(this.#session));
-    this.#questionCard?.update(currentQuestionCard(this.#session), copy, !this.#feature('text').available, this.#sending);
+    if (part !== 'transcript') this.#questionCard?.update(currentQuestionCard(this.#session), copy, !this.#feature('text').available, this.#sending);
     const pause = root.querySelector('.pause');
     if (pause) {
       const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.pauseIntent : this.#session.paused;
@@ -1826,7 +1901,7 @@ export class AithemaSession extends HTMLElement {
       const replacingFailure = this.#replyRetrySlot?.inline && replyNotice && !replyNotice.hidden;
       const entries = this.#transcriptEntries(this.#session.transcript.filter(t => !t.erased || t.role === 'user'));
       const rows = new Map([...list.children].map(row => [row.dataset.id, row]));
-      const hovered = this.#onTranscript, count = list.children.length, kept = new Set(entries.map(entry => entry.key));
+      const kept = new Set(entries.map(entry => entry.key));
       // Rows that go are removed first, so a surviving row never moves past them: moving a node drops its focus.
       for (const [key, row] of rows) if (!kept.has(key)) { row.remove(); rows.delete(key); }
       let next = list.firstElementChild;
@@ -1912,10 +1987,13 @@ export class AithemaSession extends HTMLElement {
         if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
       }
       for (const row of rows.values()) row.remove();
+      const latestId = [...list.querySelectorAll('.turn')].at(-1)?.dataset.id;
+      if (this.#longReply && this.#longReply !== latestId) this.#longReply = null;
+      // Persisted user rows are laid out before the old card releases its reservation.
+      this.#questionCard?.update(currentQuestionCard(this.#session), copy, !this.#feature('text').available, this.#sending);
       this.#rail?.notices.render();
-      const grew = list.children.length > count;
-      if (this.#follow && !hovered && !this.#fold.folded) this.#scrollToLatest();
-      else if (this.#follow && grew && shell.scrollHeight > shell.clientHeight) root.querySelector('.transcript-latest').style.visibility = '';
+      if (this.#followsTranscript()) this.#scrollToLatest();
+      else this.#updateTranscriptJump();
       this.#syncPanes();
       return;
     }
@@ -2885,6 +2963,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#sending || !this.#feature('text').available || !content.trim()) return;
     this.#rail?.notices.clear();
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content, !option); return; }
+    this.#beginNavigation();
     const sessionId = this.#session.id;
     const voiceSession = this.#rail && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
@@ -2906,12 +2985,13 @@ export class AithemaSession extends HTMLElement {
       if (!option && input.value === content) input.value = '';
       this.#pending = null; this.#sendFailed = false;
       if (voiceText) this.#status(this.#copy.voiceTextSent); else this.#confirmSaved();
-    } catch { if (!this.#erased && sessionId === this.#session.id) { this.#sendFailed = true; this.#clearNotice(); } }
+    } catch { if (!this.#erased && sessionId === this.#session.id) { this.#navigation = null; this.#sendFailed = true; this.#clearNotice(); } }
     finally { if (!this.#erased && sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); this.#host?.update(); } }
   }
   async #sendDevice(content, clearInput = true) {
     const root = this.shadowRoot, button = root.querySelector('.send'), input = root.querySelector('textarea'), device = this.#device;
     if (!device) { this.#status(this.#copy.deviceConnectFirst); return; }
+    this.#beginNavigation();
     this.#sending = true; button.disabled = true; const controller = new AbortController(); this.#deviceController = controller;
     this.#render('composer');
     const sessionId = this.#session.id, deadlineAt = Date.now() + 180_000;
@@ -2933,7 +3013,7 @@ export class AithemaSession extends HTMLElement {
       }
       if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', ...reply.finish(), ...origin, inputRevision: revision } });
       if (current()) this.#status(this.#copy.deviceConversation);
-    } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
+    } catch { if (current()) { this.#navigation = null; this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
   receive(event) { this.#anchored(() => this.#receive(event)); }
@@ -3020,9 +3100,11 @@ export class AithemaSession extends HTMLElement {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') {
           this.#partials.clear(); this.#failure = false;
+          if (this.#navigation) this.#navigation.revision = inputRevision(this.#session);
           // turn.final and lane.status are separate events; only a status or
           // snapshot for this revision can confirm that no work was scheduled.
           if (this.#session.processingPreset !== 'device') this.#laneStatusPending = inputRevision(this.#session);
+          this.#render('transcript');
         }
       }
       // Every upload state is new input: a running reply belongs to the input before it.
@@ -3067,6 +3149,7 @@ export class AithemaSession extends HTMLElement {
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
       this.#session.operations = event.data; this.#restoreFailure();
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
+      this.#navigation = null;
       this.#retryPending = null;
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
       if (this.#clarify?.requestId && event.data.lane === 'reaction') {
@@ -3077,7 +3160,12 @@ export class AithemaSession extends HTMLElement {
     }
     if (this.#retryPending && (this.#retryPending.sessionId !== this.#session.id || this.#retryPending.revision !== inputRevision(this.#session))) this.#retryPending = null;
     this.#syncClarify();
-    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
+    this.#render('features');
+    if (event.type !== 'turn.final' || event.data.role !== 'user') this.#render('transcript');
+    this.#render('aside'); this.#render('composer'); this.#renderVoice();
+    if (event.type === 'turn.final' && event.data.role === 'assistant' &&
+      this.#navigation?.revision === inputRevision(this.#session) && activeTurns(this.#session).at(-1)?.id === event.data.id &&
+      (event.data.inputRevision === undefined && event.data.replyRevision === undefined || replyIsCurrent(this.#session, event.data))) this.#finishNavigation();
     this.#host?.updateStreaming();
   }
   #receiveVoiceState(state) {
