@@ -67,10 +67,10 @@ test('AIT-501: ledger lag and two revision events consume one Start', async t =>
   assert.equal(f.starts.length, 1);
 });
 for (const mode of ['type', 'voice']) test(`AIT-501: navigation restores ${mode} once; voice requires Start call`, async t => {
-  const f = fixture(t, mode, true); f.start();
+  const clock = consentClock(t), f = fixture(t, mode, true); f.start();
   const snapshot = f.c.session; snapshot.consentRevision++;
   f.c.remove(); const returned = f.configure(document.createElement('aithema-session'), snapshot);
-  await tick();
+  await tick(); await clock.elapse(2000);
   assert.equal(returned.shadowRoot.querySelector('.intro').hidden, true);
   assert.equal(f.starts.length, 0, 'returning navigation never starts voice even with activation');
   assert.equal(returned.shadowRoot.activeElement, returned.shadowRoot.querySelector(mode === 'voice' ? '.voice-start' : 'textarea'));
