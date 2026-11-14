@@ -454,7 +454,7 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
         assert.ok(state.textScrollHeight <= state.textClientHeight, `${locale}/${width}/${state.key}: shipped text is not clamped`);
         if (state.hasAction) assert.ok(state.actionBottom <= state.height, 'action stays within slot');
       } else { assert.equal(state.clamped, true); assert.ok(state.fullText.length > 1000, 'full override remains in the accessible DOM'); }
-      records.push({ locale, width, ...state });
+      records.push({ locale, viewportWidth: width, ...state });
     }
   }
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-overflow.json'), JSON.stringify(records, null, 2)); }
@@ -586,9 +586,9 @@ test('AIT-504 follow-up: capture every overview state for the release design che
       await settle(page);
       const record = await shadow(page, c => {
         const slot = c.shadowRoot.querySelector('.notice'), box = slot.getBoundingClientRect();
-        return { text: slot.textContent, width: box.width, height: box.height };
+        return { text: slot.textContent, slotWidth: box.width, slotHeight: box.height };
       });
-      assert.ok(record.width > 0 && record.height > 0, `${locale}/${theme}/${width}/${state}: visible slot`);
+      assert.ok(record.slotWidth > 0 && record.slotHeight > 0, `${locale}/${theme}/${width}/${state}: visible slot`);
       assert.ok(record.text.trim(), 'the overview slot is never empty');
       const path = `shots/overview-${locale}-${theme}-${width}-${state}.png`;
       await page.screenshot({ path: join(evidence, path), fullPage: false });
