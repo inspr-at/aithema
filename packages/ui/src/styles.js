@@ -556,7 +556,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .overview-status { height:5.8em; min-height:5.8em; overflow:hidden; }
 /* Clamp long host overrides visually; their complete text stays in the live DOM. */
 .overview-status .notice-text:not([data-consent-feature]) { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
-.overview-status .overview-retry { margin-inline-start:.35em; }
+.overview-status .overview-retry { display:block; width:max-content; max-width:100%; margin-inline-start:0; }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 /* Readiness already draws the entry divider; keep the section's box stable. */
 .analysis-content > section:nth-child(1 of section:not([hidden])) { border-top-color:transparent; }

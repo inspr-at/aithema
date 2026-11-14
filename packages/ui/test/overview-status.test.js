@@ -154,7 +154,7 @@ for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: deferred work
   assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.staleIdle,
     'local reconciliation is not an authoritative running understanding job');
   c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', error: 'reasoning-unavailable' } });
-  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.understandingFailed + '\u00a0· ');
+  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.understandingFailed);
   assert.equal(c.shadowRoot.querySelector('.overview-retry').hidden, false);
   c.remove();
 });

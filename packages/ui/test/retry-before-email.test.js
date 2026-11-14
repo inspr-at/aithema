@@ -142,7 +142,7 @@ test('AIT-466 U9: newer shared failure survives the older acknowledgement', asyn
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Done.', inputRevision: inputRevision(c.session) } });
   fail(c, { lane: 'understanding' }); root.querySelector('.overview-retry').click();
   fail(c, { lane: 'understanding' }); held.resolve(); await tick();
-  assert.equal(root.querySelector('.notice').textContent, en.understandingFailed + reasonSeparator + en.understandingRetry);
+  assert.equal(root.querySelector('.notice').textContent, en.understandingFailed + en.understandingRetry);
 });
 test('AIT-466 U10 guard: available assessment keeps shared footer Retry', async t => {
   const { c, root, calls } = await fixture(t, { host: {}, session: { identity: undefined, featureMatrix: matrix({ available: true }, { available: true }) } });

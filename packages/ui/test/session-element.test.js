@@ -29,7 +29,7 @@ function assertInlineRetry(component, message) {
   const root = component.shadowRoot;
   assert.equal(root.querySelector('.retry').hidden, true, message);
   assert.equal(root.querySelector('.overview-retry').hidden, false, message);
-  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed}\u00a0· ${en.understandingRetry}`, message);
+  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed}${en.understandingRetry}`, message);
 }
 function understanding(component, draft = false) {
   const session = component.session;
@@ -1177,7 +1177,7 @@ for (const copy of [de, en]) test(`AIT-198 ${copy === de ? 'DE' : 'EN'} missing 
   session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
   c.configure({ copy, session });
   const root = c.shadowRoot;
-  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed}\u00a0· ${copy.understandingRetry}`);
+  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed}${copy.understandingRetry}`);
   assert.equal(root.querySelectorAll('.notice .overview-retry').length, 1);
   assert.equal(root.querySelector('.overview-retry').disabled, false);
   assert.equal(root.querySelector('.retry').hidden, true, 'never a bare footer retry next to the placeholder');
