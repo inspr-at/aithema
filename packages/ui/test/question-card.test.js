@@ -356,6 +356,48 @@ test('AIT-512: a new card ignores an immediate second pointer click; keyboard ac
   assert.equal(requests, 2, 'keyboard activation bypasses the pointer-only guard');
 });
 
+for (const pointerType of ['mouse', 'pen', 'touch']) test(`AIT-512 gate1: ${pointerType} two-pixel double click cannot activate a moved card`, async t => {
+  const { c, root, move, acknowledge } = navigationScene(t); let requests = 0;
+  t.mock.method(globalThis, 'fetch', (...args) => { requests++; return acknowledge(...args); });
+  const down = x => c.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: x, clientY: 20, pointerType }));
+  const click = detail => root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail, cancelable: true }));
+  down(20); click(1); await tick(); question(c); await tick();
+  if (pointerType === 'touch') root.querySelector('.qopt').dispatchEvent(new window.Event('touchstart', { bubbles: true, composed: true }));
+  else move(22, 20, pointerType);
+  down(22); click(2); await tick();
+  assert.equal(requests, 1, 'jitter or a second tap is not deliberate movement');
+  root.querySelector('.qopt').click(); await tick();
+  assert.equal(requests, 2, 'keyboard activation remains available during the guard');
+});
+
+for (const control of ['withdraw', 'link', 'read-full', 'card-link']) test(`AIT-512 gate1: moved ${control} ignores the second pointer click`, async t => {
+  const { c, root, acknowledge } = navigationScene(t); let withdrawals = 0;
+  t.mock.method(globalThis, 'fetch', (url, request) => {
+    if (url.endsWith('/withdraw')) { withdrawals++; return Response.json({}); }
+    return acknowledge(url, request);
+  });
+  c.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: 20, clientY: 20, pointerType: 'mouse' }));
+  root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 })); await tick();
+  let target = root.querySelector('.turn:last-child .withdraw');
+  if (control !== 'withdraw') {
+    target = document.createElement(control === 'read-full' ? 'button' : 'a');
+    if (target.tagName === 'A') target.href = '#moved-link';
+    else target.className = 'turn-read-full';
+    target.textContent = 'Moved control';
+    (control === 'card-link' ? root.querySelector('.qcard') : root.querySelector('.turn:last-child')).append(target);
+  }
+  assert.ok(target, 'the moved control exists');
+  let activated = 0; target.addEventListener('click', () => activated++);
+  const accepted = target.dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 2, cancelable: true }));
+  await tick();
+  assert.equal(activated, 0, 'the capture guard stops control handlers');
+  assert.equal(accepted, false, 'the guard also cancels link navigation');
+  assert.equal(withdrawals, 0, 'a second click never withdraws the row');
+  target.click(); await tick();
+  assert.equal(activated, 1, 'keyboard activation stays unblocked');
+  if (control === 'withdraw') assert.equal(withdrawals, 1);
+});
+
 for (const cancel of ['wheel', 'touchstart', 'external scroll']) test(`AIT-512: ${cancel} ends following during a reply`, async t => {
   const { root, shell, partial, acknowledge } = navigationScene(t);
   t.mock.method(globalThis, 'fetch', acknowledge);

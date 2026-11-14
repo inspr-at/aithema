@@ -941,7 +941,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     await page.evaluate(() => { globalThis.navigationPartial('A short new reply.'); globalThis.navigationFinal(); }); await nextFrame(page);
     const final = await snapshot(); positive(final, ['latest', 'composer', 'dock', 'shell']);
     const evidence = { width, keyboard, before, persisted, final }; rectEvidence.push(evidence);
-    assert.ok(final.latest.bottom <= final.composer.top + 1, `reply clears the composer: ${JSON.stringify(final)}`);
+    assert.ok(final.latest.bottom <= final.composer.top, `reply clears the composer: ${JSON.stringify(final)}`);
     assert.ok(final.latest.top >= final.shell.top - 1, 'the short reply is in view');
     assert.deepEqual(final.composer, before.composer, 'composer moves 0 px');
     assert.deepEqual(final.dock, before.dock, 'dock moves 0 px');
@@ -1006,6 +1006,76 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     } finally {
       await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.navigationNativeViewport }); if (globalThis.navigationTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.navigationTouch); else delete navigator.maxTouchPoints; });
     }
+  });
+  await t.test('long reply at 1440 holds its top through final/card paints', async () => {
+    await reset(1440); await pick(false);
+    const long = 'A detailed reply with several points. '.repeat(250);
+    await page.evaluate(long => globalThis.navigationPartial(long), long); await nextFrame(page);
+    const held = await snapshot();
+    assert.ok(Math.abs(held.latest.top - held.shell.top - 16) <= 20, `long reply holds its beginning: ${JSON.stringify(held)}`);
+    assert.equal(held.jump, 'visible');
+    await page.evaluate(long => globalThis.navigationFinal({ content: long + ' More.' }), long); await nextFrame(page);
+    const final = await snapshot(); rectEvidence.push({ width: 1440, longReply: true, held, final });
+    assert.ok(Math.abs(final.latest.top - held.latest.top) <= 1, `final/card paint preserves the desktop hold: ${JSON.stringify({ held, final })}`);
+    await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
+    assert.equal((await snapshot()).scroll, final.scroll, 'a later paint preserves the desktop hold');
+  });
+  for (const pointerType of ['mouse', 'touch']) await t.test(`${pointerType} two-pixel double tap cannot activate the newly painted card`, async () => {
+    await reset(390);
+    const client = await page.createCDPSession();
+    try {
+      if (pointerType === 'touch') await client.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+      const option = await page.$('aithema-session >>> .qopt'), box = await option.boundingBox(); await option.dispose();
+      assert.ok(box.width > 0 && box.height > 0);
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const tap = async (x, y) => {
+        if (pointerType === 'touch') {
+          await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } else await page.mouse.click(x, y);
+      };
+      await tap(point.x, point.y); await acknowledged();
+      await page.evaluate(() => globalThis.navigationFinal());
+      if (pointerType === 'mouse') await page.mouse.move(point.x + 2, point.y);
+      assert.equal(await shadow(page, (c, point) => Boolean(c.shadowRoot.elementFromPoint(point.x + 2, point.y)?.closest('.qopt')), point), true,
+        'the moved card is under the second tap');
+      await tap(point.x + 2, point.y); await nextFrame(page);
+      assert.equal(requests, 1, 'jitter and a second touch tap cannot activate a moved option');
+      await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+      await page.keyboard.press('Enter'); await acknowledged();
+      assert.equal(requests, 2, 'keyboard activation remains available');
+    } finally { if (pointerType === 'touch') await client.send('Emulation.setTouchEmulationEnabled', { enabled: false }); await client.detach(); }
+  });
+  for (const control of ['withdraw', 'link', 'read-full']) await t.test(`second click on a moved row ${control} is ignored`, async () => {
+    await reset(390); await pick(false);
+    const point = await page.evaluate(() => globalThis.navigationClickPoint);
+    const geometry = await shadow(page, (c, { point, control }) => {
+      const r = c.shadowRoot, row = r.querySelector('.turn:last-child');
+      let target = row.querySelector('.withdraw');
+      if (control !== 'withdraw') {
+        target = document.createElement(control === 'link' ? 'a' : 'button');
+        if (control === 'link') target.href = '#unexpected-moved-link';
+        else target.className = 'turn-read-full';
+        target.textContent = 'Read reply'; row.append(target);
+      }
+      globalThis.navigationMovedActivations = 0;
+      target.addEventListener('click', e => { globalThis.navigationMovedActivations++; e.preventDefault(); });
+      const before = target.getBoundingClientRect().toJSON();
+      // Place the newly painted row control at the resting pick point, as a scroll can do.
+      Object.assign(target.style, { position: 'fixed', left: `${point.x - 22}px`, top: `${point.y - 22}px`,
+        width: '44px', height: '44px', opacity: '1', zIndex: '100', display: 'block' });
+      globalThis.navigationMovedTarget = target;
+      return { before, after: target.getBoundingClientRect().toJSON(), hit: r.elementFromPoint(point.x, point.y)?.closest('button, a') === target };
+    }, { point, control });
+    positive(geometry, ['before', 'after']);
+    assert.ok(geometry.before.x !== geometry.after.x || geometry.before.y !== geometry.after.y, 'the row control moved');
+    assert.equal(geometry.hit, true, 'the second click really hits the moved control');
+    await page.mouse.click(point.x, point.y, { clickCount: 2 });
+    assert.equal(await page.evaluate(() => globalThis.navigationMovedActivations), 0, 'the moved control handler never runs');
+    assert.equal(await page.evaluate(() => location.hash), '', 'a link cannot navigate');
+    await page.evaluate(() => globalThis.navigationMovedTarget.focus({ preventScroll: true }));
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => globalThis.navigationMovedActivations), 1, 'keyboard activation stays available');
   });
   await t.test('same-point double click cannot activate the newly painted card', async () => {
     await reset(390); await pick(false);

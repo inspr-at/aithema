@@ -174,6 +174,27 @@ for (const covers of [true, false]) test(`AIT-501 v2.2: configure blocked snapsh
   f.covering = true; await f.grant();
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, covers, 'exhaustion must clear the intent');
 });
+for (const covers of [true, false]) test(`AIT-501 gate1: verified overview stays normal throughout restored Start backoff, final coverage ${covers}`, async t => {
+  const clock = consentClock(t), f = fixture(t); f.start(); f.covering = false;
+  const snapshot = f.c.session; snapshot.consentRevision++;
+  f.c.remove(); f.configure(document.createElement('aithema-session'), snapshot);
+  const root = f.c.shadowRoot, samples = [];
+  const sample = () => samples.push({ state: root.querySelector('.concept-access').dataset.state,
+    failed: root.querySelector('.concept-access').hasAttribute('data-refresh-failed'),
+    announcement: root.querySelector('.concept-withdrawn').textContent });
+  const observer = new window.MutationObserver(sample);
+  observer.observe(root.querySelector('.concept-access'), { subtree: true, childList: true, attributes: true, characterData: true });
+  t.after(() => observer.disconnect());
+  await tick(); sample();
+  for (const delay of [2000, 4000, 8000]) {
+    if (delay === 8000) f.covering = covers;
+    await clock.next(delay); sample();
+  }
+  assert.equal(root.querySelector('.intro').hidden, covers, 'only a covering grant resumes Start');
+  assert.ok(samples.length >= 4);
+  assert.ok(samples.every(s => s.state !== 'gone' && !s.failed && s.announcement === ''),
+    `a verified consent document must never announce Concept withdrawn: ${JSON.stringify(samples)}`);
+});
 test('AIT-501 v2.2: unrelated refreshes do not settle a pending Start', async t => {
   const f = fixture(t); f.covering = false; f.start();
   // pageshow and a pause acknowledgement both refresh features, without a consent window.
