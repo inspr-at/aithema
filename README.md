@@ -519,8 +519,18 @@ passes those through without changing the displayed strings. The component
 emits `aithema-new-conversation` with `{processingPreset, settings, previousSessionId}`
 when the visitor starts a separate conversation (General tab, or crossing into or
 out of On my device once a conversation has started), and `aithema-consent` with
-`{sessionId, reason, features}` when a choice needs consent; the host's consent
-interface answers it outside the modal dialog.
+`{sessionId, reason, features, intent, mode, required}` when a choice needs consent;
+the host's consent interface answers it outside the modal dialog. The reason values
+are `chooser`, `ready`, `manage` and `settings`. The additive `intent` is `start`
+only for the ready card's Start action; other requests use `review`. `mode` is
+`type` or `voice`; `required` lists the consent-blocked feature needed for that
+mode, while `features` retains the full requested feature list. Start keeps a
+one-use, tab-scoped intent for at most three minutes for typing or 60 seconds for
+voice, bound to the conversation, mode and settings revision. Its stored copy is
+written before the consent event is dispatched and deleted on use or cancellation.
+A covering consent snapshot or refresh resumes typing. Voice resumes only while
+user activation is active; after a navigation to a consent page, voice needs one
+click on "Start call".
 
 A journal `session.erased`, or a snapshot 404 with exactly
 `{error: 'session-not-found'}`, enters the erased state. An exact refusal from

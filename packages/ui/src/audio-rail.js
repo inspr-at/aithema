@@ -330,7 +330,13 @@ export class AudioRail {
     if (result.neutral) { this.waitingCall = null; this.paused = false; this.requiresTakeover = false; this.state = result.state; }
     this.retryAt = voiceRetryAt(error);
     this.render();
-    if (this.state === 'failed') this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+    if (this.state === 'failed' && this.#mayFocus()) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+  }
+  #mayFocus() {
+    const host = this.root.getRootNode().host;
+    let active = this.root.ownerDocument.activeElement;
+    while (active !== host && active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    return !active || active === this.root.ownerDocument.body || active === host || this.root.contains(active);
   }
   async cooldown(until, signal) {
     const deadline = Math.min(until, Date.now() + 60_000);
@@ -391,7 +397,7 @@ export class AudioRail {
       if (this.ownershipWait === wait) this.ownershipWait = null;
     }
   }
-  async start() {
+  async start({ focus = true } = {}) {
     if (this.state === 'connecting' || !this.canContinue() || !this.client) return;
     if (this.moved || this.requiresTakeover) {
       if (this.busy) return;
@@ -430,7 +436,7 @@ export class AudioRail {
     if (this.session) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.timeBoundEnd = false; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
-    this.button('close').focus({ preventScroll: true });
+    if (focus && this.#mayFocus()) this.button('close').focus({ preventScroll: true });
     this.notices.recoveryContext = false; this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
@@ -800,7 +806,7 @@ export class AudioRail {
     // Local hangup keeps the receipt message; only classified failures replace it.
     if (classified?.state === 'idle' && !classified.key && !classified.neutral && session) this.errorKey = 'voiceClosureUncertain';
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
-    if (returnFocus) this.button('start').focus({ preventScroll: true });
+    if (returnFocus && this.#mayFocus()) this.button('start').focus({ preventScroll: true });
     this.onEnd?.();
     const controller = this.controller;
     const closing = (async () => {

@@ -8,6 +8,7 @@ import { startChild } from '../helpers.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 
 import { browserPath } from '../../scripts/install-test-browser.js';
+const browserArgs = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [];
 async function setup(t, settings = {}, server = '../../demo/server.js') {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-start-journey-'));
   const demo = await startChild(new URL(server, import.meta.url), join(directory, 'session.sqlite'), settings);
@@ -15,7 +16,7 @@ async function setup(t, settings = {}, server = '../../demo/server.js') {
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); } });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
     env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
-    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    args: browserArgs });
   const page = await browser.newPage(); page.setDefaultTimeout(30_000);
   const problems = []; page.on('pageerror', error => problems.push(error.message));
   t.after(() => assert.deepEqual(problems, []));
@@ -263,5 +264,155 @@ test('AIT-129: failed and stale saves remain on consent; unsafe return targets g
     await page.goto(`${demo.url}/consent/?session=${id}&return=${encodeURIComponent(destination)}`, { waitUntil: 'domcontentloaded' }); await consentReady(page);
     assert.equal(await page.$eval('[data-back]', a => new URL(a.href).pathname), '/');
     await saveAndReturn(page, '[data-grant]'); assert.equal(page.url(), `${demo.url}/`);
+  }
+});
+
+// A real browser and component, with only fixture consent and voice ports. No autoplay override or fake media flags.
+const startConsentFixture = `<!doctype html><html lang="en"><body><button id="host">Host control</button><script type="module">
+import '/packages/ui/src/session-element.js';
+import {createSession} from '/packages/core/src/session.js';
+import {en} from '/packages/ui/src/i18n/en.js';
+import {voiceEvents} from '/packages/core/src/live-voice.js';
+const mode = new URL(location.href).searchParams.get('mode');
+const saved = sessionStorage.getItem('fixture-session'); sessionStorage.removeItem('fixture-session');
+const session = saved ? JSON.parse(saved) : createSession({demo:true, settings:{origin:'chosen', voice:mode==='voice'?'fixture':'off'}});
+const blocked = {available:false,reason:'current processing consent required'};
+session.featureMatrix = {best:{text:blocked,voice:blocked,analysis:blocked}};
+globalThis.covering = Boolean(saved); globalThis.starts = 0; globalThis.events = [];
+const c = document.createElement('aithema-session'); document.body.append(c);
+c.addEventListener('aithema-consent', e => events.push(e.detail));
+c.configure({copy:en,session, ...(mode==='voice'?{voiceClient:{async start({callId}){
+ starts++; const events=voiceEvents(); return {callId,providerSessionId:'fixture',events,async setInput(){},async setOutput(){},async updateContext(){},async close(){events.end();return {closureConfirmed:true}}};
+}}}:{})});
+globalThis.grant = () => {covering=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
+globalThis.fixtureReady=true;
+</script></body></html>`;
+// Puppeteer's convenience evaluations carry a user gesture. Consent snapshots and
+// asynchronous grants must not manufacture activation for the inactive-voice case.
+async function withoutGesture(page, fn, argument) {
+  const client = await page.createCDPSession();
+  try {
+    const { result, exceptionDetails } = await client.send('Runtime.evaluate', {
+      expression: `(${fn.toString()})(${JSON.stringify(argument) ?? 'undefined'})`,
+      userGesture: false, returnByValue: true, awaitPromise: true,
+    });
+    if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+    return result.value;
+  } finally { await client.detach(); }
+}
+const consentStartState = page => withoutGesture(page, () => {
+  const c = document.querySelector('aithema-session');
+  return { ready: !c.shadowRoot.querySelector('.intro').hidden,
+    focus: c.shadowRoot.activeElement?.className, host: document.activeElement.id, starts: globalThis.starts };
+});
+
+test('AIT-501: consent continuation in the browser, including default gesture policy and navigation', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-start-consent-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  t.after(() => server.kill());
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: browserArgs });
+  t.after(() => browser.close());
+  const checks = [];
+  for (const scenario of ['text', 'voice', 'inactive-voice', 'host-focus', 'host-focus-voice', 'text-navigation', 'voice-navigation', 'review']) {
+    await t.test(scenario, async () => {
+      const page = await browser.newPage();
+      try {
+        await page.setViewport({ width: 390, height: 844 });
+        await page.setRequestInterception(true);
+        page.on('request', request => { void (async () => {
+          const url = new URL(request.url());
+          if (url.pathname === '/start-fixture') return request.respond({ status: 200, contentType: 'text/html', body: startConsentFixture });
+          if (url.pathname.endsWith('/events')) return; // Hold SSE open; reconnects must not add unrelated refreshes.
+          if (url.pathname.startsWith('/api/sessions/')) {
+            const body = await withoutGesture(page, consent => {
+              const c = document.querySelector('aithema-session');
+              if (consent) return { consentRevision: c.session.consentRevision, selected: [], features: {} };
+              const s = c.session;
+              if (globalThis.covering) s.featureMatrix.best = { text: { available: true }, voice: { available: true }, analysis: { available: true } };
+              return s;
+            }, url.pathname.endsWith('/consent'));
+            return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+          }
+          return request.continue();
+        })().catch(error => { checks.push({ interception: error.message }); }); });
+        const mode = scenario.includes('voice') ? 'voice' : 'type', url = `${server.url}/start-fixture?mode=${mode}`;
+        await page.goto(url); await page.waitForFunction(() => globalThis.fixtureReady);
+        await page.click('aithema-session >>> .ready__start');
+        assert.equal(await page.evaluate(() => events.at(-1).intent), 'start');
+        if (scenario === 'review') await page.click('aithema-session >>> .ready__consent');
+        if (scenario.startsWith('host-focus')) await page.click('#host');
+        if (scenario === 'inactive-voice') await withoutGesture(page, async () => {
+          const deadline = performance.now() + 10_000;
+          while (navigator.userActivation.isActive) {
+            if (performance.now() > deadline) throw new Error('fixture activation did not expire');
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        });
+        if (scenario.endsWith('navigation')) {
+          await page.$eval('aithema-session', c => { const s=c.session;s.consentRevision++;sessionStorage.setItem('fixture-session',JSON.stringify(s)); });
+          await page.goto('about:blank'); await page.goto(url); await page.waitForFunction(() => globalThis.fixtureReady);
+        } else {
+          const active = await withoutGesture(page, () => { const active = navigator.userActivation.isActive; grant(); return active; });
+          if (scenario === 'inactive-voice') assert.equal(active, false, 'the host grant must arrive without browser activation');
+        }
+        if (scenario === 'inactive-voice') await withoutGesture(page, async () => {
+          const deadline = performance.now() + 10_000;
+          while (!document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden) {
+            if (performance.now() > deadline) throw new Error('consent continuation did not settle');
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+        });
+        else if (scenario !== 'review') await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden);
+        const result = await consentStartState(page); checks.push({ scenario, ...result });
+        assert.equal(result.ready, scenario === 'review');
+        assert.equal(result.starts, ['voice', 'host-focus-voice'].includes(scenario) ? 1 : 0);
+        if (scenario === 'inactive-voice' || scenario === 'voice-navigation') assert.equal(result.focus, 'voice-start');
+        if (scenario.startsWith('host-focus')) assert.equal(result.host, 'host');
+        if (scenario === 'text' || scenario === 'text-navigation') assert.equal(result.focus, ''); // textarea has no class
+      } finally { await page.close(); }
+    });
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-501-browser.json'), JSON.stringify(checks, null, 2));
+  }
+});
+
+
+test('AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot', { timeout: 120_000 }, async t => {
+  const { page, demo } = await setup(t, { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' }, '../fixtures/no-provider-server.js');
+  const boxes = [];
+  for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: 900 });
+    await page.goto(demo.url); await ready(page);
+    const sessionId = await page.evaluate(async () => {
+      const { sessionKey } = await import('/demo/page-preferences.js');
+      const response = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true, settings: { voice: 'off' } }) });
+      if (!response.ok) throw new Error('fixture session refused');
+      const session = await response.json(); localStorage.setItem(sessionKey, session.id); return session.id;
+    });
+    await page.reload(); await ready(page);
+    assert.equal(await page.$eval('aithema-session', c => c.session.id), sessionId);
+    await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.click('aithema-session >>> .ready__start')]);
+    await consentReady(page); await page.click('[data-select-all]'); await saveAndReturn(page, '[data-grant]');
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.intro').hidden);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('aithema-start-intent')), null);
+    for (const selector of ['.composer', '.composer-dock']) {
+      const box = await page.$eval('aithema-session', (c, selector) => {
+        return c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON();
+      }, selector);
+      boxes.push({ viewport: width, selector, ...box });
+      assert.ok(box.width > 0 && box.height > 0, `${width}: ${selector} must be visible: ${JSON.stringify(box)}`);
+    }
+    await page.reload(); await ready(page);
+    assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.intro').hidden), false, 'reload must not reuse the intent');
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-501-host-return-boxes.json'), JSON.stringify(boxes, null, 2));
   }
 });
