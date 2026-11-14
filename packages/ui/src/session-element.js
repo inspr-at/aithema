@@ -2070,8 +2070,8 @@ export class AithemaSession extends HTMLElement {
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
       : !u.readinessAssessed ? copy.noProjectDetails
-      : stale && this.#session.pauseReason !== 'purpose' ? resolveCopy(copy, 'staleIdle', null, this.#session.locale)
-      : u.draft ? copy.draft : resolveCopy(copy, 'overviewCurrent', null, this.#session.locale);
+      : stale && this.#session.pauseReason !== 'purpose' ? resolveCopy(copy, 'staleIdle', 'stale', this.#session.locale)
+      : u.draft ? copy.draft : resolveCopy(copy, 'overviewCurrent', 'final', this.#session.locale);
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
     notice.setAttribute('aria-label', resolveCopy(copy, 'overviewStatusLabel', null, this.#session.locale));
     // One named status slot keeps every overview state in the same place.

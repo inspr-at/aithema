@@ -1135,9 +1135,11 @@ When a host omits `copy.display.locale`, the component uses the session's active
 locale for these fallbacks, including narrow labels and the close control.
 
 The overview adds `overviewCurrent`, `staleIdle` and `overviewStatusLabel`. These
-brand-new keys use the same resolver and the active locale's shipped defaults when
-an older host bundle omits them. The named status slot keeps its height across
-current, updating and idle states. Only the current revision's understanding lane
+keys use the same resolver and the active locale's shipped defaults when an older
+host bundle omits them. `overviewCurrent` takes over `final`, and `staleIdle` takes
+over the idle `stale` notice: a host's differing legacy override keeps showing unless
+the host supplies a differing new-key override. The named status slot keeps its
+height across current, updating and idle states. Only the current revision's understanding lane
 claims updating; the first status after a typed message has an 18-second barrier,
 then one snapshot GET, with no automatic Retry or paid work.
 
