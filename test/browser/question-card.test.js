@@ -1022,6 +1022,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
   });
   for (const pointerType of ['mouse', 'touch']) await t.test(`${pointerType} two-pixel double tap cannot activate the newly painted card`, async () => {
     await reset(390);
+    await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 80; }); await nextFrame(page);
     const client = await page.createCDPSession();
     try {
       if (pointerType === 'touch') await client.send('Emulation.setTouchEmulationEnabled', { enabled: true });
@@ -1035,6 +1036,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
         } else await page.mouse.click(x, y);
       };
       await tap(point.x, point.y); await acknowledged();
+      assert.ok((await snapshot()).scroll > 80, 'the pick actually moved the transcript');
       await page.evaluate(() => globalThis.navigationFinal());
       if (pointerType === 'mouse') await page.mouse.move(point.x + 2, point.y);
       assert.equal(await shadow(page, (c, point) => Boolean(c.shadowRoot.elementFromPoint(point.x + 2, point.y)?.closest('.qopt')), point), true,
@@ -1047,7 +1049,10 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     } finally { if (pointerType === 'touch') await client.send('Emulation.setTouchEmulationEnabled', { enabled: false }); await client.detach(); }
   });
   for (const control of ['withdraw', 'link', 'read-full']) await t.test(`second click on a moved row ${control} is ignored`, async () => {
-    await reset(390); await pick(false);
+    await reset(390);
+    await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 80; }); await nextFrame(page);
+    await pick(false);
+    assert.ok((await snapshot()).scroll > 80, 'the pick actually moved the transcript');
     const point = await page.evaluate(() => globalThis.navigationClickPoint);
     const geometry = await shadow(page, (c, { point, control }) => {
       const r = c.shadowRoot, row = r.querySelector('.turn:last-child');

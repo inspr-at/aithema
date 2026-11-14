@@ -597,14 +597,16 @@ export class AithemaSession extends HTMLElement {
       // Touch has no resting hover pointer: pointerleave can precede its click.
       if (event.pointerType === 'touch') {
         this.#touchClickPoint = { x: event.clientX, y: event.clientY };
-        queueMicrotask(() => { this.#touchClickPoint = null; });
       }
       const control = event.composedPath().find(node => node.matches?.('button, a[href], input, select, textarea, summary, [role="button"], [role="link"], [tabindex]'));
       if (event.detail > 0 && control?.closest('.transcript-shell, .qcard, .transcript-latest') &&
         this.ownerDocument.defaultView.performance.now() < this.#pointerGuardUntil) {
+        this.#touchClickPoint = null;
         event.preventDefault(); event.stopImmediatePropagation();
       }
     }, { capture: true });
+    // Keep the point through target handlers; native dispatch can run microtasks between listeners.
+    root.addEventListener('click', () => { this.#touchClickPoint = null; });
     for (const name of ['wheel', 'touchstart']) root.addEventListener(name, () => { this.#navigation = null; }, { passive: true, capture: true });
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
@@ -1058,7 +1060,8 @@ export class AithemaSession extends HTMLElement {
     return Boolean(!this.#longReply && (this.#navigation || this.#follow && !this.#onTranscript) && !this.#fold?.folded);
   }
   #beginNavigation() {
-    const point = this.#pointer ?? this.#touchClickPoint;
+    const point = this.#touchClickPoint ?? this.#pointer;
+    this.#touchClickPoint = null;
     this.#navigation = { point: point && { ...point }, userId: null };
     this.#follow = true; this.#longReply = null; this.#tailReply = null;
     const shell = this.shadowRoot.querySelector('.transcript-shell'), before = shell.scrollTop;
