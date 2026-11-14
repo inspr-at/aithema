@@ -107,7 +107,11 @@ test('AIT-504 detached pending elements cannot leak snapshot reads into a later 
 });
 
 for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: deferred work cannot hide a later authoritative overview failure`, () => {
-  const c = setup(copy), revision = inputRevision(c.session);
+  const c = setup(copy);
+  event(c, 'turn.final', { id: 'extra', role: 'user', content: 'More project details' });
+  event(c, 'turn.final', { id: 'extra-reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
+  const revision = inputRevision(c.session);
+  event(c, 'lane.status', { inputRevision: revision, running: [], failures: [], lastFailure: null });
   c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', reason: 'budget reconciling' } });
   assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.stale);
   c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', error: 'reasoning-unavailable' } });
