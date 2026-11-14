@@ -406,19 +406,33 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
     const results = await shadow(page, async (c, locale) => {
       const copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
       const slot = c.shadowRoot.querySelector('.notice'), text = slot.querySelector('.notice-text'), action = c.shadowRoot.querySelector('.overview-retry');
-      slot.append(action); action.hidden = false; action.textContent = copy.understandingRetry;
+      slot.append(action); action.textContent = copy.understandingRetry;
+      // Only failure and stale-idle own an overview Retry. Analysis refusals
+      // cannot co-occur with that action; voice, visuals and uploads never render here.
       const states = Object.fromEntries(['empty', 'stale', 'staleIdle', 'overviewCurrent', 'draft', 'preparingOverview', 'understandingFailed', 'reasoningFailed', 'overviewPendingReply', 'noProjectDetails'].map(key => [key, copy[key]]));
-      Object.assign(states, copy.reasons, { consent: copy.featureConsent.analysis + ' · ' + copy.featureConsent.action });
+      const { BINDING_REASON_CODES } = await import('/packages/core/src/presets.js');
+      const reasons = [...new Set([...BINDING_REASON_CODES, 'not configured', 'unavailable on device', 'plugin not registered',
+        'plugin not in preset', 'preset not configured', 'preset choices invalid', 'unknown preset', 'model not offered',
+        'effort not offered', 'binding invalid', 'plugin binding mismatch', 'plugin kind unsupported', 'operation unsupported',
+        'effort not supported', 'browser only', 'model not supported', 'processing scope invalid',
+        'processing residency unverified', 'processing countries missing', 'recipient seat outside eu', 'processing residency denied',
+        'training policy denied', 'endpoint not allowed', 'invalid mock budget', 'document text not covered by reasoning scope', 'consent port unavailable',
+        'plugin unhealthy', 'admission deadline', 'budget denied', 'verification required'])];
+      const { reasonText } = await import('/packages/ui/src/settings-dialog.js');
+      for (const reason of reasons) states[`analysis: ${reason}`] = reasonText(copy, reason, 'analysis');
+      // Reconciliation and pauses preserve a cached assessment. Their visible
+      // status is stale/current/draft above, rather than the unavailable reason.
+
       const results = [];
       for (const [key, value] of Object.entries(states)) {
-        text.textContent = value;
+        text.textContent = value; action.hidden = !['staleIdle', 'understandingFailed'].includes(key);
         const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect();
-        results.push({ key, value, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
+        results.push({ key, value, hasAction: !action.hidden, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
           textScrollHeight: text.scrollHeight, textClientHeight: text.clientHeight, textClientWidth: text.clientWidth, actionWidth: a.width, actionHeight: a.height, actionBottom: a.bottom - b.top });
       }
-      text.textContent = 'Long host override '.repeat(100);
+      text.textContent = 'Long host override '.repeat(100); action.hidden = false;
       const actionBox = action.getBoundingClientRect();
-      results.push({ key: 'host override', fullText: text.textContent, clamped: text.scrollHeight > text.clientHeight,
+      results.push({ key: 'host override', hasAction: true, fullText: text.textContent, clamped: text.scrollHeight > text.clientHeight,
         width: slot.getBoundingClientRect().width, height: slot.getBoundingClientRect().height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
         textClientWidth: text.clientWidth, textClientHeight: text.clientHeight, actionWidth: actionBox.width, actionHeight: actionBox.height, actionBottom: actionBox.bottom - slot.getBoundingClientRect().top });
       return results;
@@ -426,12 +440,12 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
     for (const state of results) {
       assert.ok(state.width > 0 && state.height > 0, 'visible positive slot');
       assert.ok(state.textClientWidth > 0 && state.textClientHeight > 0, 'visible positive text box');
-      assert.ok(state.actionWidth > 0 && state.actionHeight > 0, 'visible positive action box');
+      if (state.hasAction) assert.ok(state.actionWidth > 0 && state.actionHeight > 0, 'visible positive action box');
       assert.equal(state.height, results[0].height, 'every state keeps exactly the same height');
       assert.ok(state.scrollHeight <= state.clientHeight, `${locale}/${width}/${state.key}: slot content fits`);
       if (state.key !== 'host override') {
         assert.ok(state.textScrollHeight <= state.textClientHeight, `${locale}/${width}/${state.key}: shipped text is not clamped`);
-        assert.ok(state.actionBottom <= state.height, 'action stays within slot');
+        if (state.hasAction) assert.ok(state.actionBottom <= state.height, 'action stays within slot');
       } else { assert.equal(state.clamped, true); assert.ok(state.fullText.length > 1000, 'full override remains in the accessible DOM'); }
       records.push({ locale, width, ...state });
     }
