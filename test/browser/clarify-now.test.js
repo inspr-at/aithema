@@ -295,7 +295,8 @@ test('AIT-504 RC24: constant overview slot, positive boxes and five consecutive 
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await setupOverviewFixture(page, locale, theme);
     const baseline = await overviewGeometry(page);
-    const visible = await shadow(page, c => { const n = c.shadowRoot.querySelector('.notice').getBoundingClientRect(), p = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(); return { top: n.top - p.top, bottom: p.bottom - n.bottom }; });
+    const visible = await shadow(page, c => { const n = c.shadowRoot.querySelector('.notice').getBoundingClientRect(), p = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(); return { top: n.top - p.top, bottom: p.bottom - n.bottom, slotWidth: n.width, slotHeight: n.height, paneWidth: p.width, paneHeight: p.height }; });
+    assert.ok(visible.slotWidth > 0 && visible.slotHeight > 0 && visible.paneWidth > 0 && visible.paneHeight > 0, 'status and scroll pane have positive boxes');
     assert.ok(visible.top >= 0 && visible.bottom >= 0, `${locale}/${theme}/${width}: status is inside its visible scroll pane`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice-text').textContent), locale === 'en' ? 'Up to date' : 'Auf dem neuesten Stand');
     for (const state of ['pending', 'updating', 'idle', 'current']) {
@@ -413,15 +414,19 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
         text.textContent = value;
         const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect();
         results.push({ key, value, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
-          textScrollHeight: text.scrollHeight, textClientHeight: text.clientHeight, actionBottom: a.bottom - b.top });
+          textScrollHeight: text.scrollHeight, textClientHeight: text.clientHeight, textClientWidth: text.clientWidth, actionWidth: a.width, actionHeight: a.height, actionBottom: a.bottom - b.top });
       }
       text.textContent = 'Long host override '.repeat(100);
+      const actionBox = action.getBoundingClientRect();
       results.push({ key: 'host override', fullText: text.textContent, clamped: text.scrollHeight > text.clientHeight,
-        width: slot.getBoundingClientRect().width, height: slot.getBoundingClientRect().height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight });
+        width: slot.getBoundingClientRect().width, height: slot.getBoundingClientRect().height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
+        textClientWidth: text.clientWidth, textClientHeight: text.clientHeight, actionWidth: actionBox.width, actionHeight: actionBox.height, actionBottom: actionBox.bottom - slot.getBoundingClientRect().top });
       return results;
     }, locale);
     for (const state of results) {
       assert.ok(state.width > 0 && state.height > 0, 'visible positive slot');
+      assert.ok(state.textClientWidth > 0 && state.textClientHeight > 0, 'visible positive text box');
+      assert.ok(state.actionWidth > 0 && state.actionHeight > 0, 'visible positive action box');
       assert.equal(state.height, results[0].height, 'every state keeps exactly the same height');
       assert.ok(state.scrollHeight <= state.clientHeight, `${locale}/${width}/${state.key}: slot content fits`);
       if (state.key !== 'host override') {

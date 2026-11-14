@@ -116,6 +116,13 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
           await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
         }
       }
+      // The SSE stub has completed the mocked replies. Report the server's
+      // idle status before checking that a purpose pause retains settled content.
+      await shadow(page, async c => {
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
+      });
+      await frame(page);
       const overview = await shadow(page, c => c.shadowRoot.querySelector('.analysis-content').textContent);
       await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } })); await frame(page);
       assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send']), baseline, `${label} pause: 0 px shift`);

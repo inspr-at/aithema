@@ -1456,6 +1456,20 @@ export class AithemaSession extends HTMLElement {
     this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId: this.#session.id, reason, features: [...features] },
       bubbles: true, composed: true }));
   }
+  // Apply a journal snapshot without opening a stream or scheduling any work.
+  // Gap recovery and the bounded status read must restore the same projection.
+  #applySnapshot(session) {
+    // Accepted snapshots fence older responses to concurrent restores.
+    this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
+    const before = this.#session;
+    this.#session = session; this.#cursor = session.seq; this.#featureRead = null;
+    this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
+    this.#restoreVoiceEffects(before); this.#repaintLocale();
+    this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session);
+    this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
+    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
+    this.#host?.updateStreaming();
+  }
   #clearLaneStatusPending() {
     clearTimeout(this.#laneStatusTimer); this.#laneStatusTimer = null; this.#laneStatusPending = null; this.#laneStatusRead = null;
   }
@@ -3263,20 +3277,6 @@ export class AithemaSession extends HTMLElement {
       if (this.#erased) return;
       if (!controller.signal.aborted && sessionId === this.#session.id && this.isConnected) this.#connect();
     }
-  }
-  // Apply a journal snapshot without opening a stream or scheduling any work.
-  // Gap recovery and the bounded status read must restore the same projection.
-  #applySnapshot(session) {
-    // Accepted snapshots fence older responses to concurrent restores.
-    this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
-    const before = this.#session;
-    this.#session = session; this.#cursor = session.seq; this.#featureRead = null;
-    this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
-    this.#restoreVoiceEffects(before); this.#repaintLocale();
-    this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session);
-    this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
-    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
-    this.#host?.updateStreaming();
   }
   #connect() {
     if (this.#erased) return;
