@@ -362,6 +362,7 @@ export const de = {
   understandingFailed: 'Der Überblick konnte gerade nicht erstellt werden', understandingRetry: 'Erneut versuchen',
   reasoningFailed: 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.', empty: 'Nach dem ersten Satz entsteht hier Ihr Überblick.', noProjectDetails: 'Noch keine Angaben zu Ihrem Vorhaben.', overviewPendingReply: 'Der Überblick folgt, sobald die Antwort da ist.', preparingOverview: 'Ihr Überblick wird erstellt …',
   draft: 'Erste Fassung. Die gründliche Auswertung läuft noch.', stale: 'Neue Angaben erkannt. Die Auswertung wird aktualisiert …',
+  overviewCurrent: 'Auf dem neuesten Stand', staleIdle: 'Der letzte Stand des Überblicks wird angezeigt.', overviewStatusLabel: 'Überblickstatus',
   final: 'Aktuelle Einschätzung', notAssessed: 'Noch nicht bewertet', talk: 'Gespräch', build: 'Umsetzung',
   talkProgress: '{percent} % Gesprächsbereitschaft', buildProgress: '{percent} % Umsetzungsbereitschaft',
   more: '{count} weitere offene Punkte', none: 'Keine', noneYet: 'Noch keine', evidence: 'Beleg', transcriptLatest: 'Neue Nachrichten unten',

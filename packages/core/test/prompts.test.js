@@ -87,3 +87,18 @@ for (const [locale, language, answer] of [
     });
   }
 }
+
+for (const locale of ['en', 'de']) for (const draft of [false, true]) {
+  test(`AIT-503 ${locale} ${draft ? 'draft' : 'final'} understanding reconciliation prompt snapshot`, () => {
+    const session = core.createSession({ locale });
+    const { system } = core.reasoningRequest(session, 'understanding', draft);
+    const expected = `Reconcile every prior open question against all later visitor answers in the canonical transcript.
+Drop answered questions; reword partly answered questions to ask only what is still open. Keep genuinely ambiguous questions.
+Address the visitor directly in visitor-facing question text: use "you" in English and "Sie" in German, never "the person".`;
+    const start = system.indexOf('Reconcile every prior open question');
+    assert.notEqual(start, -1, 'understanding needs its own reconciliation rule');
+    assert.equal(system.slice(start, start + expected.length), expected);
+    assert.match(system, /Return the requested structured read-back/u);
+    assert.doesNotMatch(system, /Never open formulaically/u);
+  });
+}

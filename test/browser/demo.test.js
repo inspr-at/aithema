@@ -242,7 +242,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(saved.status(), 200, 'The keyboard shortcut must send the person turn');
         await waitForShadow(page, 'ol li.user span', { text: content });
         await waitForShadow(page, 'aside .summary-text', { text: content });
-        await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+        await waitForShadow(page, 'aside .notice[data-current]');
         await waitForShadow(page, 'ol li:not(.user) span', { text: 'What should improve first?' });
 
         smokeStep = 'settings preset';
@@ -683,7 +683,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await sendTurn(page, 'We are a bakery and want a pre-order app for our customers.');
-    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' }); await revealed(page);
+    await waitForShadow(page, 'aside .notice[data-current]'); await revealed(page);
 
     // D7: window blur alone never pauses the call or the session.
     await startCall(page);
@@ -784,7 +784,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
     assert.equal(await inShadow(german, c => c.session.featureMatrix.best.text.available), true);
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: wir hosten selbst; Daten: nur intern');
-    await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
+    await waitForShadow(german, 'aside .notice[data-current]');
     assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
     assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
     // AIT-118: the header names the active visual kind (clickable drafts by default), never the image label.
@@ -1224,7 +1224,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     // The mock's slot-filling turn earns the first milestone, so the request renders at once.
     await sendTurn(page, `We are a bakery and want a pre-order app. ${content}`);
-    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' }); await revealed(page);
+    await waitForShadow(page, 'aside .notice[data-current]'); await revealed(page);
 
     // Request: the rail says what happens in plain words and nothing moves under the pointer.
     const requestBefore = await rest(page, '.concept-request');
@@ -1346,7 +1346,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await german.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(german, '.composer textarea');
     await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
-    await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
+    await waitForShadow(german, 'aside .notice[data-current]');
     assert.equal(await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').textContent), de.display.draftsOn.replace('{credits}', '0'));
     await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').click());
     await waitForShadow(german, '.concept-activity-text', { text: 'Fassung 1 des Entwurfs ist fertig.' });
@@ -1421,7 +1421,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
 
     await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
-    await waitForShadow(page, 'aside .notice', { text: 'Aktuelle Einschätzung' }); await revealed(page);
+    await waitForShadow(page, 'aside .notice[data-current]'); await revealed(page);
     const firstRevision = await inShadow(page, c => c.session.understanding.inputRevision);
 
     // Record every chip state as it renders, so a fast extraction still shows its pending state.
@@ -1476,7 +1476,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     // The understanding refreshes for the new input revision.
     await until(page, async () => {
       const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
-      return c.session.understanding.inputRevision === inputRevision(c.session) && c.shadowRoot.querySelector('aside .notice').textContent === 'Aktuelle Einschätzung';
+      return c.session.understanding.inputRevision === inputRevision(c.session) && c.shadowRoot.querySelector('aside .notice').hasAttribute('data-current');
     });
     assert.notEqual(await inShadow(page, c => c.session.understanding.inputRevision), firstRevision);
     await page.mouse.move(0, 0); await shot(page, 'de-light-1440-accepted');
@@ -1533,7 +1533,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.equal(await inShadow(page, c => c.session.uploads.some(u => u.filename === 'notizen.txt')), false);
     await until(page, async () => {
       const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
-      return c.session.understanding.inputRevision === inputRevision(c.session) && c.shadowRoot.querySelector('aside .notice').textContent === 'Aktuelle Einschätzung';
+      return c.session.understanding.inputRevision === inputRevision(c.session) && c.shadowRoot.querySelector('aside .notice').hasAttribute('data-current');
     });
     await page.mouse.move(0, 0); await shot(page, 'de-light-1440-withdrawn');
 

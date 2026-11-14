@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 import { startChild } from '../helpers.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
 
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
@@ -163,7 +165,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     assert.equal(response.status(), 202);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.deepEqual(await boxes(page, targets), before, 'next success causes 0 px surrounding displacement');
     assert.equal(await shadow(page, c => c === window.fixtureComponent), true);
     const pass = { head: evidenceCommit, locale, width, verdict, visitorCharge: 0, layoutShiftPx: 0, recoveredWithoutReload: true, pass: true };
@@ -373,8 +375,9 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     const creditsAfterFailure = await credits();
     const failedAttempt = before.attempts.at(-1);
     assert.equal(failedAttempt.state, 'settled');
+    // AIT-503 adds 358 serialized prompt bytes at this fake's one-microdollar input rate.
     if (kind === '400') assert.equal(failedAttempt.settled_micro, 0, 'fully received 4xx without usage settles at zero');
-    else assert.equal(failedAttempt.settled_micro, kind === 'failed' ? 100_000 : locale === 'de' ? 802_567 : 802_568, 'exact usage or conservative provider settlement');
+    else assert.equal(failedAttempt.settled_micro, kind === 'failed' ? 100_000 : locale === 'de' ? 802_925 : 802_926, 'exact usage or conservative provider settlement');
     // Restart real handlers and reopen SQLite before the client reconnects.
     await page.evaluate(() => fetch('/restart'));
     // A healthy fake on reconnect makes a silent rerun finish deterministically.
@@ -563,7 +566,7 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     assert.equal(statsAfter.attempts.length, statsBefore.attempts.length + 2);
     assert.ok(statsAfter.attempts.slice(-2).every(attempt => attempt.state === 'settled'));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure').hidden), true);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.create-project')).visibility), 'visible', 'recovered overview can become a project');
     assert.deepEqual(await boxes(page, targets), before, 'both successful lanes settle in place at exactly 0 px');
     await capture(locale, width, theme, 'recovered');
@@ -622,14 +625,15 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     }
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')), shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);
     assert.equal(response.status(), 202);
-    const preparing = locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …';
-    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === text, preparing);
+    await until(page, () => document.querySelector('aithema-session').session.operations.running.includes('understanding'));
+    const updating = locale === 'de' ? de.preparingOverview : en.preparingOverview;
+    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === text, updating);
     await settle(page);
-    assert.deepEqual(await boxes(page, targets), before, 'preparing after successful reply shifts 0 px');
+    assert.deepEqual(await boxes(page, targets), before, 'updating after successful reply shifts 0 px');
     await page.evaluate(() => fetch('/settle?verdict=success'));
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment', 'normal overview copy after assessment');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date', 'normal overview copy after assessment');
     assert.deepEqual(await boxes(page, targets), before, 'assessment shifts 0 px');
     const pass = { head: evidenceCommit, locale, width, theme: 'light', notice: expected, occurrences: 1, retries: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true };
     passes.push(pass);

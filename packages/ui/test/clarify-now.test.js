@@ -6,6 +6,7 @@ import { voiceEvents } from '../../core/src/live-voice.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { clarifyRefusals } from '../../../test/clarify-refusals.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -239,4 +240,117 @@ test('final reply-in-flight refusal with no running reply returns to rest immedi
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[0].id), { reason: 'reply-in-flight' });
   assert.equal(f.rows()[0].dataset.state, 'rest');
   assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
+});
+
+for (const row of clarifyRefusals) test(`AIT-503 UI refusal branch and value-free diagnostic: ${row.name}`, async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => Response.json(row.body, { status: row.status }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), { status: row.status });
+  assert.equal(f.rows()[1].dataset.state, row.branch === 'generic' ? 'rest' : 'refused');
+  if (row.branch === 'generic') assert.equal(f.root.querySelector('.status__label').textContent, en.reasoningFailed);
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: row.status, error: row.body.error, reason: row.body.reason,
+    admissionReason: row.body.admissionReason ?? null, accepted: false, acceptedThenLaneFailed: false,
+  }]]);
+  assert.equal(f.c.session.transcript.length, 2, 'diagnostics add no conversation content or turns');
+});
+
+test('AIT-503 accepted then lane.failed diagnostic distinguishes failure from immediate refusal', async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  assert.deepEqual(warnings, []);
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', inputRevision: inputRevision(f.c.session), error: 'reasoning-unavailable', retryable: true } });
+  assert.equal(f.rows()[1].dataset.state, 'retry');
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: 202, error: 'reasoning-unavailable', reason: null, admissionReason: null,
+    accepted: true, acceptedThenLaneFailed: true,
+  }]]);
+  f.lane([], [{ lane: 'reaction', error: 'reasoning-unavailable', retryable: true }]);
+  assert.equal(warnings.length, 1, 'status replay does not repeat the diagnostic');
+});
+
+test('AIT-503 lane failure before HTTP acceptance does not claim an earlier 202', async t => {
+  const f = fixture(t), warnings = [], pending = Promise.withResolvers();
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  const accepted = f.accept(); f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.c.receive(accepted.event);
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', inputRevision: inputRevision(f.c.session), error: 'reasoning-unavailable', retryable: true } });
+  pending.resolve(Response.json(accepted, { status: 202 })); await request;
+  assert.equal(f.rows()[1].dataset.state, 'retry');
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: null, error: 'reasoning-unavailable', reason: null, admissionReason: null,
+    accepted: false, acceptedThenLaneFailed: false,
+  }]]);
+});
+
+test('AIT-503 local busy refusal stays quiet without another request', async t => {
+  const f = fixture(t), warnings = [], pending = Promise.withResolvers();
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[0].id), { reason: 'reply-in-flight' });
+  pending.resolve(Response.json(f.accept(), { status: 202 })); await request;
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(warnings, []);
+});
+
+test('AIT-503 diagnostic excludes arbitrary server strings, transport messages and conversation data', async t => {
+  const f = fixture(t), warnings = [], content = 'synthetic conversation content must stay private';
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => Response.json({ error: content, reason: content, admissionReason: content, question: content }, { status: 500 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  f.post(() => { throw new Error(content); });
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.equal(warnings.length, 2);
+  assert.equal(JSON.stringify(warnings).includes(content), false);
+  assert.equal(JSON.stringify(warnings).includes('Who approves invoices?'), false);
+  assert.deepEqual(warnings.map(args => args[1]), [
+    { status: 500, error: 'unclassified', reason: 'unclassified', admissionReason: 'unclassified', accepted: false, acceptedThenLaneFailed: false },
+    { status: null, error: null, reason: null, admissionReason: null, accepted: false, acceptedThenLaneFailed: false },
+  ]);
+});
+
+test('AIT-503 rejected selected-item retry keeps its row branch and records HTTP status', async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', inputRevision: inputRevision(f.c.session), error: 'reasoning-unavailable', retryable: true } });
+  warnings.length = 0;
+  f.post(() => Response.json({ error: 'focus-refused', reason: 'not-admitted', admissionReason: 'budget reconciling' }, { status: 403 }));
+  f.button(1).click(); await tick();
+  assert.equal(f.rows()[1].dataset.state, 'retry');
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: 403, error: 'focus-refused', reason: 'not-admitted', admissionReason: 'budget reconciling',
+    accepted: false, acceptedThenLaneFailed: false,
+  }]]);
+});
+
+test('AIT-503 malformed accepted JSON preserves observed 202 without claiming lane.failed', async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  f.post(() => new Response('{', { status: 202, headers: { 'content-type': 'application/json' } }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: 202, error: null, reason: null, admissionReason: null, accepted: true, acceptedThenLaneFailed: false,
+  }]]);
+});
+
+for (const index of [0, 1]) test(`AIT-503 SSE-only focus ${index} never inherits an earlier local 202`, async t => {
+  const f = fixture(t), warnings = [];
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  await firstReply(f);
+  const item = f.c.openQuestionItems[index];
+  f.event('question.focused', { question: item.question, questionId: item.id, requestId: 'peer-focus',
+    chosenBy: 'user', inputRevision: inputRevision(f.c.session) });
+  f.c.receive({ type: 'lane.failed', data: { lane: 'reaction', inputRevision: inputRevision(f.c.session), error: 'reasoning-unavailable', retryable: true } });
+  assert.equal(f.calls.length, 1, 'this UI observed only the older local request');
+  assert.deepEqual(warnings, [['Aithema: clarify refusal', {
+    status: null, error: 'reasoning-unavailable', reason: null, admissionReason: null,
+    accepted: false, acceptedThenLaneFailed: false,
+  }]]);
 });

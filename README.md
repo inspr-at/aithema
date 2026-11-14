@@ -1134,6 +1134,29 @@ value, then the active locale's shipped text, then English, and never render emp
 When a host omits `copy.display.locale`, the component uses the session's active
 locale for these fallbacks, including narrow labels and the close control.
 
+The overview adds `overviewCurrent`, `staleIdle` and `overviewStatusLabel`. These
+keys use the same resolver and the active locale's shipped defaults when an older
+host bundle omits them. `overviewCurrent` takes over `final`: a host's differing
+legacy override keeps showing unless the host supplies a differing new-key override.
+`staleIdle` is a brand-new key with no legacy fallback; `stale` remains the Updating
+role. `preparingOverview` and `draft` retain their existing roles. The named status
+slot reserves three text lines and one action line at every state; shipped EN/DE
+text fits at 390 px. Longer host text is visually clamped, with its full text kept
+in the accessible live region. A current revision's reply that still owes an
+assessment keeps Updating through the reaction-first/understanding-later handoff,
+with one announcement. Pending status has an 18-second barrier followed by one
+snapshot GET with a two-second deadline, with no automatic Retry, reconnect or
+paid work. A same-sequence snapshot updates operations only; an ahead snapshot
+restores the complete journal
+projection, including partial text, voice, locale, pause and settings. Queued
+stream fragments cannot reopen a finalized turn.
+
+Clarify diagnostics use `console.warn('Aithema: clarify refusal', fields)` for
+backend refusals, transport errors and accepted commands whose reply lane fails.
+The routine local reply-in-flight guard stays quiet. Fields are limited to the
+HTTP status, allowlisted error/reason/admissionReason codes, `accepted` and
+`acceptedThenLaneFailed`; arbitrary strings and conversation content are excluded.
+
 The existing **Retry call** label remains. Time-bound ends use neutral colour. Failed
 messages have a separate close control; Escape dismisses only while focus is inside
 the rail. There is no close control in the phone's 36 px status row; Retry, a typed

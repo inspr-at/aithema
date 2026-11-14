@@ -52,7 +52,7 @@ test('readiness/aside uses draft truth, five missing rows plus overflow and pres
   const details = root.querySelector('details'); details.open = true;
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   assert.equal(root.querySelector('details'), details); assert.equal(details.open, true);
-  assert.equal(root.querySelector('.summary-text script'), null); assert.equal(root.querySelector('.notice').textContent, en.final);
+  assert.equal(root.querySelector('.summary-text script'), null); assert.equal(root.querySelector('.notice').textContent, en.overviewCurrent);
   assert.equal(root.querySelector('.notice').hasAttribute('data-current'), true);
   assert.equal(root.querySelector('.summary').getAttribute('aria-labelledby'), 'summary-title');
   assert.equal(root.querySelector('#summary-title').textContent, en.summary);
@@ -1128,7 +1128,7 @@ for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpos
   assert.equal(root.querySelector('.summary-text').textContent, summary);
 });
 
-for (const copy of [de, en]) for (const draft of [false, true]) test(`AIT-197 R4 ${copy.display.locale}: running analysis preserves ${draft ? 'draft' : 'stale'} assessment`, () => {
+for (const copy of [de, en]) for (const draft of [false, true]) test(`AIT-504 ${copy.display.locale}: running analysis preserves assessment content and shows updating`, () => {
   const c = setup(); turn(c, 'first', 'We need a website.');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   turn(c, 'second', 'For our customers.');
