@@ -535,3 +535,52 @@ test('AIT-504 follow-up: long host consent keeps its action visible, focusable a
     assert.ok(result.accessibleText.includes(result.fullText), 'full override remains the action’s accessible description');
   }
 });
+
+
+test('AIT-504 follow-up: capture every overview state for the release design check', { timeout: 180_000 }, async t => {
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (!evidence) return t.skip('release screenshots need an evidence destination');
+  const page = await followupPage(t), records = [];
+  const shots = join(evidence, 'shots'); await mkdir(shots, { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    for (const state of ['empty', 'current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'long-consent', 'paused', 'reconciling']) {
+      await setupOverviewFixture(page, locale, theme);
+      await shadow(page, async (c, locale, state) => {
+        let copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
+        const session = c.session, u = session.understanding, ops = session.operations;
+        const failures = lanes => { ops.failures = lanes.map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true })); ops.lastFailure = ops.failures.at(-1); };
+        if (state === 'empty') session.transcript = [];
+        if (['updating', 'idle', 'reconciling'].includes(state)) u.inputRevision = 'older';
+        if (state === 'updating') ops.running = ['understanding'];
+        if (state === 'draft') { u.draft = true; ops.running = ['understanding']; }
+        if (state === 'preparing') { u.readinessAssessed = false; ops.running = ['understanding']; }
+        if (state === 'failed') failures(['understanding']);
+        if (state === 'both-failed') failures(['reaction', 'understanding']);
+        if (state === 'reply-pending') { u.readinessAssessed = false; session.transcript.pop(); failures(['reaction']); }
+        if (state === 'no-details') u.readinessAssessed = false;
+        if (state === 'unavailable') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: 'admission deadline' }; }
+        if (state === 'consent' || state === 'long-consent') {
+          session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+          if (state === 'long-consent') copy = { ...copy, featureConsent: { ...copy.featureConsent, analysis: (locale === 'de' ? 'Lange Einwilligung des Hosts. ' : 'Long consent from a host. ').repeat(80) } };
+        }
+        if (state === 'paused') session.paused = true;
+        if (state === 'reconciling') session.featureMatrix.best.analysis = { available: false, reason: 'budget reconciling' };
+        c.configure({ copy, session });
+      }, locale, state);
+      await settle(page);
+      await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start', behavior: 'instant' }); });
+      await settle(page);
+      const record = await shadow(page, c => {
+        const slot = c.shadowRoot.querySelector('.notice'), box = slot.getBoundingClientRect();
+        return { text: slot.textContent, width: box.width, height: box.height };
+      });
+      assert.ok(record.width > 0 && record.height > 0, `${locale}/${theme}/${width}/${state}: visible slot`);
+      assert.ok(record.text.trim(), 'the overview slot is never empty');
+      const path = `shots/overview-${locale}-${theme}-${width}-${state}.png`;
+      await page.screenshot({ path: join(evidence, path), fullPage: false });
+      records.push({ locale, theme, width, state, path, ...record });
+    }
+  }
+  await writeFile(join(evidence, 'overview-screenshots.json'), JSON.stringify(records, null, 2));
+});

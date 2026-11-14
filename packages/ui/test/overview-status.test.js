@@ -337,7 +337,7 @@ test('AIT-504 ahead snapshot fences a superseded mid-reply settings revision wit
   // The stream stalls before the settings event. The server cancels this reply
   // without a final and the bounded GET sees the settings change first.
   const settingsEvent = { seq: c.session.seq + 1, type: 'settings.changed', data: {
-    settings: { ...c.session.settings, revision: settingsRevision + 1, model: 'replacement-model' },
+    processingPreset: c.session.processingPreset, settings: { ...c.session.settings, revision: settingsRevision + 1, model: 'replacement-model' },
   } };
   snapshot = applyEvent(c.session, settingsEvent);
   snapshot.operations = { inputRevision: inputRevision(snapshot), running: [], failures: [], lastFailure: null };
