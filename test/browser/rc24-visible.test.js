@@ -58,7 +58,7 @@ test('AIT-504 RC24: constant overview slot, positive boxes and five consecutive 
     for (const state of ['pending', 'updating', 'idle', 'current']) {
       await shadow(page, async (c, state) => {
         const { inputRevision } = await import('/packages/core/src/session.js');
-        const emit = (type, data) => c.receive({ seq: c.session.seq + 1, type, data, at: new Date().toISOString() });
+        const emit = (type, data) => c.receive({ ...(type === 'lane.status' ? {} : { seq: c.session.seq + 1 }), type, data, at: new Date().toISOString() });
         if (state === 'pending') { emit('turn.final', { id: 'next', role: 'user', content: 'Another detail' }); emit('turn.final', { id: 'next-reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) }); }
         else if (state === 'current') emit('understanding.updated', { ...c.session.understanding, inputRevision: inputRevision(c.session) });
         if (state !== 'pending') emit('lane.status', { inputRevision: inputRevision(c.session), running: state === 'updating' ? ['understanding'] : [], failures: [], lastFailure: null });
@@ -70,7 +70,7 @@ test('AIT-504 RC24: constant overview slot, positive boxes and five consecutive 
       const result = await shadow(page, async (c, i) => {
         window.rc24Now += 1000;
         const { inputRevision } = await import('/packages/core/src/session.js');
-        const emit = (type, data) => c.receive({ seq: c.session.seq + 1, type, data, at: new Date().toISOString() });
+        const emit = (type, data) => c.receive({ ...(type === 'lane.status' ? {} : { seq: c.session.seq + 1 }), type, data, at: new Date().toISOString() });
         emit('turn.final', { id: `answer-${i}`, role: 'user', content: `Answer ${i}` });
         emit('lane.status', { inputRevision: inputRevision(c.session), running: ['reaction', 'understanding'], failures: [], lastFailure: null });
         emit('turn.final', { id: `reply-${i}`, role: 'assistant', content: 'Thank you', inputRevision: inputRevision(c.session) });

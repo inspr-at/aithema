@@ -16,7 +16,7 @@ function setup(copy) {
   session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
   const c = document.createElement('aithema-session'); c.configure({ copy, session }); return c;
 }
-function event(c, type, data) { c.receive({ seq: c.session.seq + 1, type, data }); }
+function event(c, type, data) { c.receive({ ...(type === 'lane.status' ? {} : { seq: c.session.seq + 1 }), type, data }); }
 for (const [copy, current, idle] of [[en, 'Up to date', 'Showing the latest overview.'], [de, 'Auf dem neuesten Stand', 'Der letzte Stand des Überblicks wird angezeigt.']]) {
   test(`AIT-504 ${copy.display.locale}: named slot is current, pending, understanding-only running, then idle with Retry`, () => {
     const c = setup(copy), root = c.shadowRoot, notice = root.querySelector('.notice');
