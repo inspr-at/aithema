@@ -10,6 +10,8 @@ import audit from '../fixtures/consent-copy-audit.json' with { type: 'json' };
 import { comparePhoneConsentBase } from '../consent-base-comparison.js';
 import { CONSENT_ITEMS } from '../../demo/processing-consent.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
 
 const features = { uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
@@ -212,7 +214,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
       overview: c.shadowRoot.querySelector('.notice').textContent }));
     assert.equal(saved.sameDocument, true); assert.equal(saved.sameNodes, true); assert.equal(saved.consentLines, 0);
     const copyEmpty = await page.evaluate(async locale => (await import(`/packages/ui/src/i18n/${locale}.js`))[locale].empty, locale);
-    assert.equal(saved.overview, locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …', 'a person turn never shows the first-sentence placeholder');
+    assert.equal(saved.overview, locale === 'de' ? de.stale : en.stale, 'a person turn never shows the first-sentence placeholder');
     assert.notEqual(saved.overview, copyEmpty);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true, 'running analysis has no bare retry');
     await record(t, page, label + '-saved', { ...saved, shiftPx: 0 });
@@ -335,7 +337,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await page.keyboard.press('Space'); await page.locator('aithema-session >>> .consent-save').click();
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …', 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.stale, 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…', 'drafts keep their separate refusal');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
@@ -430,7 +432,7 @@ test('AIT-197 R2 A and real save: consent starts overview and missing reply exac
   const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));
   assert.deepEqual(stats, { reaction: 1, understanding: 1 }, 'both pending lanes start once without a retry click');
   assert.equal(posts, 1); assert.equal(retries, 0);
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.stale);
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true);
   assert.equal(await shadow(page, c => globalThis.r2Nodes.every(n => n.isConnected)), true);
   assert.deepEqual(await boxes(page, geometry), before, 'real consent.revised invalidation shifts 0 px');
@@ -542,7 +544,7 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
     // Park it outside controls so the viewport evidence has no incidental tooltip.
     await page.mouse.move(1, 1); await frame(page);
     const notice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
-    assert.equal(notice, project ? locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …' : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
+    assert.equal(notice, project ? locale === 'de' ? de.stale : en.stale : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
     assert.deepEqual(await boxes(page, geometry), before, 'paused real consent save shifts 0 px');
     assert.equal(posts, 1); assert.equal(retries, 0);
     const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));

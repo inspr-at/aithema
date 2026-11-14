@@ -2060,10 +2060,10 @@ export class AithemaSession extends HTMLElement {
     aside.dataset.overview = currentOverview ? 'current' : 'unavailable';
     const create = root.querySelector('.create-project');
     if (create) create.inert = !currentOverview || this.#session.processingPreset === 'device';
-    const updatingOverview = analysisRunning || this.#laneStatusPending === revision ||
-      !this.#failure && (!u.readinessAssessed || stale || u.draft) &&
-      (this.#deferredAnalysis === revision || this.#analysisRecovery === revision);
-    const idleOverview = hasPersonTurn && u.readinessAssessed && stale && !updatingOverview && !failedOverview && !this.#failure;
+    // Local deferral is eligibility, not proof that an understanding job exists.
+    const updatingOverview = analysisRunning || this.#laneStatusPending === revision;
+    const idleOverview = hasPersonTurn && u.readinessAssessed && stale &&
+      !consentMissing && (analysis.available || cached) && !updatingOverview && !failedOverview && !this.#failure;
     const overviewText = !hasPersonTurn ? copy.empty : updatingOverview ? copy.stale : preparing ? copy.preparingOverview
       : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : reasonSeparator}`
       : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
