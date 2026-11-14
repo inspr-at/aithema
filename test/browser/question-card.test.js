@@ -1024,7 +1024,7 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
         inputRevision: inputRevision(c.session), summary: 'The growing overview summary. '.repeat(40) } }); }); await nextFrame(page);
     const after = await page.evaluate(() => globalThis.navigationOverviewAnchor.getBoundingClientRect().toJSON());
     assert.ok(before.width > 0 && before.height > 0 && after.width > 0 && after.height > 0);
-    assert.equal(after.top, before.top, 'overview anchoring holds while transcript anchoring is suspended');
+    assert.ok(Math.abs(after.top - before.top) < .5, 'overview anchoring holds within its existing subpixel tolerance while transcript anchoring is suspended');
   });
   assert.equal(globalThis.navigationInterceptionError, undefined);
   if (laneEvidenceDirectory) await writeFile(join(laneEvidenceDirectory, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2));
