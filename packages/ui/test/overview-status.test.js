@@ -36,7 +36,11 @@ for (const [copy, current, idle] of [[en, 'Up to date', 'Showing the latest over
   });
   test(`AIT-504 ${copy.display.locale}: old bundles get nonempty shipped statuses`, () => {
     const old = structuredClone(copy); delete old.overviewCurrent; delete old.staleIdle;
-    const c = setup(old); assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, current); c.remove();
+    const c = setup(old); assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, current);
+    event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+    event(c, 'turn.final', { id: 'reply', role: 'assistant', content: 'Thanks', inputRevision: inputRevision(c.session) });
+    event(c, 'lane.status', { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null });
+    assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, idle); c.remove();
   });
 }
 test('AIT-504 pending expires at 18 seconds with one snapshot GET and no POST', async t => {
