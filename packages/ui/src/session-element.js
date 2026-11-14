@@ -104,7 +104,7 @@ export class AithemaSession extends HTMLElement {
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
-  #navigation = null; #programmaticScroll = null; #longReply = null; #tailReply = null; #seenTranscript = null;
+  #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null;
   #pointerGuardUntil = 0; #pointerGuardPoint = null;
   #postCallMatrix = null;
   #voiceResumeProjection = null;
@@ -1059,8 +1059,18 @@ export class AithemaSession extends HTMLElement {
     const view = this.ownerDocument.defaultView;
     // Keep the hover exception through the final row, card and their layout observers.
     view.requestAnimationFrame(() => view.requestAnimationFrame(() => {
-      if (this.#navigation === intent) this.#navigation = null;
+      if (this.#navigation === intent) { this.#restoreLongReply(); this.#navigation = null; }
     }));
+  }
+  #restoreLongReply() {
+    if (!this.#navigation || !this.#longReply || this.#longReplyTop === null) return;
+    const shell = this.shadowRoot.querySelector('.transcript-shell');
+    const row = [...shell.querySelectorAll('.turn')].find(row => row.dataset.id === this.#longReply);
+    if (!row) return;
+    const before = shell.scrollTop;
+    // A compact card can change the pane's padding; keep the held text in place.
+    shell.scrollTop += row.getBoundingClientRect().top - this.#longReplyTop;
+    this.#recordTranscriptScroll(before);
   }
   #recordTranscriptScroll(before) {
     const shell = this.shadowRoot.querySelector('.transcript-shell');
@@ -1128,7 +1138,8 @@ export class AithemaSession extends HTMLElement {
         }
         shell.scrollTop += latest.getBoundingClientRect().top - top;
         if (this.#navigation && !latest.classList.contains('user')) {
-          this.#longReply = latest.dataset.id; this.#follow = false; held = true;
+          this.#longReply = latest.dataset.id; this.#longReplyTop = latest.getBoundingClientRect().top;
+          this.#follow = false; held = true;
         }
       }
     }
@@ -1925,6 +1936,8 @@ export class AithemaSession extends HTMLElement {
         }
         if (!row) {
           row = element('li'); row.dataset.id = t.id;
+          // Translation changes scroll extents while pinning. Navigation owns these new rows.
+          if (this.#navigation) row.style.animation = 'none';
           const speaker = element('strong'); speaker.innerHTML = '<i class="speaker-sign" aria-hidden="true"></i><b class="speaker-name"></b>';
           row.append(speaker, element('span', undefined, 'turn-text'));
         }
@@ -1995,6 +2008,7 @@ export class AithemaSession extends HTMLElement {
       this.#rail?.notices.render();
       if (this.#followsTranscript()) this.#scrollToLatest();
       else this.#updateTranscriptJump();
+      this.#restoreLongReply();
       this.#syncPanes();
       return;
     }
@@ -3164,6 +3178,7 @@ export class AithemaSession extends HTMLElement {
     this.#render('features');
     if (event.type !== 'turn.final' || event.data.role !== 'user') this.#render('transcript');
     this.#render('aside'); this.#render('composer'); this.#renderVoice();
+    this.#restoreLongReply();
     if (event.type === 'turn.final' && event.data.role === 'assistant' &&
       this.#navigation?.revision === inputRevision(this.#session) && activeTurns(this.#session).at(-1)?.id === event.data.id &&
       (event.data.inputRevision === undefined && event.data.replyRevision === undefined || replyIsCurrent(this.#session, event.data))) this.#finishNavigation();
