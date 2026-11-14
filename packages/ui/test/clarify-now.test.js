@@ -522,3 +522,21 @@ test('RC24 a different peer focus never inherits a pending local acceptance or s
   assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
   assert.equal(f.calls.length, 1);
 });
+test('RC24 a Wait snapshot with live-call budget denial settles without another POST', async t => {
+  const f = fixture(t), session = f.c.session;
+  session.voiceLifecycle = { state: 'active', callId: 'budget-wait-call' };
+  f.c.configure({ session, copy: en });
+  const fetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', (url, init = {}) => {
+    if (init.method === 'POST' || url.endsWith('/events')) return fetch(url, init);
+    const snapshot = f.c.session;
+    snapshot.featureMatrix.best.text = { available: false, reason: 'budget denied' };
+    return Promise.resolve(Response.json(snapshot));
+  });
+  document.body.append(f.c);
+  f.post(() => Response.json({ reason: 'not-admitted', admissionReason: 'budget reconciling' }, { status: 403 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id)); await tick();
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.rows()[1].dataset.state, 'unavailable');
+  assert.equal(f.rows()[1].querySelector('.question-status').textContent, en.clarifyUnavailable);
+});
