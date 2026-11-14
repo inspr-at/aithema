@@ -504,3 +504,88 @@ test('AIT-503 MAC-LEAD: a typed chat answer removes its open question without Cl
     assert.ok(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.none-yet'))));
   }
 });
+
+test('AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-counted-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), evidence = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  const accessibility = await page.createCDPSession();
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.mouse.move(0, 0);
+    await shadow(page, async (c, locale, theme) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      session.transcript = [{ id: 'visitor', role: 'user', content: 'Invoice approvals' }, { id: 'reply', role: 'assistant', content: 'Who approves?' }];
+      session.transcript[1].inputRevision = inputRevision(session);
+      Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false, summary: 'Invoice approvals' });
+      window.fetch = async (url, init = {}) => {
+        if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        return Response.json(c.session);
+      };
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
+      const copies = await Promise.all(['en', 'de'].map(l => import(`/packages/ui/src/i18n/${l}.js`).then(m => m[l])));
+      window.countedConfigure = override => c.configure({ session, copy: { ...copy, ...override }, copyForLocale: l => copies[l === 'de' ? 1 : 0] });
+      window.countedConfigure(); c.shadowRoot.querySelector('.open-questions').scrollIntoView({ block: 'center' });
+    }, locale, theme);
+    let baseline;
+    for (const count of [0, 1, 3]) {
+      await shadow(page, (c, count) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: {
+        ...c.session.understanding, openQuestions: Array.from({ length: count }, (_, i) => `Question ${i + 1}?`),
+      } }), count);
+      await settle(page);
+      const expected = locale === 'en' ? count ? `${count} open question${count === 1 ? '' : 's'}` : 'Open questions'
+        : count ? `${count} offene Frage${count === 1 ? '' : 'n'}` : 'Offene Fragen';
+      const check = await shadow(page, c => {
+        const root = c.shadowRoot;
+        return { heading: root.querySelector('#open-questions-title').textContent,
+          noneYet: Boolean(root.querySelector('.questions .none-yet')),
+          boxes: ['.questions-heading', '.understanding > .foot', '.composer-shell'].map(selector => {
+            const r = root.querySelector(selector).getBoundingClientRect(); return { selector, x: r.x, y: r.y, width: r.width, height: r.height };
+          }) };
+      });
+      assert.equal(check.heading, expected); assert.equal(check.noneYet, count === 0);
+      const { nodes } = await accessibility.send('Accessibility.getFullAXTree');
+      assert.ok(nodes.some(n => n.role?.value === 'heading' && n.name?.value === expected), 'accessible heading matches visible count');
+      assert.ok(nodes.some(n => n.role?.value === 'list' && n.name?.value === expected), 'question list is named by the counted heading');
+      for (const b of check.boxes) assert.ok(b.width > 0 && b.height > 0);
+      if (!baseline) baseline = check.boxes;
+      else for (let i = 0; i < baseline.length; i++) for (const key of ['x', 'y', 'width', 'height'])
+        assert.ok(Math.abs(baseline[i][key] - check.boxes[i][key]) <= 0.5, `${locale}/${theme}/${width}/${count}/${baseline[i].selector}/${key}`);
+      evidence.push({ locale, theme, width, count, expected, ...check });
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+        await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait516-${locale}-${theme}-${width}-${count}.png`) });
+      }
+    }
+    await shadow(page, c => window.countedConfigure({ questions: 'Host heading' }));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#open-questions-title').textContent), 'Host heading');
+    await shadow(page, c => {
+      window.countedConfigure();
+      c.receive({ seq: c.session.seq + 1, type: 'session.erased', data: {} });
+    });
+    await shadow(page, (c, locale) => c.changeLocale(locale === 'en' ? 'de' : 'en'), locale);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#open-questions-title').textContent), locale === 'en' ? 'Offene Fragen' : 'Open questions');
+    const erasedHeading = await shadow(page, c => {
+      const heading = c.shadowRoot.querySelector('#open-questions-title'), box = heading.getBoundingClientRect();
+      return { text: heading.textContent, x: box.x, y: box.y, width: box.width, height: box.height };
+    });
+    assert.ok(erasedHeading.width > 0 && erasedHeading.height > 0, 'erased heading has a positive box');
+    evidence.push({ locale, theme, width, erased: true, heading: erasedHeading });
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait516-${locale}-${theme}-${width}-erased.png`) });
+    }
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait516-counted-rects.json'), JSON.stringify(evidence, null, 2));
+  }
+});

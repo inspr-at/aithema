@@ -1152,6 +1152,15 @@ failures, a fresh snapshot must establish that no reaction has started or comple
 since the click before a resend. Terminal refusals hide the action. Budget denial
 during a live call immediately shows unavailable, without waiting.
 
+Open-question headings use `questionsCounted` with `zero`, `one` and `other` forms;
+the counted German heading replaces “Was noch offen ist”. The legacy `questions`
+string override keeps showing, including for older host bundles and erased-view
+locale changes. Zero uses “Open questions” / “Offene Fragen” plus the `noneYet` row.
+`more` remains a public string; additive `moreOne` supplies the singular readiness
+overflow label. A host override of `more` wins for both counts. These keys share the
+same new-key/legacy-key/shipped-default precedence; `plural()` now lives in
+`copy-resolve.js` and remains re-exported from `uploads.js` for existing callers.
+
 The overview adds `overviewCurrent`, `staleIdle` and `overviewStatusLabel`. These
 brand-new keys use the same resolver and the active locale's shipped defaults when
 an older host bundle omits them. The named status slot keeps its height across

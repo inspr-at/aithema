@@ -367,6 +367,7 @@ export const en = {
   overviewCurrent: 'Up to date', staleIdle: 'Showing the latest overview.', overviewStatusLabel: 'Overview status',
   final: 'Current assessment', notAssessed: 'Not yet assessed', talk: 'Ready to talk', build: 'Ready to build',
   talkProgress: '{percent}% conversation readiness', buildProgress: '{percent}% implementation readiness',
+  questionsCounted: { zero: 'Open questions', one: '1 open question', other: '{count} open questions' }, moreOne: '{count} more open point',
   more: '{count} more open points', none: 'None', noneYet: 'None yet', evidence: 'Evidence', transcriptLatest: 'New messages below',
   // Host surface (AIT-104 B2): verification, conversation library, handover and credits. Wording from START
   // src/lib/i18n.ts (conversations.*, analysis.identify*, analysis.analysis*, v2.confirmation*, v2.credit*) where it exists.

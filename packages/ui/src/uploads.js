@@ -1,3 +1,5 @@
+export { plural } from './copy-resolve.js';
+
 // START document intake (scripts/v2.ts attachment management, lib/config.ts accepted types and
 // limits), ported to the AIT-100 B1 owner routes. The server stays authoritative: these checks only
 // say early and in plain words what it would refuse. File contents are never read here.
@@ -81,7 +83,6 @@ export function formatBytes(bytes, locale = 'en') {
   const [value, unit] = bytes < 1024 ? [bytes, 'B'] : bytes < 1024 ** 2 ? [bytes / 1024, 'KB'] : [bytes / 1024 ** 2, 'MB'];
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit === 'B' || value >= 10 ? 0 : 1 }).format(value)} ${unit}`;
 }
-export function plural(forms, count) { return fill(count === 1 ? forms.one : forms.other, { count }); }
 export function limitsText(copy, limits, locale) {
   if (!uploadsPossible(limits)) return copy.uploads.impossible;
   return fill(copy.uploads.limits, { files: limits.maxDocumentsPerSession, size: formatBytes(fileCeiling(limits), locale) });

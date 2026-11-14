@@ -26,3 +26,10 @@ export function resolveCopy(copy, key, legacyKey, locale) {
   }
   return fallback;
 }
+
+/** Select counted copy while retaining string overrides and legacy one/other callers. */
+export function plural(forms, count) {
+  const text = typeof forms === 'string' ? forms : count === 0 && forms?.zero !== undefined ? forms.zero
+    : count === 1 ? forms?.one : forms?.other;
+  return String(text ?? '').replaceAll('{count}', String(count));
+}

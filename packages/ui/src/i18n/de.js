@@ -368,6 +368,7 @@ export const de = {
   overviewCurrent: 'Auf dem neuesten Stand', staleIdle: 'Der letzte Stand des Überblicks wird angezeigt.', overviewStatusLabel: 'Überblickstatus',
   final: 'Aktuelle Einschätzung', notAssessed: 'Noch nicht bewertet', talk: 'Gespräch', build: 'Umsetzung',
   talkProgress: '{percent} % Gesprächsbereitschaft', buildProgress: '{percent} % Umsetzungsbereitschaft',
+  questionsCounted: { zero: 'Offene Fragen', one: '1 offene Frage', other: '{count} offene Fragen' }, moreOne: '{count} weiterer offener Punkt',
   more: '{count} weitere offene Punkte', none: 'Keine', noneYet: 'Noch keine', evidence: 'Beleg', transcriptLatest: 'Neue Nachrichten unten',
   // Host-Oberfläche (AIT-104 B2); Wortlaut aus START src/lib/i18n.ts, wo vorhanden.
   hostSurface: {

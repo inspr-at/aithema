@@ -7,7 +7,7 @@ import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestion
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { warnFocusRefusal } from './clarify-diagnostic.js';
-import { resolveCopy } from './copy-resolve.js';
+import { resolveCopy, plural } from './copy-resolve.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
 import { understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
@@ -25,7 +25,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile } from './dom.js';
 import { HostSurface } from './host-surface.js';
@@ -497,7 +497,14 @@ export class AithemaSession extends HTMLElement {
     diagnostic.failureReported = true;
     warnFocusRefusal(failure, diagnostic, laneFailed);
   }
+  #paintQuestionHeading() {
+    const count = this.#erased ? 0 : this.#session.understanding.openQuestions.length;
+    const text = plural(resolveCopy(this.#copy, 'questionsCounted', 'questions', this.#session.locale), count);
+    setText(this.shadowRoot.querySelector('#open-questions-title'), text.trim() ? text :
+      plural(resolveCopy({}, 'questionsCounted', null, this.#session.locale), count));
+  }
   #renderQuestions() {
+    this.#paintQuestionHeading();
     this.#syncClarify();
     const root = this.shadowRoot, copy = this.#copy.clarify, focus = this.#clarify;
     const terminal = focus?.terminal || focus?.reason === 'deadline' || this.#host?.usedUp ||
@@ -708,7 +715,7 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
-          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
+          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
@@ -1353,6 +1360,7 @@ export class AithemaSession extends HTMLElement {
   #paintErased() {
     const frozen = this.#erased; if (!frozen || this.#anchorDepth) return;
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
+    this.#paintQuestionHeading();
     if (!frozen.painted) {
       frozen.painted = true;
       // Insert an empty live region first, then announce after the browser registers it.
@@ -2259,7 +2267,8 @@ export class AithemaSession extends HTMLElement {
         if (i.label) setText(label ?? row.insertBefore(element('strong'), row.firstChild), i.label); else label?.remove();
         setText(row.querySelector('span') ?? row.appendChild(element('span')), i.detail);
       });
-    root.querySelector('.overflow').textContent = window.remainder ? copy.more.replace('{count}', window.remainder) : '';
+    root.querySelector('.overflow').textContent = window.remainder ? plural(window.remainder === 1
+      ? resolveCopy(copy, 'moreOne', 'more', this.#session.locale) : copy.more, window.remainder) : '';
     // Summaries keep their nodes, so keyboard focus survives unsolicited updates.
     reconcile(root.querySelector('.cleared'), cleared.length ? cleared.map(i => [i.key, i]) : [[NONE, null]], i => {
       if (!i) return element('p', copy.noneYet, 'none-yet');
