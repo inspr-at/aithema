@@ -355,3 +355,36 @@ test('AIT-512: a new card ignores an immediate second pointer click; keyboard ac
   root.querySelector('.qopt').click(); await tick();
   assert.equal(requests, 2, 'keyboard activation bypasses the pointer-only guard');
 });
+
+for (const cancel of ['wheel', 'touchstart', 'external scroll']) test(`AIT-512: ${cancel} ends following during a reply`, async t => {
+  const { root, shell, partial, acknowledge } = navigationScene(t);
+  t.mock.method(globalThis, 'fetch', acknowledge);
+  root.querySelector('.qopt').click(); await tick();
+  if (cancel === 'external scroll') { shell.scrollTop = 100; shell.dispatchEvent(new window.Event('scroll')); }
+  else shell.dispatchEvent(new window.Event(cancel, { bubbles: true, composed: true }));
+  const before = shell.scrollTop; partial('cancelled-navigation');
+  assert.equal(shell.scrollTop, before, 'the next partial respects the visitor reading position');
+});
+
+test('AIT-512: the hover exception ends after the final reply and card are painted', async t => {
+  const { c, root, shell, partial, acknowledge } = navigationScene(t), frames = [];
+  t.mock.method(window, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  t.mock.method(window, 'cancelAnimationFrame', () => {});
+  t.mock.method(globalThis, 'fetch', acknowledge);
+  root.querySelector('.qopt').click(); await tick();
+  question(c);
+  for (let round = 0; round < 4 && frames.length; round++) { const ready = frames.splice(0); for (const frame of ready) frame(); }
+  const before = shell.scrollTop; partial('later-unrelated-content');
+  assert.equal(shell.scrollTop, before, 'a later paint cannot reuse the completed navigation intent');
+});
+
+test('AIT-512: the pointer guard expires 500 ms after the last programmatic scroll', async t => {
+  const { c, root, acknowledge } = navigationScene(t); let now = 1000, requests = 0;
+  t.mock.method(window.performance, 'now', () => now);
+  t.mock.method(globalThis, 'fetch', (...args) => { requests++; return acknowledge(...args); });
+  root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 })); await tick();
+  question(c);
+  now += 501;
+  root.querySelector('.qopt').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true, detail: 1 })); await tick();
+  assert.equal(requests, 2, 'a pointer click is available again after the bounded guard');
+});
