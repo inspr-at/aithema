@@ -887,16 +887,19 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
     });
     await nextFrame(page);
   };
-  const snapshot = () => shadow(page, c => {
+  const snapshot = async () => { const state = await shadow(page, c => {
     const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), rows = [...shell.querySelectorAll('.turn')];
     return { scroll: shell.scrollTop, max: shell.scrollHeight - shell.clientHeight,
       shell: shell.getBoundingClientRect().toJSON(), latest: rows.at(-1).getBoundingClientRect().toJSON(),
-      cardBox: r.querySelector('.qcard').getBoundingClientRect().toJSON(), reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),
+      cardBox: r.querySelector('.qcard').hidden ? null : r.querySelector('.qcard').getBoundingClientRect().toJSON(), reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),
       compact: r.querySelector('.workspace').hasAttribute('data-question-compact'),
       pointerHit: globalThis.navigationPointerPoint && r.elementFromPoint(...globalThis.navigationPointerPoint)?.className,
       composer: r.querySelector('.composer').getBoundingClientRect().toJSON(), dock: r.querySelector('.composer-dock').getBoundingClientRect().toJSON(),
       jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility, card: !r.querySelector('.qcard').hidden };
-  });
+    });
+    positive(state, ['shell', 'latest', 'composer', 'dock', ...(state.cardBox ? ['cardBox'] : [])]);
+    return state;
+  };
   const positive = (state, names) => { for (const name of names) assert.ok(state[name].width > 0 && state[name].height > 0, `${name} must be a positive box: ${JSON.stringify(state)}`); };
   const acknowledged = () => page.waitForFunction(() => {
     const c = document.querySelector('aithema-session'); return c.session.transcript.at(-1)?.role === 'user' && c.shadowRoot.querySelector('.qcard').hidden;
