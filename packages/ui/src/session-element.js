@@ -864,7 +864,7 @@ export class AithemaSession extends HTMLElement {
       } });
     this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => !this.#longReply && this.#follow, onNoticesChange: () => {
       // Growth preserves the upload target; shrink reservations release on row exit or scrolling.
-      if (this.#followsTranscript() && !this.#hovered()?.closest('.upload') && !this.#fold.folded) this.#scrollToLatest();
+      if (this.#follow && !this.#hovered()?.closest('.upload') && !this.#fold.folded) this.#scrollToLatest();
     } });
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
