@@ -328,6 +328,8 @@ for (const outcome of ['409', 'slow', 'stale']) test(`AIT-501 gate3: grant durin
   fault = '409';
   await clock.next(2000, 'consentTimer');
   assert.ok(clock.has(4000, 'consentTimer'));
+  if (clock.has(8000, 'startRetryTimer')) await clock.next(8000, 'startRetryTimer');
+  assert.ok(clock.has(4000, 'consentTimer'), 'Start must not accelerate or spend the consent retry budget');
   await clock.next(4000, 'consentTimer');
   assert.ok(clock.has(8000, 'consentTimer'));
   fault = null;
