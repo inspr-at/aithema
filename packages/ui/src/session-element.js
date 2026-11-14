@@ -1048,7 +1048,7 @@ export class AithemaSession extends HTMLElement {
     return Boolean(!this.#longReply && (this.#navigation || this.#follow && !this.#onTranscript) && !this.#fold?.folded);
   }
   #beginNavigation() {
-    this.#navigation = { point: this.#pointer && { ...this.#pointer }, revision: null };
+    this.#navigation = { point: this.#pointer && { ...this.#pointer }, revision: null, userId: null };
     this.#follow = true; this.#longReply = null; this.#tailReply = null;
     const shell = this.shadowRoot.querySelector('.transcript-shell'), before = shell.scrollTop;
     clearSlack(shell); this.#recordTranscriptScroll(before);
@@ -2012,6 +2012,14 @@ export class AithemaSession extends HTMLElement {
       else this.#updateTranscriptJump();
       this.#restoreLongReply();
       this.#syncPanes();
+      const intent = this.#navigation, turns = activeTurns(this.#session), reply = turns.at(-1);
+      if (intent && reply?.role === 'assistant' &&
+        (reply.inputRevision === undefined && reply.replyRevision === undefined || replyIsCurrent(this.#session, reply))) {
+        const revision = inputRevision(this.#session);
+        // Recovery can contain both the missed acknowledgement and its completed reply.
+        if (intent.revision === null && turns.findLast(turn => turn.role === 'user')?.id === intent.userId) intent.revision = revision;
+        if (intent.revision === revision) this.#finishNavigation();
+      }
       return;
     }
     this.#renderQuestions();
@@ -2985,6 +2993,7 @@ export class AithemaSession extends HTMLElement {
     const voiceSession = this.#rail && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
+    if (this.#navigation) this.#navigation.userId = this.#pending.clientEventId;
     clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false;
     this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
     try {
@@ -3118,7 +3127,10 @@ export class AithemaSession extends HTMLElement {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') {
           this.#partials.clear(); this.#failure = false;
-          if (this.#navigation) this.#navigation.revision = inputRevision(this.#session);
+          if (this.#navigation) {
+            this.#navigation.revision = inputRevision(this.#session);
+            this.#navigation.userId ??= event.data.id;
+          }
           // turn.final and lane.status are separate events; only a status or
           // snapshot for this revision can confirm that no work was scheduled.
           if (this.#session.processingPreset !== 'device') this.#laneStatusPending = inputRevision(this.#session);
@@ -3182,9 +3194,6 @@ export class AithemaSession extends HTMLElement {
     if (event.type !== 'turn.final' || event.data.role !== 'user') this.#render('transcript');
     this.#render('aside'); this.#render('composer'); this.#renderVoice();
     this.#restoreLongReply();
-    if (event.type === 'turn.final' && event.data.role === 'assistant' &&
-      this.#navigation?.revision === inputRevision(this.#session) && activeTurns(this.#session).at(-1)?.id === event.data.id &&
-      (event.data.inputRevision === undefined && event.data.replyRevision === undefined || replyIsCurrent(this.#session, event.data))) this.#finishNavigation();
     this.#host?.updateStreaming();
   }
   #receiveVoiceState(state) {
