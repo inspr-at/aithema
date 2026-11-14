@@ -232,6 +232,7 @@ for (const changeLocale of [false, true]) test(`AIT-504 ahead snapshot fully res
   t.after(() => c.remove());
   document.body.append(c); await flush();
   event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  const streamedRevision = inputRevision(c.session), finishedSeq = c.session.seq + 1;
   c.receive({ type: 'turn.partial', data: { id: 'finished', delta: 'Partial reply', inputRevision: inputRevision(c.session) } });
   assert.deepEqual(streamingState, { streaming: true, replyInFlight: true });
   snapshot = c.session;
@@ -255,6 +256,13 @@ for (const changeLocale of [false, true]) test(`AIT-504 ahead snapshot fully res
   assert.equal(c.shadowRoot.querySelector('.composer-resume').textContent, copy.resume);
   assert.equal(c.session.settings.model, 'recovered-model');
   assert.equal(c.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true', 'renderMode follows the skipped processing change');
+  assert.deepEqual(streamingState, { streaming: false, replyInFlight: false });
+  // The original stream can resume behind the snapshot cursor. Its durable
+  // final is now a replay, so it cannot clean up a reopened transient partial.
+  c.receive({ type: 'turn.partial', data: { id: 'finished', delta: 'Queued old stream tail', inputRevision: streamedRevision } });
+  c.receive({ seq: finishedSeq, type: 'turn.final', data: { id: 'finished', role: 'assistant', content: 'Finished reply', inputRevision: streamedRevision } });
+  assert.equal([...c.shadowRoot.querySelectorAll('.turn')].filter(n => n.dataset.id === 'finished').length, 1, 'queued fragments cannot reopen a finalized snapshot turn');
+  assert.doesNotMatch(c.shadowRoot.querySelector('.transcript-shell ol').textContent, /Queued old stream tail/);
   assert.deepEqual(streamingState, { streaming: false, replyInFlight: false });
   assert.equal(calls.filter(call => call.url.endsWith('/events')).length, streams, 'no reconnect can schedule work');
   assert.ok(calls.every(call => call.method === 'GET'));
