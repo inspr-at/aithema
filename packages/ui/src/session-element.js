@@ -2685,10 +2685,8 @@ export class AithemaSession extends HTMLElement {
     // Refresh a blocked return once before the bounded admission retries.
     // Only journal consent events open verification windows.
     if (this.#consentRefresh) return;
-    await this.#refreshFeatures();
-    if (this.#startIntent !== intent || this.#consentRefresh) return;
-    this.#consumeStartIntent();
-    if (this.#startIntent === intent && isConsentReason(this.#feature(intent.mode === 'voice' ? 'voice' : 'text').reason)) this.#retryRestoredStart(intent);
+    this.#retryRestoredStart(intent);
+    void this.#refreshFeatures();
   }
   #expireStartIntent() {
     clearTimeout(this.#startIntentTimer);
