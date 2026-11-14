@@ -120,7 +120,9 @@ test('duplicate backend reply-in-flight is requesting, not a failure', async t =
   assert.equal(f.rows()[1].dataset.state, 'requesting');
   assert.equal(f.root.querySelector('.reaction-failure').hidden, true);
   f.lane(); await tick(); assert.equal(f.calls.length, 2, 'RC24 N6 re-sends once after the existing reply finishes');
-  assert.equal(f.rows()[1].dataset.state, 'unavailable', 'a second refusal ends the bounded recovery');
+  assert.equal(f.rows()[1].dataset.state, 'focus-retry', 'a second Wait refusal rests with Retry');
+  assert.equal(f.button(1).hidden, false);
+  f.lane(); await tick(); assert.equal(f.calls.length, 2, 'no third automatic POST');
 });
 for (const reason of ['stale-question', 'stale-revision']) test(`${reason} refreshes the list and reserves the heading notice for exactly 4 seconds`, async t => {
   const f = fixture(t);
@@ -231,18 +233,19 @@ for (const finish of ['listening', 'ended', 'before-refusal']) test(`voice-busy 
     events.push({ type: finish, callId, ...(finish === 'ended' ? { reason: 'closed' } : {}) }); await tick();
   }
   await tick();
-  assert.equal(f.rows()[0].dataset.state, 'unavailable');
-  assert.equal(f.button(0).hidden, true);
+  assert.equal(f.rows()[0].dataset.state, 'focus-retry');
+  assert.equal(f.button(0).hidden, false);
   assert.equal(f.calls.length, 2, 'RC24 N6 permits exactly one resend after speaking ends');
   assert.equal(f.c.session.transcript.filter(turn => turn.role === 'user').length, 1);
-  console.log(`AIT-274 VOICE BUSY PASS ${finish}: bounded resend settles unavailable; no fabricated input`);
+  console.log(`AIT-274 VOICE BUSY PASS ${finish}: bounded resend rests with Retry; no fabricated input`);
 });
-test('final reply-in-flight refusal with no running reply re-sends once then rests unavailable', async t => {
+test('final reply-in-flight refusal with no running reply re-sends once then rests with Retry', async t => {
   const f = fixture(t);
   f.post(() => Response.json({ error: 'focus-refused', reason: 'reply-in-flight' }, { status: 409 }));
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[0].id), { reason: 'reply-in-flight' });
   f.lane(); await tick();
-  assert.equal(f.rows()[0].dataset.state, 'unavailable');
+  assert.equal(f.rows()[0].dataset.state, 'focus-retry');
+  assert.equal(f.button(0).hidden, false);
   assert.equal(f.calls.length, 2);
 });
 
@@ -627,3 +630,49 @@ for (const refusal of [
   assert.equal(f.calls.length, 2);
   assert.equal(f.rows()[1].dataset.state, 'unavailable');
 });
+
+for (const reason of ['reply-in-flight', 'budget reconciling']) test(`gate1 M2: repeated ${reason} rests with Retry and no third automatic POST`, async t => {
+  const f = fixture(t); t.mock.timers.enable({ apis: ['setTimeout'] });
+  f.post(() => Response.json(reason === 'reply-in-flight' ? { reason } : { reason: 'not-admitted', admissionReason: reason }, { status: 409 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+  f.lane(); await tick();
+  assert.equal(f.calls.length, 2);
+  assert.equal(f.rows()[1].dataset.state, 'focus-retry');
+  assert.equal(f.button(1).hidden, false);
+  assert.equal(f.button(1).getAttribute('aria-disabled'), 'false');
+  assert.match(f.rows()[1].querySelector('.question-status').textContent, /Couldn't ask just now/);
+  f.lane(); t.mock.timers.tick(120_000); await tick();
+  assert.equal(f.calls.length, 2);
+});
+for (const accepted of [false, true]) test(`gate1 L1: reply failure retires only on accepted focus (${accepted})`, async t => {
+  const f = fixture(t), pending = Promise.withResolvers();
+  f.lane([], [{ lane: 'reaction', retryable: true }]);
+  const notice = f.root.querySelector('.reaction-failure'), retry = f.root.querySelector('.retry');
+  assert.equal(notice.hidden, false); assert.equal(retry.hidden, false);
+  f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  const settled = accepted ? request : assert.rejects(request);
+  const pendingVisibility = { notice: notice.hidden, retry: retry.hidden };
+  pending.resolve(accepted ? Response.json(f.accept(), { status: 202 }) : Response.json({ reason: 'invalid-request' }, { status: 400 }));
+  await settled;
+  assert.deepEqual(pendingVisibility, { notice: false, retry: false }, 'pending POST preserves the reply failure');
+  assert.equal(notice.hidden, accepted);
+  if (!accepted) assert.equal(retry.hidden, false, 'refused POST preserves server reply Retry');
+});
+for (const locale of ['en', 'de']) {
+  for (const reason of ['session', 'host-limit']) test(`gate1 L2: ${locale}/${reason} announces the displayed terminal reason`, async t => {
+    const f = fixture(t, locale);
+    f.post(() => Response.json({ reason: 'not-admitted', admissionReason: reason }, { status: 403 }));
+    await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id));
+    assert.equal(f.root.querySelector('.clarify-announcement').textContent, f.rows()[1].querySelector('.question-why').textContent);
+  });
+  test(`gate1 L2: ${locale} accepted retry announcement offers Retry`, async t => {
+    const f = fixture(t, locale), copy = locale === 'de' ? de : en;
+    f.post(() => Response.json(f.accept(), { status: 202 }));
+    await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+    f.lane([], [{ lane: 'reaction', retryable: true }]);
+    assert.equal(f.rows()[1].dataset.state, 'retry');
+    assert.match(f.root.querySelector('.clarify-announcement').textContent, locale === 'de' ? /Erneut versuchen/ : /You can retry/);
+    assert.ok(f.root.querySelector('.clarify-announcement').textContent.includes(copy.clarifyFailed));
+  });
+}

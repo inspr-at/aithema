@@ -438,6 +438,12 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       await shadow(page, c => { window.rc24Reset(); c.shadowRoot.querySelector('.open-questions').scrollIntoView({ block: 'center' }); });
       await settle(page);
       const before = await boxes(page, state === 'unavailable');
+      const resting = await shadow(page, c => {
+        const row = c.shadowRoot.querySelector('.open-question');
+        return { question: row.querySelector('.question-text').getBoundingClientRect().x,
+          label: row.querySelector('.clarify-icon').getBoundingClientRect().x };
+      });
+      assert.equal(resting.label, resting.question, 'gate1 M3 A: resting action begins under the question');
       const point = before[1]; await page.mouse.move(point.x + 2, point.y + 2);
       await shadow(page, async (c, state) => {
         window.rc24Posts = [];
