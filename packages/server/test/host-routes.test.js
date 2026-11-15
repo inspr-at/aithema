@@ -1,4 +1,6 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
 import { start2PurposePolicy } from '../../../demo/safeguards.js';
@@ -1638,4 +1640,12 @@ test('AIT-507 claims once per rolling visitor day across conversations, includin
 test('AIT-507 no policy preserves the legacy fifth-turn route', async t => {
   const f = await offerFixture(t, 1); delete f.host.emailOffer; await f.send();
   assert.equal((await (await f.claim()).json()).accepted, false);
+});
+
+// Keep remote evidence fetchable even when the targeted regression run is red.
+after(async () => {
+  const directory = process.env.AITHEMA_EVIDENCE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, 'ait-507-host-target.json'), JSON.stringify({ file: 'packages/server/test/host-routes.test.js', ticket: 'AIT-507' }));
 });
