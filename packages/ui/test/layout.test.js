@@ -111,6 +111,22 @@ test('AIT-188 L2c: composer ellipsis stays attached to the preceding word in DE/
 });
 
 
+test('AIT-513: used-up copy gets a keyboard scroll target only while it overflows', async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"><p class="composer-out__body">Used-up copy</p></div>
+    <footer class="display-foot"><div class="display-foot__row"><span>Connected</span></div></footer></div>`;
+  const body = root.querySelector('.composer-out__body'); let contentHeight = 40;
+  Object.defineProperties(body, { clientHeight: { get: () => 40 }, scrollHeight: { get: () => contentHeight } });
+  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  assert.equal(body.hasAttribute('tabindex'), false, 'fitting copy preserves the existing AIT-411 DOM');
+  contentHeight = 80; viewport.paint();
+  assert.equal(body.getAttribute('tabindex'), '0', 'overflowing copy is reachable with Tab for keyboard scrolling');
+  contentHeight = 40; viewport.paint();
+  assert.equal(body.hasAttribute('tabindex'), false, 'fitting again restores the original DOM');
+});
+
 test('AIT-298: same-width footer text mutations keep the fit cache; changed zone width refits', async t => {
   const window = new Window();
   t.after(() => window.happyDOM.close());
