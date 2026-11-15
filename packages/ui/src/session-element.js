@@ -4,7 +4,7 @@ import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
-import { classifyFocusRefusal, FOCUS_REFUSAL_CLASSES } from '../../core/src/question-focus.js';
+import { classifyFocusRefusal, FOCUS_REFUSAL_CLASSES } from './focus-refusal.js';
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { warnFocusRefusal } from './clarify-diagnostic.js';
@@ -107,7 +107,7 @@ export class AithemaSession extends HTMLElement {
   #clarifyWaitTimer; #clarifyRefresh = 0;
   #clarifyDiagnostics = new Map();
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
-  #open = []; #cleared = []; #reactionFailureVersion = 0; #failure = false; #failureLane = null; #sending = false;
+  #open = []; #cleared = []; #reactionFailureVersion = 0; #reactionFailureIdentity = null; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null;
   #pointerGuardUntil = 0; #pointerGuardPoint = null; #touchClickPoint = null;
@@ -1810,7 +1810,12 @@ export class AithemaSession extends HTMLElement {
     this.#settleRetry();
   }
   #recordFailure(failure) {
-    if (failure?.lane === 'reaction') this.#reactionFailureVersion++;
+    // SSE and snapshots decode fresh objects for the same failure. Only a
+    // changed identity can supersede the reply failure captured by Clarify.
+    const identity = failure?.lane === 'reaction' ? JSON.stringify([this.#session.id,
+      inputRevision(this.#session), failure.inputRevision, failure.lane, failure.error, failure.reason, failure.retryable]) : null;
+    if (identity !== null && identity !== this.#reactionFailureIdentity) this.#reactionFailureVersion++;
+    this.#reactionFailureIdentity = identity;
     const reconciling = failure && (failure.reason === 'budget reconciling' ||
       this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.analysis?.reason === 'budget reconciling');
     if (reconciling) {
