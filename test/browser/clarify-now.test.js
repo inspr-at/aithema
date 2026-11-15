@@ -1124,6 +1124,15 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
   } catch (error) {
     if (evidence) {
       await writeFile(join(evidence, `ait524-${failure}-failure.txt`), error.stack);
+      const diagnostic = await shadow(page, c => {
+        const row = c.shadowRoot.querySelectorAll('.open-question')[1], button = row.querySelector('button'), b = button.getBoundingClientRect();
+        const hits = Object.fromEntries(Object.entries({ centre: [b.x + b.width / 2, b.y + b.height / 2], top: [b.x + b.width / 2, b.y + 1], bottom: [b.x + b.width / 2, b.bottom - 1] }).map(([name, point]) => {
+          const hit = c.shadowRoot.elementFromPoint(...point);
+          return [name, { point, tag: hit?.tagName, class: hit?.className?.baseVal ?? hit?.className, row: hit?.closest('.open-question')?.dataset.questionId, ownButton: hit?.closest('button') === button }];
+        }));
+        return { hits, hovered: [...c.shadowRoot.querySelectorAll(':hover')].map(n => n.className?.baseVal ?? n.className), panes: [...c.shadowRoot.querySelectorAll('.analysis-content,.understanding,.transcript-shell')].map(n => ({ class: n.className, scrollTop: n.scrollTop, slackTop: n.style.getPropertyValue('--aithema-slack-top'), slackBottom: n.style.getPropertyValue('--aithema-slack-bottom') })), operations: c.session.operations };
+      });
+      await writeFile(join(evidence, `ait524-${failure}-diagnostic.json`), JSON.stringify({ measured: await measure(), diagnostic }, null, 2));
       await shot(`${failure}-failure`);
     }
     throw error;
