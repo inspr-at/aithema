@@ -75,7 +75,7 @@ export class EmailOffer {
     this.paint();
   }
   paint() {
-    if (!this.row || !this.alive) return;
+    if (!this.row || !this.alive || this.root.host?.hasAttribute('data-aithema-erased')) return;
     const row = this.row, v = this.copy.hostSurface.verify, email = this.email;
     const confirmed = email.identity?.status === 'verified';
     if (confirmed) this.step = 'confirmed';
