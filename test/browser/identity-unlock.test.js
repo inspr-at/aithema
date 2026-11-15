@@ -627,6 +627,7 @@ for (const width of [390, 1440]) test(`AIT-494 real routes and failed Settings r
   }
   const evidence = { width, before, after };
   if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
     await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-494-geometry-${width}.json`), JSON.stringify(evidence, null, 2));
     await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-494-settings-${width}.png`) });
   }
@@ -689,7 +690,10 @@ test(`AIT-497 wrapping Settings row ${initialState} to requested to ${finalState
   await delay(350);
   const evidence = { width, initialState, finalState, wrap, samples: [] };
   t.after(async () => {
-    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-geometry-${width}-${initialState}-${finalState}.json`), JSON.stringify(evidence, null, 2));
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+      await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-geometry-${width}-${initialState}-${finalState}.json`), JSON.stringify(evidence, null, 2));
+    }
   });
   const sample = async state => {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -742,5 +746,8 @@ test(`AIT-497 wrapping Settings row ${initialState} to requested to ${finalState
   assert.equal(identity.delivery, finalState, 'real resend uses the local SMTP result');
   await sample(finalState);
   assert.equal(f.messages.length, 1, 'the resend reached only the local SMTP sink');
-  if (process.env.AITHEMA_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-settings-${width}-${initialState}-${finalState}.png`) });
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-497-settings-${width}-${initialState}-${finalState}.png`) });
+  }
 });
