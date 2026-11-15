@@ -3437,7 +3437,8 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
-      if (event.type === 'settings.changed' || event.type === 'turn.withdrawn' || consentRevised && !event.data.granted) this.#clearStartIntent({ discardDraft: true });
+      if (event.type === 'settings.changed') this.#clearStartIntent();
+      if (event.type === 'turn.withdrawn' || consentRevised && !event.data.granted) this.#clearStartIntent({ discardDraft: true });
       if (consentRevised) { this.#watchConsentRefresh(event.data.granted, event.data.changed, event.data.removed); this.#concept.reviseConsent(event.data.changed, event.data.granted, event.data.removed); }
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;

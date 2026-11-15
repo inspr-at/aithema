@@ -16,7 +16,8 @@
   proof. A navigation return consumes the intent and restores the draft even
   without a grant, without sending or starting voice; a voice
   return focuses the composer mic for a fresh click. Expiry, erasure, withdrawal
-  and a new conversation clear the draft.
+  and a new conversation clear the draft. A settings update cancels the old
+  revision intent while preserving and unlocking the field draft.
 - The composer mic starts a call when idle and delegates capture mute/unmute to
   the rail during a call. Typing keeps capture running and typed turns use the
   same call/session/context. Consent precedes admission and permission. Reuses

@@ -556,7 +556,9 @@ liveness proof. Navigation restores it only after the same-tab check, including
 a return without granting consent, and consumes the intent. A later grant never
 auto-sends or auto-starts a call. Text return focuses the field; voice return
 focuses the composer mic and requires a fresh click. Expiry, erasure, withdrawal
-and a new conversation clear the intent and its draft. During a call the same
+and a new conversation clear the intent and its draft. Changing processing
+settings cancels a pending intent for the old revision and keeps the editable
+field draft. During a call the same
 mic toggles capture through the rail; End call remains on the rail. Typing keeps
 capture running and Send delivers the typed turn through `rail.sendText` in the
 same session and context. No new copy keys or exports are introduced.
