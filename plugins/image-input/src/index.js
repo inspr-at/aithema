@@ -44,13 +44,16 @@ export function createImageInput() {
           const watchdog = setInterval(async () => {
             if (sampling || child.killed || !child.pid) return;
             sampling = true;
-            try { if (await residentBytes(child.pid) > 384 * 1024 * 1024) { result = refused('limit'); kill(); } }
-            catch { if (child.exitCode === null && child.signalCode === null) { result = refused('unavailable'); kill(); } }
+            try {
+              const rss = await residentBytes(child.pid);
+              if (!result && !failure && !child.killed && rss > 384 * 1024 * 1024) { result = refused('limit'); kill(); }
+            }
+            catch { if (!result && !failure && !child.killed && child.exitCode === null && child.signalCode === null) { result = refused('unavailable'); kill(); } }
             finally { sampling = false; }
           }, 25);
           scope.signal.addEventListener('abort', abort, { once: true });
           child.on('message', message => {
-            if (message?.status === 'staged-ready' || message?.status === 'staged-refused') { result = message; kill(); }
+            if (!result && !failure && (message?.status === 'staged-ready' || message?.status === 'staged-refused')) { result = message; kill(); }
           });
           child.on('error', error => { failure = error; kill(); });
           child.once('close', () => {

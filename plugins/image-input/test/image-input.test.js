@@ -53,3 +53,13 @@ test('AIT-510: oversized image dimensions are refused before pixel decoding', as
   const result = await createImageInput().normalize(source, { filename: 'huge.png' }, { deadlineAt: Date.now() + 25000 });
   assert.equal(result.status, 'staged-refused'); assert.equal(result.reason, 'dimensions'); assert.equal(result.bytes, undefined);
 });
+
+test('AIT-510: cancellation reaps the decoder before returning a pixel-free refusal', async () => {
+  const { default: sharp } = await import('sharp'); const { createImageInput } = await import('../src/index.js');
+  const source = await sharp({ create: { width: 2, height: 1, channels: 3, background: '#e02030' } }).png().toBuffer();
+  const controller = new AbortController();
+  const pending = createImageInput().normalize(source, { filename: 'cancelled.png' }, { signal: controller.signal, deadlineAt: Date.now() + 25000 });
+  controller.abort();
+  const result = await pending;
+  assert.equal(result.status, 'staged-refused'); assert.equal(result.reason, 'cancelled'); assert.equal(result.bytes, undefined);
+});
