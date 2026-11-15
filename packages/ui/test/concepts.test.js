@@ -1613,10 +1613,11 @@ for (const copy of [en, de]) test(`AIT-509 ${copy.display.locale}: idle consent 
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
   assert.equal(line.querySelector('.consent-action'), null);
 });
-for (const action of ['review', 'cancel', 'expiry', 'withdrawal', 'erasure', 'session', 'input', 'settings', 'decline']) test(`AIT-509: ${action} cannot resume a concept`, async t => {
+for (const action of ['review', 'cancel', 'expiry', 'withdrawal', 'erasure', 'session', 'input', 'settings', 'decline', 'hidden']) test(`AIT-509: ${action} cannot resume a concept`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
   const f = conceptConsentFixture(t); f.ask(); f.root.querySelector('.concept-activity-text .consent-action').click();
   if (action === 'expiry') t.mock.timers.tick(180_001);
+  else if (action === 'hidden') t.mock.getter(document, 'hidden', () => true);
   else if (action === 'withdrawal') f.change({ consentWithdrawn: true });
   else if (action === 'erasure') f.change({ tombstone: true });
   else if (action === 'session') f.change({ id: 'another-session' });
