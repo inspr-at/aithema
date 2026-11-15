@@ -3865,3 +3865,18 @@ records, retained through typing until dismissed, a successful attach, or a
 successful send. The reason slot ranks pause/unavailability, send failure,
 attach-time consent, refusals, upload notices, then the shortcut hint. German UI
 copy is impersonal; host overrides remain authoritative.
+
+The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,
+`imageUpload` (normalized bytes in `imageBytes`), and `expireStagedUploads`;
+`postTurn` accepts `guard.attachments`, and `completeUpload` accepts a
+`staged-ready` result containing bytes/mediaType/w/h (the store computes its
+digest), or `staged-refused` with a reason. `createUploadHandlers` accepts an
+injected `now` clock; its `cancelImages` stops only image normalization. The
+runtime exposes `imageInputAvailability` and `normalizeImageUpload`.
+`exportSession` accepts an additive `images` option containing normalized upload
+records with `imageBytes`; callers must supply only current owner-authorized
+records. `reasoningRequest` adds the `imageOnly` classification flag.
+`createChatCompletions` adds `prepareDispatch(body, options)`, invoked after
+admission for byte resolution; synchronous `prepareBody` still supplies
+estimation. `ImageOperationOptions.resolveImage` and optional
+`imageDispatchCurrent` are in-process authority callbacks, never browser input.

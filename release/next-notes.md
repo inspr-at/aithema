@@ -46,3 +46,11 @@
   plus native/capability refusal reasons and updated upload format/retention copy.
   Refusals persist through typing in the bounded reason slot, below blocking
   failures and attach-time consent. README documents every additive host surface.
+
+- Lower-level additions: storage turnReceipt/imageUpload/expireStagedUploads,
+  postTurn guard.attachments, completeUpload image results, upload-handler now
+  and cancelImages, runtime imageInputAvailability/normalizeImageUpload,
+  exportSession images, reasoningRequest imageOnly, and dispatch-only
+  createChatCompletions prepareDispatch/resolveImage/imageDispatchCurrent.
+  Unsupported image filenames stay in the non-input refusal path even for
+  direct multipart callers; the format help line lists the exact accepted types.

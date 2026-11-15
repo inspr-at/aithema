@@ -40,7 +40,8 @@ export class ImageInputView {
     const list = region.querySelector('.image-refusals__list');
     const signature = JSON.stringify([this.#records, this.#copy.display?.locale, this.#records.map(record => this.refusalText(record.reason))]);
     if (list.dataset.records !== signature) {
-      list.replaceChildren(...this.#records.map(record => node('span', 'image-refusal', `${record.name ? record.name + ': ' : ''}${this.refusalText(record.reason)}`)));
+      list.replaceChildren(...this.#records.map(record => node('span', 'image-refusal', `${record.name ? record.name + ': ' : ''}${this.refusalText(record.reason)}`)),
+        ...(this.#records.some(record => record.reason === 'unsupported') ? [node('span', 'image-supported', this.#text('uploadsSupported'))] : []));
       list.dataset.records = signature;
     }
     setText(region.querySelector('button'), this.#copy.uploads.discard); delete line.dataset.consentFeature;
