@@ -34,5 +34,6 @@ export function projectSignals(session, understanding, seq) {
   const updates = new Map(items.map(item => [item.key, { ...item, turnIds: [...turnIds], uploadIds: [...uploadIds] }]));
   const retained = ledger.map(item => updates.get(item.key) ?? item);
   for (const item of updates.values()) if (!known.has(item.key)) retained.push(item);
+  retained.sort((a, b) => a.firstSeen - b.firstSeen);
   return { signalLedger: retained, understanding: { ...understanding, signals: items.map(i => i.text), signalItems: items } };
 }
