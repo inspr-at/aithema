@@ -423,3 +423,13 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 :root[data-host-unavailable] .aithema-shell > .host-actions { padding-inline:clamp(16px,4vw,56px); }
 :root[data-host-unavailable] #error { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; font-size:14px; }
 :root[data-host-unavailable] #error button { min-height:44px; padding:8px 16px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); }
+
+/* A neutral host-owned contact fixture, with one compact header target. */
+.demo-contact { padding:12px 0; border-top:1px solid var(--line); }
+.demo-contact-note { margin:0 0 8px; font-size:13px; line-height:1.5; color:var(--muted); }
+.demo-contact-open, #demo-contact-close { min-height:44px; border:1px solid var(--line); border-radius:10px; padding:8px 14px; background:var(--surface); color:var(--accent); }
+.demo-contact-launcher { width:44px; height:44px; padding:10px; display:grid; place-items:center; }
+.demo-contact-launcher svg { width:20px; height:20px; }
+#demo-contact-dialog { width:min(30rem,calc(100vw - 32px)); box-sizing:border-box; border:1px solid var(--line); border-radius:16px; padding:24px; background:var(--surface); color:var(--ink); }
+#demo-contact-dialog::backdrop { background:#102b4266; }
+#demo-contact-dialog h2 { margin:0 0 16px; font-family:var(--display); }

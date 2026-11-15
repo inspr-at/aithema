@@ -528,8 +528,22 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .upload .upload-withdraw { margin-top:0; } .upload-withdraw[aria-disabled="true"] { opacity:.5; cursor:wait; }
 
 /* Understanding (START .v2__analysis): a card beside the conversation, absent until the first input. */
-.understanding { --inset:clamp(.9rem,2vw,1.35rem); position:relative; min-width:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; overflow:hidden;
+.understanding { --inset:clamp(.9rem,2vw,1.35rem); position:relative; min-width:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) fit-content(30%) auto; overflow:hidden;
   padding:var(--inset); border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); background:color-mix(in srgb,var(--aithema-surface) 70%,transparent); }
+/* Host content is a separate, bounded row, outside analysis and its email overlay. */
+.sidebar-contact { min-height:0; min-width:0; overflow:auto; }
+.sidebar-contact[hidden] { display:none; }
+slot[name="sidebar-contact"]::slotted(*) { margin:0; max-width:100%; box-sizing:border-box; }
+/* Keep the declared 44 px even while the pinned slot is available. Visibility
+   removes the duplicate from hit testing and Tab order without shifting chrome. */
+.contact-launcher { flex:0 0 44px; width:44px; height:44px; margin-inline-start:-4px; }
+.contact-launcher[hidden] { display:none; }
+slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; height:44px; }
+@media(min-width:60rem) {
+  .workspace[data-contact][data-understanding="present"]:not([data-folded]):not([data-reveal]):not(:has(.understanding[hidden])) .contact-launcher { visibility:hidden; }
+}
+@media(max-width:59.99rem) { .sidebar-contact { max-height:14rem; } }
+@media(max-width:44rem) { .contact-launcher { margin-inline-start:0; } }
 .understanding > .head { align-items:center; min-height:2.8rem; }
 .understanding h2 { font-size:.75rem; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--aithema-muted); }
 .concept-tab { display:inline-flex; align-items:center; min-height:2.75rem; font-size:.78rem; }

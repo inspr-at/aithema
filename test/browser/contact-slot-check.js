@@ -99,7 +99,7 @@ export async function contactSlotCheck(t) {
     await capture(`${name}-first-paint`);
     await page.evaluate(async locale => {
       await import('/packages/ui/src/session-element.js');
-      const { createSession, inputRevision } = await import('/packages/core/src/session.js');
+      const { createSession } = await import('/packages/core/src/session.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = createSession({ demo: true }); session.locale = locale;
       session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'images', 'html', 'uploads'].map(k => [k, { available: true, reason: null }])) };
@@ -107,7 +107,7 @@ export async function contactSlotCheck(t) {
         ? new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }))
         : Response.json(String(url).endsWith('/features') ? session.featureMatrix : session);
       const c = document.querySelector('aithema-session');
-      window.contactFixture = { c, copy, inputRevision };
+      window.contactFixture = { c, copy };
       c.configure({ copy, session, voiceClient: {}, host: { library: true } });
     }, locale);
     await settle();
@@ -200,7 +200,7 @@ export async function contactSlotCheck(t) {
     assert.ok(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.sidebar-contact').scrollTop > 0), 'long host contact scrolls independently');
     stable(long, await rects(['.sidebar-contact', '.understanding']), `${name}: contact scroll`);
     await capture(`${name}-long`);
-    checks.push({ name, before, mounted, pinned, scrolled, empty, long, shiftPx: Math.max(firstPaintShift, analysisShift, emailShift, foldShift) });
+    checks.push({ name, frameSelectors: frames, before, mounted, pinned, scrolled, empty, long, shiftPx: Math.max(firstPaintShift, analysisShift, emailShift, foldShift) });
     if (evidence) await writeFile(join(evidence, 'contact-rects.json'), JSON.stringify(checks, null, 2) + '\n');
   }
   assert.equal(checks.length, 12);
