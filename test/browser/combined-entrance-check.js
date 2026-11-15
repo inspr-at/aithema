@@ -133,7 +133,8 @@ export async function combinedEntranceCheck(t) {
       await exposedFeedback(page, '.composer-saved-announcement');
       assert.equal(await page.$eval('aithema-session', c => getComputedStyle(c.shadowRoot.querySelector('.composer-saved')).opacity), '1');
       unmoved(passive, await shot('microphone-blocked-saved'));
-      await page.evaluate(() => { granted = false; c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:false,changed:['text','voice'],removed:[]}}); });
+      await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`); await page.waitForFunction(() => globalThis.ready);
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
       await page.waitForFunction(() => Boolean(document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason .consent-action')));
       await exposedFeedback(page, '.composer-reason');
       unmoved(passive, await shot('microphone-blocked-consent'));
