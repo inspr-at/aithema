@@ -671,7 +671,7 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
         await click(page, '.host-verify .verify-entry');
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
       }
-      await sample([inputSelector]);
+      rects.push({ label, scenario, state: 'capture-input', targets: [inputSelector], boxes: await sample([inputSelector]) });
       await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), inputSelector);
       assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), inputSelector.slice(1));
       const targets = ['dialog.settings', '.display-foot'], before = await sample(targets);
