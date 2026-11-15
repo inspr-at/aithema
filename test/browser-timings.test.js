@@ -209,6 +209,24 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
   const eightSuccess = invoke({ artifacts: eight });
   assert.equal(eightSuccess.status, 0, eightSuccess.stderr);
   const nine = Array.from({ length: 9 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-9` }));
+  const twelve = Array.from({ length: 12 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-12` }));
+  await t.test('AIT-532: imports a complete twelve-shard run', () => {
+    const success = invoke({ artifacts: twelve });
+    assert.equal(success.status, 0, success.stderr);
+    assert.equal(JSON.parse(readFileSync(weightPath)).seconds, 2.5);
+  });
+  for (const [name, invalid] of [
+    ['missing index', twelve.slice(1)],
+    ['duplicate index', [...twelve.slice(1), twelve[1]]],
+    ['out-of-range index', twelve.map((a, i) => i ? a : { ...a, name: 'browser-timings-13-of-12' })],
+    ['mixed counts', [...twelve, nine[0]]],
+    ['expired artifact', twelve.map((a, i) => i ? a : { ...a, expired: true })],
+  ]) await t.test(`AIT-532: rejects twelve-shard artifacts with ${name}`, () => {
+    const rejected = invoke({ artifacts: invalid });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /incomplete or mixed 12-shard/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before, 'invalid twelve-shard input writes no weights');
+  });
   await t.test('imports a complete nine-shard run', () => {
     const success = invoke({ artifacts: nine });
     assert.equal(success.status, 0, success.stderr);
