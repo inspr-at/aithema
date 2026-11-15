@@ -565,7 +565,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .analysis-content > section:nth-child(1 of section:not([hidden])) { border-top-color:transparent; }
 .analysis-content section.summary { padding-top:0; border-top:0; }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
-.summary-text[data-collapsed] { max-height:var(--summary-limit); overflow:hidden;
+.summary-text[data-collapsed] { max-height:9lh; overflow:hidden;
   mask-image:linear-gradient(to bottom,#000 calc(100% - 1.55em),transparent); }
 .summary-toggle { justify-self:start; min-height:44px; padding:.35rem 0; font-size:.8125rem; color:var(--aithema-accent); font-weight:600; }
 .analysis-content h3 { font-size:.86rem; font-weight:700; color:var(--aithema-ink); }

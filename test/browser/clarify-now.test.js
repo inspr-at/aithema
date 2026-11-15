@@ -994,7 +994,10 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     s = await state(); assert.equal(s.hidden, false); assert.equal(s.expanded, 'false'); assert.equal(s.controls, true);
     assert.ok(s.width > 0 && s.height > 0); assert.ok(s.height <= 9 * s.line + .5, 'collapsed summary is at most nine lines');
     assert.notEqual(s.fade, 'none');
-    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = ''; });
+    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = '20px'; }); await frames();
+    s = await state(); assert.equal(s.hidden, false);
+    assert.ok(Math.abs(s.height - 9 * s.line) <= .5, 'font size change while clamped preserves exactly nine rendered lines');
+    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = ''; c.shadowRoot.querySelector('.summary-text').style.whiteSpace = ''; });
     await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
     await frames(); await shot(`${locale}-${theme}-${width}-collapsed`);
     const readMoreName = locale === 'de' ? 'Mehr anzeigen' : 'Read more';

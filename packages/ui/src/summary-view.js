@@ -38,7 +38,6 @@ export class SummaryView {
     const style = this.view.getComputedStyle(text), line = parseFloat(style.lineHeight);
     const limit = 9 * line;
     const measured = box.width > 0 && box.height > 0 && Number.isFinite(limit) && limit > 0;
-    if (measured) text.style.setProperty('--summary-limit', `${limit}px`);
     const overflow = measured && text.scrollHeight > limit + .5;
     text.toggleAttribute('data-collapsed', overflow && !this.expanded);
     this.button.hidden = !overflow;
