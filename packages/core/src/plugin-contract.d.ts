@@ -48,7 +48,7 @@ export interface ImageReasoning {
   structured(request: ImageReasoningRequest & { schema: object }, options: ImageOperationOptions): Promise<unknown>;
 }
 export interface ImageInput {
-  normalize(bytes: Uint8Array, metadata: { filename?: string; mediaType?: string }, options?: Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>): Promise<
+  normalize(bytes: Uint8Array, metadata: { filename?: string; mediaType?: string }, options?: Partial<Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>>): Promise<
     { status: 'staged-ready'; bytes: Uint8Array; digest: string; w: number; h: number; mediaType: 'image/jpeg' | 'image/png' } | { status: 'staged-refused'; reason: string }>;
 }
 export interface STT extends Partial<AudioFormatPort> {
