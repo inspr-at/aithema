@@ -973,7 +973,8 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
       session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' },
         { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.', inputRevision: inputRevision(session) }];
       Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
-        summary: 'Short.', signals: ['A stable signal'], openQuestions: [] });
+        summary: locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.',
+        signals: [locale === 'de' ? 'Ein klarer Ablauf' : 'A stable signal'], openQuestions: [] });
       // Every request stays in this browser; no fixture/provider operation is admitted.
       window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
         init.signal?.addEventListener('abort', () => controller.close(), { once: true });

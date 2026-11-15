@@ -513,8 +513,8 @@ three to nine whole lines based on the pane, heading, toggle and first signal.
 Where even three lines cannot keep the first signal visible (such as 1024×640),
 the clamp stays at three and the signal remains reachable within the scrolling
 pane. The budget is remeasured on resize, font and locale changes. The native
-toggle uses the additive keys `copy.summaryMore` (“Read more” / “Mehr anzeigen”) and shared `copy.showLess` (“Show less” / “Weniger
-anzeigen”). Missing keys fall back to the active locale; explicit host overrides
+toggle uses the additive keys `copy.summaryMore` (“Read more” / “Mehr anzeigen”)
+and shared `copy.showLess` (“Show less” / “Weniger anzeigen”). Missing keys fall back to the active locale; explicit host overrides
 win. Expansion stays in memory through assessment rewrites and same-conversation
 copy changes, and resets on a different conversation, reset or erasure. The
 understanding prompt addresses the visitor in summaries and signals with “you” /
