@@ -3759,12 +3759,12 @@ test('AIT-502 v2.2: start receipt identifies the optional bound', async t => {
 
 test('AIT-508: a fresh call waits for the prior session call to reconcile despite spare credits and duration', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
-  const h = voiceFixture(t, { unknown: true, cap: { capMilliseconds: 600_000 },
+  const h = voiceFixture(t, { slowClosure: true, cap: { capMilliseconds: 600_000 },
     host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
   t.mock.method(Date, 'now', h.now);
   const first = await h.start(); h.advance(2000);
   const closing = h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
-  await h.waitForClosure(first.providerSessionId); h.advance(10_000); t.mock.timers.tick(10_000); await closing; await h.handlers.idle();
+  await h.waitForClosure(first.providerSessionId);
   const credentials = h.traffic.filter(url => url.includes('/token?')).length;
   const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
   const denied = await h.route('/voice', { callId: 'next-call' });
@@ -3772,9 +3772,7 @@ test('AIT-508: a fresh call waits for the prior session call to reconcile despit
   assert.equal(h.traffic.filter(url => url.includes('/token?')).length, credentials);
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
   assert.equal((await h.runtime.matrix(h.storage.get(h.session.id))).best.voice.reason, 'budget reconciling');
-  const record = h.storage.voiceCalls(h.session.id)[0];
-  h.runtime.reconcileVoice(record.attemptId, { ...record.terminal, outcome: 'completed', closureConfirmed: true,
-    usage: { providerSeconds: 2, providerMinutes: 2 / 60, pausedSeconds: 0, visitorSeconds: 2, upstreamMicro: 2000, visitorMicro: 4000 } });
+  h.endClient(first.providerSessionId); await closing; await h.handlers.idle();
   const next = await h.start('settled-next'); assert.notEqual(next.callId, first.callId);
 });
 
