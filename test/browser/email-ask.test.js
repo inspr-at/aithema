@@ -684,6 +684,9 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
       if (scenario === 'used-up-mail') await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog').close());
       await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
     } else if (scenario === 'refused-focus') {
+      // The entrance reveal owns a finite timer as well as CSS animations.
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').hasAttribute('data-reveal'));
+      await settle(page);
       await page.evaluate(() => window.ait164.reply());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
       const targets = ['.email-offer', '.email-offer__row', '.email-offer__send', '.composer-shell'], before = await sample(targets);
