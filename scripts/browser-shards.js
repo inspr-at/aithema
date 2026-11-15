@@ -339,9 +339,11 @@ browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
 // AIT-506: remote run ait-5f85e1b00b164b6186a07920, a79a3498:
 // complete start-journey file passed 16/16 cases, including the combined
 // entrance matrix. Observed file duration 143.622222626s; ceil(*1.25)=180s.
-// Retain this diagnostic floor outside trusted rolling-main history.
+// Retain the prior 180s floor. AIT-506/AIT-505 integrated Linux run
+// ait-565db5af12bc415f9e956e49 at c5ca3882 passes the complete file 50/50:
+// 195.957015649s; ceil(*1.25)=245s. Diagnostic only; trusted main is unchanged.
 browserTestWeights['test/browser/start-journey.test.js'] = Math.max(
-  browserTestWeights['test/browser/start-journey.test.js'], 180);
+  browserTestWeights['test/browser/start-journey.test.js'], 245);
 
 // AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
 // clarify-now 17/17 PASS before the later shard timeout. Top-level work:

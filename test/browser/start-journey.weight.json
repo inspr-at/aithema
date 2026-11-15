@@ -21,7 +21,7 @@
             "seconds": 2.0537800390000003
           },
           {
-            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "name": "AIT-129: German entrance \u2192 mock consent \u2192 readiness, withdrawal, stored language and theme, without audio",
             "seconds": 2.588864948
           },
           {
@@ -29,11 +29,19 @@
             "seconds": 2.377066332
           },
           {
-            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440\u00d7900 and 390\u00d7844, light/dark evidence",
             "seconds": 7.632549021
           }
         ]
       }
     ]
+  },
+  "diagnostic": {
+    "seconds": 245,
+    "evidence": "AIT-506/AIT-505 integrated entrance workload. Remote Linux wrapper run ait-565db5af12bc415f9e956e49 at c5ca38826a075fc82b110322ae76f30c211bb209, complete start-journey 50/50 tests and targeted set312/312 PASS. Whole file195.957015649s from unit-timings/timings.jsonl; ceil(file seconds *1.25) =245s. Retains the prior180s diagnostic floor. Remote timing is excluded from trusted rolling-main samples; existing timing history and seconds are unchanged.",
+    "runId": "ait-565db5af12bc415f9e956e49",
+    "attempt": 1,
+    "sha": "c5ca38826a075fc82b110322ae76f30c211bb209",
+    "workload": "a848c577132636229c343558b5c17ea8261ba8d9a033b19c27ff7fcb380dfd7a"
   }
 }
