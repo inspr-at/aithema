@@ -75,7 +75,7 @@ export async function contactSlotCheck(t) {
       const { createSession, inputRevision } = await import('/packages/core/src/session.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = createSession({ demo: true }); session.locale = locale;
-      session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'visuals', 'html'].map(k => [k, { available: true, reason: null }])) };
+      session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'images', 'html', 'uploads'].map(k => [k, { available: true, reason: null }])) };
       window.fetch = async (url, init = {}) => String(url).endsWith('/events')
         ? new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }))
         : Response.json(String(url).endsWith('/features') ? session.featureMatrix : session);
@@ -125,25 +125,21 @@ export async function contactSlotCheck(t) {
     await settle(); stable(scrolled, await rects(frames), `${name}: email pane`);
     assert.equal(await visible('#contact-open'), true);
     await capture(`${name}-email-pane`);
-    // Fold uses the production controller; enable its existing canvas predicate with a fixture draft.
+    // Exercise the production fold controller with the fixture's available visuals.
     await page.evaluate(() => {
       const root = document.querySelector('aithema-session').shadowRoot;
       root.querySelector('.workspace').removeAttribute('data-email-ask');
-      root.querySelector('.workspace').setAttribute('data-folded', '');
-      root.querySelector('.understanding').hidden = true;
-      root.querySelector('.conversation').hidden = true;
-      root.querySelector('.fold-view').hidden = false;
+      root.querySelector('.fold').click();
     });
-    await settle(); assert.equal(await visible('#contact-launch'), true, `${name}: folded launcher`);
+    await settle();
+    assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-folded')), true, 'production fold entered');
+    assert.equal(await visible('#contact-launch'), true, `${name}: folded launcher`);
     stable(mounted, await rects(['.band', '.audio-rail']), `${name}: folded header`);
     await capture(`${name}-folded`);
     // Empty host content consumes no sidebar row, while the declared launcher keeps its target.
     await page.evaluate(() => {
       const c = document.querySelector('aithema-session'); c.querySelector('[slot="sidebar-contact"]').remove();
-      c.shadowRoot.querySelector('.workspace').removeAttribute('data-folded');
-      c.shadowRoot.querySelector('.understanding').hidden = false;
-      c.shadowRoot.querySelector('.conversation').hidden = false;
-      c.shadowRoot.querySelector('.fold-view').hidden = true;
+      c.shadowRoot.querySelector('.fold').click();
     });
     await settle();
     const empty = await rects(['.sidebar-contact']);
