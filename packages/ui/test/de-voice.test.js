@@ -4,9 +4,11 @@ import { de } from '../src/i18n/de.js';
 
 // Tick AIT-426 v1: Aithema's own UI voice is impersonal: no wir/uns/unser
 // or ich/mich/mir/mein. Exempt voices are the assistant speaking as itself
-// (including demo dialogue) and the visitor's own option labels.
+// (including demo dialogue), the visitor's own option labels, and the
+// explicitly approved AIT-514 summary heading.
 // Allow by i18n key only, never by matching the text.
 const personalVoice = new Set([
+  'summary', // AIT-514 binding heading: Unser Verständnis bisher; exact default checked in session-element.test.js.
   'voiceStates.listening', // Assistant voice: listening state.
   'voiceStatesNarrow.listening', // Assistant voice: compact listening state.
   'purposeRedirects.0', // Assistant voice: off-topic reply.
