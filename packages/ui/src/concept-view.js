@@ -452,7 +452,7 @@ export class ConceptView {
     this.root.querySelector('.workspace').toggleAttribute('data-concept-unbound', unbound);
     this.#placeAccess?.();
     const consentOnly = this.#withdrawnKind && !this.covered(this.#withdrawnKind) && !this.items.length;
-    const status = consentOnly ? { phase: 'idle' } : this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
+    const status = consentOnly && !this.#session.conceptStatus?.consentRequest ? { phase: 'idle' } : this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
     const initial = this.#stageFeature === undefined;
     const current = this.accessFeature();
