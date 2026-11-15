@@ -267,7 +267,8 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     creditTiers(ownerHash) {
       const { allowancesMicro, confirmationEnabled } = settings(), current = policy(ownerHash).tier;
       const canConfirm = confirmationEnabled && deliveryEnabled;
-      const candidate = current === 'anonymous' ? 'emailGiven' : current === 'emailGiven' && canConfirm ? 'emailConfirmed' : null;
+      const candidate = current === 'anonymous' ? allowancesMicro.emailGiven > allowancesMicro.anonymous ? 'emailGiven'
+        : canConfirm ? 'emailConfirmed' : null : current === 'emailGiven' && canConfirm ? 'emailConfirmed' : null;
       const next = candidate && allowancesMicro[candidate] > allowancesMicro[current] ? candidate : null;
       return { current, next, delta: next ? allowancesMicro[next] - allowancesMicro[current] : 0, canConfirm, allowancesMicro };
     },

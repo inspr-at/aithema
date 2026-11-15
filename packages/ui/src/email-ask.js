@@ -9,13 +9,13 @@ export const lowCredit = credits => credits?.exhausted !== true && credits?.bala
   Number.isSafeInteger(credits?.lowAtMicro) && credits.balance.owner.availableMicro <= credits.lowAtMicro;
 
 /** The server owns frequency and records; this policy only chooses a safe moment. */
-export function emailAskIntent({ count, replied, streaming, callActive, typing, eligible, low, lowReady = false, state = {}, desktop, dayReady }) {
+export function emailAskIntent({ count, replied, streaming, callActive, typing, eligible, low, lowReady = false, state = {}, desktop, dayReady, offerPolicy = false }) {
   if (streaming || callActive || typing || !replied) return null;
   if (desktop && state.open && !state.saved && count >= state.openedAt + 2) return 'fold';
   if (!eligible) return null;
   if (low) return lowReady ? 'low' : null;
   if (state.open) return null;
-  return count >= 5 && dayReady ? 'turn5' : null;
+  return !offerPolicy && count >= 5 && dayReady ? 'turn5' : null;
 }
 
 export class EmailAsk {
@@ -90,10 +90,11 @@ export class EmailAsk {
   update() {
     if (!this.alive || !this.connected) return;
     if (this.dismissPending) { this.paint(); if (!this.busy) void this.act('dismiss'); return; }
+    if (this.session().emailOffer && this.state.why === 'turn5' && !this.manual) this.open = false;
     const turns = activeTurns(this.session()), replied = turns.at(-1)?.role === 'assistant', count = turns.filter(turn => turn.role === 'user').length;
     const low = this.lowCredits && this.credits?.emailAskLowCredits !== false && lowCredit(this.credits), safe = replied && !this.streaming() && !this.callActive && !this.typing;
     if (this.callActive && this.open && !this.desktop) { void this.dismiss(false); return; }
-    if ((this.state.why !== 'low' || this.lowCredits && this.credits?.emailAskLowCredits !== false) && this.state.open && !this.open && safe && (this.eligible || this.email.address)) {
+    if (!(this.session().emailOffer && this.state.why === 'turn5') && (this.state.why !== 'low' || this.lowCredits && this.credits?.emailAskLowCredits !== false) && this.state.open && !this.open && safe && (this.eligible || this.email.address)) {
       this.open = true; if (this.email.address) { this.step = 'done'; this.sent = this.email.identity?.status === 'verification-pending' && this.email.identity?.delivery !== 'failed'; }
     }
     if (low && !this.announcedLow) { this.announcedLow = true; setText(this.root.querySelector('.email-ask-announcement'), fill(this.copy.hostSurface.emailAsk.announceLow, { available: this.format(this.credits.balance.owner.availableMicro) })); }
@@ -104,7 +105,7 @@ export class EmailAsk {
     if (safe && low && !this.state.lowLine) { void this.act('line'); return; }
     const intent = emailAskIntent({ count, replied, streaming: this.streaming(), callActive: this.callActive, typing: this.typing,
       eligible: this.eligible && (!lowCredit(this.credits) || low), low, lowReady: this.lowClaim?.armed === true && this.now() >= this.lowAfter,
-      state: { ...this.state, open: this.open, saved: ['saving', 'done'].includes(this.step) }, desktop: this.desktop, dayReady: this.now() >= (this.after ?? Infinity) });
+      offerPolicy: Boolean(this.session().emailOffer), state: { ...this.state, open: this.open, saved: ['saving', 'done'].includes(this.step) }, desktop: this.desktop, dayReady: this.now() >= (this.after ?? Infinity) });
     if (intent === 'fold' && !this.gate.contains(this.root.activeElement) && !this.gate.matches(':hover')) void this.act('fold');
     else if (intent === 'low' || intent === 'turn5') void this.act('show', intent);
     else if (this.typing && replied && (low || count >= 5)) this.schedule();
@@ -172,7 +173,7 @@ export class EmailAsk {
     setText(this.q('.m-tier'), this.email.delivery && this.sent ? confirmRaises ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : fill(a.saved, n));
     setText(this.q('.email-ask__hint'), this.email.delivery ? this.sent === false ? v.deliveryFailed : v.hint : a.savedHint);
     this.q('.email-ask__save').inert = done;
-    const folded = this.state.folded && this.eligible && !open;
+    const folded = this.state.folded && this.eligible && !open && !(this.session().emailOffer && this.state.why === 'turn5');
     this.fold.style.visibility = folded ? 'visible' : 'hidden'; this.fold.inert = !folded;
     setText(this.fold, fill(a.folded, { delta: this.format(this.credits?.tiers?.delta) }));
   }

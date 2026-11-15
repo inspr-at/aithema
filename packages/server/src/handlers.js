@@ -1,3 +1,4 @@
+import { emailOfferPolicy } from '../../core/src/email-offer.js';
 import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { validateConsentDocument, ConsentDocumentError } from '../../core/src/consent-document.js';
 import { createConceptHandlers } from './concept-handlers.js';
@@ -110,7 +111,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession, ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
+      if (current.seq === session.seq) return { ...publicSession,
+        ...(host?.emailOffer ? { emailOffer: emailOfferPolicy(host.emailOffer) } : {}), ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
         ...(host?.identity?.chooseRole === true ? { roleChoice: hostHandlers.roleChoice(id) } : {}),
         operations: operations(current), openQuestionItems: openQuestionItems(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
         ...(pluginRuntime.visualsBound ? { visualsBound: pluginRuntime.visualsBound() } : {}),

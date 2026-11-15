@@ -3746,3 +3746,51 @@ its wallet reports `creditScope: 'session'`. This is a display receipt, never
 an admission override. Host privacy links use the existing legal slot with
 `data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
 German, German digit grouping and a nonbreaking space before `Credits`.
+
+### In-chat email offer (AIT-507, opt-in)
+
+Set `host.emailOffer = { afterMessages: 2 }` on the server host to replace the
+fifth-message email prompt with an assistant-side offer after a settled reply.
+`{}` defaults to two accepted visitor messages; `afterMessages: 1` is also
+supported. Other thresholds are refused at startup. The session snapshot
+publishes the resolved `emailOffer: { afterMessages }` policy. Hosts enable the
+existing verification and credit surfaces in the UI and provide a delivering
+identity port, the privacy-document capability, and the visitor-wide
+`claimEmailAsk` / `emailAskAfter` ports.
+
+Before visitor input, the overview and Settings' empty capture form are absent.
+A saved address keeps its Change and Delete controls in Settings. The host opener
+never counts as visitor input. Confirmation still unlocks the assessment and
+concepts; starting a conversation does not require an email address.
+
+The offer counts accepted text and final speech messages, deduplicated by turn
+ID. Assistant turns, the opener, documents, uploads and partial speech do not
+advance the threshold. A failed reply defers the offer until the next settled
+assistant reply. The inline element is outside canonical transcript data, model
+context and exports. It remains usable during a live call and leaves the
+composer active on phones, without moving focus or opening the keyboard.
+
+The existing `POST /api/sessions/:id/email-ask` route accepts
+`{ action: 'show' | 'dismiss', why: 'offer' }`. The server verifies the policy,
+threshold, settled reply and shared eligibility rule: privacy capability and
+email delivery, plus either a confirmation lock with confirmation available or
+a positive next-tier delta. The existing rolling 24-hour visitor claim and a
+durable conversation latch bound frequency. Dismissal does not consume the
+separate low-credit claim. Under this policy, `why: 'turn5'` cannot open a prompt;
+`why: 'low'` retains its existing behavior.
+
+The credit receipt's `emailOffer` record and offer-claim responses carry
+`offered`, `open`, `dismissed`, `at` (the anchor reply ID), `nextTier`,
+`deltaMicro`, and `revision`. This is private host state, separate from the
+snapshot's policy and from transcript events. A saved, unconfirmed address uses
+resend; replacing or deleting it remains in Settings. New addresses use
+`Verification.saveAndConfirm`, including the rendered privacy notice's mandatory
+`noticeVersion`. `Verification.resend()` uses the existing identity route and
+cooldown, requesting a first link for a saved guest or resending a pending one,
+without saving or replacing the address.
+
+Copy comes from the existing `hostGive`, `hostConfirm`, `verify.lockLead`,
+`verify.send`, `verify.resend`, `verify.sent` and `verify.unlocked` keys, so host
+copy overrides apply. No new copy keys or public package exports are required.
+The demo tier projection offers confirmation directly when saving the address
+adds no credit but confirmation has a positive delta.
