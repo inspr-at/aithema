@@ -138,6 +138,13 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         const state = await capture(`ait-511-${locale}-${theme}-${width}-visuals-${visuals}`);
         positive(state.boxes['.concept-bar'], 'visual bar'); assert.equal(state.boxes['.concept-bar'].height, 44, 'visual bar uses one 44px row');
       }
+      const beforeNotice = await geometry(page);
+      await shadow(page, async c => {
+        const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
+        c.shadowRoot.querySelector('.voice-notice--recovered').textContent = copy.voiceRecovered;
+      });
+      await settleEvidenceFrame(page);
+      const notice = await capture(`ait-511-${locale}-${theme}-${width}-recovery-notice`); stable(beforeNotice, notice, 'recovery notice');
       if (width === 1440) {
         await reset(width, 640, locale, theme, { card: true, voice: true });
         await capture(`ait-511-${locale}-${theme}-${width}-short-desktop-card`);
@@ -148,10 +155,12 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   for (const voice of [false, true]) await t.test(`1024x640 question card stays reachable voice=${voice}`, async () => {
     await reset(1024, 640, 'de', 'dark', { card: true, voice }); const before = await geometry(page);
     await draft(page, 30); await settleEvidenceFrame(page); const after = await geometry(page);
-    stable(before, after, 'card-aware growth'); positive(after.boxes['.qcard'], 'card'); positive(after.boxes['.qopts'], 'options');
+    stable(before, after, 'card-aware growth'); positive(before.boxes['.qcard'], 'card before growth'); positive(after.boxes['.qcard'], 'card'); positive(after.boxes['.qopts'], 'options');
     assert.ok(after.boxes['.qcard'].height >= 150, 'card retains 150px minimum');
     assert.ok(after.boxes['.transcript-shell'].height >= 128, 'reply retains 128px floor');
     assert.ok(after.boxes['.qopts'].height >= 44, 'one option remains reachable');
+    const gap = after.boxes['.qcard'].top - after.boxes['.turn:last-child'].bottom;
+    assert.ok(gap >= -.5 && gap <= 24.5, `reply/card clearance stays between 0 and 24px: ${gap}`);
     records.push({ label: `card-${voice}`, before, after });
   });
   await t.test('short phone keyboard grows at most three lines with stable Send', async () => {
