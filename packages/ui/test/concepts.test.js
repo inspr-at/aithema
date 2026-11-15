@@ -1577,11 +1577,11 @@ for (const target of ['preview', 'viewer', 'composer']) for (const moved of [fal
 });
 
 // AIT-509: the producer publishes only a validated, dispatch-ready consent ask.
-function conceptConsentFixture(t, copy = en) {
+function conceptConsentFixture(t, copy = en, concepts = []) {
   let view;
   const update = ConceptView.prototype.update;
   t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
-  const f = setup(t, { copy, concepts: [], session: { visualsBound: true } });
+  const f = setup(t, { copy, concepts, session: { visualsBound: true } });
   let allowed = false;
   view.feature = () => allowed ? { available: true } : { available: false, rawReason: 'current processing consent required', reason: 'current processing consent required' };
   const events = []; f.c.addEventListener('aithema-consent', e => events.push(e.detail));
@@ -1659,6 +1659,19 @@ test('AIT-509: a prior refusal button uses the current concept continuation call
   f.ask();
   assert.equal(f.root.querySelector('.concept-activity-text .consent-action'), action, 'keep the existing focus target');
   action.click(); assert.equal(f.events.at(-1).intent, 'concept');
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
+});
+
+test('AIT-509: a fresh wish after visual coverage loss uses the just-in-time continuation', async t => {
+  const f = conceptConsentFixture(t, en, [item('prior')]);
+  f.change({ featureMatrix: { best: { ...f.c.session.featureMatrix.best,
+    images: { available: false, reason: 'current processing consent required' } } } });
+  f.ask();
+  const line = f.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, 'Images need consent to be created.\u00a0· Give consent');
+  line.querySelector('.consent-action').click();
+  assert.equal(f.events.at(-1).intent, 'concept');
   await f.grant();
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
 });
