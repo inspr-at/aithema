@@ -401,7 +401,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
               const delivery = host.identity?.deliversVerification === true &&
                 (host.demo === true && identity.verificationRequired === true || credits.tiers?.canConfirm !== false);
               const eligibility = emailOfferEligibility({ privacyCapability: host.demo === true || privacyDocumentConfigured(host),
-                delivery, lock, tiers: credits.tiers, scope: credits.scope });
+                delivery, lock, tiers: credits.tiers, scope: credits.scope, canConfirm: host.demo === true || credits.tiers?.canConfirm === true });
               if (!credits.exhausted && !credits.dailyCapReached && eligibility.eligible &&
                   visitorMessageCount(session) >= policy.afterMessages && turns.at(-1)?.role === 'assistant' &&
                   host.claimEmailAsk?.(ownerToken) === true) {

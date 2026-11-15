@@ -17,7 +17,7 @@ export function emailOfferPolicy(value) {
 }
 
 /** Shared server/UI eligibility; the host's next-tier receipt owns the promise. */
-export function emailOfferEligibility({ privacyCapability, delivery, lock = false, tiers, scope }) {
+export function emailOfferEligibility({ privacyCapability, delivery, lock = false, tiers, scope, canConfirm = tiers?.canConfirm }) {
   let nextTier = tiers?.next ?? null;
   const allowances = tiers?.allowancesMicro, current = tiers?.current;
   if (scope === 'session' && current === 'anonymous' && allowances?.anonymous === allowances?.emailGiven) {
@@ -25,6 +25,6 @@ export function emailOfferEligibility({ privacyCapability, delivery, lock = fals
   }
   const delta = nextTier ? scope === 'session' && allowances
     ? allowances[nextTier] - allowances[current] : tiers?.delta ?? 0 : 0;
-  return { eligible: privacyCapability === true && delivery === true && (lock && tiers?.canConfirm === true || delta > 0),
+  return { eligible: privacyCapability === true && delivery === true && (lock && canConfirm === true || delta > 0),
     nextTier, delta: Number.isFinite(delta) && delta > 0 ? delta : 0 };
 }

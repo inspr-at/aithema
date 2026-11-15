@@ -15,6 +15,7 @@ test('AIT-507 eligibility: give, confirm, lock only, delivery and privacy', () =
   assert.equal(emailOfferEligibility({ ...base, tiers: confirm }).nextTier, 'emailConfirmed');
   assert.equal(emailOfferEligibility({ ...base, tiers: { canConfirm: true }, lock: true }).eligible, true);
   assert.equal(emailOfferEligibility({ ...base, tiers: { canConfirm: false }, lock: true }).eligible, false);
+  assert.equal(emailOfferEligibility({ ...base, tiers: { canConfirm: false }, lock: true, canConfirm: true }).eligible, true, 'a lock can confirm independently of a credit increase');
   assert.equal(emailOfferEligibility({ ...base, privacyCapability: false }).eligible, false);
   assert.equal(emailOfferEligibility({ ...base, delivery: false }).eligible, false);
 });

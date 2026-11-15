@@ -12,7 +12,8 @@ export class EmailOffer {
   get email() { return this.verification.email; }
   get eligibility() {
     return emailOfferEligibility({ privacyCapability: this.email.canCollect, delivery: this.email.delivery,
-      lock: this.verification.locked, tiers: this.credits?.tiers, scope: this.credits?.scope });
+      lock: this.verification.locked, tiers: this.credits?.tiers, scope: this.credits?.scope,
+      canConfirm: this.email.demo === true || this.credits?.tiers?.canConfirm === true });
   }
   get entry() {
     return this.state.open && this.email.canCollect && activeTurns(this.session()).some(turn => turn.id === this.state.at)
