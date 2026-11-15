@@ -499,7 +499,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-    let baseline = null;
+    let baseline = null, offerBaseline = null;
     const shot = async state => {
       await settle(page);
       const bounds = await shadow(page, c => {
@@ -509,6 +509,14 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
       if (bounds) {
         for (const box of Object.values(bounds)) assert.ok(box.width > 0 && box.height > 0, `${label}/${state}: positive offer geometry`);
         assert.ok(bounds.offer.left >= bounds.shell.left - .5 && bounds.offer.right <= bounds.shell.right + .5, `${label}/${state}: offer fits the transcript`);
+      }
+      if (baseline && bounds) {
+        const currentOffer = await boxes(page, ['.email-offer', '.email-offer__row', '.email-offer__send']);
+        for (const box of currentOffer) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${state}: positive offer control geometry`);
+        if (offerBaseline) {
+          const shift = Math.max(...offerBaseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - currentOffer[i][j]))));
+          assert.ok(shift <= .5, `${label}/${state}: offer control shift ${shift}`); rects.push({ label, state, before: offerBaseline, after: currentOffer, shift });
+        } else offerBaseline = currentOffer;
       }
       if (baseline) {
         const current = await measured();

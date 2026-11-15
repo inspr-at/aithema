@@ -63,7 +63,7 @@ export class EmailOffer {
         <p class="email-offer__lead"></p><form novalidate>
           <label class="m-label" for="email-offer-input"></label>
           <div class="email-offer__row"><input class="m-in" id="email-offer-input" type="email" inputmode="email" autocomplete="email" maxlength="254" spellcheck="false" aria-describedby="email-offer-message email-offer-notice">
-            <span class="email-offer__address"></span><button class="email-offer__send" type="submit"></button></div>
+            <span class="email-offer__address"></span><button class="email-offer__send" type="submit"><span></span></button></div>
           <p class="email-offer__message" id="email-offer-message" role="status"></p>
           <p class="m-notice" id="email-offer-notice"><span class="m-notice-text"></span> <a class="m-pp" target="_blank" rel="noopener"></a></p>
         </form>`;
@@ -91,7 +91,8 @@ export class EmailOffer {
     const address = row.querySelector('.email-offer__address'); address.hidden = !saved; setText(address, email.address);
     setText(row.querySelector('label'), v.label);
     const button = row.querySelector('.email-offer__send');
-    setText(button, saved ? v.resend : v.send); button.disabled = this.saving || confirmed;
+    button.dataset.send = v.send; button.dataset.resend = v.resend;
+    setText(button.querySelector('span'), saved ? v.resend : v.send); button.disabled = this.saving || confirmed;
     setText(row.querySelector('.email-offer__message'), confirmed ? v.unlocked : this.message || (this.step === 'sent' ? v.sent : ''));
     const dismiss = row.querySelector('.email-offer__dismiss'); dismiss.setAttribute('aria-label', v.close); dismiss.disabled = this.busy || this.saving;
     email.paintNotice(row.querySelector('.m-notice'));
@@ -127,7 +128,10 @@ export const emailOfferStyles = `
 .email-offer__row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; min-height:44px; }
 .email-offer .m-in { grid-area:auto; min-width:0; }
 .email-offer__address { min-width:0; overflow-wrap:anywhere; }
-.email-offer__send { min-height:44px; padding:8px 12px; border-radius:8px; background:var(--aithema-accent); color:var(--aithema-on-accent); font:inherit; }
+.email-offer__send { display:inline-grid; place-items:center; min-height:44px; padding:8px 12px; border-radius:8px; background:var(--aithema-accent); color:var(--aithema-on-accent); font:inherit; }
+.email-offer__send > span,.email-offer__send::before,.email-offer__send::after { grid-area:1/1; }
+.email-offer__send::before { content:attr(data-send); visibility:hidden; pointer-events:none; }
+.email-offer__send::after { content:attr(data-resend); visibility:hidden; pointer-events:none; }
 .email-offer__dismiss { position:absolute; top:6px; right:6px; width:44px; height:44px; padding:0; font-size:22px; color:var(--aithema-muted); background:none; border:0; }
 .email-offer__message { min-height:3lh; margin:0; }
 .email-offer .m-notice { min-height:3lh; }
