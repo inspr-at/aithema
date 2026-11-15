@@ -3778,9 +3778,13 @@ test('AIT-508: a fresh call waits for the prior session call to reconcile despit
 
 test('AIT-508: a fresh bounded call after an empty ended call uses continuation presentation', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const phrases = { de: { opening: 'Hallo, hier ist eine KI-Assistenz.', continuation: 'Ihre KI-Assistenz setzt das Gespräch fort.' },
+    en: { opening: 'Hello, this is an AI assistant.', continuation: 'Your AI assistant is ready to continue.' } };
   const presentations = [], h = voiceFixture(t, {
     host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }),
-    voiceOptions: { presentation(locale, options) { presentations.push(options); return { agent: { language: locale, firstMessage: options.hasPriorTurns ? 'Continue' : 'Welcome' } }; } },
+    voiceOptions: { presentation(locale, options) {
+      presentations.push(options); return { agent: { language: locale, firstMessage: phrases[locale][options.hasPriorTurns ? 'continuation' : 'opening'] } };
+    } },
   });
   t.mock.method(Date, 'now', h.now);
   const first = await h.start();
@@ -3788,5 +3792,7 @@ test('AIT-508: a fresh bounded call after an empty ended call uses continuation 
   assert.equal(h.storage.get(h.session.id).transcript.length, 0);
   const next = await h.start('next-empty-call');
   assert.notEqual(first.callId, next.callId); assert.equal(presentations[0].hasPriorTurns, false);
-  assert.equal(presentations.at(-1).hasPriorTurns, true); assert.equal(next.overrides.agent.firstMessage, 'Continue');
+  assert.equal(presentations.at(-1).hasPriorTurns, true); assert.equal(presentations.at(-1).hasPriorCalls, true);
+  assert.equal(next.presentation, 'continuation');
+  assert.equal(next.overrides.agent.firstMessage, next.overrides.agent.language === 'de' ? 'Ihre KI-Assistenz setzt das Gespräch fort.' : 'Your AI assistant is ready to continue.');
 });

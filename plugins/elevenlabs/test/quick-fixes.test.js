@@ -501,3 +501,17 @@ for (const shape of ['end_call', 'close-code']) test(`AIT-508: SDK generic ${sha
   await flush(); await flush();
   assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
 });
+
+for (const locale of ['en', 'de']) test(`AIT-508: ${locale} fresh call continuation never falls back to the initial greeting`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  const { createElevenLabsVoiceHost } = await import('../src/voice-host.js');
+  // Presentation is available even with voice off; invalid costs prevent all provisioning.
+  const host = await createElevenLabsVoiceHost({ agentName: 'fixture-agent', facadeSecretName: 'fixture-facade',
+    values: {}, costConfig: {}, qualifyBinding() {}, log() {}, fetchImpl() { assert.fail('No provider requests'); } });
+  t.after(() => host.close());
+  const initial = host.presentation(locale).agent.firstMessage;
+  assert.equal(host.presentation(locale, { hasPriorTurns: true }).agent.firstMessage, initial, 'legacy fallback stays unchanged');
+  const continued = host.presentation(locale, { hasPriorTurns: true, hasPriorCalls: true }).agent.firstMessage;
+  assert.notEqual(continued, initial); assert.doesNotMatch(continued, /Hello|Hallo/u);
+  assert.match(continued, locale === 'en' ? /AI assistant/u : /KI-Assistenz/u);
+});
