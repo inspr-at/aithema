@@ -16,7 +16,7 @@ let storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture', OPENROUTER_ANALYSIS_EFFORT: 'low',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
-let replyHold = null;
+let replyHold = null, reconciliationStart = 0;
 let release, holdAssessment = false, success = false, current, analysisEntered, enterAnalysis;
 const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
   async fetchImpl(url, init) {
@@ -90,6 +90,32 @@ const { server, url } = await listen(async request => {
     current = storage.create({ demo: true, ownerToken: owner, locale: u.searchParams.get('locale') ?? 'de' });
     storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
     for (const lane of ['reaction', 'understanding']) storage.setLaneFailure(current.id, { inputRevision: inputRevision(storage.get(current.id)), lane });
+    return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
+  }
+  if (path === '/reconciliation-proof') {
+    const answer = u.searchParams.get('locale') === 'de' ? 'Die Buchhaltung gibt alle Rechnungen frei.' : 'Accounting approves every invoice.';
+    const calls = kit.calls.slice(reconciliationStart).filter(call => !call.body.stream && call.body.messages.some(message => message.content.includes(answer)));
+    const session = storage.get(current.id);
+    return Response.json({
+      promptRule: calls.some(call => call.body.messages.some(message => message.content.includes('Reconcile every prior open question'))),
+      typedAnswer: calls.length > 0,
+      reconciled: session.understanding.inputRevision === inputRevision(session) && session.understanding.openQuestions.length === 0,
+    });
+  }
+  if (path === '/reconciliation') {
+    await handlers.idle();
+    reconciliationStart = kit.calls.length;
+    // A controlled mock supplies the reconciled empty list after the typed answer.
+    success = true; holdAssessment = false;
+    const locale = u.searchParams.get('locale') ?? 'en';
+    current = storage.create({ demo: true, ownerToken: owner, locale });
+    storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'user', content: 'Invoice approvals' });
+    const revision = inputRevision(storage.get(current.id));
+    storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant',
+      content: locale === 'de' ? 'Wer gibt Rechnungen frei?' : 'Who approves invoices?', inputRevision: revision });
+    storage.append(current.id, 'understanding.updated', { ...storage.get(current.id).understanding,
+      ...assessment, inputRevision: revision, readinessAssessed: true, draft: false,
+      openQuestions: [locale === 'de' ? 'Wer gibt Rechnungen frei?' : 'Who approves invoices?'] });
     return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
   }
   if (path === '/fixture') {

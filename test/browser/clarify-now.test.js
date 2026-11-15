@@ -20,7 +20,10 @@ const geometry = page => shadow(page, c => [
 ].map(selector => {
   const n = c.shadowRoot.querySelector(selector);
   return [selector, n.offsetLeft, selector === '.band' ? n.getBoundingClientRect().top : n.offsetTop, n.offsetWidth, n.offsetHeight];
-}));
+})).then(rects => {
+  for (const [selector, , , width, height] of rects) assert.ok(width > 0 && height > 0, `${selector}: measured geometry has a positive box`);
+  return rects;
+});
 
 test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-clarify-'));
@@ -156,7 +159,7 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
         assert.equal(checks.itemState, 'refused'); assert.equal(checks.previousState, 'asked'); assert.equal(checks.actionEnabled, true);
         assert.match(checks.label, locale === 'de' ? /Fortsetzen/ : /Resume/); assert.equal(checks.refusalIcon, true);
       }
-      if (state === 'voice-busy-resolved') { assert.equal(checks.voiceBusyWasRequesting, true); assert.equal(checks.itemState, 'rest'); assert.equal(checks.actionEnabled, true); }
+      if (state === 'voice-busy-resolved') { assert.equal(checks.voiceBusyWasRequesting, true); assert.equal(checks.itemState, 'requesting'); assert.equal(checks.actionEnabled, false); }
       if (['requesting', 'selected', 'asked'].includes(state)) assert.equal(checks.focusRetained, true, 'keyboard focus stays on the original action');
       if (['rest', 'requesting', 'selected', 'asked'].includes(state)) assert.equal(checks.targetHeight, 44, '44 px pointer target');
       if (state === 'retry') { assert.equal(checks.oneRetry, true); assert.equal(checks.noOverflow, true, 'narrow retry fits the reserved line'); }
@@ -393,6 +396,284 @@ test('AIT-504 real handler/SSE: five typed answers repaint overview and readines
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-five-answers.json'), JSON.stringify(records, null, 2)); }
 });
 
+const boxes = (page, omitAction = false) => shadow(page, (c, omitAction) => ['.open-question', '.question-state', '.clarify-action', '.understanding > .foot', '.composer-shell'].filter(selector => !omitAction || selector !== '.clarify-action').map(selector => {
+  const b = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+  return { selector, x: b.x, y: b.y, width: b.width, height: b.height };
+}), omitAction);
+
+test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/dark 390/1440', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-rc24-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), rects = [], errors = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  page.on('pageerror', error => errors.push(error.message));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await shadow(page, async (c, locale, theme) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      session.transcript = [{ id: 'visitor', role: 'user', content: 'Invoice approvals' }, { id: 'reply', role: 'assistant', content: 'Who approves?' }];
+      session.transcript[1].inputRevision = inputRevision(session);
+      Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
+        summary: 'Invoice approvals', openQuestions: [locale === 'de' ? 'Wer gibt Rechnungen frei?' : 'Who approves invoices?'] });
+      session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
+      window.rc24Posts = [];
+      window.fetch = async (url, init = {}) => {
+        if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        if (init.method === 'POST') { window.rc24Posts.push(String(url)); return window.rc24Post(); }
+        return Response.json(c.session);
+      };
+      window.rc24Copy = copy;
+      window.rc24Reset = () => c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', theme); window.rc24Reset();
+    }, locale, theme);
+    for (const state of ['rest', 'requesting', 'wait', 'retry', 'focus-retry', 'unavailable', 'cleared']) {
+      await shadow(page, c => { window.rc24Reset(); c.shadowRoot.querySelector('.open-questions').scrollIntoView({ block: 'center' }); });
+      await settle(page);
+      const before = await boxes(page, state === 'unavailable');
+      const resting = await shadow(page, c => {
+        const row = c.shadowRoot.querySelector('.open-question');
+        const boxes = ['.question-text', '.clarify-icon'].map(selector => {
+          const r = row.querySelector(selector).getBoundingClientRect();
+          return { selector, x: r.x, width: r.width, height: r.height };
+        });
+        return { question: boxes[0].x, label: boxes[1].x, boxes };
+      });
+      for (const box of resting.boxes) assert.ok(box.width > 0 && box.height > 0, `${box.selector}: positive resting box`);
+      assert.equal(resting.label, resting.question, 'gate1 M3 A: resting action begins under the question');
+      const point = before[1]; await page.mouse.move(point.x + 2, point.y + 2);
+      await shadow(page, async (c, state) => {
+        window.rc24Posts = [];
+        const revision = c.session.operations.inputRevision, item = c.openQuestionItems[0];
+        if (state === 'rest') return;
+        if (state === 'requesting') {
+          window.rc24Post = () => new Promise(resolve => { window.rc24Release = resolve; });
+          void c.focusQuestion(item.id).catch(() => {}); return;
+        }
+        if (state === 'wait') {
+          window.rc24Post = () => { c.receive({ type: 'lane.status', data: { inputRevision: revision, running: ['reaction'], failures: [] } });
+            return Response.json({ reason: 'reply-in-flight' }, { status: 409 }); };
+          await c.focusQuestion(item.id).catch(() => {}); return;
+        }
+        if (state === 'retry' || state === 'cleared') {
+          window.rc24Post = () => Response.json({ event: { seq: c.session.seq + 1, type: 'question.focused', data: {
+            ...item, questionId: item.id, requestId: 'visible-focus', chosenBy: 'user', inputRevision: revision,
+          } } }, { status: 202 });
+          await c.focusQuestion(item.id);
+          c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: revision } });
+        } else if (state === 'focus-retry') {
+          // Inject the wait deadline; no calendar or elapsed wall-clock comparison.
+          const original = window.setTimeout;
+          window.setTimeout = (callback, delay, ...args) => delay === 60_000 ? (window.rc24Expire = callback, 0) : original.call(window, callback, delay, ...args);
+          try {
+            window.rc24Post = () => { c.receive({ type: 'lane.status', data: { inputRevision: revision, running: ['reaction'], failures: [] } });
+              return Response.json({ reason: 'reply-in-flight' }, { status: 409 }); };
+            await c.focusQuestion(item.id).catch(() => {}); window.rc24Expire();
+          } finally { window.setTimeout = original; }
+        } else {
+          window.rc24Post = () => Response.json({ reason: 'not-admitted', admissionReason: 'plugin unhealthy' }, { status: 403 });
+          await c.focusQuestion(item.id).catch(() => {});
+        }
+      }, state);
+      let beforeClear;
+      if (state === 'cleared') {
+        await settle(page); beforeClear = await boxes(page);
+        await shadow(page, c => {
+          window.rc24Post = () => new Promise(resolve => { window.rc24Release = resolve; });
+          c.shadowRoot.querySelector('.clarify-action').click();
+        });
+      }
+      await settle(page);
+      const after = await boxes(page, state === 'unavailable');
+      if (beforeClear) for (let i = 0; i < beforeClear.length; i++) {
+        assert.ok(beforeClear[i].width > 0 && beforeClear[i].height > 0, `${beforeClear[i].selector}: positive before clearing`);
+        for (const key of ['x', 'y', 'width', 'height']) assert.equal(after[i][key], beforeClear[i][key], `exact 0 px while clearing/${beforeClear[i].selector}/${key}`);
+      }
+      for (let index = 0; index < before.length; index++) {
+        assert.ok(before[index].width > 0 && before[index].height > 0);
+        assert.ok(after[index].width > 0 && after[index].height > 0);
+        for (const key of ['x', 'y', 'width', 'height']) {
+          assert.ok(Math.abs(before[index][key] - after[index][key]) <= 0.5, `${locale}/${theme}/${width}/${state}/${before[index].selector}/${key}`);
+          assert.equal(after[index][key], before[index][key], `gate1: exact 0 px/${locale}/${theme}/${width}/${state}/${before[index].selector}/${key}`);
+        }
+      }
+      await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
+      await settle(page);
+      const repainted = await boxes(page, state === 'unavailable');
+      for (let i = 0; i < after.length; i++) for (const key of ['x', 'y', 'width', 'height']) {
+        assert.ok(repainted[i].width > 0 && repainted[i].height > 0);
+        assert.ok(Math.abs(repainted[i][key] - after[i][key]) <= 0.5, `resting pointer repaint/${state}/${after[i].selector}/${key}`);
+        assert.equal(repainted[i][key], after[i][key], `gate1: exact 0 px repaint/${state}/${after[i].selector}/${key}`);
+      }
+      const check = await shadow(page, c => {
+        const row = c.shadowRoot.querySelector('.open-question'), line = row.querySelector('.question-state');
+        return { state: row.dataset.state, noOverflow: line.scrollWidth <= line.clientWidth + 0.5,
+          text: row.textContent, posts: window.rc24Posts.length, postPaths: window.rc24Posts,
+          statusHidden: row.querySelector('.question-status').hidden, actionHidden: row.querySelector('button').hidden };
+      });
+      if (state === 'wait' || state === 'cleared') assert.equal(check.state, 'requesting');
+      else assert.equal(check.state, state);
+      assert.ok(check.noOverflow); assert.ok(!check.text.includes('undefined'));
+      if (state === 'rest') assert.equal(check.posts, 0);
+      else if (state === 'cleared') {
+        assert.equal(check.posts, 2); assert.ok(check.postPaths[1].endsWith('/retry')); assert.equal(check.statusHidden, true);
+      } else assert.equal(check.posts, state === 'unavailable' ? 2 : 1);
+      if (state === 'unavailable') assert.ok(check.actionHidden);
+      else if (['retry', 'focus-retry'].includes(state)) assert.match(check.text, locale === 'de' ? /Gerade nicht/ : /Not now|Couldn't ask just now/);
+      if (['retry', 'focus-retry'].includes(state)) {
+        const inline = await shadow(page, c => {
+          const row = c.shadowRoot.querySelector('.open-question');
+          return ['.question-status', '.question-separator', '.clarify-label'].map(selector => {
+            const r = row.querySelector(selector).getBoundingClientRect();
+            return { selector, x: r.x, y: r.y, right: r.right, width: r.width, height: r.height };
+          });
+        });
+        for (const box of inline) assert.ok(box.width > 0 && box.height > 0, `${box.selector}: positive inline box`);
+        assert.ok(inline[1].x >= inline[0].right && inline[2].x >= inline[1].right);
+        assert.ok(inline[2].x - inline[0].right <= 18, 'status and Retry share an adjacent separator');
+        check.inline = inline;
+      }
+      rects.push({ locale, theme, width, state, resting, before, beforeClear, after, repainted, check });
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+        await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait503-${locale}-${theme}-${width}-${state}.png`) });
+      }
+    }
+  }
+  assert.deepEqual(errors, []);
+  if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait503-rects.json'), JSON.stringify(rects, null, 2));
+});
+
+test('AIT-503 MAC-LEAD: a typed chat answer removes its open question without Clarify', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-reconciliation-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.mouse.move(0, 0);
+    await shadow(page, async (c, locale, theme) => {
+      const { inputRevision } = await import('/packages/core/src/index.js');
+      const response = await fetch('/reconciliation?locale=' + locale);
+      const session = await response.json();
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', theme); c.configure({ session, copy });
+      window.reconciliationCurrent = () => c.session.understanding.inputRevision === inputRevision(c.session) &&
+        c.session.understanding.readinessAssessed && !c.session.understanding.draft;
+      window.reconciliationFocusPosts = 0;
+      const fetchOriginal = window.fetch;
+      window.fetch = (...args) => { if (String(args[0]).endsWith('/focus-question')) window.reconciliationFocusPosts++; return fetchOriginal(...args); };
+    }, locale, theme);
+    await until(page, () => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.open-question'));
+    const before = await shadow(page, c => c.shadowRoot.querySelector('.question-text').textContent);
+    await shadow(page, (c, locale) => {
+      const textarea = c.shadowRoot.querySelector('textarea'); textarea.value = locale === 'de' ? 'Die Buchhaltung gibt alle Rechnungen frei.' : 'Accounting approves every invoice.';
+      textarea.dispatchEvent(new Event('input', { bubbles: true })); c.shadowRoot.querySelector('.send').click();
+    }, locale);
+    await until(page, () => { const c = document.querySelector('aithema-session'); return window.reconciliationCurrent?.() && c?.session?.transcript.some(turn => turn.role === 'user' && /Accounting approves|Buchhaltung gibt/.test(turn.content)) &&
+      ![...c.shadowRoot.querySelectorAll('.question-text')].some(n => /Who approves|Wer gibt/.test(n.textContent)); });
+    assert.match(before, /Who approves|Wer gibt/);
+    assert.equal(await page.evaluate(() => window.reconciliationFocusPosts), 0);
+    assert.deepEqual(await page.evaluate(async locale => (await fetch('/reconciliation-proof?locale=' + locale)).json(), locale),
+      { promptRule: true, typedAnswer: true, reconciled: true });
+    assert.ok(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.none-yet'))));
+  }
+});
+
+test('AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-counted-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), evidence = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  const accessibility = await page.createCDPSession();
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.mouse.move(0, 0);
+    await shadow(page, async (c, locale, theme) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      session.transcript = [{ id: 'visitor', role: 'user', content: 'Invoice approvals' }, { id: 'reply', role: 'assistant', content: 'Who approves?' }];
+      session.transcript[1].inputRevision = inputRevision(session);
+      Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false, summary: 'Invoice approvals' });
+      window.fetch = async (url, init = {}) => {
+        if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        return Response.json(c.session);
+      };
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
+      const copies = await Promise.all(['en', 'de'].map(l => import(`/packages/ui/src/i18n/${l}.js`).then(m => m[l])));
+      window.countedConfigure = override => c.configure({ session, copy: { ...copy, ...override }, copyForLocale: l => copies[l === 'de' ? 1 : 0] });
+      window.countedConfigure(); c.shadowRoot.querySelector('.open-questions').scrollIntoView({ block: 'center' });
+    }, locale, theme);
+    let baseline;
+    for (const count of [0, 1, 3]) {
+      await shadow(page, (c, count) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: {
+        ...c.session.understanding, openQuestions: Array.from({ length: count }, (_, i) => `Question ${i + 1}?`),
+      } }), count);
+      await settle(page);
+      const expected = locale === 'en' ? count ? `${count} open question${count === 1 ? '' : 's'}` : 'Open questions'
+        : count ? `${count} offene Frage${count === 1 ? '' : 'n'}` : 'Offene Fragen';
+      const check = await shadow(page, c => {
+        const root = c.shadowRoot;
+        return { heading: root.querySelector('#open-questions-title').textContent,
+          noneYet: Boolean(root.querySelector('.questions .none-yet')),
+          boxes: ['.questions-heading', '.understanding > .foot', '.composer-shell'].map(selector => {
+            const r = root.querySelector(selector).getBoundingClientRect(); return { selector, x: r.x, y: r.y, width: r.width, height: r.height };
+          }) };
+      });
+      assert.equal(check.heading, expected); assert.equal(check.noneYet, count === 0);
+      const { nodes } = await accessibility.send('Accessibility.getFullAXTree');
+      assert.ok(nodes.some(n => n.role?.value === 'heading' && n.name?.value === expected), 'accessible heading matches visible count');
+      assert.ok(nodes.some(n => n.role?.value === 'list' && n.name?.value === expected), 'question list is named by the counted heading');
+      for (const b of check.boxes) assert.ok(b.width > 0 && b.height > 0);
+      if (!baseline) baseline = check.boxes;
+      else for (let i = 0; i < baseline.length; i++) for (const key of ['x', 'y', 'width', 'height'])
+        assert.ok(Math.abs(baseline[i][key] - check.boxes[i][key]) <= 0.5, `${locale}/${theme}/${width}/${count}/${baseline[i].selector}/${key}`);
+      evidence.push({ locale, theme, width, count, expected, ...check });
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+        await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait516-${locale}-${theme}-${width}-${count}.png`) });
+      }
+    }
+    await shadow(page, c => window.countedConfigure({ questions: 'Host heading' }));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#open-questions-title').textContent), 'Host heading');
+    await shadow(page, c => {
+      window.countedConfigure();
+      c.receive({ seq: c.session.seq + 1, type: 'session.erased', data: {} });
+    });
+    await shadow(page, (c, locale) => c.changeLocale(locale === 'en' ? 'de' : 'en'), locale);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#open-questions-title').textContent), locale === 'en' ? 'Offene Fragen' : 'Open questions');
+    const erasedHeading = await shadow(page, c => {
+      const heading = c.shadowRoot.querySelector('#open-questions-title'), box = heading.getBoundingClientRect();
+      return { text: heading.textContent, x: box.x, y: box.y, width: box.width, height: box.height };
+    });
+    assert.ok(erasedHeading.width > 0 && erasedHeading.height > 0, 'erased heading has a positive box');
+    evidence.push({ locale, theme, width, erased: true, heading: erasedHeading });
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait516-${locale}-${theme}-${width}-erased.png`) });
+    }
+  }
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait516-counted-rects.json'), JSON.stringify(evidence, null, 2));
+  }
+});
+
 test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-rc24-overflow-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
@@ -458,6 +739,41 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
     }
   }
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-overflow.json'), JSON.stringify(records, null, 2)); }
+});
+
+test('gate1 L3: MAC-LEAD EN/DE copy proof sheets', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-copy-proof-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: 844 });
+    const words = await page.evaluate(async (locale, theme) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      // A labelled evidence sheet renders the exact bundle values, including the
+      // placeholder. It is copy evidence, not a simulated provider interaction.
+      const sheet = document.createElement('main'); sheet.lang = locale;
+      sheet.style.cssText = `position:fixed;inset:0;z-index:999999;overflow:auto;padding:24px;box-sizing:border-box;font:16px/1.5 system-ui;background:${theme === 'dark' ? '#18181b' : '#fff'};color:${theme === 'dark' ? '#fafafa' : '#18181b'}`;
+      const heading = document.createElement('h1'); heading.textContent = `MAC-LEAD copy proof · ${locale.toUpperCase()}`; sheet.append(heading);
+      const entries = [['settings.fixedEffort', copy.settings.fixedEffort], ['reasons.delegated', copy.reasons.delegated], ['host.loadingBinding', copy.host.loadingBinding]];
+      for (const [key, value] of entries) {
+        const label = document.createElement('h2'); label.textContent = key; label.style.fontSize = '14px';
+        const text = document.createElement('p'); text.textContent = value; sheet.append(label, text);
+      }
+      document.querySelector('[data-copy-proof]')?.remove(); sheet.dataset.copyProof = ''; document.body.append(sheet);
+      return entries.map(([key, value]) => ({ key, value }));
+    }, locale, theme);
+    assert.equal(words.length, 3); assert.ok(words.every(({ value }) => value.length > 0));
+    if (locale === 'de') {
+      assert.match(words[0].value, /einstellbaren Verarbeitungsaufwand/);
+      assert.equal(words[1].value, 'Sprachverarbeitung: {reason}');
+      assert.equal(words[2].value, 'Verarbeitungseinstellungen werden geladen …');
+    }
+    if (evidence) await page.screenshot({ path: join(evidence, `l3-copy-${locale}-${theme}-${width}.png`) });
+  }
 });
 
 async function followupPage(t) {

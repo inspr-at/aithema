@@ -1829,8 +1829,23 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       await sendTurn(page, locale === 'de' ? 'Für drei Filialen.' : 'For three branches.');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 4);
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
-      sameBox(before.composer, await box(page, '.composer'), 'composer while a turn and reply arrive');
+      try {
+        sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
+        sameBox(before.composer, await box(page, '.composer'), 'composer while a turn and reply arrive');
+      } catch (error) {
+        // Capture only after the original strict check fails; its sampling and
+        // tolerance stay unchanged while an intermittent reveal is diagnosed.
+        const diagnostic = await inShadow(page, c => {
+          const root = c.shadowRoot, workspace = root.querySelector('.workspace');
+          return { reveal: workspace.hasAttribute('data-reveal'), understanding: workspace.dataset.understanding,
+            columns: getComputedStyle(workspace).gridTemplateColumns, fonts: document.fonts.status,
+            animations: root.getAnimations({ subtree: true }).map(a => ({ target: a.effect?.target?.getAttribute('class'),
+              playState: a.playState, currentTime: a.currentTime, progress: a.effect?.getComputedTiming().progress })) };
+        });
+        t.diagnostic(`AIT-119 composer failure ${locale}: ${JSON.stringify(diagnostic)}`);
+        if (evidence) await writeFile(join(evidence, `ait119-failure-${locale}.json`), JSON.stringify({ error: error.message, before, diagnostic }, null, 2));
+        throw error;
+      }
       await page.mouse.move(0, 0);
       // The conversation: Start call and the composer, both sizes, light and dark.
       for (const [width, height] of sizes) {

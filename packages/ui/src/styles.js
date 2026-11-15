@@ -583,16 +583,25 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .analysis-content .open-question { display:grid; grid-template-columns:6px minmax(0,1fr); column-gap:12px; padding:7px 10px 0; margin-inline:-10px; border-radius:12px; }
 .open-question::before { background:var(--aithema-amber) !important; position:static !important; width:6px !important; height:6px !important; margin-top:.62em; }
 .question-text { font-size:14.5px; line-height:1.45; color:var(--aithema-ink); text-wrap:pretty; }
-.question-state { grid-column:2; display:flex; align-items:center; height:36px; min-width:0; font-size:13.5px; line-height:1.3; white-space:nowrap; }
+/* The native action keeps the whole reserved line as its hit area. Its
+   inline label shares status columns, without moving that control box. */
+.question-state { grid-column:2; display:grid; grid-template-columns:minmax(0,max-content) 18px minmax(max-content,1fr); align-items:center; height:36px; min-width:0; font-size:13.5px; line-height:1.3; white-space:nowrap; }
 .open-question:is([data-state="selected"],[data-state="retry"]) { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-tint),transparent); }
-.clarify-action, .question-status { display:inline-flex; align-items:center; gap:7px; height:36px; }
-.clarify-action { position:relative; padding:0 9px; margin-left:-9px; border-radius:8px; color:var(--aithema-accent); font-weight:600; }
+.clarify-content, .question-status { display:inline-flex; align-items:center; gap:7px; height:36px; }
+.clarify-action { grid-column:1/-1; grid-row:1; display:grid; grid-template-columns:subgrid; align-items:center; height:36px; width:calc(100% + 9px); text-align:left; position:relative; padding:0 9px; margin-left:-9px; border-radius:8px; color:var(--aithema-accent); font-weight:600; }
+.clarify-content { grid-column:1/-1; justify-self:start; min-width:0; }
+.question-state:has(.question-status:not([hidden])) .clarify-content { grid-column:3; }
+.question-status { grid-column:1; grid-row:1; z-index:1; pointer-events:none; }
+.question-separator { grid-column:2; grid-row:1; text-align:center; z-index:1; pointer-events:none; }
+.open-question[data-state="refused"] .question-why { white-space:normal; }
+.open-question[data-state="unavailable"] .question-status,
+.open-question[data-state="refused"]:has(.clarify-action[hidden]) .question-status { grid-column:1/-1; }
 .clarify-action::after { content:''; position:absolute; inset:-4px 0; }
 .clarify-action:hover:not([aria-disabled="true"]) { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-hover),transparent); }
 .clarify-action[aria-disabled="true"] { cursor:default; background:transparent; }
 .clarify-action svg, .question-status svg { width:14px; height:14px; }
 .clarify-icon:empty { display:none; }
-.question-separator { padding:0 7px; color:var(--aithema-muted); }
+.question-separator { padding:0; color:var(--aithema-muted); }
 .question-why { color:var(--aithema-muted); overflow:hidden; text-overflow:ellipsis; }
 .question-failed-short { display:none; }
 .open-question[data-state="disabled"] .clarify-action { color:color-mix(in srgb,var(--aithema-muted) 72%,transparent); font-weight:500; }
@@ -600,14 +609,15 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .open-question:is([data-state="requesting"],[data-state="selected"]) .clarify-action svg { color:var(--aithema-accent); }
 .open-question[data-state="selected"] .clarify-action { color:var(--aithema-ink); font-weight:600; }
 .open-question[data-state="asked"] .clarify-action { color:var(--aithema-muted); font-weight:500; }
-.open-question:is([data-state="retry"],[data-state="refused"]) .question-status { min-width:0; color:var(--aithema-muted); }
-.open-question[data-state="retry"] .question-status svg { color:var(--aithema-warning); }
+.open-question:is([data-state="retry"],[data-state="focus-retry"],[data-state="unavailable"],[data-state="refused"]) .question-status { min-width:0; color:var(--aithema-muted); }
+.open-question:is([data-state="retry"],[data-state="focus-retry"]) .question-status svg { color:var(--aithema-warning); }
+.open-question[data-state="unavailable"] .question-status { max-width:100%; }
 .clarify-spin { animation:clarify-spin .9s linear infinite; }
 @keyframes clarify-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .clarify-spin { animation:none; } }
 @container(max-width:360px) {
   .question-state { font-size:13px; }
-  .question-separator { padding:0 6px; }
+  .question-separator { padding:0; }
 }
 @container(max-width:316px) {
   .question-failed-long { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }

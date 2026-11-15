@@ -314,7 +314,7 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
       if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
       const sessionToken = response.headers.get('x-aithema-session-token');
       c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, sessionToken, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
-      window.reactionFailureCopy = copy.reasoningFailed;
+      window.reactionFailureCopy = copy.replyFailed;
     }, locale, kind);
     await settle(page);
     const pending = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
@@ -464,8 +464,8 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       c.configure({ session, copy, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 });
-      window.twoFailureCopy = `${copy.reasoningFailed}\u00a0· ${copy.retry}`;
-      window.reasoningFailedCopy = copy.reasoningFailed;
+      window.twoFailureCopy = `${copy.replyFailed}\u00a0· ${copy.retry}`;
+      window.reasoningFailedCopy = `${copy.replyFailed} ${copy.replyKeepTyping}`;
     }, locale, theme);
     await settle(page);
     const state = await shadow(page, c => ({
@@ -506,7 +506,7 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     const hiddenRetry = await shadow(page, c => ({ hidden: c.shadowRoot.querySelector('.retry').hidden,
       text: c.shadowRoot.querySelector('.reaction-failure-text').textContent, expected: window.reasoningFailedCopy }));
     assert.equal(hiddenRetry.hidden, true);
-    assert.equal(hiddenRetry.text, hiddenRetry.expected, 'hidden Retry leaves the failure sentence without a trailing separator');
+    assert.equal(hiddenRetry.text, hiddenRetry.expected, 'RC24 hidden Retry appends the typing action without a trailing separator');
     const pointerAfter = await boxes(page, pointerTargets);
     pointerBefore.forEach((rect, i) => rect.forEach((value, j) => assert.ok(Math.abs(pointerAfter[i][j] - value) <= .5, `${pointerTargets[i]} dimension ${j} holds under pointer`)));
     assert.deepEqual(await shadow(page, c => ['top', 'bottom'].map(side => c.shadowRoot.querySelector('.transcript-shell').style.getPropertyValue(`--aithema-slack-${side}`))), ['', '']);
@@ -611,7 +611,7 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     }, expected);
     assert.equal(state.notice, expected); assert.equal(state.occurrences, 1); assert.equal(state.actions, 0);
     assert.equal(state.color, state.quietInk); assert.equal(state.retries, 1); assert.equal(state.footerHidden, false);
-    assert.equal(state.reply, locale === 'de' ? 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.' : 'Reasoning is unavailable. Your messages are saved.');
+    assert.equal(state.reply, locale === 'de' ? 'Die Antwort konnte gerade nicht erstellt werden. Ihre Nachrichten sind gespeichert.' : "The reply didn't come through. Your messages are saved.");
     const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.band'];
     const before = await boxes(page, targets);
     await shadow(page, c => c.receive({ type: 'lane.status', data: { ...c.session.operations } }));
@@ -733,7 +733,7 @@ test('AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/14
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       c.configure({ session, copy, host: { verification: true } });
-      window.expectedFailure = copy.reasoningFailed + reasonSeparator + copy.retry;
+      window.expectedFailure = copy.replyFailed + reasonSeparator + copy.retry;
       window.retrySample = () => {
         const root = c.shadowRoot, retry = root.querySelector('.retry'), line = root.querySelector('.reaction-failure'), shell = root.querySelector('.transcript-shell');
         const rect = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };

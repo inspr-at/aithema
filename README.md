@@ -1144,6 +1144,35 @@ value, then the active locale's shipped text, then English, and never render emp
 When a host omits `copy.display.locale`, the component uses the session's active
 locale for these fallbacks, including narrow labels and the close control.
 
+Clarify adds `clarifyFailed`, `clarifyFailedShort` and `clarifyUnavailable`; general
+Retry and reply failures use `retryFailed` and `replyFailed`. The three long failure
+keys resolve against the legacy `reasoningFailed` override with the precedence above.
+The updated `reasoningFailed` default remains exported. `clarifyFailedShort`,
+`clarifyUnavailable` and `replyKeepTyping` are brand-new keys with shipped locale
+fallbacks. A reply failure with no visible Retry appends `replyKeepTyping` only
+while the composer can accept typing; the used-up panel never offers that hint. The existing
+accepted-row overrides `clarify.failed`, `clarify.failedShort` and
+`clarify.say.retry` remain supported beneath explicit root failure overrides.
+A malformed successful focus acknowledgement reads the snapshot and rests;
+it never authorizes another POST.
+
+Reply-in-flight and budget-reconciling refusals keep the row requesting for at most
+60 seconds, then expose its Retry. Clearing the condition permits one resend.
+A second Wait refusal also rests with Retry and never triggers a third automatic POST.
+Transient admission refusals allow two total focus attempts. After transport or 5xx
+failures, a fresh snapshot must establish that no reaction has started or completed
+since the click before a resend. Terminal refusals hide the action. Budget denial
+during a live call immediately shows unavailable, without waiting.
+
+Open-question headings use `questionsCounted` with `zero`, `one` and `other` forms;
+the counted German heading replaces “Was noch offen ist”. The legacy `questions`
+string override keeps showing, including for older host bundles and erased-view
+locale changes. Zero uses “Open questions” / “Offene Fragen” plus the `noneYet` row.
+`more` remains a public string; additive `moreOne` supplies the singular readiness
+overflow label. A host override of `more` wins for both counts. These keys share the
+same new-key/legacy-key/shipped-default precedence; `plural()` now lives in
+`copy-resolve.js` and remains re-exported from `uploads.js` for existing callers.
+
 The overview adds `overviewCurrent`, `staleIdle` and `overviewStatusLabel`. These
 keys use the same resolver and the active locale's shipped defaults when an older
 host bundle omits them. `overviewCurrent` takes over `final`: a host's differing

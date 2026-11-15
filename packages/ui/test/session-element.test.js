@@ -270,8 +270,8 @@ test('fresh configure restores operational failure and draft retry state', () =>
   } };
   c.configure({ copy: en, session });
   assert.equal(c.shadowRoot.querySelector('.notice').textContent, en.draft);
-  assert.equal(c.shadowRoot.querySelector('.reaction-failure').textContent, en.reasoningFailed);
-  assert.equal(c.shadowRoot.textContent.split(en.reasoningFailed).length - 1, 1);
+  assert.equal(c.shadowRoot.querySelector('.reaction-failure').textContent, en.replyFailed);
+  assert.equal(c.shadowRoot.textContent.split(en.replyFailed).length - 1, 1);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
 });
 test('an SSE cursor rejected with 400 restores the snapshot and reconnects with its cursor', async () => {
@@ -1277,12 +1277,12 @@ for (const state of ['shown', 'running', 'unavailable']) test(`AIT-221 two failu
   c.configure({ session, copy: en, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 });
   const root = c.shadowRoot, retry = root.querySelector('.retry');
   assert.equal(retry.hidden, state === 'running');
-  assert.equal(root.querySelector('.reaction-failure-text').textContent, `${en.reasoningFailed}${state !== 'running' ? '\u00a0· ' : ''}`);
+  assert.equal(root.querySelector('.reaction-failure-text').textContent, `${en.replyFailed}${state !== 'running' ? '\u00a0· ' : ` ${en.replyKeepTyping}`}`);
   if (state === 'unavailable') { assert.equal(retry.disabled, false); assert.equal(retry.getAttribute('aria-disabled'), 'false'); }
   c.receive({ type: 'lane.status', data: { ...session.operations, running: [], failures: [failures[0]], lastFailure: failures[0] } });
   if (state === 'unavailable') {
     assert.equal(root.querySelector('.reaction-failure > .retry'), retry, 'AIT-466 option 1 keeps the same Retry beside the reply');
-    assert.equal(root.querySelector('.reaction-failure-text').textContent, en.reasoningFailed + '\u00a0· ');
+    assert.equal(root.querySelector('.reaction-failure-text').textContent, en.replyFailed + '\u00a0· ');
     c.receive({ type: 'lane.status', data: { ...session.operations, running: [], failures: [], lastFailure: null } });
   }
   const footer = root.querySelector('.understanding > .foot');

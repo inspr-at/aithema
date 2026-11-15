@@ -4,10 +4,11 @@ import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
+import { classifyFocusRefusal, FOCUS_REFUSAL_CLASSES } from './focus-refusal.js';
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { warnFocusRefusal } from './clarify-diagnostic.js';
-import { resolveCopy } from './copy-resolve.js';
+import { resolveCopy, plural } from './copy-resolve.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
 import { understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
@@ -25,7 +26,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile } from './dom.js';
 import { HostSurface } from './host-surface.js';
@@ -103,8 +104,10 @@ export class AithemaSession extends HTMLElement {
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
+  #clarifyWaitTimer; #clarifyRefresh = 0;
+  #clarifyDiagnostics = new Map();
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
-  #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
+  #open = []; #cleared = []; #reactionFailureVersion = 0; #reactionFailureIdentity = null; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null;
   #pointerGuardUntil = 0; #pointerGuardPoint = null; #touchClickPoint = null;
@@ -171,7 +174,7 @@ export class AithemaSession extends HTMLElement {
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     this.#cancelUploads();
-    clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
+    clearTimeout(this.#clarifyWaitTimer); clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null; this.#clearLaneStatusPending(); this.#featureRead = null;
@@ -265,6 +268,12 @@ export class AithemaSession extends HTMLElement {
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer);
     if (this.#consentRefresh) { this.#consentRefresh.attempt = null; this.#consentRefresh.failed = true; this.#concept?.failClosedConsent(); }
+    clearTimeout(this.#clarifyWaitTimer); this.#clarifyRequest = null;
+    if (this.#clarify) {
+      const focus = this.#clarify; focus.detached = true; focus.pending = false;
+      if (focus.waiting || !focus.requestId && focus.state === 'requesting') focus.state = 'focus-retry';
+      focus.waiting = null;
+    }
     clearTimeout(this.#clarifyNoticeTimer); this.#clearLaneStatusPending();
     this.#cancelUploads();
     this.#stopReconciling();
@@ -290,68 +299,162 @@ export class AithemaSession extends HTMLElement {
     }
     const item = this.openQuestionItems.find(item => item.id === questionId);
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
-    const attempt = { status: null, accepted: false, failureReported: false }; this.#clarifyRequest = attempt;
-    this.#clarify = { questionId, question: item?.question, inputRevision: revision, state: 'requesting', pending: true, diagnostic: attempt };
-    this.#render('aside');
+    const focus = this.#clarify = { questionId, question: item?.question, inputRevision: revision,
+      sessionId, clickSeq: this.#session.seq, priorRequestId: this.#session.questionFocus?.requestId, turnIds: new Set(this.#session.transcript.map(turn => turn.id)),
+      tries: 0, state: 'requesting', pending: false, waitOperations: this.#session.operations,
+      replyFailureVersion: this.#reactionFailureVersion };
+    return this.#sendClarify(focus);
+  }
+  #activeClarify(focus) {
+    return !this.#erased && !focus.detached && this.#clarify === focus && focus.sessionId === this.#session.id &&
+      focus.inputRevision === inputRevision(this.#session);
+  }
+  async #sendClarify(focus) {
+    if (!this.#activeClarify(focus)) return;
+    clearTimeout(this.#clarifyWaitTimer); focus.waiting = null;
+    focus.pending = true; focus.state = 'requesting';
+    let attempt;
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/focus-question`,
-        { questionId, inputRevision: revision }, { sessionToken: this.#sessionToken });
-      attempt.status = response.status; attempt.accepted = response.status === 202;
-      if (this.#erased) return;
-      const result = await response.json();
-      if (this.#erased) return;
-      if (!response.ok) throw Object.assign(new Error(result.reason ?? result.error), result, { status: response.status });
-      if (!this.#erased && sessionId === this.#session.id && revision === inputRevision(this.#session)) this.receive(result.event);
-      return result;
-    } catch (error) {
-      warnFocusRefusal(error, attempt);
-      if (!this.#erased && sessionId === this.#session.id && revision === inputRevision(this.#session)) await this.#clarifyRefused(error);
-      if (this.#erased) return;
-      throw error;
-    } finally {
-      if (this.#clarifyRequest === attempt) {
-        this.#clarifyRequest = null;
-        if (this.#clarify?.inputRevision === revision) this.#clarify.pending = false;
-        this.#render('aside');
+      while (this.#activeClarify(focus)) {
+        attempt = focus.diagnostic = { status: null, accepted: false, failureReported: false,
+          sessionId: focus.sessionId, inputRevision: focus.inputRevision, questionId: focus.questionId, priorRequestId: focus.priorRequestId };
+        this.#clarifyRequest = attempt; focus.tries++; this.#render('aside');
+        try {
+          const response = await this.#api(`${this.#base}/api/sessions/${focus.sessionId}/focus-question`,
+            { questionId: focus.questionId, inputRevision: focus.inputRevision }, { sessionToken: this.#sessionToken });
+          attempt.status = response.status; attempt.accepted = response.status === 202;
+          if (this.#erased) return;
+          const result = await response.json();
+          if (this.#erased) return;
+          if (!response.ok) throw Object.assign(new Error(result.reason ?? result.error), result, { status: response.status });
+          const event = result?.event, receipt = event?.data;
+          if (event?.type !== 'question.focused' || !Number.isSafeInteger(event.seq) || event.seq < 1 ||
+            typeof receipt?.requestId !== 'string' || !receipt.requestId || receipt.questionId !== focus.questionId ||
+            receipt.inputRevision !== focus.inputRevision) throw new Error('Invalid focus acknowledgement');
+          // The canonical journal sequence decides whether this receipt supersedes
+          // a peer event. Keep HTTP acceptance attached to this request alone.
+          if (this.#clarifyRequest === attempt && !focus.detached && focus.sessionId === this.#session.id && focus.inputRevision === inputRevision(this.#session)) {
+            attempt.failureReported ||= this.#clarifyDiagnostics.get(receipt.requestId)?.failureReported ?? false;
+            this.#clarifyDiagnostics.set(receipt.requestId, attempt);
+            this.receive(event);
+          }
+          return result;
+        } catch (error) {
+          warnFocusRefusal(error, attempt);
+          if (!this.#activeClarify(focus)) { if (this.#erased) return; throw error; }
+          const structured = [403, 409].includes(error.status) && typeof error.reason === 'string';
+          const refusalClass = classifyFocusRefusal(error);
+          const reason = [error.reason, error.admissionReason, error.error].find(value => FOCUS_REFUSAL_CLASSES[value] === refusalClass);
+          const wait = structured && refusalClass === 'wait';
+          const retryable = structured && refusalClass === 'retryable';
+          const networkOrServer = attempt.status == null || attempt.status >= 500;
+          const uncertain = networkOrServer || attempt.status >= 200 && attempt.status < 300;
+          if ((wait || retryable) && focus.requestId) {
+            // A peer's accepted focus already owns this question's recovery.
+            focus.waiting = null;
+          } else if (wait && focus.tries >= 2) {
+            focus.waiting = null; focus.state = 'focus-retry';
+          } else if (wait) {
+            focus.waiting = reason; focus.waitVersion = this.#clarifyRefresh;
+            focus.waitOperations ??= this.#session.operations; focus.replyRefreshed ??= false;
+            this.#clarifyWaitTimer = setTimeout(() => {
+              if (!this.#activeClarify(focus) || !focus.waiting) return;
+              focus.waiting = null; focus.state = 'focus-retry'; this.#render('aside');
+            }, 60_000);
+            this.#clarifyWaitTimer.unref?.();
+            if (this.isConnected) void this.#refreshFeatures();
+          } else if (retryable || uncertain) {
+            // N5: ambiguous acknowledgements need a successful fresh read, even
+            // at the retry cap. Never turn an unread snapshot into permission.
+            const safe = uncertain ? await this.#clarifySnapshot(focus) : true;
+            if (!this.#activeClarify(focus)) { if (this.#erased) return; throw error; }
+            if (safe && (retryable || networkOrServer) && !attempt.accepted && focus.tries < 2) continue;
+            if (safe || !focus.requestId) focus.state = 'unavailable';
+          } else await this.#clarifyRefused(error);
+          throw error;
+        }
       }
+    } finally {
+      if (this.#clarifyRequest === attempt) this.#clarifyRequest = null;
+      if (this.#activeClarify(focus)) focus.pending = false;
+      if (this.#clarify?.diagnostic === attempt) this.#clarify.pending = false;
+      if (!this.#erased && focus.sessionId === this.#session.id) this.#render('aside');
     }
+  }
+  async #clarifySnapshot(focus) {
+    const observe = session => {
+      const chosen = session.questionFocus;
+      const matches = chosen?.questionId === focus.questionId || session.focusedQuestion === focus.question;
+      if (matches && chosen?.requestId && chosen.requestId !== focus.priorRequestId) {
+        if (focus.replyFailureVersion === this.#reactionFailureVersion) this.#retireReactionFailure();
+        focus.requestId = chosen.requestId; this.#clarifyReplies.set(chosen.requestId, focus.question);
+        focus.state = session.transcript?.some(t => !t.erased && !t.withdrawn && t.focusRequestId === chosen.requestId) ? 'asked' : 'requesting';
+        if (focus.state === 'asked') this.#clarifyAsked.add(focus.question);
+        return false;
+      }
+      if (session.transcript?.some(turn => turn.role === 'assistant' && !turn.erased && !turn.withdrawn && !focus.turnIds.has(turn.id))) return false;
+      return session.operations?.inputRevision === focus.inputRevision && Array.isArray(session.operations.running) && !session.operations.running.includes('reaction');
+    };
+    try {
+      const response = await this.#api(`${this.#base}/api/sessions/${focus.sessionId}`, { headers: this.#headers(), cache: 'no-store' });
+      if (!response.ok || !this.#activeClarify(focus)) return false;
+      const session = await response.json();
+      if (!this.#activeClarify(focus) || session.id !== focus.sessionId || !Number.isSafeInteger(session.seq) ||
+        session.seq < Math.max(focus.clickSeq, this.#cursor) || inputRevision(session) !== focus.inputRevision || !Array.isArray(session.transcript)) return false;
+      // SSE may have overtaken the read. Both observations must permit a resend.
+      return observe(this.#session) && observe(session);
+    } catch { return false; }
   }
   #clarifyBusy() {
     return Boolean(this.#clarifyRequest) || this.#clarify?.pending || ['requesting', 'selected'].includes(this.#clarify?.state) ||
       this.#session.operations?.inputRevision === inputRevision(this.#session) && this.#session.operations.running.includes('reaction');
   }
   async #clarifyRefused(error) {
+    const reason = error.admissionReason ?? error.reason;
     if (['stale-question', 'stale-revision'].includes(error.reason)) {
       this.#clarify = null;
       await this.#restore();
       if (this.#erased) return;
       this.#clarifyNotice = true;
-      clearTimeout(this.#clarifyNoticeTimer);
+      clearTimeout(this.#clarifyWaitTimer); clearTimeout(this.#clarifyNoticeTimer);
       this.#clarifyNoticeTimer = setTimeout(() => { this.#clarifyNotice = false; this.#render('aside'); }, 4000);
-    } else if (error.reason === 'reply-in-flight') {
-      this.#clarify.state = 'requesting'; this.#clarify.waitingForReply = true;
-    } else if (error.reason === 'paused' || error.reason === 'consent-required' || error.admissionReason === 'one-hour') {
+    } else if (error.reason === 'paused' || error.reason === 'consent-required' || reason === 'current processing consent required' || reason === 'one-hour') {
       this.#clarify.state = 'refused';
-      this.#clarify.reason = error.reason === 'paused' ? 'paused' : error.reason === 'consent-required' ? 'consent' : 'deadline';
+      this.#clarify.reason = error.reason === 'paused' ? 'paused' : reason === 'one-hour' ? 'deadline' : 'consent';
     } else {
-      // Other admission/transport failures use the existing availability notice.
-      this.#clarify = null; this.#status(this.#copy.reasoningFailed);
+      this.#clarify.state = 'unavailable';
+      this.#clarify.terminal = !(reason === 'budget denied' && this.#clarifyDuringCall());
+      this.#clarify.refusalCode = reason;
     }
     this.#render('aside');
   }
+  #clarifyDuringCall() {
+    // The rail knows a local call ended before an older snapshot catches up.
+    if (this.#rail) return this.#hasLiveCall();
+    return Boolean(this.#session.voiceLifecycle?.callId &&
+      !['ended', 'closed'].includes(this.#session.voiceLifecycle.state));
+  }
+  #retireReactionFailure() {
+    const operations = this.#session.operations;
+    if (operations) {
+      operations.failures = (operations.failures ?? [operations.lastFailure].filter(Boolean)).filter(f => f.lane !== 'reaction');
+      operations.lastFailure = operations.failures.at(-1) ?? null;
+    }
+    this.#recordFailure(operations?.lastFailure);
+  }
   async #retryClarify() {
-    if (this.#clarify?.state !== 'retry' || this.#clarify.pending) return;
+    if (this.#clarify?.state === 'focus-retry' && !this.#clarify.pending) {
+      void this.focusQuestion(this.#clarify.questionId).catch(() => {}); return;
+    }
+    if (this.#clarify?.state !== 'retry' || this.#clarify.pending || this.#clarifyRequest) return;
     const focus = this.#clarify, sessionId = this.#session.id;
     const diagnostic = focus.diagnostic = { status: null, accepted: false, failureReported: false };
     focus.pending = true; focus.state = 'requesting';
     // Retire the failure being retried before sending, so a newer failure that
     // arrives ahead of the HTTP acknowledgement cannot be erased by that ack.
-    const operations = this.#session.operations;
-    if (operations) {
-      operations.failures = (operations.failures ?? []).filter(f => f.lane !== 'reaction');
-      operations.lastFailure = operations.failures.at(-1) ?? null;
-    }
-    this.#failure = Boolean(operations?.lastFailure); this.#render('aside');
+    this.#retireReactionFailure();
+    if (focus.requestId) this.#clarifyDiagnostics.set(focus.requestId, diagnostic);
+    this.#render('aside');
     try {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/retry`, {}, { sessionToken: this.#sessionToken });
       diagnostic.status = response.status; diagnostic.accepted = response.status === 202;
@@ -372,26 +475,50 @@ export class AithemaSession extends HTMLElement {
   }
   #syncClarify() {
     const revision = inputRevision(this.#session), chosen = this.#session.questionFocus;
-    if (this.#clarify && this.#clarify.inputRevision !== revision) this.#clarify = null;
+    if (this.#clarify && this.#clarify.inputRevision !== revision) { clearTimeout(this.#clarifyWaitTimer); this.#clarify = null; }
     // A completed command is history, never the pending click's identity.
     const answered = chosen && this.#session.transcript.some(t => t.role === 'assistant' && t.focusRequestId === chosen.requestId);
     if (chosen?.inputRevision === revision && this.#session.focusedQuestion && answered) {
       this.#clarifyReplies.set(chosen.requestId, this.#session.focusedQuestion);
       this.#clarifyAsked.add(this.#session.focusedQuestion);
     }
-    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && !answered && chosen.requestId !== this.#clarify?.requestId) {
+    const priorHistory = this.#clarify?.pending && !this.#clarify.requestId && chosen?.requestId === this.#clarify.priorRequestId;
+    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && !answered && !priorHistory && chosen.requestId !== this.#clarify?.requestId) {
       const question = this.#session.focusedQuestion;
-      this.#clarify = { ...chosen, question, state: 'requesting', pending: Boolean(this.#clarifyRequest),
-        diagnostic: this.#clarifyRequest ?? { status: null, accepted: false, failureReported: false } };
+      const previous = this.#clarify;
+      const request = this.#clarifyRequest;
+      const owns = previous?.pending && previous.questionId === chosen.questionId;
+      // A canonical focus confirms acceptance even when its HTTP receipt is
+      // delayed or lost. A newer failure observed since the click must survive.
+      if (owns && previous.replyFailureVersion === this.#reactionFailureVersion) this.#retireReactionFailure();
+      const local = request?.sessionId === this.#session.id && request.inputRevision === revision &&
+        request.questionId === chosen.questionId && request.priorRequestId !== chosen.requestId;
+      const diagnostic = this.#clarifyDiagnostics.get(chosen.requestId) ??
+        (local ? request : owns ? previous.diagnostic : { status: null, accepted: false, failureReported: false });
+      this.#clarifyDiagnostics.set(chosen.requestId, diagnostic);
+      this.#clarify = Object.assign(owns ? previous : {}, chosen, { sessionId: this.#session.id, question,
+        state: 'requesting', pending: diagnostic === request, diagnostic });
       this.#clarifyReplies.set(chosen.requestId, question);
     }
     const focus = this.#clarify;
     if (!focus) return;
-    // A refused click owns no future reply. Keep requesting only while the
-    // existing reaction or spoken reply is actually in flight.
-    if (focus.waitingForReply && !focus.pending &&
-      !(this.#session.operations?.inputRevision === revision && this.#session.operations.running.includes('reaction')) &&
-      this.#rail?.state !== 'speaking') { this.#clarify = null; return; }
+    if (focus.waiting && !focus.pending && this.#clarifyRefresh !== focus.waitVersion &&
+      this.#feature('text').reason === 'budget denied') {
+      clearTimeout(this.#clarifyWaitTimer); focus.waiting = null;
+      focus.state = 'unavailable'; focus.terminal = !this.#clarifyDuringCall(); focus.refusalCode = 'budget denied';
+    }
+    if (focus.waiting && !focus.pending && !this.#clarifyRequest) {
+      const operations = this.#session.operations;
+      const blocked = focus.waiting === 'budget reconciling'
+        ? this.#clarifyRefresh === focus.waitVersion || this.#feature('text').reason === 'budget reconciling'
+        : operations?.inputRevision !== revision || !Array.isArray(operations.running) ||
+          !focus.replyRefreshed && operations === focus.waitOperations || operations.running.includes('reaction') || this.#rail?.state === 'speaking';
+      if (!blocked) {
+        clearTimeout(this.#clarifyWaitTimer); focus.waiting = null;
+        // Finish the current paint before the one permitted resubmission.
+        queueMicrotask(() => { if (this.#activeClarify(focus) && !focus.pending) void this.#sendClarify(focus).catch(() => {}); });
+      }
+    }
     if (focus.requestId && !this.#session.understanding.openQuestions.includes(focus.question)) { this.#clarify = null; return; }
     if (this.#session.transcript.some(t => !t.erased && !t.withdrawn && t.focusRequestId === focus.requestId && focus.requestId)) {
       focus.state = 'asked'; this.#clarifyAsked.add(focus.question);
@@ -409,22 +536,42 @@ export class AithemaSession extends HTMLElement {
     diagnostic.failureReported = true;
     warnFocusRefusal(failure, diagnostic, laneFailed);
   }
+  #paintQuestionHeading() {
+    const count = this.#erased ? 0 : this.#session.understanding.openQuestions.length;
+    const text = plural(resolveCopy(this.#copy, 'questionsCounted', 'questions', this.#session.locale), count);
+    setText(this.shadowRoot.querySelector('#open-questions-title'), text.trim() ? text :
+      plural(resolveCopy({}, 'questionsCounted', null, this.#session.locale), count));
+  }
   #renderQuestions() {
+    this.#paintQuestionHeading();
     this.#syncClarify();
     const root = this.shadowRoot, copy = this.#copy.clarify, focus = this.#clarify;
-    const terminal = focus?.reason === 'deadline' || this.#host?.usedUp ||
+    const terminal = focus?.terminal || focus?.reason === 'deadline' || this.#host?.usedUp ||
       ['ending', 'ended'].includes(this.#session.credits?.status);
-    if (terminal && focus) { focus.state = 'refused'; focus.reason = 'deadline'; }
+    if (terminal && focus && !focus.terminal && focus.state !== 'unavailable') {
+      const deadline = focus.reason === 'deadline' || this.#host?.endReason === 'one-hour';
+      focus.state = deadline ? 'refused' : 'unavailable'; focus.reason = deadline ? 'deadline' : null;
+      if (!deadline) { focus.terminal = true; focus.refusalCode = this.#host?.endReason; }
+    }
+    const primaryFailed = resolveCopy(this.#copy, 'clarifyFailed', 'reasoningFailed', this.#session.locale);
+    const rootOverride = ['clarifyFailed', 'reasoningFailed'].some(key =>
+      resolveCopy(this.#copy, key, null, this.#session.locale) !== resolveCopy({}, key, null, this.#session.locale));
+    const acceptedFailed = rootOverride ? primaryFailed : resolveCopy(this.#copy, 'clarifyFailed', 'clarify.failed', this.#session.locale);
+    const acceptedShort = resolveCopy(this.#copy, 'clarifyFailedShort', 'clarify.failedShort', this.#session.locale);
+    const defaultAcceptedSay = resolveCopy({}, 'clarify.say.retry', null, this.#session.locale)
+      .replace(resolveCopy({}, 'clarify.failed', null, this.#session.locale), () => acceptedFailed);
+    const acceptedSay = rootOverride ? acceptedFailed : resolveCopy(this.#copy, 'clarify.say.retry', null, this.#session.locale) !==
+      resolveCopy({}, 'clarify.say.retry', null, this.#session.locale) ? copy.say.retry : defaultAcceptedSay;
     const available = this.openQuestionItems, questions = this.#session.understanding.openQuestions;
     reconcile(root.querySelector('.questions'), questions.length ? textKeys(questions) : [[NONE, null]], value => {
       const row = node('li', value === null ? 'none-yet' : 'open-question');
       if (value !== null) {
-        row.innerHTML = '<span class="question-text"></span><span class="question-state"><span class="question-status"></span><span class="question-separator" aria-hidden="true">·</span><button class="clarify-action" type="button"><span class="clarify-icon"></span><span class="clarify-label"></span></button></span>';
+        row.innerHTML = '<span class="question-text"></span><span class="question-state"><span class="question-status"></span><span class="question-separator" aria-hidden="true">·</span><button class="clarify-action" type="button"><span class="clarify-content"><span class="clarify-icon"></span><span class="clarify-label"></span></span></button></span>';
         row.querySelector('button').addEventListener('click', e => {
           const button = e.currentTarget;
           if (button.getAttribute('aria-disabled') === 'true') return;
           const state = row.dataset.state;
-          if (state === 'retry') void this.#retryClarify();
+          if (state === 'retry' || state === 'focus-retry') void this.#retryClarify();
           else if (state === 'refused' && this.#clarify?.reason === 'paused') {
             this.#clarify.resuming = true; void this.#setPaused(false).catch(() => {});
           } else if (state === 'refused' && this.#clarify?.reason === 'consent') {
@@ -444,38 +591,54 @@ export class AithemaSession extends HTMLElement {
       row.dataset.state = state;
       const button = row.querySelector('button'), status = row.querySelector('.question-status'), separator = row.querySelector('.question-separator');
       const reason = own && state === 'refused' ? focus.reason : null;
-      const withReason = state === 'retry' || Boolean(reason);
-      status.hidden = !withReason; separator.hidden = !withReason || reason === 'deadline';
-      button.hidden = state === 'none' || reason === 'deadline';
+      const failed = ['retry', 'focus-retry'].includes(state);
+      const failedText = state === 'retry' ? acceptedFailed : primaryFailed;
+      const failedShort = state === 'retry' ? acceptedShort : resolveCopy(this.#copy, 'clarifyFailedShort', null, this.#session.locale);
+      const withReason = failed || state === 'unavailable' || Boolean(reason);
+      status.hidden = !withReason; separator.hidden = !withReason || reason === 'deadline' || state === 'unavailable';
+      button.hidden = state === 'none' || reason === 'deadline' || state === 'unavailable';
       button.setAttribute('aria-describedby', text.id);
-      button.setAttribute('aria-disabled', String(['requesting', 'selected', 'asked', 'disabled'].includes(state)));
+      button.setAttribute('aria-disabled', String(['requesting', 'selected', 'asked', 'disabled'].includes(state) || state === 'focus-retry' && this.#clarifyBusy() || state === 'retry' && Boolean(this.#clarifyRequest)));
       button.setAttribute('aria-busy', String(state === 'requesting'));
-      if (state === 'retry') button.setAttribute('aria-label', `${copy.failed}${reasonSeparator}${copy.retry}`); else button.removeAttribute('aria-label');
-      const label = { requesting: copy.asking, selected: copy.chosen, asked: copy.asked, retry: copy.retry }[state] ??
+      if (failed) button.setAttribute('aria-label', `${failedText}${reasonSeparator}${copy.retry}`); else button.removeAttribute('aria-label');
+      const label = { requesting: copy.asking, selected: copy.chosen, asked: copy.asked, retry: copy.retry, 'focus-retry': copy.retry }[state] ??
         (reason === 'paused' ? this.#copy.resume : reason === 'consent' ? copy.review : copy.action);
       setText(button.querySelector('.clarify-label'), label);
       const glyph = withReason ? '' : CLARIFY_ICONS[{ requesting: 'spin', selected: 'check', asked: 'check' }[state] ?? 'ask'];
       if (button.querySelector('.clarify-icon').innerHTML !== glyph) button.querySelector('.clarify-icon').innerHTML = glyph;
       if (withReason) {
-        const signature = `${state}/${reason}/${this.#copyLocale}`;
+        const signature = `${state}/${reason}/${this.#copyLocale}/${failedText}/${failedShort}/${focus?.refusalCode ?? ''}`;
         if (status.dataset.state !== signature) {
           status.replaceChildren(); status.insertAdjacentHTML('beforeend', CLARIFY_ICONS[reason === 'deadline' ? 'clock' : reason === 'paused' ? 'pause' : reason ?? 'warn']);
-          if (state === 'retry') {
+          if (failed) {
             status.append(node('span', 'sr-only', `${copy.chosen}, `));
             const why = node('span', 'question-why');
-            why.append(node('span', 'question-failed-long', copy.failed));
-            const short = node('span', 'question-failed-short', copy.failedShort); short.setAttribute('aria-hidden', 'true'); why.append(short); status.append(why);
-          } else status.append(node('span', null, copy[reason]));
+            why.append(node('span', 'question-failed-long', failedText));
+            const short = node('span', 'question-failed-short', failedShort); short.setAttribute('aria-hidden', 'true'); why.append(short); status.append(why);
+          } else {
+            const message = state === 'unavailable'
+              ? focus?.terminal && focus.refusalCode === 'host-limit' ? this.#copy.hostSurface?.credits?.ended?.['host-limit']?.title
+                : focus?.terminal && Object.hasOwn(this.#copy.reasons ?? {}, focus.refusalCode) ? reasonText(this.#copy, focus.refusalCode)
+                : resolveCopy(this.#copy, 'clarifyUnavailable', null, this.#session.locale)
+              : copy[reason];
+            status.append(node('span', 'question-why', message || resolveCopy(this.#copy, 'clarifyUnavailable', null, this.#session.locale)));
+          }
           status.dataset.state = signature;
         }
       }
     });
     const notice = root.querySelector('.question-notice');
     notice.toggleAttribute('data-on', this.#clarifyNotice); setText(notice.querySelector('span'), copy.stale);
-    const signature = this.#clarifyNotice ? 'stale' : focus ? `${focus.requestId ?? focus.questionId}/${focus.state}/${focus.reason ?? ''}` : '';
+    const unavailableSay = focus?.state === 'unavailable' ? [...root.querySelectorAll('.open-question')]
+      .find(row => row.dataset.questionId === focus.questionId)?.querySelector('.question-why')?.textContent
+      ?? resolveCopy(this.#copy, 'clarifyUnavailable', null, this.#session.locale) : '';
+    const signature = this.#clarifyNotice ? 'stale' : focus ? `${focus.requestId ?? focus.questionId}/${focus.state}/${focus.reason ?? ''}/${acceptedSay}/${primaryFailed}/${unavailableSay}` : '';
     if (signature !== this.#clarifyAnnouncement) {
       this.#clarifyAnnouncement = signature;
-      const say = this.#clarifyNotice ? copy.stale : focus ? copy.say[focus.reason ?? focus.state] : '';
+      const say = this.#clarifyNotice ? copy.stale : ['retry', 'focus-retry'].includes(focus?.state)
+        ? acceptedSay
+        : focus?.state === 'unavailable' ? unavailableSay
+        : focus ? copy.say[focus.reason ?? focus.state] : '';
       setText(root.querySelector('.clarify-announcement'), (say ?? '').replace('{q}', focus?.question ?? ''));
     }
   }
@@ -588,7 +751,7 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
-          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
+          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
@@ -731,7 +894,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.overview-retry').addEventListener('click', () => root.querySelector('.retry').click());
     root.querySelector('.retry').addEventListener('click', async e => {
       const button = e.currentTarget, sessionId = this.#session.id, revision = inputRevision(this.#session);
-      if (button.getAttribute('aria-disabled') === 'true' ||
+      if (button.getAttribute('aria-disabled') === 'true' || this.#clarifyRequest ||
         this.#retryPending?.sessionId === sessionId && this.#retryPending.revision === revision) return;
       if (!this.#feature(this.#replyOwnsRetry() ? 'text' : 'analysis').available) return;
       const marker = this.#retryPending = { sessionId, revision, settled: false };
@@ -743,7 +906,7 @@ export class AithemaSession extends HTMLElement {
         if (this.#retryPending === marker) { marker.settled = true; this.#failure = false; this.#render('aside'); }
       } catch {
         if (this.#retryPending === marker) { this.#retryPending = null; this.#render('aside'); }
-        if (sessionId === this.#session.id) this.#status(this.#copy.reasoningFailed);
+        if (sessionId === this.#session.id) this.#status(resolveCopy(this.#copy, 'retryFailed', 'reasoningFailed', this.#session.locale));
       }
     });
     if (this.#voiceBound) {
@@ -798,7 +961,8 @@ export class AithemaSession extends HTMLElement {
         },
         // A call that starts, ends or fails moves the stage and the avatar with it.
         onState: state => {
-          if (this.#clarify?.waitingForReply || this.#replyRetrySlot?.managed) this.#render('aside');
+          if (this.#clarify && (this.#clarify.pending || this.#clarify.waiting === 'reply-in-flight') && state !== 'speaking') this.#clarify.replyRefreshed = true;
+          if (this.#clarify?.waiting || this.#replyRetrySlot?.managed) this.#render('aside');
           if (state === 'speaking') this.#updateVoiceTranscript({ type: 'speaking' });
           if (['paused', 'recovering', 'waiting', 'closing', 'idle', 'failed'].includes(state)) this.#updateVoiceTranscript({ type: 'reset' });
           // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
@@ -1307,7 +1471,7 @@ export class AithemaSession extends HTMLElement {
     this.#abort?.abort(); this.#stopReconciling(); this.#clearLaneStatusPending();
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
     this.#featureRead = null; clearTimeout(this.#creditEndTimer); this.#cancelUploads();
-    clearTimeout(this.#clarifyNoticeTimer); clearTimeout(this.#savedTimer); this.#timer?.setConnected(false);
+    clearTimeout(this.#clarifyWaitTimer); clearTimeout(this.#clarifyNoticeTimer); clearTimeout(this.#savedTimer); this.#timer?.setConnected(false);
     this.#deviceController?.abort(); this.#questionCard?.freeze();
     this.#host?.erased(id); this.#concept?.erased();
     void this.#rail?.close('session-erased', { serverEnded: true });
@@ -1329,6 +1493,7 @@ export class AithemaSession extends HTMLElement {
   #paintErased() {
     const frozen = this.#erased; if (!frozen || this.#anchorDepth) return;
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
+    this.#paintQuestionHeading();
     if (!frozen.painted) {
       frozen.painted = true;
       // Insert an empty live region first, then announce after the browser registers it.
@@ -1645,6 +1810,12 @@ export class AithemaSession extends HTMLElement {
     this.#settleRetry();
   }
   #recordFailure(failure) {
+    // SSE and snapshots decode fresh objects for the same failure. Only a
+    // changed identity can supersede the reply failure captured by Clarify.
+    const identity = failure?.lane === 'reaction' ? JSON.stringify([this.#session.id,
+      inputRevision(this.#session), failure.inputRevision, failure.lane, failure.error, failure.reason, failure.retryable]) : null;
+    if (identity !== null && identity !== this.#reactionFailureIdentity) this.#reactionFailureVersion++;
+    this.#reactionFailureIdentity = identity;
     const reconciling = failure && (failure.reason === 'budget reconciling' ||
       this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.analysis?.reason === 'budget reconciling');
     if (reconciling) {
@@ -2193,7 +2364,7 @@ export class AithemaSession extends HTMLElement {
     const managedReply = slot?.managed && !itemRetry;
     const replyRetry = replyFailed && (managedReply ? slot.inline : overviewFailed) && !itemRetry;
     if (managedReply && !this.#host?.usedUp) {
-      const pending = this.#retryPending?.sessionId === this.#session.id && this.#retryPending.revision === revision;
+      const pending = Boolean(this.#clarifyRequest) || this.#retryPending?.sessionId === this.#session.id && this.#retryPending.revision === revision;
       const replyRunning = operations?.inputRevision === revision && operations.running.includes('reaction');
       retryNode.hidden = false; retryNode.disabled = false;
       retryNode.setAttribute('aria-disabled', String(pending || Boolean(running) || callRunning || !this.#feature(ownReply ? 'text' : 'analysis').available));
@@ -2207,13 +2378,21 @@ export class AithemaSession extends HTMLElement {
       retryNode.removeAttribute('aria-disabled'); retryNode.removeAttribute('aria-busy');
     }
     if (itemRetry) retryNode.hidden = true;
+    // Shared assessment recovery keeps its visible Retry until focus acceptance.
+    if (!managedReply && this.#clarifyRequest && !retryNode.hidden) {
+      retryNode.setAttribute('aria-disabled', 'true'); retryNode.setAttribute('aria-busy', 'true');
+    }
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading
     // order. Keep its handler and node while the project action keeps its slot.
     const retry = root.querySelector('.retry'), retrySlot = replyRetry ? replyNotice : root.querySelector('.understanding > .foot');
     if (retry.parentNode !== retrySlot) retrySlot.insertBefore(retry, replyRetry ? null : retrySlot.querySelector('.export-reason'));
+    const typing = this.#feature('text', true);
+    const composerUsable = !this.#composerUsedUp && !locked && !this.#session.paused &&
+      (typing.available || typing.rawReason === 'budget reconciling') && !root.querySelector('textarea').disabled && !root.querySelector('.composer').inert;
     setText(replyNotice.querySelector('.reaction-failure-text'), replyFailed
-      ? `${copy.reasoningFailed}${replyRetry && !retry.hidden && !this.#host?.usedUp ? reasonSeparator : ''}` : '');
+      ? `${resolveCopy(copy, 'replyFailed', 'reasoningFailed', this.#session.locale)}${!composerUsable || !retry.hidden && !this.#host?.usedUp || itemRetry && !locked && !this.#host?.usedUp ? ''
+        : ` ${resolveCopy(copy, 'replyKeepTyping', null, this.#session.locale)}`}${replyRetry && !retry.hidden && !this.#host?.usedUp ? reasonSeparator : ''}` : '');
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
       (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck && !(u.readinessAssessed && stale)) &&
       !locked && !reconciling && !this.#host?.usedUp;
@@ -2235,7 +2414,7 @@ export class AithemaSession extends HTMLElement {
       : updatingOverview && u.readinessAssessed ? copy.stale
       : preparing ? copy.preparingOverview
       : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ''}`
-      : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
+      : this.#failure && !replyFailed && !reconciling ? resolveCopy(copy, 'reasoningFailed', null, this.#session.locale)
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
       : !u.readinessAssessed ? copy.noProjectDetails
@@ -2275,7 +2454,8 @@ export class AithemaSession extends HTMLElement {
         if (i.label) setText(label ?? row.insertBefore(element('strong'), row.firstChild), i.label); else label?.remove();
         setText(row.querySelector('span') ?? row.appendChild(element('span')), i.detail);
       });
-    root.querySelector('.overflow').textContent = window.remainder ? copy.more.replace('{count}', window.remainder) : '';
+    root.querySelector('.overflow').textContent = window.remainder ? plural(window.remainder === 1
+      ? resolveCopy(copy, 'moreOne', 'more', this.#session.locale) : copy.more, window.remainder) : '';
     // Summaries keep their nodes, so keyboard focus survives unsolicited updates.
     reconcile(root.querySelector('.cleared'), cleared.length ? cleared.map(i => [i.key, i]) : [[NONE, null]], i => {
       if (!i) return element('p', copy.noneYet, 'none-yet');
@@ -3181,7 +3361,7 @@ export class AithemaSession extends HTMLElement {
       if (invalidation) {
         this.#navigation = null;
         this.#clearLaneStatusPending();
-        this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear();
+        this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear();
         this.#updateVoiceTranscript({ type: 'reset' });
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         this.#deviceController?.abort();
@@ -3294,7 +3474,7 @@ export class AithemaSession extends HTMLElement {
         if (globalThis.matchMedia?.('(max-width: 599px)').matches) this.shadowRoot.querySelector('.transcript-shell').scrollIntoView?.({ block: 'start', behavior: 'instant' });
       }
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
-      this.#session.operations = event.data; this.#restoreFailure();
+      this.#clarifyRefresh++; this.#session.operations = event.data; this.#restoreFailure();
       const failure = event.data.failures?.find(f => f.lane === 'reaction');
       if (failure && this.#clarify?.state !== 'asked') this.#diagnoseClarifyFailure(failure);
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
@@ -3460,7 +3640,7 @@ export class AithemaSession extends HTMLElement {
         if (session.paused) restorePaused();
         else this.#voiceResumeProjection = null;
       }
-      this.#session.featureMatrix = session.featureMatrix;
+      this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
       if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting

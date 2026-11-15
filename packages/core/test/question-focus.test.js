@@ -63,40 +63,11 @@ test('snapshot question items follow SSE assessment replacement and erase on wit
   assert.deepEqual(withdrawn.openQuestionItems, []);
 });
 
-for (const [reason, expected] of [
-  ['admission deadline', 'retryable'], ['budget reconciling', 'wait'], ['plugin unhealthy', 'retryable'],
-  ['consent port unavailable', 'retryable'], ['reply-in-flight', 'wait'],
-  ['budget denied', 'terminal'], ['session', 'terminal'], ['one-hour', 'terminal'], ['host-limit', 'terminal'],
-  ['consent-required', 'actionable'], ['current processing consent required', 'actionable'], ['paused', 'actionable'],
-  ['invalid-request', 'terminal'],
-]) test(`AIT-503 focus refusal classification: ${reason}`, async () => {
-  const core = await import('../src/question-focus.js');
-  assert.equal(typeof core.classifyFocusRefusal, 'function');
-  const error = ['reply-in-flight', 'consent-required'].includes(reason) ? { reason } : { reason: 'not-admitted', admissionReason: reason };
-  assert.equal(core.classifyFocusRefusal(error), expected);
-});
-
-test('AIT-503 unknown focus refusals are terminal and cannot inherit object properties', async () => {
-  const core = await import('../src/question-focus.js');
-  assert.equal(typeof core.classifyFocusRefusal, 'function');
-  for (const reason of [null, undefined, 'unknown', 'constructor', '__proto__']) {
-    assert.equal(core.classifyFocusRefusal({ reason }), 'terminal');
-  }
-  assert.equal(core.classifyFocusRefusal({ reason: 'consent-required', admissionReason: 'unknown' }), 'actionable');
-});
-
-test('AIT-503 malformed-command error without a reason is terminal', async () => {
-  const core = await import('../src/question-focus.js');
-  assert.equal(core.classifyFocusRefusal({ status: 400, error: 'invalid-request' }), 'terminal');
-  assert.equal(core.classifyFocusRefusal({ error: 'reasoning-unavailable' }), 'terminal', 'opaque failure codes never imply a safe retry');
-});
-
-test('AIT-503 refusal classifier remains internal in RC24', async () => {
+test('gate2 M1: core exports no question-focus subpath or refusal classifier', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(Object.hasOwn(manifest.exports, './question-focus'), false);
   const core = await import('../src/index.js');
   assert.equal(core.classifyFocusRefusal, undefined);
   assert.equal(core.FOCUS_REFUSAL_CLASSES, undefined);
-});
-for (const error of [{ reason: 'network' }, { status: 503 }, { status: 500 }, { name: 'TypeError' }]) test(`AIT-503 retryable transport ${JSON.stringify(error)}`, async () => {
-  const { classifyFocusRefusal } = await import('../src/question-focus.js');
-  assert.equal(classifyFocusRefusal(error), 'retryable');
 });

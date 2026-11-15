@@ -175,7 +175,7 @@ export const de = {
 
     open: 'Einstellungen', title: 'Einstellungen', tabs: { general: 'Allgemein', model: 'KI-Modell', local: 'Erweitert' },
     processing: 'Datenverarbeitung', model: 'Modell', responseStyle: 'Antwortstil', faster: 'Schneller', moreThorough: 'Gründlicher',
-    fixedEffort: 'Bei diesem Modell lässt sich die Gründlichkeit nicht einstellen.', deviceNote: 'Wählen und testen Sie Ihr lokales Modell unter „Erweitert“.',
+    fixedEffort: 'Dieses Modell bietet keinen einstellbaren Verarbeitungsaufwand.', deviceNote: 'Wählen und testen Sie Ihr lokales Modell unter „Erweitert“.',
     efforts: { none: 'Keine', minimal: 'Minimal', low: 'Niedrig', medium: 'Mittel', high: 'Hoch', xhigh: 'Sehr hoch', max: 'Maximal' },
     voice: 'Sprechen und Zuhören', voiceOff: 'Textchat: lesen und tippen', visuals: 'Visuelle Entwürfe', visualsOff: 'Aus',
     voiceUnverified: 'Noch nicht im Live-Betrieb geprüft', voiceConfigured: 'Sprache mit {provider}', notConfigured: 'Nicht eingerichtet',
@@ -360,11 +360,15 @@ export const de = {
   connectionLabels: { connecting: 'Verbindet …', connected: 'Verbunden', reconnecting: 'Verbindet …', paused: 'Pausiert', voiceInAnotherTab: 'Anderer Tab' },
   reconnecting: 'Verbindung wird wiederhergestellt …', sending: 'Wird gespeichert …', saved: 'Gespeichert', failed: 'Nicht gespeichert. Senden Sie die Nachricht erneut.', failedShort: 'Nicht gespeichert.',
   understandingFailed: 'Der Überblick konnte gerade nicht erstellt werden', understandingRetry: 'Erneut versuchen',
-  reasoningFailed: 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.', empty: 'Nach dem ersten Satz entsteht hier Ihr Überblick.', noProjectDetails: 'Noch keine Angaben zu Ihrem Vorhaben.', overviewPendingReply: 'Der Überblick folgt, sobald die Antwort da ist.', preparingOverview: 'Ihr Überblick wird erstellt …',
+  reasoningFailed: 'Das hat gerade nicht funktioniert. Ihre Nachrichten sind gespeichert.',
+  clarifyFailed: 'Gerade nicht möglich', clarifyFailedShort: 'Gerade nicht', clarifyUnavailable: 'Gerade nicht verfügbar',
+  retryFailed: 'Das hat gerade nicht funktioniert. Schreiben Sie einfach weiter – Ihre Nachrichten sind gespeichert.',
+  replyFailed: 'Die Antwort konnte gerade nicht erstellt werden. Ihre Nachrichten sind gespeichert.', replyKeepTyping: 'Schreiben Sie einfach weiter.', empty: 'Nach dem ersten Satz entsteht hier Ihr Überblick.', noProjectDetails: 'Noch keine Angaben zu Ihrem Vorhaben.', overviewPendingReply: 'Der Überblick folgt, sobald die Antwort da ist.', preparingOverview: 'Ihr Überblick wird erstellt …',
   draft: 'Erste Fassung. Die gründliche Auswertung läuft noch.', stale: 'Neue Angaben erkannt. Die Auswertung wird aktualisiert …',
   overviewCurrent: 'Auf dem neuesten Stand', staleIdle: 'Der letzte Stand des Überblicks wird angezeigt.', overviewStatusLabel: 'Überblickstatus',
   final: 'Aktuelle Einschätzung', notAssessed: 'Noch nicht bewertet', talk: 'Gespräch', build: 'Umsetzung',
   talkProgress: '{percent} % Gesprächsbereitschaft', buildProgress: '{percent} % Umsetzungsbereitschaft',
+  questionsCounted: { zero: 'Offene Fragen', one: '1 offene Frage', other: '{count} offene Fragen' }, moreOne: '{count} weiterer offener Punkt',
   more: '{count} weitere offene Punkte', none: 'Keine', noneYet: 'Noch keine', evidence: 'Beleg', transcriptLatest: 'Neue Nachrichten unten',
   // Host-Oberfläche (AIT-104 B2); Wortlaut aus START src/lib/i18n.ts, wo vorhanden.
   hostSurface: {
@@ -546,7 +550,7 @@ export const de = {
     'plugin kind unsupported': 'Anbieter kann das nicht', 'operation unsupported': 'Anbieter kann das nicht',
     'invalid mock budget': 'Test-Einrichtung ungültig', 'plugin unhealthy': 'Anbieter antwortet nicht',
     'admission deadline': 'Verfügbarkeitsprüfung hat zu lange gedauert', 'budget reconciling': 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.', 'budget denied': 'Credits aufgebraucht', 'verification required': 'E‑Mail-Bestätigung erforderlich',
-    'concept storage limit': 'Speicher für Entwürfe ist voll', delegated: 'Auswertung im Sprachgespräch: {reason}',
+    'concept storage limit': 'Speicher für Entwürfe ist voll', delegated: 'Sprachverarbeitung: {reason}',
     'voice off': 'Sprache ist in Ihren Einstellungen aus', 'visuals off': 'Visuelle Entwürfe sind in Ihren Einstellungen aus',
     'visual kind not selected': 'Eine andere Art visueller Entwürfe ist gewählt',
     'model not offered': 'Dieses Modell wird nicht mehr angeboten', 'effort not offered': 'Dieser Antwortstil wird nicht mehr angeboten',
@@ -646,7 +650,7 @@ export const de = {
     },
   },
   host: {
-    title: 'Demo: Aithema, Ausbaustufe 1', loadingBinding: 'Auswertung wird geladen …',
+    title: 'Demo: Aithema, Ausbaustufe 1', loadingBinding: 'Verarbeitungseinstellungen werden geladen …',
     newConversation: 'Neues Gespräch beginnen', resumeHint: 'Nach einem Neuladen oder Serverneustart geht es hier weiter.',
     mockHint: 'In dieser Demo zum Beispiel: Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international',
     settingsHint: 'Die Einstellungen (im Verarbeitungsbereich unten) wählen Verarbeitung, Modell, Antwortstil, Stimme und visuelle Entwürfe. Der Reiter „Erweitert“ verbindet ein OpenAI-kompatibles Modell, das auf diesem Gerät läuft.',
