@@ -104,6 +104,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     return job.promise;
   }
   async function cancelSession(id) {
+    clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
     const pending = [...jobs.values()].filter(j => j.id === id);
     for (const job of pending) job.controller.abort(new DOMException('Upload processing revoked', 'AbortError'));
     await Promise.allSettled(pending.map(j => j.promise));
@@ -116,6 +117,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
   }
   return { cancelSession, cancelUpload,
     async cancelImages(id) {
+      clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
       const ids = new Set(storage.get(id).uploads.filter(upload => upload.kind === 'image').map(upload => upload.id));
       await Promise.all([...jobs.keys()].filter(uploadId => ids.has(uploadId)).map(uploadId => cancelUpload(id, uploadId)));
     },
