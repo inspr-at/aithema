@@ -14,7 +14,7 @@ const frame = ['.band', '.understanding', '.understanding > .foot', '.display-fo
 const geometry = async page => { const state = await shadow(page, c => {
   const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
   const input = r.querySelector('textarea'), shell = r.querySelector('.transcript-shell');
-  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.audio-rail', '.concept-bar', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
+  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.audio-rail', '.concept-bar', '.concept-access', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
     .filter(selector => r.querySelector(selector)).map(selector => [selector, box(selector)])),
   inputScroll: input.scrollHeight, inputClient: input.clientHeight, value: input.value,
   scroll: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight,
@@ -69,6 +69,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       const { inputRevision } = await import('/packages/core/src/session.js');
       const { paintUtilities } = await import('/demo/page-preferences.js');
       const s = structuredClone(globalThis.composerSeed); s.seq = 10; s.locale = locale; s.inputRevision = 1; s.settings.origin = 'chosen';
+      s.settings.visuals = visuals ? 'fixture-image' : 'off';
       s.conceptVisualKind = 'image'; s.visualsBound = Boolean(visuals); s.conceptCost = visuals ? { maxMicro: 0 } : null;
       s.concepts = visuals === 'populated' ? [{ id: 'fixture-image', mediaType: 'image/png', turnIds: ['t0'], referenceIds: [], archived: false }] : [];
       s.conceptStatus = { phase: visuals === 'populated' ? 'ready' : 'idle' };
@@ -138,7 +139,9 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       for (const visuals of [true, 'populated']) {
         await reset(width, width === 390 ? 844 : 900, locale, theme, { visuals, voice: true });
         const state = await capture(`ait-511-${locale}-${theme}-${width}-visuals-${visuals}`);
-        positive(state.boxes['.concept-bar'], 'visual bar'); assert.equal(state.boxes['.concept-bar'].height, 44, 'visual bar uses one 44px row');
+        // Image access moves to the fixed phone dock; measure the visible row,
+        // rather than its now-empty desktop parent.
+        positive(state.boxes['.concept-access'], 'visual bar'); assert.equal(state.boxes['.concept-access'].height, 44, 'visual bar uses one 44px row');
       }
       const beforeNotice = await geometry(page);
       await shadow(page, async c => {
