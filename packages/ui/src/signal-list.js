@@ -5,13 +5,15 @@ import { signalKey } from '../../core/src/understanding.js';
 /** Presentation state is tab-local; identity and order come from the server. */
 export class SignalList {
   #section; #list; #button; #anchor; #copy; #locale; #items = []; #pending = null;
-  #pointer = false; #timer; #marked = new Set(); #seenSeq = null;
+  #pointer = false; #sectionPointer = false; #timer; #marked = new Set(); #seenSeq = null;
   constructor(section, { state, anchor }) {
     this.state = state ?? { expanded: false, seen: new Set(), initialized: false };
     this.#section = section; this.#list = section.querySelector('.signals');
     this.#button = section.querySelector('.signals-toggle'); this.#anchor = anchor;
     this.#list.addEventListener('pointerenter', () => { this.#pointer = true; });
     this.#list.addEventListener('pointerleave', () => { this.#pointer = false; this.#flush(); });
+    section.addEventListener('pointerenter', () => { this.#sectionPointer = true; });
+    section.addEventListener('pointerleave', () => { this.#sectionPointer = false; this.#flush(); });
     section.addEventListener('focusout', event => {
       if (!section.contains(event.relatedTarget)) this.#flush(event.relatedTarget);
     });
@@ -24,7 +26,7 @@ export class SignalList {
     }));
   }
   #busy(nextFocus = this.#section.getRootNode().activeElement) {
-    return this.#pointer || Boolean(nextFocus && this.#section.contains(nextFocus));
+    return this.#pointer || this.#sectionPointer || Boolean(nextFocus && this.#section.contains(nextFocus));
   }
   #flush(nextFocus) {
     if (this.#pending && !this.#busy(nextFocus)) this.#anchor(() => this.#apply(this.#pending));
@@ -89,6 +91,6 @@ export class SignalList {
     this.state.expanded = false; this.state.seen.clear(); this.state.initialized = false;
     this.#paint();
   }
-  suspend() { this.#clearMark(); this.#pending = null; this.#pointer = false; this.#paint(); }
+  suspend() { this.#clearMark(); this.#pending = null; this.#pointer = false; this.#sectionPointer = false; this.#paint(); }
   destroy() { this.#clearMark(); this.#pending = null; this.#items = []; }
 }

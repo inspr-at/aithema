@@ -8,7 +8,8 @@
   updated mark. Current lists retain the 24-item cap. First-N consumers and the
   import payload now receive newest signals first.
 - Additive final-event/snapshot/export `understanding.signalItems` contains
-  `{key,text,firstSeen,basis?}`. Model signals accept strict `{text,basis}` objects
+  `{key,text,firstSeen,basis?}`; draft/reset items may contain only text/basis
+  before final identity assignment. Model signals accept strict `{text,basis}` objects
   (`visitor | assistant | document`) and compatible untagged plain strings.
   Only assistant attribution shows an unconfirmed tag; it never confirms slots.
   `signalKey(text)` is an additive core root/understanding export for exact NFKC,

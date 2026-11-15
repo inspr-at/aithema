@@ -1,4 +1,4 @@
-import { cleanSignals } from './signals.js';
+import { cleanSignals, signalKey } from './signals.js';
 export { signalKey } from './signals.js';
 // Adapted from START qualification.ts and api/analyze.ts; rights held by INSPR (D3).
 export const START_PRESET = Object.freeze({
@@ -28,7 +28,7 @@ export function createPreset(overrides = {}) {
 export const safeReadiness = value => typeof value === 'number' && Number.isFinite(value)
   ? Math.min(1, Math.max(0, value)) : 0;
 export const displayedReadinessPercent = value => Math.floor(safeReadiness(value) * 100);
-const normalize = value => value.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
+const normalize = signalKey;
 const nonAnswers = new Set(['keine angabe', 'nicht angegeben', 'offen', 'unklar', 'unbekannt',
   'no answer', 'not provided', 'not specified', 'open', 'unclear', 'unknown']);
 const nonEvidence = /\b(?:keine angabe|nicht (?:bekannt|angegeben)|(?:weiß|weiss) ich nicht|no (?:answer|information)|not (?:known|specified|provided)|i (?:do not|don't) know)\b/u;

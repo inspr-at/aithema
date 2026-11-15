@@ -693,7 +693,8 @@ lowercase text with collapsed whitespace; `firstSeen` is the server journal
 sequence of the first final containing that key, independent of wall time.
 The additive `signalKey(text)` helper is exported from the core root and
 `@inspr/aithema-core/understanding` for consumers needing that exact normalization.
-The model signal schema accepts `{text, basis}` with required
+Draft/reset `signalItems` may contain only text and basis before a final assigns
+identity metadata. The model signal schema accepts `{text, basis}` with required
 `basis: 'visitor' | 'assistant' | 'document'`. Plain strings remain accepted for
 older/mock/device bindings and carry no basis tag. Only `assistant` signals show
 “unconfirmed” / “unbestätigt”; document observations and plain strings get no tag.

@@ -72,6 +72,10 @@ test('AIT-515 pointer and focus defer model list changes until both leave', () =
   root.querySelector('.signals-toggle').blur();
   root.querySelector('.signals-section').dispatchEvent(new window.FocusEvent('focusout'));
   assert.equal(texts(c)[0], 'Latest');
+  root.querySelector('.signals-section').dispatchEvent(new window.Event('pointerenter'));
+  final(c, [...seven, 'Newest', 'Latest', 'Current']); assert.equal(texts(c)[0], 'Latest', 'hovering the toggle also defers changes');
+  root.querySelector('.signals-section').dispatchEvent(new window.Event('pointerleave'));
+  assert.equal(texts(c)[0], 'Current');
 });
 
 test('AIT-515 reset preserves identities without a highlight storm; erasure and a different conversation clear expansion', () => {
