@@ -558,7 +558,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       }
       const visible = await inShadow(page, c => { const el = c.shadowRoot.querySelector('.image-refusals'), r = el.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, bottom: r.bottom, clip: getComputedStyle(el.parentElement).clipPath }; });
       assert.ok(visible.w > 0 && visible.h > 0 && visible.top >= 0 && visible.bottom <= 530); assert.equal(visible.clip, 'none');
-      changes.push({ reason: 'keyboard-malformed', rects: after }); await shot('keyboard');
+      changes.push({ reason: 'keyboard-malformed', before: keyboardBefore, rects: after }); await shot('keyboard');
       await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image'); c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined } }); c.shadowRoot.querySelector('.image-refusals button').click(); });
       await page.setViewport({ width, height: 900 });
     }
@@ -612,7 +612,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
         assert.ok(r.w > 0 && r.h > 0, `${selector} positive in ${state}`);
         for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - consentBefore[selector][edge]) <= .5, `${selector}.${edge} fixed in ${state}`);
       }
-      changes.push({ reason: state, rects: current }); await shot(state);
+      changes.push({ reason: state, before: consentBefore, rects: current }); await shot(state);
     };
     await choose(); await page.waitForFunction(() => window.imageAsks.length === 1);
     assert.equal(await page.evaluate(() => window.imageSeq), attachedBefore, 'no image POST before consent');
@@ -633,7 +633,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       assert.ok(r.w > 0 && r.h > 0, `${selector} positive after discard`);
       for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - consentBefore[selector][edge]) <= .5, `${selector}.${edge} fixed after discard`);
     }
-    changes.push({ reason: 'discarded', rects: discarded });
+    changes.push({ reason: 'discarded', before: consentBefore, rects: discarded });
     if (evidence) await writeFile(join(evidence, `${prefix}-rects.json`), JSON.stringify({ unstaged, before, changes, tileBefore, tileReload, after: await boxes() }, null, 2));
 
   });
