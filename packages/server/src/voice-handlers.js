@@ -269,6 +269,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     const creditsPolicy = runtime.conversationLimits?.policy(sessionId) === 'credits';
     if (!continuation) runtime.assertFreshVoice?.(sessionId);
     const hasPriorCalls = creditsPolicy && !continuation && Boolean(storage.voiceLifecycle(sessionId));
+    const firstContact = !continuation && !hasPriorCalls && Boolean(opener[session.locale]) &&
+      session.transcript.length === 0 && !storage.hasConnectedVoiceCall(sessionId);
     const authorityKey = `${sessionId}:${callId}`;
     if (!authorities.has(authorityKey)) authorities.set(authorityKey, { sessionId, callId, controller: new AbortController() });
     const authority = authorities.get(authorityKey).controller;
@@ -295,8 +297,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const current = storage.get(sessionId);
       const hasPriorTurns = hasPriorCalls || activeTurns(session).some(turn =>
         ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim()));
-      const canSpeakOpener = !continuation && !hasPriorCalls && opener[current.locale] &&
-        current.transcript.length === 0 && !storage.hasConnectedVoiceCall(sessionId);
+      const canSpeakOpener = firstContact && !presentation && admitted.plugin.manifest.liveVoice?.capabilities.opener === true;
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: current.locale,
         continuation, explicitResume, hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}),
         ...(canSpeakOpener ? { hostOpener: opener[current.locale] } : {}) });
@@ -316,7 +317,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
       const openerEvent = storage.connectVoiceWithOpener(sessionId, callId, { type: 'connected', epoch: entry.epoch, providerSessionId: entry.call.providerSessionId,
         authorizationRevision: voiceAuthorizationRevision(fresh), spendDeadlineAt: end,
-        browserLivenessDeadlineAt: entry.call.browserLivenessDeadlineAt }, !continuation && !hasPriorCalls ? opener : undefined);
+        browserLivenessDeadlineAt: entry.call.browserLivenessDeadlineAt }, firstContact &&
+          (entry.callbackContext?.hostOpener === true || admitted.plugin.manifest.liveVoice?.capabilities.opener === false) ? opener : undefined);
       if (openerEvent) publish(sessionId, openerEvent);
       if (fresh.paused) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'pause' });
       const state = storage.voiceLifecycle(sessionId, callId);

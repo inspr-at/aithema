@@ -26,6 +26,11 @@ const pointerClick = async (page, selector) => {
   await page.mouse.move(0, 0);
 };
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
+const openCredits = page => shadow(page, c => {
+  const entry = c.shadowRoot.querySelector('.host-credits'), button = entry.querySelector('.host-credits__button');
+  if (entry.hasAttribute('data-pinned')) button.click();
+  button.click(); // Activation runs the production viewport-positioning handler.
+});
 const fixed = ['.composer-shell', '.send', '.understanding > .foot', '.display-foot', '.host-credits', '.engine-info'];
 const stable = (before, after, label) => {
   const shift = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
@@ -35,26 +40,26 @@ const stable = (before, after, label) => {
 
 // Only this test supplies fixture values. The shipped component reads every
 // tier, price, balance, address and ask record through its normal host routes.
-async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0 } = {}) {
+async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0, emailOffer, initialMessages = 4, lock = false, tierAllowances, opener = false } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs } = options;
+    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener } = options;
     const canConfirm = delivery && confirmationEnabled;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     const { voiceEvents } = await import('/packages/core/src/live-voice.js');
     window.ait164Fetch ??= window.fetch.bind(window);
-    const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
+    const allowancesMicro = tierAllowances ?? { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
     window.ait164Locale = locale;
     const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, lowClaim: { after: 0, armed: true }, creditsReads: 0, visitorReads: 0, identityReads: 0, saving: false, saveFails: false, linkFails: false, requests: [], voiceEvents: null };
     const tier = () => state.confirmed ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && canConfirm ? 'verification-pending' : 'guest',
-      assessmentUnlocked: true, conceptsUnlocked: true, verificationRequired: false, pollVerification: false, resendAfterMs: 0, delivery: 'sent' });
+      assessmentUnlocked: !lock || state.confirmed, conceptsUnlocked: !lock || state.confirmed, verificationRequired: lock, pollVerification: false, resendAfterMs: 0, delivery: 'sent' });
     const visitor = () => ({ address: state.address, tier: tier(), limitMicro: allowancesMicro[tier()] });
     if (low || out) state.spent = allowancesMicro[tier()] - (out ? 0 : 980_000);
-    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? 'emailGiven' : canConfirm && !state.confirmed ? 'emailConfirmed' : null;
+    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? allowancesMicro.emailGiven > allowancesMicro.anonymous ? 'emailGiven' : canConfirm && allowancesMicro.emailConfirmed > allowancesMicro.anonymous ? 'emailConfirmed' : null : canConfirm && !state.confirmed ? 'emailConfirmed' : null;
       return { tiers: { current, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm, allowancesMicro },
         exhausted: state.spent >= limitMicro, lowAtMicro: Math.max(limitMicro / 10, 5 * 100_000), lowAtMaxMicro: Math.max(allowancesMicro.emailConfirmed / 10, 5 * 100_000),
-        emailAsk: state.ask, emailAskAfter: state.after, lowEmailAsk: state.lowClaim, nowMs: Date.now(), limitSlot: null,
+        emailOffer: state.offer ?? {}, emailAsk: state.ask, emailAskAfter: state.after, lowEmailAsk: state.lowClaim, nowMs: Date.now(), limitSlot: null,
         balance: { owner: { limitMicro, committedMicro: state.spent, confirmedSpendMicro: state.spent, reservedMicro: 0, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - state.spent) } } }; };
     state.credits = credits;
     window.fetch = async (url, init = {}) => {
@@ -64,13 +69,19 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
       if (path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: c.session.featureMatrix });
       if (path.endsWith('/visitor/email')) {
         state.visitorReads++;
-        if (method === 'PUT') { state.requests.push('save'); while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails) return Response.json({ error: 'unavailable' }, { status: 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
+        if (method === 'PUT') { state.requests.push('save'); state.noticeVersion = JSON.parse(init.body).noticeVersion; while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails || state.saveStatus) return Response.json({ error: 'unavailable' }, { status: state.saveStatus ?? 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: true });
       }
-      if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true }); }
+      if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true, ...(emailOffer ? { visitorEmail: { canSave: true, canDelete: true } } : {}) }); }
       if (/\/identity\/(request|change|resend)$/u.test(path)) { state.requests.push('link'); return Response.json({ identity: identity() }, { status: state.linkFails ? 503 : 200 }); }
       if (path.endsWith('/email-ask')) {
-        const body = JSON.parse(init.body), count = c.session.transcript.filter(t => t.role === 'user' && !t.erased).length;
+        const body = JSON.parse(init.body); state.askRequests ??= []; state.askRequests.push(body);
+        if (body.why === 'offer') {
+          const accepted = body.action === 'dismiss' || !state.offer?.offered;
+          state.offer = { offered: true, open: body.action === 'show', dismissed: body.action === 'dismiss', at: c.session.transcript.at(-1).id };
+          return Response.json({ accepted, emailOffer: state.offer });
+        }
+        const count = c.session.transcript.filter(t => t.role === 'user' && !t.erased).length;
         let accepted = true;
         if (body.action === 'show') {
           if (body.why === 'turn5' && state.after > Date.now() || body.why === 'low' && (!state.lowClaim.armed || state.lowClaim.after > Date.now())) accepted = false;
@@ -94,23 +105,27 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
     for (const n of c.querySelectorAll('[slot="legal"]')) n.remove();
     const legal = document.createElement('a'); legal.slot = 'legal'; legal.href = '/privacy'; legal.setAttribute('data-aithema-privacy', ''); c.append(legal);
     const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; delete session.voiceLifecycle;
-    session.identity = identity(); session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
-    session.transcript = Array.from({ length: 4 }, (_, i) => [
+    session.identity = identity(); if (emailOffer) session.emailOffer = emailOffer; else delete session.emailOffer; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
+    session.transcript = Array.from({ length: initialMessages }, (_, i) => [
       { id: `fixture-u${i}`, role: 'user', content: locale === 'de' ? 'Ich möchte meine Anforderungen besprechen.' : 'I would like to discuss my requirements.' },
       { id: `fixture-a${i}`, role: 'assistant', content: locale === 'de' ? 'Welche Ziele haben Sie?' : 'What are your goals?' },
     ]).flat();
+    if (opener) {
+      session.opener = { locale, text: locale === 'de' ? 'Willkommen. Ihre KI-Assistenz ist bereit.' : 'Welcome. Your AI assistant is ready.' };
+      if (opener === 'persisted') session.transcript.unshift({ id: 'host:opener', role: 'assistant', origin: 'host', content: session.opener.text });
+    } else delete session.opener;
     session.understanding = { ...session.understanding, inputRevision: inputRevision(session), readinessAssessed: true,
       summary: locale === 'de' ? 'Die Person möchte eine Website für ihr Vorhaben.' : 'The person wants a website for their project.', conversationReadiness: .5, implementationReadiness: .2 };
     session.featureMatrix = { best: { text: { available: !out }, analysis: { available: true }, voice: { available: !out } } };
     const voiceClient = voice ? { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
       async start(request) { const events = voiceEvents(); state.voiceEvents = events; return { callId: request.callId, providerSessionId: 'gate-fixture-provider', events,
         async setInput() {}, async setOutput() {}, async updateContext() {}, async heartbeat() {}, async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; }, async close() { events.end(); return { closureConfirmed: true, usage: { costEstimated: false } }; } }; } } : undefined;
-    c.setAttribute('motion', motion); c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: true } } });
+    c.setAttribute('motion', motion); c.configure({ session, copy, voiceClient, ...(opener ? { entrance: 'combined' } : {}), host: { credits: true, verification: { delivery, privacyDocumentConfigured: true } } });
     state.reply = () => { const i = c.session.transcript.length;
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `u${i}`, role: 'user', content: locale === 'de' ? 'Ja.' : 'Yes.' } });
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `a${i}`, role: 'assistant', content: locale === 'de' ? 'Wie soll es weitergehen?' : 'How would you like to continue?' } }); };
     if (voice) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs });
+  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener });
   await until(page, () => {
     const c = document.querySelector('aithema-session'), s = window.ait164;
     return s.creditsReads > 0 && s.visitorReads > 0 && s.identityReads > 0 &&
@@ -470,4 +485,288 @@ test('AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any rec
       assert.ok(row.requests.every(request => request.address === row.value), `${row.path}: only the converted recipient leaves the page`);
     }
   }
+});
+
+
+test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls', { timeout: 240_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-inline-offer-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const page = await browser.newPage();
+  // All host deadlines and browser Date reads use one injected clock.
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  const targets = ['.composer-shell', '.send', '.display-foot'];
+  const measured = async () => {
+    const result = await boxes(page, targets);
+    for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${targets[i]} must have positive geometry: ${box}`);
+    return result;
+  };
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+    let baseline = null, offerBaseline = null;
+    const shot = async state => {
+      await settle(page);
+      const bounds = await shadow(page, c => {
+        const row = c.shadowRoot.querySelector('.email-offer');
+        return row ? { offer: row.getBoundingClientRect().toJSON(), shell: c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect().toJSON() } : null;
+      });
+      if (bounds) {
+        for (const box of Object.values(bounds)) assert.ok(box.width > 0 && box.height > 0, `${label}/${state}: positive offer geometry`);
+        assert.ok(bounds.offer.left >= bounds.shell.left - .5 && bounds.offer.right <= bounds.shell.right + .5, `${label}/${state}: offer fits the transcript`);
+        rects.push({ label, state, surface: 'offer-bounds', ...bounds });
+      }
+      if (baseline && bounds) {
+        const currentOffer = await boxes(page, ['.email-offer', '.email-offer__row', '.email-offer__send']);
+        for (const box of currentOffer) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${state}: positive offer control geometry`);
+        if (offerBaseline) {
+          const shift = Math.max(...offerBaseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - currentOffer[i][j]))));
+          assert.ok(shift <= .5, `${label}/${state}: offer control shift ${shift}`); rects.push({ label, state, targets: ['.email-offer', '.email-offer__row', '.email-offer__send'], before: offerBaseline, after: currentOffer, shift });
+        } else offerBaseline = currentOffer;
+      }
+      if (baseline) {
+        const current = await measured();
+        const shift = Math.max(...baseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - current[i][j]))));
+        assert.ok(shift <= .5, `${label}/${state}: control shift ${shift}`); rects.push({ label, state, targets, before: baseline, after: current, shift });
+      }
+      if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent'); await shot('entrance');
+    await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), true);
+    await shot('before-input');
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
+    await page.evaluate(() => window.ait164.reply()); await settle(page);
+    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.email-offer'))), false);
+    const before = await measured(); await page.evaluate(() => window.ait164.reply());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
+    const after = await measured();
+    const shift = Math.max(...before.flatMap((box, i) => box.map((n, j) => Math.abs(n - after[i][j]))));
+    assert.ok(shift <= .5, `${label}: control shift ${shift}`); rects.push({ label, targets, before, after, shift });
+    const state = await shadow(page, c => { const r = c.shadowRoot; return { notice: r.querySelector('.email-offer .m-notice-text').textContent, href: r.querySelector('.email-offer .m-pp').getAttribute('href'), inert: r.querySelector('form.composer').inert, count: c.session.transcript.length, active: r.activeElement?.id }; });
+    assert.match(state.notice, locale === 'en' ? /advertising/ : /Werbung/); assert.equal(state.href, '/privacy'); assert.equal(state.inert, false); assert.equal(state.count, 4); assert.notEqual(state.active, 'email-offer-input');
+    baseline = after; await shot('capture');
+    await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'invalid'; row.querySelector('form').requestSubmit(); });
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').getAttribute('aria-invalid')), 'true'); await shot('invalid');
+    for (const status of [400, 503]) {
+      await page.evaluate(status => { window.ait164.saveStatus = status; }, status);
+      await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'false');
+      const failure = await shadow(page, async c => {
+        const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`), row = c.shadowRoot.querySelector('.email-offer');
+        return { text: row.querySelector('.email-offer__message').textContent, invalid: row.querySelector('input').getAttribute('aria-invalid'),
+          inputHidden: row.querySelector('input').hidden, invalidCopy: copy.hostSurface.verify.invalid, failedCopy: copy.hostSurface.email.failed };
+      });
+      assert.equal(failure.text, status === 400 ? failure.invalidCopy : failure.failedCopy);
+      assert.equal(failure.invalid, String(status === 400)); assert.equal(failure.inputHidden, false);
+      assert.equal(await page.evaluate(() => window.ait164.address), null);
+      assert.equal(await page.evaluate(() => window.ait164.requests.includes('link')), false);
+      await shot(status === 400 ? 'save-refused' : 'save-failed');
+    }
+    await page.evaluate(() => { window.ait164.saveStatus = null; });
+    await page.evaluate(() => { window.ait164.saving = true; window.ait164.linkFails = true; });
+    await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'true');
+    assert.equal(await shadow(page, async c => { const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`); return c.shadowRoot.querySelector('.email-offer__message').textContent === copy.hostSurface.email.saving; }), true);
+    await shot('saving');
+    await page.evaluate(() => { window.ait164.saving = false; });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'false' && window.ait164.requests.includes('link'));
+    await shot('delivery-failed');
+    await page.evaluate(() => { window.ait164.linkFails = false; }); await click(page, '.email-offer__send');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'sent');
+    assert.equal(await page.evaluate(() => window.ait164.noticeVersion), 'ait-135-v1'); await shot('sent');
+    await shadow(page, c => { window.ait164.confirmed = true; c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, status: 'verified', address: 'visitor@example.test', assessmentUnlocked: true, conceptsUnlocked: true } }); });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'confirmed'); await shot('confirmed');
+    baseline = null;
+    for (const [variant, confirmedAllowance] of [['confirm', 24_000_000], ['lock-only', 12_000_000]]) {
+      await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, lock: true,
+        tierAllowances: { anonymous: 12_000_000, emailGiven: 12_000_000, emailConfirmed: confirmedAllowance } });
+      await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await shot(variant);
+    }
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, address: 'saved@example.test', lock: true });
+    await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.m-delete-mail').inert), false); await shot('saved-settings');
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
+    await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').hidden), true); await shot('resend');
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 1, voice: true });
+    await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.call), 'active');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('form.composer').inert), false); await shot('during-call');
+    await click(page, '.email-offer__dismiss'); await page.evaluate(() => window.ait164.reply()); await settle(page);
+    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.email-offer'))), false); await shot('dismissed');
+    await click(page, '.voice-close');
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-507-rects.json'), JSON.stringify(rects, null, 2));
+});
+
+
+test('AIT-507 deferred credits email link is hidden with reserved positive geometry', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-deferred-email-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), rects = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: {}, initialMessages: 0 });
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    await openCredits(page);
+    await settle(page);
+    const targets = ['.host-credits', '.credits-popup', '.credits-email', '.host-credits__scope', '.host-credits__next'];
+    const sample = async () => { const result = await boxes(page, targets); for (const box of result) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive reserved popup geometry`); return result; };
+    const inViewport = async () => { const box = (await sample())[1]; assert.ok(box[0] >= -.5 && box[1] >= -.5 && box[0] + box[2] <= width + .5 && box[1] + box[3] <= page.viewport().height + .5, `${label}: popup fits viewport ${box}`); };
+    await inViewport();
+    const before = await sample();
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.credits-email')).visibility), 'hidden', `${label}: before-input email link is hidden`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.credits-email').hidden), true);
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-before-input-credits.png`) });
+    await page.evaluate(() => window.ait164.reply()); await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.credits-email').hidden), false);
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.credits-email')).visibility), 'visible');
+    await inViewport();
+    const after = await sample(), shift = Math.max(...before.flatMap((box, i) => box.map((v, j) => Math.abs(v - after[i][j]))));
+    assert.ok(shift <= .5, `${label}: reserved popup shift ${shift}`); rects.push({ label, targets, before, after, shift });
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-after-input-credits.png`) });
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-507-credits-rects.json'), JSON.stringify(rects, null, 2));
+});
+
+// B7: each regression runs independently so the red lane identifies every
+// blocked entry point without the first failure masking the remaining cases.
+for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tier', 'refused-focus']) test(`AIT-507 b7 ${scenario}: before-input recovery and stable geometry`, { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-offer-recovery-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+    await fixture(page, locale, { opener: true, delivery: scenario !== 'used-up', emailOffer: { afterMessages: scenario === 'refused-focus' ? 2 : 1 }, initialMessages: scenario === 'refused-focus' ? 1 : 0,
+      out: scenario.startsWith('used-up'), address: ['saved-address', 'no-next-tier'].includes(scenario) ? 'saved@example.test' : null,
+      confirmed: scenario === 'no-next-tier' });
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    const shot = async state => { await settle(page); if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-b7-${scenario}-${state}.png`) }); };
+    const sample = async targets => {
+      const result = await boxes(page, targets);
+      for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${scenario}/${targets[i]}: positive geometry ${box}`);
+      const popup = result[targets.indexOf('.credits-popup')];
+      if (popup) assert.ok(popup[0] >= -.5 && popup[1] >= -.5 && popup[0] + popup[2] <= width + .5 && popup[1] + popup[3] <= page.viewport().height + .5, `${label}/${scenario}: popup fits viewport ${popup}`);
+      return result;
+    };
+    const compare = async (targets, before, state) => {
+      const after = await sample(targets), shift = Math.max(...before.flatMap((box, i) => box.map((n, j) => Math.abs(n - after[i][j]))));
+      assert.ok(shift <= .5, `${label}/${scenario}/${state}: shift ${shift}; ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+      rects.push({ label, scenario, state, targets, before, after, shift });
+    };
+    if (scenario.startsWith('used-up')) {
+      assert.equal(await shadow(page, c => c.session.transcript.length), 0);
+      const upgrade = await sample(['.composer-out__upgrade']);
+      await shot('upgrade');
+      await click(page, '.composer-out__upgrade');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false, `${label}: used-up capture remains reachable`);
+      const inputSelector = scenario === 'used-up-mail' ? '#verify-dialog-email' : '#email-input';
+      if (scenario === 'used-up-mail') {
+        await shot('settings');
+        await click(page, '.host-verify .verify-entry');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
+      }
+      rects.push({ label, scenario, state: 'capture-input', targets: [inputSelector], boxes: await sample([inputSelector]) });
+      await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), inputSelector);
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), inputSelector.slice(1));
+      const targets = [scenario === 'used-up-mail' ? 'dialog.verify-dialog' : 'dialog.settings', '.display-foot'];
+      if (scenario === 'used-up-mail') targets.push('.verify-dialog .verify__field', '.verify-dialog .verify__actions');
+      const before = await sample(targets);
+      rects.push({ label, scenario, state: 'upgrade', targets: ['.composer-out__upgrade'], boxes: upgrade });
+      await shot('capture');
+      await shadow(page, (c, selector) => { const input = c.shadowRoot.querySelector(selector); input.value = 'recovered@example.test'; input.form.requestSubmit(); }, inputSelector);
+      await until(page, () => window.ait164.address === 'recovered@example.test' && document.querySelector('aithema-session').shadowRoot.querySelector('.m-addr').textContent === 'recovered@example.test');
+      assert.equal(await page.evaluate(() => window.ait164.noticeVersion), 'ait-135-v1');
+      await settle(page); await compare(targets, before, 'saved'); await shot('saved');
+      if (scenario === 'used-up-mail') await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog').close());
+      await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
+    } else if (scenario === 'refused-focus') {
+      // The entrance reveal owns a finite timer as well as CSS animations.
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').hasAttribute('data-reveal'));
+      await settle(page);
+      await page.evaluate(() => window.ait164.reply());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
+      const targets = ['.email-offer', '.email-offer__row', '.email-offer__send', '.composer-shell'], before = await sample(targets);
+      await page.evaluate(() => { window.ait164.saveStatus = 400; window.ait164.saving = true; });
+      const input = await page.evaluateHandle(() => document.querySelector('aithema-session').shadowRoot.querySelector('#email-offer-input'));
+      await input.evaluate(input => { input.value = 'a(b)@example.com'; input.focus(); });
+      await page.keyboard.press('Enter');
+      await until(page, () => window.ait164.requests.includes('save'));
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), 'email-offer-input', `${label}: focus stays during Enter save`);
+      await page.evaluate(() => { window.ait164.saving = false; });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email-offer-input').getAttribute('aria-invalid') === 'true');
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), 'email-offer-input', `${label}: focus stays after 400`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email-offer-input').value), 'a(b)@example.com');
+      await settle(page); await compare(targets, before, 'refused'); await shot('refused');
+    } else {
+      await openCredits(page);
+      await settle(page);
+      const targets = ['.host-credits', '.credits-popup', '.host-credits__scope', '.host-credits__current'];
+      if (scenario === 'saved-address') targets.push('.credits-email', '.host-credits__next');
+      const before = await sample(targets);
+      const link = await shadow(page, c => { const link = c.shadowRoot.querySelector('.credits-email'); return { hidden: link.hidden, deferred: link.hasAttribute('data-capture-deferred'), display: getComputedStyle(link).display, visibility: getComputedStyle(link).visibility }; });
+      assert.equal(link.deferred, false, `${label}: ${scenario} has no deferred capture slot`);
+      if (scenario === 'saved-address') { assert.equal(link.hidden, false); assert.equal(link.visibility, 'visible'); }
+      else { assert.equal(link.hidden, true); assert.equal(link.display, 'none'); }
+      await shot('before-input');
+      await page.evaluate(() => window.ait164.reply()); await settle(page);
+      await compare(targets, before, 'after-input'); await shot('after-input');
+    }
+  }
+  if (evidence) await writeFile(join(evidence, `ait-507-b7-${scenario}-rects.json`), JSON.stringify(rects, null, 2));
+});
+
+test('AIT-507 integration: persisted opener alone exposes no email action or lock', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-opener-email-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+    for (const address of [null, 'saved@example.test']) {
+      await fixture(page, locale, { opener: 'persisted', emailOffer: { afterMessages: 1 }, initialMessages: 0, low: true, delivery: true, lock: true, address });
+      await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+      await settle(page);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent');
+      assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.email-offer, .email-low-line__action'))), false, `${label}: opener cannot expose offer or low-credit confirm action`);
+      assert.deepEqual(await page.evaluate(() => window.ait164.askRequests ?? []), [], 'no low-credit show or line claim before visitor input');
+      const targets = ['.display-foot', '.host-credits'];
+      const sample = async () => { const result = await boxes(page, targets); for (const box of result) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive opener-state boxes`); return result; };
+      const before = await sample();
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), !address);
+      if (!address) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.verify-lock').hidden), true);
+      const after = await sample(), shift = stable(before, after, `${label}/opener-settings`);
+      rects.push({ label, state: address ? 'opener-saved' : 'opener-empty', targets, before, after, shift });
+      if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-m1-opener-${address ? 'saved' : 'empty'}.png`) });
+      await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-507-m1-opener-rects.json'), JSON.stringify(rects, null, 2));
 });
