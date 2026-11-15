@@ -18,16 +18,17 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await startTyping(page);
-    await inShadow(page, c => {
+    await inShadow(page, async c => {
       window.imageAsks = []; window.imagePosts = []; window.imageSeq = 0;
       c.addEventListener('aithema-consent', e => window.imageAsks.push(e.detail));
       const session = structuredClone(c.session);
       session.featureMatrix.best.imageInput = { available: true, reason: null };
       session.featureMatrix.best.images = { available: true, reason: null };
       session.featureMatrix.best.uploads = { available: true, reason: null };
-      c.configure({ session });
       const fetch = window.fetch.bind(window);
       window.fetch = async (url, options = {}) => {
+        if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+        if (String(url).endsWith(`/api/sessions/${session.id}`)) return Response.json(c.session);
         if (/\/uploads$/u.test(String(url))) {
           if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads });
           const files = options.body.getAll('files');
@@ -41,7 +42,10 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
         }
         return fetch(url, options);
       };
+      const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+      c.configure({ session, copy, sessionToken: 'fixture' });
     });
+    await startTyping(page);
     const choose = () => inShadow(page, c => {
       const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.png', { type: 'image/png' }));
       const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));

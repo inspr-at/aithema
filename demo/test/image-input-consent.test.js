@@ -5,7 +5,7 @@ import { inputRevision } from '@inspr/aithema-core';
 import { createProcessingConsent, qualifyStartBinding } from '../processing-consent.js';
 
 test('AIT-510: separate optional image-input consent preserves existing replies on grant and withdrawal', t => {
-  const now = () => 1_800_000_000_000, storage = new SQLiteStorage({ now }); t.after(() => storage.close());
+  const now = () => 1_800_000_000_000, storage = new SQLiteStorage(':memory:', { now }); t.after(() => storage.close());
   const binding = qualifyStartBinding({ plugin: 'openrouter', model: 'anthropic/fixture', imageInput: { maxImages: 4, maxTokensPerImage: 1600 } }, now());
   const consent = createProcessingConsent({ storage, bindings: [binding], now });
   const session = storage.create(), doc = consent.describe(session.id);

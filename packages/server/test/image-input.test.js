@@ -6,7 +6,7 @@ import { testToken } from '../../../test/helpers.js';
 
 const clock = 1_800_000_000_000;
 function fixture(t) {
-  const storage = new SQLiteStorage({ now: () => clock });
+  const storage = new SQLiteStorage(':memory:', { now: () => clock });
   t.after(() => storage.close());
   const session = storage.create({ ownerToken: testToken, demo: true });
   return { storage, session };
