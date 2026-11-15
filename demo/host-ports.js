@@ -43,7 +43,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
   const deliveryEnabled = demo || mailPlugin?.deliversVerification === true;
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
   const costs = new SQLiteBudgetLedger(storage);
-  const visitorCredits = createVisitorCredits({ storage, now, deliveryEnabled, demo, privacyDocumentConfigured });
+  const visitorCredits = createVisitorCredits({ storage, now, deliveryEnabled, demo, privacyDocumentConfigured, emailOffer });
   const confirmation = createConfirmationStore({ storage, visitorCredits, now });
   storage.db.exec(`CREATE TABLE IF NOT EXISTS owner_wallet_reservations (
     attempt_id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, fingerprint TEXT NOT NULL,

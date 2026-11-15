@@ -103,15 +103,19 @@ export class EmailOffer {
     if (!address || address.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(address)) {
       this.invalid = true; this.message = this.copy.hostSurface.verify.invalid; this.paint(); return;
     }
-    this.invalid = false; this.saving = true; this.message = this.copy.hostSurface.verify.sending; this.paint();
+    const resending = Boolean(this.email.address);
+    this.invalid = false; this.saving = true; this.message = resending ? this.copy.hostSurface.verify.sending : this.copy.hostSurface.email.saving; this.paint();
     let response;
     try { response = this.email.address ? await this.verification.resend() : await this.verification.saveAndConfirm(address); }
     catch { response = { ok: false }; }
     if (!this.alive) return;
     this.saving = false;
     if (response?.ok && response.sent) { this.step = 'sent'; this.message = ''; this.row.querySelector('input').value = ''; }
-    else this.message = response?.status === 429 ? this.copy.hostSurface.verify.rateLimited
-      : response?.ok ? this.copy.hostSurface.verify.deliveryFailed : this.copy.hostSurface.verify.failed;
+    else if (response?.ok) this.message = this.copy.hostSurface.verify.deliveryFailed;
+    else if (!resending) {
+      this.invalid = response?.status === 400;
+      this.message = this.invalid ? this.copy.hostSurface.verify.invalid : this.copy.hostSurface.email.failed;
+    } else this.message = response?.status === 429 ? this.copy.hostSurface.verify.rateLimited : this.copy.hostSurface.verify.failed;
     this.paint(); this.changed?.();
   }
   connect() { this.connected = true; this.update(); }

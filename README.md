@@ -3796,5 +3796,9 @@ copy overrides apply. No new copy keys are required. The additive
 `@inspr/aithema-core/email-offer` subpath exports the shared `emailOfferPolicy`,
 `emailOfferEligibility`, `visitorMessageCount` and `hasOfferVisitorInput` helpers
 used by the server and UI, so packed consumers use the same policy and predicates.
-The demo tier projection offers confirmation directly when saving the address
-adds no credit but confirmation has a positive delta.
+With `emailOffer` configured, the demo tier projection offers confirmation
+directly when saving adds no credit but confirmation has a positive delta.
+Without the policy, the demo keeps its existing tier projection.
+Save refusals use `verify.invalid` and mark the field invalid; other save
+failures use `email.failed`. Saving uses `email.saving`, and a confirmation-link
+failure after a successful save uses `verify.deliveryFailed`.

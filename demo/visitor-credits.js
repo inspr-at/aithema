@@ -18,7 +18,7 @@ const fields = state => Object.fromEntries(identityFields.map(key => [key, state
 
 /** START-owned policy and evidence. Accounting remains keyed by the existing owner hash. */
 export function createVisitorCredits({ storage, now = () => Date.now(), deliveryEnabled = false,
-  ceilingMicro = VISITOR_CREDIT_CEILING_MICRO, demo = false, privacyDocumentConfigured } = {}) {
+  ceilingMicro = VISITOR_CREDIT_CEILING_MICRO, demo = false, privacyDocumentConfigured, emailOffer } = {}) {
   if (!integer(ceilingMicro) || ceilingMicro < 10_000_000) throw new TypeError('Invalid visitor credit ceiling');
   const db = storage.db;
   const atomic = fn => db.isTransaction ? fn() : storage.transaction(fn);
@@ -268,7 +268,7 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       const { allowancesMicro, confirmationEnabled } = settings(), current = policy(ownerHash).tier;
       const canConfirm = confirmationEnabled && deliveryEnabled;
       const candidate = current === 'anonymous' ? allowancesMicro.emailGiven > allowancesMicro.anonymous ? 'emailGiven'
-        : canConfirm ? 'emailConfirmed' : null : current === 'emailGiven' && canConfirm ? 'emailConfirmed' : null;
+        : emailOffer !== undefined && canConfirm ? 'emailConfirmed' : null : current === 'emailGiven' && canConfirm ? 'emailConfirmed' : null;
       const next = candidate && allowancesMicro[candidate] > allowancesMicro[current] ? candidate : null;
       return { current, next, delta: next ? allowancesMicro[next] - allowancesMicro[current] : 0, canConfirm, allowancesMicro };
     },

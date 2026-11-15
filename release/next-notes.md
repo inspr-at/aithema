@@ -26,8 +26,12 @@
   `Verification.resend()` and retain Settings management. The helper requests a
   first link for a saved guest, or resends a pending link under its cooldown,
   without saving or replacing the address.
-- The demo's next-tier projection can offer a positive confirmation delta
-  directly when saving provides no credit increase. There are no new copy keys.
+- With `emailOffer` configured, the demo's next-tier projection can offer a
+  positive confirmation delta directly when saving provides no credit increase.
+  Without the policy, its tier projection stays unchanged. Save refusals use
+  `verify.invalid` and mark the field invalid; other save failures use
+  `email.failed`, saving uses `email.saving`, and confirmation-link failures
+  after saving use `verify.deliveryFailed`. There are no new copy keys.
 - The additive `@inspr/aithema-core/email-offer` subpath exports shared
   `emailOfferPolicy`, `emailOfferEligibility`, `visitorMessageCount` and
   `hasOfferVisitorInput` helpers for the server and UI, including packed consumers.
