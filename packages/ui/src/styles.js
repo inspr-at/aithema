@@ -586,7 +586,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* The native action keeps the whole reserved line as its hit area. Its
    inline label shares status columns, without moving that control box. */
 .question-state { grid-column:2; display:grid; grid-template-columns:minmax(0,max-content) 18px minmax(max-content,1fr); align-items:center; height:36px; min-width:0; font-size:13.5px; line-height:1.3; white-space:nowrap; }
-.open-question:is([data-state="selected"],[data-state="retry"]) { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-tint),transparent); }
+.open-question[data-state="selected"] { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-tint),transparent); }
 .clarify-content, .question-status { display:inline-flex; align-items:center; gap:7px; height:36px; }
 .clarify-action { grid-column:1/-1; grid-row:1; display:grid; grid-template-columns:subgrid; align-items:center; height:36px; width:calc(100% + 9px); text-align:left; position:relative; padding:0 9px; margin-left:-9px; border-radius:8px; color:var(--aithema-accent); font-weight:600; }
 .clarify-content { grid-column:1/-1; justify-self:start; min-width:0; }
@@ -599,6 +599,14 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .clarify-action::after { content:''; position:absolute; inset:-4px 0; }
 .clarify-action:hover:not([aria-disabled="true"]) { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-hover),transparent); }
 .clarify-action[aria-disabled="true"] { cursor:default; background:transparent; }
+/* D524(a): only Retry acts. Split the former 18px separator space with
+   the 9px button inset so the label keeps its inline alignment. The real
+   44px box reserves 36px through balanced margins, within the row gaps. */
+.open-question:is([data-state="retry"],[data-state="focus-retry"]) .question-state:has(.question-status:not([hidden])) { grid-template-columns:minmax(0,max-content) 9px minmax(max-content,1fr); }
+.open-question:is([data-state="retry"],[data-state="focus-retry"]) .question-state:has(.question-status:not([hidden])) .clarify-action { grid-column:3; display:inline-flex; justify-self:start; width:max-content; min-width:44px; height:auto; min-height:44px; padding:4px 9px; margin:-4px 0; }
+.open-question:is([data-state="retry"],[data-state="focus-retry"]) .clarify-action::after { content:none; }
+.open-question:is([data-state="retry"],[data-state="focus-retry"]) .clarify-action:focus-visible { outline-offset:-2px; }
+.open-question:is([data-state="retry"],[data-state="focus-retry"]) :is(.question-status,.question-separator) { pointer-events:auto; cursor:default; }
 .clarify-action svg, .question-status svg { width:14px; height:14px; }
 .clarify-icon:empty { display:none; }
 .question-separator { padding:0; color:var(--aithema-muted); }
