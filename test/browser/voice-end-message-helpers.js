@@ -43,7 +43,7 @@ export async function checkVoiceEndMessages(t) {
   const box = r => { assert.ok(r.width > 0 && r.height > 0, `positive measured box: ${JSON.stringify(r)}`); };
   const unchanged = (before, after) => { for (const key of Object.keys(before)) { box(before[key]); box(after[key]);
     for (const axis of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(before[key][axis] - after[key][axis]) <= .5, `${key}.${axis}: ${before[key][axis]} -> ${after[key][axis]}`); } };
-  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
     await page.evaluate(async locale => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -63,7 +63,7 @@ export async function checkVoiceEndMessages(t) {
         const visible = n => n && !n.hidden && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
         return { controls: Object.fromEntries(['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => [s, rect(root.querySelector(s))])),
           close: visible(close) ? rect(close) : null, closeLabel: close?.getAttribute('aria-label'), outsideLive: close?.parentElement === status.parentElement && !status.contains(close),
-          header: rect(root.querySelector('.band')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
+          header: rect(root.querySelector('.band')), composer: rect(root.querySelector('textarea')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
           narrowVisible: visible(status.querySelector('.consent-narrow')), label: status.getAttribute('aria-label'), errorKey: rail.errorKey,
           color: getComputedStyle(status).color, neutralColor,
           messagePresent: rail.root.hasAttribute('data-message') };
@@ -71,6 +71,29 @@ export async function checkVoiceEndMessages(t) {
     }, locale);
     await page.evaluate(() => document.fonts.ready); await page.mouse.move(0, 500);
     const before = await page.evaluate(() => window.readEnds());
+    // AIT-508: call-only ends preserve the open conversation and fixed controls.
+    for (const reason of ['idle', 'spend-deadline']) {
+      await page.evaluate(reason => {
+        const r = window.endRail; r.session = null; r.endMessage(reason, { timeLimit: 'call' }); r.render();
+      }, reason);
+      const continued = await page.evaluate(() => window.readEnds());
+      unchanged(before.controls, continued.controls);
+      unchanged({ header: before.header, composer: before.composer }, { header: continued.header, composer: continued.composer });
+      box(continued.message); box(continued.retry);
+      assert.equal(continued.errorKey, reason === 'idle' ? 'voiceIdleEnded' : 'voiceTimeLimit');
+      const open = await page.evaluate(() => {
+        const c = document.querySelector('aithema-session'), r = window.endRail;
+        return { expired: r.conversationTimeExpired, startDisabled: r.button('start').disabled,
+          composerDisabled: c.shadowRoot.querySelector('textarea').disabled };
+      });
+      assert.deepEqual(open, { expired: false, startDisabled: false, composerDisabled: false });
+      checks.push({ ticket: 'AIT-508', locale, theme, width, reason, before: before.controls, after: continued.controls, header: { before: before.header, after: continued.header }, composer: { before: before.composer, after: continued.composer }, open, tolerancePx: .5 });
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        const shots = join(process.env.AITHEMA_EVIDENCE_DIR, 'ait508-shots'); await mkdir(shots, { recursive: true });
+        await page.screenshot({ path: join(shots, `${locale}-${theme}-${width}-${reason}.png`), fullPage: true });
+      }
+      await page.evaluate(() => window.endRail.clearMessage());
+    }
     for (const action of ['dismiss', 'escape', 'typed', 'retry', 'close']) {
       await page.evaluate(() => { const r = window.endRail; r.session = null; r.state = 'failed'; r.errorKey = 'voiceTimeLimit'; r.render(); });
       const shown = await page.evaluate(() => window.readEnds()); unchanged(before.controls, shown.controls); box(shown.message); box(shown.retry);

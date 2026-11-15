@@ -154,6 +154,11 @@ export class SQLiteBudgetLedger {
   }
   canAdmit(sessionId, maxMicro, maxVisitorMicro = 0) { return integer(maxMicro) && integer(maxVisitorMicro) &&
     maxMicro <= this.sessionCapMicro - this.used(sessionId) && maxVisitorMicro <= this.visitorCapMicro - this.visitorUsed(sessionId); }
+  // Use ledger finality, including later reconciliation, rather than stale call flags.
+  hasUnreconciledVoice(sessionId, callId = null) {
+    return Boolean(this.db.prepare(`SELECT 1 FROM budget_attempts WHERE session_id=? AND lane='voice' AND NOT (${confirmed})
+      AND (? IS NULL OR json_extract(voice_estimate_json,'$.callId') IS NOT ?) LIMIT 1`).get(sessionId, callId, callId));
+  }
   // Counterfactual preview only: retained closing-call exposure stays charged to
   // admission. It supplies a waiting reason, never authority to spend the hold.
   reconcilingVoiceHold(sessionId, { ownerHash, visitor = false } = {}) {
@@ -169,7 +174,8 @@ export class SQLiteBudgetLedger {
       maxVisitorMicro <= this.visitorCapMicro - this.visitorUsed(sessionId) + this.reconcilingVoiceHold(sessionId, { visitor: true });
   }
   admit({ attemptId = randomUUID(), sessionId, lane, maxMicro, maxVisitorMicro = 0, requestSha256, bindingSha256, providerCost, voiceExposure, voiceEstimate, component }) {
-    if (voiceEstimate !== undefined && (lane !== 'voice' || !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(k => integer(voiceEstimate?.[k])))) throw new TypeError('Invalid voice estimate');
+    if (voiceEstimate !== undefined && (lane !== 'voice' || !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(k => integer(voiceEstimate?.[k])) ||
+      voiceEstimate.callId !== undefined && (typeof voiceEstimate.callId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(voiceEstimate.callId)))) throw new TypeError('Invalid voice estimate');
     if (!integer(maxMicro) || !integer(maxVisitorMicro) || !['reaction', 'understanding', 'voice', 'concept', 'extractor', 'stt', 'tts'].includes(lane) ||
       ['stt', 'tts'].includes(lane) && (!component || component.role !== lane || maxVisitorMicro !== 0) ||
       component !== undefined && (!['stt', 'tts'].includes(lane) || !Number.isSafeInteger(component.epoch) || component.epoch < 0 ||
@@ -186,6 +192,7 @@ export class SQLiteBudgetLedger {
         if (!parent || parent.session_id !== sessionId || parent.lane !== 'voice' || parent.state !== 'dispatched' || parent.voice_closing) throw new PluginError('not-admitted');
       }
       if (this.db.prepare('SELECT 1 FROM budget_attempts WHERE attempt_id=?').get(attemptId)) throw new PluginError('already-claimed');
+      if (lane === 'voice' && this.storage.creditState(sessionId)?.timed === false && this.hasUnreconciledVoice(sessionId, voiceEstimate?.callId)) throw Object.assign(new PluginError('not-admitted', 'budget reconciling'), { reason: 'budget reconciling' });
       if (!this.canAdmit(sessionId, maxMicro, maxVisitorMicro)) throw new PluginError('not-admitted', 'Budget denied');
       this.db.prepare(`INSERT INTO budget_attempts(attempt_id,session_id,lane,max_micro,state,request_sha256,binding_sha256)
         VALUES (?,?,?,?,'admitted',?,?)`).run(attemptId, sessionId, lane, maxMicro, requestSha256, bindingSha256);

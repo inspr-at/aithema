@@ -343,6 +343,15 @@ browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
 browserTestWeights['test/browser/start-journey.test.js'] = Math.max(
   browserTestWeights['test/browser/start-journey.test.js'], 180);
 
+// AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
+// clarify-now 17/17 PASS before the later shard timeout. Top-level work:
+// 302.474510797s; ceil-to-ms, then 25% warmup = 378.094s. Source:
+// browser-timings-8-of-9/batch-0.jsonl; full provenance is in the sibling
+// weight's diagnostic evidence. Keep PR observations outside trusted main
+// samples; reserve the expanded real-mouse matrix without changing capacity.
+browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
+  browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.

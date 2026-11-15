@@ -133,7 +133,7 @@ export function applyEvent(session, event) {
   } else if (event.type === 'library.state') {
     next.library = event.data.erased ? null : event.data;
   } else if (['verification.requested', 'identity.unlocked', 'identity.policy-changed', 'identity.resend-blocked', 'handover.limit-reached',
-    'credits.limit-reached', 'conversation.end-requested'].includes(event.type)) {
+    'credits.guard-migrated', 'credits.limit-reached', 'conversation.end-requested'].includes(event.type)) {
     // Notifications accompany their durable state projection.
   } else if (event.type === 'settings.changed') {
     // A processing choice is metadata: completed replies and understanding stay

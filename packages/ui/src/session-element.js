@@ -302,7 +302,9 @@ export class AithemaSession extends HTMLElement {
     }
     const item = this.openQuestionItems.find(item => item.id === questionId);
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
-    const focus = this.#clarify = { questionId, question: item?.question, inputRevision: revision,
+    const retryState = this.#clarify?.questionId === questionId && ['retry', 'focus-retry'].includes(this.#clarify.state)
+      ? this.#clarify.state : null;
+    const focus = this.#clarify = { questionId, question: item?.question, inputRevision: revision, retryState,
       sessionId, clickSeq: this.#session.seq, priorRequestId: this.#session.questionFocus?.requestId, turnIds: new Set(this.#session.transcript.map(turn => turn.id)),
       tries: 0, state: 'requesting', pending: false, waitOperations: this.#session.operations,
       replyFailureVersion: this.#reactionFailureVersion };
@@ -452,7 +454,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#clarify?.state !== 'retry' || this.#clarify.pending || this.#clarifyRequest) return;
     const focus = this.#clarify, sessionId = this.#session.id;
     const diagnostic = focus.diagnostic = { status: null, accepted: false, failureReported: false };
-    focus.pending = true; focus.state = 'requesting';
+    focus.retryState = 'retry'; focus.pending = true; focus.state = 'requesting';
     // Retire the failure being retried before sending, so a newer failure that
     // arrives ahead of the HTTP acknowledgement cannot be erased by that ack.
     this.#retireReactionFailure();
@@ -594,9 +596,13 @@ export class AithemaSession extends HTMLElement {
       row.dataset.state = state;
       const button = row.querySelector('button'), status = row.querySelector('.question-status'), separator = row.querySelector('.question-separator');
       const reason = own && state === 'refused' ? focus.reason : null;
-      const failed = ['retry', 'focus-retry'].includes(state);
-      const failedText = state === 'retry' ? acceptedFailed : primaryFailed;
-      const failedShort = state === 'retry' ? acceptedShort : resolveCopy(this.#copy, 'clarifyFailedShort', null, this.#session.locale);
+      // Keep the compact status/action geometry under the pointer until the
+      // retry POST settles; the reserved line and native button stay in place.
+      const statusState = state === 'requesting' && focus?.pending ? focus.retryState ?? state : state;
+      const failed = ['retry', 'focus-retry'].includes(statusState);
+      const failedText = statusState === 'retry' ? acceptedFailed : primaryFailed;
+      const failedShort = statusState === 'retry' ? acceptedShort : resolveCopy(this.#copy, 'clarifyFailedShort', null, this.#session.locale);
+      if (failed) button.setAttribute('data-target-labels', `${copy.retry}\n${copy.asking}`); else button.removeAttribute('data-target-labels');
       const withReason = failed || state === 'unavailable' || Boolean(reason);
       status.hidden = !withReason; separator.hidden = !withReason || reason === 'deadline' || state === 'unavailable';
       button.hidden = state === 'none' || reason === 'deadline' || state === 'unavailable';
@@ -610,7 +616,7 @@ export class AithemaSession extends HTMLElement {
       const glyph = withReason ? '' : CLARIFY_ICONS[{ requesting: 'spin', selected: 'check', asked: 'check' }[state] ?? 'ask'];
       if (button.querySelector('.clarify-icon').innerHTML !== glyph) button.querySelector('.clarify-icon').innerHTML = glyph;
       if (withReason) {
-        const signature = `${state}/${reason}/${this.#copyLocale}/${failedText}/${failedShort}/${focus?.refusalCode ?? ''}`;
+        const signature = `${statusState}/${reason}/${this.#copyLocale}/${failedText}/${failedShort}/${focus?.refusalCode ?? ''}`;
         if (status.dataset.state !== signature) {
           status.replaceChildren(); status.insertAdjacentHTML('beforeend', CLARIFY_ICONS[reason === 'deadline' ? 'clock' : reason === 'paused' ? 'pause' : reason ?? 'warn']);
           if (failed) {
@@ -1375,7 +1381,10 @@ export class AithemaSession extends HTMLElement {
     finally { if (--this.#anchorDepth === 0 && this.#erased) this.#paintErased(); }
   }
   #anchoredUpdate(update) {
-    const hovered = this.#hovered();
+    const hit = this.#hovered();
+    // Status actions have real padding outside their reserved line. Anchor the
+    // line, not a button/label whose box changes when the status clears.
+    const hovered = hit?.closest?.('.question-state') ?? hit;
     if (!hovered || this.#navigation && hovered.closest?.('.transcript-shell')) { update(); return; }
     // Host content in a slot belongs to the page: its chain ends at the document, never at this root.
     const chain = [];
@@ -1615,12 +1624,14 @@ export class AithemaSession extends HTMLElement {
   }
   #creditsChanged({ allowanceChanged = false, settledCall, receiptFailed = false } = {}) {
     if (!this.#host) return;
+    const settlingVoice = settledCall && settledCall === this.#rail?.endedCall && !settledCall.settled;
     if (settledCall) this.#rail?.settleLedger(settledCall);
+    const voiceSettled = settlingVoice && settledCall.settled;
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
     const textReason = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason;
     const deniedText = !this.#hasLiveCall() && ['budget denied', 'budget reconciling'].includes(textReason);
     // A failed receipt can resolve fallback copy, but supplies no new admission facts.
-    const refresh = !receiptFailed && (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
+    const refresh = !receiptFailed && (voiceSettled || allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close(this.#host.endReason ?? 'host-limit');
@@ -3663,6 +3674,7 @@ export class AithemaSession extends HTMLElement {
     // An erased conversation has no server snapshot: any read can only 404 (AIT-464).
     if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone) return;
     const sessionId = this.#session.id, startCursor = this.#cursor, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
+    const operationsAtRead = this.#session.operations;
     // A read begun before the local listening acknowledgement cannot repaint
     // its cached paused verdict afterward, even within the same rail generation.
     const projectionRevision = this.#voiceResumeRevision, resume = this.#voiceResumeProjection;
@@ -3731,7 +3743,9 @@ export class AithemaSession extends HTMLElement {
       }
       this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
-      if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
+      // Lane statuses are volatile and can advance without a journal sequence.
+      // A read started before a newer status cannot restore its old busy state.
+      if (session.operations && this.#session.operations === operationsAtRead) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting
       // projection cannot undo the visitor's local terminal intent.
       if (session.voiceLifecycle && session.voiceLifecycle.callId !== this.#rail?.endedCall?.callId) this.#rail?.receiveState(session.voiceLifecycle);

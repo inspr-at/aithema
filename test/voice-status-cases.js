@@ -2,7 +2,7 @@ import { isConsentReason } from '../packages/core/src/settings.js';
 
 // Compact header variants retain the AIT-302 two-line visual contract.
 const compactVoiceMessageKeys = ['voiceMicDenied', 'voiceMicMissing', 'voiceAdmissionDenied', 'voiceConflict', 'voiceDeadline',
-  'voiceTimeLimit', 'voiceConnectFailed', 'voiceConnectionFailed', 'voiceRecoveryFailed', 'voiceMoved', 'voiceClosureUncertain', 'voiceEnded', 'voicePauseFailed', 'voicePlaybackBlocked'];
+  'voiceIdleEnded', 'voiceTimeLimit', 'voiceConnectFailed', 'voiceConnectionFailed', 'voiceRecoveryFailed', 'voiceMoved', 'voiceClosureUncertain', 'voiceEnded', 'voicePauseFailed', 'voicePlaybackBlocked'];
 // Expanded S4/S5 callouts have their own full-copy viewport matrix in AIT-377.
 export const voiceMessageKeys = [...compactVoiceMessageKeys, 'voiceMicBusy', 'voiceMicUnavailable', 'voiceMicFailed', 'voiceNoReply'];
 export function voiceStatusCases(copy) {
