@@ -4,7 +4,8 @@
 
 - AIT-506: optional UI `configure({ entrance: 'combined' })`; default `'choice'`
   retains mode selection and Start. Combined mode shows text, mic and Send with
-  the processing notice from first paint, without ready mic/speaker rows.
+  the selected processing details and AI/voice disclosure from first paint,
+  without ready mic/speaker rows.
 - Combined Send/mic consent events use `reason: 'ready'`, `intent: 'start'` and
   `mode: 'text'` / `'voice'`; legacy text mode stays `'type'`. `required` keeps the
   selected blocked feature and `features` the complete requested list. Text

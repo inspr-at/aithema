@@ -2498,7 +2498,10 @@ export class AithemaSession extends HTMLElement {
     const words = this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text;
     setText(root.querySelector('#ai-notice'), words);
     const composerNotice = root.querySelector('.composer-notice');
-    if (composerNotice) setText(composerNotice, words);
+    if (composerNotice) {
+      const processing = this.#copy.settings?.processingDetails?.[this.#session.processingPreset ?? 'best'];
+      setText(composerNotice, [processing, words].filter(Boolean).join(' '));
+    }
     setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);
     setText(root.querySelector('.ai-notice__short'), this.#copy.layout.aiShort);
     root.querySelector('.ai-notice').setAttribute('aria-label', `Aithema 2026.10${reasonSeparator}${this.#copy.layout.aiShort}`);

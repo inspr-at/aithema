@@ -19,7 +19,7 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; height:2.6em; font-size:.72rem; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
-.composer-notice { grid-area:notice; height:5.8em; overflow:auto; margin:0; color:var(--aithema-muted); font-size:.75rem; line-height:1.45; }
+.composer-notice { grid-area:notice; height:8.7em; overflow:auto; margin:0; color:var(--aithema-muted); font-size:.75rem; line-height:1.45; }
 .composer-mic { grid-area:mic; align-self:center; display:grid; place-items:center; width:44px; height:44px; padding:0; border:1px solid var(--aithema-line); border-radius:50%; color:var(--aithema-accent); background:var(--aithema-surface); }
 .composer-mic svg { width:20px; height:20px; }
 .composer-mic[aria-pressed="true"] { background:color-mix(in srgb,var(--aithema-accent) 12%,var(--aithema-surface)); }
