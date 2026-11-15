@@ -16,7 +16,7 @@ const locale=new URL(location.href).searchParams.get('locale')||'en';
 document.documentElement.lang=locale;
 Date.now=()=>1800000000000;
 const saved=sessionStorage.getItem('combined-fixture-session');sessionStorage.removeItem('combined-fixture-session');
-globalThis.trace=[];globalThis.sent=[];globalThis.granted=Boolean(saved);globalThis.denied=false;
+globalThis.trace=[];globalThis.sent=[];globalThis.granted=Boolean(saved&&JSON.parse(saved).consentRevision>0);globalThis.denied=false;
 const allowed={available:true},blocked={available:false,reason:'current processing consent required'};
 const c=document.createElement('aithema-session');document.body.append(c);globalThis.c=c;
 const nativeFetch=fetch;
@@ -34,7 +34,7 @@ c.addEventListener('aithema-consent',e=>{trace.push('consent');globalThis.consen
 globalThis.grant=()=>{granted=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
 globalThis.ready=true;
 </script></body></html>`;
-const boxes = (page) => page.$eval('aithema-session', c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.composer-status'].map(selector => {
+const boxes = (page) => page.$eval('aithema-session', c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.composer-status', '.composer-notice'].map(selector => {
   const box = c.shadowRoot.querySelector(selector)?.getBoundingClientRect();
   return [selector, box ? [box.x, box.y, box.width, box.height] : null];
 })));
@@ -114,18 +114,19 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
       unmoved(muted, await boxes(page));
       assert.ok(live.textarea[2] > 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-      for (const mode of ['text', 'voice']) {
+      for (const mode of ['text', 'voice']) for (const covered of [true, false]) {
         const url = `${server.url}/combined-fixture?locale=${locale}`;
         await page.goto(url); await page.waitForFunction(() => globalThis.ready);
         await page.type('aithema-session >>> textarea', 'Returned draft');
         await page.click(`aithema-session >>> ${mode === 'text' ? '.send' : '.composer-mic'}`);
-        await page.$eval('aithema-session', c => { const snapshot = c.session; snapshot.consentRevision++; sessionStorage.setItem('combined-fixture-session', JSON.stringify(snapshot)); });
+        await page.$eval('aithema-session', (c, covered) => { const snapshot = c.session; if (covered) snapshot.consentRevision++; sessionStorage.setItem('combined-fixture-session', JSON.stringify(snapshot)); }, covered);
         await page.goto('about:blank'); await page.goto(url); await page.waitForFunction(() => globalThis.ready);
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value === 'Returned draft');
         assert.equal(await page.$eval('aithema-session', (c, mode) => c.shadowRoot.activeElement === c.shadowRoot.querySelector(mode === 'voice' ? '.composer-mic' : 'textarea'), mode), true);
         assert.deepEqual(await page.evaluate(() => sent), []);
         assert.deepEqual(await page.evaluate(() => trace), []);
-        await shot(`${mode}-return`);
+        assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('textarea').readOnly), false);
+        await shot(`${mode}-return${covered ? '' : '-ungranted'}`);
       }
       await page.goto(`${server.url}/combined-fixture?locale=${locale}&unchosen`); await page.waitForFunction(() => globalThis.ready);
       assert.equal(await page.$eval('aithema-session', c => Boolean(c.shadowRoot.querySelector('.chooser'))), true);
@@ -134,6 +135,6 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
   }
-  assert.equal(tables.length, 120);
+  assert.equal(tables.length, 144);
   if (evidence) await writeFile(join(evidence, 'ait-506-rects.json'), JSON.stringify(tables, null, 2));
 });
