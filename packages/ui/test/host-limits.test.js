@@ -353,3 +353,22 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const enabled of [
     assert.equal(surface.limitCopy.body, body, 'limitCopy uses the same O1 decision without a next tier');
   });
 }
+
+for (const copy of [en, de]) for (const reason of ['idle', 'spend-deadline']) {
+  test(`AIT-508: host conversation controls stay open after ${reason} call end (${copy === en ? 'EN' : 'DE'})`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+    const slot = { status: 'active', remainingMs: null, canStartPaidWork: true, endReason: null };
+    const { c, root } = setup(t, { copy, host: { credits: true }, voiceClient: {},
+      session: { credits: slot, featureMatrix: { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } } },
+      routes: { 'GET /credits': () => Response.json({ balance, limitSlot: slot }) } });
+    await tick(8); userTurn(c); await tick(8);
+    for (const state of ['closing', 'ended']) c.receive({ type: 'voice.state',
+      data: { callId: 'bounded-call', providerSessionId: 'bounded-segment', state, reason, timeLimit: 'call' } });
+    await tick(12);
+    assert.equal(root.querySelector('form.composer').inert, false);
+    assert.equal(root.querySelector('textarea').disabled, false);
+    assert.equal(root.querySelector('.qcard').inert, false);
+    assert.equal(c.session.credits.status, 'active');
+    assert.equal(c.session.transcript[0].content, 'We need a preorder app.');
+  });
+}

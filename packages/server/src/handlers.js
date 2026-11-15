@@ -63,6 +63,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   deadlineMs = 30_000, retiredHookTimeoutMs = 30_000, hostPrompt = '', purposePolicy, pluginRuntime, consent = pluginRuntime?.consent,
   ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host, log = console.log }) {
   if (!Number.isSafeInteger(retiredHookTimeoutMs) || retiredHookTimeoutMs < 1) throw new TypeError('Invalid retired hook timeout');
+  if (host?.voiceIdleSeconds !== undefined && (!Number.isSafeInteger(host.voiceIdleSeconds) || host.voiceIdleSeconds < 60 || host.voiceIdleSeconds > 3600)) throw new TypeError('Invalid voice idle duration');
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   const handlerClock = typeof host?.now === 'function' ? () => host.now() : voice?.now ?? (() => Date.now());
@@ -231,7 +232,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, now, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
+    ...voice, voiceIdleSeconds: host?.voiceIdleSeconds, now, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         touchVisitor(storage.get(id));
@@ -280,7 +281,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
   });
   pluginRuntime.conversationLimits.configure({ publish: broadcast, now,
-    durationMs: host?.credits?.durationMs });
+    durationMs: host?.credits?.durationMs, conversationLimit: host?.conversationLimit });
   async function eraseConversation(id, guard, ownerToken) {
     const release = guard.retire ? null : storage.holdErasedRetirement(id);
     try {

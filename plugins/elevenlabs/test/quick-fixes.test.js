@@ -11,7 +11,7 @@ async function until(predicate) {
   }
   assert.fail('Expected progress within 500 ms');
 }
-async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = async () => {}, ...settings } = {}) {
+async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = async () => {}, durationMs = 10_000, conversationLimit, ...settings } = {}) {
   const closed = [], pauses = [], resumes = []; let generation = 0;
   const receipt = ({ callId }) => {
     const providerSessionId = `conv_${++generation}`;
@@ -19,7 +19,8 @@ async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = 
       credential: { providerSessionId, connectionType: transport, ttlMs: 60_000,
         ...(transport === 'webrtc' ? { conversationToken: `fixture-token-${providerSessionId}` }
           : { signedUrl: `wss://socket.example.test/call?conversation_id=${providerSessionId}` }) },
-      spendDeadlineAt: Date.now() + 10_000, browserLivenessDeadlineAt: Date.now() + 10_000 };
+      ...(conversationLimit === undefined ? {} : { conversationLimit }),
+      spendDeadlineAt: Date.now() + durationMs, browserLivenessDeadlineAt: Date.now() + durationMs };
   };
   const control = {
     start: async request => receipt(request), recover: async request => receipt(request),
@@ -475,3 +476,77 @@ for (const transport of ['webrtc', 'websocket']) {
     assert.equal(local.observed.some(event => event.type === 'ended'), false);
   });
 }
+
+for (const shape of ['tool', 'end_call', 'close-code']) test(`AIT-508: silence ${shape} ends idle without paid recovery`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000, conversationLimit: 'credits' }); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  const callbacks = local.sdk.starts[0];
+  if (shape === 'tool') callbacks.onAgentToolResponse({ tool_name: 'end_call', result: { reason: 'silence_timeout' } });
+  else callbacks.onDisconnect(shape === 'end_call'
+    ? { reason: 'agent', context: { type: 'end_call', reason: 'silence_timeout' } }
+    : { reason: 'agent', closeCode: 1000, closeReason: 'silence_timeout' });
+  await flush(); await flush();
+  assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
+  assert.ok(local.observed.some(e => e.type === 'ended' && e.reason === 'idle'));
+});
+
+for (const shape of ['end_call', 'close-code']) test(`AIT-508: SDK generic ${shape} after 120 seconds silence is idle, never recovery`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000, conversationLimit: 'credits' }); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  local.control.heartbeat = async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 900_000 });
+  for (let second = 0; second < 120; second++) { t.mock.timers.tick(1000); await flush(); }
+  local.sdk.starts[0].onDisconnect(shape === 'end_call'
+    ? { reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } }
+    : { reason: 'agent', closeCode: 1000, context: { type: 'close', code: 1000 } });
+  await flush(); await flush();
+  assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
+});
+
+for (const locale of ['en', 'de']) test(`AIT-508: ${locale} fresh call continuation never falls back to the initial greeting`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  const { createElevenLabsVoiceHost } = await import('../src/voice-host.js');
+  // Presentation is available even with voice off; invalid costs prevent all provisioning.
+  const host = await createElevenLabsVoiceHost({ agentName: 'fixture-agent', facadeSecretName: 'fixture-facade',
+    values: {}, costConfig: {}, qualifyBinding() {}, log() {}, fetchImpl() { assert.fail('No provider requests'); } });
+  t.after(() => host.close());
+  const initial = host.presentation(locale).agent.firstMessage;
+  assert.equal(host.presentation(locale, { hasPriorTurns: true }).agent.firstMessage, initial, 'legacy fallback stays unchanged');
+  const continued = host.presentation(locale, { hasPriorTurns: true, hasPriorCalls: true }).agent.firstMessage;
+  assert.notEqual(continued, initial); assert.doesNotMatch(continued, /Hello|Hallo/u);
+  assert.match(continued, locale === 'en' ? /AI assistant/u : /KI-Assistenz/u);
+  const custom = locale === 'en' ? 'The host AI assistant is ready to continue.' : 'Die KI-Assistenz setzt das Gespräch fort.';
+  const overridden = await createElevenLabsVoiceHost({ agentName: 'fixture-agent', facadeSecretName: 'fixture-facade',
+    values: {}, costConfig: {}, qualifyBinding() {}, log() {}, spokenContinuations: { [locale]: custom },
+    fetchImpl() { assert.fail('No provider requests'); } });
+  t.after(() => overridden.close());
+  assert.equal(overridden.presentation(locale, { hasPriorTurns: true, hasPriorCalls: true }).agent.firstMessage, custom);
+});
+
+test('AIT-508: legacy time-policy end_call keeps the existing provider-end classification', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000 });
+  local.control.heartbeat = async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 900_000 });
+  for (let second = 0; second < 120; second++) { t.mock.timers.tick(1000); await flush(); }
+  local.sdk.starts[0].onDisconnect({ reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } });
+  await flush(); await flush();
+  assert.equal(local.closed.at(-1)?.reason, 'provider-end');
+});
+
+for (const shape of ['end_call', 'close-code']) test(`AIT-508 B5: generic ${shape} 119.5 seconds after a final user turn is idle without recovery`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000, conversationLimit: 'credits' }); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  local.control.heartbeat = async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 900_000 });
+  t.mock.timers.tick(1000); message(local.sdk, 1); await flush();
+  assert.ok(local.observed.some(event => event.type === 'final' && event.role === 'user'));
+  for (let second = 0; second < 119; second++) { t.mock.timers.tick(1000); await flush(); }
+  t.mock.timers.tick(500);
+  local.sdk.starts[0].onDisconnect(shape === 'end_call'
+    ? { reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } }
+    : { reason: 'agent', closeCode: 1000, context: { type: 'close', code: 1000 } });
+  await flush(); await flush();
+  assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
+  assert.ok(local.observed.some(event => event.type === 'ended' && event.reason === 'idle'));
+});

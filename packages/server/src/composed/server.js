@@ -32,10 +32,11 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       return relay.connect(grant);
     } }) : null;
   const validateConfig = raw => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['host', 'maxDurationSeconds', 'voice', 'stt', 'tts'].includes(key))) throw new TypeError('Invalid composed configuration');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['host', 'maxDurationSeconds', 'voiceIdleSeconds', 'voice', 'stt', 'tts'].includes(key))) throw new TypeError('Invalid composed configuration');
     // Source-only legacy host configuration is translated before the supported API.
     const { host, ...configuration } = structuredClone(raw);
     if (configuration.maxDurationSeconds === undefined && host === 'start2') configuration.maxDurationSeconds = 3600;
+    if (configuration.voiceIdleSeconds !== undefined && (!Number.isSafeInteger(configuration.voiceIdleSeconds) || configuration.voiceIdleSeconds < 60 || configuration.voiceIdleSeconds > 3600)) throw new TypeError('Invalid voice idle duration');
     callDurationSeconds(configuration); return Object.freeze(configuration);
   };
   config = validateConfig(config);
@@ -56,6 +57,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     // Browser request fields never configure the coordinator clock or duration limits.
     const coordinator = createComposedVoiceCoordinator({ ...config, sessionId: request.sessionId, callId: request.callId,
       context: request.context, providerSessionId, epoch, interruptionAwareness,
+      ...(options.conversationLimit === 'credits' ? { conversationLimit: 'credits', ...(options.voiceIdleSeconds === undefined ? {} : { voiceIdleSeconds: options.voiceIdleSeconds }) } : {}),
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
       stt, tts, ...(tts?.format ? { outputFormat: tts.format.encoding, outputAudioFormat: tts.format } : {}), replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
     let record = { ...coordinator.snapshot(), attemptId: options.attempt.attemptId, claimId: options.attempt.claimId,
@@ -86,7 +88,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
         return result;
       }).then(flight.resolve, flight.reject); return closing;
     }
-    const cancel = () => { void close('cancelled', 'cancelled').catch(() => {}); };
+    const cancel = () => { void close(options.conversationLimit === 'credits' ? coordinator.state.terminalReason ?? 'cancelled' : 'cancelled', 'cancelled').catch(() => {}); };
     coordinator.signal.addEventListener('abort', cancel, { once: true });
     function hold(paused, opts) {
       if (closing) return Promise.reject(new PluginError('unavailable'));
