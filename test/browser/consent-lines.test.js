@@ -1357,3 +1357,69 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input'));
   }
 });
+
+for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-time image consent keep positive frame boxes, keyboard and L/D`, { timeout: 120_000 }, async t => {
+  const page = await fixture(t), results = [];
+  // Capture the view through its public update boundary; no provider or timer runs.
+  await page.evaluate(async () => {
+    const { ConceptView } = await import('/packages/ui/src/concept-view.js');
+    const update = ConceptView.prototype.update;
+    ConceptView.prototype.update = function (...args) { globalThis.ait509View = this; return update.apply(this, args); };
+  });
+  for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await scene(page, locale, theme, width, []);
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = c.session; session.conceptVisualKind = 'image';
+      session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
+      c.configure({ session, copy, voiceClient: {} });
+      globalThis.ait509Session = session;
+    }, locale);
+    const measure = () => shadow(page, c => {
+      const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', '.attach', '.send', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
+      return Object.fromEntries(selectors.map(selector => { const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+        return [selector, { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom }]; }));
+    });
+    await frame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), '');
+    const before = await measure();
+    for (const [selector, r] of Object.entries(before)) { assert.ok(r.width > 0, selector + ': positive width'); assert.ok(r.height > 0, selector + ': positive height'); }
+    if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-idle`, { boxes: before });
+    await page.evaluate(() => {
+      ait509Session.conceptStatus = { phase: 'waiting', consentRequest: { id: 'validated-wish', sourceTurnId: 'c1-user' } };
+      ait509View.update(ait509Session);
+    });
+    await frame(page);
+    const after = await measure();
+    for (const [selector, r] of Object.entries(after)) {
+      assert.ok(r.width > 0 && r.height > 0, selector + ': positive comparison box');
+      for (const key of Object.keys(r)) assert.ok(Math.abs(r[key] - before[selector][key]) <= 0.5, `${selector}.${key}: no shift`);
+    }
+    const ask = await shadow(page, c => {
+      const line = c.shadowRoot.querySelector('.concept-activity-text'), r = line.getBoundingClientRect();
+      return { text: line.innerText, width: r.width, height: r.height, top: r.top, bottom: r.bottom };
+    });
+    assert.equal(ask.text, locale === 'de' ? 'Zum Erstellen von Bildern ist eine Einwilligung nötig.\u00a0· Einwilligung geben' : 'Images need consent to be created.\u00a0· Give consent');
+    assert.ok(ask.width > 0 && ask.height > 0 && ask.bottom <= (width === 390 ? 844 : 900));
+    if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-ask`, { before, after, ask });
+    if (width === 390) {
+      await page.locator('aithema-session >>> textarea').click();
+      await page.setViewport({ width, height: 500 }); await frame(page);
+      const keyboardBefore = await measure();
+      await page.evaluate(() => { ait509View.cancelConsent(); ait509View.update(ait509Session); });
+      const keyboardAfter = await measure();
+      for (const [selector, r] of Object.entries(keyboardAfter)) {
+        assert.ok(r.width > 0 && r.height > 0 && keyboardBefore[selector].width > 0 && keyboardBefore[selector].height > 0);
+        for (const key of Object.keys(r)) assert.ok(Math.abs(r[key] - keyboardBefore[selector][key]) <= 0.5, `${selector}.${key}: keyboard no shift`);
+      }
+      // A fresh validated source gets its own bounded ask, visible above the keyboard.
+      await page.evaluate(() => { ait509Session.conceptStatus.consentRequest.id = 'keyboard-wish'; ait509View.update(ait509Session); });
+      await frame(page);
+      const visible = await shadow(page, c => { const r = c.shadowRoot.querySelector('.concept-activity-text .consent-action').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width, height: r.height }; });
+      assert.ok(visible.width > 0 && visible.height > 0 && visible.top >= 0 && visible.bottom <= 500);
+      await record(t, page, `ait509-${locale}-${theme}-${width}-keyboard-ask`, { visible, keyboardBefore, keyboardAfter });
+    }
+    results.push({ locale, theme, width, before, after });
+  }
+  assert.equal(results.length, 6);
+});
