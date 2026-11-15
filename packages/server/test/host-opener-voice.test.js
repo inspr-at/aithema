@@ -13,16 +13,17 @@ async function fixture(t, { native = true, presentation, history = false, refuse
   const published = [], starts = [], secrets = createFacadeSecrets();
   let complete, admissions = 0;
   const adapter = { ...elevenLabsCallbackPort, bindCallbacks(operations) { complete = operations.onCompletion; return elevenLabsCallbackPort.bindCallbacks(operations); } };
+  const textOnlyAdapter = { bindCallbacks: () => ({ prepareCallback: () => ({ request: {}, prepare() {}, revoke() {} }) }) };
   const handlers = createVoiceHandlers({ storage, secrets: native ? secrets : undefined, opener: configuredOpener, presentation,
     ownership: { token: () => 'fixture-owner' }, readBody: async r => new Uint8Array(await r.arrayBuffer()),
     now: () => instant, publish: (id, event) => published.push(event), onTurn() {},
-    runtime: { conversationLimits: { policy: () => conversationLimit, deadline: () => Infinity }, voiceServerAdapters: () => native ? [adapter] : [], async checkVoice() {},
+    runtime: { conversationLimits: { policy: () => conversationLimit, deadline: () => Infinity }, voiceServerAdapters: () => [native ? adapter : textOnlyAdapter], async checkVoice() {},
       async admitVoice({ options }) {
         admissions++;
         if (refused || failFirstAt === 'admission' && admissions === 1) throw new TypeError('Fixture refusal');
         return { binding: { maxDurationSeconds: 120, publicFacadeBaseUrl: 'https://host.example.test' }, options, finish() {},
-          plugin: { manifest: { liveVoice: { capabilities: { interruption: 'native' }, ownership: { turnTaking: 'provider' } } },
-            ports: { serverAdapter: native ? adapter : undefined }, async start(request, opts) {
+          plugin: { manifest: { liveVoice: { capabilities: { interruption: 'native', opener: native }, ownership: { turnTaking: native ? 'provider' : 'server' } } },
+            ports: { serverAdapter: native ? adapter : textOnlyAdapter }, async start(request, opts) {
               starts.push(request);
               if (failFirstAt === 'start' && admissions === 1) throw new TypeError('Fixture start failure');
               await beforeConnect?.({ storage, session, request });
@@ -58,7 +59,7 @@ for (const state of ['history', 'custom', 'grok', 'refused']) test(`AIT-505: ${s
   const response = await f.start();
   assert.equal(response.status, state === 'refused' ? 400 : 201);
   const turns = f.storage.get(f.session.id).transcript;
-  assert.equal(turns.some(t => t.id === 'host:opener'), !['history', 'refused'].includes(state));
+  assert.equal(turns.some(t => t.id === 'host:opener'), !['history', 'refused', 'custom'].includes(state));
   if (state === 'custom') assert.equal(f.starts[0].overrides.agent.firstMessage, 'Custom.');
   if (state === 'grok') assert.equal(f.starts[0].overrides, undefined);
   if (state === 'history') assert.notEqual(f.starts[0].overrides?.agent.firstMessage, opener.en);
