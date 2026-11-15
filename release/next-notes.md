@@ -26,7 +26,9 @@
 - The inline assistant-side offer stays outside transcript events, model context
   and exports. It works during calls and on phones without disabling the
   composer or moving focus. Saving uses `aria-disabled` to preserve capture
-  focus, including after a refused save. Existing give/confirm/lock, Send/Resend, Sent and
+  focus, including after a refused save. The opted-in confirmation dialog
+  reserves pending-state row spacing before saving to keep the field, actions
+  and dialog stable on acknowledgement. Existing give/confirm/lock, Send/Resend, Sent and
   Unlocked copy keys preserve host overrides. Collection renders the existing
   privacy notice and sends its required `noticeVersion`; saved addresses use
   `Verification.resend()` and retain Settings management. The helper requests a

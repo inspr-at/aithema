@@ -3810,4 +3810,6 @@ Save refusals use `verify.invalid` and mark the field invalid; other save
 failures use `email.failed`. Saving uses `email.saving`, and a confirmation-link
 failure after a successful save uses `verify.deliveryFailed`. During a save,
 `aria-disabled` keeps the capture input focused; a refused save retains the
-address and focus for correction.
+address and focus for correction. For opted-in hosts, the confirmation dialog
+reserves the pending form's row spacing before saving so acknowledgement does
+not move the dialog or its field and action row.

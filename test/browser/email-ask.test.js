@@ -674,7 +674,9 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
       rects.push({ label, scenario, state: 'capture-input', targets: [inputSelector], boxes: await sample([inputSelector]) });
       await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), inputSelector);
       assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), inputSelector.slice(1));
-      const targets = [scenario === 'used-up-mail' ? 'dialog.verify-dialog' : 'dialog.settings', '.display-foot'], before = await sample(targets);
+      const targets = [scenario === 'used-up-mail' ? 'dialog.verify-dialog' : 'dialog.settings', '.display-foot'];
+      if (scenario === 'used-up-mail') targets.push('.verify-dialog .verify__field', '.verify-dialog .verify__actions');
+      const before = await sample(targets);
       rects.push({ label, scenario, state: 'upgrade', targets: ['.composer-out__upgrade'], boxes: upgrade });
       await shot('capture');
       await shadow(page, (c, selector) => { const input = c.shadowRoot.querySelector(selector); input.value = 'recovered@example.test'; input.form.requestSubmit(); }, inputSelector);

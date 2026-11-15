@@ -65,6 +65,7 @@ export class HostSurface {
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     if (this.#session().emailOffer && this.#verification) this.#emailOffer = new EmailOffer({ root, copy, verification: this.#verification,
       session, streaming, request: (path, body) => this.#call(this.#sessionPath(path), body), changed: () => this.#onCredits?.() });
+    root.querySelector('dialog.verify-dialog').toggleAttribute('data-email-offer', Boolean(this.#emailOffer));
     this.#verification?.setCaptureDeferred(this.#captureDeferred());
     this.#mountHandover(); this.#mountFoot();
     if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole,

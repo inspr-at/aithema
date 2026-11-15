@@ -67,6 +67,8 @@ export const hostStyles = `
 /* Pending has no Cancel action; its hidden reservation must not add a row above the message. */
 .verify-dialog .verify-form[data-mode=pending] .verify-cancel { display:none; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
+/* Opted-in capture reserves the same gaps as the acknowledged pending state. */
+.verify-dialog[data-email-offer] .verify-form { row-gap:12px; }
 .verify-dialog .verify-form[data-mode=pending] { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
 .verify-dialog .verify-form[data-mode=pending] > .verify__lead { grid-area:lead; }
 .verify-dialog .verify-form[data-mode=pending] > .verify__field { grid-area:field; }
