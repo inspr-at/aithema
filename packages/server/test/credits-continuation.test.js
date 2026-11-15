@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCredits, reduceCredits, creditsView } from '@inspr/aithema-core';
 import { SQLiteStorage } from '../src/storage.js';
+import { createVoiceCap } from '../src/voice-cap.js';
+import { createComposedVoice } from '../src/composed/server.js';
 import { createConversationLimits } from '../src/conversation-limits.js';
 
 const HOUR = 3_600_000, epoch = 1_800_000_000_000;
@@ -59,4 +61,28 @@ test('AIT-508: unknown conversation policy fails closed', t => {
   const f = fixture(t);
   assert.throws(() => f.limits.configure({ conversationLimit: 'forever' }), TypeError);
   assert.throws(() => createCredits({ sessionId: 's', conversationLimit: 'forever' }), TypeError);
+});
+
+for (const hold of ['paused', 'waiting']) test(`AIT-508: composed idle ${hold} settles its parent and releases the duration hold`, async t => {
+  let call; t.after(() => call?.close());
+  const f = fixture(t), id = f.create(), reports = [];
+  const cap = createVoiceCap({ storage: f.storage, now: Date.now });
+  const reservation = cap.reserve({ sessionId: id, callId: 'idle-call', attemptId: 'idle-parent', maxMilliseconds: 900_000 });
+  const plugin = createComposedVoice({ enabled: true, storage: f.storage, now: Date.now,
+    stt: { stream() {} }, tts: { speak() {} }, replyExecutor: { execute() {} },
+    authorize: async () => true, commitUtterance: async () => {}, admitComponent: async () => {} });
+  call = await plugin.start({ sessionId: id, callId: 'idle-call', ownerToken: 'fixture-owner' }, {
+    now: Date.now, deadlineAt: Date.now() + 5000, spendDeadlineAt: Date.now() + 900_000,
+    browserLivenessDeadlineAt: Date.now() + (hold === 'waiting' ? 30_000 : 900_000),
+    attempt: { attemptId: 'idle-parent', claimId: 'idle-claim', maxMicro: 0, consume() {} },
+    report(terminal) { reports.push(terminal); if (terminal.closureConfirmed) cap.settle(reservation, terminal.usage.providerSeconds); },
+  });
+  if (hold === 'paused') await call.pause();
+  assert.equal(cap.snapshot().reservedMilliseconds, 900_000);
+  t.mock.timers.tick(120_000);
+  for (let i = 0; i < 12; i++) await new Promise(setImmediate);
+  assert.equal(call.state.state, 'ended'); assert.equal(call.snapshot().reason, 'idle');
+  assert.equal(reports.length, 1); assert.equal(reports[0].closureConfirmed, true);
+  assert.equal(cap.snapshot().reservedMilliseconds, 0); assert.equal(cap.snapshot().spentMilliseconds, 120_000);
+  await call.close(); assert.equal(reports.length, 1);
 });
