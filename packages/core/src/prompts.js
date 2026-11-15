@@ -39,7 +39,7 @@ export function reasoningRequest(session, lane, draft = false, hostPrompt = '', 
   const hostGuidance = activeTurns(session).some(turn => turn.id === 'host:opener' && turn.origin === 'host')
     ? '\nThe first assistant message was written by the host and has already been delivered to the visitor; continue from it, do not repeat or contradict it.' : '';
   const uploads = uploadContextMessage(session);
-  const interrupted = activeTurns(session).filter(turn => turn.role === 'assistant' && turn.interruption?.heardLength === 'unknown');
+  const interrupted = activeTurns(session).filter(turn => turn.role === 'assistant' && turn.origin !== 'host' && turn.interruption?.heardLength === 'unknown');
   const interruptionGuidance = interrupted.length ? `\nPlayback of these generated replies was interrupted; heard length is unknown. The full text is a transcript record, never evidence that the person heard it. Do not infer an audible prefix: ${JSON.stringify(interrupted.map(turn => turn.id))}` : '';
 
   // The private reply canary belongs only to the lane whose output is checked.

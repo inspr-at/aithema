@@ -7,7 +7,7 @@ export const hasConversationInput = hasVisitorInput;
 // Admission, reconnect recovery and Retry share the same assessment threshold.
 export function understandingDeferred(session) {
   const inputs = session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).length + documentInputs(session).length;
-  return !inputs || !session.demo && !session.identified && inputs < session.preset.anonymousTurns;
+  return !hasVisitorInput(session) || !session.demo && !session.identified && inputs < session.preset.anonymousTurns;
 }
 
 /** JSON escaping prevents a document or filename from closing its data boundary.

@@ -1,3 +1,4 @@
+import { hasVisitorInput } from '../../core/src/document-context.js';
 import { de } from './i18n/de.js';
 import { en } from './i18n/en.js';
 import { ActorRole } from './actor-role.js';
@@ -6,7 +7,7 @@ import { reasonSeparator } from './consent-line.js';
 // credits, the host's account slot), the verification entry in Settings, the verification lock on the
 // understanding pane, the handover band and the host's legal and footer slots. Each part
 // appears only when the host enables it in configure({host}); all facts come from the server.
-import { inputRevision, activeTurns } from '../../core/src/session.js';
+import { inputRevision } from '../../core/src/session.js';
 import { postJson, sameOrigin } from './post-json.js';
 import { node, setText, fill } from './dom.js';
 import { Verification } from './verification.js';
@@ -271,7 +272,7 @@ export class HostSurface {
   }
   #handoverState() {
     const h = this.#copy.hostSurface.handover, session = this.#session(), view = this.#handover, revision = inputRevision(session);
-    const hasInput = activeTurns(session).some(turn => turn.role === 'user') || (session.uploads ?? []).some(u => u.state === 'accepted');
+    const hasInput = hasVisitorInput(session);
     if (this.#requesting || view?.status === 'preparing') return { label: view?.status === 'failed' ? h.retry : h.request, text: h.preparing, disabled: true };
     if (this.#limit === revision) return { label: h.request, text: h.limit, disabled: true };
     if (view?.status === 'failed') return { label: h.retry, text: h.failed, disabled: false, retry: true };

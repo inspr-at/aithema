@@ -37,7 +37,10 @@ export const themeStyles = `:host { ${tokens('light')} }
 :host([theme="dark"]) { ${tokens('dark')} }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) { ${tokens('dark')} } }`;
 
-export const styles = `${themeStyles}
+export const styles = `
+.turn[data-host-opener] .turn-text { white-space:pre-wrap; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:6; overflow:hidden; }
+.host-opener-more { min-height:44px; padding:8px 0; font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; }
+${themeStyles}
 .gauge__unrated { display:none; }
 .gauge--unrated .gauge__inside { background:repeating-linear-gradient(135deg,var(--aithema-surface) 0 6px,var(--aithema-muted) 6px 7px,var(--aithema-surface) 7px 12px); }
 .gauge--unrated .gauge__level, .gauge--unrated .gauge__etch, .gauge--unrated .gauge__glint { visibility:hidden; }

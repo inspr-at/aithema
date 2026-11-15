@@ -1,3 +1,4 @@
+import { normalizeOpener, resolveOpener } from './host-opener.js';
 import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { validateConsentDocument, ConsentDocumentError } from '../../core/src/consent-document.js';
 import { createConceptHandlers } from './concept-handlers.js';
@@ -7,7 +8,7 @@ import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handler
 import { createTouchVisitor } from './host-activity.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, replyInputRevision, replyIsCurrent, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, replyInputRevision, replyIsCurrent, activeTurns, hasVisitorInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError, ConsentConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -61,8 +62,9 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
   deadlineMs = 30_000, retiredHookTimeoutMs = 30_000, hostPrompt = '', purposePolicy, pluginRuntime, consent = pluginRuntime?.consent,
-  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host, log = console.log }) {
+  opener, ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host, log = console.log }) {
   if (!Number.isSafeInteger(retiredHookTimeoutMs) || retiredHookTimeoutMs < 1) throw new TypeError('Invalid retired hook timeout');
+  opener = normalizeOpener(opener);
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   const handlerClock = typeof host?.now === 'function' ? () => host.now() : voice?.now ?? (() => Date.now());
@@ -110,7 +112,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession, ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
+      if (current.seq === session.seq) return { ...publicSession,
+        ...(resolveOpener(opener, current.locale) ? { opener: resolveOpener(opener, current.locale) } : {}), ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
         ...(host?.identity?.chooseRole === true ? { roleChoice: hostHandlers.roleChoice(id) } : {}),
         operations: operations(current), openQuestionItems: openQuestionItems(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
         ...(pluginRuntime.visualsBound ? { visualsBound: pluginRuntime.visualsBound() } : {}),
@@ -231,7 +234,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, now, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
+    ...voice, opener, now, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: touchVisitor, onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         touchVisitor(storage.get(id));
@@ -266,7 +269,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const locked = before.identity?.verificationRequired === true && before.identity.assessmentUnlocked !== true;
       const deferred = Boolean(input) && understandingDeferred({ ...input, identified: false }) && !understandingDeferred(input);
       // Wake only work this flip unblocked, and preserve failures until Retry.
-      if (!hasConversationInput(session) || !locked && !deferred) return;
+      if (!hasVisitorInput(session) || !locked && !deferred) return;
       if (purposePolicy) {
         // A re-lock can strand classification; projection keeps today's idle path.
         if (!notified && !storage.safeguards(id, inputRevision(session)).assessed) return;
@@ -450,8 +453,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   function unfinished(session) {
     const revision = inputRevision(session);
     const scoped = purposePolicy ? storage.safeguards(session.id, revision) : null;
-    const replyMissing = pendingQuestionFocus(session) || (scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && replyIsCurrent(session, t)));
-    return !session.tombstone && hasConversationInput(session) &&
+    const replyMissing = pendingQuestionFocus(session) || (scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && t.origin !== 'host' && replyIsCurrent(session, t)));
+    return !session.tombstone && hasVisitorInput(session) &&
       (replyMissing || purposePolicy && storage.purposeAssessmentInput(session) || !scoped?.offTopic && !understandingDeferred(session) &&
         (session.understanding.inputRevision !== revision || session.understanding.draft));
   }
@@ -595,8 +598,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const voiceContext = body.voiceCallId === undefined ? {} : voiceHandlers?.typedContext(id, ownerToken, body.voiceCallId, body.providerSessionId);
         if (body.voiceCallId !== undefined && !voiceContext) return json({ error: 'voice-unavailable' }, 403);
         let initialBalance;
-        const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
-          { ...guard, ...voiceContext, revision: body.inputRevision ?? guard.revision,
+        const { event, events, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
+          { ...guard, ...voiceContext, opener, revision: body.inputRevision ?? guard.revision,
             ...(body.inputRevision === undefined && authorized.transcript.length === 0 ? { initialLocaleSeq: authorized.seq } : {}) },
           () => {
             try { initialBalance = hostHandlers.initialCreditBalance(id, ownerToken); }
@@ -604,12 +607,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             catch (cause) { throw new Error('Host credit preflight failed', { cause }); }
           });
         if (!replayed) lanes.supersede(id);
-        if (!replayed) broadcast(id, event);
+        if (!replayed) for (const saved of events) broadcast(id, saved);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
         if (!replayed) touchVisitor(storage.get(id));
         if (!replayed) hostHandlers.startCredits(id, ownerToken, initialBalance);
         schedule(id);
-        return json(event, 200);
+        return json({ ...event, event, events }, 200);
       }
       if (action === 'retry' && request.method === 'POST') {
         schedule(id, { retry: true }); return json({ accepted: true }, 202);
