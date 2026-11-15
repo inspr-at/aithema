@@ -29,3 +29,18 @@ test('AIT-505: model context includes delivered host text and continuation guida
   assert.ok(request.messages.some(message => message.role === 'assistant' && message.content === opener.content));
   assert.match(request.system, /first assistant message was written by the host.*already been delivered/u);
 });
+
+test('AIT-505: host-only context defers both lanes and never satisfies a visitor reply cache', async () => {
+  let session = core.applyEvent(core.createSession({demo:true}),{seq:1,type:'turn.final',data:opener});
+  const plugin=core.createMockReasoning(),calls=[];
+  const lanes=new core.SessionLanes({reasoning:plugin,now:()=>1800000000000,getSession:()=>session,
+    beforeDispatch:()=>{calls.push('dispatch');return true;},publish(id,type,data){session=core.applyEvent(session,{seq:session.seq+1,type,data});return true;}});
+  assert.equal(await lanes.run(session.id,'reaction'),'deferred');
+  assert.equal(await lanes.run(session.id,'understanding'),'deferred');
+  assert.deepEqual(calls,[]);
+  session=core.applyEvent(session,{seq:2,type:'turn.final',data:{id:'person',role:'user',content:'An invoice system.'}});
+  session.transcript[0].inputRevision=core.inputRevision(session);
+  assert.equal(await lanes.run(session.id,'reaction'),'completed');
+  assert.equal(calls.length,1);
+  assert.equal(session.transcript.length,3);
+});

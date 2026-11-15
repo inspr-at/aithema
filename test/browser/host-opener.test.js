@@ -70,7 +70,7 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
   for (const locale of ['en','de']) for (const theme of ['light','dark']) for (const width of [390,1024,1440]) await t.test(`${locale}/${theme}/${width}`, async () => {
     const text = locale==='de' ? 'Willkommen. Ihre KI-Assistenz ist bereit. Welches Vorhaben möchten Sie klären?' : 'Welcome. Your AI assistant is ready. What project would you like to clarify?';
     await page.setViewport({width,height:900});
-    await page.evaluate(theme => {document.documentElement.style.colorScheme=theme;},theme);
+    await page.evaluate(theme => {document.documentElement.style.colorScheme=theme;component.setAttribute('theme',theme);},theme);
     const seed = async text => { await page.evaluate((locale,text) => seed(locale,text),locale,text); await frames(page); };
     await seed(null); const empty=await rects(page); positive(empty);
     await seed(text); const shown=await rects(page); stable(empty,shown,'render-only');
