@@ -8,11 +8,11 @@ for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) 
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const session = () => ({ ...createSession({ demo: true }), opener: { text: 'Welcome from a host.', locale: 'en' },
+  settings: { ...createSession().settings, origin: 'chosen' },
   featureMatrix: { best: { text: { available: true }, analysis: { available: true } } } });
 test('AIT-505: render-only opener reconciles in place without visitor input or restore', async t => {
   const c = document.createElement('aithema-session');
   c.configure({ copy: en, session: session() }); t.after(() => c.remove());
-  c.shadowRoot.querySelector('.chooser__continue').click();
   c.shadowRoot.querySelector('.ready__start').click(); await tick();
   assert.equal(c.session.transcript.length, 0);
   const row = c.shadowRoot.querySelector('[data-id="host:opener"]');
