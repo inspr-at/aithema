@@ -22,6 +22,9 @@ export const combinedEntranceStyles = `
 /* This pane already clears the sticky band and fixed input/footer. The page's
    dock-sized focus margin would scroll an inline field out of this smaller pane. */
 .workspace[data-entrance="combined"] .transcript-shell :is(button,a,input,textarea,select,[tabindex]) { scroll-margin:2px; }
+/* The saved address replaces the input in the same reserved row. Retain its
+   full accessible text while keeping long addresses beside localized Resend. */
+.workspace[data-entrance="combined"] .email-offer__address { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* Canonical replies gain playback controls. Reserve their row before input so
    persistence cannot resize the welcome bubble or shift the content below it. */
 .workspace[data-entrance="combined"] [data-host-opener]:not(:has(.reply-actions))::after { content:''; display:block; height:44px; }

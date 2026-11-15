@@ -91,6 +91,8 @@
   footer on short phones; processing details remain on the entrance scroll surface.
   The transcript height accounts for its sticky-header inset; native focus in an
   inline email offer preserves the offer and combined input positions.
+  Saved addresses use a single line with visual ellipsis beside Resend; full
+  address text remains available to assistive technology and in Settings.
   No new copy keys or exports.
 
 ### Credit-only conversations (AIT-508, opt-in)

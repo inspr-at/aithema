@@ -550,7 +550,10 @@ notice (selected processing details plus the AI/voice disclosure) directly above
 them. The default remains `entrance: 'choice'`, including
 its mode selection and Start button. Combined mode keeps the processing-preset
 chooser and omits the ready card's mode, microphone and speaker rows and Start.
-The combined transcript reserves the sticky-header inset inside its scrolling pane, so focusing an inline email offer keeps its controls in place.
+The combined transcript reserves the sticky-header inset inside its scrolling
+pane, so focusing an inline email offer keeps its controls in place. Saved
+addresses stay on one line beside Resend, with visual ellipsis when needed;
+the full address remains available to assistive technology and in Settings.
 The attachment button is hidden in combined mode. Text feedback and microphone
 status have separate space reserved from first paint; send failures, consent
 actions and Saved announcements remain exposed while a mic status is present.
