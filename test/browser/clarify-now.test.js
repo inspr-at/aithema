@@ -1026,6 +1026,18 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
   await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = '32px'; }); await frames();
   assert.equal((await state()).hidden, false);
   await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
+  await shadow(page, c => {
+    const session = structuredClone(c.session); session.understanding.summary = window.summaryLong;
+    c.configure({ session, copy: { ...window.summaryCopy, summary: 'Host heading', summaryMore: 'Host more', showLess: 'Host less' } });
+  });
+  await frames();
+  assert.equal((await state()).heading, 'Host heading'); assert.equal((await state()).name, 'Host less');
+  assert.equal((await state()).expanded, 'true', 'same conversation configuration keeps expansion');
+  await shadow(page, async c => {
+    const { en } = await import('/packages/ui/src/i18n/en.js');
+    c.configure({ session: { ...c.session, locale: 'en' }, copy: en });
+  });
+  await frames(); assert.equal((await state()).name, 'Show less', 'locale changes keep expansion and repaint the native button');
   await shadow(page, c => { const session = structuredClone(window.summarySession); session.id += '-different'; session.understanding.summary = window.summaryLong; c.configure({ session, copy: { ...window.summaryCopy } }); });
   await frames(); assert.equal((await state()).expanded, 'false', 'different conversation resets expansion');
   await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
