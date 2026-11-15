@@ -182,6 +182,21 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     positive(row, 'pointer row after notice'); assert.ok(Math.abs(row.top - after.top) <= .5, 'notice preserves pointer row');
     records.push({ label: 'pointer', target, after, row, beforeNotice, afterNotice });
   });
+  await t.test('scrollHeight fallback grows and caps without native field-sizing', async () => {
+    await reset(1440, 900); const before = await geometry(page);
+    await page.evaluate(() => {
+      globalThis.composerNativeSupports = CSS.supports;
+      CSS.supports = function (...args) { return args[0] === 'field-sizing' ? false : globalThis.composerNativeSupports.apply(this, args); };
+    });
+    try {
+      await draft(page, 12); await settleEvidenceFrame(page); const grown = await geometry(page);
+      assert.ok(grown.boxes.textarea.height > before.boxes.textarea.height, 'fallback grows'); stable(before, grown, 'fallback');
+      await draft(page, 30); await settleEvidenceFrame(page); const capped = await geometry(page);
+      assert.ok(capped.inputScroll > capped.inputClient, 'fallback caps and scrolls');
+      assert.ok(capped.boxes['.composer'].height <= 360.5, 'fallback respects the same whole-composer cap');
+      records.push({ label: 'fallback', before, grown, capped });
+    } finally { await page.evaluate(() => { CSS.supports = globalThis.composerNativeSupports; }); }
+  });
   await t.test('embedded host height keeps the composer bottom fixed', async () => {
     await reset(1440, 900);
     await shadow(page, c => c.style.setProperty('--aithema-height', '720px'));
