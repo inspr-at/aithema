@@ -137,3 +137,19 @@ test('AIT-510: replaying erased staged events does not invent input revisions', 
   assert.equal(inputRevision(replay), inputRevision(f.storage.get(f.session.id)));
   assert.equal(replay.uploads[0].state, 'staged-discarded');
 });
+
+test('AIT-510: normalized bytes and send receipts survive a storage restart', async t => {
+  const { temporaryDb } = await import('../../../test/helpers.js'), path = await temporaryDb();
+  let storage = new SQLiteStorage(path, { now: () => clock }); t.after(() => storage.close());
+  const session = storage.create({ ownerToken: testToken, demo: true }), f = { storage, session }, image = stage(f);
+  const pixels = Buffer.from('normalized pixels');
+  storage.completeUpload(session.id, image.id, { status: 'staged-ready', bytes: pixels, mediaType: 'image/png', w: 2, h: 1 });
+  storage.close(); storage = new SQLiteStorage(path, { now: () => clock });
+  assert.deepEqual(Buffer.from(storage.uploadBytes(session.id, image.id)), pixels);
+  assert.equal(storage.get(session.id).uploads[0].state, 'staged-ready');
+  const args = [session.id, 'sent', Buffer.from('sent with image'), '', { attachments: [image.id] }];
+  storage.postTurn(...args); storage.close(); storage = new SQLiteStorage(path, { now: () => clock });
+  assert.equal(storage.postTurn(...args).replayed, true);
+  assert.equal(storage.get(session.id).transcript.length, 1);
+  assert.equal(storage.get(session.id).uploads[0].state, 'sent');
+});

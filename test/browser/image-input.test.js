@@ -42,7 +42,10 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
           return Response.json({ events: files.map(file => ({ sessionId: c.session.id, seq: c.session.seq + ++window.imageSeq, type: 'upload.state', data: {
             id: `fixture-${window.imageSeq}`, filename: file.name, kind: 'image', state: 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
         }
-        if (/\/uploads\/[^/]+\/image$/u.test(String(url))) return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } });
+        if (/\/uploads\/[^/]+\/image$/u.test(String(url))) {
+          (window.imageOwnerHeaders ??= []).push(new Headers(options.headers).get('x-aithema-session-token'));
+          if (window.imageDelay) await window.imageDelay;
+          return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } }); }
         if (/\/turns$/u.test(String(url)) && options.method === 'POST') {
           const body = JSON.parse(options.body); window.imagePosts.push(body);
           return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments, at: new Date(0).toISOString() } });
@@ -65,11 +68,15 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       else c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
       }, width);
     };
-    await choose(); await waitForShadow(page, '.staged-image');
     const boxes = () => inShadow(page, c => Object.fromEntries(['.band', '.audio-rail', '.attach', '.send', '.composer', ...(window.innerWidth >= 1024 ? ['.understanding', '.understanding .foot'] : [])].map(selector => {
       const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, bottom: r.bottom }];
     })));
-    const before = await boxes();
+    const unstaged = await boxes();
+    for (const r of Object.values(unstaged)) assert.ok(r.w > 0 && r.h > 0, 'positive frame before staging');
+    await choose(); await waitForShadow(page, '.staged-image');
+    const before = await boxes(), changes = [];
+    for (const [selector, r] of Object.entries(before)) for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h'])
+      assert.ok(Math.abs(r[edge] - unstaged[selector][edge]) <= .5, `${selector}.${edge} fixed while staging`);
     for (const [selector, r] of Object.entries(before)) assert.ok(r.w > 0 && r.h > 0, `${selector} positive before`);
     const evidence = process.env.AITHEMA_EVIDENCE_DIR;
     const prefix = `${width}-${locale}-${theme}`;
@@ -86,25 +93,54 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
         assert.ok(r.w > 0 && r.h > 0, `${selector} positive after ${reason}`);
         for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - before[selector][edge]) <= .5, `${selector}.${edge} fixed after ${reason}`);
       }
+      changes.push({ reason, rects: after });
       await shot(reason);
+      await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals button').click());
     }
     await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
       c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined, digest: 'fixture', w: 1, h: 1 } });
       c.shadowRoot.querySelector('.image-refusals button')?.click();
     });
     await shot('ready');
+    if (width === 390) {
+      await page.setViewport({ width, height: 530 });
+      await inShadow(page, c => c.shadowRoot.querySelector('textarea').focus());
+      const compact = await boxes(); for (const r of Object.values(compact)) assert.ok(r.w > 0 && r.h > 0);
+      await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
+        c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason: 'malformed' } });
+      });
+      const after = await boxes();
+      for (const [selector, r] of Object.entries(after)) {
+        assert.ok(r.w > 0 && r.h > 0);
+        for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - compact[selector][edge]) <= .5, `keyboard ${selector}.${edge}`);
+      }
+      const visible = await inShadow(page, c => { const el = c.shadowRoot.querySelector('.image-refusals'), r = el.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, bottom: r.bottom, clip: getComputedStyle(el.parentElement).clipPath }; });
+      assert.ok(visible.w > 0 && visible.h > 0 && visible.top >= 0 && visible.bottom <= 530); assert.equal(visible.clip, 'none');
+      changes.push({ reason: 'keyboard-malformed', rects: after }); await shot('keyboard');
+      await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image'); c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined } }); c.shadowRoot.querySelector('.image-refusals button').click(); });
+      await page.setViewport({ width, height: 900 });
+    }
     assert.deepEqual(await page.evaluate(() => window.imageAsks), [], 'both image purposes granted at start: no ask');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason .consent-action') === null), true, 'no consent line');
     await inShadow(page, c => c.shadowRoot.querySelector('.send').click());
     await page.waitForFunction(() => window.imagePosts.length === 1);
     const post = await page.evaluate(() => window.imagePosts[0]); assert.equal(post.content, ''); assert.equal(post.attachments.length, 1);
     await waitForShadow(page, '.turn .image-thumbnail'); await shot('sent');
-    if (evidence) await writeFile(join(evidence, `${prefix}-rects.json`), JSON.stringify({ before, after: await boxes() }, null, 2));
-    if (width === 390) {
-      await page.setViewport({ width, height: 530 });
-      await inShadow(page, c => c.shadowRoot.querySelector('textarea').focus());
-      const short = await boxes(); for (const r of Object.values(short)) assert.ok(r.w > 0 && r.h > 0);
-      await shot('keyboard');
-    }
+    const tileBefore = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
+    assert.ok(tileBefore.w > 0 && tileBefore.h > 0);
+    await inShadow(page, async c => {
+      window.imageDelay = new Promise(resolve => { window.releaseImageDelay = resolve; });
+      window.imageRevocations = 0; const revoke = URL.revokeObjectURL.bind(URL); URL.revokeObjectURL = url => { window.imageRevocations++; revoke(url); };
+      const session = c.session, { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+      c.configure({ session, copy, sessionToken: 'fixture', voiceClient: {} });
+    });
+    const tileReload = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
+    assert.ok(tileReload.w > 0 && tileReload.h > 0); assert.deepEqual(tileReload, tileBefore, 'reload reserves the image box before authenticated pixels arrive');
+    assert.ok(await page.evaluate(() => window.imageRevocations > 0), 'the old object URL was revoked');
+    await page.evaluate(() => { window.releaseImageDelay(); window.imageDelay = null; });
+    await waitForShadow(page, '.turn .image-thumbnail'); await shot('reload');
+    assert.ok(await page.evaluate(() => window.imageOwnerHeaders.every(header => header === 'fixture')), 'all thumbnail requests use owner authentication');
+    if (evidence) await writeFile(join(evidence, `${prefix}-rects.json`), JSON.stringify({ unstaged, before, changes, tileBefore, tileReload, after: await boxes() }, null, 2));
+
   });
 }
