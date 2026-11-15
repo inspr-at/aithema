@@ -3751,10 +3751,13 @@ German, German digit grouping and a nonbreaking space before `Credits`.
 
 PNG, JPEG, WebP and GIF (first frame only) can be attached as model input with
 `@inspr/aithema-plugin-image-input`. HEIC/HEIF, AVIF, SVG, TIFF and BMP are not
-accepted. The plugin owns its pinned native `sharp` dependency; the core and
-server packages do not acquire a native dependency. Production installations
-must include optional platform binaries. `npm ci --omit=dev` is qualified by
-`scripts/qualify-image-input.js` in the Docker base and the dedicated CI job.
+accepted. Image MIME hints and excluded HEIC/AVIF container headers stay in the
+non-input staged refusal path even without a recognized filename extension.
+The plugin owns its pinned native `sharp` dependency; the core and server
+packages do not acquire a native dependency. Production installations must
+include optional platform binaries. Qualify `npm ci --omit=dev` with
+`scripts/qualify-image-input.js`; the Docker base and dedicated CI job run this
+smoke check.
 The release contains **17 public modules**, including this plugin.
 
 ```js

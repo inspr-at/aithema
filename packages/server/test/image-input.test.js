@@ -119,6 +119,19 @@ test('AIT-510: fixture pixels reach reply and final understanding only after ima
   const files = unzip(Buffer.from(await exported.arrayBuffer()), { binary: true });
   assert.ok(Object.keys(files).some(path => path.startsWith('images/')));
   assert.equal(JSON.stringify(storage.db.prepare('SELECT * FROM events').all()).includes(source.toString('base64')), false);
+  const revisionBeforeRefusals = inputRevision(storage.get(session.id)), callsBeforeRefusals = seen.length;
+  for (const [name, type, bytes] of [['clipboard', 'image/heic', Buffer.from('excluded image fixture')],
+    ['blob', 'application/octet-stream', Buffer.from([0,0,0,20,102,116,121,112,104,101,105,99,0,0,0,0,104,101,105,99])]]) {
+    const rejected = new FormData(); rejected.append('clientEventId', `excluded-${name}`); rejected.append('files', new File([bytes], name, { type }));
+    const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/uploads`, { method: 'POST', body: rejected }));
+    assert.equal(response.status, 202); await handlers.idle();
+    const image = storage.get(session.id).uploads.find(upload => upload.filename === name);
+    assert.equal(image.kind, 'image'); assert.equal(image.state, 'staged-refused'); assert.equal(image.reason, 'unsupported');
+    assert.equal(storage.uploadBytes(session.id, image.id), null);
+    assert.equal(inputRevision(storage.get(session.id)), revisionBeforeRefusals);
+    assert.equal(storage.get(session.id).understanding.summary, 'Red screenshot');
+    assert.equal(seen.length, callsBeforeRefusals, 'unsupported images schedule no provider work');
+  }
 });
 
 test('AIT-510: late normalization cannot restore a discarded or consent-revoked image', t => {

@@ -54,3 +54,7 @@
   createChatCompletions prepareDispatch/resolveImage/imageDispatchCurrent.
   Unsupported image filenames stay in the non-input refusal path even for
   direct multipart callers; the format help line lists the exact accepted types.
+
+- Extensionless files labelled with an image MIME type and excluded HEIC/AVIF
+  containers stay in the staged, non-input refusal path; they never fall through
+  to document extraction or schedule model work. HEIC remains unsupported.
