@@ -12,6 +12,14 @@ export async function contactSlotCheck(t) {
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  await page.evaluateOnNewDocument(() => {
+    const now = Date.now(); Date.now = () => now;
+    const state = new URLSearchParams(location.search);
+    try {
+      localStorage.setItem('aithema-demo-locale', state.get('locale') ?? 'en');
+      localStorage.setItem('aithema-theme', state.get('theme') ?? 'light');
+    } catch { /* Some browser policy probes deny storage. */ }
+  });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -69,7 +77,6 @@ export async function contactSlotCheck(t) {
       dialog.innerHTML = `<h2>${locale === 'de' ? 'Kontakt' : 'Contact'}</h2><p>${locale === 'de' ? 'Nur eine Demo. Es werden keine Daten gesendet.' : 'A demo only. No data is sent.'}</p><form method="dialog"><button>${locale === 'de' ? 'Schließen' : 'Close'}</button></form>`;
       document.body.append(dialog);
       for (const id of ['contact-open', 'contact-launch']) document.getElementById(id).onclick = () => dialog.showModal();
-      const now = Date.now(); Date.now = () => now;
     }, { markup: firstPaintMarkupFor({ contactLauncher: true }), theme, locale });
     await settle();
     const before = await page.evaluate(() => ['.aithema-first-paint', '.aithema-first-paint .audio-rail'].map(s => {
@@ -181,4 +188,30 @@ export async function contactSlotCheck(t) {
     if (evidence) await writeFile(join(evidence, 'contact-rects.json'), JSON.stringify(checks, null, 2) + '\n');
   }
   assert.equal(checks.length, 12);
+  // Exercise the shipped demo host too: its own copy, CTA listener and dialog,
+  // with the provider-blocked server and no processing or contact submission.
+  const demoChecks = [];
+  for (const width of [390, 1440]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(`${demo.url}?locale=${locale}&theme=${theme}`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
+    await settle();
+    const label = locale === 'de' ? 'Kontakt' : 'Contact', name = `${width}-${locale}-${theme}-demo`;
+    assert.equal(await page.$eval('[slot="contact-launcher"]', n => n.getAttribute('aria-label')), label);
+    const before = await page.$eval('aithema-session', c => JSON.stringify(c.session.transcript));
+    const header = await rects(['.band', '.audio-rail']); positive(header, name);
+    await capture(`${name}-launcher`);
+    await page.focus('[slot="contact-launcher"]'); await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('#demo-contact-dialog', d => d.open), true);
+    assert.equal(await page.$eval('#demo-contact-title', n => n.textContent), label);
+    assert.match(await page.$eval('#demo-contact-dialog .demo-contact-note', n => n.textContent), locale === 'de' ? /sendet keine Daten/ : /sends no data/);
+    await capture(`${name}-overlay`);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.$eval('[slot="contact-launcher"]', n => n === document.activeElement), true);
+    assert.equal(await page.$eval('aithema-session', c => JSON.stringify(c.session.transcript)), before);
+    const shiftPx = stable(header, await rects(['.band', '.audio-rail']), `${name}: overlay`);
+    demoChecks.push({ name, header, shiftPx });
+  }
+  assert.equal(demoChecks.length, 8);
+  if (evidence) await writeFile(join(evidence, 'contact-demo.json'), JSON.stringify(demoChecks, null, 2) + '\n');
 }
