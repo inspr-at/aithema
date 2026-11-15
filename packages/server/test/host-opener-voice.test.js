@@ -87,3 +87,9 @@ test('AIT-505: only one native final can map to the opener', async t => {
   assert.equal((await f.event({type:'final',role:'assistant',text:'Another response.',turnId:'fixture-generation:assistant:1'})).status,200);
   assert.deepEqual(f.storage.get(f.session.id).transcript.map(t=>t.content),[opener.en,'Another response.']);
 });
+
+test('AIT-505: invalid disclosure rejects the server voice mount before accepting traffic', t => {
+  const storage = new SQLiteStorage(':memory:', {now:()=>instant});t.after(()=>storage.close());
+  assert.throws(()=>createVoiceHandlers({storage,opener:{en:'A human is ready.'},secrets:createFacadeSecrets(),
+    runtime:{voiceServerAdapters:()=>[elevenLabsCallbackPort]}}),TypeError);
+});
