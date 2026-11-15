@@ -66,6 +66,7 @@ export const hostStyles = `
 .verify-dialog .verify__primary > * { justify-self:start; }
 /* Pending has no Cancel action; its hidden reservation must not add a row above the message. */
 .verify-dialog .verify-form[data-mode=pending] .verify-cancel { display:none; }
+.verify-dialog[data-email-offer] .verify-cancel[inert] { display:none; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
 /* Keep the localized hint slot when capture changes to pending. */
 .verify-dialog[data-email-offer] .verify__note { min-height:2lh; }
