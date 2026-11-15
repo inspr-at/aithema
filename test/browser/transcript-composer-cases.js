@@ -59,11 +59,11 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   await shadow(page, c => { globalThis.composerSeed = structuredClone(c.session); });
   const records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR; let fittingChecks = 0;
   if (evidence) await mkdir(evidence, { recursive: true });
-  const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false } = {}) => {
+  const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false, usedUp = false } = {}) => {
     await page.mouse.move(0, 0); await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await shadow(page, async (c, options) => {
-      const { locale, theme, voice, card, turns, visuals } = options;
+      const { locale, theme, voice, card, turns, visuals, usedUp } = options;
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
       const { inputRevision } = await import('/packages/core/src/session.js');
@@ -74,6 +74,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       s.conceptStatus = { phase: visuals === 'populated' ? 'ready' : 'idle' };
       s.transcript = Array.from({ length: turns }, (_, i) => ({ id: `t${i}`, role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine kurze Nachricht.' : 'A short message.' }));
       s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'images', 'html'].map(key => [key, { available: ['text', 'analysis'].includes(key) || voice && key === 'voice' || visuals && key === 'images', reason: 'not configured' }]));
+      if (usedUp) s.featureMatrix.best.text = { available: false, reason: 'budget denied' };
       globalThis.composerFailure = false; globalThis.composerPending = null;
       window.fetch = async (url, init = {}) => {
         const path = new URL(url, location.href).pathname;
@@ -95,7 +96,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
         options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    }, { locale, theme, voice, card, turns, visuals });
+    }, { locale, theme, voice, card, turns, visuals, usedUp });
     await settleEvidenceFrame(page);
   };
   const capture = async label => {
@@ -150,6 +151,9 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         await reset(width, 640, locale, theme, { card: true, voice: true });
         await capture(`ait-511-${locale}-${theme}-${width}-short-desktop-card`);
         await draft(page, 30); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-short-desktop-capped`);
+        await reset(width, 640, locale, theme, { voice: true, usedUp: true });
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-out').checkVisibility({ visibilityProperty: true })), true, 'the compact used-up peer is genuinely visible');
+        await capture(`ait-513-${locale}-${theme}-${width}-short-desktop-used-up`);
       }
     });
   }
@@ -215,6 +219,22 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     const row = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
     positive(row, 'pointer row after notice'); assert.ok(Math.abs(row.top - after.top) <= .5, 'notice preserves pointer row');
     records.push({ label: 'pointer', target, after, row, beforeNotice, afterNotice });
+  });
+  await t.test('a resting pointer at the followed tail wins when a notice arrives', async () => {
+    await reset(1440, 900, 'en', 'light', { voice: true, turns: 22 });
+    const before = await geometry(page); assert.match(before.noticeParent, /transcript-shell/);
+    const target = await shadow(page, c => {
+      const r = c.shadowRoot, bounds = r.querySelector('.transcript-shell').getBoundingClientRect();
+      const row = [...r.querySelectorAll('.turn')].find(n => n.getBoundingClientRect().top > bounds.top + 20);
+      return { id: row.dataset.id, box: row.getBoundingClientRect().toJSON() };
+    }); positive(target.box, 'followed pointer row');
+    await page.mouse.move(target.box.x + 12, target.box.y + 12); await settleHeld(page);
+    assert.equal(await shadow(page, (c, point) => c.shadowRoot.elementFromPoint(point.x + 12, point.y + 12)?.closest('.turn')?.dataset.id, target.box), target.id);
+    await shadow(page, c => { c.shadowRoot.querySelector('.voice-notice--recovered').textContent = 'Connection recovered.'; });
+    await settleHeld(page); const after = await geometry(page); stable(before, after, 'followed notice');
+    const row = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
+    positive(row, 'followed pointer row after notice'); assert.ok(Math.abs(row.top - target.box.top) <= .5, 'a notice cannot move a row even when follow was active before pointer entry');
+    records.push({ label: 'pointer-at-followed-tail', before, after, target, row });
   });
   await t.test('scrollHeight fallback grows and caps without native field-sizing', async () => {
     await reset(1440, 900); const before = await geometry(page);
