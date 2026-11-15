@@ -925,6 +925,7 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
+  if (evidence) await writeFile(join(evidence, 'ait-514-start.json'), JSON.stringify({ head: evidenceCommit, phase: 'started' }));
   const update = text => shadow(page, (c, text) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated',
     data: { ...c.session.understanding, summary: text } }), text);
   const state = () => shadow(page, c => {
