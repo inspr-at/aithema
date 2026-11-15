@@ -925,6 +925,36 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  await page.evaluate(() => {
+    // One paused clock owns every signal deadline, including screenshot time.
+    const NativeDate = Date, nativeClearTimeout = clearTimeout, nativeClearInterval = clearInterval;
+    let time = 1_800_000_000_000, next = -1;
+    const timers = new Map();
+    window.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : [time])); }
+      static now() { return time; }
+    };
+    const schedule = (fn, delay = 0, interval = false, args = []) => {
+      const id = next--, ms = Math.max(0, Number(delay) || 0);
+      timers.set(id, { fn, at: time + ms, interval: interval ? Math.max(1, ms) : 0, args }); return id;
+    };
+    window.setTimeout = (fn, ms, ...args) => schedule(fn, ms, false, args);
+    window.setInterval = (fn, ms, ...args) => schedule(fn, ms, true, args);
+    window.clearTimeout = window.clearInterval = id => {
+      if (!timers.delete(id)) { nativeClearTimeout(id); nativeClearInterval(id); }
+    };
+    window.signalTick = ms => {
+      const end = time + ms;
+      for (;;) {
+        const entry = [...timers].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+        if (!entry) break;
+        const [id, t] = entry; time = t.at; timers.delete(id);
+        if (t.interval) timers.set(id, { ...t, at: time + t.interval });
+        t.fn(...t.args);
+      }
+      time = end;
+    };
+  });
   await shadow(page, c => {
     window.fetch = async (url, init = {}) => String(url).endsWith('/events')
       ? new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }))
@@ -998,6 +1028,10 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     const mark = await shadow(page, c => { const n = c.shadowRoot.querySelector('[data-signal-new]'); return n && { animation: getComputedStyle(n).animationName, background: getComputedStyle(n).backgroundColor }; });
     assert.ok(mark); assert.equal(mark.animation, 'none', 'reduced motion uses a static mark');
     if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-new-static.png`) });
+    await page.evaluate(() => window.signalTick(1999));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('[data-signal-new]').length), 1);
+    await page.evaluate(() => window.signalTick(1));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('[data-signal-new]').length), 0);
   }
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'signals-rects.json'), JSON.stringify({ rects, errors }, null, 2));
