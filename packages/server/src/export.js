@@ -41,7 +41,7 @@ export function zipStore(files) {
   return Buffer.concat([...locals, central, end]);
 }
 export function exportSession(session, artifacts = [], withheld = [], {
-  exportedAt = new Date().toISOString(), commit = process.env.AITHEMA_COMMIT,
+  images = [], exportedAt = new Date().toISOString(), commit = process.env.AITHEMA_COMMIT,
 } = {}) {
   commit = releaseInfo.source?.commit ?? commit;
   const json = value => JSON.stringify(value, null, 2) + '\n';
@@ -61,8 +61,9 @@ export function exportSession(session, artifacts = [], withheld = [], {
     'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}${t.role === 'assistant' ? ' (AI-generated)' : ''}\n\n${messageText(t.content)}`).join('\n'),
     'understanding.json': json(session.understanding.inputRevision === null ? session.understanding : withAITextOrigin(session.understanding)),
     ...((session.uploads ?? []).length ? { 'uploads.json': json(session.uploads.map(u => u.state === 'withdrawn' || u.erased || u.withdrawn
-      ? { id: u.id } : Object.fromEntries(['id', 'state', 'filename', 'mediaType', 'bytes', 'at', 'text', 'reason', 'truncated', 'extractor']
+      ? { id: u.id } : Object.fromEntries(['id', 'state', 'filename', 'mediaType', 'bytes', 'at', 'text', 'reason', 'truncated', 'extractor', 'kind', 'digest', 'w', 'h', 'turnId']
         .filter(key => u[key] !== undefined).map(key => [key, u[key]])))) } : {}),
+    ...Object.fromEntries(images.map(image => [`images/${image.id}.${image.mediaType === 'image/png' ? 'png' : 'jpg'}`, image.imageBytes])),
     ...(concepts.length ? { 'concepts.json': json(concepts) } : {}),
     ...(artifacts.length || omissions.length ? { 'concepts-manifest.json': json({ version: 1,
       included: artifacts.map(a => ({ id: a.id, path: `concepts/${a.id}.${a.mediaType.split('/')[1]}`,
