@@ -18,6 +18,17 @@ The overview now shows whether it is updating or up to date. Start continues aft
 The original overview freeze report did not reproduce. This release makes the
 status visible; it does not establish a scheduler bug or claim to fix one.
 
+## Was Besucher bemerken
+
+- **Überblick bleibt aktuell (AIT-504, #438, #439).** Nach jeder Antwort zeigt der Überblick, ob er aktualisiert wird oder auf dem neuesten Stand ist, und wirkt nie festgefahren.
+- **Start nach Einwilligung (AIT-501, #440).** Nach der Einwilligung über Start geht das Gespräch dort weiter, wo es begonnen wurde, ohne erneut Start zu verlangen.
+- **Chat folgt der Antwort (AIT-512, #440).** Nach der Auswahl einer Option oder dem Senden bleibt der neue Gesprächsschritt im Blick, und ein schneller zweiter Klick trifft kein gerade verschobenes Element.
+- **Klare Meldungen zum Anrufende (AIT-502, #437).** Endet ein Anruf, sagt die Meldung, was tatsächlich passiert ist: eine fehlgeschlagene Verbindung, die maximale Anrufdauer, aufgebrauchte Guthaben oder einfach das Ende des Anrufs.
+- **Aktueller E-Mail-Status (AIT-518, #436).** Nach dem Neuladen oder der Rückkehr zum Tab zeigt das Gespräch die bestätigte E-Mail-Adresse sofort an.
+- **Genauer Wartezähler (AIT-486, #434).** Nach einer erneuten Verbindung zeigt der Zähler die Wartezeit, die der Server tatsächlich verlangt, statt einer veralteten, längeren.
+- **Nachfragen erholt sich ehrlich (AIT-503, #438, #441).** Kann eine offene Frage gerade nicht nachgefragt werden, sagt die Zeile warum und bietet Erneut versuchen an, wenn es Erfolg haben kann, ohne doppelte Antworten.
+- **Gezählte offene Fragen (AIT-516, #441).** Die Überschrift der offenen Fragen zeigt, wie viele noch offen sind, mit korrekter Einzahl und Mehrzahl auf Deutsch und Englisch.
+
 ## For hosts
 
 **Call endings (AIT-502, #437).** One voice-end classifier distinguishes connection

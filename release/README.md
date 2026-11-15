@@ -187,7 +187,9 @@ source; sequence 35 is reserved, not added to published history.
 Notes lead with the visible overview status, then consent continuation and a chat
 that follows the answer, honest call endings, current email status, an accurate
 resend countdown, honest Clarify recovery and counted open questions. The pills
-and benefits use the ticket wording. **Breaking for hosts relative to RC23: none**:
+and benefits use the ticket wording, checked read-only with the aeon CLI
+(including AIT-503 and AIT-516). The German pills and benefits are copied exactly
+from those same eight tickets into `notes.md`. **Breaking for hosts relative to RC23: none**:
 the actual diff adds optional fields and copy keys, changes no configuration,
 HTTP status or required host integration, removes no public export and retains
 legacy overrides. The German heading is visitor copy, `voiceDeadline` remains
@@ -251,8 +253,10 @@ Preparation order (remote execution only):
    and `normalized_digest` against `first/`. Make **no evidence-only commit after
    the final build**; a source change requires another final-head build. Record
    the actual passing release-test count in `.data/ait-525/handoff.txt`, together
-   with the browser results and per-file counts. RC23's runbook did not retain a
-   final count here; do not substitute an older candidate's count.
+   with the browser results and per-file counts. This preparation's release set
+   passed **178/178 tests, 0 failures** on its committed preparation head; any
+   subsequent source or commit change requires a fresh final-C run and binding
+   check. Do not substitute an older candidate's results.
 4. Commit locally only; do not push or open a PR. Hand off C and every commit
    since L, sequence 35 (previous: 34), version, retained directory, manifest
    SHA-256, normalized digest, presentation result, Content range, breaking
