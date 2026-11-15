@@ -1362,6 +1362,30 @@ canvas). The understanding column opens with START's 560 ms reveal only when the
 first input arrives on screen; `prefers-reduced-motion` stops every animation, the
 reveal included.
 
+The live transcript uses the remaining conversation height. Voice recovery notices
+are interactive end content in that scroll area; a voice binding alone reserves no
+empty row. Without a visible question card, short transcripts start at the top;
+with a card, the latest reply stays beside its question. Unbound visuals reserve
+no concept bar; configured image visuals keep their 44 px row.
+
+The composer grows upward with typed or pasted text, within 40% of the visual
+viewport and the room left for the latest reply and a visible question card.
+Short phone viewports allow at most three lines before the field scrolls. Short
+desktop viewports reduce outer spacing in both composer states; longer used-up
+copy scrolls in its keyboard-focusable body. Attach,
+Send and the composer's bottom edge stay in place. Following readers stay at the
+latest turn; a resting transcript pointer keeps its row and gets Latest instead.
+Only an accepted typed/device send clears the matching draft and its height;
+failed sends, answer-chip sends and edits made during a pending send retain it.
+The sizing owner publishes two measured CSS outputs on the workspace:
+`--aithema-composer-height` (effective composer height) and
+`--aithema-composer-growth` (growth above the current one/two-line baseline).
+These are measurements, not host configuration. Existing host height and palette
+overrides continue to apply. Phone clearance uses the measured dock subtraction; a trailing conversation
+margin reserves only visitor growth to keep the stacked overview frame fixed.
+Card overlap uses an outside margin, independently of pointer anchoring slack
+and notice end reservations.
+
 Hosts list visitor choices per preset as `presets[p].choices = {models, voices,
 visuals, defaults}`. A model option is `{id, label?, binding | bindings: {reaction,
 understanding}, efforts?, effort?, quality?}`; voice options are `{id, label?, binding?}`

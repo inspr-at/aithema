@@ -109,7 +109,7 @@ export class AithemaSession extends HTMLElement {
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #reactionFailureVersion = 0; #reactionFailureIdentity = null; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
-  #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null;
+  #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null; #composerOccluded = false;
   #pointerGuardUntil = 0; #pointerGuardPoint = null; #touchClickPoint = null;
   #postCallMatrix = null;
   #voiceResumeProjection = null;
@@ -206,7 +206,7 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
-    this.#navigation = null; this.#programmaticScroll = null; this.#longReply = null; this.#tailReply = null; this.#seenTranscript = null;
+    this.#navigation = null; this.#programmaticScroll = null; this.#longReply = null; this.#tailReply = null; this.#seenTranscript = null; this.#composerOccluded = false;
     this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; this.#touchClickPoint = null; this.#latestScrollTop = null;
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
@@ -1057,9 +1057,19 @@ export class AithemaSession extends HTMLElement {
           : this.#composerUsedUp ? root.querySelector('.composer-out__export')
           : this.#session.paused || input.disabled ? root.querySelector('.pause, .composer-resume') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => !this.#longReply && this.#follow, onNoticesChange: () => {
+    this.#phoneViewport = new PhoneComposerViewport(root, {
+      resizeComposer: update => this.#anchored(update),
+      onComposerResize: ({ following }) => {
+        this.#questionCard.reserve();
+        if (following) this.#scrollToLatest();
+        else {
+          const shell = root.querySelector('.transcript-shell');
+          this.#composerOccluded = shell.scrollTop + shell.clientHeight < shell.scrollHeight - 8;
+          this.#updateTranscriptJump();
+        }
+      }, onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#followsTranscript(), onNoticesChange: () => {
       // Growth preserves the upload target; shrink reservations release on row exit or scrolling.
-      if (this.#follow && !this.#hovered()?.closest('.upload') && !this.#fold.folded) this.#scrollToLatest();
+      if (this.#followsTranscript() && !this.#hovered()?.closest('.upload')) this.#scrollToLatest();
     } });
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
@@ -1287,12 +1297,12 @@ export class AithemaSession extends HTMLElement {
       .filter(row => !row.hidden && !redacted.has(row.dataset.id))
       .map(row => [row.dataset.id, row.querySelector('.turn-text')?.textContent.length ?? 0]));
   }
-  #readTranscript() { this.#seenTranscript = this.#transcriptContent(); }
+  #readTranscript() { this.#seenTranscript = this.#transcriptContent(); this.#composerOccluded = false; }
   #updateTranscriptJump() {
     const content = this.#transcriptContent();
     this.#seenTranscript ??= content;
     const unread = [...content].some(([id, length]) => !this.#seenTranscript.has(id) || length > this.#seenTranscript.get(id));
-    this.shadowRoot.querySelector('.transcript-latest').style.visibility = unread ? '' : 'hidden';
+    this.shadowRoot.querySelector('.transcript-latest').style.visibility = unread || this.#composerOccluded ? '' : 'hidden';
   }
   #scrollToLatest() {
     if (this.#fold?.folded || this.#longReply) return;
@@ -3303,7 +3313,7 @@ export class AithemaSession extends HTMLElement {
         await this.#rail.sendText(content, { deliveryId: this.#pending.clientEventId });
         if (this.#erased || sessionId !== this.#session.id) return;
       }
-      if (!option && input.value === content) input.value = '';
+      if (!option && input.value === content) { input.value = ''; this.#phoneViewport?.sizeComposer(); }
       this.#pending = null; this.#sendFailed = false;
       if (voiceText) this.#status(this.#copy.voiceTextSent); else this.#confirmSaved();
     } catch { if (!this.#erased && sessionId === this.#session.id) { this.#navigation = null; this.#sendFailed = true; this.#clearNotice(); } }
@@ -3321,7 +3331,7 @@ export class AithemaSession extends HTMLElement {
       await device.connect({ signal: controller.signal, deadlineAt });
       if (!current()) return;
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
-      if (clearInput && input.value === content) input.value = '';
+      if (clearInput && input.value === content) { input.value = ''; this.#phoneViewport?.sizeComposer(); }
       const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
       // The device has no assessment lane: retain its canonical-turns-only context contract.
       const request = { ...reasoningRequest(this.#session, 'reaction'), documentMessageIndex: null,

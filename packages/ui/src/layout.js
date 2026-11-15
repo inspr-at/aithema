@@ -248,11 +248,100 @@ export class FooterPopups {
   }
 }
 
+// One sizing owner for native content measurement and the scrollHeight fallback.
+// Measure offscreen so the live field changes only inside the caller's pointer
+// anchor transaction; native field-sizing must not resize it before that snapshot.
+class ComposerSize {
+  constructor(root, { following, resize, changed, painted }) {
+    Object.assign(this, { root, following, resize, changed, painted });
+    this.view = root.ownerDocument.defaultView;
+    this.input = root.querySelector('.composer textarea');
+    this.onInput = () => { this.fit(true); this.painted(); };
+  }
+  connect() { this.input?.addEventListener('input', this.onInput); }
+  destroy() { this.input?.removeEventListener('input', this.onInput); }
+  fit(visitor = false) {
+    if (!this.input || this.fitting) return;
+    const workspace = this.root.querySelector('.workspace');
+    if (workspace.dataset.stage !== 'live' || this.root.querySelector('.conversation').hidden) return;
+    const visual = this.view.visualViewport;
+    if (visual && visual.scale !== 1) return;
+    const form = this.root.querySelector('.composer'), shell = this.root.querySelector('.transcript-shell');
+    const field = this.input.getBoundingClientRect(), composer = form.getBoundingClientRect();
+    if (!(field.width > 0 && field.height > 0 && composer.height > 0)) return;
+    const css = this.view.getComputedStyle(this.input), shellCSS = this.view.getComputedStyle(shell);
+    const phone = this.view.matchMedia('(max-width:600px)').matches;
+    const viewport = visual?.height ?? this.view.innerHeight;
+    const short = phone && workspace.hasAttribute('data-phone-short');
+    const minimum = parseFloat(css.minHeight) || (short ? 44 : 56);
+    const actualChrome = composer.height - field.height;
+    const card = this.root.querySelector('.qcard');
+    const available = phone ? viewport + (visual?.offsetTop ?? 0)
+      - this.root.querySelector('.band').getBoundingClientRect().height
+      - this.root.querySelector('.display-foot').getBoundingClientRect().height
+      - this.root.querySelector('.concept-bar').getBoundingClientRect().height - 32
+      : shell.getBoundingClientRect().height + (parseFloat(shellCSS.marginBottom) || 0) + composer.height;
+    const baselineContext = [field.width, viewport, short, minimum, css.font, css.lineHeight].join('/');
+    const context = [baselineContext, actualChrome.toFixed(1), available.toFixed(1)].join('/');
+    // A card closing or a notice arriving is not a visitor edit. In particular,
+    // an answer-chip send cannot expand a retained draft into newly free space.
+    if (!visitor && this.value === this.input.value && this.context === context) return;
+    this.value = this.input.value; this.context = context;
+    const following = this.following();
+    const line = parseFloat(css.lineHeight) || 24;
+    const padding = (parseFloat(css.paddingTop) || 0) + (parseFloat(css.paddingBottom) || 0);
+    // The hidden used-up peer can stretch the live form. Measure intrinsic
+    // chrome independently, so growing the field does not require a second fit.
+    const probe = form.cloneNode(true), probeInput = probe.querySelector('textarea');
+    const prepare = element => {
+      element.removeAttribute('id'); element.inert = true; element.setAttribute('aria-hidden', 'true');
+      for (const child of element.querySelectorAll('[id]')) child.removeAttribute('id');
+      element.style.cssText = `position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:${composer.width}px;min-height:0;max-height:none;height:auto;`;
+    };
+    prepare(probe); probeInput.removeAttribute('placeholder'); probeInput.value = this.input.value;
+    const native = this.view.CSS?.supports?.('field-sizing', 'content');
+    probeInput.style.cssText = `min-height:${minimum}px;max-height:none;height:${native ? 'auto' : `${minimum}px`};field-sizing:${native ? 'content' : 'fixed'};overflow:hidden;`;
+    form.parentNode.append(probe);
+    let natural, chrome;
+    try {
+      const measured = probeInput.getBoundingClientRect().height;
+      natural = native ? measured : probeInput.scrollHeight;
+      chrome = probe.getBoundingClientRect().height - measured;
+      if (this.baselineContext !== baselineContext) {
+        let peerFloor = 0;
+        const peer = this.root.querySelector('.composer-out'), style = peer && this.view.getComputedStyle(peer);
+        if (peer && style.display !== 'none' && !['absolute', 'fixed'].includes(style.position)) {
+          const peerProbe = peer.cloneNode(true); prepare(peerProbe); peer.parentNode.append(peerProbe);
+          try { peerFloor = peerProbe.getBoundingClientRect().height; }
+          finally { peerProbe.remove(); }
+        }
+        this.baselineContext = baselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
+      }
+    } finally { probe.remove(); }
+    let cap = Math.min(.4 * viewport, available - (card && !card.hidden && !short ? 150 : 0) - (short ? 0 : 128));
+    cap = Math.max(minimum, cap - chrome);
+    if (short) cap = Math.min(cap, 3 * line + padding);
+    const height = Math.max(minimum, Math.min(natural, cap));
+    this.fitting = true;
+    try {
+      this.resize(() => {
+        workspace.style.setProperty('--composer-field-height', `${height}px`);
+        const effective = form.getBoundingClientRect().height;
+        workspace.style.setProperty('--aithema-composer-height', `${effective}px`);
+        workspace.style.setProperty('--aithema-composer-growth', `${Math.max(0, effective - this.baseline)}px`);
+        if (Math.abs(field.height - height) > .1) { this.painted(); this.changed({ following }); }
+      });
+    } finally { this.fitting = false; }
+  }
+}
+
 /** Keep the phone dock in the visual viewport, including keyboards that resize
  * only that viewport. Geometry comes from the existing band, footer and dock. */
 export class PhoneComposerViewport {
-  constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true } = {}) {
+  constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
+    resizeComposer = update => update(), onComposerResize = () => {} } = {}) {
     this.onNoticesChange = onNoticesChange; this.followsTranscript = followsTranscript;
+    this.composerSize = new ComposerSize(root, { following: followsTranscript, resize: resizeComposer, changed: onComposerResize, painted: () => this.paint() });
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.paint = () => {
       const view = this.view, viewport = view?.visualViewport;
@@ -273,8 +362,8 @@ export class PhoneComposerViewport {
         this.footerFitWidth = geometry.width;
       }
       this.footerTextKey = footerText(footer.querySelector('.display-foot__row'));
-      // On phones the reserved voice notices belong to the scrolling content,
-      // leaving a usable transcript viewport above the fixed composer.
+      // Recovery notices share transcript end reservation at every width.
+      // A voice binding alone never consumes a concept-bar row.
       const phone = view?.matchMedia('(max-width:600px)').matches;
       // Size the input before measuring the dock/footer, independent of cards.
       // Updating both in this paint avoids a second resize losing bottom-follow.
@@ -282,11 +371,13 @@ export class PhoneComposerViewport {
       workspace.toggleAttribute('data-phone-short', short);
       workspace.toggleAttribute('data-phone-overlay', Boolean(phone && (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0) >= 150));
       const notices = root.querySelector('.voice-notices');
-      const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
+      const parent = root.querySelector('.transcript-shell');
       const movedNotices = Boolean(notices && notices.parentNode !== parent);
       if (movedNotices) parent.append(notices);
-      if (!phone && notices) notices.style.minHeight = '';
-      if (phone) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
+      if (notices) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
+      this.composerSize.fit();
+      const outBody = root.querySelector('.composer-out__body');
+      if (outBody) outBody.tabIndex = outBody.scrollHeight > outBody.clientHeight ? 0 : -1;
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
       const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
@@ -326,6 +417,7 @@ export class PhoneComposerViewport {
   }
   connect() {
     this.connected = true;
+    this.composerSize.connect();
     this.root.addEventListener('focusin', this.paint);
     this.root.querySelector('.display-foot').addEventListener('pointerleave', this.paint);
     this.root.addEventListener('focusout', this.focusOut);
@@ -405,8 +497,8 @@ export class PhoneComposerViewport {
           return relevant && (record.type !== 'attributes' ||
             record.oldValue !== record.target.getAttribute(record.attributeName));
         });
-        // Inline reply controls are last items at every width; recovery
-        // notices join them on phones. Run after render, without a pointer.
+        // Inline reply controls and recovery notices are end content
+        // at every width. Run after render, without a pointer.
         // Same-size label/text renders must not undo a transcript pointer anchor.
         const height = endHeight();
         if (changed && height !== this.noticeHeight) {
@@ -430,11 +522,13 @@ export class PhoneComposerViewport {
     }
     this.paint();
   }
+  sizeComposer() { this.composerSize.fit(true); this.paint(); }
   recordTranscriptAnchor() {
     this.noticeScrollTop = this.root.querySelector('.transcript-shell').scrollTop;
   }
   destroy() {
     this.connected = false;
+    this.composerSize.destroy();
     this.root.removeEventListener('focusin', this.paint);
     this.root.querySelector('.display-foot').removeEventListener('pointerleave', this.paint);
     this.root.removeEventListener('focusout', this.focusOut);
