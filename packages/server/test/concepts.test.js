@@ -518,3 +518,30 @@ test('AIT-509: only a corroborated current model wish at the readiness threshold
   assert.equal(h.records.length, 0);
   assert.deepEqual(h.storage.get(h.id).conceptStatus.consentRequest, { id: 'wish', sourceTurnId: 'wish' });
 });
+test('AIT-509: the real scoped consent POST preserves replies and cannot replay the deferred wish', async t => {
+  let images = false;
+  const binding = paidBinding(); binding.legal.purpose = 'images-fixture';
+  const consent = {
+    coverage(args) { return args.scope.purpose === 'images-fixture' && !images ? { covered: false } : exactConsent.coverage(args); },
+    describe() { return { contract: 'scoped-images-v1', selected: ['mock-processing', ...(images ? ['images-fixture'] : [])],
+      items: ['mock-processing', 'images-fixture'].map(id => ({ id, version: 1, title: id, recipients: 'Offline processor', text: 'Fixture processing' })) }; },
+    grant({ decision }) { if (decision) images = decision.items.includes('images-fixture'); return true; },
+    conversationUnchanged: () => true,
+  };
+  const h = await setup(t, { imageBinding: binding, consent }); await h.turn('first'); h.readiness();
+  const reply = h.storage.get(h.id).transcript.find(turn => turn.role === 'assistant'); assert.ok(reply);
+  h.handlers.conceptLane.recordIntent(h.id, { intentId: 'scoped-wish', sourceTurnId: 'first' });
+  await h.handlers.conceptLane.run(h.id);
+  assert.equal(h.storage.get(h.id).conceptStatus.phase, 'waiting'); assert.equal(h.records.length, 0);
+  const doc = await (await h.call('consent')).json();
+  assert.deepEqual(doc.features.images, ['images-fixture']);
+  const granted = await h.call('consent', { granted: true, processing: { contract: doc.contract,
+    revision: doc.consentRevision, items: ['mock-processing', 'images-fixture'] } });
+  assert.equal(granted.status, 200); await h.handlers.idle();
+  assert.equal(h.records.length, 0, 'the authoritative grant alone never spends');
+  const kept = h.storage.get(h.id).transcript.find(turn => turn.id === reply.id);
+  assert.equal(kept.content, reply.content); assert.equal(Boolean(kept.erased), false);
+  assert.equal((await h.request('approved-wish')).status, 202); await h.handlers.idle();
+  assert.equal((await h.request('approved-wish')).status, 200); await h.handlers.idle();
+  assert.equal(h.records.length, 1, 'the continuation goes through the existing idempotency gate');
+});
