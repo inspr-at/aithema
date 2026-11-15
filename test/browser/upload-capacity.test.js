@@ -450,7 +450,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await inShadow(page, async c => {
       window.imageAsks = []; window.imagePosts = []; window.imageSeq = 0; window.imageGranted = true;
       const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
-      const context = canvas.getContext('2d'); context.fillStyle = '#e02030'; context.fillRect(0, 0, 1, 1);
+      const context = canvas.getContext('2d'); context.fillStyle = 'rgba(224,32,48,0.5)'; context.fillRect(0, 0, 1, 1);
       window.imageFixtureBase64 = canvas.toDataURL('image/png').split(',')[1];
       window.imageFixturePNG = Uint8Array.from(atob(window.imageFixtureBase64), c => c.charCodeAt(0));
       c.addEventListener('aithema-consent', e => { window.imageAsks.push(e.detail); if (window.imageFixtureConsent) e.stopPropagation(); });
@@ -606,17 +606,25 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await startTyping(page);
     const consentBefore = await boxes(), attachedBefore = await page.evaluate(() => window.imageSeq);
     for (const r of Object.values(consentBefore)) assert.ok(r.w > 0 && r.h > 0, 'positive frame before consent selection');
+    const consentFrame = async state => {
+      const current = await boxes();
+      for (const [selector, r] of Object.entries(current)) {
+        assert.ok(r.w > 0 && r.h > 0, `${selector} positive in ${state}`);
+        for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - consentBefore[selector][edge]) <= .5, `${selector}.${edge} fixed in ${state}`);
+      }
+      changes.push({ reason: state, rects: current }); await shot(state);
+    };
     await choose(); await page.waitForFunction(() => window.imageAsks.length === 1);
     assert.equal(await page.evaluate(() => window.imageSeq), attachedBefore, 'no image POST before consent');
     assert.deepEqual(await page.evaluate(() => window.imageAsks[0].features), ['imageInput']);
-    await shot('consent');
+    await consentFrame('consent');
     await inShadow(page, c => { window.imageGranted = true;
       c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } });
     });
     await waitForShadow(page, '.staged-image[data-state="staged-pending"]');
     assert.equal(await page.evaluate(() => window.imageSeq), attachedBefore + 1, 'consent resumes exactly one attach');
     assert.equal(await page.evaluate(() => window.imageAsks.length), 1, 'no repeated consent ask');
-    await shot('consent-resumed');
+    await consentFrame('consent-resumed');
     await inShadow(page, c => c.shadowRoot.querySelector('.staged-image__remove').click());
     await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.staged-image'));
     await shot('discarded');
