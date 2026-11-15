@@ -1650,3 +1650,14 @@ test('AIT-509: a settled partial grant declines the concept; a later grant canno
   await f.grant(true, []); await f.grant();
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
 });
+
+test('AIT-509: a prior refusal button uses the current concept continuation callback', async t => {
+  const f = conceptConsentFixture(t);
+  f.change({ conceptStatus: { phase: 'failed', reason: 'current processing consent required' } });
+  const action = f.root.querySelector('.concept-activity-text .consent-action'); assert.ok(action);
+  f.ask();
+  assert.equal(f.root.querySelector('.concept-activity-text .consent-action'), action, 'keep the existing focus target');
+  action.click(); assert.equal(f.events.at(-1).intent, 'concept');
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
+});
