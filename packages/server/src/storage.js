@@ -376,6 +376,16 @@ export class SQLiteStorage {
       const data = this.#hydrateData(id, session.understanding);
       session.understanding = data.erased ? emptyUnderstanding(session) : withAITextOrigin(data);
     }
+    if (session.signalLedger?.contentRef) {
+      const record = this.getRecord(id, session.signalLedger.contentRef);
+      session.signalLedger = record.erased ? [] : record.data.items;
+    } else if (!session.signalLedger) {
+      // Older snapshots gain identities from their current final, without
+      // changing the journal or guessing the order of an earlier assessment.
+      session.signalLedger = session.understanding.draft ? [] : applyEvent(session, {
+        type: 'understanding.updated', seq: session.questionRevision ?? session.seq, data: session.understanding,
+      }).signalLedger;
+    }
     if (session.actor?.contentRef) {
       const record = this.getRecord(id, session.actor.contentRef); session.actor = record.erased ? null : record.data;
     } else if (!session.actor) session.actor = session.understanding.actor ?? null;
@@ -681,7 +691,16 @@ export class SQLiteStorage {
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
-    const metadata = { ...session, transcript: session.transcript.map(t => this.#metadata(session.id, 'turn.final', t)) };
+    const ledgerRef = `${session.id}:signal-ledger`, at = new Date(this.now()).toISOString();
+    let signalLedger = [];
+    if (session.signalLedger?.length) {
+      const bytes = JSON.stringify({ items: session.signalLedger }), digest = hash(bytes);
+      this.db.prepare(`INSERT INTO content VALUES (?,?,?,?,?,?,NULL)
+        ON CONFLICT(id) DO UPDATE SET bytes=excluded.bytes,hash=excluded.hash,at=excluded.at,tombstone=NULL`)
+        .run(ledgerRef, session.id, 'signal-ledger', bytes, digest, at);
+      signalLedger = { contentRef: ledgerRef, hash: digest };
+    } else this.db.prepare('UPDATE content SET bytes=NULL,tombstone=? WHERE id=? AND tombstone IS NULL').run(at, ledgerRef);
+    const metadata = { ...session, signalLedger, transcript: session.transcript.map(t => this.#metadata(session.id, 'turn.final', t)) };
     for (const key of ['identity', 'library']) if (session[key]) {
       const row = this.db.prepare("SELECT event FROM events WHERE session_id=? AND json_extract(event,'$.type')=? ORDER BY seq DESC LIMIT 1").get(session.id, `${key}.state`);
       metadata[key] = row ? JSON.parse(row.event).data : null;
@@ -730,6 +749,11 @@ export class SQLiteStorage {
     if (type === 'turn.final' && (session.transcript.length >= 500 ||
       session.transcript.reduce((n, t) => n + (t.content?.length ?? 0), 0) + data.content.length > 250_000)) {
       throw new RangeError('Transcript limit');
+    }
+    if (type === 'understanding.updated' && !data.erased && !data.draft) {
+      // Assign sequence/order before storing the event, so snapshots, SSE,
+      // reducer replay and exports all use the same authoritative projection.
+      data = applyEvent(session, { type, data, seq: session.seq + 1 }).understanding;
     }
     const event = { sessionId: session.id, seq: session.seq + 1, generation: 0, type,
       at: new Date(this.now()).toISOString(), data: this.#metadata(session.id, type, data, session.seq + 1) };

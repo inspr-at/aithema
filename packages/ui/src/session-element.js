@@ -1,3 +1,4 @@
+import { SignalList } from './signal-list.js';
 import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
@@ -103,6 +104,7 @@ export class AithemaSession extends HTMLElement {
   #consentRefresh;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
+  #signals; #signalState; #signalLiveSeq = null;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
   #clarifyDiagnostics = new Map();
@@ -169,6 +171,8 @@ export class AithemaSession extends HTMLElement {
       if (this.#concept) this.#concept.sessionToken = sessionToken;
       this.#repaintLocale(copy); return;
     }
+    this.#signalState = this.#session?.id === session.id ? this.#signals?.state : undefined;
+    this.#signals?.destroy(); this.#signalLiveSeq = null;
     const returningStart = this.#session ? null : this.#readStartIntent(session.id);
     if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
@@ -260,6 +264,7 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    this.#signals?.suspend();
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
@@ -751,7 +756,7 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
-          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
+          <section class="signals-section"><h3 id="signals-title" data-copy="signals"></h3><ul class="signals" id="signals-list" aria-labelledby="signals-title"></ul><button class="signals-toggle" type="button" aria-controls="signals-list" aria-expanded="false" hidden></button></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
@@ -774,6 +779,7 @@ export class AithemaSession extends HTMLElement {
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" data-footer-popup hidden><slot name="legal"></slot><button class="legal-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="legal-popup"><span id="legal-label" data-copy="legal"></span>${icon('chevron')}</button><div class="footer-popup legal-popup" id="legal-popup" role="dialog" aria-label="${this.#copy.legal}" hidden></div></div></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
+    this.#signals = new SignalList(root.querySelector('.signals-section'), { state: this.#signalState, anchor: update => this.#anchored(update) });
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#followsTranscript(),
       onResize: ({ following }) => { if (following && this.#followsTranscript()) this.#scrollToLatest(); } });
@@ -1452,6 +1458,9 @@ export class AithemaSession extends HTMLElement {
     if (id !== this.#session.id || this.#erased) return;
     this.#clearStartIntent();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
+    const signals = root.querySelector('.signals-section');
+    signals.style.minHeight = `${signals.getBoundingClientRect().height}px`;
+    this.#signals.clear();
     const remembered = this.#erasedIds.get(id);
     this.#erased = { id, via, stage: workspace.dataset.stage, understanding: workspace.dataset.understanding,
       usedUp: this.#host?.usedUp ?? false, endReason: this.#host?.endReason ?? null,
@@ -2441,8 +2450,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     root.querySelector('.summary-text').textContent = summary ? u.summary : '';
-    reconcile(root.querySelector('.signals'), textKeys(u.signals),
-      () => element('li'), (row, value) => setText(row, value));
+    this.#signals.update(this.#session, copy, { live: this.#signalLiveSeq === this.#session.seq });
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);
@@ -3391,6 +3399,7 @@ export class AithemaSession extends HTMLElement {
       }
       const presetBefore = this.#session.processingPreset, settingsBefore = this.#session.settings;
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
+      if (event.type === 'understanding.updated' && !event.data.draft) this.#signalLiveSeq = event.seq;
       // Every acknowledged journal event is a floor for older snapshot responses, including
       // the locale acknowledgement and a first turn arriving while that response is in flight.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
