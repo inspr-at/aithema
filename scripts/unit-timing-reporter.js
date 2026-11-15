@@ -19,7 +19,7 @@ export default async function* unitTimings(source) {
   }
   for await (const { type, data } of source) {
     if (output && type === 'test:fail') {
-      const error = data.details?.error, describe = value => {
+      const error = data.details?.error?.cause ?? data.details?.error, describe = value => {
         try { return JSON.stringify(value)?.slice(0, 4000); } catch { return '[not serializable]'; }
       };
       appendFileSync(resolve(directory, 'failures.jsonl'), JSON.stringify({ type, name: data.name,
