@@ -1126,3 +1126,6 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
   });
   assert.equal(globalThis.navigationInterceptionError, undefined);
 });
+
+// Keep transcript/dock geometry cases in this measured browser shard.
+import './transcript-composer-cases.js';

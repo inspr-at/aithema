@@ -57,6 +57,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       const { locale, theme, voice, card, turns, visuals } = options;
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+      const { inputRevision } = await import('/packages/core/src/session.js');
       const s = structuredClone(globalThis.composerSeed); s.seq = 10; s.locale = locale; s.inputRevision = 1; s.settings.origin = 'chosen';
       s.transcript = Array.from({ length: turns }, (_, i) => ({ id: `t${i}`, role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine kurze Nachricht.' : 'A short message.' }));
       s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'images', 'html'].map(key => [key, { available: ['text', 'analysis'].includes(key) || voice && key === 'voice' || visuals && key === 'images', reason: 'not configured' }]));
@@ -74,7 +75,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       c.configure({ copy, session: s, ...(voice ? { voiceClient: { manifest, async start() { throw new Error('No voice calls in layout fixtures'); } } } : {}) });
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
-      if (card) c.receive({ seq: 11, type: 'turn.final', data: { id: 'question', role: 'assistant', inputRevision: c.session.inputRevision,
+      if (card) c.receive({ seq: 11, type: 'turn.final', data: { id: 'question', role: 'assistant', inputRevision: inputRevision(c.session),
         content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
         options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
     }, { locale, theme, voice, card, turns, visuals });
@@ -110,6 +111,9 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       await capture(`ait-511-${locale}-${theme}-${width}-short`);
       await draft(page, 12); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-grown`);
       await draft(page, 30); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-capped`);
+      await reset(width, width === 390 ? 844 : 900, locale, theme, { card: true });
+      await capture(`ait-511-${locale}-${theme}-${width}-card`);
+      await draft(page, 30); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-card-capped`);
     });
   }
   for (const voice of [false, true]) await t.test(`1024x640 question card stays reachable voice=${voice}`, async () => {
@@ -148,6 +152,38 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     await shadow(page, c => c.shadowRoot.querySelector('form.composer').requestSubmit());
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value === ''); await settleEvidenceFrame(page);
     assert.ok((await geometry(page)).boxes.textarea.height < grown.boxes.textarea.height, 'successful send resets size');
+  });
+  await t.test('resting transcript pointer preserves rows during growth and recovery notice; Latest appears', async () => {
+    await reset(1440, 900, 'en', 'light', { voice: true, turns: 22 });
+    const target = await shadow(page, c => {
+      const shell = c.shadowRoot.querySelector('.transcript-shell'); shell.scrollTop = Math.max(0, shell.scrollTop - 90);
+      const bounds = shell.getBoundingClientRect();
+      const row = [...shell.querySelectorAll('.turn')].find(n => n.getBoundingClientRect().top > bounds.top + 20);
+      return { id: row.dataset.id, box: row.getBoundingClientRect().toJSON() };
+    }); positive(target.box, 'pointer row');
+    await page.mouse.move(target.box.x + 12, target.box.y + 12); await settleEvidenceFrame(page);
+    await draft(page, 12); await settleEvidenceFrame(page);
+    const after = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
+    positive(after, 'pointer row after growth'); assert.ok(Math.abs(after.top - target.box.top) <= .5, 'resting row remains still');
+    assert.equal((await geometry(page)).jump, 'visible', 'Latest offers the newly occluded tail');
+    const beforeNotice = await geometry(page);
+    await shadow(page, c => { c.shadowRoot.querySelector('.voice-notice--recovered').textContent = 'Connection recovered.'; });
+    await settleEvidenceFrame(page); const afterNotice = await geometry(page); stable(beforeNotice, afterNotice, 'async notice');
+    const row = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
+    positive(row, 'pointer row after notice'); assert.ok(Math.abs(row.top - after.top) <= .5, 'notice preserves pointer row');
+    records.push({ label: 'pointer', target, after, row, beforeNotice, afterNotice });
+  });
+  await t.test('device send resets height after canonical acceptance', async () => {
+    await reset(1440, 900);
+    await shadow(page, c => {
+      const session = structuredClone(c.session); session.processingPreset = 'device';
+      session.featureMatrix.device = { text: { available: true } };
+      c.configure({ session, deviceReasoning: { id: 'fixture', model: 'fixture', async connect() {}, async *stream() { yield JSON.stringify({ content: 'Fixture reply.', question_short: null, options: [] }); } } });
+    });
+    await draft(page, 12); await settleEvidenceFrame(page); const before = await geometry(page);
+    await shadow(page, c => c.shadowRoot.querySelector('form.composer').requestSubmit());
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value === '');
+    await settleEvidenceFrame(page); assert.ok((await geometry(page)).boxes.textarea.height < before.boxes.textarea.height, 'device clears size');
   });
   if (evidence) await writeFile(join(evidence, 'ait-511-513-rects.json'), JSON.stringify(records, null, 2));
 });
