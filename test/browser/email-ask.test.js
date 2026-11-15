@@ -64,7 +64,7 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
       if (path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: c.session.featureMatrix });
       if (path.endsWith('/visitor/email')) {
         state.visitorReads++;
-        if (method === 'PUT') { state.requests.push('save'); state.noticeVersion = JSON.parse(init.body).noticeVersion; while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails) return Response.json({ error: 'unavailable' }, { status: 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
+        if (method === 'PUT') { state.requests.push('save'); state.noticeVersion = JSON.parse(init.body).noticeVersion; while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails || state.saveStatus) return Response.json({ error: 'unavailable' }, { status: state.saveStatus ?? 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: true });
       }
       if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true, ...(emailOffer ? { visitorEmail: { canSave: true, canDelete: true } } : {}) }); }
@@ -544,9 +544,27 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     baseline = after; await shot('capture');
     await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'invalid'; row.querySelector('form').requestSubmit(); });
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').getAttribute('aria-invalid')), 'true'); await shot('invalid');
+    for (const status of [400, 503]) {
+      await page.evaluate(status => { window.ait164.saveStatus = status; }, status);
+      await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled);
+      const failure = await shadow(page, async c => {
+        const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`), row = c.shadowRoot.querySelector('.email-offer');
+        return { text: row.querySelector('.email-offer__message').textContent, invalid: row.querySelector('input').getAttribute('aria-invalid'),
+          inputHidden: row.querySelector('input').hidden, invalidCopy: copy.hostSurface.verify.invalid, failedCopy: copy.hostSurface.email.failed };
+      });
+      assert.equal(failure.text, status === 400 ? failure.invalidCopy : failure.failedCopy);
+      assert.equal(failure.invalid, String(status === 400)); assert.equal(failure.inputHidden, false);
+      assert.equal(await page.evaluate(() => window.ait164.address), null);
+      assert.equal(await page.evaluate(() => window.ait164.requests.includes('link')), false);
+      await shot(status === 400 ? 'save-refused' : 'save-failed');
+    }
+    await page.evaluate(() => { window.ait164.saveStatus = null; });
     await page.evaluate(() => { window.ait164.saving = true; window.ait164.linkFails = true; });
     await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled); await shot('saving');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled);
+    assert.equal(await shadow(page, async c => { const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`); return c.shadowRoot.querySelector('.email-offer__message').textContent === copy.hostSurface.email.saving; }), true);
+    await shot('saving');
     await page.evaluate(() => { window.ait164.saving = false; });
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled && window.ait164.requests.includes('link'));
     await shot('delivery-failed');
