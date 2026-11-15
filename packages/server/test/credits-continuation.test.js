@@ -4,6 +4,9 @@ import { createCredits, reduceCredits, creditsView } from '@inspr/aithema-core';
 import { SQLiteStorage } from '../src/storage.js';
 import { createVoiceCap } from '../src/voice-cap.js';
 import { createComposedVoice } from '../src/composed/server.js';
+import { temporaryDb } from '../../../test/helpers.js';
+import { createDemoHost } from '../../../demo/host-ports.js';
+import { createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
 import { createConversationLimits } from '../src/conversation-limits.js';
 
 const HOUR = 3_600_000, epoch = 1_800_000_000_000;
@@ -85,4 +88,41 @@ for (const hold of ['paused', 'waiting']) test(`AIT-508: composed idle ${hold} s
   assert.equal(reports.length, 1); assert.equal(reports[0].closureConfirmed, true);
   assert.equal(cap.snapshot().reservedMilliseconds, 0); assert.equal(cap.snapshot().spentMilliseconds, 120_000);
   await call.close(); assert.equal(reports.length, 1);
+});
+
+test('AIT-508: persisted active guard migrates after downtime and stays untimed after downgrade restart', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: epoch });
+  const path = await temporaryDb(); let storage, limits;
+  t.after(() => { limits?.close(); storage?.close(); });
+  storage = new SQLiteStorage(path); limits = createConversationLimits({ storage, now: Date.now });
+  const id = storage.create({ ownerToken: 'fixture-owner' }).id; limits.start(id);
+  limits.close(); storage.close(); t.mock.timers.tick(2 * HOUR);
+  storage = new SQLiteStorage(path); limits = createConversationLimits({ storage, now: Date.now });
+  limits.configure({ conversationLimit: 'credits' }); limits.resume();
+  assert.equal(storage.creditState(id).timed, false); assert.equal(storage.creditState(id).status, 'active');
+  limits.close(); storage.close(); t.mock.timers.tick(HOUR);
+  storage = new SQLiteStorage(path); limits = createConversationLimits({ storage, now: Date.now }); limits.resume();
+  assert.doesNotThrow(() => limits.assertOpen(id)); assert.equal(limits.deadline(id), Infinity);
+  assert.equal(storage.read(id).filter(e => e.type === 'credits.guard-migrated').length, 1);
+});
+test('AIT-508: opted-in host accepts text after two hours with the same conversation and credits', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: epoch });
+  const storage = new SQLiteStorage(), now = Date.now;
+  const host = { ...createDemoHost({ storage, now, ownerGuard: false }), conversationLimit: 'credits' };
+  const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: now(), expiresAt: now() + 60_000 }) };
+  const runtime = createPluginRuntime({ storage, now, consent, presets: mockPresets() });
+  const handlers = createHandlers({ storage, host, consent, pluginRuntime: runtime, log() {} });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const call = (path, body) => handlers.handle(new Request(`http://local${path}`, { method: 'POST',
+    headers: { 'x-aithema-session-token': 'fixture-owner' }, body: JSON.stringify(body) }));
+  const session = await (await call('/api/sessions', {})).json();
+  for (const [index, content] of ['Initial requirements', 'Continue after the idle tab'].entries()) {
+    if (index) t.mock.timers.tick(2 * HOUR);
+    assert.equal((await call(`/api/sessions/${session.id}/turns`, { clientEventId: `turn-${index}`, content })).status, 200);
+    await handlers.idle();
+  }
+  const current = storage.get(session.id);
+  assert.equal(current.credits.status, 'active'); assert.equal(current.credits.remainingMs, null);
+  assert.equal(current.transcript.filter(t => t.role === 'user').length, 2);
+  assert.equal(storage.read(session.id).some(e => e.type === 'conversation.end-requested'), false);
 });
