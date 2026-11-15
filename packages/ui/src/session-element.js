@@ -2229,6 +2229,10 @@ export class AithemaSession extends HTMLElement {
       retryNode.removeAttribute('aria-disabled'); retryNode.removeAttribute('aria-busy');
     }
     if (itemRetry) retryNode.hidden = true;
+    // Shared assessment recovery keeps its visible Retry until focus acceptance.
+    if (!managedReply && this.#clarifyRequest && !retryNode.hidden) {
+      retryNode.setAttribute('aria-disabled', 'true'); retryNode.setAttribute('aria-busy', 'true');
+    }
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading
     // order. Keep its handler and node while the project action keeps its slot.

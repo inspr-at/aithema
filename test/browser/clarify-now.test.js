@@ -468,7 +468,6 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
           } } }, { status: 202 });
           await c.focusQuestion(item.id);
           c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: revision } });
-          if (state === 'cleared') window.rc24Reset();
         } else if (state === 'focus-retry') {
           // Inject the wait deadline; no calendar or elapsed wall-clock comparison.
           const original = window.setTimeout;
@@ -483,8 +482,20 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
           await c.focusQuestion(item.id).catch(() => {});
         }
       }, state);
+      let beforeClear;
+      if (state === 'cleared') {
+        await settle(page); beforeClear = await boxes(page);
+        await shadow(page, c => {
+          window.rc24Post = () => new Promise(resolve => { window.rc24Release = resolve; });
+          c.shadowRoot.querySelector('.clarify-action').click();
+        });
+      }
       await settle(page);
       const after = await boxes(page, state === 'unavailable');
+      if (beforeClear) for (let i = 0; i < beforeClear.length; i++) {
+        assert.ok(beforeClear[i].width > 0 && beforeClear[i].height > 0, `${beforeClear[i].selector}: positive before clearing`);
+        for (const key of ['x', 'y', 'width', 'height']) assert.equal(after[i][key], beforeClear[i][key], `exact 0 px while clearing/${beforeClear[i].selector}/${key}`);
+      }
       for (let index = 0; index < before.length; index++) {
         assert.ok(before[index].width > 0 && before[index].height > 0);
         assert.ok(after[index].width > 0 && after[index].height > 0);
@@ -504,13 +515,16 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       const check = await shadow(page, c => {
         const row = c.shadowRoot.querySelector('.open-question'), line = row.querySelector('.question-state');
         return { state: row.dataset.state, noOverflow: line.scrollWidth <= line.clientWidth + 0.5,
-          text: row.textContent, posts: window.rc24Posts.length, actionHidden: row.querySelector('button').hidden };
+          text: row.textContent, posts: window.rc24Posts.length, postPaths: window.rc24Posts,
+          statusHidden: row.querySelector('.question-status').hidden, actionHidden: row.querySelector('button').hidden };
       });
-      if (state === 'wait' || state === 'cleared') assert.equal(check.state, state === 'wait' ? 'requesting' : 'rest');
+      if (state === 'wait' || state === 'cleared') assert.equal(check.state, 'requesting');
       else assert.equal(check.state, state);
       assert.ok(check.noOverflow); assert.ok(!check.text.includes('undefined'));
       if (state === 'rest') assert.equal(check.posts, 0);
-      else assert.equal(check.posts, state === 'unavailable' ? 2 : 1);
+      else if (state === 'cleared') {
+        assert.equal(check.posts, 2); assert.ok(check.postPaths[1].endsWith('/retry')); assert.equal(check.statusHidden, true);
+      } else assert.equal(check.posts, state === 'unavailable' ? 2 : 1);
       if (state === 'unavailable') assert.ok(check.actionHidden);
       else if (['retry', 'focus-retry'].includes(state)) assert.match(check.text, locale === 'de' ? /Gerade nicht/ : /Not now|Couldn't ask just now/);
       if (['retry', 'focus-retry'].includes(state)) {
@@ -526,7 +540,7 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
         assert.ok(inline[2].x - inline[0].right <= 18, 'status and Retry share an adjacent separator');
         check.inline = inline;
       }
-      rects.push({ locale, theme, width, state, resting, before, after, repainted, check });
+      rects.push({ locale, theme, width, state, resting, before, beforeClear, after, repainted, check });
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
         await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait503-${locale}-${theme}-${width}-${state}.png`) });
