@@ -1,3 +1,4 @@
+import { reasoningInputBound } from './image-input.js';
 import { operationScope, matchesSchema } from './reasoning.js';
 import { beginInvocation, normalizedError, PluginError } from './invocation.js';
 import { untilCancelled } from './cancellation.js';
@@ -46,7 +47,7 @@ export async function responseText(response, limit = 1_000_000, { signal, observ
 // Shared wire parser; no retries. It is also used by the browser loopback half.
 export function createChatCompletions({ manifest, binding, resolveSecret, fetchImpl = globalThis.fetch,
   providerOptions = () => ({}), transportOptions = {}, billable = true, spendCap,
-  spendCeiling = () => binding.maxMicro, prepareBody = body => body, observedCost, uncertainCeiling, authoritativeCost = false,
+  spendCeiling = () => binding.maxMicro, prepareBody = body => body, prepareDispatch = body => body, observedCost, uncertainCeiling, authoritativeCost = false,
   streamSchema = false }) {
   const label = manifest.vendor.name;
   const payloadFor = (request, extra) => prepareBody({ model: binding.model,
@@ -127,11 +128,13 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     scope.signal.throwIfAborted();
     const key = resolveSecret?.(binding.secretRef);
     if (billable && (typeof key !== 'string' || !key || /[\r\n]/u.test(key))) throw new PluginError('auth');
-    const payload = payloadFor(request, extra);
+    const estimated = payloadFor(request, extra);
+    spend.ceiling = spendCeiling(estimated);
+    spend.inputBound = reasoningInputBound(estimated.messages, binding.imageInput);
+    const payload = await prepareDispatch(estimated, spend.options);
     const body = JSON.stringify(payload);
-    spend.ceiling = spendCeiling(payload);
-    spend.inputBound = new TextEncoder().encode(JSON.stringify(payload.messages)).byteLength;
     scope.signal.throwIfAborted();
+    if (spend.options.imageDispatchCurrent?.() === false) throw new PluginError('not-admitted', 'image input changed before dispatch');
     if (spendCap) spend.reservation = spendCap.reserve(spend.ceiling, spend.metadata);
     invocation.dispatch();
     spend.dispatched = true;

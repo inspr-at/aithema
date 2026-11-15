@@ -14,7 +14,7 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
   if (binding.plugin !== 'openrouter' || !binding.model.includes('/')) throw new TypeError('OpenRouter binding requires model id');
   if (!Number.isSafeInteger(uncertainEstimateMicro) || uncertainEstimateMicro < 1) throw new TypeError('Invalid uncertain cost estimate');
   const price = modelPrice(prices, binding.model);
-  return { bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices, uncertainEstimateMicro }),
+  return { imageInput: true, bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices, uncertainEstimateMicro }),
     priceReviewed: model => modelPriceReviewed(prices, model),
     // Compatibility fallback for callers without a private lane binding. New
     // requests use the full lane price bound below, never this flat USD amount.
@@ -30,23 +30,40 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
     // reasoning as well as visible output. Byte estimates stay within the
     // reservation; real usage floors remain uncapped. Only an authoritative
     // receipt can release the provider cap.
-    uncertainCeiling: body => Math.min(binding.maxMicro, requestCeilingMicro(body, price)),
+    uncertainCeiling: body => Math.min(binding.maxMicro, requestCeilingMicro(body, price, binding.imageInput)),
     observedCost: usage => tokenCeilingMicro(usage.inputTokens, Math.max(1, usage.outputTokens), price),
     spendCeiling(body) {
       // Used both by admission estimates and immediately before account reserve /
       // provider dispatch. Free prompt pricing cannot relax the technical bound.
-      if (binding.maxInputTokens !== undefined && requestInputTokens(body) > binding.maxInputTokens) {
+      if (binding.maxInputTokens !== undefined && requestInputTokens(body, binding.imageInput) > binding.maxInputTokens) {
         throw new PluginError('not-admitted', 'OpenRouter input token ceiling exceeded');
       }
-      const ceiling = requestCeilingMicro(body, price);
+      const ceiling = requestCeilingMicro(body, price, binding.imageInput);
       if (ceiling > binding.maxMicro) throw new PluginError('not-admitted', 'OpenRouter request exceeds spend reservation');
       return ceiling;
+    },
+    async prepareDispatch(body, options) {
+      const messages = [];
+      for (const message of body.messages) {
+        const { images, ...plain } = message;
+        if (!images?.length) { messages.push(plain); continue; }
+        if (!binding.imageInput || typeof options.resolveImage !== 'function') throw new PluginError('not-admitted', 'image input reference resolver required');
+        const content = [{ type: 'text', text: plain.content }];
+        for (const image of images) {
+          const bytes = await options.resolveImage(image);
+          options.signal?.throwIfAborted();
+          if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > 8 * 1024 * 1024 || !['image/jpeg', 'image/png'].includes(image.mediaType)) throw new PluginError('not-admitted', 'image input reference unavailable');
+          content.push({ type: 'image_url', image_url: { url: `data:${image.mediaType};base64,${Buffer.from(bytes).toString('base64')}` } });
+        }
+        messages.push({ ...plain, content });
+      }
+      return { ...body, messages };
     },
     // Mandatory-reasoning models require a supported effort instead of none.
     providerOptions: stream => ({ reasoning: binding.effort === 'none' ? { enabled: false } : { effort: binding.effort },
       usage: { include: true },
       provider: { ...binding.routing, require_parameters: true, allow_fallbacks: false,
         // verified live 2026-10-09: USD per MILLION tokens; enforced before dispatch.
-        max_price: providerMaxPrice(price) },
+        max_price: { ...providerMaxPrice(price), ...(binding.imageInput ? { image: (binding.imageInput.perImageMicro ?? 0) / 1_000_000 } : {}) } },
       ...(stream ? { stream_options: { include_usage: true } } : {}) }) }) };
 }
