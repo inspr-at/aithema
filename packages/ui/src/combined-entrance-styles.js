@@ -1,7 +1,7 @@
 // The opt-in entrance and live call share one bottom-anchored composer.
 export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:1rem; }
-.workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; }
+.workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; gap:8px; }
 /* The whole entrance/transcript surface scrolls above the reserved input row. */
 .workspace[data-entrance="combined"] .conversation-scroll { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:auto; scrollbar-gutter:stable; gap:.85rem; }
 .workspace[data-entrance="combined"] .intro { flex:none; min-height:0; grid-template-columns:minmax(0,1fr); padding:.5rem 0; gap:.5rem; }
@@ -15,6 +15,9 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .concept-thread:has([data-host-opener]) { order:-1; min-height:6rem; }
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:not(:has(ol > li)) { display:none; }
 .workspace[data-entrance="combined"] .transcript-shell { display:block; height:100%; min-height:0; }
+/* Canonical replies gain playback controls. Reserve their row before input so
+   persistence cannot resize the welcome bubble or shift the content below it. */
+.workspace[data-entrance="combined"] [data-host-opener]:not(:has(.reply-actions))::after { content:''; display:block; height:44px; }
 .workspace[data-entrance="combined"] .composer-dock { display:block; flex:none; }
 .workspace[data-entrance="combined"] .composer-shell { display:grid; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;
@@ -39,6 +42,9 @@ export const combinedEntranceStyles = `
 @media(max-width:600px) {
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
+  .workspace[data-entrance="combined"] [data-host-opener] { padding-block:6px; }
+  .workspace[data-entrance="combined"] [data-host-opener] > strong { margin-bottom:0; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer-notice { height:7.25em; }
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px; }
   .workspace[data-entrance="combined"][data-phone-short] textarea { height:44px; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
