@@ -10,6 +10,7 @@ for (const format of ['png', 'jpeg', 'webp', 'gif']) test(`AIT-510: ${format} no
     { signal: new AbortController().signal, deadlineAt: Date.now() + 25000 });
   assert.equal(image.status, 'staged-ready');
   assert.ok(image.w > 0 && image.h > 0 && Math.max(image.w, image.h) <= 1568 && image.w * image.h <= 1_150_000);
+  if (format !== 'gif') assert.ok(image.h > image.w, 'EXIF orientation is applied before dimensions are bounded');
   const metadata = await sharp(image.bytes).metadata();
   assert.equal(metadata.exif, undefined); assert.equal(metadata.orientation, undefined);
   assert.ok(['jpeg', 'png'].includes(metadata.format));

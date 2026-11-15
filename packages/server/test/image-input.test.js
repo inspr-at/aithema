@@ -109,6 +109,9 @@ test('AIT-510: fixture pixels reach reply and final understanding only after ima
   const route = `http://localhost/api/sessions/${session.id}/uploads/${staged.id}/image`;
   assert.equal((await handlers.handle(new Request(route))).status, 404);
   const imageResponse = await handlers.handle(ownedRequest(route)); assert.equal(imageResponse.status, 200); assert.equal(imageResponse.headers.get('cache-control'), 'no-store');
+  const servedImage = Buffer.from(await imageResponse.arrayBuffer());
+  const servedPixels = await sharp(servedImage).resize(1, 1).removeAlpha().raw().toBuffer();
+  assert.ok(servedPixels[0] > 200 && servedPixels[1] < 70 && servedPixels[2] < 70, 'the owner route serves normalized fixture pixels');
   const send = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/turns`, { method: 'POST', body: JSON.stringify({ clientEventId: 'sent-image', content: '', attachments: [staged.id] }) }));
   assert.equal(send.status, 200); await handlers.idle();
   assert.ok(seen.some(call => call.stream && call.red), 'reply depends on the actual fixture pixels');
@@ -118,6 +121,8 @@ test('AIT-510: fixture pixels reach reply and final understanding only after ima
   assert.equal(exported.status, 200);
   const files = unzip(Buffer.from(await exported.arrayBuffer()), { binary: true });
   assert.ok(Object.keys(files).some(path => path.startsWith('images/')));
+  const exportedImage = Object.entries(files).find(([path]) => path.startsWith('images/'));
+  assert.deepEqual(Buffer.from(exportedImage[1]), servedImage, 'export contains the exact normalized image bytes');
   assert.equal(JSON.stringify(storage.db.prepare('SELECT * FROM events').all()).includes(source.toString('base64')), false);
   const revisionBeforeRefusals = inputRevision(storage.get(session.id)), callsBeforeRefusals = seen.length;
   for (const [name, type, bytes] of [['clipboard', 'image/heic', Buffer.from('excluded image fixture')],
