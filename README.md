@@ -715,7 +715,7 @@ An empty understanding after invalidation has no origin metadata. Older generate
 records receive the origin label on read; unknown producers remain omitted.
 
 `transcript.json` carries these fields per assistant turn, `transcript.md` visibly
-marks each assistant turn `(AI-generated)`, and `understanding.json` carries the
+marks generated assistant turns `(AI-generated)` (opted-in [host openers](#optional-host-opener) are labeled `(host)`), and `understanding.json` carries the
 generated understanding's fields. Markdown message bodies are literal `text`
 code blocks whose backtick fence exceeds every backtick run in the message, so
 content cannot forge role headings or AI-origin labels. JSON retains the original
@@ -773,7 +773,7 @@ over the bundle. Each part that is missing, empty or only whitespace falls back,
 first to the bundle, then to the default for the session language. The defaults
 live in `packages/core/src/ai-notice.js` (`AI_NOTICE`, `aiNotice`, `aiNoticeText`).
 
-The spoken opener is separate from the visual notice (AIT-175). The neutral core
+The spoken opener is separate from the visual notice (AIT-175), except for opted-in [host openers](#optional-host-opener) without a custom voice presentation. The neutral core
 `aiNoticeText(locale)` default says "Hello, this is an AI assistant. How can I
 help you?" or "Hallo, hier ist die KI-Assistenz. Wie kann ich Ihnen helfen?".
 Hosts supply `aiNoticeText(locale, {opener})`; blank or missing openers fall back
@@ -3871,3 +3871,19 @@ its wallet reports `creditScope: 'session'`. This is a display receipt, never
 an admission override. Host privacy links use the existing legal slot with
 `data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
 German, German digit grouping and a nonbreaking space before `Credits`.
+
+### Optional host opener
+
+`createHandlers({ opener: { en?: string, de?: string }, ... })` opts a host into a plain-text first assistant message. Each locale is limited to 1000 characters; blank or missing copy disables the opener for that locale, with no other-language fallback. The snapshot publishes only the current locale as `opener: { text, locale }`. Opted-in hosts' public `session.locale-changed` events also carry `data.opener` with that resolved value, or `null` when the new locale has no opener. The requesting tab and SSE peers update the render-only row from this server-owned field. It is not persisted in locale journal metadata. There is no browser-writable opener route.
+
+The UI shows the opener after the legacy Start action, and `configure({ entrance: 'combined', ... })` exposes the render-only opener before input. Missing locale copy reserves no entrance transcript space. It remains a render-only row until the first accepted text turn, the first completed document upload (accepted or unreadable), or a successful voice connection. Document completion claims the same once-only opener in its transaction, before the terminal upload event and any reply dispatch; pending, refused and withdrawn uploads do not claim it. Device processing inserts it locally before the first device turn. It never consumes a model invocation. The transcript region clamps the opener to six lines; the existing localized **Read full reply** control opens its complete text without moving the composer, including when no voice provider is configured. Its heading and explanatory note use the additive `hostOpenerTitle` and `hostOpenerTextOnly` EN/DE copy keys; host overrides keep winning. Full-reply copies are closed and cleared when input is withdrawn, consent is revoked, or the conversation is erased.
+
+Persistence uses one assistant turn with ID `host:opener`, `origin: 'host'`, and no model, provider or operation identity. Existing nonempty histories receive no inserted opener. Once persisted, it pins the locale like any transcript entry. Core exports `hasVisitorInput(session)` for active user turns or accepted/unreadable documents; host/AI assistant turns, pending documents and withdrawn/erased input do not satisfy it. `hasConversationInput` remains a compatibility alias. The UI preserves an already engaged workspace through withdrawn input, pending uploads and ordinary assistant greetings/streaming; those display states do not satisfy assessment or admission thresholds. A host-only opener does not reveal the overview. `conversationStarted` keeps its durable locale-locking meaning. UI integrations can use `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` from `packages/ui/src/host-opener.js` for the entrance projection.
+
+The first `/turns` transaction persists opener then user input and broadcasts both journal events in order. For hosts with an opener configured, its JSON response preserves the legacy event-shaped fields and adds `event` (the user event) and `events` (ordered `[opener, turn]`, or `[turn]` when no opener was inserted). Replay returns that same ordered event list. Hosts without an opener retain the exact legacy event response and presentation context. Clients apply every event in `events`, falling back to `[event]` for an older server. The `host:` namespace is reserved and cannot be used in visitor `clientEventId` values.
+
+**Opted-in provenance/export change:** host-authored assistant turns retain `origin: 'host'` in JSON and are labeled `assistant (host)` in Markdown exports. Generated assistant text keeps `origin: 'ai-generated'` and its existing export label. The opener is included as the first assistant turn in model context, with guidance that the host already delivered it and the model should continue without repeating or contradicting it.
+
+**ElevenLabs and AIT-175:** for a host without its own `voice.presentation`, the configured locale opener also replaces the fresh-call spoken greeting. The server validates the existing locale-specific AI disclosure at startup and fails closed before any provider call if it is invalid. This deliberately reverses AIT-175's separation of visual host text and spoken greeting for these opted-in hosts. A supplied presentation keeps winning and makes the opener text-only in voice. A text-first conversation, an earlier connected call (or any earlier logical call under the opted-in credits policy), or an automatic transport repair never speaks the host opener again; continuations use continuation copy and automatic repair stays silent. Recovery and later logical calls under the credits policy do not newly persist the opener either; refused admission and failed startup count as earlier logical calls even when no transcript was stored. Native greeting finals are linked structurally to the canonical opener only when this call was given that opener and no facade completion exists. Heard-prefix corrections retain the original host text and record interruption metadata only, with heard length bounded by the canonical text length.
+
+**Grok:** the opener is shown and included in canonical model context, but remains text-only (`opener: false`); opener speech is a follow-up feature.

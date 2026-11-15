@@ -1,3 +1,4 @@
+import './host-opener-check.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
