@@ -643,7 +643,7 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-    await fixture(page, locale, { delivery: scenario !== 'used-up', emailOffer: { afterMessages: 1 }, initialMessages: 0,
+    await fixture(page, locale, { delivery: scenario !== 'used-up', emailOffer: { afterMessages: scenario === 'refused-focus' ? 2 : 1 }, initialMessages: scenario === 'refused-focus' ? 1 : 0,
       out: scenario.startsWith('used-up'), address: ['saved-address', 'no-next-tier'].includes(scenario) ? 'saved@example.test' : null,
       confirmed: scenario === 'no-next-tier' });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
@@ -674,7 +674,7 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
       rects.push({ label, scenario, state: 'capture-input', targets: [inputSelector], boxes: await sample([inputSelector]) });
       await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), inputSelector);
       assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), inputSelector.slice(1));
-      const targets = ['dialog.settings', '.display-foot'], before = await sample(targets);
+      const targets = [scenario === 'used-up-mail' ? 'dialog.verify-dialog' : 'dialog.settings', '.display-foot'], before = await sample(targets);
       rects.push({ label, scenario, state: 'upgrade', targets: ['.composer-out__upgrade'], boxes: upgrade });
       await shot('capture');
       await shadow(page, (c, selector) => { const input = c.shadowRoot.querySelector(selector); input.value = 'recovered@example.test'; input.form.requestSubmit(); }, inputSelector);
