@@ -86,7 +86,7 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
     await frames(page);const interrupted=await rects(page);stable(persisted,interrupted,'interrupted');
     assert.equal(await page.evaluate(() => component.session.transcript[0].content),text);
     await shot('interrupted');
-    const long=(text+' ').repeat(10).slice(0,1000);await seed(long);const longBoxes=await rects(page);stable(shown,longBoxes,'long');
+    const long=(text+'\n').repeat(10).slice(0,1000);await seed(long);const longBoxes=await rects(page);stable(shown,longBoxes,'long');
     assert.equal(await page.evaluate(() => getComputedStyle(component.shadowRoot.querySelector('[data-id="host:opener"] .turn-text')).webkitLineClamp),'6');
     await shot('long');
     await page.click('aithema-session >>> .host-opener-more');
