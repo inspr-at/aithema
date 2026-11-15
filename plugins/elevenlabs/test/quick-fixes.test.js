@@ -489,3 +489,15 @@ for (const shape of ['tool', 'end_call', 'close-code']) test(`AIT-508: silence $
   assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
   assert.ok(local.observed.some(e => e.type === 'ended' && e.reason === 'idle'));
 });
+
+for (const shape of ['end_call', 'close-code']) test(`AIT-508: SDK generic ${shape} after 120 seconds silence is idle, never recovery`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  const local = await setup(t); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  t.mock.timers.tick(120_000);
+  local.sdk.starts[0].onDisconnect(shape === 'end_call'
+    ? { reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } }
+    : { reason: 'agent', closeCode: 1000, context: { type: 'close', code: 1000 } });
+  await flush(); await flush();
+  assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
+});

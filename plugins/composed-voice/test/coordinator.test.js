@@ -454,3 +454,24 @@ for (const hold of ['listening', 'paused', 'waiting']) test(`AIT-508: composed $
   t.mock.timers.tick(1); await Promise.resolve();
   assert.equal(h.coordinator.state.state, 'ended'); assert.equal(events.at(-1).reason, 'idle');
 });
+
+for (const voiceIdleSeconds of [59, 3601, 120.5, null, '120']) test(`AIT-508: invalid composed idle duration ${voiceIdleSeconds} fails closed`, t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  assert.throws(() => fixture(t, { voiceIdleSeconds }), TypeError);
+});
+test('AIT-508: accepted typed input resets composed idle; assistant output cannot be cut by idle', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const release = Promise.withResolvers(), entered = Promise.withResolvers();
+  t.after(() => release.resolve());
+  const events = [], h = fixture(t, { voiceIdleSeconds: 60, spendDeadlineAt: Date.now() + 900_000,
+    browserLivenessDeadlineAt: Date.now() + 900_000, replyExecutor: { async *execute() {
+      yield { type: 'operation', replyId: 'long-reply' }; yield { type: 'delta', text: 'Still speaking. ' };
+      entered.resolve(); await release.promise;
+      yield { type: 'completion', replyId: 'long-reply', text: 'Still speaking. ' };
+    } }, relay: { audio() {}, silence() {}, event: e => events.push(e) } });
+  t.mock.timers.tick(59_000);
+  await h.coordinator.sendText('Continue', { deliveryId: 'typed-continue' }); await entered.promise;
+  t.mock.timers.tick(120_000); assert.equal(h.coordinator.state.state, 'active');
+  release.resolve(); await h.coordinator.idle(); t.mock.timers.tick(1); await Promise.resolve();
+  assert.equal(h.coordinator.state.state, 'ended'); assert.equal(events.at(-1).reason, 'idle');
+});
