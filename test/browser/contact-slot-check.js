@@ -66,6 +66,10 @@ export async function contactSlotCheck(t) {
     const c = document.querySelector('aithema-session'), n = c.querySelector(selector) ?? c.shadowRoot.querySelector(selector);
     return n.checkVisibility({ checkVisibilityCSS: true }) && !n.closest('[inert]');
   }, selector);
+  const sidebarScroll = () => page.$eval('aithema-session', c => {
+    const n = c.shadowRoot.querySelector('.understanding');
+    return { top: n.scrollTop, height: n.clientHeight, contentHeight: n.scrollHeight };
+  });
   const capture = async (name, contactSelector = '#contact-open') => {
     if (!evidence) return;
     await mkdir(join(evidence, 'shots'), { recursive: true });
@@ -140,6 +144,7 @@ export async function contactSlotCheck(t) {
     assert.equal(await visible('#contact-launch'), width < 960, `${name}: launcher follows sidebar mode`);
     const frames = ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.sidebar-contact', '.display-foot', '.composer-shell', '.attach', '.send'];
     const pinned = await rects(frames); positive(pinned, name);
+    const beforeFocus = await sidebarScroll();
     await page.focus('#contact-open'); await page.keyboard.press('Enter');
     assert.equal(await page.$eval('#contact-overlay', d => d.open), true, 'pinned CTA opens the host dialog');
     await page.keyboard.press('Escape');
@@ -147,6 +152,9 @@ export async function contactSlotCheck(t) {
     // Focus scrolling is a visitor action; restore the page before frame comparisons.
     await page.evaluate(() => scrollTo(0, 0)); await settle();
     await capture(`${name}-pinned`);
+    const afterCapture = await sidebarScroll();
+    t.diagnostic(`${name}: sidebar scroll before focus ${JSON.stringify(beforeFocus)}, after focus/capture ${JSON.stringify(afterCapture)}`);
+    assert.equal(afterCapture.top, 0, `${name}: pinned contact focus and capture cannot scroll the sidebar frame`);
     await page.evaluate(() => { document.querySelector('aithema-session').shadowRoot.querySelector('.analysis-content').scrollTop = 600; });
     await settle();
     assert.ok(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.analysis-content').scrollTop > 0));
