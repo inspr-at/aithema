@@ -127,13 +127,26 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     releaseReplyReplay(sessionId, entry);
   };
   let ownerWallet, costRetryOffset = 0, costJob;
-  const admitBudget = async (session, request) => {
+  const freshVoiceReason = sessionId => {
+    if (conversationLimits.policy?.(sessionId) !== 'credits') return null;
+    if (budget.hasUnreconciledVoice(sessionId)) return 'budget reconciling';
+    // Legacy/orphan records without a ledger claim must still prove closure.
+    const pending = storage.voiceCalls(sessionId).some(record => {
+      if (record.attemptId && budget.get(record.attemptId)) return false;
+      const terminal = record.reconciliation ?? record.terminal;
+      return !terminal?.closureConfirmed || terminal.outcome === 'uncertain' || !terminal.usage || terminal.usage.costEstimated === true;
+    });
+    return pending ? 'budget reconciling' : null;
+  };
+  const assertFreshVoice = sessionId => { const reason = freshVoiceReason(sessionId); if (reason) throw new PluginError('not-admitted', reason); };
+  const admitBudget = async (session, request, beforeReserve = () => {}) => {
     conversationLimits.start(session.id);
     const wallet = ownerWallet?.(session);
+    beforeReserve();
     if (!wallet) return budget.admit(request);
-    const verdict = await admitCredits(budget, request, wallet, { beforeReserve: () => conversationLimits.assertOpen(session.id) });
+    const verdict = await admitCredits(budget, request, wallet, { beforeReserve: () => { conversationLimits.assertOpen(session.id); beforeReserve(); } });
     if (!verdict.ok) {
-      conversationLimits.assertOpen(session.id);
+      conversationLimits.assertOpen(session.id); beforeReserve();
       throw new PluginError('not-admitted', verdict.reason);
     }
     return verdict.admission;
@@ -290,6 +303,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   async function evaluate(session, preset, feature, options) {
     const terminalReason = !options.existingCall && conversationLimits.reason(session.id);
     if (terminalReason) return { reason: terminalReason };
+    if (feature === 'voice' && !options.existingCall && !options.voiceContinuation && !options.textReplay) {
+      const reason = freshVoiceReason(session.id); if (reason) return { reason };
+    }
     if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
       (visual(feature) && !session.identity.conceptsUnlocked))) return { reason: 'verification required' };
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
@@ -899,6 +915,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       }
       return result;
     },
+    assertFreshVoice,
     async checkVoice(session, { allowPaused = false, ...options } = {}) {
       conversationLimits.assertOpen(session.id);
       const result = await boundedEvaluate(allowPaused ? { ...session, paused: false } : session,
@@ -1019,9 +1036,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const { maxMicro, maxVisitorMicro, maxMilliseconds, logicalMilliseconds, fundedSeconds: initialFundedSeconds } = voiceAmounts(binding, options);
       let fundedSeconds = initialFundedSeconds;
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
-        voiceEstimate: { upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute },
+        voiceEstimate: { upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
+          ...(conversationLimits.policy?.(session.id) === 'credits' ? { callId: request.callId } : {}) },
         voiceExposure: { maxMicro, maxVisitorMicro },
-        requestSha256: hash(request), bindingSha256: hash(binding) });
+        requestSha256: hash(request), bindingSha256: hash(binding) }, () => { if (!options.voiceContinuation) assertFreshVoice(session.id); });
       const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
       const report = terminal => {
         const receipt = budget.settleVoice(claim.claimId, terminal); reported = true;

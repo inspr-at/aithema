@@ -206,7 +206,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
       emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
       lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() };
-    const state = storage.creditState(id) ?? createCredits({ sessionId: id, ...host.credits });
+    const state = storage.creditState(id) ?? createCredits({ sessionId: id, ...host.credits, conversationLimit: host.conversationLimit });
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
