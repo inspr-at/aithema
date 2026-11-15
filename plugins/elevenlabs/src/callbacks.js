@@ -40,12 +40,12 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs = VOI
         ...(staticSecretRef ? { methodNotAllowedStatus: 404 } : {}) },
       ...(staticSecretRef ? [{ method: 'POST', path: staticPath, handle: facade }] : []),
     ]),
-    prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false }) {
+    prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false, hasPriorCalls = false }) {
       const facadeSecretRef = staticSecretRef ?? 'voice-' + randomUUID();
       const facadeCallId = staticSecretRef ? randomUUID() : undefined;
       // Automatic transport repair stays silent; a visitor's Resume uses host copy.
       const overrides = continuation && !explicitResume ? { agent: { language: locale, firstMessage: '' } }
-        : presentation?.(locale, { hasPriorTurns });
+        : presentation?.(locale, { hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}) });
       return { identity: facadeCallId,
         details: { facadeSecretRef, facadeCallId },
         request: { facadeSecretRef,
