@@ -11,7 +11,8 @@ import { captureEvidence, settleEvidenceFrame, evidenceBrowserArgs } from './sta
 
 // PR artifacts must not enable evidence-only captures or the exhaustive sweep.
 // Run separately on mbp2606 with EVIDENCE_OUT for the original full matrix.
-const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
+const laneEvidenceDirectory = process.env.AITHEMA_EVIDENCE_DIR;
+const evidenceDirectory = fullMatrix ? laneEvidenceDirectory : undefined;
 
 import { browserPath } from '../../scripts/install-test-browser.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
@@ -827,4 +828,301 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
   assert.equal(checks.length, fullMatrix ? 2 : 4, 'every no-drafts locale/theme/width probe completes');
   if (evidence) await writeFile(join(evidence, 'ait-229-checks.json'), JSON.stringify({
     ticket: 'AIT-229', commit: /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], createdAt: new Date().toISOString(), checks, viewport: true, reducedMotion: true, blurred: true, fontStack: 'Chrome baseline' }, null, 2));
+});
+
+test('AIT-512: picks and sends keep the new turn visible without stealing reading position', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-navigation-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  t.after(() => demo.kill());
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome') });
+  t.after(() => browser.close());
+  const page = await browser.newPage(), rectEvidence = [];
+  t.after(async () => { if (laneEvidenceDirectory) await writeFile(join(laneEvidenceDirectory, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2)); });
+  let requests = 0, refuse = false;
+  await page.setRequestInterception(true);
+  page.on('request', request => { void (async () => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/events')) return request.respond({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' });
+    if (/^\/api\/sessions\/[^/]+$/u.test(path) && request.method() === 'GET') {
+      const session = await shadow(page, c => globalThis.navigationSeed ? c.session : null);
+      if (session) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
+    }
+    if (path.endsWith('/turns') && request.method() === 'POST') {
+      requests++;
+      if (refuse) return request.respond({ status: 503 });
+      const body = JSON.parse(request.postData());
+      const event = await shadow(page, (c, body) => ({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: body.clientEventId, role: 'user', content: body.content,
+      } }), body);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(event) });
+    }
+    return request.continue();
+  })().catch(error => { globalThis.navigationInterceptionError = error; }); });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { globalThis.navigationSeed = structuredClone(c.session); c.addEventListener('pointerdown', e => { globalThis.navigationClickPoint = { x: e.clientX, y: e.clientY }; }); });
+  const reset = async width => {
+    refuse = false; requests = 0;
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.mouse.move(0, 0);
+    await page.evaluate(async () => {
+      const { en } = await import('/packages/ui/src/i18n/en.js');
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const c = document.querySelector('aithema-session'), s = structuredClone(globalThis.navigationSeed);
+      s.locale = 'en'; s.seq = 1; s.inputRevision = 1; s.settings.origin = 'chosen';
+      s.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `history-${i}`, role: i % 2 ? 'assistant' : 'user',
+        content: `Earlier turn ${i}. ` + 'A useful detail for the conversation. '.repeat(4) }));
+      s.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: false } };
+      s.understanding = { ...s.understanding, inputRevision: inputRevision(s), draft: false, readinessAssessed: true,
+        summary: 'A website for cushions.', openQuestions: ['Should customers choose their own design?'] };
+      c.configure({ copy: en, session: s });
+      globalThis.navigationPartial = (delta, id = 'navigation-reply') => c.receive({ type: 'turn.partial', data: { id, delta, inputRevision: inputRevision(c.session) } });
+      globalThis.navigationFinal = (patch = {}) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: 'navigation-reply', role: 'assistant', content: 'A short new reply.', inputRevision: inputRevision(c.session),
+        question_short: 'Choose a design?', options: [{ text: 'Finished cushions', likely: true }, { text: 'Choose a design' }], ...patch,
+      } });
+      globalThis.navigationFinal({ id: 'initial-question' });
+    });
+    // Settle only the seeded history. Future replies retain the normal motion policy.
+    await shadow(page, async c => {
+      await document.fonts.ready;
+      await Promise.allSettled(c.shadowRoot.querySelector('.transcript-shell ol').getAnimations({ subtree: true })
+        .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime)).map(animation => animation.finished));
+    });
+    await nextFrame(page);
+  };
+  const snapshot = async () => { const state = await shadow(page, c => {
+    const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), rows = [...shell.querySelectorAll('.turn')];
+    return { scroll: shell.scrollTop, max: shell.scrollHeight - shell.clientHeight,
+      shell: shell.getBoundingClientRect().toJSON(), latest: rows.at(-1).getBoundingClientRect().toJSON(),
+      cardBox: r.querySelector('.qcard').hidden ? null : r.querySelector('.qcard').getBoundingClientRect().toJSON(), reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),
+      compact: r.querySelector('.workspace').hasAttribute('data-question-compact'),
+      pointerHit: globalThis.navigationPointerPoint && r.elementFromPoint(...globalThis.navigationPointerPoint)?.className,
+      composer: r.querySelector('.composer').getBoundingClientRect().toJSON(), dock: r.querySelector('.composer-dock').getBoundingClientRect().toJSON(),
+      jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility, card: !r.querySelector('.qcard').hidden };
+    });
+    positive(state, ['shell', 'latest', 'composer', 'dock', ...(state.cardBox ? ['cardBox'] : [])]);
+    return state;
+  };
+  const positive = (state, names) => { for (const name of names) assert.ok(state[name].width > 0 && state[name].height > 0, `${name} must be a positive box: ${JSON.stringify(state)}`); };
+  const acknowledged = () => page.waitForFunction(() => {
+    const c = document.querySelector('aithema-session'); return c.session.transcript.at(-1)?.role === 'user' && c.shadowRoot.querySelector('.qcard').hidden;
+  });
+  const hoverTranscript = async () => {
+    const point = await shadow(page, c => {
+      const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), b = shell.getBoundingClientRect();
+      const top = Math.max(b.top, r.querySelector('.band').getBoundingClientRect().bottom);
+      const bottom = Math.min(b.bottom, r.querySelector('.composer').getBoundingClientRect().top);
+      const point = [b.left + 25, top + Math.max(1, (bottom - top) / 2)]; globalThis.navigationPointerPoint = point; return point;
+    });
+    await page.mouse.move(...point);
+    assert.equal(await shadow(page, (c, point) => Boolean(c.shadowRoot.elementFromPoint(...point)?.closest('.transcript-shell')), point), true,
+      'the parked pointer hits the visible transcript, clear of the sticky header');
+  };
+  const pick = async keyboard => {
+    if (keyboard) {
+      await hoverTranscript();
+      await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+      await page.keyboard.press('Enter');
+    } else {
+      const option = await page.$('aithema-session >>> .qopt'); await option.click(); await option.dispose();
+    }
+    await acknowledged();
+  };
+  for (const width of [390, 1440]) for (const keyboard of [true, false]) await t.test(`${width}: ${keyboard ? 'keyboard pick under parked pointer' : 'mouse pick without movement'}, short reply and stable dock`, async () => {
+    await reset(width);
+    await shadow(page, c => { const s = c.shadowRoot.querySelector('.transcript-shell'); s.scrollTop = 80; }); await nextFrame(page);
+    const before = await snapshot(); positive(before, ['composer', 'dock']);
+    await pick(keyboard);
+    const persisted = await snapshot();
+    assert.ok(Math.abs(persisted.max - persisted.scroll) <= 2, `persisted user pinned after card closes: ${JSON.stringify(persisted)}`);
+    await page.evaluate(() => { globalThis.navigationPartial('A short new reply.'); globalThis.navigationFinal(); }); await nextFrame(page);
+    const final = await snapshot(); positive(final, ['latest', 'composer', 'dock', 'shell']);
+    const evidence = { width, keyboard, before, persisted, final }; rectEvidence.push(evidence);
+    assert.ok(final.latest.bottom <= final.composer.top, `reply clears the composer: ${JSON.stringify(final)}`);
+    assert.ok(final.latest.top >= final.shell.top - 1, 'the short reply is in view');
+    assert.deepEqual(final.composer, before.composer, 'composer moves 0 px');
+    assert.deepEqual(final.dock, before.dock, 'dock moves 0 px');
+    await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
+    evidence.afterPaint = await snapshot();
+    assert.equal(evidence.afterPaint.scroll, final.scroll, 'the next paint does not scroll back');
+  });
+  await t.test('mouse jitter of 1–3 px keeps following; deliberate movement and scrolling end it', async () => {
+    await reset(390); await pick(false);
+    const point = await shadow(page, c => { const b = c.shadowRoot.querySelector('.composer').getBoundingClientRect(); return [b.left + 25, b.top - 20]; });
+    // Establish the origin at the actual pick coordinate, then stay within 3 px.
+    const origin = await page.evaluate(() => globalThis.navigationClickPoint);
+    assert.ok(origin, 'the fixture records the real pointerdown coordinate');
+    await page.mouse.move(origin.x + 2, origin.y + 1);
+    await page.evaluate(() => globalThis.navigationPartial('A short reply.')); await nextFrame(page);
+    let state = await snapshot(); assert.ok(Math.abs(state.max - state.scroll) <= 2, 'jitter does not end following');
+    await page.mouse.move(...point); await page.mouse.wheel({ deltaY: -200 }); await nextFrame(page);
+    const before = (await snapshot()).scroll;
+    await page.evaluate(() => globalThis.navigationPartial(' More words. '.repeat(30))); await nextFrame(page);
+    state = await snapshot(); assert.equal(state.scroll, before, 'scrolling up mid-stream stops following');
+    assert.equal(state.jump, 'visible');
+  });
+  await t.test('jump appears for new content under hover and while scrolled up, never from scrolling alone', async () => {
+    await reset(390);
+    await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
+    await hoverTranscript();
+    await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 40; }); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'hidden');
+    await page.evaluate(() => globalThis.navigationPartial('New message while reading.')); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'visible');
+    await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'hidden');
+    await page.evaluate(() => globalThis.navigationPartial(' A growing message. '.repeat(12))); await nextFrame(page);
+    assert.equal((await snapshot()).jump, 'visible', 'growth of an existing partial also counts as new');
+  });
+  await t.test('long reply at 390 with visual keyboard holds its top through final/card paints', async () => {
+    await reset(390);
+    await page.evaluate(() => {
+      globalThis.navigationNativeViewport = visualViewport; globalThis.navigationTouch = Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints');
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
+      const viewport = new EventTarget(); Object.assign(viewport, { height: 844, offsetTop: 0, scale: 1 });
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+      const c = document.querySelector('aithema-session'), parent = c.parentNode; c.remove(); parent.append(c);
+      const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'A typed answer';
+      visualViewport.height = 420; visualViewport.dispatchEvent(new Event('resize'));
+    });
+    try {
+      await nextFrame(page);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard')), true, 'the visual keyboard is open');
+      await page.keyboard.down('Control'); await page.keyboard.press('Enter'); await page.keyboard.up('Control'); await acknowledged();
+      const long = 'A detailed reply with several points. '.repeat(90);
+      await page.evaluate(long => globalThis.navigationPartial(long), long); await nextFrame(page);
+      const held = await snapshot(); positive(held, ['latest', 'composer', 'dock', 'shell']);
+      assert.ok(Math.abs(held.latest.top - held.shell.top - 16) <= 20, `long reply holds its beginning: ${JSON.stringify(held)}`);
+      assert.equal(held.jump, 'visible');
+      await page.evaluate(long => globalThis.navigationFinal({ content: long + ' More.' }), long); await nextFrame(page);
+      const final = await snapshot();
+      rectEvidence.push({ width: 390, keyboardOpen: true, held, final });
+      assert.ok(Math.abs(final.latest.top - held.latest.top) <= 1, `a final reply and its card cannot undo the long-reply hold: ${JSON.stringify({ held, final })}`);
+      await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
+      assert.equal((await snapshot()).scroll, final.scroll, 'a later paint does not pin a held long reply to its bottom');
+    } finally {
+      await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.navigationNativeViewport }); if (globalThis.navigationTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.navigationTouch); else delete navigator.maxTouchPoints; });
+    }
+  });
+  await t.test('long reply at 1440 holds its top through final/card paints', async () => {
+    await reset(1440); await pick(false);
+    const long = 'A detailed reply with several points. '.repeat(250);
+    await page.evaluate(long => globalThis.navigationPartial(long), long); await nextFrame(page);
+    const held = await snapshot();
+    assert.ok(Math.abs(held.latest.top - held.shell.top - 16) <= 20, `long reply holds its beginning: ${JSON.stringify(held)}`);
+    assert.equal(held.jump, 'visible');
+    await page.evaluate(long => globalThis.navigationFinal({ content: long + ' More.' }), long); await nextFrame(page);
+    const final = await snapshot(); rectEvidence.push({ width: 1440, longReply: true, held, final });
+    assert.ok(Math.abs(final.latest.top - held.latest.top) <= 1, `final/card paint preserves the desktop hold: ${JSON.stringify({ held, final })}`);
+    await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: [] } })); await nextFrame(page);
+    assert.equal((await snapshot()).scroll, final.scroll, 'a later paint preserves the desktop hold');
+  });
+  for (const pointerType of ['mouse', 'touch']) await t.test(`${pointerType} two-pixel double tap cannot activate the newly painted card`, async () => {
+    await reset(390);
+    await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 80; }); await nextFrame(page);
+    const client = await page.createCDPSession();
+    try {
+      if (pointerType === 'touch') await client.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+      const option = await page.$('aithema-session >>> .qopt'), box = await option.boundingBox(); await option.dispose();
+      assert.ok(box.width > 0 && box.height > 0);
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const tap = async (x, y) => {
+        if (pointerType === 'touch') {
+          await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } else await page.mouse.click(x, y);
+      };
+      await tap(point.x, point.y); await acknowledged();
+      assert.ok((await snapshot()).scroll > 80, 'the pick actually moved the transcript');
+      await page.evaluate(() => globalThis.navigationFinal());
+      if (pointerType === 'mouse') await page.mouse.move(point.x + 2, point.y);
+      assert.equal(await shadow(page, (c, point) => Boolean(c.shadowRoot.elementFromPoint(point.x + 2, point.y)?.closest('.qopt')), point), true,
+        'the moved card is under the second tap');
+      await tap(point.x + 2, point.y); await nextFrame(page);
+      assert.equal(requests, 1, 'jitter and a second touch tap cannot activate a moved option');
+      await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+      await page.keyboard.press('Enter'); await acknowledged();
+      assert.equal(requests, 2, 'keyboard activation remains available');
+    } finally { if (pointerType === 'touch') await client.send('Emulation.setTouchEmulationEnabled', { enabled: false }); await client.detach(); }
+  });
+  for (const control of ['withdraw', 'link', 'read-full']) await t.test(`second click on a moved row ${control} is ignored`, async () => {
+    await reset(390);
+    await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 80; }); await nextFrame(page);
+    await pick(false);
+    assert.ok((await snapshot()).scroll > 80, 'the pick actually moved the transcript');
+    const point = await page.evaluate(() => globalThis.navigationClickPoint);
+    const geometry = await shadow(page, (c, { point, control }) => {
+      const r = c.shadowRoot, row = r.querySelector('.turn:last-child');
+      let target = row.querySelector('.withdraw');
+      if (control !== 'withdraw') {
+        target = document.createElement(control === 'link' ? 'a' : 'button');
+        if (control === 'link') target.href = '#unexpected-moved-link';
+        else target.className = 'turn-read-full';
+        target.textContent = 'Read reply'; row.append(target);
+      }
+      globalThis.navigationMovedActivations = 0;
+      target.addEventListener('click', e => { globalThis.navigationMovedActivations++; e.preventDefault(); });
+      const before = target.getBoundingClientRect().toJSON();
+      // Place the newly painted row control at the resting pick point, as a scroll can do.
+      Object.assign(target.style, { position: 'fixed', left: `${point.x - 22}px`, top: `${point.y - 22}px`,
+        width: '44px', height: '44px', opacity: '1', zIndex: '100', display: 'block' });
+      globalThis.navigationMovedTarget = target;
+      return { before, after: target.getBoundingClientRect().toJSON(), hit: r.elementFromPoint(point.x, point.y)?.closest('button, a') === target };
+    }, { point, control });
+    positive(geometry, ['before', 'after']);
+    assert.ok(geometry.before.x !== geometry.after.x || geometry.before.y !== geometry.after.y, 'the row control moved');
+    assert.equal(geometry.hit, true, 'the second click really hits the moved control');
+    await page.mouse.click(point.x, point.y, { clickCount: 2 });
+    assert.equal(await page.evaluate(() => globalThis.navigationMovedActivations), 0, 'the moved control handler never runs');
+    assert.equal(await page.evaluate(() => location.hash), '', 'a link cannot navigate');
+    await page.evaluate(() => globalThis.navigationMovedTarget.focus({ preventScroll: true }));
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => globalThis.navigationMovedActivations), 1, 'keyboard activation stays available');
+  });
+  await t.test('same-point double click cannot activate the newly painted card', async () => {
+    await reset(390); await pick(false);
+    await page.evaluate(() => globalThis.navigationFinal());
+    const point = await page.evaluate(() => globalThis.navigationClickPoint);
+    await page.mouse.click(point.x, point.y, { clickCount: 2 });
+    await nextFrame(page);
+    assert.equal(requests, 1, 'immediate second click activates nothing new');
+    await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+    await page.keyboard.press('Enter'); await acknowledged();
+    assert.equal(requests, 2, 'keyboard activation remains available');
+  });
+  for (const kind of ['send', 'lane']) await t.test(`${kind} failure ends the pointer-rest exception`, async () => {
+    await reset(390); refuse = kind === 'send';
+    if (refuse) {
+      const option = await page.$('aithema-session >>> .qopt'); await option.click(); await option.dispose();
+      await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled);
+    } else {
+      await pick(false);
+      await page.evaluate(async () => { const { inputRevision } = await import('/packages/core/src/session.js'); const c = document.querySelector('aithema-session');
+        c.receive({ type: 'lane.failed', data: { lane: 'understanding', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true } }); });
+    }
+    await hoverTranscript(); await nextFrame(page);
+    const before = (await snapshot()).scroll;
+    await page.evaluate(() => globalThis.navigationPartial('A later unrelated reply. '.repeat(12))); await nextFrame(page);
+    const after = await snapshot(); rectEvidence.push({ failure: kind, before, after });
+    assert.equal(after.scroll, before, 'failure restores reading protection');
+  });
+  await t.test('overview anchoring stays active during a typed-send navigation intent', async () => {
+    await reset(1440);
+    const point = await shadow(page, c => { const n = c.shadowRoot.querySelector('.open-questions li, .questions li'); const b = n.getBoundingClientRect();
+      globalThis.navigationOverviewAnchor = n; return [b.left + 20, b.top + b.height / 2]; });
+    await page.mouse.move(...point);
+    await shadow(page, c => { const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'Both choices'; });
+    await page.keyboard.down('Control'); await page.keyboard.press('Enter'); await page.keyboard.up('Control'); await acknowledged();
+    const before = await page.evaluate(() => globalThis.navigationOverviewAnchor.getBoundingClientRect().toJSON());
+    await page.evaluate(async () => { const { inputRevision } = await import('/packages/core/src/session.js'); const c = document.querySelector('aithema-session');
+      c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
+        inputRevision: inputRevision(c.session), summary: 'The growing overview summary. '.repeat(40) } }); }); await nextFrame(page);
+    const after = await page.evaluate(() => globalThis.navigationOverviewAnchor.getBoundingClientRect().toJSON());
+    assert.ok(before.width > 0 && before.height > 0 && after.width > 0 && after.height > 0);
+    assert.ok(Math.abs(after.top - before.top) < .5, 'overview anchoring holds within its existing subpixel tolerance while transcript anchoring is suspended');
+  });
+  assert.equal(globalThis.navigationInterceptionError, undefined);
 });

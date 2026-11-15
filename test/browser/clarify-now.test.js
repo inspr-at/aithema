@@ -687,19 +687,40 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
     const results = await shadow(page, async (c, locale) => {
       const copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
       const slot = c.shadowRoot.querySelector('.notice'), text = slot.querySelector('.notice-text'), action = c.shadowRoot.querySelector('.overview-retry');
-      slot.append(action); action.hidden = false; action.textContent = copy.understandingRetry;
+      slot.append(action); action.textContent = copy.understandingRetry;
+      // Only failure and stale-idle own an overview Retry. Analysis refusals
+      // cannot co-occur with that action; voice, visuals and uploads never render here.
       const states = Object.fromEntries(['empty', 'stale', 'staleIdle', 'overviewCurrent', 'draft', 'preparingOverview', 'understandingFailed', 'reasoningFailed', 'overviewPendingReply', 'noProjectDetails'].map(key => [key, copy[key]]));
-      Object.assign(states, copy.reasons, { consent: copy.featureConsent.analysis + ' · ' + copy.featureConsent.action });
+      const { BINDING_REASON_CODES } = await import('/packages/core/src/presets.js');
+      const reasons = [...new Set([...BINDING_REASON_CODES, 'not configured', 'unavailable on device', 'plugin not registered',
+        'plugin not in preset', 'preset not configured', 'preset choices invalid', 'unknown preset', 'model not offered',
+        'effort not offered', 'binding invalid', 'plugin binding mismatch', 'plugin kind unsupported', 'operation unsupported',
+        'effort not supported', 'browser only', 'model not supported', 'processing scope invalid',
+        'processing residency unverified', 'processing countries missing', 'recipient seat outside eu', 'processing residency denied',
+        'training policy denied', 'endpoint not allowed', 'invalid mock budget', 'document text not covered by reasoning scope', 'consent port unavailable',
+        'plugin unhealthy', 'admission deadline', 'budget denied', 'verification required'])];
+      const { reasonText } = await import('/packages/ui/src/settings-dialog.js');
+      for (const reason of reasons) states[`analysis: ${reason}`] = reasonText(copy, reason, 'analysis');
+      states.consent = copy.featureConsent.analysis;
+      states.analysisBudgetDuringCall = copy.voiceBudgetDenied;
+      const { paintConsentLine } = await import('/packages/ui/src/consent-line.js');
+      // Reconciliation and pauses preserve a cached assessment. Their visible
+      // status is stale/current/draft above, rather than the unavailable reason.
+
       const results = [];
       for (const [key, value] of Object.entries(states)) {
-        text.textContent = value;
-        const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect();
-        results.push({ key, value, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
-          textScrollHeight: text.scrollHeight, textClientHeight: text.clientHeight, textClientWidth: text.clientWidth, actionWidth: a.width, actionHeight: a.height, actionBottom: a.bottom - b.top });
+        paintConsentLine(text, { copy, feature: 'analysis', separator: '', verdict: key === 'consent'
+          ? { available: false, reason: 'current processing consent required' } : { available: true }, text: value, open() {} });
+        action.hidden = !['staleIdle', 'understandingFailed'].includes(key);
+        const label = key === 'consent' ? text.querySelector('.consent-line-copy') : text;
+        const shownAction = key === 'consent' ? text.querySelector('.consent-action') : action.hidden ? null : action;
+        const b = slot.getBoundingClientRect(), a = shownAction?.getBoundingClientRect();
+        results.push({ key, value, hasAction: key === 'consent' || !action.hidden, width: b.width, height: b.height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
+          textScrollHeight: label.scrollHeight, textClientHeight: label.clientHeight, textClientWidth: label.clientWidth, actionWidth: a?.width ?? null, actionHeight: a?.height ?? null, actionBottom: a ? a.bottom - b.top : null });
       }
-      text.textContent = 'Long host override '.repeat(100);
+      paintConsentLine(text, { copy, feature: 'analysis', verdict: { available: true }, text: 'Long host override '.repeat(100), open() {} }); action.hidden = false;
       const actionBox = action.getBoundingClientRect();
-      results.push({ key: 'host override', fullText: text.textContent, clamped: text.scrollHeight > text.clientHeight,
+      results.push({ key: 'host override', hasAction: true, fullText: text.textContent, clamped: text.scrollHeight > text.clientHeight,
         width: slot.getBoundingClientRect().width, height: slot.getBoundingClientRect().height, scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight,
         textClientWidth: text.clientWidth, textClientHeight: text.clientHeight, actionWidth: actionBox.width, actionHeight: actionBox.height, actionBottom: actionBox.bottom - slot.getBoundingClientRect().top });
       return results;
@@ -707,14 +728,14 @@ test('AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without
     for (const state of results) {
       assert.ok(state.width > 0 && state.height > 0, 'visible positive slot');
       assert.ok(state.textClientWidth > 0 && state.textClientHeight > 0, 'visible positive text box');
-      assert.ok(state.actionWidth > 0 && state.actionHeight > 0, 'visible positive action box');
+      if (state.hasAction) assert.ok(state.actionWidth > 0 && state.actionHeight > 0, 'visible positive action box');
       assert.equal(state.height, results[0].height, 'every state keeps exactly the same height');
       assert.ok(state.scrollHeight <= state.clientHeight, `${locale}/${width}/${state.key}: slot content fits`);
       if (state.key !== 'host override') {
         assert.ok(state.textScrollHeight <= state.textClientHeight, `${locale}/${width}/${state.key}: shipped text is not clamped`);
-        assert.ok(state.actionBottom <= state.height, 'action stays within slot');
+        if (state.hasAction) assert.ok(state.actionBottom <= state.height, 'action stays within slot');
       } else { assert.equal(state.clamped, true); assert.ok(state.fullText.length > 1000, 'full override remains in the accessible DOM'); }
-      records.push({ locale, width, ...state });
+      records.push({ locale, viewportWidth: width, ...state });
     }
   }
   if (process.env.AITHEMA_EVIDENCE_DIR) { await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true }); await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'rc24-overview-overflow.json'), JSON.stringify(records, null, 2)); }
@@ -753,4 +774,142 @@ test('gate1 L3: MAC-LEAD EN/DE copy proof sheets', { timeout: 60_000 }, async t 
     }
     if (evidence) await page.screenshot({ path: join(evidence, `l3-copy-${locale}-${theme}-${width}.png`) });
   }
+});
+
+async function followupPage(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-overview-followups-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  return page;
+}
+
+test('AIT-504 follow-up: failure and idle Retry have no dangling separator or indent', { timeout: 120_000 }, async t => {
+  const page = await followupPage(t);
+  for (const locale of ['en', 'de']) for (const width of [390, 1440]) for (const state of ['failure', 'idle']) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await setupOverviewFixture(page, locale, 'light');
+    const result = await shadow(page, async (c, state) => {
+      const session = c.session, copy = (await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale];
+      if (state === 'idle') session.understanding.inputRevision = 'older';
+      else {
+        const failure = { lane: 'understanding', error: 'reasoning-unavailable', retryable: true };
+        session.operations.failures = [failure]; session.operations.lastFailure = failure;
+      }
+      c.configure({ copy, session });
+      const text = c.shadowRoot.querySelector('.notice-text'), action = c.shadowRoot.querySelector('.overview-retry');
+      const lines = new Map(), range = document.createRange();
+      const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+      for (let node; (node = walker.nextNode());) for (let i = 0; i < node.length; i++) {
+        range.setStart(node, i); range.setEnd(node, i + 1);
+        const rect = range.getBoundingClientRect();
+        lines.set(rect.top, (lines.get(rect.top) ?? '') + node.data[i]);
+      }
+      const a = action.getBoundingClientRect(), b = text.getBoundingClientRect();
+      return { lines: [...lines.values()], action: { x: a.x, y: a.y, width: a.width, height: a.height }, text: { x: b.x, y: b.y, width: b.width, height: b.height }, hidden: action.hidden };
+    }, state);
+    const context = `${locale}/${width}/${state}`;
+    assert.equal(result.hidden, false, context);
+    assert.ok(result.action.width > 0 && result.action.height > 0 && result.text.width > 0 && result.text.height > 0, context);
+    assert.ok(result.lines.every(line => !line.trimEnd().endsWith('·')), `${context}: no line ends with a separator`);
+    assert.equal(result.action.x, result.text.x, `${context}: action aligns with text`);
+    assert.ok(result.action.y > result.text.y, `${context}: consistent action row`);
+  }
+});
+
+test('AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines', { timeout: 120_000 }, async t => {
+  const page = await followupPage(t);
+  for (const locale of ['en', 'de']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await setupOverviewFixture(page, locale, 'light');
+    const box = await shadow(page, c => {
+      const n = c.shadowRoot.querySelector('.notice'), rect = n.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, lineHeight: parseFloat(getComputedStyle(n).lineHeight) };
+    });
+    assert.ok(box.width > 0 && box.height > 0);
+    assert.ok(Math.abs(box.height - 3 * box.lineHeight) < 0.02, `${locale}/${width}: three lines, no fourth-line empty band`);
+  }
+});
+
+test('AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described', { timeout: 120_000 }, async t => {
+  const page = await followupPage(t);
+  await page.setViewport({ width: 390, height: 844 });
+  for (const locale of ['en', 'de']) {
+    await setupOverviewFixture(page, locale, 'light');
+    const result = await shadow(page, async (c, locale) => {
+      const defaults = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
+      const fullText = (locale === 'de' ? 'Lange Einwilligung des Hosts. ' : 'Long consent from a host. ').repeat(80);
+      const copy = { ...defaults, featureConsent: { ...defaults.featureConsent, analysis: fullText } }, session = c.session;
+      session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+      c.configure({ copy, session });
+      const slot = c.shadowRoot.querySelector('.notice'), action = slot.querySelector('.consent-action'), text = slot.querySelector('.consent-line-copy');
+      const initialSlot = slot.getBoundingClientRect(), initialAction = action.getBoundingClientRect();
+      const beforeFocus = { slotWidth: initialSlot.width, slotHeight: initialSlot.height, actionWidth: initialAction.width, actionHeight: initialAction.height,
+        top: initialAction.top - initialSlot.top, bottom: initialAction.bottom - initialSlot.top };
+      action.focus();
+      const b = slot.getBoundingClientRect(), a = action.getBoundingClientRect(), x = text.getBoundingClientRect();
+      return { fullText, beforeFocus, accessibleText: c.shadowRoot.getElementById(action.getAttribute('aria-describedby')).textContent,
+        focused: c.shadowRoot.activeElement === action, disabled: action.disabled,
+        slot: { width: b.width, height: b.height }, text: { width: x.width, height: x.height }, action: { width: a.width, height: a.height, top: a.top - b.top, bottom: a.bottom - b.top } };
+    }, locale);
+    assert.ok(result.slot.width > 0 && result.slot.height > 0 && result.text.width > 0 && result.text.height > 0 && result.action.width > 0 && result.action.height > 0);
+    assert.ok(result.beforeFocus.slotWidth > 0 && result.beforeFocus.slotHeight > 0 && result.beforeFocus.actionWidth > 0 && result.beforeFocus.actionHeight > 0);
+    assert.ok(result.beforeFocus.top >= 0 && result.beforeFocus.bottom <= result.beforeFocus.slotHeight, `${locale}: consent action is visible before focus`);
+    assert.ok(result.action.top >= 0 && result.action.bottom <= result.slot.height, `${locale}: consent action stays inside fixed slot`);
+    assert.equal(result.focused, true); assert.equal(result.disabled, false);
+    assert.ok(result.accessibleText.includes(result.fullText), 'full override remains the action’s accessible description');
+  }
+});
+
+test('AIT-504 follow-up: capture every overview state for the release design check', { timeout: 180_000 }, async t => {
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (!evidence) return t.skip('release screenshots need an evidence destination');
+  const page = await followupPage(t), records = [];
+  const shots = join(evidence, 'shots'); await mkdir(shots, { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    for (const state of ['empty', 'current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'long-consent', 'paused', 'reconciling']) {
+      await setupOverviewFixture(page, locale, theme);
+      await shadow(page, async (c, locale, state) => {
+        let copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
+        const session = c.session, u = session.understanding, ops = session.operations;
+        const failures = lanes => { ops.failures = lanes.map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true })); ops.lastFailure = ops.failures.at(-1); };
+        if (state === 'empty') {
+          const { applyEvent } = await import('/packages/core/src/session.js');
+          Object.assign(session, applyEvent(session, { seq: session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'u', reason: 'withdrawal' } }));
+        }
+        if (['updating', 'idle', 'reconciling'].includes(state)) u.inputRevision = 'older';
+        if (state === 'updating') ops.running = ['understanding'];
+        if (state === 'draft') { u.draft = true; ops.running = ['understanding']; }
+        if (state === 'preparing') { u.readinessAssessed = false; ops.running = ['understanding']; }
+        if (state === 'failed') failures(['understanding']);
+        if (state === 'both-failed') failures(['reaction', 'understanding']);
+        if (state === 'reply-pending') { u.readinessAssessed = false; session.transcript.pop(); failures(['reaction']); }
+        if (state === 'no-details') u.readinessAssessed = false;
+        if (state === 'unavailable') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: 'admission deadline' }; }
+        if (state === 'consent' || state === 'long-consent') {
+          session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+          if (state === 'long-consent') copy = { ...copy, featureConsent: { ...copy.featureConsent, analysis: (locale === 'de' ? 'Lange Einwilligung des Hosts. ' : 'Long consent from a host. ').repeat(80) } };
+        }
+        if (state === 'paused') session.paused = true;
+        if (state === 'reconciling') session.featureMatrix.best.analysis = { available: false, reason: 'budget reconciling' };
+        c.configure({ copy, session });
+      }, locale, state);
+      await settle(page);
+      await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start', behavior: 'instant' }); });
+      await settle(page);
+      const record = await shadow(page, c => {
+        const slot = c.shadowRoot.querySelector('.notice'), box = slot.getBoundingClientRect();
+        return { text: slot.textContent, slotWidth: box.width, slotHeight: box.height };
+      });
+      assert.ok(record.slotWidth > 0 && record.slotHeight > 0, `${locale}/${theme}/${width}/${state}: visible slot`);
+      assert.ok(record.text.trim(), 'the overview slot is never empty');
+      const path = `shots/overview-${locale}-${theme}-${width}-${state}.png`;
+      await page.screenshot({ path: join(evidence, path), fullPage: false });
+      records.push({ locale, theme, width, state, path, ...record });
+    }
+  }
+  await writeFile(join(evidence, 'overview-screenshots.json'), JSON.stringify(records, null, 2));
 });

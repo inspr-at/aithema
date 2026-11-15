@@ -154,7 +154,7 @@ for (const copy of [en, de]) test(`AIT-504 ${copy.display.locale}: deferred work
   assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.staleIdle,
     'local reconciliation is not an authoritative running understanding job');
   c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', error: 'reasoning-unavailable' } });
-  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.understandingFailed + '\u00a0· ');
+  assert.equal(c.shadowRoot.querySelector('.notice-text').textContent, copy.understandingFailed);
   assert.equal(c.shadowRoot.querySelector('.overview-retry').hidden, false);
   c.remove();
 });
@@ -309,4 +309,51 @@ test('AIT-504 one snapshot read cannot flash idle before its response settles', 
   pending.resolve(Response.json({ ...c.session, operations: { inputRevision: inputRevision(c.session), running: [], failures: [] } }));
   await flush(); assert.equal(text.textContent, en.staleIdle);
   c.remove();
+});
+
+
+test('AIT-504 ahead snapshot fences a superseded mid-reply settings revision with no final', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  let streamingState;
+  const updateStreaming = HostSurface.prototype.updateStreaming;
+  t.mock.method(HostSurface.prototype, 'updateStreaming', function () {
+    if (this.verification && this.emailAsk) streamingState = { replyInFlight: this.verification.streaming(), streaming: this.emailAsk.streaming() };
+    return updateStreaming.call(this);
+  });
+  const c = setup(en, { host: { verification: true, credits: true } });
+  let snapshot;
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    return Response.json(snapshot ?? c.session);
+  });
+  t.after(() => c.remove());
+  document.body.append(c); await flush();
+  event(c, 'turn.final', { id: 'next', role: 'user', content: 'More' });
+  const revision = inputRevision(c.session), settingsRevision = c.session.settings.revision;
+  c.receive({ type: 'turn.partial', data: { id: 'superseded', delta: 'Old partial', inputRevision: revision, settingsRevision } });
+  assert.deepEqual(streamingState, { streaming: true, replyInFlight: true });
+  // The stream stalls before the settings event. The server cancels this reply
+  // without a final and the bounded GET sees the settings change first.
+  const settingsEvent = { seq: c.session.seq + 1, type: 'settings.changed', data: {
+    processingPreset: c.session.processingPreset, settings: { ...c.session.settings, revision: settingsRevision + 1, model: 'replacement-model' },
+  } };
+  snapshot = applyEvent(c.session, settingsEvent);
+  snapshot = applyEvent(snapshot, { seq: snapshot.seq + 1, type: 'turn.final', data: {
+    id: 'replacement-final', role: 'assistant', content: 'Replacement completed',
+    inputRevision: inputRevision(snapshot), settingsRevision: settingsRevision + 1,
+  } });
+  snapshot.operations = { inputRevision: inputRevision(snapshot), running: [], failures: [], lastFailure: null };
+  t.mock.timers.tick(18_000); await flush(); await flush();
+  assert.equal(c.session.settings.revision, settingsRevision + 1);
+  assert.deepEqual(streamingState, { streaming: false, replyInFlight: false });
+  c.receive(settingsEvent); // Replayed at the snapshot cursor: dropped.
+  c.receive({ type: 'turn.partial', data: { id: 'superseded', delta: 'Ghost tail', inputRevision: revision, settingsRevision } });
+  assert.doesNotMatch(c.shadowRoot.querySelector('.transcript-shell ol').textContent, /Old partial|Ghost tail/);
+  assert.equal(c.shadowRoot.querySelector('[data-id="superseded"]'), null);
+  assert.deepEqual(streamingState, { streaming: false, replyInFlight: false });
+  c.receive({ type: 'turn.partial', data: { id: 'replacement', delta: 'New reply', inputRevision: inputRevision(c.session), settingsRevision: settingsRevision + 1 } });
+  assert.match(c.shadowRoot.querySelector('.transcript-shell ol').textContent, /New reply/);
+  assert.deepEqual(streamingState, { streaming: true, replyInFlight: true });
 });

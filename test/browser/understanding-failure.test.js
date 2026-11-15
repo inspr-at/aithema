@@ -130,7 +130,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
       c.shadowRoot.addEventListener('focusin', event => { if (event.target.matches('.overview-retry, .retry')) window.retryFocusPulls.push(event.target.className); });
     });
     await page.evaluate((verdict, held) => { window.heldCredits = held; return fetch('/settle?verdict=' + verdict); }, verdict, held);
-    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden\u00a0· Erneut versuchen' : "The overview couldn't be built just now\u00a0· Try again";
+    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werdenErneut versuchen' : "The overview couldn't be built just nowTry again";
     await page.waitForFunction(expected => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === expected, { timeout: 10_000 }, expected);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent !== window.heldCredits, undefined);
     await settle(page);
@@ -213,7 +213,7 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'stuck state never pulls focus from the composer');
     assert.deepEqual(await page.evaluate(() => window.retryFocusPulls), [], 'no intermediate Retry focus');
     await settle(page);
-    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden\u00a0· Erneut versuchen' : "The overview couldn't be built just now\u00a0· Try again";
+    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werdenErneut versuchen' : "The overview couldn't be built just nowTry again";
     const state = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
       inline: c.shadowRoot.querySelectorAll('.notice .overview-retry').length,
       disabled: c.shadowRoot.querySelector('.overview-retry')?.disabled,
@@ -366,7 +366,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
       c.configure({ session, copy, host: { credits: true } });
-      window.failedCopy = `${copy.understandingFailed}\u00a0· ${copy.understandingRetry}`;
+      window.failedCopy = `${copy.understandingFailed}${copy.understandingRetry}`;
     }, locale, theme);
     await page.evaluate(kind => fetch('/settle?verdict=' + kind), kind);
     await until(page, () => document.querySelector('aithema-session').session.operations?.lastFailure?.lane === 'understanding');

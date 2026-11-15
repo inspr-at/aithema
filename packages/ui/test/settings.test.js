@@ -358,7 +358,7 @@ test('a choice that needs consent is saved and the host is asked for consent out
   assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.consentRequired);
   h.q('.notice-body .notice-action').click(); await tick();
   assert.equal(h.dialog.open, false, 'the host consent interface is outside the modal');
-  assert.deepEqual(asked, { sessionId: h.c.session.id, reason: 'settings', features: ['text', 'analysis'] });
+  assert.deepEqual(asked, { sessionId: h.c.session.id, reason: 'settings', features: ['text', 'analysis'], intent: 'review', mode: 'type', required: ['text'] });
 });
 
 test('crossing the device boundary in a started conversation starts a new conversation only on explicit action', async t => {
@@ -787,7 +787,7 @@ test('confirming an uncovered choice continues into the host consent interface, 
     respond: (body, n, ack) => ack(body, { consent: { required: true, features: ['text', 'analysis'] } }) });
   const asked = []; h.c.addEventListener('aithema-consent', event => asked.push(event.detail));
   h.root.querySelector('.chooser__continue').click(); await tick(6);
-  assert.deepEqual(asked, [{ sessionId: h.c.session.id, reason: 'chooser', features: ['text', 'analysis'] }]);
+  assert.deepEqual(asked, [{ sessionId: h.c.session.id, reason: 'chooser', features: ['text', 'analysis'], intent: 'review', mode: 'type', required: ['text'] }]);
   const consentRow = h.root.querySelector('[data-ready="consent"]');
   assert.equal(consentRow.dataset.state, 'pending'); assert.match(consentRow.textContent, new RegExp(en.ready.missing));
   h.root.querySelector('.ready__consent').click();
