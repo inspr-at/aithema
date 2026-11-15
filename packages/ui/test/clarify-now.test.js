@@ -761,8 +761,9 @@ for (const acceptance of ['http', 'event', 'snapshot']) test(`gate2 L2: redelive
 });
 for (const locale of ['en', 'de']) test(`gate2 L1: ${locale} focus-retry announcement offers Retry`, async t => {
   const f = fixture(t, locale), copy = locale === 'de' ? de : en;
-  f.post(() => { throw new TypeError('offline'); });
-  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), TypeError);
+  f.post(() => Response.json({ reason: 'reply-in-flight' }, { status: 409 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), { reason: 'reply-in-flight' });
+  f.lane(); await tick();
   assert.equal(f.rows()[1].dataset.state, 'focus-retry');
   const announcement = f.root.querySelector('.clarify-announcement').textContent;
   assert.ok(announcement.includes(copy.clarifyFailed));
