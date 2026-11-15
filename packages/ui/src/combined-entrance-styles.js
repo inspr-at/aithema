@@ -43,8 +43,14 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }
   .workspace[data-entrance="combined"] [data-host-opener] > strong { margin-bottom:0; }
-  .workspace[data-entrance="combined"][data-phone-short] .composer-notice { height:7.25em; }
-  .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px; }
+  /* Short phones share one reserved feedback/status row. Each has its own
+     column; the complete notice and long status remain internally scrollable. */
+  .workspace[data-entrance="combined"][data-phone-short] .composer-notice { height:5em; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
+    grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer-status { height:44px; }
+  .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
+  .workspace[data-entrance="combined"][data-phone-short] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
   .workspace[data-entrance="combined"][data-phone-short] textarea { height:44px; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
   .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
