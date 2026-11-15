@@ -14,6 +14,20 @@ export async function contactSlotCheck(t) {
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
   await page.evaluateOnNewDocument(() => {
     const now = Date.now(); Date.now = () => now;
+    const define = customElements.define.bind(customElements);
+    customElements.define = (name, constructor, options) => {
+      if (name === 'aithema-session') {
+        const configure = constructor.prototype.configure;
+        constructor.prototype.configure = function (...args) {
+          window.contactBeforeConfigure = {
+            note: this.querySelector('.demo-contact-note')?.textContent,
+            label: this.querySelector('[slot="contact-launcher"]')?.getAttribute('aria-label'),
+          };
+          return configure.apply(this, args);
+        };
+      }
+      return define(name, constructor, options);
+    };
     const state = new URLSearchParams(location.search);
     try {
       localStorage.setItem('aithema-demo-locale', state.get('locale') ?? 'en');
@@ -199,6 +213,8 @@ export async function contactSlotCheck(t) {
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
     await settle();
     const label = locale === 'de' ? 'Kontakt' : 'Contact', name = `${width}-${locale}-${theme}-demo`;
+    const filled = await page.evaluate(() => window.contactBeforeConfigure);
+    assert.ok(filled.note?.length > 0 && filled.label?.length > 0, 'demo fills host content before configure');
     assert.equal(await page.$eval('[slot="contact-launcher"]', n => n.getAttribute('aria-label')), label);
     const before = await page.$eval('aithema-session', c => JSON.stringify(c.session.transcript));
     const header = await rects(['.band', '.audio-rail']); positive(header, name);
