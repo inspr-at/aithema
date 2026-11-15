@@ -845,7 +845,9 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session, guard);
       const upload = session.uploads.find(u => u.id === uploadId);
       if (!upload || upload.state !== 'pending') return null;
-      const event = this.#append(session, 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
+      // D505c(a): terminal documents are first visitor input, just like text.
+      if (['accepted', 'unreadable'].includes(result.status)) this.#appendOpener(session, guard.opener);
+      const event = this.#append(this.get(id), 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
         state: result.status, reason: result.reason, text: result.status === 'accepted' ? result.text : undefined,
         truncated: result.truncated, extractor: result.extractor });
       this.db.prepare('UPDATE uploads SET bytes=NULL,content_ref=? WHERE session_id=? AND id=?').run(event.data.contentRef, id, uploadId);
@@ -956,7 +958,7 @@ export class SQLiteStorage {
         mappedOpener = true;
       } else if (mappedHost && ['heard', 'interrupted'].includes(type) && opener) {
         event = this.#append(session, 'voice.interrupted', { id: 'host:opener', callId, providerSessionId: providerId,
-          interruption: { heardLength: type === 'heard' ? value.prefix.length : 'unknown' } });
+          interruption: { heardLength: type === 'heard' ? Math.min(value.prefix.length, opener.content.length) : 'unknown' } });
       } else if (type === 'interrupted') {
         if (turn && (turn.role !== 'assistant' || turn.erased || turn.withdrawn)) throw new ConflictError('Reply transcript unavailable');
         event = this.#append(session, 'voice.interrupted', { id: turnId, callId, providerSessionId: providerId,

@@ -265,6 +265,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false, tabId = null, explicitResume = false) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
+    const hasPriorOpenerCall = Object.keys(opener).length > 0 && !continuation &&
+      runtime.conversationLimits?.policy?.(sessionId) === 'credits' && Boolean(storage.voiceLifecycle(sessionId));
     const authorityKey = `${sessionId}:${callId}`;
     if (!authorities.has(authorityKey)) authorities.set(authorityKey, { sessionId, callId, controller: new AbortController() });
     const authority = authorities.get(authorityKey).controller;
@@ -289,11 +291,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         continuation ? { reason: 'time-limit', ...timeLimit(sessionId, end) } : {});
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
       const current = storage.get(sessionId);
-      const hasPriorTurns = storage.hasConnectedVoiceCall(sessionId) || current.transcript.some(turn =>
-        turn.id !== 'host:opener');
+      const hasPriorTurns = activeTurns(session).some(turn =>
+        ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim()));
+      const canSpeakOpener = !continuation && !hasPriorOpenerCall && opener[current.locale] &&
+        current.transcript.length === 0 && !storage.hasConnectedVoiceCall(sessionId);
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: current.locale,
         continuation, explicitResume, hasPriorTurns,
-        ...(!hasPriorTurns && !continuation && opener[current.locale] ? { hostOpener: opener[current.locale] } : {}) });
+        ...(canSpeakOpener ? { hostOpener: opener[current.locale] } : {}) });
       await entry.callbackContext?.prepare();
       controller.signal.throwIfAborted();
       const callbackRequest = entry.callbackContext?.request ?? {}, { overrides, ...startRequest } = callbackRequest;

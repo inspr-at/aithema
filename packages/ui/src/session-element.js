@@ -1322,8 +1322,11 @@ export class AithemaSession extends HTMLElement {
       if (latest.getBoundingClientRect().height > room) {
         latest.toggleAttribute('data-start-only', room < 88);
         const openFullReply = row => {
-          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
           const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+          delete dialog.dataset.hostOpener;
+          this.shadowRoot.querySelector('#voice-reply-title').textContent = this.#copy.voiceLastReply;
+          this.shadowRoot.querySelector('#voice-reply-note').textContent = this.#copy.voiceReplayTextOnly;
+          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
           if (!dialog.open) dialog.showModal();
         };
         if (room < 88 && signal) {
@@ -2245,7 +2248,11 @@ export class AithemaSession extends HTMLElement {
             openerMore.setAttribute('aria-haspopup', 'dialog');
             openerMore.addEventListener('click', () => {
               root.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
-              root.querySelector('.voice-reply-dialog').showModal();
+              const dialog = root.querySelector('.voice-reply-dialog');
+              dialog.dataset.hostOpener = 'true';
+              root.querySelector('#voice-reply-title').textContent = this.#copy.hostOpenerTitle;
+              root.querySelector('#voice-reply-note').textContent = this.#copy.hostOpenerTextOnly;
+              dialog.showModal();
             });
             row.append(openerMore);
           }

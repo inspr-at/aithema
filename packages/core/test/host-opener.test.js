@@ -27,6 +27,8 @@ test('AIT-505: model context includes delivered host text and continuation guida
   const session = core.applyEvent(core.createSession(), { seq: 1, type: 'turn.final', data: opener });
   const request = core.reasoningRequest(session, 'reaction');
   assert.ok(request.messages.some(message => message.role === 'assistant' && message.content === opener.content));
+  assert.equal(request.messages[0].content, opener.content);
+  assert.equal(request.messages.filter(message => message.role === 'assistant' && message.content === opener.content).length, 1);
   assert.match(request.system, /first assistant message was written by the host.*already been delivered/u);
 });
 

@@ -248,7 +248,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       status(id);
     } }) : null;
   const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
-    ...uploads, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
+    ...uploads, opener, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
     async onWithdraw(id, event) {
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
@@ -615,7 +615,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!replayed) touchVisitor(storage.get(id));
         if (!replayed) hostHandlers.startCredits(id, ownerToken, initialBalance);
         schedule(id);
-        return json({ ...event, event, events }, 200);
+        return json(Object.keys(opener).length ? { ...event, event, events } : event, 200);
       }
       if (action === 'retry' && request.method === 'POST') {
         schedule(id, { retry: true }); return json({ accepted: true }, 202);
