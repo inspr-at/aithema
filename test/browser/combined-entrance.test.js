@@ -82,7 +82,7 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
       await page.evaluate(() => grant());
       await page.waitForFunction(() => sent.length === 1);
       assert.equal(await page.evaluate(() => sent[0].content), 'A bounded draft');
-      await shot('text-sent');
+      unmoved(initial, await shot('text-sent'));
       // Reload a fresh blocked snapshot; test denied microphone and a usable text field.
       await page.goto(`${server.url}/combined-fixture?locale=${locale}`); await page.waitForFunction(() => globalThis.ready);
       const before = await boxes(page); positive(before);
@@ -100,14 +100,14 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
       assert.deepEqual(await page.evaluate(() => trace.slice(0, 3)), ['consent', 'admission', 'permission']);
       await page.evaluate(() => { denied = false; }); await page.click('aithema-session >>> .composer-mic');
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-mic').getAttribute('aria-pressed') === 'true');
-      const live = await shot('listening');
+      const live = await shot('listening'); unmoved(before, live);
       await page.type('aithema-session >>> textarea', 'Typed while listening');
       assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-mic').getAttribute('aria-pressed')), 'true');
       await page.click('aithema-session >>> .send'); await page.waitForFunction(() => trace.some(x => Array.isArray(x) && x[0] === 'typed'));
       assert.ok(await page.evaluate(() => trace.some(x => Array.isArray(x) && x[0] === 'typed' && x[1] === 'Typed while listening')));
       await page.click('aithema-session >>> .composer-mic');
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-mic').getAttribute('aria-pressed') === 'false');
-      await shot('muted');
+      unmoved(live, await shot('muted'));
       // First visitor input reveals a second column by design; mute itself retains the row.
       const muted = await boxes(page); positive(muted); await page.click('aithema-session >>> .composer-mic');
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-mic').getAttribute('aria-pressed') === 'true');
