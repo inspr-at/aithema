@@ -1625,7 +1625,7 @@ test('AIT-507 publishes policy, waits for N accepted messages, latches independe
   assert.deepEqual(f.host.lowEmailAsk(owner), low);
   await f.claim('dismiss');
   assert.equal((await (await f.claim()).json()).accepted, false);
-  f.at(86_401_001);
+  t.mock.timers.setTime(86_401_001); f.at(Date.now());
   assert.equal((await (await f.claim()).json()).accepted, false, 'durable conversation latch outlives the day');
 });
 test('AIT-507 claims once per rolling visitor day across conversations, including a lock-only saved address', async t => {
