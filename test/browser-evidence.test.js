@@ -5,13 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 import { parse } from 'yaml';
 
 // Execute the actual evidence teardown without starting a browser. This must
 // work when AIT-512 is the first evidence-producing test in its shard.
 const questionCard = await readFile(new URL('./browser/question-card.test.js', import.meta.url), 'utf8');
-const navigationTest = questionCard.slice(questionCard.indexOf("test('AIT-512:"));
-const evidenceTeardown = /t\.after\((async \(\) => \{[\s\S]*?\})\);/u.exec(navigationTest)?.[1];
+const sourceFile = ts.createSourceFile('question-card.test.js', questionCard, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+const navigationTest = sourceFile.statements.find(node => node.getText(sourceFile).startsWith("test('AIT-512:"));
+const testBody = navigationTest?.expression?.arguments.at(-1)?.body;
+// Parse the callback boundary so nested blocks and object literals are retained.
+const evidenceTeardown = testBody?.statements.find(node => node.getText(sourceFile).startsWith('t.after(async'))
+  ?.expression.arguments[0].getText(sourceFile);
 
 test('AIT-532: AIT-512 evidence writes create a missing directory independently of earlier tests', async t => {
   assert.ok(evidenceTeardown, 'Exercise the actual AIT-512 evidence teardown');
