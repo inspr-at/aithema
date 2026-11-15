@@ -537,7 +537,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
     await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').hidden), true); await shot('resend');
-    await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, voice: true });
+    await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 1, voice: true });
     await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.call), 'active');
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('form.composer').inert), false); await shot('during-call');
