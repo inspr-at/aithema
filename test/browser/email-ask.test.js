@@ -630,7 +630,7 @@ test('AIT-507 deferred credits email link is hidden with reserved positive geome
 
 // B7: each regression runs independently so the red lane identifies every
 // blocked entry point without the first failure masking the remaining cases.
-for (const scenario of ['used-up', 'saved-address', 'no-next-tier', 'refused-focus']) test(`AIT-507 b7 ${scenario}: before-input recovery and stable geometry`, { timeout: 180_000 }, async t => {
+for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tier', 'refused-focus']) test(`AIT-507 b7 ${scenario}: before-input recovery and stable geometry`, { timeout: 180_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-offer-recovery-'));
   const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
@@ -643,8 +643,8 @@ for (const scenario of ['used-up', 'saved-address', 'no-next-tier', 'refused-foc
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-    await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0,
-      out: scenario === 'used-up', address: ['saved-address', 'no-next-tier'].includes(scenario) ? 'saved@example.test' : null,
+    await fixture(page, locale, { delivery: scenario !== 'used-up', emailOffer: { afterMessages: 1 }, initialMessages: 0,
+      out: scenario.startsWith('used-up'), address: ['saved-address', 'no-next-tier'].includes(scenario) ? 'saved@example.test' : null,
       confirmed: scenario === 'no-next-tier' });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
     const shot = async state => { await settle(page); if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-b7-${scenario}-${state}.png`) }); };
@@ -658,23 +658,30 @@ for (const scenario of ['used-up', 'saved-address', 'no-next-tier', 'refused-foc
       assert.ok(shift <= .5, `${label}/${scenario}/${state}: shift ${shift}; ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
       rects.push({ label, scenario, state, targets, before, after, shift });
     };
-    if (scenario === 'used-up') {
+    if (scenario.startsWith('used-up')) {
       assert.equal(await shadow(page, c => c.session.transcript.length), 0);
       const upgrade = await sample(['.composer-out__upgrade']);
       await shot('upgrade');
       await click(page, '.composer-out__upgrade');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false, `${label}: used-up capture remains reachable`);
-      await sample(['#email-input']);
-      await shadow(page, c => c.shadowRoot.querySelector('#email-input').focus());
-      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), 'email-input');
+      const inputSelector = scenario === 'used-up-mail' ? '#verify-dialog-email' : '#email-input';
+      if (scenario === 'used-up-mail') {
+        await shot('settings');
+        await click(page, '.host-verify .verify-entry');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
+      }
+      await sample([inputSelector]);
+      await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), inputSelector);
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), inputSelector.slice(1));
       const targets = ['dialog.settings', '.display-foot'], before = await sample(targets);
       rects.push({ label, scenario, state: 'upgrade', targets: ['.composer-out__upgrade'], boxes: upgrade });
       await shot('capture');
-      await shadow(page, c => { const input = c.shadowRoot.querySelector('#email-input'); input.value = 'recovered@example.test'; input.form.requestSubmit(); });
+      await shadow(page, (c, selector) => { const input = c.shadowRoot.querySelector(selector); input.value = 'recovered@example.test'; input.form.requestSubmit(); }, inputSelector);
       await until(page, () => window.ait164.address === 'recovered@example.test' && document.querySelector('aithema-session').shadowRoot.querySelector('.m-addr').textContent === 'recovered@example.test');
       assert.equal(await page.evaluate(() => window.ait164.noticeVersion), 'ait-135-v1');
       await settle(page); await compare(targets, before, 'saved'); await shot('saved');
+      if (scenario === 'used-up-mail') await shadow(page, c => c.shadowRoot.querySelector('dialog.verify-dialog').close());
       await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
     } else if (scenario === 'refused-focus') {
       await page.evaluate(() => window.ait164.reply());
