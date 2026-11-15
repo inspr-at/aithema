@@ -14,6 +14,12 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 450));
 function fixture(t, { granted = false, entrance = 'combined', active = true, client } = {}) {
   let now = 1_800_000_000_000;
   t.mock.method(Date, 'now', () => now);
+  const timers = new Map(), nativeSet = globalThis.setTimeout, nativeClear = globalThis.clearTimeout;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (callback.name !== 'startIntentTimer') return nativeSet(callback, delay, ...args);
+    const id = { unref() {} }; timers.set(id, { callback, deadline: now + delay }); return id;
+  });
+  t.mock.method(globalThis, 'clearTimeout', id => { if (!timers.delete(id)) nativeClear(id); });
   sessionStorage.clear();
   const starts = [], sends = [], events = [];
   if (!client) t.mock.method(AudioRail.prototype, 'start', function () { starts.push(this); return Promise.resolve(); });
@@ -43,7 +49,7 @@ function fixture(t, { granted = false, entrance = 'combined', active = true, cli
     input(value) { c.shadowRoot.querySelector('textarea').value = value; },
     send() { c.shadowRoot.querySelector('.send').click(); },
     mic() { assert.ok(c.shadowRoot.querySelector('.composer-mic'), 'combined composer has a microphone'); c.shadowRoot.querySelector('.composer-mic').click(); },
-    advance(ms) { now += ms; },
+    advance(ms) { now += ms; for (const [id, timer] of [...timers]) if (timer.deadline <= now) { timers.delete(id); timer.callback(); } },
     async grant() { c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, changed: ['text', 'voice'], removed: [] } }); await tick(); },
     returnSnapshot() { const snapshot = c.session; snapshot.consentRevision++; snapshot.featureMatrix.best = { text: allowed, voice: allowed, analysis: allowed }; c.remove(); return snapshot; } };
 }

@@ -2980,7 +2980,8 @@ export class AithemaSession extends HTMLElement {
   }
   #expireStartIntent() {
     clearTimeout(this.#startIntentTimer);
-    this.#startIntentTimer = setTimeout(() => { this.#clearStartIntent({ discardDraft: true }); this.#render('composer'); }, Math.max(0, this.#startIntent.expiresAt - Date.now()));
+    const expire = () => { this.#clearStartIntent({ discardDraft: true }); this.#render('composer'); };
+    this.#startIntentTimer = setTimeout(function startIntentTimer() { expire(); }, Math.max(0, this.#startIntent.expiresAt - Date.now()));
     this.#startIntentTimer.unref?.();
   }
   #mayFocus() {
