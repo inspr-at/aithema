@@ -164,7 +164,7 @@ export const de = {
   fakeVoiceGreeting: 'Hallo. Erzählen Sie mir, was Sie verbessern möchten.', fakeVoiceReply: 'Verstanden. Welchen Teil sollen wir zuerst klären?',
   fakeVoiceStatement: 'Wir möchten unsere öffentliche Schnittstelle verbessern.', fakeVoiceHeard: 'Verstanden.',
   processing: 'Verarbeitung', presets: { best: 'Beste Modelle', eu: 'In der EU', device: 'Auf meinem Gerät', custom: 'Eigene' },
-  features: { text: 'Text', analysis: 'Auswertung', voice: 'Sprache', transcription: 'Spracherkennung', images: 'Bilder', html: 'Klickbare Entwürfe', uploads: 'Dateien hochladen' },
+  features: { text: 'Text', analysis: 'Auswertung', voice: 'Sprache', transcription: 'Spracherkennung', images: 'Bilder', html: 'Klickbare Entwürfe', uploads: 'Dateien hochladen', imageInput: 'Bildeingabe' },
   engine: { model: 'Modell', voice: 'Sprache', visuals: 'Entwürfe', off: 'Aus', localModel: 'Lokales Modell', notConnected: 'nicht verbunden' },
   settings: {
     operatorLogin: 'Mit {provider} als Operator anmelden',
@@ -504,9 +504,32 @@ export const de = {
     },
   },
   // Dateien (AIT-100 B2), aus START src/lib/i18n.ts problem.attach/dropActive/rejected* und v2.attach*.
+  imageConsentJit: "Zum Lesen von Bildern ist eine Einwilligung nötig.",
+  imageInputFeature: "Bildeingabe",
+  imagePreparing: "Wird vorbereitet …",
+  imageRemove: "{name} entfernen",
+  imageLiveCall: "Bilder lassen sich im Textmodus senden.",
+  imageUnsupportedModel: "Bilder werden von diesem Assistenten nicht gelesen.",
+  imageWithheld: "[Bild zurückgehalten]",
+  uploadsSupported: "Unterstützt: PDF, Word, Excel, PowerPoint, Text sowie Bilder als PNG, JPEG, WebP oder GIF",
+  uploadsReselect: {"one": "Datei bitte erneut auswählen.", "other": "Dateien bitte erneut auswählen."},
+  imageRefusals: {
+    "unsupported": "Dateityp wird nicht angenommen. PNG, JPEG, WebP oder GIF verwenden.",
+    "size": "Das Bild ist für diesen Upload zu groß.",
+    "limit": "In diesem Gespräch können keine weiteren Bilder hinzugefügt werden.",
+    "empty": "Das Bild ist leer.",
+    "malformed": "Das Bild ist beschädigt oder hat nicht das erwartete Format.",
+    "dimensions": "Die Bildabmessungen sind zu groß.",
+    "deadline": "Die Bildvorbereitung hat zu lange gedauert.",
+    "cancelled": "Die Bildvorbereitung wurde abgebrochen.",
+    "unavailable": "Bilder können gerade nicht vorbereitet werden.",
+    "session": "Die Bilder überschreiten die gesamte Dateigröße dieses Gesprächs.",
+    "model": "Bilder werden von diesem Assistenten nicht gelesen.",
+    "live-call": "Bilder lassen sich im Textmodus senden.",
+  },
   uploads: {
     attach: 'Dateien anhängen',
-    limits: 'Bis zu {files} Dateien, je höchstens {size}: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.',
+    limits: 'Bis zu {files} Dateien, je höchstens {size}: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.',
     dropActive: 'Loslassen zum Anhängen', dropLimits: 'Bis zu {files} Dateien, je höchstens {size}', unavailable: 'Dateien können nicht angehängt werden: {reason}',
     uploading: { one: '1 Datei wird hochgeladen …', other: '{count} Dateien werden hochgeladen …' },
     received: { one: 'Datei erhalten. Sie wird gelesen …', other: '{count} Dateien erhalten. Sie werden gelesen …' },
@@ -532,6 +555,11 @@ export const de = {
   },
   reconcilingLong: "Die Anrufkosten sind noch nicht bestätigt. Ihr Text bleibt erhalten.",
   reasons: {
+    "image input not supported": "Bilder werden von diesem Assistenten nicht gelesen.",
+    "image normalizer not configured": "Bildvorbereitung nicht eingerichtet",
+    "image normalizer unavailable": "Bilder können gerade nicht vorbereitet werden.",
+    "image normalizer must be local and free": "Bildvorbereitung nicht verfügbar",
+
     'session paused': 'Gespräch pausiert', 'current processing consent required': 'Einwilligung zur Verarbeitung erforderlich',
     'consent port unavailable': 'Einwilligung kann nicht geprüft werden', 'not configured': 'Nicht eingerichtet',
     'unavailable on device': 'Auf diesem Gerät nicht verfügbar', 'plugin not registered': 'Anbieter nicht installiert',
@@ -621,7 +649,7 @@ export const de = {
     'agent-readback-mismatch': 'Sprachanbieter hat die Einrichtung nicht bestätigt',
   },
   // Item copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
-  featureConsent: { text: 'Nachrichten brauchen Ihre Einwilligung', uploads: 'Dateien brauchen Ihre Einwilligung', images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
+  featureConsent: { imageInput: "Zum Lesen von Bildern ist eine Einwilligung nötig.", text: 'Nachrichten brauchen Ihre Einwilligung', uploads: 'Dateien brauchen Ihre Einwilligung', images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
     textActionReason: 'Nachrichten brauchen Ihre Einwilligung',
     actionNarrow: 'Ansehen', textReview: 'Einwilligung ansehen',
     textNarrow: 'Einwilligung nötig',
@@ -632,6 +660,9 @@ export const de = {
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
     withdrawal: 'Sie können Freigaben hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {
+      'image-input': { version: 1, title: "Bildeingabe",
+        recipients: "OpenRouter, Inc. und der ausgewählte Modellanbieter. Die Verarbeitung kann außerhalb Europas stattfinden, auch in den Vereinigten Staaten.",
+        text: "Ausgewählte Bilder und Screenshots, das Gespräch und die Auswertung werden übermittelt, um Bilder zu lesen und Fragen dazu zu beantworten. Normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen beim Gespräch gespeichert. Eine Verarbeitung ohne Aufbewahrung ist nicht garantiert." },
       'drafts-anthropic': {
         version: 1,
         title: 'KI-Entwürfe (Anthropic)',

@@ -33,3 +33,5 @@ export * from './voice-lifecycle.js';
 export * from './operator-session.js';
 export * from './safeguards.js';
 export * from './voice-components.js';
+
+export { IMAGE_INPUT_MEDIA_TYPES, stagedImage, imageReferences, validateImageInput, reasoningInputBound, imageInputFee, imageInputScope } from './image-input.js';
