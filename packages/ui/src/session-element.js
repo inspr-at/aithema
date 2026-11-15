@@ -3035,7 +3035,8 @@ export class AithemaSession extends HTMLElement {
     const active = Boolean(rail?.session), target = active ? rail.button('input') : null;
     const feature = this.#feature('voice'), pending = Boolean(this.#startIntent);
     button.disabled = pending || Boolean(this.#host?.usedUp) ||
-      (active ? target.disabled : !this.#voiceChoice() || ['connecting', 'closing'].includes(rail?.state) || Boolean(rail?.busy));
+      (active ? target.disabled : !this.#voiceChoice() || !feature.available && !isConsentReason(feature.reason) ||
+        ['connecting', 'closing'].includes(rail?.state) || Boolean(rail?.busy));
     const label = active ? target.title : this.#copy.voiceStart;
     button.title = label; button.setAttribute('aria-label', label);
     if (active) button.setAttribute('aria-pressed', String(rail.input)); else button.removeAttribute('aria-pressed');
