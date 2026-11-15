@@ -1,0 +1,153 @@
+// AIT-511/AIT-513: real layout, fixture-only transport; remote lane or CI only.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startChild } from '../helpers.js';
+import { browserForFile } from './shared-browser.js';
+import { settleEvidenceFrame } from './start2-display-helpers.js';
+
+const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
+const positive = (box, label) => assert.ok(box.width > 0 && box.height > 0, `${label}: positive box ${JSON.stringify(box)}`);
+const frame = ['.band', '.display-foot', '.composer-actions .attach', '.send'];
+const geometry = page => shadow(page, c => {
+  const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
+  const input = r.querySelector('textarea'), shell = r.querySelector('.transcript-shell');
+  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.audio-rail', '.concept-bar', ...['.band', '.display-foot', '.composer-actions .attach', '.send']]
+    .filter(selector => r.querySelector(selector)).map(selector => [selector, box(selector)])),
+  inputScroll: input.scrollHeight, inputClient: input.clientHeight, value: input.value,
+  scroll: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight,
+  growth: parseFloat(getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-composer-growth')),
+  noticeParent: r.querySelector('.voice-notices').parentElement.className,
+  noticeHeight: r.querySelector('.voice-notices').getBoundingClientRect().height,
+  listPadding: parseFloat(getComputedStyle(shell.querySelector('ol')).paddingBottom),
+  jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
+  cardHidden: r.querySelector('.qcard').hidden };
+});
+const stable = (before, after, label) => {
+  for (const selector of frame) {
+    const a = before.boxes[selector], b = after.boxes[selector]; positive(a, selector); positive(b, selector);
+    for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(a[key] - b[key]) <= .5, `${label}/${selector}/${key}: ${a[key]} -> ${b[key]}`);
+  }
+  for (const state of [before, after]) positive(state.boxes['.composer'], 'composer');
+  assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, `${label}: composer bottom`);
+};
+const draft = (page, lines) => shadow(page, (c, lines) => {
+  const input = c.shadowRoot.querySelector('textarea'); input.value = Array.from({ length: lines }, (_, i) => `Line ${i + 1}`).join('\n');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}, lines);
+
+test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchoring and send lifecycle', { timeout: 240_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-composer-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  }); t.after(() => server.kill());
+  const browser = await browserForFile({ args: ['--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] });
+  t.after(() => browser.close()); const page = await browser.newPage();
+  await page.goto(server.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { globalThis.composerSeed = structuredClone(c.session); });
+  const records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false } = {}) => {
+    await page.mouse.move(0, 0); await page.setViewport({ width, height });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await shadow(page, async (c, options) => {
+      const { locale, theme, voice, card, turns, visuals } = options;
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+      const s = structuredClone(globalThis.composerSeed); s.seq = 10; s.locale = locale; s.inputRevision = 1; s.settings.origin = 'chosen';
+      s.transcript = Array.from({ length: turns }, (_, i) => ({ id: `t${i}`, role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine kurze Nachricht.' : 'A short message.' }));
+      s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'images', 'html'].map(key => [key, { available: ['text', 'analysis'].includes(key) || voice && key === 'voice' || visuals && key === 'images', reason: 'not configured' }]));
+      globalThis.composerFailure = false;
+      window.fetch = async (url, init = {}) => {
+        const path = new URL(url, location.href).pathname;
+        if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }), { headers: { 'content-type': 'text/event-stream' } });
+        if (path.endsWith('/turns')) {
+          if (globalThis.composerFailure) return new Response(null, { status: 503 });
+          const body = JSON.parse(init.body); return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+        }
+        if (path.endsWith(`/sessions/${s.id}`)) return Response.json(c.session);
+        return Response.json({});
+      };
+      c.configure({ copy, session: s, ...(voice ? { voiceClient: { manifest, async start() { throw new Error('No voice calls in layout fixtures'); } } } : {}) });
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
+      document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
+      if (card) c.receive({ seq: 11, type: 'turn.final', data: { id: 'question', role: 'assistant', inputRevision: c.session.inputRevision,
+        content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
+        options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
+    }, { locale, theme, voice, card, turns, visuals });
+    await settleEvidenceFrame(page);
+  };
+  const capture = async label => {
+    const state = await geometry(page); records.push({ label, ...state });
+    if (evidence) await page.screenshot({ path: join(evidence, `${label}.png`), captureBeyondViewport: false });
+    return state;
+  };
+  for (const [width, height] of [[1440, 900], [1280, 800], [1024, 640], [900, 700], [768, 1024], [390, 844]]) {
+    await t.test(`growth and reclaimed notice space ${width}x${height}`, async () => {
+      await reset(width, height, 'en', 'light', { voice: true });
+      const before = await geometry(page);
+      assert.match(before.noticeParent, /transcript-shell/, 'voice notices belong to transcript end at every width');
+      assert.equal(before.noticeHeight, 0, 'no empty voice reservation'); assert.equal(before.listPadding, 0);
+      positive(before.boxes['.transcript-shell'], 'transcript'); positive(before.boxes['.turn:first-child'], 'first turn');
+      assert.ok(before.boxes['.turn:first-child'].top >= before.boxes['.transcript-shell'].top, 'fitting first turn unclipped');
+      await draft(page, 12); await settleEvidenceFrame(page); const grown = await geometry(page);
+      assert.ok(grown.boxes.textarea.height > before.boxes.textarea.height, '12 lines grow textarea');
+      assert.ok(grown.growth > 0, 'single measurement owner publishes growth'); stable(before, grown, '12-line growth');
+      positive(before.boxes['.audio-rail'], 'rail'); positive(grown.boxes['.audio-rail'], 'rail');
+      assert.deepEqual(grown.boxes['.audio-rail'], before.boxes['.audio-rail'], 'audio rail stays fixed');
+      await draft(page, 30); await settleEvidenceFrame(page); const capped = await geometry(page);
+      assert.ok(capped.inputScroll > capped.inputClient, '30 lines scroll inside the textarea');
+      assert.ok(capped.boxes['.composer'].height <= .4 * height + .5, 'whole composer respects visual viewport cap'); stable(before, capped, 'cap');
+      records.push({ label: `${width}x${height}`, before, grown, capped });
+    });
+  }
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await t.test(`${locale}/${theme}/${width} screenshot states`, async () => {
+      await reset(width, width === 390 ? 844 : 900, locale, theme);
+      await capture(`ait-511-${locale}-${theme}-${width}-short`);
+      await draft(page, 12); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-grown`);
+      await draft(page, 30); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-capped`);
+    });
+  }
+  for (const voice of [false, true]) await t.test(`1024x640 question card stays reachable voice=${voice}`, async () => {
+    await reset(1024, 640, 'de', 'dark', { card: true, voice }); const before = await geometry(page);
+    await draft(page, 30); await settleEvidenceFrame(page); const after = await geometry(page);
+    stable(before, after, 'card-aware growth'); positive(after.boxes['.qcard'], 'card'); positive(after.boxes['.qopts'], 'options');
+    assert.ok(after.boxes['.qcard'].height >= 150, 'card retains 150px minimum');
+    assert.ok(after.boxes['.transcript-shell'].height >= 128, 'reply retains 128px floor');
+    assert.ok(after.boxes['.qopts'].height >= 44, 'one option remains reachable');
+    records.push({ label: `card-${voice}`, before, after });
+  });
+  await t.test('short phone keyboard grows at most three lines with stable Send', async () => {
+    await reset(390, 844, 'de', 'dark', { card: true });
+    await page.evaluate(() => {
+      globalThis.originalComposerViewport = visualViewport;
+      const viewport = new EventTarget(); Object.assign(viewport, { height: 420, offsetTop: 0, scale: 1 });
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+      window.dispatchEvent(new Event('resize'));
+    });
+    try {
+      await settleEvidenceFrame(page); const before = await geometry(page);
+      await draft(page, 30); await settleEvidenceFrame(page); const after = await capture('ait-513-de-dark-390-keyboard');
+      stable(before, after, 'keyboard'); assert.ok(after.boxes.textarea.height <= 92.5, 'three 24px lines plus 20px padding');
+      assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'short input can grow');
+    } finally { await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.originalComposerViewport }); window.dispatchEvent(new Event('resize')); }); }
+  });
+  await t.test('failed send retains height; chip retains draft; successful typed send resets', async () => {
+    await reset(1440, 900, 'en', 'light', { card: true }); await draft(page, 12); await settleEvidenceFrame(page);
+    const grown = await geometry(page);
+    await page.evaluate(() => { globalThis.composerFailure = true; document.querySelector('aithema-session').shadowRoot.querySelector('form.composer').requestSubmit(); });
+    await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled); await settleEvidenceFrame(page);
+    assert.equal((await geometry(page)).boxes.textarea.height, grown.boxes.textarea.height, 'failure keeps size');
+    await shadow(page, c => { globalThis.composerFailure = false; c.shadowRoot.querySelector('.qopt').click(); });
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.qcard').hidden); await settleEvidenceFrame(page);
+    const chip = await geometry(page); assert.equal(chip.value, grown.value); assert.equal(chip.boxes.textarea.height, grown.boxes.textarea.height, 'chip keeps draft size');
+    await shadow(page, c => c.shadowRoot.querySelector('form.composer').requestSubmit());
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value === ''); await settleEvidenceFrame(page);
+    assert.ok((await geometry(page)).boxes.textarea.height < grown.boxes.textarea.height, 'successful send resets size');
+  });
+  if (evidence) await writeFile(join(evidence, 'ait-511-513-rects.json'), JSON.stringify(records, null, 2));
+});
