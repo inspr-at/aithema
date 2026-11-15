@@ -95,6 +95,8 @@ export async function combinedEntranceCheck(t) {
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
       const deniedBox = await shot('microphone-blocked'); unmoved(before, deniedBox);
       assert.match(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-status').textContent), locale === 'de' ? /Mikrofon gesperrt/ : /Microphone blocked/);
+      assert.equal(await page.$eval('aithema-session', c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden',
+        'microphone status must not overlap the keyboard shortcut');
       assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('textarea').disabled), false);
       assert.deepEqual(await page.evaluate(() => trace.slice(0, 3)), ['consent', 'admission', 'permission']);
       await page.evaluate(() => { denied = false; }); await page.click('aithema-session >>> .composer-mic');
