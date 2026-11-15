@@ -362,7 +362,7 @@ for (const copy of [en, de]) for (const reason of ['idle', 'spend-deadline']) {
       session: { credits: slot, featureMatrix: { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } } },
       routes: { 'GET /credits': () => Response.json({ balance, limitSlot: slot }) } });
     await tick(8); userTurn(c); await tick(8);
-    for (const state of ['closing', 'ended']) c.receive({ seq: c.session.seq + 1, type: 'voice.state',
+    for (const state of ['closing', 'ended']) c.receive({ type: 'voice.state',
       data: { callId: 'bounded-call', providerSessionId: 'bounded-segment', state, reason, timeLimit: 'call' } });
     await tick(12);
     assert.equal(root.querySelector('form.composer').inert, false);
