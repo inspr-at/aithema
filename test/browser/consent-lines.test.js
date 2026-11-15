@@ -1384,6 +1384,9 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
       session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
       c.configure({ session, copy, voiceClient: {} });
       globalThis.ait509Session = session;
+      // configure clones its input. This isolated view fixture must read the
+      // same evolving snapshot for availability as for consent/status updates.
+      globalThis.ait509View.feature = () => globalThis.ait509Session.featureMatrix.best.images;
     }, locale);
     const measure = () => shadow(page, c => {
       const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', '.attach', '.send', '.turn', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
@@ -1446,6 +1449,10 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
       for (const key of Object.keys(r)) assert.ok(Math.abs(r[key] - beforeGrant[selector][key]) <= 0.5, `${selector}.${key}: grant no shift`);
     }
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text .consent-action')), null);
+    assert.deepEqual(await shadow(page, c => {
+      const request = c.shadowRoot.querySelector('.concept-request');
+      return { hidden: request.hidden, disabled: request.disabled };
+    }), { hidden: false, disabled: false }, 'the grant reaches the rendered Request control');
     if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-granted`, { beforeGrant, afterGrant });
     results.push({ locale, theme, width, before, after, beforeGrant, afterGrant });
   }
