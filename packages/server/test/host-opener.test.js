@@ -4,13 +4,14 @@ import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { exportSession } from '../src/export.js';
 import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 const now = () => 1_800_000_000_000;
+const pinned = new WeakSet();
 const opener = { en: 'Welcome. Your AI assistant is ready.', de: 'Willkommen. Ihre KI-Assistenz ist bereit.' };
 async function fixture(t, options = {}) {
-  t.mock.timers.enable({ apis: ['Date'], now: now() });
+  if (!pinned.has(t)) { t.mock.timers.enable({ apis: ['Date'], now: now() }); pinned.add(t); }
   const storage = new SQLiteStorage(':memory:', { now });
   const handlers = createHandlers({ storage, consent: mockConsent, host: { now }, opener, ...options });
   t.after(async () => { await handlers.close(); storage.close(); });
-  const session = storage.create({ demo: true, ownerToken: testToken });
+  const session = storage.create({ demo: true, ownerToken: testToken, locale: options.locale ?? 'en' });
   const get = () => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}`));
   const send = (clientEventId = 'first', content = 'We need an invoice system.') => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/turns`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientEventId, content }),
@@ -86,4 +87,13 @@ test('AIT-505: peer SSE receives the opener before the first visitor turn', asyn
   const events = (await received).filter(event=>event.type==='turn.final');
   assert.deepEqual(events.slice(0,2).map(event=>event.data.id),['host:opener','first']);
   assert.deepEqual(events.slice(0,2).map(event=>event.seq),body.events.map(event=>event.seq));
+});
+
+for (const locale of ['en','de']) test(`AIT-505: ${locale} persistence pins its exact host text and locale`, async t => {
+  const f=await fixture(t,{locale});
+  assert.deepEqual((await(await f.get()).json()).opener,{text:opener[locale],locale});
+  await f.send();await f.handlers.idle();
+  const first=f.storage.get(f.session.id).transcript[0];
+  assert.equal(first.id,'host:opener');assert.equal(first.content,opener[locale]);
+  assert.throws(()=>f.storage.changeLocale(f.session.id,locale==='en'?'de':'en',{ownerToken:testToken}));
 });
