@@ -5,26 +5,28 @@ import { createVoiceHandlers } from '../src/voice-handlers.js';
 import { createFacadeSecrets, elevenLabsCallbackPort } from '../../../plugins/elevenlabs/src/callbacks.js';
 const instant = 1_800_000_000_000;
 const opener = { en: 'Welcome. Your AI assistant is ready.' };
-async function fixture(t, { native = true, presentation, history = false, refused = false, configuredOpener = opener, conversationLimit = 'time', failFirstAt } = {}) {
+async function fixture(t, { native = true, presentation, history = false, refused = false, configuredOpener = opener, conversationLimit = 'time', failFirstAt, locale = 'en', beforeConnect } = {}) {
   t.mock.timers.enable({ apis: ['Date'], now: instant });
   const storage = new SQLiteStorage(':memory:', { now: () => instant });
-  const session = storage.create({ demo: true, ownerToken: 'fixture-owner' });
+  const session = storage.create({ demo: true, ownerToken: 'fixture-owner', locale });
   if (history) storage.append(session.id, 'turn.final', { id: 'old', role: 'user', content: 'Earlier input.' });
   const published = [], starts = [], secrets = createFacadeSecrets();
   let complete, admissions = 0;
   const adapter = { ...elevenLabsCallbackPort, bindCallbacks(operations) { complete = operations.onCompletion; return elevenLabsCallbackPort.bindCallbacks(operations); } };
+  const textOnlyAdapter = { bindCallbacks: () => ({ prepareCallback: () => ({ request: {}, prepare() {}, revoke() {} }) }) };
   const handlers = createVoiceHandlers({ storage, secrets: native ? secrets : undefined, opener: configuredOpener, presentation,
     ownership: { token: () => 'fixture-owner' }, readBody: async r => new Uint8Array(await r.arrayBuffer()),
     now: () => instant, publish: (id, event) => published.push(event), onTurn() {},
-    runtime: { conversationLimits: { policy: () => conversationLimit, deadline: () => Infinity }, voiceServerAdapters: () => native ? [adapter] : [], async checkVoice() {},
+    runtime: { conversationLimits: { policy: () => conversationLimit, deadline: () => Infinity }, voiceServerAdapters: () => [native ? adapter : textOnlyAdapter], async checkVoice() {},
       async admitVoice({ options }) {
         admissions++;
         if (refused || failFirstAt === 'admission' && admissions === 1) throw new TypeError('Fixture refusal');
         return { binding: { maxDurationSeconds: 120, publicFacadeBaseUrl: 'https://host.example.test' }, options, finish() {},
-          plugin: { manifest: { liveVoice: { capabilities: { interruption: 'native' }, ownership: { turnTaking: 'provider' } } },
-            ports: { serverAdapter: native ? adapter : undefined }, async start(request, opts) {
+          plugin: { manifest: { liveVoice: { capabilities: { interruption: 'native', opener: native }, ownership: { turnTaking: native ? 'provider' : 'server' } } },
+            ports: { serverAdapter: native ? adapter : textOnlyAdapter }, async start(request, opts) {
               starts.push(request);
               if (failFirstAt === 'start' && admissions === 1) throw new TypeError('Fixture start failure');
+              await beforeConnect?.({ storage, session, request });
               return { callId: request.callId, providerSessionId: starts.length === 1 ? 'fixture-generation' : `fixture-generation-${starts.length}`, signal: new AbortController().signal,
                 spendDeadlineAt: opts.spendDeadlineAt, browserLivenessDeadlineAt: opts.browserLivenessDeadlineAt,
                 snapshot: () => ({}), close: async () => ({ closureConfirmed: true, outcome: 'cancelled' }) };
@@ -57,7 +59,7 @@ for (const state of ['history', 'custom', 'grok', 'refused']) test(`AIT-505: ${s
   const response = await f.start();
   assert.equal(response.status, state === 'refused' ? 400 : 201);
   const turns = f.storage.get(f.session.id).transcript;
-  assert.equal(turns.some(t => t.id === 'host:opener'), !['history', 'refused'].includes(state));
+  assert.equal(turns.some(t => t.id === 'host:opener'), !['history', 'refused', 'custom'].includes(state));
   if (state === 'custom') assert.equal(f.starts[0].overrides.agent.firstMessage, 'Custom.');
   if (state === 'grok') assert.equal(f.starts[0].overrides, undefined);
   if (state === 'history') assert.notEqual(f.starts[0].overrides?.agent.firstMessage, opener.en);
@@ -165,4 +167,57 @@ test('AIT-505 / AIT-508: no configured opener retains prior-call custom presenta
   assert.equal((await f.start('after-idle')).status, 201);
   assert.deepEqual(contexts[1], { hasPriorTurns: true, hasPriorCalls: true });
   assert.deepEqual(f.storage.get(f.session.id).transcript, []);
+});
+
+test('AIT-505 B5: an empty connected call in a missing locale suppresses both opener speech and persistence after switching locale', async t => {
+  const f = await fixture(t, { locale: 'de' });
+  assert.equal((await f.start()).status, 201);
+  assert.equal(f.starts[0].overrides, undefined);
+  assert.deepEqual(f.storage.get(f.session.id).transcript, []);
+  assert.equal((await f.post('/fixture-call/close', { providerSessionId: 'fixture-generation', reason: 'closed' })).status, 200);
+  f.storage.changeLocale(f.session.id, 'en', { ownerToken: 'fixture-owner' });
+  assert.equal((await f.start('second-call')).status, 201);
+  assert.equal(f.starts[1].overrides, undefined, 'the provider retains its own greeting');
+  assert.deepEqual(f.storage.get(f.session.id).transcript, [], 'an unspoken opener must not be persisted at connect');
+  const greeting = 'The provider AI assistant is ready.';
+  assert.equal((await f.post('/second-call/events', { providerSessionId: 'fixture-generation-2', event: {
+    callId: 'second-call', turnId: 'fixture-generation-2:assistant:0', type: 'final', role: 'assistant', text: greeting,
+  } })).status, 200);
+  assert.deepEqual(f.storage.get(f.session.id).transcript.map(turn => turn.content), [greeting]);
+  assert.equal(f.published.filter(e => e.type === 'turn.final').length, 1);
+  assert.equal(f.storage.read(f.session.id).some(e => e.data.id === 'host:opener'), false);
+});
+
+test('AIT-505 B5: custom presentation owns the only voice-first greeting and does not persist the unspoken opener', async t => {
+  const greeting = 'Your custom AI assistant is ready.';
+  const f = await fixture(t, { presentation: locale => ({ agent: { language: locale, firstMessage: greeting } }) });
+  assert.equal((await f.start()).status, 201);
+  assert.equal(f.starts[0].overrides.agent.firstMessage, greeting);
+  assert.deepEqual(f.storage.get(f.session.id).transcript, [], 'custom presentation cannot claim an unspoken host opener');
+  assert.equal((await f.event({ type: 'final', role: 'assistant', text: greeting })).status, 200);
+  assert.deepEqual(f.storage.get(f.session.id).transcript.map(turn => turn.content), [greeting]);
+  assert.equal(f.published.filter(e => e.type === 'turn.final').length, 1);
+  assert.equal(f.storage.read(f.session.id).some(e => e.data.id === 'host:opener'), false);
+});
+
+test('AIT-505 B5: upload completion between voice prepare and connect maps the spoken greeting to the already claimed opener', async t => {
+  let uploadId;
+  const f = await fixture(t, { beforeConnect({ storage, session, request }) {
+    assert.equal(request.overrides.agent.firstMessage, opener.en);
+    assert.deepEqual(storage.get(session.id).transcript, []);
+    const pending = storage.postUploads(session.id, 'document', 'fixture-digest', [{ filename: 'requirements.txt',
+      mediaType: 'text/plain', bytes: Buffer.from('Requirements.'), deadlineAt: instant + 30_000 }], {}, { ownerToken: 'fixture-owner' });
+    uploadId = pending.events[0].data.id;
+    storage.completeUpload(session.id, uploadId, { status: 'accepted', text: 'Requirements.' }, { ownerToken: 'fixture-owner', opener });
+  } });
+  assert.equal((await f.start()).status, 201);
+  const original = f.storage.get(f.session.id).transcript[0];
+  assert.equal(original.id, 'host:opener');
+  assert.equal(f.storage.get(f.session.id).uploads[0].state, 'accepted');
+  assert.equal((await f.event({ type: 'final', role: 'assistant', text: opener.en })).status, 200);
+  assert.deepEqual(f.storage.get(f.session.id).transcript, [original]);
+  const events = f.storage.read(f.session.id);
+  const hostEvents = events.filter(e => e.type === 'turn.final' && e.data.id === 'host:opener');
+  assert.equal(hostEvents.length, 1);
+  assert.ok(hostEvents[0].seq < events.find(e => e.type === 'upload.state' && e.data.id === uploadId && e.data.state === 'accepted').seq);
 });
