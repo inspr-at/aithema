@@ -80,3 +80,10 @@ test('AIT-505: a new call after an earlier connected call uses continuation spee
   assert.notEqual(f.starts[1].overrides.agent.firstMessage,opener.en);
   assert.equal(f.storage.get(f.session.id).transcript.filter(t=>t.id==='host:opener').length,1);
 });
+
+test('AIT-505: only one native final can map to the opener', async t => {
+  const f = await fixture(t); await f.start();
+  await f.event({type:'final',role:'assistant',text:opener.en});
+  assert.equal((await f.event({type:'final',role:'assistant',text:'Another response.',turnId:'fixture-generation:assistant:1'})).status,200);
+  assert.deepEqual(f.storage.get(f.session.id).transcript.map(t=>t.content),[opener.en,'Another response.']);
+});

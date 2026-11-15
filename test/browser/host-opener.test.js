@@ -7,7 +7,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, sep, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserForFile } from './shared-browser.js';
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 body { margin:0; } aithema-session { min-height:100dvh; } html { color-scheme:light; }
 </style></head><body><script type="module">
