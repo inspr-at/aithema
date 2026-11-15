@@ -1483,6 +1483,7 @@ export class AithemaSession extends HTMLElement {
     void this.#rail?.close('session-erased', { serverEnded: true });
     this.#dialog?.close();
     for (const dialog of root.querySelectorAll('dialog.verify-dialog,dialog.actor-sheet,.voice-reply-dialog')) if (dialog.open) dialog.close();
+    root.querySelector('.voice-reply-text')?.replaceChildren();
     if (!this.#session.tombstone) {
       const event = via === 'journal' ? this.#erasureJournal ?? remembered?.event : { seq: this.#cursor + 1, type: 'session.erased', data: { at: new Date().toISOString() } };
       if (event) { this.#erasedIds.get(id).event = structuredClone(event); this.#session = applyEvent(this.#session, event); this.#cursor = this.#session.seq; }
@@ -3391,6 +3392,9 @@ export class AithemaSession extends HTMLElement {
         consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
+        const replyDialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+        if (replyDialog?.open) replyDialog.close();
+        replyDialog?.querySelector('.voice-reply-text')?.replaceChildren();
         this.#navigation = null;
         this.#clearLaneStatusPending();
         this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear();
