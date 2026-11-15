@@ -57,7 +57,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   await page.goto(server.url, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.composerSeed = structuredClone(c.session); });
-  const records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR; let fittingChecks = 0;
   if (evidence) await mkdir(evidence, { recursive: true });
   const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false } = {}) => {
     await page.mouse.move(0, 0); await page.setViewport({ width, height });
@@ -107,7 +107,10 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       assert.match(before.noticeParent, /transcript-shell/, 'voice notices belong to transcript end at every width');
       assert.equal(before.noticeHeight, 0, 'no empty voice reservation'); assert.equal(before.listPadding, 0);
       positive(before.boxes['.transcript-shell'], 'transcript'); positive(before.boxes['.turn:first-child'], 'first turn');
-      assert.ok(before.boxes['.turn:first-child'].top >= before.boxes['.transcript-shell'].top, 'fitting first turn unclipped');
+      if (before.extent <= before.client + .5) {
+        assert.ok(before.boxes['.turn:first-child'].top >= before.boxes['.transcript-shell'].top, 'fitting first turn unclipped');
+        fittingChecks++;
+      } else assert.ok(before.scroll > 0, 'overflow is handled by transcript scrolling');
       await draft(page, 12); await settleEvidenceFrame(page); const grown = await geometry(page);
       assert.ok(grown.boxes.textarea.height > before.boxes.textarea.height, '12 lines grow textarea');
       assert.ok(grown.growth > 0, 'single measurement owner publishes growth'); stable(before, grown, '12-line growth');
@@ -238,5 +241,6 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value === '');
     await settleEvidenceFrame(page); assert.ok((await geometry(page)).boxes.textarea.height < before.boxes.textarea.height, 'device clears size');
   });
+  assert.ok(fittingChecks >= 4, 'at least four measured size cases prove the fitting first-turn invariant');
   if (evidence) await writeFile(join(evidence, 'ait-511-513-rects.json'), JSON.stringify(records, null, 2));
 });
