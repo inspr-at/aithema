@@ -2,6 +2,53 @@
 
 ## Host notes
 
+- AIT-507 adds opt-in server `host.emailOffer: { afterMessages: 1 | 2 }`
+  (`{}` defaults to 2), published as `session.emailOffer`. The demo helper accepts
+  the same `emailOffer` option in `createDemoHost`. Invalid thresholds
+  fail at startup. Configure the existing UI verification and credit surfaces;
+  email delivery, privacy capability and the daily visitor claim ports are
+  required for an eligible offer.
+- Before visitor input, the overview and empty Settings capture form are absent;
+  saved-address Change/Delete remain reachable. The credits popover hides its
+  email action only for unsaved addresses while capture is deferred, reserving
+  its existing slot only when a next tier exists. Used-up visitors retain
+  Settings capture before input, including in a new conversation; deferral
+  follows credit receipts and changes. Saved-address confirmation stays reachable.
+  The verification lock stays until
+  confirmation. The host opener, assistant turns, documents, partials and
+  duplicate messages cannot advance the offer's accepted-message count.
+  Accepted/unreadable documents do reveal the overview and Settings capture
+  through core `hasVisitorInput`; they do not advance that message count.
+  An opener alone cannot trigger low-credit forms, lines or confirmation actions.
+- The existing email-ask route accepts `why: 'offer'` with `show` or `dismiss`.
+  The credit receipt and response add a private `emailOffer` record with
+  `offered`, `open`, `dismissed`, `at`, `nextTier`, `deltaMicro`, and `revision`.
+  One rolling-day visitor claim plus the durable conversation latch bounds the
+  offer. The policy replaces `turn5`; low-credit behavior and claims remain
+  independent.
+- The inline assistant-side offer stays outside transcript events, model context
+  and exports. It works during calls and on phones without disabling the
+  composer or moving focus. Saving uses `aria-disabled` to preserve capture
+  focus, including after a refused save. The opted-in confirmation dialog
+  reserves pending-state row order, spacing and the localized hint slot before
+  saving to keep the field, actions and dialog stable on acknowledgement. Existing give/confirm/lock, Send/Resend, Sent and
+  Unlocked copy keys preserve host overrides. Collection renders the existing
+  privacy notice and sends its required `noticeVersion`; saved addresses use
+  `Verification.resend()` and retain Settings management. The helper requests a
+  first link for a saved guest, or resends a pending link under its cooldown,
+  without saving or replacing the address.
+- With `emailOffer` configured, the demo's next-tier projection can offer a
+  positive confirmation delta directly when saving provides no credit increase.
+  `createDemoHost` forwards the option to `createVisitorCredits({ emailOffer })`.
+  Without the policy, its tier projection stays unchanged. Save refusals use
+  `verify.invalid` and mark the field invalid; other save failures use
+  `email.failed`, saving uses `email.saving`, and confirmation-link failures
+  after saving use `verify.deliveryFailed`. There are no new copy keys.
+- The additive `@inspr/aithema-core/email-offer` subpath exports shared
+  `emailOfferPolicy`, `emailOfferEligibility` and `visitorMessageCount` helpers for the
+  server and UI, including packed consumers.
+
+
 - AIT-505: additive `hasVisitorInput(session)` core export separates active visitor/document input from host or assistant text; `hasConversationInput` remains an alias. Existing workspace display triggers (withdrawn input, pending uploads and ordinary assistant greetings/streaming) remain visible without satisfying assessment/admission thresholds; a host-only opener does not reveal the overview. `conversationStarted` keeps its locale-locking meaning. UI `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` project the entrance opener without changing the canonical transcript.
 
 - AIT-505: optional server `opener: { en?: string, de?: string }` (plain text, ≤1000 characters per locale; blank/missing disables without fallback), published as snapshot `opener: { text, locale }`. Render-only after legacy Start or before input with `configure({ entrance: 'combined', ... })`; missing locale copy reserves no entrance transcript space; persisted once at first `/turns`, first terminal upload (accepted or unreadable, in the same transaction before document-driven reply dispatch), or an eligible voice connection under the provider rules below; device mode keeps it local. Six-line clamp reuses the localized full-reply dialog, available in text/device mode without a voice provider; invalidation/erasure immediately closes and clears copied full text. Additive EN/DE `hostOpenerTitle` and `hostOpenerTextOnly` copy keys label the welcome-message full-text dialog; host overrides win.

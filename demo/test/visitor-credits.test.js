@@ -703,3 +703,12 @@ for (const ownerGuard of [false, true]) test(`AIT-135 A2 fix 1 API: full voice h
   body = await (await call(path)).json();
   assert.equal(body.exhausted, false); assert.equal(body.balance.owner.availableMicro, 6_000_000);
 });
+
+for (const enabled of [false, true]) test(`AIT-507 confirmed-only demo tier is policy gated (${enabled})`, t => {
+  const f = fixture(t, { demo: true, ...(enabled ? { emailOffer: {} } : {}) });
+  f.settings('12', '12', '24');
+  f.host.visitorCredits.saveSettings({ baseRevision: f.host.visitorCredits.settings().revision, confirmationEnabled: true });
+  assert.deepEqual(f.host.creditTiers(owner), { current: 'anonymous', next: enabled ? 'emailConfirmed' : null,
+    delta: enabled ? 12_000_000 : 0, canConfirm: true,
+    allowancesMicro: { anonymous: 12_000_000, emailGiven: 12_000_000, emailConfirmed: 24_000_000 } });
+});

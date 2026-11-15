@@ -1,3 +1,4 @@
+import { emailOfferStyles } from './email-offer.js';
 import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
@@ -730,7 +731,7 @@ export class AithemaSession extends HTMLElement {
     // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
-    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${actorRoleStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${actorRoleStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}${emailOfferStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
       <header class="toolbar band"><div class="band-identity"><div class="band-orb"></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>${this.#voiceBound ? '<div class="audio-rail"></div>' : ''}<div class="header-actions">
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
@@ -2197,8 +2198,14 @@ export class AithemaSession extends HTMLElement {
       // Rows that go are removed first, so a surviving row never moves past them: moving a node drops its focus.
       for (const [key, row] of rows) if (!kept.has(key)) { row.remove(); rows.delete(key); }
       let next = list.firstElementChild;
-      for (const { key, turn: t, upload, lowLine } of entries) {
+      for (const { key, turn: t, upload, lowLine, emailOffer } of entries) {
         let row = rows.get(key); rows.delete(key);
+        if (emailOffer) {
+          if (!row) { row = node('li', 'email-offer'); row.dataset.id = key; }
+          this.#host.emailOffer.paintRow(row);
+          if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
+          continue;
+        }
         if (lowLine) {
           if (!row) { row = node('li', lowLine.reserved ? 'email-low-reserve' : 'email-low-line'); row.dataset.id = key; }
           this.#host.emailAsk.paintLine(row, lowLine);
@@ -2670,7 +2677,7 @@ export class AithemaSession extends HTMLElement {
     workspace.toggleAttribute('data-host-opener-entrance', this.#options.entrance === 'combined');
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
     // A host verification lock holds its email form there, so the pane is present while it is locked.
-    const understanding = this.#hasInput() || this.#host?.locked ? 'present' : 'absent';
+    const understanding = this.#hasInput() || !this.#session.emailOffer && this.#host?.locked ? 'present' : 'absent';
     // Only an opening on screen animates (data-reveal): the first paint of a conversation that already has input does not.
     if (understanding === 'present' && workspace.dataset.understanding === 'absent' && intro.hasAttribute('data-mode')) {
       workspace.dataset.reveal = ''; setTimeout(() => workspace.removeAttribute('data-reveal'), REVEAL_MS);
@@ -3091,9 +3098,11 @@ export class AithemaSession extends HTMLElement {
       return { key: `upload:${upload.id}`, upload, at: seen?.at ?? '', order: seen?.order ?? -1 };
     }).sort((a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : a.order - b.order);
     const entries = []; let next = 0;
+    const emailOffer = this.#host?.emailOffer?.entry;
     for (const turn of turns) {
       if (turn.at) while (next < uploads.length && uploads[next].at < turn.at) entries.push(uploads[next++]);
       entries.push({ key: turn.id, turn });
+      if (emailOffer?.at === turn.id) entries.push({ key: `email-offer:${turn.id}`, emailOffer });
       const lowLine = this.#host?.emailAsk?.lowLine ?? this.#host?.emailAsk?.reservedLowLine;
       if (lowLine?.at === turn.id) entries.push({ key: `email-low:${turn.id}`, lowLine });
     }

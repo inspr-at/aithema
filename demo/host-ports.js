@@ -37,13 +37,13 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
  * demo:true is development only and explicitly exempts its fake-outbox identity
  * flow from the privacy gate. Non-demo hosts need a notice even with delivery. */
 export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
-  durationMs, ownerGuard = true, privacyDocumentConfigured, mailPlugin, clientIpHeader, visitorMicroPerMinute = () => 0 } = {}) {
+  durationMs, emailOffer, ownerGuard = true, privacyDocumentConfigured, mailPlugin, clientIpHeader, visitorMicroPerMinute = () => 0 } = {}) {
   const clientIpBucket = createClientIpResolver({ header: clientIpHeader });
   if (!demo && mailPlugin && mailPlugin.id !== 'smtp') throw new TypeError('Production mail requires SMTP; mock transports are unavailable');
   const deliveryEnabled = demo || mailPlugin?.deliversVerification === true;
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
   const costs = new SQLiteBudgetLedger(storage);
-  const visitorCredits = createVisitorCredits({ storage, now, deliveryEnabled, demo, privacyDocumentConfigured });
+  const visitorCredits = createVisitorCredits({ storage, now, deliveryEnabled, demo, privacyDocumentConfigured, emailOffer });
   const confirmation = createConfirmationStore({ storage, visitorCredits, now });
   storage.db.exec(`CREATE TABLE IF NOT EXISTS owner_wallet_reservations (
     attempt_id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, fingerprint TEXT NOT NULL,
@@ -237,6 +237,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     return port;
   }
   const host = { label: 'Demo only: local host ports', demo, now, identity, library, privacyDocumentConfigured,
+    ...(emailOffer !== undefined ? { emailOffer } : {}),
     policy: { verificationRequired: demo && verificationRequired },
     credits: { ownerGuard, ...(durationMs ? { durationMs } : {}) },
     visitorCredits, confirmation,

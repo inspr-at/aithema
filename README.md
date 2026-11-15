@@ -3833,6 +3833,77 @@ an admission override. Host privacy links use the existing legal slot with
 `data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
 German, German digit grouping and a nonbreaking space before `Credits`.
 
+### In-chat email offer (AIT-507, opt-in)
+
+Set `host.emailOffer = { afterMessages: 2 }` on the server host to replace the
+fifth-message email prompt with an assistant-side offer after a settled reply.
+`{}` defaults to two accepted visitor messages; `afterMessages: 1` is also
+supported. Other thresholds are refused at startup. The session snapshot
+publishes the resolved `emailOffer: { afterMessages }` policy. Hosts enable the
+existing verification and credit surfaces in the UI and provide a delivering
+identity port, the privacy-document capability, and the visitor-wide
+`claimEmailAsk` / `emailAskAfter` ports. The demo helper also accepts
+`createDemoHost({ emailOffer: { afterMessages: 2 } })`.
+
+Before visitor input, the overview and Settings' empty capture form are absent.
+When a visitor is used up, capture stays available in Settings so the composer's
+upgrade action can recover credit even in a new conversation with no input.
+Deferral follows credit receipts and changes. The credits popover hides its email
+action only for an unsaved address while capture is deferred, reserving the
+action's space when a next tier exists so revealing it does not move the popover.
+Without a next tier, the action and its reserved slot are absent.
+A saved address keeps its Change and Delete controls in Settings. The host opener
+never counts as visitor input. Accepted or unreadable documents do count as
+visitor input through core `hasVisitorInput`, revealing the overview and Settings
+capture, but do not advance the offer’s accepted-message threshold. An opener
+alone cannot trigger a low-credit form, line or confirmation action.
+Confirmation still unlocks the assessment and
+concepts; starting a conversation does not require an email address.
+
+The offer counts accepted text and final speech messages, deduplicated by turn
+ID. Assistant turns, the opener, documents, uploads and partial speech do not
+advance the threshold. A failed reply defers the offer until the next settled
+assistant reply. The inline element is outside canonical transcript data, model
+context and exports. It remains usable during a live call and leaves the
+composer active on phones, without moving focus or opening the keyboard.
+
+The existing `POST /api/sessions/:id/email-ask` route accepts
+`{ action: 'show' | 'dismiss', why: 'offer' }`. The server verifies the policy,
+threshold, settled reply and shared eligibility rule: privacy capability and
+email delivery, plus either a confirmation lock with confirmation available or
+a positive next-tier delta. The existing rolling 24-hour visitor claim and a
+durable conversation latch bound frequency. Dismissal does not consume the
+separate low-credit claim. Under this policy, `why: 'turn5'` cannot open a prompt;
+`why: 'low'` retains its existing behavior.
+
+The credit receipt's `emailOffer` record and offer-claim responses carry
+`offered`, `open`, `dismissed`, `at` (the anchor reply ID), `nextTier`,
+`deltaMicro`, and `revision`. This is private host state, separate from the
+snapshot's policy and from transcript events. A saved, unconfirmed address uses
+resend; replacing or deleting it remains in Settings. New addresses use
+`Verification.saveAndConfirm`, including the rendered privacy notice's mandatory
+`noticeVersion`. `Verification.resend()` uses the existing identity route and
+cooldown, requesting a first link for a saved guest or resending a pending one,
+without saving or replacing the address.
+
+Copy comes from the existing `hostGive`, `hostConfirm`, `verify.lockLead`,
+`verify.send`, `verify.resend`, `verify.sent` and `verify.unlocked` keys, so host
+copy overrides apply. No new copy keys are required. The additive
+`@inspr/aithema-core/email-offer` subpath exports the shared `emailOfferPolicy`,
+`emailOfferEligibility` and `visitorMessageCount` helpers
+used by the server and UI, so packed consumers use the same policy and predicates.
+With `emailOffer` configured, the demo tier projection offers confirmation
+directly when saving adds no credit but confirmation has a positive delta.
+The demo forwards that option to `createVisitorCredits({ emailOffer })`.
+Without the policy, the demo keeps its existing tier projection.
+Save refusals use `verify.invalid` and mark the field invalid; other save
+failures use `email.failed`. Saving uses `email.saving`, and a confirmation-link
+failure after a successful save uses `verify.deliveryFailed`. During a save,
+`aria-disabled` keeps the capture input focused; a refused save retains the
+address and focus for correction. For opted-in hosts, the confirmation dialog
+reserves the pending form's row order, spacing and localized hint slot before
+saving so acknowledgement does not move the dialog or its field and action row.
+
 ### Optional host opener
 
 `createHandlers({ opener: { en?: string, de?: string }, ... })` opts a host into a plain-text first assistant message. Each locale is limited to 1000 characters; blank or missing copy disables the opener for that locale, with no other-language fallback. The snapshot publishes only the current locale as `opener: { text, locale }`. Opted-in hosts' public `session.locale-changed` events also carry `data.opener` with that resolved value, or `null` when the new locale has no opener. The requesting tab and SSE peers update the render-only row from this server-owned field. It is not persisted in locale journal metadata. There is no browser-writable opener route.
