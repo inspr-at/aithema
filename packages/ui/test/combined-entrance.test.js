@@ -51,7 +51,7 @@ function fixture(t, { granted = false, entrance = 'combined', active = true, cli
     mic() { assert.ok(c.shadowRoot.querySelector('.composer-mic'), 'combined composer has a microphone'); c.shadowRoot.querySelector('.composer-mic').click(); },
     advance(ms) { now += ms; for (const [id, timer] of [...timers]) if (timer.deadline <= now) { timers.delete(id); timer.callback(); } },
     async grant() { c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, changed: ['text', 'voice'], removed: [] } }); await tick(); },
-    returnSnapshot() { const snapshot = c.session; snapshot.consentRevision++; snapshot.featureMatrix.best = { text: allowed, voice: allowed, analysis: allowed }; c.remove(); return snapshot; } };
+    returnSnapshot(covered = true) { const snapshot = c.session; if (covered) { snapshot.consentRevision++; snapshot.featureMatrix.best = { text: allowed, voice: allowed, analysis: allowed }; } c.remove(); return snapshot; } };
 }
 test('AIT-506: combined entrance has one composer, notice and no mode choice or Start', t => {
   const f = fixture(t), root = f.c.shadowRoot;
@@ -149,4 +149,18 @@ test('AIT-506: real adapter admission precedes denied permission and settles zer
   assert.equal(reports.length, 1); assert.equal(reports[0].chargedMicro, 0);
   assert.equal(reports[0].usage.visitorMicro, 0);
   assert.equal(f.c.shadowRoot.querySelector('textarea').disabled, false);
+});
+
+for (const mode of ['text', 'voice']) test(`AIT-506: ${mode} return without a grant restores a draft and consumes the intent`, async t => {
+  const f = fixture(t); f.input('Keep this after Back'); mode === 'text' ? f.send() : f.mic();
+  const snapshot = f.returnSnapshot(false); f.configure(document.createElement('aithema-session'), snapshot); await tick();
+  const root = f.c.shadowRoot;
+  assert.equal(root.querySelector('textarea').value, 'Keep this after Back');
+  assert.equal(root.querySelector('textarea').readOnly, false);
+  assert.equal(root.activeElement, root.querySelector(mode === 'voice' ? '.composer-mic' : 'textarea'));
+  assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
+  assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
+  await f.grant();
+  assert.equal(f.sends.length, 0, 'a later grant has no pending Send');
+  assert.equal(f.starts.length, 0, 'a later grant has no pending call');
 });
