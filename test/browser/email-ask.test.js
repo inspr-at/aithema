@@ -509,19 +509,20 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
       if (bounds) {
         for (const box of Object.values(bounds)) assert.ok(box.width > 0 && box.height > 0, `${label}/${state}: positive offer geometry`);
         assert.ok(bounds.offer.left >= bounds.shell.left - .5 && bounds.offer.right <= bounds.shell.right + .5, `${label}/${state}: offer fits the transcript`);
+        rects.push({ label, state, surface: 'offer-bounds', ...bounds });
       }
       if (baseline && bounds) {
         const currentOffer = await boxes(page, ['.email-offer', '.email-offer__row', '.email-offer__send']);
         for (const box of currentOffer) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${state}: positive offer control geometry`);
         if (offerBaseline) {
           const shift = Math.max(...offerBaseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - currentOffer[i][j]))));
-          assert.ok(shift <= .5, `${label}/${state}: offer control shift ${shift}`); rects.push({ label, state, before: offerBaseline, after: currentOffer, shift });
+          assert.ok(shift <= .5, `${label}/${state}: offer control shift ${shift}`); rects.push({ label, state, targets: ['.email-offer', '.email-offer__row', '.email-offer__send'], before: offerBaseline, after: currentOffer, shift });
         } else offerBaseline = currentOffer;
       }
       if (baseline) {
         const current = await measured();
         const shift = Math.max(...baseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - current[i][j]))));
-        assert.ok(shift <= .5, `${label}/${state}: control shift ${shift}`); rects.push({ label, state, before: baseline, after: current, shift });
+        assert.ok(shift <= .5, `${label}/${state}: control shift ${shift}`); rects.push({ label, state, targets, before: baseline, after: current, shift });
       }
       if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
     await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
@@ -537,7 +538,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
     const after = await measured();
     const shift = Math.max(...before.flatMap((box, i) => box.map((n, j) => Math.abs(n - after[i][j]))));
-    assert.ok(shift <= .5, `${label}: control shift ${shift}`); rects.push({ label, before, after, shift });
+    assert.ok(shift <= .5, `${label}: control shift ${shift}`); rects.push({ label, targets, before, after, shift });
     const state = await shadow(page, c => { const r = c.shadowRoot; return { notice: r.querySelector('.email-offer .m-notice-text').textContent, href: r.querySelector('.email-offer .m-pp').getAttribute('href'), inert: r.querySelector('form.composer').inert, count: c.session.transcript.length, active: r.activeElement?.id }; });
     assert.match(state.notice, locale === 'en' ? /advertising/ : /Werbung/); assert.equal(state.href, '/privacy'); assert.equal(state.inert, false); assert.equal(state.count, 4); assert.notEqual(state.active, 'email-offer-input');
     baseline = after; await shot('capture');
