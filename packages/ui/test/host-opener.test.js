@@ -1,9 +1,10 @@
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession, inputRevision } from '../../core/src/session.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+beforeEach(t => t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 }));
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -125,4 +126,31 @@ test('AIT-505: an ordinary streaming reply retains its live workspace until clea
   assert.equal(workspace.dataset.understanding, 'present');
   c.receive({ type: 'lane.failed', data: { lane: 'reaction', error: 'reasoning-unavailable', retryable: true } });
   assert.equal(workspace.dataset.stage, 'ready', 'clearing the only partial restores readiness');
+});
+
+for (const [copy, heading, note] of [[en, 'Welcome message', 'The full welcome message from the host.'], [de, 'Begrüßung', 'Die vollständige Begrüßung des Hosts.']]) test(`AIT-505 L4: ${heading} full-text dialog has its own host copy and overrides`, t => {
+  const c = document.createElement('aithema-session');
+  c.configure({ copy, session: session() }); t.after(() => c.remove());
+  c.shadowRoot.querySelector('.ready__start').click();
+  c.shadowRoot.querySelector('.host-opener-more').click();
+  assert.equal(c.shadowRoot.querySelector('#voice-reply-title').textContent, heading);
+  assert.equal(c.shadowRoot.querySelector('#voice-reply-note').textContent, note);
+  c.configure({ copy: { ...copy, hostOpenerTitle: 'Host heading', hostOpenerTextOnly: 'Host note' }, session: session() });
+  c.shadowRoot.querySelector('.ready__start')?.click();
+  c.shadowRoot.querySelector('.host-opener-more').click();
+  assert.equal(c.shadowRoot.querySelector('#voice-reply-title').textContent, 'Host heading');
+  assert.equal(c.shadowRoot.querySelector('#voice-reply-note').textContent, 'Host note');
+});
+
+test('AIT-505 M3: document-first persistence retains the opener row after Start and reply', t => {
+  const c = document.createElement('aithema-session');
+  c.configure({ copy: en, session: session() }); t.after(() => c.remove());
+  c.shadowRoot.querySelector('.ready__start').click();
+  const row = c.shadowRoot.querySelector('[data-id="host:opener"]');
+  c.receive({ seq: 1, type: 'upload.state', data: { id: 'document', state: 'pending', filename: 'requirements.txt' } });
+  c.receive({ seq: 2, type: 'turn.final', data: { id: 'host:opener', role: 'assistant', origin: 'host', content: 'Welcome from a host.' } });
+  c.receive({ seq: 3, type: 'upload.state', data: { id: 'document', state: 'accepted', filename: 'requirements.txt', text: 'Requirements.' } });
+  c.receive({ seq: 4, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'A reply.' } });
+  assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'), row);
+  assert.equal(c.shadowRoot.querySelectorAll('[data-id="host:opener"]').length, 1);
 });

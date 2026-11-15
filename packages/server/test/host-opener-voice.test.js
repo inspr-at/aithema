@@ -5,7 +5,7 @@ import { createVoiceHandlers } from '../src/voice-handlers.js';
 import { createFacadeSecrets, elevenLabsCallbackPort } from '../../../plugins/elevenlabs/src/callbacks.js';
 const instant = 1_800_000_000_000;
 const opener = { en: 'Welcome. Your AI assistant is ready.' };
-async function fixture(t, { native = true, presentation, history = false, refused = false } = {}) {
+async function fixture(t, { native = true, presentation, history = false, refused = false, configuredOpener = opener } = {}) {
   t.mock.timers.enable({ apis: ['Date'], now: instant });
   const storage = new SQLiteStorage(':memory:', { now: () => instant });
   const session = storage.create({ demo: true, ownerToken: 'fixture-owner' });
@@ -13,7 +13,7 @@ async function fixture(t, { native = true, presentation, history = false, refuse
   const published = [], starts = [], secrets = createFacadeSecrets();
   let complete;
   const adapter = { ...elevenLabsCallbackPort, bindCallbacks(operations) { complete = operations.onCompletion; return elevenLabsCallbackPort.bindCallbacks(operations); } };
-  const handlers = createVoiceHandlers({ storage, secrets: native ? secrets : undefined, opener, presentation,
+  const handlers = createVoiceHandlers({ storage, secrets: native ? secrets : undefined, opener: configuredOpener, presentation,
     ownership: { token: () => 'fixture-owner' }, readBody: async r => new Uint8Array(await r.arrayBuffer()),
     now: () => instant, publish: (id, event) => published.push(event), onTurn() {},
     runtime: { voiceServerAdapters: () => native ? [adapter] : [], async checkVoice() {},
@@ -92,4 +92,29 @@ test('AIT-505: invalid disclosure rejects the server voice mount before acceptin
   const storage = new SQLiteStorage(':memory:', {now:()=>instant});t.after(()=>storage.close());
   assert.throws(()=>createVoiceHandlers({storage,opener:{en:'A human is ready.'},secrets:createFacadeSecrets(),
     runtime:{voiceServerAdapters:()=>[elevenLabsCallbackPort]}}),TypeError);
+});
+
+for (const boundary of ['withdrawn-history', 'empty-connected-call']) test(`AIT-505 M1: no opener preserves legacy presentation after ${boundary}`, async t => {
+  const contexts = [];
+  const f = await fixture(t, { configuredOpener: {}, presentation(locale, context) {
+    contexts.push(context); return { agent: { language: locale, firstMessage: 'Custom AI assistant.' } };
+  } });
+  if (boundary === 'withdrawn-history') {
+    f.storage.append(f.session.id, 'turn.final', { id: 'withdrawn', role: 'user', content: 'Earlier input.' });
+    f.storage.withdraw(f.session.id, 'withdrawn');
+  } else {
+    assert.equal((await f.start()).status, 201);
+    assert.equal((await f.post('/fixture-call/close', { providerSessionId: 'fixture-generation', reason: 'closed' })).status, 200);
+  }
+  assert.equal((await f.start(boundary === 'empty-connected-call' ? 'second-call' : 'fixture-call')).status, 201);
+  assert.deepEqual(contexts.at(-1), { hasPriorTurns: false });
+});
+
+test('AIT-505 L5: host heard length is bounded by canonical text', async t => {
+  const f = await fixture(t); await f.start();
+  await f.event({ type: 'final', role: 'assistant', text: opener.en });
+  assert.equal((await f.event({ type: 'heard', prefix: opener.en + ' extra provider text' })).status, 200);
+  const turn = f.storage.get(f.session.id).transcript[0];
+  assert.equal(turn.interruption.heardLength, opener.en.length);
+  assert.equal(turn.content, opener.en);
 });

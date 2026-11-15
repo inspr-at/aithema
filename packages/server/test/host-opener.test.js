@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SQLiteStorage, createHandlers } from '../src/index.js';
+import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
+import { registerDemoExtractors } from '../../../demo/uploads.js';
+import { createPluginRuntime, mockPresets, SQLiteStorage, createHandlers } from '../src/index.js';
 import { exportSession } from '../src/export.js';
 import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 const now = () => 1_800_000_000_000;
@@ -8,7 +10,7 @@ const pinned = new WeakSet();
 const opener = { en: 'Welcome. Your AI assistant is ready.', de: 'Willkommen. Ihre KI-Assistenz ist bereit.' };
 async function fixture(t, options = {}) {
   if (!pinned.has(t)) { t.mock.timers.enable({ apis: ['Date'], now: now() }); pinned.add(t); }
-  const storage = new SQLiteStorage(':memory:', { now });
+  const storage = options.storage ?? new SQLiteStorage(':memory:', { now });
   const handlers = createHandlers({ storage, consent: mockConsent, host: { now }, opener, ...options });
   t.after(async () => { await handlers.close(); storage.close(); });
   const session = storage.create({ demo: true, ownerToken: testToken, locale: options.locale ?? 'en' });
@@ -108,4 +110,45 @@ test('AIT-505: locale events publish resolved opener copy or explicit absence', 
     assert.equal(f.storage.get(f.session.id).transcript.length,0);
     assert.equal('opener' in f.storage.read(f.session.id).findLast(e=>e.type==='session.locale-changed').data,false,'public copy is not journal content before input');
   }
+});
+
+for (const configured of [undefined, {}]) test(`AIT-505 M2: no opener retains the exact legacy turns response (${JSON.stringify(configured)})`, async t => {
+  const f = await fixture(t, { opener: configured });
+  const response = await f.send(); assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body, f.storage.read(f.session.id).find(e => e.type === 'turn.final' && e.data.id === 'first'));
+  assert.equal(Object.hasOwn(body, 'event'), false);
+  assert.equal(Object.hasOwn(body, 'events'), false);
+});
+
+for (const state of ['accepted', 'unreadable']) test(`AIT-505 M3: document-first ${state} stores the opener before reply dispatch, export and replay`, async t => {
+  const requests = [], base = createMockReasoning();
+  const reasoning = { ...base, bind() { return reasoning; }, async *stream(request, options) {
+    requests.push(request); yield* base.stream(request, options);
+  } };
+  const storage = new SQLiteStorage(':memory:', { now });
+  const registry = new PluginRegistry().register(reasoning), presets = mockPresets();
+  registerDemoExtractors(registry, presets);
+  const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent: mockConsent });
+  const f = await fixture(t, { storage, reasoning, pluginRuntime: runtime });
+  const form = new FormData(); form.append('clientEventId', 'document');
+  form.append('files', new File([state === 'accepted' ? 'Invoice system requirements.' : ''], 'requirements.txt', { type: 'text/plain' }));
+  const post = () => f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form }));
+  assert.equal((await post()).status, 202); await f.handlers.idle();
+  const current = f.storage.get(f.session.id);
+  assert.equal(current.uploads[0].state, state);
+  assert.equal(current.transcript[0].id, 'host:opener');
+  assert.equal(current.transcript.filter(turn => turn.id === 'host:opener').length, 1);
+  assert.ok(current.transcript.some(turn => turn.role === 'assistant' && turn.id !== 'host:opener'));
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].messages[0].role, 'assistant');
+  assert.equal(requests[0].messages[0].content, opener.en);
+  assert.equal(requests[0].messages.filter(message => message.content === opener.en).length, 1);
+  const terminal = f.storage.read(f.session.id).find(e => e.type === 'upload.state' && e.data.state === state);
+  const host = f.storage.read(f.session.id).find(e => e.data.id === 'host:opener');
+  assert.equal(host.seq + 1, terminal.seq, 'same completion transaction publishes opener before terminal document');
+  const zip = exportSession(current, [], [], { exportedAt: new Date(now()).toISOString() }).toString();
+  assert.match(zip, /## assistant \(host\)/u); assert.ok(zip.includes(opener.en));
+  assert.equal((await post()).status, 200); await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.id === 'host:opener').length, 1);
 });
