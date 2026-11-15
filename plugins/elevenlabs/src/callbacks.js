@@ -1,3 +1,4 @@
+import { voiceOverrides } from './options.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createCompletionsHandler, VOICE_CALLBACK_TIMEOUT_MS } from './facade.js';
 import { CUSTOM_LLM_BASE_PATH } from './ensure-agent.js';
@@ -6,6 +7,10 @@ import { reportBearerRejection } from './secret-repair.js';
 
 const perCallPath = '/api/voice/:callId/llm/chat/completions';
 const callRoute = /^\/api\/voice\/([a-zA-Z0-9_-]{1,128})\/llm\/chat\/completions$/u;
+const spokenContinuations = Object.freeze({
+  en: 'Welcome back – your AI assistant is ready to pick up where we left off.',
+  de: 'Schön, dass Sie wieder da sind – Ihre KI-Assistenz ist bereit, das Gespräch fortzusetzen.',
+});
 const notFound = () => Response.json({ error: 'not-found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
 
 /** Private credentials and a compatibility injection for the legacy host API. */
@@ -18,11 +23,15 @@ export function createFacadeSecrets() {
 }
 
 /** Bind the authenticated codec to server-owned call and reasoning operations. */
-function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs = VOICE_CALLBACK_TIMEOUT_MS, log, ...operations }) {
+function bindCallbacks({ secrets, staticSecretRef, presentation, opener = {}, timeoutMs = VOICE_CALLBACK_TIMEOUT_MS, log, ...operations }) {
   // ensure-agent also imports server helpers; read its constant after module initialization.
   const staticPath = `${CUSTOM_LLM_BASE_PATH}/chat/completions`;
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
+  // Fail closed before any admission or provider call. Custom presentations own speech.
+  if (!presentation) for (const [language, firstMessage] of Object.entries(opener)) {
+    voiceOverrides({ agent: { language, firstMessage } });
+  }
   const facade = createCompletionsHandler({ ...operations, resolveSecret: ref => secrets.resolve(ref),
     staticSecretRef, timeoutMs, log,
     onBearerRejected: staticSecretRef ? () => reportBearerRejection(secrets) : undefined,
@@ -40,13 +49,16 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs = VOI
         ...(staticSecretRef ? { methodNotAllowedStatus: 404 } : {}) },
       ...(staticSecretRef ? [{ method: 'POST', path: staticPath, handle: facade }] : []),
     ]),
-    prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false, hasPriorCalls = false }) {
+    prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false, hasPriorCalls = false, hostOpener }) {
       const facadeSecretRef = staticSecretRef ?? 'voice-' + randomUUID();
       const facadeCallId = staticSecretRef ? randomUUID() : undefined;
       // Automatic transport repair stays silent; a visitor's Resume uses host copy.
       const overrides = continuation && !explicitResume ? { agent: { language: locale, firstMessage: '' } }
-        : presentation?.(locale, { hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}) });
+        : presentation ? presentation(locale, { hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}) }) : (hostOpener
+          ? { agent: { language: locale, firstMessage: hostOpener } }
+          : opener[locale] && hasPriorTurns ? { agent: { language: locale, firstMessage: spokenContinuations[locale] } } : undefined);
       return { identity: facadeCallId,
+        hostOpener: Boolean(hostOpener && !presentation && !continuation && !hasPriorTurns),
         details: { facadeSecretRef, facadeCallId },
         request: { facadeSecretRef,
           facadeUrl: `${elevenLabsConfig(binding).publicFacadeBaseUrl}${staticSecretRef ? CUSTOM_LLM_BASE_PATH : `/api/voice/${callId}/llm`}`,

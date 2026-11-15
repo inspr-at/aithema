@@ -1,16 +1,17 @@
+import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
-import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
+import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems, conversationStarted } from '../../core/src/session.js';
 import { classifyFocusRefusal, FOCUS_REFUSAL_CLASSES } from './focus-refusal.js';
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { warnFocusRefusal } from './clarify-diagnostic.js';
 import { resolveCopy, plural } from './copy-resolve.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
-import { understandingDeferred } from '../../core/src/document-context.js';
+import { hasVisitorInput, understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
@@ -656,7 +657,7 @@ export class AithemaSession extends HTMLElement {
       if (sessionId !== this.#session.id || !['en', 'de'].includes(locale) || !this.#options.copyForLocale?.(locale)) return false;
       if (locale === this.#session.locale) return true;
       if (this.#erased) { this.#session.locale = locale; this.#repaintLocale(); return true; }
-      if (this.#hasInput() || this.#sending || this.#uploading || this.#rail?.root.dataset.call === 'active') return false;
+      if (conversationStarted(this.#session) || this.#sending || this.#uploading || this.#rail?.root.dataset.call === 'active') return false;
       try {
         const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/locale`, { locale }, { sessionToken: this.#sessionToken });
         if (!response.ok || sessionId !== this.#session.id) return false;
@@ -779,7 +780,12 @@ export class AithemaSession extends HTMLElement {
             <p class="host-credits__daily-cap" hidden></p><span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot><span class="host-credits__demo"></span></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" data-footer-popup hidden><slot name="legal"></slot><button class="legal-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="legal-popup"><span id="legal-label" data-copy="legal"></span>${icon('chevron')}</button><div class="footer-popup legal-popup" id="legal-popup" role="dialog" aria-label="${this.#copy.legal}" hidden></div></div></div></div></footer></div>
-      <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
+      <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>
+      ${this.#voiceBound ? '' : `<dialog class="voice-reply-dialog" aria-labelledby="voice-reply-title" aria-describedby="voice-reply-note">
+        <h2 id="voice-reply-title" tabindex="-1" autofocus data-copy="voiceLastReply"></h2><p class="voice-reply-note" id="voice-reply-note" data-copy="voiceReplayTextOnly"></p><p class="voice-reply-text"></p>
+        <button class="voice-reply-close" type="button" data-copy="voiceReplayClose"></button></dialog>`}`;
+    const textReplyDialog = root.querySelector('.voice-reply-dialog');
+    textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#followsTranscript(),
       onResize: ({ following }) => { if (following && this.#followsTranscript()) this.#scrollToLatest(); } });
@@ -829,7 +835,7 @@ export class AithemaSession extends HTMLElement {
     this.#placeOrb();
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, operator: this.#options.host?.operator, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).
-      state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
+      state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: conversationStarted(this.#session) || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
       consentPresentation: this.#options.consentPresentation ?? this.#options.voicePresentation,
@@ -1322,8 +1328,11 @@ export class AithemaSession extends HTMLElement {
       if (latest.getBoundingClientRect().height > room) {
         latest.toggleAttribute('data-start-only', room < 88);
         const openFullReply = row => {
-          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
           const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+          delete dialog.dataset.hostOpener;
+          this.shadowRoot.querySelector('#voice-reply-title').textContent = this.#copy.voiceLastReply;
+          this.shadowRoot.querySelector('#voice-reply-note').textContent = this.#copy.voiceReplayTextOnly;
+          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
           if (!dialog.open) dialog.showModal();
         };
         if (room < 88 && signal) {
@@ -1486,6 +1495,7 @@ export class AithemaSession extends HTMLElement {
     void this.#rail?.close('session-erased', { serverEnded: true });
     this.#dialog?.close();
     for (const dialog of root.querySelectorAll('dialog.verify-dialog,dialog.actor-sheet,.voice-reply-dialog')) if (dialog.open) dialog.close();
+    root.querySelector('.voice-reply-text')?.replaceChildren();
     if (!this.#session.tombstone) {
       const event = via === 'journal' ? this.#erasureJournal ?? remembered?.event : { seq: this.#cursor + 1, type: 'session.erased', data: { at: new Date().toISOString() } };
       if (event) { this.#erasedIds.get(id).event = structuredClone(event); this.#session = applyEvent(this.#session, event); this.#cursor = this.#session.seq; }
@@ -2241,6 +2251,25 @@ export class AithemaSession extends HTMLElement {
         if (t.role === 'user' && !sign.firstChild) sign.innerHTML = icon('person');
         row.querySelector('.turn-text').textContent = t.erased ? copy.withdrawn : t.content;
         row.querySelector('.turn-text').removeAttribute('tabindex');
+        row.toggleAttribute('data-host-opener', t.id === 'host:opener' && t.origin === 'host');
+        let openerMore = row.querySelector('.host-opener-more');
+        if (row.hasAttribute('data-host-opener')) {
+          if (!openerMore) {
+            openerMore = node('button', 'host-opener-more'); openerMore.type = 'button';
+            openerMore.setAttribute('aria-haspopup', 'dialog');
+            openerMore.addEventListener('click', () => {
+              root.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
+              const dialog = root.querySelector('.voice-reply-dialog');
+              dialog.dataset.hostOpener = 'true';
+              root.querySelector('#voice-reply-title').textContent = this.#copy.hostOpenerTitle;
+              root.querySelector('#voice-reply-note').textContent = this.#copy.hostOpenerTextOnly;
+              dialog.showModal();
+            });
+            row.append(openerMore);
+          }
+          setText(openerMore, copy.voiceReadFullReply);
+          openerMore.hidden = true;
+        } else openerMore?.remove();
         paintVoiceInterruption(row, t, copy);
         const focusQuestion = !t.erased && !t.withdrawn && t.role === 'assistant' && this.#clarifyReplies.get(t.focusRequestId);
         let meta = row.querySelector('.clarify-meta');
@@ -2547,6 +2576,10 @@ export class AithemaSession extends HTMLElement {
     if (flag.dataset.kind !== kind) { flag.dataset.kind = kind; flag.innerHTML = languageFlag(kind); }
   }
   #syncPanes() {
+    for (const row of this.shadowRoot.querySelectorAll('[data-host-opener]')) {
+      const text = row.querySelector('.turn-text'), more = row.querySelector('.host-opener-more');
+      if (more) more.hidden = text.scrollHeight <= text.clientHeight;
+    }
     for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
       pane.toggleAttribute('data-top', pane.scrollTop > 4);
       pane.toggleAttribute('data-bottom', pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4);
@@ -2611,10 +2644,12 @@ export class AithemaSession extends HTMLElement {
     }
     this.#syncPanes();
   }
-  // Anything the visitor contributed (or its withdrawal) means the conversation has begun.
+  // Keep an engaged workspace visible through withdrawal, uploads and streaming.
+  // The static host opener alone does not reveal it or qualify as visitor input.
   #hasInput() {
     const session = this.#session;
-    return Boolean(session.transcript.length || session.uploads?.length || this.#partials.size || session.tombstone);
+    return Boolean(hasVisitorInput(session) || session.transcript.some(turn => turn.id !== 'host:opener' && turn.origin !== 'host') ||
+      session.uploads?.length || this.#partials.size || session.tombstone);
   }
   // START's journey (index.astro data-entry, data-choosing-preset): the entrance with the processing
   // choice, readiness once a choice is confirmed, then the live conversation after an explicit start or
@@ -2632,6 +2667,7 @@ export class AithemaSession extends HTMLElement {
     const stage = this.#stage(), mode = { entrance: 'chooser', ready: 'ready' }[stage] ?? '';
     const stageChanged = workspace.dataset.stage !== stage;
     workspace.dataset.stage = stage;
+    workspace.toggleAttribute('data-host-opener-entrance', this.#options.entrance === 'combined');
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
     // A host verification lock holds its email form there, so the pane is present while it is locked.
     const understanding = this.#hasInput() || this.#host?.locked ? 'present' : 'absent';
@@ -3043,6 +3079,10 @@ export class AithemaSession extends HTMLElement {
   // ahead of a running reply. A withdrawn upload keeps the place it had on this page; one already
   // withdrawn when the page loaded has no time left (it was erased) and stands before the turns.
   #transcriptEntries(turns) {
+    const projected = openerTranscript(this.#session, {
+      visible: this.#stage() === 'live' || this.#options.entrance === 'combined',
+    });
+    if (projected !== this.#session.transcript) turns = projected;
     // Files of one request share a time; the order they were first seen breaks the tie (a state change
     // moves an upload to the end of the session's list).
     const uploads = (this.#session.uploads ?? []).map(upload => {
@@ -3306,9 +3346,9 @@ export class AithemaSession extends HTMLElement {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
       if (this.#erased) return;
       if (!response.ok) throw new Error();
-      const event = await response.json();
+      const result = await response.json(), event = result.event ?? result;
       if (this.#erased || sessionId !== this.#session.id) return;
-      this.receive(event);
+      for (const saved of result.events ?? [event]) this.receive(saved);
       const voiceText = voiceSession && voiceSession === this.#rail.session && event.data.voiceCallId === voiceSession.callId;
       if (voiceText) {
         await this.#rail.sendText(content, { deliveryId: this.#pending.clientEventId });
@@ -3331,6 +3371,8 @@ export class AithemaSession extends HTMLElement {
     try {
       await device.connect({ signal: controller.signal, deadlineAt });
       if (!current()) return;
+      const opener = hostOpenerTurn(this.#session);
+      if (opener) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: opener });
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
       if (clearInput && input.value === content) input.value = '';
       const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
@@ -3370,6 +3412,9 @@ export class AithemaSession extends HTMLElement {
         consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
+        const replyDialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+        if (replyDialog?.open) replyDialog.close();
+        replyDialog?.querySelector('.voice-reply-text')?.replaceChildren();
         this.#navigation = null;
         this.#clearLaneStatusPending();
         this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear();
@@ -3653,6 +3698,9 @@ export class AithemaSession extends HTMLElement {
         else this.#voiceResumeProjection = null;
       }
       this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
+      const openerChanged = JSON.stringify(this.#session.opener) !== JSON.stringify(session.opener);
+      if ('opener' in session) this.#session.opener = session.opener; else delete this.#session.opener;
+      if (openerChanged) this.#render('transcript');
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
       // Lane statuses are volatile and can advance without a journal sequence.
       // A read started before a newer status cannot restore its old busy state.

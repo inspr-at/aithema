@@ -42,6 +42,7 @@ export class ReplyControls {
   }
   showText() {
     if (this.readText.disabled || !this.current()) return;
+    delete this.owner.dialog.dataset.hostOpener; this.owner.render();
     this.owner.root.querySelector('.voice-reply-text').textContent = this.reply.text;
     if (!this.owner.dialog.open) this.owner.dialog.showModal();
   }
