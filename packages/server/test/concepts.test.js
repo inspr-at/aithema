@@ -12,12 +12,15 @@ import { createOpenAIImages } from '../../../plugins/openai-images/src/index.js'
 import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
 import { png, withCredential, credentialFixtures } from '../../../test/image-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function setup(t, { path = ':memory:', intercept, references, budgetOptions, consent: supplied, imageBinding = localImageBinding, voice = false, understanding } = {}) {
+async function setup(t, { path = ':memory:', intercept, references, budgetOptions, consent: supplied, imageBinding = localImageBinding, scopedImages = false, voice = false, understanding } = {}) {
   const storage = new SQLiteStorage(path), reasoning = createMockReasoning(), images = createLocalImages({ delayMs: 1 });
   const consent = supplied ?? createMemoryConsentLedger(), presets = mockPresets();
   presets.best.plugins.push(images.manifest.id); presets.best.bindings.images = imageBinding; presets.best.policy = { endpoints: [imageBinding.endpoint] };
   const { imageCost, ...common } = imageBinding;
-  const selectedImages = imageBinding.maxMicro === 0 ? images : { ...images, binding: common };
+  // A scoped fixture delegates to the offline renderer without retaining its
+  // private local-provider identity, whose consent purpose is mock-conversation.
+  const selectedImages = imageBinding.maxMicro === 0 ? images : { ...images, binding: common,
+    ...(scopedImages ? { generate: (...args) => images.generate(...args) } : {}) };
   const registry = new PluginRegistry().register(reasoning).register(selectedImages), budget = new SQLiteBudgetLedger(storage, budgetOptions);
   const secrets = createFacadeSecrets();
   if (voice) { registry.register(createLocalVoiceProvider({ storage, revokeFacade: secrets.revoke, provisionFacade: () => {} })); presets.best.plugins.push('fake-voice'); presets.best.bindings.voice = localVoiceBinding; }
@@ -507,8 +510,8 @@ test('AIT-509: a dispatch-ready wish blocked only by image consent waits without
 test('AIT-509: only a corroborated current model wish at the readiness threshold asks for image consent', async t => {
   const quote = 'For this dashboard, please show a visual concept.';
   const h = await setup(t, { understanding: raw => ({ ...raw, conceptIntent: { request_quote: quote },
-    constraints: Object.fromEntries(h.session.preset.requiredSlots.map(slot => [slot, { value: 'Dashboard', evidence: quote }])),
-    progress: { talk: { value: h.session.preset.talkThreshold }, build: { value: 1 } },
+    constraints: Object.fromEntries(h.session.preset.slots.map(slot => [slot, { value: 'Dashboard', evidence: quote }])),
+    progress: { talk: { ...raw.progress.talk, value: h.session.preset.talkThreshold }, build: { ...raw.progress.build, value: 1 } },
   }) });
   const matrix = h.runtime.matrix.bind(h.runtime);
   h.runtime.matrix = async session => { const m = await matrix(session); m.best.images = { available: false, reason: 'current processing consent required' }; return m; };
@@ -528,7 +531,7 @@ test('AIT-509: the real scoped consent POST preserves replies and cannot replay 
     grant({ decision }) { if (decision) images = decision.items.includes('images-fixture'); return true; },
     conversationUnchanged: () => true,
   };
-  const h = await setup(t, { imageBinding: binding, consent }); await h.turn('first'); h.readiness();
+  const h = await setup(t, { imageBinding: binding, scopedImages: true, consent }); await h.turn('first'); h.readiness();
   const reply = h.storage.get(h.id).transcript.find(turn => turn.role === 'assistant'); assert.ok(reply);
   h.handlers.conceptLane.recordIntent(h.id, { intentId: 'scoped-wish', sourceTurnId: 'first' });
   await h.handlers.conceptLane.run(h.id);
