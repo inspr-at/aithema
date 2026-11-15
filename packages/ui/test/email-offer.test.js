@@ -138,3 +138,18 @@ test('AIT-507 saving uses the save copy before confirmation delivery', async t =
   assert.equal(message, en.hostSurface.email.saving);
   assert.equal(row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.deliveryFailed);
 });
+
+test('AIT-507 b7 saving keeps capture focusable and blocks duplicate submits', async t => {
+  const f = fixture(t), row = f.root.ownerDocument.createElement('li'); f.root.append(row); f.offer.paintRow(row);
+  let finish, saves = 0;
+  f.offer.verification.saveAndConfirm = () => { saves++; return new Promise(resolve => { finish = resolve; }); };
+  const input = row.querySelector('input'); input.value = 'a(b)@example.com'; input.focus();
+  const saving = f.offer.save();
+  // Snapshot first, then finish the pending operation even on the red head.
+  const busy = { disabled: input.disabled, aria: input.getAttribute('aria-disabled'), button: row.querySelector('button[type="submit"]').getAttribute('aria-disabled') };
+  await f.offer.save(); finish({ ok: false, status: 400 }); await saving;
+  assert.equal(busy.disabled, false, 'saving must preserve a focusable capture input');
+  assert.equal(busy.aria, 'true'); assert.equal(busy.button, 'true');
+  assert.equal(saves, 1); assert.equal(input.getAttribute('aria-invalid'), 'true');
+  assert.equal(input.getAttribute('aria-disabled'), 'false');
+});

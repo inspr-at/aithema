@@ -627,3 +627,84 @@ test('AIT-507 deferred credits email link is hidden with reserved positive geome
   }
   if (evidence) await writeFile(join(evidence, 'ait-507-credits-rects.json'), JSON.stringify(rects, null, 2));
 });
+
+// B7: each regression runs independently so the red lane identifies every
+// blocked entry point without the first failure masking the remaining cases.
+for (const scenario of ['used-up', 'saved-address', 'no-next-tier', 'refused-focus']) test(`AIT-507 b7 ${scenario}: before-input recovery and stable geometry`, { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-offer-recovery-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+    await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0,
+      out: scenario === 'used-up', address: ['saved-address', 'no-next-tier'].includes(scenario) ? 'saved@example.test' : null,
+      confirmed: scenario === 'no-next-tier' });
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    const shot = async state => { await settle(page); if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-b7-${scenario}-${state}.png`) }); };
+    const sample = async targets => {
+      const result = await boxes(page, targets);
+      for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${scenario}/${targets[i]}: positive geometry ${box}`);
+      return result;
+    };
+    const compare = async (targets, before, state) => {
+      const after = await sample(targets), shift = Math.max(...before.flatMap((box, i) => box.map((n, j) => Math.abs(n - after[i][j]))));
+      assert.ok(shift <= .5, `${label}/${scenario}/${state}: shift ${shift}; ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+      rects.push({ label, scenario, state, targets, before, after, shift });
+    };
+    if (scenario === 'used-up') {
+      assert.equal(await shadow(page, c => c.session.transcript.length), 0);
+      const upgrade = await sample(['.composer-out__upgrade']);
+      await shot('upgrade');
+      await click(page, '.composer-out__upgrade');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false, `${label}: used-up capture remains reachable`);
+      await sample(['#email-input']);
+      await shadow(page, c => c.shadowRoot.querySelector('#email-input').focus());
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), 'email-input');
+      const targets = ['dialog.settings', '.display-foot'], before = await sample(targets);
+      rects.push({ label, scenario, state: 'upgrade', targets: ['.composer-out__upgrade'], boxes: upgrade });
+      await shot('capture');
+      await shadow(page, c => { const input = c.shadowRoot.querySelector('#email-input'); input.value = 'recovered@example.test'; input.form.requestSubmit(); });
+      await until(page, () => window.ait164.address === 'recovered@example.test' && document.querySelector('aithema-session').shadowRoot.querySelector('.m-addr').textContent === 'recovered@example.test');
+      assert.equal(await page.evaluate(() => window.ait164.noticeVersion), 'ait-135-v1');
+      await settle(page); await compare(targets, before, 'saved'); await shot('saved');
+      await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
+    } else if (scenario === 'refused-focus') {
+      await page.evaluate(() => window.ait164.reply());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
+      const targets = ['.email-offer', '.email-offer__row', '.email-offer__send', '.composer-shell'], before = await sample(targets);
+      await page.evaluate(() => { window.ait164.saveStatus = 400; window.ait164.saving = true; });
+      const input = await page.evaluateHandle(() => document.querySelector('aithema-session').shadowRoot.querySelector('#email-offer-input'));
+      await input.evaluate(input => { input.value = 'a(b)@example.com'; input.focus(); });
+      await page.keyboard.press('Enter');
+      await until(page, () => window.ait164.requests.includes('save'));
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), 'email-offer-input', `${label}: focus stays during Enter save`);
+      await page.evaluate(() => { window.ait164.saving = false; });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email-offer-input').getAttribute('aria-invalid') === 'true');
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), 'email-offer-input', `${label}: focus stays after 400`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email-offer-input').value), 'a(b)@example.com');
+      await settle(page); await compare(targets, before, 'refused'); await shot('refused');
+    } else {
+      await shadow(page, c => c.shadowRoot.querySelector('.host-credits').setAttribute('data-pinned', ''));
+      await settle(page);
+      const targets = ['.host-credits', '.credits-popup', '.host-credits__scope', '.host-credits__current'];
+      if (scenario === 'saved-address') targets.push('.credits-email', '.host-credits__next');
+      const before = await sample(targets);
+      const link = await shadow(page, c => { const link = c.shadowRoot.querySelector('.credits-email'); return { hidden: link.hidden, deferred: link.hasAttribute('data-capture-deferred'), display: getComputedStyle(link).display, visibility: getComputedStyle(link).visibility }; });
+      assert.equal(link.deferred, false, `${label}: ${scenario} has no deferred capture slot`);
+      if (scenario === 'saved-address') { assert.equal(link.hidden, false); assert.equal(link.visibility, 'visible'); }
+      else { assert.equal(link.hidden, true); assert.equal(link.display, 'none'); }
+      await shot('before-input');
+      await page.evaluate(() => window.ait164.reply()); await settle(page);
+      await compare(targets, before, 'after-input'); await shot('after-input');
+    }
+  }
+  if (evidence) await writeFile(join(evidence, `ait-507-b7-${scenario}-rects.json`), JSON.stringify(rects, null, 2));
+});
