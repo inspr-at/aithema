@@ -10,6 +10,7 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .concept-thread { flex:1 1 0; min-height:0; }
 .workspace[data-entrance="combined"] .transcript-shell { display:block; height:100%; min-height:0; }
 .workspace[data-entrance="combined"] .composer-dock { display:block; flex:none; }
+.workspace[data-entrance="combined"] .composer-shell { display:block; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;
   grid-template-areas:"notice notice notice" "message mic send" "feedback feedback feedback"; gap:8px; }
 .workspace[data-entrance="combined"] textarea { grid-area:message; height:4.5rem; min-height:4.5rem; padding:.25rem 0; }
