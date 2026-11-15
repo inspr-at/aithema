@@ -578,3 +578,34 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
   }
   if (evidence) await writeFile(join(evidence, 'ait-507-rects.json'), JSON.stringify(rects, null, 2));
 });
+
+
+test('AIT-507 deferred credits email link is hidden with reserved positive geometry', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-deferred-email-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), rects = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await fixture(page, locale, { delivery: true, emailOffer: {}, initialMessages: 0 });
+    await shadow(page, (c, theme) => { c.setAttribute('theme', theme); c.shadowRoot.querySelector('.host-credits').setAttribute('data-pinned', ''); }, theme);
+    await settle(page);
+    const targets = ['.host-credits', '.credits-popup', '.credits-email', '.host-credits__scope', '.host-credits__next'];
+    const sample = async () => { const result = await boxes(page, targets); for (const box of result) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive reserved popup geometry`); return result; };
+    const before = await sample();
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.credits-email')).visibility), 'hidden', `${label}: before-input email link is hidden`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.credits-email').hidden), true);
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-before-input-credits.png`) });
+    await page.evaluate(() => window.ait164.reply()); await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.credits-email').hidden), false);
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.credits-email')).visibility), 'visible');
+    const after = await sample(), shift = Math.max(...before.flatMap((box, i) => box.map((v, j) => Math.abs(v - after[i][j]))));
+    assert.ok(shift <= .5, `${label}: reserved popup shift ${shift}`); rects.push({ label, targets, before, after, shift });
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-after-input-credits.png`) });
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-507-credits-rects.json'), JSON.stringify(rects, null, 2));
+});

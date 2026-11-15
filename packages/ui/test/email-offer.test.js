@@ -85,3 +85,56 @@ test('AIT-507 saved guest requests its first link; pending resend preserves cool
   assert.equal((await verification.resend()).ok, true);
   assert.deepEqual(calls.at(-1), { path: 'identity/resend', body: {} });
 });
+
+// Exercise the real save route's AIT-494 refusal through Verification, rather
+// than stubbing saveAndConfirm (which would miss the save acknowledgement).
+for (const status of [400, 503]) test(`AIT-507 save ${status} preserves capture and reports the save result`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+  const { SQLiteStorage, createHandlers } = await import('../../server/src/index.js');
+  const { createDemoHost } = await import('../../../demo/host-ports.js');
+  const storage = new SQLiteStorage(), owner = 'offer-save-fixture';
+  const session = storage.create({ id: `offer-save-${status}`, ownerToken: owner });
+  const host = createDemoHost({ storage, demo: true, ownerGuard: false, now: () => Date.now(), emailOffer: {} });
+  const handlers = createHandlers({ storage, host });
+  const window = new Window({ url: 'http://local/' }); globalThis.document = window.document;
+  const element = window.document.createElement('div'); window.document.body.append(element);
+  const root = element.attachShadow({ mode: 'open' });
+  const entry = window.document.createElement('section'), lock = window.document.createElement('section'), dialog = window.document.createElement('dialog');
+  root.append(entry, lock, dialog);
+  const requests = [];
+  const request = async (path, body, method = body === undefined ? 'GET' : 'POST') => {
+    if (!path.startsWith('/api/')) path = `/api/sessions/${session.id}/${path}`;
+    requests.push({ path, method, body });
+    const response = status === 503 && method === 'PUT' ? Response.json({ error: 'unavailable' }, { status: 503 })
+      : await handlers.handle(new Request(`http://local${path}`, { method,
+        headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+    return { ok: response.ok, status: response.status, body: await response.json() };
+  };
+  const verification = new Verification({ root, entry, lock, dialog, copy: en, demo: true, request });
+  const offer = new EmailOffer({ root, copy: en, verification, request, session: () => session, streaming: () => false });
+  t.after(async () => { offer.destroy(); verification.destroy(); await handlers.close(); storage.close(); delete globalThis.document; await window.happyDOM.close(); });
+  await verification.load();
+  const row = window.document.createElement('li'); root.append(row); offer.paintRow(row);
+  const address = status === 400 ? 'a(b)@example.com' : 'visitor@example.test';
+  row.querySelector('input').value = address;
+  await offer.save();
+  assert.equal(row.querySelector('.email-offer__message').textContent, status === 400 ? en.hostSurface.verify.invalid : en.hostSurface.email.failed);
+  assert.equal(row.querySelector('input').getAttribute('aria-invalid'), String(status === 400));
+  assert.equal(row.querySelector('input').hidden, false);
+  assert.equal(row.querySelector('input').value, address);
+  assert.equal(verification.email.address, '');
+  assert.equal(requests.filter(r => /identity\/(request|change|resend)$/u.test(r.path)).length, 0);
+  assert.deepEqual(requests.find(r => r.method === 'PUT').body, { address, noticeVersion: 'ait-135-v1' });
+});
+
+test('AIT-507 saving uses the save copy before confirmation delivery', async t => {
+  const f = fixture(t), row = f.root.ownerDocument.createElement('li'); f.root.append(row); f.offer.paintRow(row);
+  let finish; f.offer.verification.saveAndConfirm = () => new Promise(resolve => { finish = resolve; });
+  row.querySelector('input').value = 'visitor@example.test';
+  const saving = f.offer.save();
+  const message = row.querySelector('.email-offer__message').textContent;
+  finish({ ok: true, sent: false }); await saving;
+  assert.equal(message, en.hostSurface.email.saving);
+  assert.equal(row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.deliveryFailed);
+});
