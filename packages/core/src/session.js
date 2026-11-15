@@ -112,6 +112,9 @@ export function applyEvent(session, event) {
   } else if (event.type === 'session.locale-changed') {
     if (!['en', 'de'].includes(event.data.locale)) throw new TypeError('Unsupported locale');
     next.locale = event.data.locale;
+    if (Object.hasOwn(event.data, 'opener')) {
+      if (event.data.opener) next.opener = event.data.opener; else delete next.opener;
+    }
     next.sessionRevision += 1;
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
   } else if (event.type === 'session.paused') {

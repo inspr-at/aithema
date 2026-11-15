@@ -3749,7 +3749,7 @@ German, German digit grouping and a nonbreaking space before `Credits`.
 
 ### Optional host opener
 
-`createHandlers({ opener: { en?: string, de?: string }, ... })` opts a host into a plain-text first assistant message. Each locale is limited to 1000 characters; blank or missing copy disables the opener for that locale, with no other-language fallback. The snapshot publishes only the current locale as `opener: { text, locale }`. There is no browser-writable opener route.
+`createHandlers({ opener: { en?: string, de?: string }, ... })` opts a host into a plain-text first assistant message. Each locale is limited to 1000 characters; blank or missing copy disables the opener for that locale, with no other-language fallback. The snapshot publishes only the current locale as `opener: { text, locale }`. Opted-in hosts' public `session.locale-changed` events also carry `data.opener` with that resolved value, or `null` when the new locale has no opener. The requesting tab and SSE peers update the render-only row from this server-owned field. It is not persisted in locale journal metadata. There is no browser-writable opener route.
 
 The UI shows the opener after the legacy Start action, and the combined entrance can show it before input. It remains a render-only row until the first accepted text turn or a successful voice connection. Device processing inserts it locally before the first device turn. It never consumes a model invocation. The transcript region clamps the opener to six lines; the existing localized **Read full reply** control opens its complete text without moving the composer.
 

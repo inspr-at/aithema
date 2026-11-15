@@ -3667,6 +3667,9 @@ export class AithemaSession extends HTMLElement {
         else this.#voiceResumeProjection = null;
       }
       this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
+      const openerChanged = JSON.stringify(this.#session.opener) !== JSON.stringify(session.opener);
+      if ('opener' in session) this.#session.opener = session.opener; else delete this.#session.opener;
+      if (openerChanged) this.#render('transcript');
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
       if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting

@@ -88,6 +88,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }, 30_000);
     costTimer.unref?.();
   };
+  // Resolve public host copy at delivery; locale journal metadata stays value-free.
+  const publicEvent = event => event?.type === 'session.locale-changed' && Object.keys(opener).length
+    ? { ...event, data: { ...event.data, opener: resolveOpener(opener, event.data.locale) } } : event;
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
     if (event.type === 'session.paused' && event.data.reason === 'purpose') voiceHandlers?.stopSession(id, 'purpose');
@@ -470,7 +473,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const send = event => {
           if (closed) return;
           if (controller.desiredSize < -256 || ++count > 10_000) { cleanup(); controller.close(); return; }
-          controller.enqueue(sse(event));
+          controller.enqueue(sse(publicEvent(event)));
           // Preserve the synchronous voice-closing notification that follows
           // erasure in invalidate(), then close the revoked subscription.
           if (event.type === 'session.erased') queueMicrotask(() => { if (!closed) { cleanup(); controller.close(); } });
@@ -581,7 +584,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         try { event = storage.changeLocale(id, body.locale, { ownerToken }); }
         catch (error) { if (error instanceof ConflictError) return json({ error: 'locale-conflict' }, 409); throw error; }
         if (event) broadcast(id, event);
-        return json({ event, session: await snapshot(id) });
+        return json({ event: publicEvent(event), session: await snapshot(id) });
       }
       if (action === 'turns' && request.method === 'POST') {
         if (purposePolicy && authorized.pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
