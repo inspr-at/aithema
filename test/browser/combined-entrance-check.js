@@ -143,7 +143,7 @@ export async function combinedEntranceCheck(t) {
       await page.goto(`${server.url}/combined-fixture?locale=${locale}&unchosen`); await page.waitForFunction(() => globalThis.ready);
       assert.equal(await page.$eval('aithema-session', c => Boolean(c.shadowRoot.querySelector('.chooser'))), true);
       assert.deepEqual(await page.evaluate(() => trace), []);
-      await shot('chooser');
+      unmoved(initial, await shot('chooser'));
       await entranceFits(page, '.chooser');
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
