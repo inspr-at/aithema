@@ -49,12 +49,12 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, opener = {}, ti
         ...(staticSecretRef ? { methodNotAllowedStatus: 404 } : {}) },
       ...(staticSecretRef ? [{ method: 'POST', path: staticPath, handle: facade }] : []),
     ]),
-    prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false, hostOpener }) {
+    prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false, hasPriorCalls = false, hostOpener }) {
       const facadeSecretRef = staticSecretRef ?? 'voice-' + randomUUID();
       const facadeCallId = staticSecretRef ? randomUUID() : undefined;
       // Automatic transport repair stays silent; a visitor's Resume uses host copy.
       const overrides = continuation && !explicitResume ? { agent: { language: locale, firstMessage: '' } }
-        : presentation ? presentation(locale, { hasPriorTurns }) : (hostOpener
+        : presentation ? presentation(locale, { hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}) }) : (hostOpener
           ? { agent: { language: locale, firstMessage: hostOpener } }
           : opener[locale] && hasPriorTurns ? { agent: { language: locale, firstMessage: spokenContinuations[locale] } } : undefined);
       return { identity: facadeCallId,

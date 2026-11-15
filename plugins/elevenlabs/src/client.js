@@ -129,7 +129,7 @@ export function createElevenLabsClient(ports = {}) {
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       let lastReply, lastPlaybackTurnId, lastActivity, capturePhase;
       let silenceReply = () => {};
-      let closingReason;
+      let closingReason, lastVisitorAt = Date.now();
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId,
         ...(grant?.epoch !== undefined ? { epoch: grant.epoch } : {}) });
       const pauseControl = opts => {
@@ -366,6 +366,16 @@ export function createElevenLabsClient(ports = {}) {
         // when the provider finally connects.
         if (current === 1) { lifecycle.connected(grant); lifecycle.startHeartbeat(); }
         const active = () => generation === current && !ended;
+        const idleEnd = details => {
+          if (receipt.conversationLimit !== 'credits') return false;
+          const reasons = [details?.reason, details?.closeReason, details?.context?.reason, details?.result?.reason];
+          if (reasons.some(value => typeof value === 'string' && /^(?:silence[_ -](?:timeout|end)|silence_end_call_timeout|idle[_ -]timeout)$/iu.test(value))) return true;
+          const terminal = details?.reason === 'agent' && details?.context?.type === 'end_call' ||
+            details?.closeCode === 1000 || details?.context?.type === 'close' && details.context.code === 1000;
+          // Final transcripts arrive after speech ends. Allow that delivery lag
+          // when qualifying the provider's own 120-second silence termination.
+          return terminal && Date.now() - lastVisitorAt >= 110_000 && lastActivity !== 'speaking';
+        };
         const observeAssistant = eventId => {
           if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
           latestAssistantId = Math.max(latestAssistantId, eventId);
@@ -485,7 +495,7 @@ export function createElevenLabsClient(ports = {}) {
             // persistence. Paused finals leave a gap instead of shifting IDs.
             const ordinal = speaker === 'user' ? ++userTurnOrdinal : undefined;
             if (paused) return;
-            if (speaker === 'user') stopReplayForInput();
+            if (speaker === 'user') { lastVisitorAt = Date.now(); stopReplayForInput(); }
             if (speaker === 'assistant') {
               replyTexts.set(eventId, message);
               if (replyTexts.size > 256) replyTexts.delete(replyTexts.keys().next().value);
@@ -557,10 +567,11 @@ export function createElevenLabsClient(ports = {}) {
           },
           onAgentToolResponse(response) {
             // SDK 1.17.0 forwards native end_call before asynchronous disconnect cleanup finishes.
-            if (active() && response?.tool_name === 'end_call') void close('provider-end').catch(() => {});
+            if (active() && response?.tool_name === 'end_call') void close(idleEnd(response) ? 'idle' : 'provider-end').catch(() => {});
           },
           onDisconnect(details) {
             if (!active()) return;
+            if (idleEnd(details)) { void close('idle').catch(() => {}); return; }
             // Only the SDK's explicit end_call context establishes provider intent;
             // close codes and other diagnostic reasons remain recovery cases.
             if (details?.reason === 'agent' && details.context?.type === 'end_call') void close('provider-end').catch(() => {});
@@ -826,7 +837,7 @@ export function createElevenLabsClient(ports = {}) {
           sendText(text, opts) { return command('sendText', () => {
             if (paused || transportBlocked) throw new PluginError('not-admitted', 'Voice session paused');
             if (typeof text !== 'string' || !text.trim() || text.length > 16_384) throw new PluginError('limit', 'Invalid voice text');
-            conversation.sendUserMessage(text);
+            lastVisitorAt = Date.now(); conversation.sendUserMessage(text);
           })(opts); },
           updateContext(context, opts) { return command('updateContext', () => {
             const text = typeof context === 'string' ? context : JSON.stringify(context);

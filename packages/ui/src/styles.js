@@ -591,11 +591,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* The native action keeps the whole reserved line as its hit area. Its
    inline label shares status columns, without moving that control box. */
 .question-state { grid-column:2; display:grid; grid-template-columns:minmax(0,max-content) 18px minmax(max-content,1fr); align-items:center; height:36px; min-width:0; font-size:13.5px; line-height:1.3; white-space:nowrap; }
-.open-question:is([data-state="selected"],[data-state="retry"]) { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-tint),transparent); }
+.open-question[data-state="selected"] { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-tint),transparent); }
 .clarify-content, .question-status { display:inline-flex; align-items:center; gap:7px; height:36px; }
 .clarify-action { grid-column:1/-1; grid-row:1; display:grid; grid-template-columns:subgrid; align-items:center; height:36px; width:calc(100% + 9px); text-align:left; position:relative; padding:0 9px; margin-left:-9px; border-radius:8px; color:var(--aithema-accent); font-weight:600; }
 .clarify-content { grid-column:1/-1; justify-self:start; min-width:0; }
-.question-state:has(.question-status:not([hidden])) .clarify-content { grid-column:3; }
 .question-status { grid-column:1; grid-row:1; z-index:1; pointer-events:none; }
 .question-separator { grid-column:2; grid-row:1; text-align:center; z-index:1; pointer-events:none; }
 .open-question[data-state="refused"] .question-why { white-space:normal; }
@@ -604,6 +603,18 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .clarify-action::after { content:''; position:absolute; inset:-4px 0; }
 .clarify-action:hover:not([aria-disabled="true"]) { background:color-mix(in srgb,var(--aithema-accent) var(--clarify-hover),transparent); }
 .clarify-action[aria-disabled="true"] { cursor:default; background:transparent; }
+/* D524(a2): visible status copy is inert; only the intrinsic action acts.
+   Split the separator space with the button inset to retain the label anchor.
+   Real padding gives a 44px box while balanced margins reserve 36px.
+   Paint above the next row's empty top padding, never its text or controls. */
+.question-state:has(.question-status:not([hidden])) { grid-template-columns:minmax(0,max-content) 9px minmax(max-content,1fr); }
+.question-state:has(.question-status:not([hidden])) .clarify-action { grid-column:3; display:inline-grid; grid-template-columns:auto; justify-self:start; width:max-content; min-width:44px; height:auto; min-height:44px; padding:4px 9px; margin:-4px 0; outline-offset:0; z-index:2; }
+.question-state:has(.question-status:not([hidden])) .clarify-content { grid-area:1/1; }
+/* Reserve both existing labels at the resting weight, so Asking cannot grow
+   the Retry target or displace the status while its request is pending. */
+.question-state:has(.question-status:not([hidden])) .clarify-action[data-target-labels]::before { content:attr(data-target-labels); grid-area:1/1; white-space:pre; height:0; overflow:hidden; visibility:hidden; pointer-events:none; font-weight:600; }
+.question-state:has(.question-status:not([hidden])) .clarify-action::after { content:none; }
+.question-state:has(.question-status:not([hidden])) :is(.question-status,.question-separator) { pointer-events:auto; cursor:default; }
 .clarify-action svg, .question-status svg { width:14px; height:14px; }
 .clarify-icon:empty { display:none; }
 .question-separator { padding:0; color:var(--aithema-muted); }
@@ -614,8 +625,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .open-question:is([data-state="requesting"],[data-state="selected"]) .clarify-action svg { color:var(--aithema-accent); }
 .open-question[data-state="selected"] .clarify-action { color:var(--aithema-ink); font-weight:600; }
 .open-question[data-state="asked"] .clarify-action { color:var(--aithema-muted); font-weight:500; }
-.open-question:is([data-state="retry"],[data-state="focus-retry"],[data-state="unavailable"],[data-state="refused"]) .question-status { min-width:0; color:var(--aithema-muted); }
-.open-question:is([data-state="retry"],[data-state="focus-retry"]) .question-status svg { color:var(--aithema-warning); }
+.open-question:is([data-state="retry"],[data-state="focus-retry"],[data-state="unavailable"],[data-state="refused"],[data-state="requesting"]) .question-status { min-width:0; color:var(--aithema-muted); }
+.question-status:has(.question-failed-long) svg { color:var(--aithema-warning); }
 .open-question[data-state="unavailable"] .question-status { max-width:100%; }
 .clarify-spin { animation:clarify-spin .9s linear infinite; }
 @keyframes clarify-spin { to { transform:rotate(360deg); } }

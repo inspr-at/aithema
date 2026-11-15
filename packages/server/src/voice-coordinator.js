@@ -24,7 +24,7 @@ async function playbackDelay(ms, options) {
 /** Trusted turn authority. Browser PCM and validated text share server-owned ordering. */
 export function createComposedVoiceCoordinator({ sessionId, callId, providerSessionId = `composed-${randomUUID()}`, epoch = 0,
   stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now = Date.now,
-  spendDeadlineAt, browserLivenessDeadlineAt, maxDurationSeconds, endpointMs = 500,
+  spendDeadlineAt, browserLivenessDeadlineAt, maxDurationSeconds, conversationLimit = 'time', voiceIdleSeconds = 120, endpointMs = 500,
   maxUtteranceMs = 30_000, maxPendingTurns = 4, maxTextCharacters = 32_768, fragmentCharacters = 240,
   interruptionAwareness = false, inputFormat = 'pcm_s16le', outputFormat = 'pcm_f32le', outputAudioFormat = { encoding: outputFormat, sampleRateHz: 24000, channels: 1 }, voice, context = {} } = {}) {
   if (!sessionId || !callId || !providerSessionId || !stt?.stream || !tts?.speak || !replyExecutor?.execute ||
@@ -36,6 +36,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     endpointMs > maxUtteranceMs || maxUtteranceMs > 60_000 || fragmentCharacters < 2 || fragmentCharacters > 1000 || maxPendingTurns > 16) {
     throw new TypeError('Composed coordinator requires trusted, bounded host ports');
   }
+  if (!['time', 'credits'].includes(conversationLimit) || !Number.isSafeInteger(voiceIdleSeconds) || voiceIdleSeconds < 60 || voiceIdleSeconds > 3600) throw new TypeError('Invalid voice idle policy');
   const sampleBytes = outputFormat === 'pcm_s16le' ? 2 : 4;
   const bytesPerSecond = outputAudioFormat.sampleRateHz * sampleBytes;
   // Two bounded fragments plus one maximum provider chunk held by the pacer.
@@ -55,6 +56,14 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), playbacks = new Set(), commits = new Map(), textDeliveries = new Map();
   let history = [], historyBytes = 0, commitTail = Promise.resolve();
   const replies = new Set();
+  const idleEnabled = conversationLimit === 'credits';
+  let idleTimer, idleSince = startedAt;
+  function armIdle() {
+    clearTimeout(idleTimer);
+    if (!idleEnabled || state.state === 'ended' || state.state === 'active' && [...replies].some(reply => !reply.idleStopped)) return;
+    idleTimer = setTimeout(() => { void close('idle'); }, Math.max(0, idleSince + voiceIdleSeconds * 1000 - now()));
+    idleTimer.unref?.();
+  }
   let interruptionTail = Promise.resolve();
   function persistInterruption(reply) {
     if (!interruptionAwareness || tts.capabilities?.heardPrefix !== 'unavailable' || !reply.interrupted || !reply.id || reply.persisted) return;
@@ -74,11 +83,12 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   const lifetime = voiceLifetime({ spendDeadlineAt, browserLivenessDeadlineAt, now, onExpire: reason => {
     if (reason === 'browser-liveness-deadline') {
       holdRevision++;
-      silence(reason); discardInput(); dispatch({ type: 'lease-expired' }); event({ type: 'waiting', reason });
+      silence(reason); discardInput(); dispatch({ type: 'lease-expired' }); event({ type: 'waiting', reason }); armIdle();
     } else close(reason);
   } });
   const spendTimer = setTimeout(() => close('spend-deadline'), Math.max(0, spendDeadlineAt - now()));
   spendTimer.unref?.();
+  armIdle();
   const options = signal => ({ now, signal: signal ?? AbortSignal.any([revocation.signal, pauseController.signal]), deadlineAt: spendDeadlineAt });
   const current = () => state.state === 'active' && !cancellation.signal.aborted;
   const permitted = async opts => {
@@ -92,6 +102,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     // This effect is synchronous; neither remote acknowledgement nor accounting can delay silence.
     relay.silence({ ...stamp(), playbackRevision, reason });
     for (const job of speechJobs) job.controller.abort();
+    for (const reply of replies) reply.idleStopped = true;
+    armIdle();
     if (interruptionAwareness && tts.capabilities?.heardPrefix === 'unavailable') for (const reply of replies) {
       reply.interrupted = true; persistInterruption(reply);
     }
@@ -158,7 +170,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     if (!signal.aborted && current()) {
       holdRevision++;
       silence('component-failed'); discardInput(); dispatch({ type: 'recovery-exhausted' });
-      event({ type: 'waiting', reason: error?.code ?? 'provider' });
+      event({ type: 'waiting', reason: error?.code ?? 'provider' }); armIdle();
     }
   }
   async function acceptTurn(turn, text, signal, committed, delivery) {
@@ -180,6 +192,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         event({ type: 'final', role: 'user', turnId: turn.id, text, ...(turn.speechEndAt === undefined ? {} : { speechEndAt: turn.speechEndAt }) });
         dispatch({ type: 'accepted', turnId: turn.id });
         acceptedTurns++;
+        idleSince = now(); armIdle();
         delivery?.accept();
         committed.resolve();
       };
@@ -360,8 +373,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     // admitted reasoning finish; keep the turn signal live for error recovery.
     const controller = new AbortController(), signal = AbortSignal.any([turnSignal, controller.signal]);
     let pending = '', full = '', replyId, complete = false, playback;
-    const delivery = { envelope, interrupted: revision !== playbackRevision, persisted: false };
-    replies.add(delivery);
+    const delivery = { envelope, interrupted: revision !== playbackRevision, idleStopped: revision !== playbackRevision, persisted: false };
+    replies.add(delivery); armIdle();
     try {
       const source = replyExecutor.execute(envelope, options(signal));
       if (typeof source?.[Symbol.asyncIterator] !== 'function') throw new PluginError('invalid-output');
@@ -413,11 +426,18 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       throw error;
     } finally {
       const remaining = (playback?.endAt ?? 0) - now();
+      const finishOutput = () => {
+        replies.delete(delivery);
+        // A natural output completion starts a full silence window. Held or
+        // interrupted calls retain their existing deadline even if work finishes later.
+        if (idleEnabled && complete && !signal.aborted && !delivery.idleStopped && state.state === 'active') idleSince = now();
+        armIdle();
+      };
       if (!delivery.interrupted && remaining > 0) {
-        const cleanup = setTimeout(() => replies.delete(delivery), remaining); cleanup.unref?.();
-      } else replies.delete(delivery);
+        const cleanup = setTimeout(finishOutput, remaining); cleanup.unref?.();
+      } else finishOutput();
       if (playback) { playback.stop(); await playback.finish().catch(() => {}); }
-      await interruptionTail;
+      armIdle(); await interruptionTail;
     }
   }
   function receiveAudio(bytes, receipt = {}) {
@@ -447,7 +467,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   function close(reason = 'closed') {
     if (closing) return closing;
     closing = Promise.resolve({ acknowledged: true });
-    silence(reason); discardInput(); lifetime.dispose(); clearTimeout(spendTimer);
+    silence(reason); discardInput(); lifetime.dispose(); clearTimeout(spendTimer); clearTimeout(idleTimer);
     if (!recoverableVoiceEnd(reason)) revocation.abort();
     dispatch({ type: 'end', reason }); event({ type: 'ended', reason }); cancellation.abort();
     return closing;
@@ -459,7 +479,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     interrupt() { silence(); return Promise.resolve(); },
     async pause() {
       holdRevision++;
-      silence('pause'); discardInput(); dispatch({ type: 'pause' }); pauseController.abort();
+      silence('pause'); discardInput(); dispatch({ type: 'pause' }); pauseController.abort(); armIdle();
       return { acknowledged: true, paused: true };
     },
     async resume() {
@@ -470,7 +490,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       if (revision !== holdRevision) throw new PluginError('cancelled', 'Resume superseded by a hold');
       if (state.state === 'ended') throw new PluginError('unavailable');
       if (now() >= Math.min(spendDeadlineAt, state.browserLivenessDeadlineAt)) throw new PluginError('deadline');
-      pauseController = new AbortController(); dispatch({ type: 'resume-acknowledged' }); event({ type: 'listening' });
+      pauseController = new AbortController(); dispatch({ type: 'resume-acknowledged' }); event({ type: 'listening' }); armIdle();
       return { acknowledged: true, paused: false };
     },
     async setInput(on) { if (!on) discardInput(); await permitted(); input = Boolean(on); },
@@ -485,7 +505,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     close,
     async idle() { await inputFlight.catch(() => {}); while (jobs.size) await Promise.allSettled([...jobs]); },
     snapshot: () => ({ ...stamp(), sessionId, startedAt, spendDeadlineAt,
-      browserLivenessDeadlineAt: state.browserLivenessDeadlineAt, paused: state.holds.length > 0, context: structuredClone(context) }),
+      browserLivenessDeadlineAt: state.browserLivenessDeadlineAt, paused: state.holds.length > 0, ...(idleEnabled && state.terminalReason ? { reason: state.terminalReason } : {}), context: structuredClone(context) }),
     committedEnvelope: turnId => commits.get(turnId),
   };
   event({ type: 'listening' });

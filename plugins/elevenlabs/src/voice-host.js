@@ -8,6 +8,7 @@ import { watchBearerRejections } from './secret-repair.js';
 
 const REJECTION_WINDOW_MS = 5 * 60_000, REPAIR_WINDOW_MS = 30 * 60_000;
 const REJECTION_THRESHOLD = 3;
+const continuationFallback = Object.freeze({ en: 'The AI assistant is ready to continue.', de: 'Die KI-Assistenz setzt das Gespräch fort.' });
 export { normalizeElevenLabsDurationBinding } from './config.js';
 
 export async function createElevenLabsVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
@@ -50,8 +51,8 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
       await inFlight;
     },
     // These ports exist while off so the server can keep its handlers alive.
-    presentation: (locale, { hasPriorTurns = false } = {}) => Object.hasOwn(AI_NOTICE, locale)
-      ? { agent: { language: locale, firstMessage: hasPriorTurns ? spokenContinuations[locale] ?? spokenOpeners[locale] : spokenOpeners[locale] } } : undefined,
+    presentation: (locale, { hasPriorTurns = false, hasPriorCalls = false } = {}) => Object.hasOwn(AI_NOTICE, locale)
+      ? { agent: { language: locale, firstMessage: hasPriorTurns ? spokenContinuations[locale] ?? (hasPriorCalls ? continuationFallback[locale] : spokenOpeners[locale]) : spokenOpeners[locale] } } : undefined,
     async closeOrphan(call, { signal }) {
       // The server sweep catches this, retains the durable pending call and retries.
       if (!host.binding) throw new AgentEnsureError(host.disabledReason);

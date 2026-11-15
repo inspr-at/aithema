@@ -83,7 +83,7 @@ export { createFacadeSecrets } from '../elevenlabs-compat.js';
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, onActivity, onAssessment, onScopeRecorded, purposePolicy, hostPrompt = '', now = runtime?.now ?? Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, opener, callbackAdapter, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
-  reconcileLookupTimeoutMs = 5000, log,
+  reconcileLookupTimeoutMs = 5000, log, voiceIdleSeconds,
   turnReplayWindowMs, turnTimeoutMs = 6500, authorizeTurnReplacement } = {}) {
   if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
@@ -180,6 +180,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
     ...timeLimit(calls.get(call.callId)?.sessionId, call.spendDeadlineAt),
     presentation: calls.get(call.callId)?.presentation ?? 'opening',
+    ...(runtime.conversationLimits?.policy(calls.get(call.callId)?.sessionId) === 'credits' ? { conversationLimit: 'credits' } : {}),
     ...(call.overrides ? { overrides: call.overrides } : {}) });
   const options = request => ({ signal: request.signal, deadlineAt: now() + deadlineMs, now });
   function revoke(entry) { entry.callbackContext?.revoke(); }
@@ -265,8 +266,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false, tabId = null, explicitResume = false) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
-    const hasPriorOpenerCall = Object.keys(opener).length > 0 && !continuation &&
-      runtime.conversationLimits?.policy?.(sessionId) === 'credits' && Boolean(storage.voiceLifecycle(sessionId));
+    const creditsPolicy = runtime.conversationLimits?.policy(sessionId) === 'credits';
+    if (!continuation) runtime.assertFreshVoice?.(sessionId);
+    const hasPriorCalls = creditsPolicy && !continuation && Boolean(storage.voiceLifecycle(sessionId));
     const authorityKey = `${sessionId}:${callId}`;
     if (!authorities.has(authorityKey)) authorities.set(authorityKey, { sessionId, callId, controller: new AbortController() });
     const authority = authorities.get(authorityKey).controller;
@@ -275,7 +277,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
       tabId: logical.controllingTabId, epoch: logical.epoch, explicitCompositionResume: continuation && explicitResume,
       conversationConsentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
-      settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening', authority };
+      settingsRevision: session.settings?.revision ?? 0, presentation: continuation || hasPriorCalls ? 'continuation' : 'opening', authority };
     sessions.set(sessionId, entry); calls.set(callId, entry);
     const abortStartup = () => controller.abort(request.signal.reason);
     request.signal.addEventListener('abort', abortStartup, { once: true });
@@ -283,7 +285,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     try {
       const opts = { ...options(request), signal: controller.signal };
       const admitted = await runtime.admitVoice({ session, request: { callId }, options: {
-        ...opts, spendDeadlineAt, allowPaused: continuation, voiceContinuation: continuation,
+        ...opts, ...(creditsPolicy ? { conversationLimit: 'credits', ...(voiceIdleSeconds === undefined ? {} : { voiceIdleSeconds }) } : {}), spendDeadlineAt, allowPaused: continuation, voiceContinuation: continuation,
       } }); entry.admission = admitted;
       const end = Math.min(spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000,
         runtime.conversationLimits?.deadline(sessionId) ?? Infinity);
@@ -291,12 +293,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         continuation ? { reason: 'time-limit', ...timeLimit(sessionId, end) } : {});
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
       const current = storage.get(sessionId);
-      const hasPriorTurns = activeTurns(session).some(turn =>
+      const hasPriorTurns = hasPriorCalls || activeTurns(session).some(turn =>
         ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim()));
-      const canSpeakOpener = !continuation && !hasPriorOpenerCall && opener[current.locale] &&
+      const canSpeakOpener = !continuation && !hasPriorCalls && opener[current.locale] &&
         current.transcript.length === 0 && !storage.hasConnectedVoiceCall(sessionId);
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: current.locale,
-        continuation, explicitResume, hasPriorTurns,
+        continuation, explicitResume, hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}),
         ...(canSpeakOpener ? { hostOpener: opener[current.locale] } : {}) });
       await entry.callbackContext?.prepare();
       controller.signal.throwIfAborted();
@@ -803,7 +805,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
           ...(error.code === 'deadline' && error.reason === 'time-limit' ? { reason: error.reason, timeLimit: error.timeLimit }
-            : voiceConfigurationRefused(error) ? { reason: error.reason } : VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
+            : voiceConfigurationRefused(error) || error.reason === 'budget reconciling' ? { reason: error.reason } : VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
           error.status === 429 && error.retryAfter !== undefined ? { 'retry-after': error.retryAfter } : {});
         return json({ error: 'voice-unavailable' }, 503);
       }
