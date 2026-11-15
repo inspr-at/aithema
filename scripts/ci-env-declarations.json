@@ -25,6 +25,10 @@
     ],
     "reason": "Evidence/source provenance; release test matches the run identifier"
   },
+  "test/browser/combined-entrance-check.js": {
+    "reads": ["CI"],
+    "reason": "Linux headless Chrome sandbox selection for the AIT-506 combined entrance matrix"
+  },
   "test/browser/compact-footer-check.js": {
     "reads": [
       "GITHUB_EVENT_PATH",

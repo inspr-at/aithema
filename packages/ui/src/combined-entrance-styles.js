@@ -2,7 +2,7 @@
 export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:1rem; }
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; }
-.workspace[data-entrance="combined"] .intro { flex:0 1 auto; min-height:0; max-height:45%; overflow:auto; grid-template-columns:minmax(0,1fr); padding:.5rem 0; gap:.5rem; }
+.workspace[data-entrance="combined"] .intro { flex:none; min-height:0; grid-template-columns:minmax(0,1fr); padding:.5rem 0; gap:.5rem; }
 .workspace[data-entrance="combined"] .intro[hidden] { display:none; }
 .workspace[data-entrance="combined"] .intro__prompt { display:none; }
 .workspace[data-entrance="combined"] .intro__card { width:100%; }
