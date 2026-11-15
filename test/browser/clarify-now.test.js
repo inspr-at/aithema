@@ -921,6 +921,13 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
   const browser = await browserForFile(), page = await browser.newPage(), rows = [];
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.evaluateOnNewDocument(() => {
+    const RealDate = Date, now = 1_000_000;
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [now])); }
+      static now() { return now; }
+    };
+  });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
@@ -935,6 +942,11 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
       controls: b?.getAttribute('aria-controls') === p.id, height: rect.height, width: rect.width, line,
       heading: h.textContent, headingWidth: heading.width, headingHeight: heading.height,
       fade: getComputedStyle(p).maskImage, html: p.innerHTML, text: p.textContent };
+  }).then(value => {
+    assert.ok(value.width > 0 && value.height > 0, 'summary has a positive measured box');
+    assert.ok(value.headingWidth > 0 && value.headingHeight > 0, 'heading has a positive measured box');
+    assert.ok(value.line > 0, 'summary has a resolved line height');
+    return value;
   });
   const frames = async () => { await settle(page); };
   const shot = async name => { if (evidence) await page.screenshot({ path: join(evidence, `ait-514-${name}.png`), fullPage: true }); };
@@ -957,7 +969,7 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
       const { createSession, inputRevision } = await import('/packages/core/src/session.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = createSession({ demo: true, locale });
-      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
       session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' }];
       Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
         summary: 'Short.', signals: ['A stable signal'], openQuestions: [] });
@@ -986,8 +998,14 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
     await frames(); await shot(`${locale}-${theme}-${width}-collapsed`);
     if (width === 1024) {
-      const visible = await shadow(page, c => { const p = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(), r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.top >= p.top && r.bottom <= p.bottom; });
-      assert.equal(visible, true, 'first signal visible at 1024×640');
+      const visible = await shadow(page, c => {
+        const p = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(), r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect();
+        return { pane: p.toJSON(), signal: r.toJSON(), positive: p.width > 0 && p.height > 0 && r.width > 0 && r.height > 0,
+          visible: r.top >= p.top && r.bottom <= p.bottom };
+      });
+      assert.equal(visible.positive, true, 'first signal and pane have positive boxes');
+      if (evidence) await writeFile(join(evidence, `ait-514-${locale}-${theme}-1024-first-signal.json`), JSON.stringify(visible, null, 2));
+      assert.equal(visible.visible, true, `first signal visible at 1024×640: ${JSON.stringify(visible)}`);
     }
     const before = await frameBoxes();
     await shadow(page, c => { const b = c.shadowRoot.querySelector('.summary-toggle'); b.focus({ preventScroll: true }); });
@@ -1009,7 +1027,18 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     const afterSignal = await shadow(page, c => { const r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
     assert.ok(afterSignal.width > 0 && afterSignal.height > 0); assert.ok(Math.abs(signal.y - afterSignal.y) <= .5, 'signal stays under pointer');
     rows.push({ label: `${locale}/${theme}/${width} rewrite anchor`, before: signal, after: afterSignal });
-    await page.mouse.move(-10, -10);
+    await page.mouse.move(-10, -10); await frames();
+    const focusBefore = await shadow(page, c => {
+      const n = c.shadowRoot.querySelector('.signals li'); n.tabIndex = 0; n.focus({ preventScroll: true }); window.summaryFocusedSignal = n;
+      return n.getBoundingClientRect().toJSON();
+    });
+    assert.ok(focusBefore.width > 0 && focusBefore.height > 0, 'focused signal has a positive box');
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } })); await frames();
+    const focusAfter = await shadow(page, c => ({ ...window.summaryFocusedSignal.getBoundingClientRect().toJSON(), focused: c.shadowRoot.activeElement === window.summaryFocusedSignal }));
+    assert.ok(focusAfter.width > 0 && focusAfter.height > 0, 'focused signal keeps a positive box');
+    assert.equal(focusAfter.focused, true); assert.ok(Math.abs(focusAfter.y - focusBefore.y) <= .5, 'signal stays at keyboard reading position');
+    rows.push({ label: `${locale}/${theme}/${width} focus anchor`, before: focusBefore, after: focusAfter });
+    if (evidence) await writeFile(join(evidence, 'ait-514-rects.json'), JSON.stringify(rows, null, 2));
     await update('<img src=x onerror=alert(1)> the person'); await frames();
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.summary-text img') === null), true);
     assert.equal((await state()).text, '<img src=x onerror=alert(1)> the person');

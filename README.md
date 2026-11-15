@@ -505,6 +505,18 @@ Work triggered by visitors is independent of this boot limit. Existing consent,
 pause, admission and spend limits still govern every call; recovery can incur
 provider costs when those gates admit it.
 
+The overview's existing `copy.summary` heading is now visible. Its shipped defaults
+are “What we understood so far” (EN) and “Unser Verständnis bisher” (DE); existing
+host overrides still win. A summary exceeding nine rendered lines is collapsed
+with a fade. The native toggle uses the additive keys `copy.summaryMore` (“Read
+more” / “Mehr anzeigen”) and shared `copy.showLess` (“Show less” / “Weniger
+anzeigen”). Missing keys fall back to the active locale; explicit host overrides
+win. Expansion stays in memory through assessment rewrites and same-conversation
+copy changes, and resets on a different conversation, reset or erasure. The
+understanding prompt addresses the visitor in summaries and signals with “you” /
+formal “Sie”, preserving quoted evidence verbatim; rendered model text is never
+rewritten by the UI.
+
 Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
 (the token is optional) and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
