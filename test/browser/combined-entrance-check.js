@@ -275,18 +275,18 @@ export async function combinedOpenerCheck(t) {
       const initial=await shot('ready');
       await exposedFeedback(page,'.composer-reason');
       assert.equal(await page.evaluate(() => c.session.transcript.length),0);
-      await page.evaluate(() => {
-        globalThis.openerRow=c.shadowRoot.querySelector('[data-id="host:opener"]');
-        c.receive({seq:c.session.seq+1,type:'turn.final',data:{id:'host:opener',role:'assistant',origin:'host',content:c.session.opener.text}});
-      });
-      unmoved(initial,await shot('persisted'));
-      assert.equal(await page.evaluate(() => openerRow===c.shadowRoot.querySelector('[data-id="host:opener"]')),true);
       await page.type('aithema-session >>> textarea','A combined draft');await page.click('aithema-session >>> .send');
       unmoved(initial,await shot('consent'));
       await page.evaluate(() => {failSend=true;grant();});
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed'));
       await exposedFeedback(page,'.composer-reason');
       unmoved(initial,await shot('send-failed'));
+      await page.evaluate(() => {
+        globalThis.openerRow=c.shadowRoot.querySelector('[data-id="host:opener"]');
+        c.receive({seq:c.session.seq+1,type:'turn.final',data:{id:'host:opener',role:'assistant',origin:'host',content:c.session.opener.text}});
+      });
+      unmoved(initial,await shot('persisted'));
+      assert.equal(await page.evaluate(() => openerRow===c.shadowRoot.querySelector('[data-id="host:opener"]')),true);
       await page.evaluate(() => {failSend=false;});await page.click('aithema-session >>> .send');
       await page.waitForFunction(() => sent.length===1);
       await exposedFeedback(page,'.composer-saved-announcement');
