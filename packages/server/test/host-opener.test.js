@@ -6,6 +6,7 @@ import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 const now = () => 1_800_000_000_000;
 const opener = { en: 'Welcome. Your AI assistant is ready.', de: 'Willkommen. Ihre KI-Assistenz ist bereit.' };
 async function fixture(t, options = {}) {
+  t.mock.timers.enable({ apis: ['Date'], now: now() });
   const storage = new SQLiteStorage(':memory:', { now });
   const handlers = createHandlers({ storage, consent: mockConsent, host: { now }, opener, ...options });
   t.after(async () => { await handlers.close(); storage.close(); });
