@@ -59,11 +59,15 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
       const { inputRevision } = await import('/packages/core/src/session.js');
       const s = structuredClone(globalThis.composerSeed); s.seq = 10; s.locale = locale; s.inputRevision = 1; s.settings.origin = 'chosen';
+      s.conceptVisualKind = 'image'; s.visualsBound = Boolean(visuals); s.conceptCost = visuals ? { maxMicro: 0 } : null;
+      s.concepts = visuals === 'populated' ? [{ id: 'fixture-image', mediaType: 'image/png', turnIds: ['t0'], referenceIds: [], archived: false }] : [];
+      s.conceptStatus = { phase: visuals === 'populated' ? 'ready' : 'idle' };
       s.transcript = Array.from({ length: turns }, (_, i) => ({ id: `t${i}`, role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine kurze Nachricht.' : 'A short message.' }));
       s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'images', 'html'].map(key => [key, { available: ['text', 'analysis'].includes(key) || voice && key === 'voice' || visuals && key === 'images', reason: 'not configured' }]));
       globalThis.composerFailure = false;
       window.fetch = async (url, init = {}) => {
         const path = new URL(url, location.href).pathname;
+        if (path.endsWith('/image')) return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } });
         if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }), { headers: { 'content-type': 'text/event-stream' } });
         if (path.endsWith('/turns')) {
           if (globalThis.composerFailure) return new Response(null, { status: 503 });
@@ -114,6 +118,11 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       await reset(width, width === 390 ? 844 : 900, locale, theme, { card: true });
       await capture(`ait-511-${locale}-${theme}-${width}-card`);
       await draft(page, 30); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-card-capped`);
+      for (const visuals of [true, 'populated']) {
+        await reset(width, width === 390 ? 844 : 900, locale, theme, { visuals, voice: true });
+        const state = await capture(`ait-511-${locale}-${theme}-${width}-visuals-${visuals}`);
+        positive(state.boxes['.concept-bar'], 'visual bar'); assert.equal(state.boxes['.concept-bar'].height, 44, 'visual bar uses one 44px row');
+      }
     });
   }
   for (const voice of [false, true]) await t.test(`1024x640 question card stays reachable voice=${voice}`, async () => {
@@ -172,6 +181,15 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     const row = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
     positive(row, 'pointer row after notice'); assert.ok(Math.abs(row.top - after.top) <= .5, 'notice preserves pointer row');
     records.push({ label: 'pointer', target, after, row, beforeNotice, afterNotice });
+  });
+  await t.test('embedded host height keeps the composer bottom fixed', async () => {
+    await reset(1440, 900);
+    await shadow(page, c => c.style.setProperty('--aithema-height', '720px'));
+    try {
+      await settleEvidenceFrame(page); const before = await geometry(page);
+      await draft(page, 12); await settleEvidenceFrame(page); const after = await geometry(page);
+      stable(before, after, 'embedded'); records.push({ label: 'embedded-720', before, after });
+    } finally { await shadow(page, c => c.style.removeProperty('--aithema-height')); }
   });
   await t.test('device send resets height after canonical acceptance', async () => {
     await reset(1440, 900);
