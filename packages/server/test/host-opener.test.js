@@ -123,14 +123,13 @@ for (const configured of [undefined, {}]) test(`AIT-505 M2: no opener retains th
 
 for (const state of ['accepted', 'unreadable']) test(`AIT-505 M3: document-first ${state} stores the opener before reply dispatch, export and replay`, async t => {
   t.mock.timers.enable({ apis: ['Date'], now: now() }); pinned.add(t);
-  const requests = [], base = createMockReasoning();
-  const reasoning = { ...base, bind() { return reasoning; }, async *stream(request, options) {
-    requests.push(request); yield* base.stream(request, options);
-  } };
+  const requests = [], reasoning = createMockReasoning();
   const storage = new SQLiteStorage(':memory:', { now });
   const registry = new PluginRegistry().register(reasoning), presets = mockPresets();
   registerDemoExtractors(registry, presets);
   const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent: mockConsent });
+  const admit = runtime.admit.bind(runtime);
+  t.mock.method(runtime, 'admit', args => { if (args.lane === 'reaction') requests.push(args.request); return admit(args); });
   const f = await fixture(t, { storage, reasoning, pluginRuntime: runtime });
   const form = new FormData(); form.append('clientEventId', 'document');
   form.append('files', new File([state === 'accepted' ? 'Invoice system requirements.' : ''], 'requirements.txt', { type: 'text/plain' }));
