@@ -164,3 +164,14 @@ for (const mode of ['text', 'voice']) test(`AIT-506: ${mode} return without a gr
   assert.equal(f.sends.length, 0, 'a later grant has no pending Send');
   assert.equal(f.starts.length, 0, 'a later grant has no pending call');
 });
+
+for (const pending of [false, true]) test(`AIT-506: settings update preserves the field draft, pending consent ${pending}`, async t => {
+  const f = fixture(t, { granted: !pending }); f.input('Keep this when choosing processing');
+  if (pending) f.send();
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best',
+    settings: { ...f.c.session.settings, revision: f.c.session.settings.revision + 1 } } });
+  assert.equal(f.c.shadowRoot.querySelector('textarea').value, 'Keep this when choosing processing');
+  assert.equal(f.c.shadowRoot.querySelector('textarea').readOnly, false);
+  assert.equal(sessionStorage.getItem('aithema-start-intent'), null, 'the old revision has no pending intent');
+  await f.grant(); assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
+});
