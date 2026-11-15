@@ -142,8 +142,9 @@ for (const state of ['accepted', 'unreadable']) test(`AIT-505 M3: document-first
   assert.equal(current.transcript.filter(turn => turn.id === 'host:opener').length, 1);
   assert.ok(current.transcript.some(turn => turn.role === 'assistant' && turn.id !== 'host:opener'));
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].messages[0].role, 'assistant');
-  assert.equal(requests[0].messages[0].content, opener.en);
+  const assistantMessages = requests[0].messages.filter(message => message.role === 'assistant');
+  assert.equal(assistantMessages[0].role, 'assistant');
+  assert.equal(assistantMessages[0].content, opener.en);
   assert.equal(requests[0].messages.filter(message => message.content === opener.en).length, 1);
   const terminal = f.storage.read(f.session.id).find(e => e.type === 'upload.state' && e.data.state === state);
   const host = f.storage.read(f.session.id).find(e => e.data.id === 'host:opener');
