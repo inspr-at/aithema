@@ -15,7 +15,8 @@ const locale=new URL(location.href).searchParams.get('locale')||'en';
 document.documentElement.lang=locale;
 Date.now=()=>1800000000000;
 const saved=sessionStorage.getItem('combined-fixture-session');sessionStorage.removeItem('combined-fixture-session');
-globalThis.trace=[];globalThis.sent=[];globalThis.granted=Boolean(saved&&JSON.parse(saved).consentRevision>0);globalThis.denied=false;
+globalThis.failSend=false;globalThis.trace=[];globalThis.sent=[];globalThis.granted=Boolean(saved&&JSON.parse(saved).consentRevision>0);globalThis.denied=false;
+if(new URL(location.href).searchParams.has('passiveDenied'))Object.defineProperty(navigator,'permissions',{value:{async query(){return {state:'denied'}}}});
 const allowed={available:true},blocked={available:false,reason:'current processing consent required'};
 const c=document.createElement('aithema-session');document.body.append(c);globalThis.c=c;
 const nativeFetch=fetch;
@@ -23,7 +24,7 @@ globalThis.fetch=async(url,options={})=>{
  if(!String(url).startsWith('/api/sessions/'))return nativeFetch(url,options);
  if(String(url).endsWith('/events'))return new Response(new ReadableStream({start(controller){options.signal?.addEventListener('abort',()=>controller.close(),{once:true})}}));
  if(String(url).endsWith('/consent'))return Response.json({consentRevision:c.session.consentRevision,selected:[],features:{}});
- if(String(url).endsWith('/turns')){const b=JSON.parse(options.body);sent.push(b);return Response.json({seq:c.session.seq+1,type:'turn.final',data:{id:b.clientEventId,role:'user',content:b.content,...b.voiceCallId?{voiceCallId:b.voiceCallId}:{}}})}
+ if(String(url).endsWith('/turns')){if(failSend)return Response.json({error:'fixture failure'},{status:503});const b=JSON.parse(options.body);sent.push(b);return Response.json({seq:c.session.seq+1,type:'turn.final',data:{id:b.clientEventId,role:'user',content:b.content,...b.voiceCallId?{voiceCallId:b.voiceCallId}:{}}})}
  const s=c.session;s.featureMatrix.best={text:granted?allowed:blocked,voice:granted?allowed:blocked,analysis:allowed};return Response.json(s);
 };
 const client={async start({callId}){trace.push('admission');trace.push('permission');if(denied)throw Object.assign(new Error('blocked'),{name:'NotAllowedError'});trace.push('call');const events=voiceEvents();return {callId,providerSessionId:'fixture',events,async setInput(value){trace.push(['capture',value])},async setOutput(){},async updateContext(){},async sendText(text){trace.push(['typed',text])},async pause(){return {acknowledged:true,paused:true}},async resume(){return {acknowledged:true,paused:false}},async heartbeat(){return {acknowledged:true,browserLivenessDeadlineAt:Date.now()+30000}},async close(){events.end();return {closureConfirmed:true}}}}};
@@ -33,7 +34,7 @@ c.addEventListener('aithema-consent',e=>{trace.push('consent');globalThis.consen
 globalThis.grant=()=>{granted=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
 globalThis.ready=true;
 </script></body></html>`;
-const boxes = (page) => page.$eval('aithema-session', c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.composer-status', '.composer-notice'].map(selector => {
+const boxes = (page) => page.$eval('aithema-session', c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.composer-status', '.composer-notice', '.composer-feedback'].map(selector => {
   const box = c.shadowRoot.querySelector(selector)?.getBoundingClientRect();
   return [selector, box ? [box.x, box.y, box.width, box.height] : null];
 })));
@@ -54,6 +55,28 @@ async function entranceFits(page, selector) {
   const intro = rects['.intro'], content = rects[selector];
   assert.ok(content[1] >= intro[1] - .5 && content[1] + content[3] <= intro[1] + intro[3] + .5,
     `${selector} must fit the entrance without a clipped or scrolling card: ${JSON.stringify(rects)}`);
+}
+async function exposedFeedback(page, selector) {
+  const style = await page.$eval('aithema-session', (c, selector) => {
+    const target = c.shadowRoot.querySelector(selector), feedback = c.shadowRoot.querySelector('.composer-feedback');
+    const box = target.getBoundingClientRect();
+    return { visibility: getComputedStyle(target).visibility, opacity: getComputedStyle(target).opacity,
+      parentVisibility: getComputedStyle(feedback).visibility, text: target.textContent, box: [box.x, box.y, box.width, box.height] };
+  }, selector);
+  positive({ [selector]: style.box });
+  assert.equal(style.parentVisibility, 'visible', 'mic status preserves the text feedback');
+  assert.equal(style.visibility, 'visible'); assert.equal(style.opacity, '1'); assert.ok(style.text.trim());
+  const cdp = await page.createCDPSession();
+  try {
+    const { result } = await cdp.send('Runtime.evaluate', { expression: `document.querySelector('aithema-session').shadowRoot.querySelector(${JSON.stringify(selector)})` });
+    const { node } = await cdp.send('DOM.describeNode', { objectId: result.objectId });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+    const live = nodes.find(n => n.backendDOMNodeId === node.backendNodeId);
+    assert.equal(live?.ignored, false, `${selector} stays in the accessibility tree`);
+    assert.equal(live?.role?.value, 'status');
+    assert.ok(live.properties.some(p => p.name === 'live' && p.value.value === 'polite'), 'feedback remains a polite live region');
+    await cdp.send('Runtime.releaseObject', { objectId: result.objectId });
+  } finally { await cdp.detach(); }
 }
 export async function combinedEntranceCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-'));
@@ -93,6 +116,27 @@ export async function combinedEntranceCheck(t) {
       await page.waitForFunction(() => sent.length === 1);
       assert.equal(await page.evaluate(() => sent[0].content), 'A bounded draft');
       unmoved(initial, await shot('text-sent'));
+      // Passive permission denial must coexist with consent, failure and Saved feedback.
+      await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`); await page.waitForFunction(() => globalThis.ready);
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
+      const passive = await boxes(page); positive(passive); unmoved(initial, passive);
+      await page.evaluate(() => grant());
+      await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.text.available);
+      await page.type('aithema-session >>> textarea', 'Retain on failure');
+      await page.evaluate(() => { failSend = true; }); await page.click('aithema-session >>> .send');
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed'));
+      await exposedFeedback(page, '.composer-reason');
+      assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('textarea').value), 'Retain on failure');
+      unmoved(passive, await shot('microphone-blocked-send-failed'));
+      await page.evaluate(() => { failSend = false; }); await page.click('aithema-session >>> .send');
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-saved-announcement').textContent.length > 0);
+      await exposedFeedback(page, '.composer-saved-announcement');
+      assert.equal(await page.$eval('aithema-session', c => getComputedStyle(c.shadowRoot.querySelector('.composer-saved')).opacity), '1');
+      unmoved(passive, await shot('microphone-blocked-saved'));
+      await page.evaluate(() => { granted = false; c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:false,changed:['text','voice'],removed:[]}}); });
+      await page.waitForFunction(() => Boolean(document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason .consent-action')));
+      await exposedFeedback(page, '.composer-reason');
+      unmoved(passive, await shot('microphone-blocked-consent'));
       // Reload a fresh blocked snapshot; test denied microphone and a usable text field.
       await page.goto(`${server.url}/combined-fixture?locale=${locale}`); await page.waitForFunction(() => globalThis.ready);
       const before = await boxes(page); positive(before);
@@ -106,8 +150,8 @@ export async function combinedEntranceCheck(t) {
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
       const deniedBox = await shot('microphone-blocked'); unmoved(before, deniedBox);
       assert.match(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-status').textContent), locale === 'de' ? /Mikrofon gesperrt/ : /Microphone blocked/);
-      assert.equal(await page.$eval('aithema-session', c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden',
-        'microphone status must not overlap the keyboard shortcut');
+      assert.equal(await page.$eval('aithema-session', c => getComputedStyle(c.shadowRoot.querySelector('.composer-feedback')).visibility), 'visible',
+        'microphone status keeps text feedback exposed');
       assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('textarea').disabled), false);
       assert.deepEqual(await page.evaluate(() => trace.slice(0, 3)), ['consent', 'admission', 'permission']);
       await page.evaluate(() => { denied = false; }); await page.click('aithema-session >>> .composer-mic');
@@ -124,6 +168,14 @@ export async function combinedEntranceCheck(t) {
       const muted = await boxes(page); positive(muted); await page.click('aithema-session >>> .composer-mic');
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-mic').getAttribute('aria-pressed') === 'true');
       unmoved(muted, await boxes(page));
+      await page.click('aithema-session >>> .voice-close');
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
+      unmoved(before, await shot('call-ended'));
+      await page.type('aithema-session >>> textarea', 'Follow up after call');
+      await page.evaluate(() => { failSend = true; }); await page.click('aithema-session >>> .send');
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed'));
+      await exposedFeedback(page, '.composer-reason');
+      unmoved(before, await shot('call-ended-send-failed'));
       assert.ok(live.textarea[2] > 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       for (const mode of ['text', 'voice']) for (const covered of [true, false]) {
@@ -158,6 +210,6 @@ export async function combinedEntranceCheck(t) {
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
   }
-  assert.equal(tables.length, 144);
+  assert.equal(tables.length, 204);
   if (evidence) await writeFile(join(evidence, 'ait-506-rects.json'), JSON.stringify(tables, null, 2));
 }

@@ -38,6 +38,7 @@ function fixture(t, { granted = false, entrance = 'combined', active = true, cli
       const body = JSON.parse(options.body); sends.push(body);
       return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
     }
+    if (url.endsWith('/withdraw')) return Response.json({ event: { seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: JSON.parse(options.body).turnId, reason: 'withdrawal', at: new Date(Date.now()).toISOString() } } });
     if (url.endsWith('/consent')) return Response.json({ consentRevision: c.session.consentRevision, selected: [], features: {} });
     const snapshot = c.session;
     snapshot.featureMatrix.best = { text: allowed, voice: allowed, analysis: allowed };
@@ -175,3 +176,24 @@ for (const pending of [false, true]) test(`AIT-506: settings update preserves th
   assert.equal(sessionStorage.getItem('aithema-start-intent'), null, 'the old revision has no pending intent');
   await f.grant(); assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
 });
+
+for (const origin of ['own click', 'server retention', 'other tab']) for (const pending of [false, true]) {
+  test(`AIT-506 M1: ${origin} withdrawal ${pending ? 'clears the pending snapshot' : 'preserves an unsent follow-up'}`, async t => {
+    const f = fixture(t, { granted: !pending });
+    f.c.receive({ seq: f.c.session.seq + 1, type: 'turn.final', data: { id: 'earlier', role: 'user', content: 'Earlier message' } });
+    f.input('Unsent follow-up');
+    if (pending) { f.send(); assert.ok(sessionStorage.getItem('aithema-start-intent')); }
+    if (origin === 'own click') {
+      const button = f.c.shadowRoot.querySelector('.turn[data-id="earlier"] .withdraw');
+      assert.ok(button); button.click(); await tick();
+    } else {
+      f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'turn.withdrawn',
+        data: { turnId: 'earlier', reason: origin === 'server retention' ? 'expiry' : 'withdrawal', at: new Date(Date.now()).toISOString() } });
+    }
+    assert.equal(f.c.session.transcript.find(turn => turn.id === 'earlier').withdrawn, true);
+    assert.equal(f.c.shadowRoot.querySelector('textarea').value, pending ? '' : 'Unsent follow-up');
+    assert.equal(f.c.shadowRoot.querySelector('textarea').readOnly, false);
+    assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
+    await f.grant(); assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
+  });
+}
