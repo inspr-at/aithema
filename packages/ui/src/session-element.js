@@ -2458,9 +2458,9 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     setText(root.querySelector('.summary-text'), summary ? u.summary : '');
-    this.#summaryView.render(copy, this.#session.locale);
     reconcile(root.querySelector('.signals'), textKeys(u.signals),
       () => element('li'), (row, value) => setText(row, value));
+    this.#summaryView.render(copy, this.#session.locale);
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);
