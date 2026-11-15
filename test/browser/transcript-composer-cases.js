@@ -67,6 +67,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
       const { inputRevision } = await import('/packages/core/src/session.js');
+      const { paintUtilities } = await import('/demo/page-preferences.js');
       const s = structuredClone(globalThis.composerSeed); s.seq = 10; s.locale = locale; s.inputRevision = 1; s.settings.origin = 'chosen';
       s.conceptVisualKind = 'image'; s.visualsBound = Boolean(visuals); s.conceptCost = visuals ? { maxMicro: 0 } : null;
       s.concepts = visuals === 'populated' ? [{ id: 'fixture-image', mediaType: 'image/png', turnIds: ['t0'], referenceIds: [], archived: false }] : [];
@@ -89,6 +90,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       c.configure({ copy, session: s, ...(voice ? { voiceClient: { manifest, async start() { throw new Error('No voice calls in layout fixtures'); } } } : {}) });
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
+      document.querySelector('#locale').value = locale; paintUtilities(copy);
       if (card) c.receive({ seq: 11, type: 'turn.final', data: { id: 'question', role: 'assistant', inputRevision: inputRevision(c.session),
         content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
         options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
