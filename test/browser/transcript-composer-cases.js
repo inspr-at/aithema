@@ -41,6 +41,7 @@ const stable = (before, after, label) => {
   for (const state of [before, after]) positive(state.boxes['.composer'], 'composer');
   assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, `${label}: composer bottom`);
 };
+const settleHeld = page => page.evaluate(async () => { await document.fonts.ready; for (let i = 0; i < 4; i++) await new Promise(resolve => requestAnimationFrame(resolve)); });
 const draft = (page, lines) => shadow(page, (c, lines) => {
   const input = c.shadowRoot.querySelector('textarea'); input.value = Array.from({ length: lines }, (_, i) => `Line ${i + 1}`).join('\n');
   input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -72,12 +73,13 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       s.conceptStatus = { phase: visuals === 'populated' ? 'ready' : 'idle' };
       s.transcript = Array.from({ length: turns }, (_, i) => ({ id: `t${i}`, role: i % 2 ? 'assistant' : 'user', content: locale === 'de' ? 'Eine kurze Nachricht.' : 'A short message.' }));
       s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'images', 'html'].map(key => [key, { available: ['text', 'analysis'].includes(key) || voice && key === 'voice' || visuals && key === 'images', reason: 'not configured' }]));
-      globalThis.composerFailure = false;
+      globalThis.composerFailure = false; globalThis.composerPending = null;
       window.fetch = async (url, init = {}) => {
         const path = new URL(url, location.href).pathname;
         if (path.endsWith('/image')) return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } });
         if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }), { headers: { 'content-type': 'text/event-stream' } });
         if (path.endsWith('/turns')) {
+          if (globalThis.composerPending) await globalThis.composerPending.promise;
           if (globalThis.composerFailure) return new Response(null, { status: 503 });
           const body = JSON.parse(init.body); return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
         }
@@ -178,14 +180,15 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       const row = [...shell.querySelectorAll('.turn')].find(n => n.getBoundingClientRect().top > bounds.top + 20);
       return { id: row.dataset.id, box: row.getBoundingClientRect().toJSON() };
     }); positive(target.box, 'pointer row');
-    await page.mouse.move(target.box.x + 12, target.box.y + 12); await settleEvidenceFrame(page);
-    await draft(page, 12); await settleEvidenceFrame(page);
+    await page.mouse.move(target.box.x + 12, target.box.y + 12); await settleHeld(page);
+    assert.equal(await shadow(page, (c, point) => c.shadowRoot.elementFromPoint(point.x + 12, point.y + 12)?.closest('.turn')?.dataset.id, target.box), target.id, 'the actual pointer rests on the measured row');
+    await draft(page, 12); await settleHeld(page);
     const after = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
     positive(after, 'pointer row after growth'); assert.ok(Math.abs(after.top - target.box.top) <= .5, 'resting row remains still');
     assert.equal((await geometry(page)).jump, 'visible', 'Latest offers the newly occluded tail');
     const beforeNotice = await geometry(page);
     await shadow(page, c => { c.shadowRoot.querySelector('.voice-notice--recovered').textContent = 'Connection recovered.'; });
-    await settleEvidenceFrame(page); const afterNotice = await geometry(page); stable(beforeNotice, afterNotice, 'async notice');
+    await settleHeld(page); const afterNotice = await geometry(page); stable(beforeNotice, afterNotice, 'async notice');
     const row = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
     positive(row, 'pointer row after notice'); assert.ok(Math.abs(row.top - after.top) <= .5, 'notice preserves pointer row');
     records.push({ label: 'pointer', target, after, row, beforeNotice, afterNotice });
@@ -213,6 +216,15 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       await draft(page, 12); await settleEvidenceFrame(page); const after = await geometry(page);
       stable(before, after, 'embedded'); records.push({ label: 'embedded-720', before, after });
     } finally { await shadow(page, c => c.style.removeProperty('--aithema-height')); }
+  });
+  await t.test('edits during a pending send keep the new draft and its height', async () => {
+    await reset(1440, 900); const initial = await geometry(page); await draft(page, 12);
+    await shadow(page, c => { globalThis.composerPending = Promise.withResolvers(); c.shadowRoot.querySelector('form.composer').requestSubmit(); });
+    await draft(page, 30); await settleEvidenceFrame(page); const edited = await geometry(page);
+    assert.ok(edited.boxes.textarea.height > initial.boxes.textarea.height, 'the pending draft grows');
+    await page.evaluate(() => globalThis.composerPending.resolve());
+    await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled); await settleEvidenceFrame(page);
+    const accepted = await geometry(page); assert.equal(accepted.value, edited.value); assert.equal(accepted.boxes.textarea.height, edited.boxes.textarea.height, 'acceptance does not reset newer edits');
   });
   await t.test('device send resets height after canonical acceptance', async () => {
     await reset(1440, 900);
