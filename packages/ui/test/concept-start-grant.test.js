@@ -81,7 +81,7 @@ test('AIT-509: the in-page combined Start grant closes into the composer', async
   c.addEventListener('aithema-consent', event => {
     events.push(event.detail); c.openConsent(event.detail.features[0]);
   });
-  c.shadowRoot.querySelector('.ready__start').click();
+  const start = c.shadowRoot.querySelector('.ready__start'); start.focus(); start.click();
   await new Promise(resolve => setTimeout(resolve, 450));
   assert.equal(c.shadowRoot.querySelector('dialog.settings').open, true);
   const boxes = [...c.shadowRoot.querySelectorAll('.consent-item input')]; assert.equal(boxes.length, 2);
