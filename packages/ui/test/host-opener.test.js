@@ -39,3 +39,21 @@ test('AIT-505: device mode inserts the host turn once into local model context',
   assert.match(requests[0].system,/first assistant message was written by the host/u);
   assert.equal(c.session.transcript.filter(t=>t.id==='host:opener').length,1);
 });
+
+test('AIT-505: first send applies both returned events without a snapshot restore', async t => {
+  const c=document.createElement('aithema-session');c.configure({copy:en,session:session()});t.after(()=>c.remove());
+  const fetch=t.mock.method(globalThis,'fetch',async (url,options)=>{
+    assert.match(String(url),/\/turns$/u,'a first send must not restore a sequence gap');
+    assert.equal(options.method,'POST');
+    const body=JSON.parse(options.body),opener={seq:1,type:'turn.final',data:{id:'host:opener',role:'assistant',origin:'host',content:'Welcome from a host.'}};
+    const event={seq:2,type:'turn.final',data:{id:body.clientEventId,role:'user',content:body.content}};
+    return Response.json({...event,event,events:[opener,event]});
+  });
+  c.shadowRoot.querySelector('.ready__start').click();
+  const row=c.shadowRoot.querySelector('[data-id="host:opener"]');
+  c.shadowRoot.querySelector('textarea').value='An invoice system.';c.shadowRoot.querySelector('.send').click();await tick();
+  assert.deepEqual(c.session.transcript.map(turn=>turn.role),['assistant','user']);
+  assert.equal(c.session.transcript[0].id,'host:opener');
+  assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'),row);
+  assert.equal(fetch.mock.callCount(),1);
+});
