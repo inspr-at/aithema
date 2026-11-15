@@ -931,7 +931,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
       : Response.json(c.session);
   });
   const frame = async () => {
-    const result = await shadow(page, c => Object.fromEntries(['.band', '.understanding', '.understanding > .foot', '.composer-shell', '.attach', '.send', '.voice-state'].map(selector => {
+    const result = await shadow(page, c => Object.fromEntries(['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer-shell', '.attach', '.send', '.voice-state'].map(selector => {
       const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
       return [selector, { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom }];
     })));
