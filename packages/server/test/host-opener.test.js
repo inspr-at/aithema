@@ -122,6 +122,7 @@ for (const configured of [undefined, {}]) test(`AIT-505 M2: no opener retains th
 });
 
 for (const state of ['accepted', 'unreadable']) test(`AIT-505 M3: document-first ${state} stores the opener before reply dispatch, export and replay`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: now() }); pinned.add(t);
   const requests = [], base = createMockReasoning();
   const reasoning = { ...base, bind() { return reasoning; }, async *stream(request, options) {
     requests.push(request); yield* base.stream(request, options);
@@ -134,7 +135,8 @@ for (const state of ['accepted', 'unreadable']) test(`AIT-505 M3: document-first
   const form = new FormData(); form.append('clientEventId', 'document');
   form.append('files', new File([state === 'accepted' ? 'Invoice system requirements.' : ''], 'requirements.txt', { type: 'text/plain' }));
   const post = () => f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form }));
-  assert.equal((await post()).status, 202); await f.handlers.idle();
+  const response = await post();
+  assert.equal(response.status, 202, JSON.stringify(await response.clone().json())); await f.handlers.idle();
   const current = f.storage.get(f.session.id);
   assert.equal(current.uploads[0].state, state);
   assert.equal(current.transcript[0].id, 'host:opener');
