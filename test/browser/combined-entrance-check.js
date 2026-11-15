@@ -45,6 +45,16 @@ function unmoved(before, after) {
   for (const selector of Object.keys(before)) for (let i = 0; i < 4; i++) assert.ok(Math.abs(before[selector][i] - after[selector][i]) <= .5,
     `${selector}[${i}] moved: ${before[selector][i]} -> ${after[selector][i]}`);
 }
+async function entranceFits(page, selector) {
+  const rects = await page.$eval('aithema-session', (c, selector) => Object.fromEntries(['.intro', selector].map(key => {
+    const box = c.shadowRoot.querySelector(key).getBoundingClientRect();
+    return [key, [box.x, box.y, box.width, box.height]];
+  })), selector);
+  positive(rects);
+  const intro = rects['.intro'], content = rects[selector];
+  assert.ok(content[1] >= intro[1] - .5 && content[1] + content[3] <= intro[1] + intro[3] + .5,
+    `${selector} must fit the entrance without a clipped or scrolling card: ${JSON.stringify(rects)}`);
+}
 export async function combinedEntranceCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-'));
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -72,6 +82,7 @@ export async function combinedEntranceCheck(t) {
         return measured;
       };
       const initial = await shot('ready');
+      await entranceFits(page, '.ready');
       assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.ready__start')), null);
       assert.deepEqual(await page.evaluate(() => trace), []);
       await page.type('aithema-session >>> textarea', 'A bounded draft');
@@ -133,6 +144,7 @@ export async function combinedEntranceCheck(t) {
       assert.equal(await page.$eval('aithema-session', c => Boolean(c.shadowRoot.querySelector('.chooser'))), true);
       assert.deepEqual(await page.evaluate(() => trace), []);
       await shot('chooser');
+      await entranceFits(page, '.chooser');
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
   }
