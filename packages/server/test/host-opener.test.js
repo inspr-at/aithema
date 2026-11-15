@@ -154,3 +154,39 @@ for (const state of ['accepted', 'unreadable']) test(`AIT-505 M3: document-first
   assert.equal((await post()).status, 200); await f.handlers.idle();
   assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.id === 'host:opener').length, 1);
 });
+
+const claimOrders = [
+  ['upload', 'text', 'voice'], ['upload', 'voice', 'text'],
+  ['text', 'upload', 'voice'], ['text', 'voice', 'upload'],
+  ['voice', 'upload', 'text'], ['voice', 'text', 'upload'],
+];
+for (const configured of [true, false]) for (const order of claimOrders) test(`AIT-505 D505c: competing first claims ${order.join('/')} (${configured ? 'opener' : 'legacy'}) persist once in injected order`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: now() });
+  const storage = new SQLiteStorage(':memory:', { now }); t.after(() => storage.close());
+  const session = storage.create({ demo: true, ownerToken: testToken, locale: 'en' });
+  const selected = configured ? opener : undefined, guard = { ownerToken: testToken, opener: selected };
+  const pending = storage.postUploads(session.id, 'document', 'fixture-digest', [{ filename: 'requirements.txt',
+    mediaType: 'text/plain', bytes: Buffer.from('Requirements.'), deadlineAt: now() + 30_000 }], {}, { ownerToken: testToken });
+  const uploadId = pending.events[0].data.id;
+  storage.transitionVoiceLifecycle(session.id, 'first-call', { type: 'start' });
+  const operations = {
+    upload: () => storage.completeUpload(session.id, uploadId, { status: 'accepted', text: 'Requirements.' }, guard),
+    text: () => storage.postTurn(session.id, 'first-text', Buffer.from('First text'), 'First text', guard),
+    voice: () => storage.connectVoiceWithOpener(session.id, 'first-call', { type: 'connected', providerSessionId: 'first-generation' }, selected),
+  };
+  const gates = Object.fromEntries(order.map(name => [name, Promise.withResolvers()]));
+  const claims = Object.fromEntries(order.map(name => [name, gates[name].promise.then(operations[name])]));
+  // All claims are queued before the fixture chooses the transaction order.
+  for (const name of order) { gates[name].resolve(); await claims[name]; }
+  const current = storage.get(session.id), events = storage.read(session.id);
+  const hostEvents = events.filter(e => e.type === 'turn.final' && e.data.id === 'host:opener');
+  assert.equal(hostEvents.length, configured ? 1 : 0);
+  assert.equal(current.transcript.filter(turn => turn.id === 'host:opener').length, configured ? 1 : 0);
+  assert.equal(current.transcript[0].id, configured ? 'host:opener' : 'first-text');
+  assert.equal(current.uploads[0].state, 'accepted');
+  assert.equal(storage.voiceLifecycle(session.id, 'first-call').state, 'active');
+  if (configured) {
+    const firstInput = events.find(e => e.type === 'turn.final' && e.data.role === 'user' || e.type === 'upload.state' && e.data.state === 'accepted');
+    assert.ok(hostEvents[0].seq < firstInput.seq, 'opener precedes every document or text reply trigger');
+  }
+});
