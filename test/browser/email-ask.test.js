@@ -547,7 +547,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     for (const status of [400, 503]) {
       await page.evaluate(status => { window.ait164.saveStatus = status; }, status);
       await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
-      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled);
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'false');
       const failure = await shadow(page, async c => {
         const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`), row = c.shadowRoot.querySelector('.email-offer');
         return { text: row.querySelector('.email-offer__message').textContent, invalid: row.querySelector('input').getAttribute('aria-invalid'),
@@ -562,11 +562,11 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     await page.evaluate(() => { window.ait164.saveStatus = null; });
     await page.evaluate(() => { window.ait164.saving = true; window.ait164.linkFails = true; });
     await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'true');
     assert.equal(await shadow(page, async c => { const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`); return c.shadowRoot.querySelector('.email-offer__message').textContent === copy.hostSurface.email.saving; }), true);
     await shot('saving');
     await page.evaluate(() => { window.ait164.saving = false; });
-    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled && window.ait164.requests.includes('link'));
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'false' && window.ait164.requests.includes('link'));
     await shot('delivery-failed');
     await page.evaluate(() => { window.ait164.linkFails = false; }); await click(page, '.email-offer__send');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'sent');

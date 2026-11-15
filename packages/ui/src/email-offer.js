@@ -86,13 +86,13 @@ export class EmailOffer {
     setText(row.querySelector('.email-offer__lead'), next && delta > 0
       ? fill(this.copy.hostSurface.usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: formatCredits(delta, this.session().locale ?? 'en') }) : v.lockLead);
     const input = row.querySelector('input'), saved = Boolean(email.address);
-    input.hidden = saved; input.disabled = this.saving || confirmed; input.placeholder = v.placeholder;
+    input.hidden = saved; input.disabled = confirmed; input.setAttribute('aria-disabled', String(Boolean(this.saving || confirmed))); input.placeholder = v.placeholder;
     input.setAttribute('aria-invalid', String(Boolean(this.invalid)));
     const address = row.querySelector('.email-offer__address'); address.hidden = !saved; setText(address, email.address);
     setText(row.querySelector('label'), v.label);
     const button = row.querySelector('.email-offer__send');
     button.dataset.send = v.send; button.dataset.resend = v.resend;
-    setText(button.querySelector('span'), saved ? v.resend : v.send); button.disabled = this.saving || confirmed;
+    setText(button.querySelector('span'), saved ? v.resend : v.send); button.disabled = confirmed; button.setAttribute('aria-disabled', String(Boolean(this.saving || confirmed)));
     setText(row.querySelector('.email-offer__message'), confirmed ? v.unlocked : this.message || (this.step === 'sent' ? v.sent : ''));
     const dismiss = row.querySelector('.email-offer__dismiss'); dismiss.setAttribute('aria-label', v.close); dismiss.disabled = this.busy || this.saving;
     email.paintNotice(row.querySelector('.m-notice'));

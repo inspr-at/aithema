@@ -65,7 +65,7 @@ export class HostSurface {
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     if (this.#session().emailOffer && this.#verification) this.#emailOffer = new EmailOffer({ root, copy, verification: this.#verification,
       session, streaming, request: (path, body) => this.#call(this.#sessionPath(path), body), changed: () => this.#onCredits?.() });
-    this.#verification?.setCaptureDeferred(Boolean(this.#session().emailOffer && !hasOfferVisitorInput(this.#session())));
+    this.#verification?.setCaptureDeferred(this.#captureDeferred());
     this.#mountHandover(); this.#mountFoot();
     if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole,
       session: () => this.#erased ? { ...session(), processingPreset: this.#erased.processingPreset } : session(),
@@ -234,7 +234,8 @@ export class HostSurface {
     this.#refreshCredits(); this.update();
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
-  updateStreaming() { if (this.#erased) return; this.#verification?.setCaptureDeferred(Boolean(this.#session().emailOffer && !hasOfferVisitorInput(this.#session()))); this.#verification?.update(); }
+  #captureDeferred() { return Boolean(this.#session().emailOffer && !this.usedUp && !hasOfferVisitorInput(this.#session())); }
+  updateStreaming() { if (this.#erased) return; this.#verification?.setCaptureDeferred(this.#captureDeferred()); this.#verification?.update(); }
   update() { if (this.#erased) return; this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); this.#emailOffer?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
@@ -355,6 +356,7 @@ export class HostSurface {
     finally { this.#creditsReads--; }
   }
   #paintCredits() {
+    this.#verification?.setCaptureDeferred(this.#captureDeferred());
     const line = this.#root.querySelector('.host-credits'); line.hidden = !this.#options.credits;
     if (!this.#options.credits) return;
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
@@ -430,9 +432,9 @@ export class HostSurface {
     const hasOfferCopy = Object.hasOwn(c, 'afterConfirm') && c !== de.hostSurface.credits && c !== en.hostSurface.credits;
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
     setText(nextLine, next ? tierText(fill(c[next === 'emailGiven' ? 'withEmail' : scoped && tiers.current === 'anonymous' && !hasOfferCopy ? 'withConfirmed' : Object.hasOwn(c, 'afterConfirm') ? 'afterConfirm' : 'withConfirmed'], { tier: format(tiers.allowancesMicro?.[next], locale), n: format(tiers.allowancesMicro?.[next], locale) })) : !capped && out && (scoped || this.limitCopy.footer !== false) ? c.noMore : '');
-    const captureDeferred = Boolean(this.#session().emailOffer && !hasOfferVisitorInput(this.#session()));
+    const captureDeferred = this.#captureDeferred() && !this.#verification?.email.address;
     nextLine.hidden = capped || !next && (!out || !scoped && this.limitCopy.footer === false); link.hidden = !next || captureDeferred;
-    link.toggleAttribute('data-capture-deferred', captureDeferred);
+    link.toggleAttribute('data-capture-deferred', Boolean(next && captureDeferred));
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
     // Reserve the track without overriding narrow/legal-host display rules.
     track.hidden = false; track.style.visibility = owner ? '' : 'hidden';

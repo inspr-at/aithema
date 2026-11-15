@@ -3760,8 +3760,12 @@ identity port, the privacy-document capability, and the visitor-wide
 `createDemoHost({ emailOffer: { afterMessages: 2 } })`.
 
 Before visitor input, the overview and Settings' empty capture form are absent.
-The credits popover hides its email action while capture is deferred, reserving
-the action's space so revealing it does not move the popover.
+When a visitor is used up, capture stays available in Settings so the composer's
+upgrade action can recover credit even in a new conversation with no input.
+Deferral follows credit receipts and changes. The credits popover hides its email
+action only for an unsaved address while capture is deferred, reserving the
+action's space when a next tier exists so revealing it does not move the popover.
+Without a next tier, the action and its reserved slot are absent.
 A saved address keeps its Change and Delete controls in Settings. The host opener
 never counts as visitor input. Confirmation still unlocks the assessment and
 concepts; starting a conversation does not require an email address.
@@ -3804,4 +3808,6 @@ The demo forwards that option to `createVisitorCredits({ emailOffer })`.
 Without the policy, the demo keeps its existing tier projection.
 Save refusals use `verify.invalid` and mark the field invalid; other save
 failures use `email.failed`. Saving uses `email.saving`, and a confirmation-link
-failure after a successful save uses `verify.deliveryFailed`.
+failure after a successful save uses `verify.deliveryFailed`. During a save,
+`aria-disabled` keeps the capture input focused; a refused save retains the
+address and focus for correction.

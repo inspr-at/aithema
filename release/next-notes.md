@@ -10,7 +10,10 @@
   required for an eligible offer.
 - Before visitor input, the overview and empty Settings capture form are absent;
   saved-address Change/Delete remain reachable. The credits popover hides its
-  email action while capture is deferred and reserves its existing slot.
+  email action only for unsaved addresses while capture is deferred, reserving
+  its existing slot only when a next tier exists. Used-up visitors retain
+  Settings capture before input, including in a new conversation; deferral
+  follows credit receipts and changes. Saved-address confirmation stays reachable.
   The verification lock stays until
   confirmation. The host opener, assistant turns, documents, partials and
   duplicate messages cannot advance the offer's accepted-message count.
@@ -22,7 +25,8 @@
   independent.
 - The inline assistant-side offer stays outside transcript events, model context
   and exports. It works during calls and on phones without disabling the
-  composer or moving focus. Existing give/confirm/lock, Send/Resend, Sent and
+  composer or moving focus. Saving uses `aria-disabled` to preserve capture
+  focus, including after a refused save. Existing give/confirm/lock, Send/Resend, Sent and
   Unlocked copy keys preserve host overrides. Collection renders the existing
   privacy notice and sends its required `noticeVersion`; saved addresses use
   `Verification.resend()` and retain Settings management. The helper requests a
