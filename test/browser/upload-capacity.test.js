@@ -448,12 +448,12 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await startTyping(page);
     await inShadow(page, async c => {
-      window.imageAsks = []; window.imagePosts = []; window.imageSeq = 0;
+      window.imageAsks = []; window.imagePosts = []; window.imageSeq = 0; window.imageGranted = true;
       const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
       const context = canvas.getContext('2d'); context.fillStyle = '#e02030'; context.fillRect(0, 0, 1, 1);
       window.imageFixtureBase64 = canvas.toDataURL('image/png').split(',')[1];
       window.imageFixturePNG = Uint8Array.from(atob(window.imageFixtureBase64), c => c.charCodeAt(0));
-      c.addEventListener('aithema-consent', e => window.imageAsks.push(e.detail));
+      c.addEventListener('aithema-consent', e => { window.imageAsks.push(e.detail); if (window.imageFixtureConsent) e.stopPropagation(); });
       const session = structuredClone(c.session);
       session.featureMatrix.best.imageInput = { available: true, reason: null };
       session.featureMatrix.best.images = { available: true, reason: null };
@@ -468,12 +468,20 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       const fetch = window.fetch.bind(window);
       window.fetch = async (url, options = {}) => {
         if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
-        if (String(url).endsWith(`/api/sessions/${session.id}`)) return Response.json(c.session);
+        if (String(url).endsWith(`/api/sessions/${session.id}`)) {
+          const snapshot = c.session; snapshot.featureMatrix.best.imageInput = { available: window.imageGranted, reason: window.imageGranted ? null : 'current processing consent required' };
+          return Response.json(snapshot);
+        }
+        if (String(url).endsWith('/consent')) return Response.json({ consentRevision: c.session.consentRevision, selected: window.imageGranted ? ['images', 'image-input'] : ['images'], features: { images: ['images'], imageInput: ['image-input'] } });
+        if (/\/uploads\/[^/]+\/withdraw$/u.test(String(url))) {
+          const id = String(url).split('/').at(-2), image = c.session.uploads.find(u => u.id === id);
+          return Response.json({ event: { sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-discarded', erased: true } } });
+        }
         if (/\/uploads$/u.test(String(url))) {
           if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads });
           const files = options.body.getAll('files');
-          return Response.json({ events: files.map(file => ({ sessionId: c.session.id, seq: c.session.seq + ++window.imageSeq, type: 'upload.state', data: {
-            id: `fixture-${window.imageSeq}`, filename: file.name, kind: 'image', state: 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
+          return Response.json({ events: files.map((file, index) => ({ sessionId: c.session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
+            id: `fixture-${++window.imageSeq}`, filename: file.name, kind: 'image', state: 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
         }
         if (/\/uploads\/[^/]+\/image$/u.test(String(url))) {
           (window.imageOwnerHeaders ??= []).push(new Headers(options.headers).get('x-aithema-session-token'));
@@ -578,6 +586,46 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.turn .image-thumbnail')?.naturalWidth === 1);
     await shot('reload');
     assert.ok(await page.evaluate(() => window.imageOwnerHeaders.every(header => header === 'fixture')), 'all thumbnail requests use owner authentication');
+    await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
+      c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'withheld', withdrawn: true } });
+    });
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.turn .image-thumbnail')), null, 'withheld pixels are removed');
+    await shot('withheld');
+    const withheld = await boxes();
+    for (const [selector, r] of Object.entries(withheld)) {
+      assert.ok(r.w > 0 && r.h > 0, `${selector} positive while withheld`);
+      for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - before[selector][edge]) <= .5, `${selector}.${edge} fixed while withheld`);
+    }
+    changes.push({ reason: 'withheld', rects: withheld });
+    await inShadow(page, async c => {
+      window.imageGranted = false; window.imageFixtureConsent = true; window.imageAsks = [];
+      const session = c.session; session.featureMatrix.best.imageInput = { available: false, reason: 'current processing consent required' };
+      const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+      c.configure({ session, copy, sessionToken: 'fixture', voiceClient: {} });
+    });
+    await startTyping(page);
+    const consentBefore = await boxes(), attachedBefore = await page.evaluate(() => window.imageSeq);
+    for (const r of Object.values(consentBefore)) assert.ok(r.w > 0 && r.h > 0, 'positive frame before consent selection');
+    await choose(); await page.waitForFunction(() => window.imageAsks.length === 1);
+    assert.equal(await page.evaluate(() => window.imageSeq), attachedBefore, 'no image POST before consent');
+    assert.deepEqual(await page.evaluate(() => window.imageAsks[0].features), ['imageInput']);
+    await shot('consent');
+    await inShadow(page, c => { window.imageGranted = true;
+      c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } });
+    });
+    await waitForShadow(page, '.staged-image[data-state="staged-pending"]');
+    assert.equal(await page.evaluate(() => window.imageSeq), attachedBefore + 1, 'consent resumes exactly one attach');
+    assert.equal(await page.evaluate(() => window.imageAsks.length), 1, 'no repeated consent ask');
+    await shot('consent-resumed');
+    await inShadow(page, c => c.shadowRoot.querySelector('.staged-image__remove').click());
+    await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.staged-image'));
+    await shot('discarded');
+    const discarded = await boxes();
+    for (const [selector, r] of Object.entries(discarded)) {
+      assert.ok(r.w > 0 && r.h > 0, `${selector} positive after discard`);
+      for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - consentBefore[selector][edge]) <= .5, `${selector}.${edge} fixed after discard`);
+    }
+    changes.push({ reason: 'discarded', rects: discarded });
     if (evidence) await writeFile(join(evidence, `${prefix}-rects.json`), JSON.stringify({ unstaged, before, changes, tileBefore, tileReload, after: await boxes() }, null, 2));
 
   });

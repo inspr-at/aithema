@@ -3492,7 +3492,7 @@ export class AithemaSession extends HTMLElement {
           this.#render('transcript');
         }
       }
-      // Every upload state is new input: a running reply belongs to the input before it.
+      // Document uploads are input; staged images leave an in-flight reply intact.
       if (event.type === 'upload.state') {
         this.#images?.receive(event.data);
         if (!stagedImage(event.data) && event.data.state !== 'withheld') { this.#partials.clear(); this.#failure = false; }
