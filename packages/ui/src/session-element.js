@@ -3026,8 +3026,8 @@ export class AithemaSession extends HTMLElement {
     if (!button) return;
     const active = Boolean(rail?.session), target = active ? rail.button('input') : null;
     const feature = this.#feature('voice'), pending = Boolean(this.#startIntent);
-    button.disabled = pending || !this.#voiceChoice() || Boolean(this.#host?.usedUp) ||
-      (active ? target.disabled : ['connecting', 'closing'].includes(rail?.state) || Boolean(rail?.busy));
+    button.disabled = pending || Boolean(this.#host?.usedUp) ||
+      (active ? target.disabled : !this.#voiceChoice() || ['connecting', 'closing'].includes(rail?.state) || Boolean(rail?.busy));
     const label = active ? target.title : this.#copy.voiceStart;
     button.title = label; button.setAttribute('aria-label', label);
     if (active) button.setAttribute('aria-pressed', String(rail.input)); else button.removeAttribute('aria-pressed');
@@ -3037,7 +3037,7 @@ export class AithemaSession extends HTMLElement {
     const words = blocked ? resolveCopy(this.#copy, 'voiceMessagesNarrow.voiceMicDenied', 'voiceMicDenied', this.#session.locale)
       : !active && rail?.errorKey ? resolveCopy(this.#copy, rail.errorKey, null, this.#session.locale) : '';
     setText(this.shadowRoot.querySelector('.composer-status'), words);
-    if (!active && !feature.available && !isConsentReason(feature.reason)) button.title = feature.reason ?? label;
+    if (!active && !feature.available && !isConsentReason(feature.reason)) button.title = this.#feature('voice', true).reason ?? label;
   }
   #startCombined(mode, draft = this.shadowRoot.querySelector('textarea').value) {
     if (!this.#combined || this.#startIntent || this.#sending) return;
