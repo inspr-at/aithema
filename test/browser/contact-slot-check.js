@@ -91,13 +91,14 @@ export async function contactSlotCheck(t) {
     }, locale);
     await settle();
     const mounted = await rects(['.band', '.audio-rail']);
-    stable(before, mounted, `${name}: first paint`);
+    const firstPaintShift = stable(before, mounted, `${name}: first paint`);
     assert.equal(await visible('#contact-launch'), true, `${name}: reachable before input`);
     await capture(`${name}-launcher`);
     // Real keyboard activation, native modal focus trap, and return to the host opener.
     await page.focus('#contact-launch');
     await page.keyboard.press('Enter');
     assert.equal(await page.$eval('#contact-overlay', d => d.open), true);
+    assert.equal(await page.$eval('aithema-session', c => c.session.transcript.length), 0, 'opening contact creates no conversation input');
     await capture(`${name}-overlay`);
     await page.keyboard.press('Escape');
     assert.equal(await page.$eval('#contact-launch', n => n === document.activeElement), true);
@@ -105,11 +106,11 @@ export async function contactSlotCheck(t) {
     assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.activeElement?.classList.contains('settings-open')), true, 'Tab continues into Settings');
     await page.evaluate(() => {
       const { c } = window.contactFixture;
-      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'contact-u1', role: 'user', content: 'Requirements' } });
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'contact-u1', role: 'user', content: document.documentElement.lang === 'de' ? 'Anforderungen' : 'Requirements' } });
       const root = c.shadowRoot; root.querySelector('.workspace').removeAttribute('data-reveal');
       // Long fixture content exercises the scroll owner without model work.
       root.querySelector('.summary').hidden = false;
-      root.querySelector('.summary-text').textContent = 'A summary. '.repeat(1000);
+      root.querySelector('.summary-text').textContent = (document.documentElement.lang === 'de' ? 'Eine Zusammenfassung. ' : 'A summary. ').repeat(1000);
     });
     await settle();
     assert.equal(await visible('#contact-open'), true, `${name}: mounted pinned host content`);
@@ -126,7 +127,7 @@ export async function contactSlotCheck(t) {
     await page.evaluate(() => { document.querySelector('aithema-session').shadowRoot.querySelector('.analysis-content').scrollTop = 600; });
     await settle();
     assert.ok(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.analysis-content').scrollTop > 0));
-    const scrolled = await rects(frames); stable(pinned, scrolled, `${name}: analysis scroll`);
+    const scrolled = await rects(frames); const analysisShift = stable(pinned, scrolled, `${name}: analysis scroll`);
     await capture(`${name}-scrolled`);
     // The email ask uses the same analysis-stack cell and must leave contact exposed.
     await page.evaluate(() => {
@@ -134,7 +135,7 @@ export async function contactSlotCheck(t) {
       root.querySelector('.workspace').dataset.emailAsk = 'pane';
       root.querySelector('.email-ask-pane').textContent = 'E\u2011Mail';
     });
-    await settle(); stable(scrolled, await rects(frames), `${name}: email pane`);
+    await settle(); const emailShift = stable(scrolled, await rects(frames), `${name}: email pane`);
     assert.equal(await visible('#contact-open'), true);
     await capture(`${name}-email-pane`);
     // Exercise the production fold controller with the fixture's available visuals.
@@ -146,7 +147,7 @@ export async function contactSlotCheck(t) {
     await settle();
     assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-folded')), true, 'production fold entered');
     assert.equal(await visible('#contact-launch'), true, `${name}: folded launcher`);
-    stable(mounted, await rects(['.band', '.audio-rail']), `${name}: folded header`);
+    const foldShift = stable(mounted, await rects(['.band', '.audio-rail']), `${name}: folded header`);
     await capture(`${name}-folded`);
     // Empty host content consumes no sidebar row, while the declared launcher keeps its target.
     await page.evaluate(() => {
@@ -165,7 +166,7 @@ export async function contactSlotCheck(t) {
       const card = document.createElement('section'); card.slot = 'sidebar-contact'; card.id = 'contact-card';
       const button = document.createElement('button'); button.id = 'contact-open'; button.textContent = document.getElementById('contact-launch').getAttribute('aria-label');
       button.onclick = () => document.getElementById('contact-overlay').showModal();
-      const text = document.createElement('p'); text.textContent = 'Contact information. '.repeat(500);
+      const text = document.createElement('p'); text.textContent = (document.documentElement.lang === 'de' ? 'Kontaktinformationen. ' : 'Contact information. ').repeat(500);
       card.append(button, text); c.append(card);
       c.configure({ copy, session: structuredClone(c.session), voiceClient: {}, host: { library: true } });
     });
@@ -176,7 +177,7 @@ export async function contactSlotCheck(t) {
     assert.ok(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.sidebar-contact').scrollTop > 0), 'long host contact scrolls independently');
     stable(long, await rects(['.sidebar-contact', '.understanding']), `${name}: contact scroll`);
     await capture(`${name}-long`);
-    checks.push({ name, before, mounted, pinned, scrolled, empty, long, shiftPx: 0 });
+    checks.push({ name, before, mounted, pinned, scrolled, empty, long, shiftPx: Math.max(firstPaintShift, analysisShift, emailShift, foldShift) });
     if (evidence) await writeFile(join(evidence, 'contact-rects.json'), JSON.stringify(checks, null, 2) + '\n');
   }
   assert.equal(checks.length, 12);
