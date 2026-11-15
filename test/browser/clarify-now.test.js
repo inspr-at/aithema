@@ -939,7 +939,7 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     const r = c.shadowRoot, p = r.querySelector('.summary-text'), b = r.querySelector('.summary-toggle'), h = r.querySelector('#summary-title');
     const rect = p.getBoundingClientRect(), heading = h.getBoundingClientRect(), line = parseFloat(getComputedStyle(p).lineHeight);
     return { button: !!b, hidden: b?.hidden, expanded: b?.getAttribute('aria-expanded'), name: b?.textContent,
-      controls: b?.getAttribute('aria-controls') === p.id, height: rect.height, width: rect.width, line,
+      lines: Number(getComputedStyle(p).getPropertyValue('--summary-lines')) || 9, controls: b?.getAttribute('aria-controls') === p.id, height: rect.height, width: rect.width, line,
       heading: h.textContent, headingWidth: heading.width, headingHeight: heading.height,
       fade: getComputedStyle(p).maskImage, html: p.innerHTML, text: p.textContent };
   }).then(value => {
@@ -987,17 +987,19 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     assert.equal(s.heading, locale === 'de' ? 'Unser Verständnis bisher' : 'What we understood so far');
     assert.ok(s.headingWidth > 1 && s.headingHeight > 1, 'heading is visibly rendered');
     await shot(`${locale}-${theme}-${width}-fit`);
-    // Exact nine-line boundary, measured using real line boxes, then one line over.
+    // Exact measured line-budget boundary, then one rendered line over (D514s a2).
     await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = 'pre-line'; });
-    await update(Array(9).fill('Line').join('\n')); await frames();
-    assert.equal((await state()).hidden, true, 'exact nine lines fit');
-    await update(Array(10).fill('Line').join('\n')); await frames();
+    const budget = (await state()).lines;
+    await update(Array(budget).fill('Line').join('\n')); await frames();
+    assert.equal((await state()).hidden, true, 'exact measured line budget fits');
+    await update(Array(budget + 1).fill('Line').join('\n')); await frames();
     s = await state(); assert.equal(s.hidden, false); assert.equal(s.expanded, 'false'); assert.equal(s.controls, true);
     assert.ok(s.width > 0 && s.height > 0); assert.ok(s.height <= 9 * s.line + .5, 'collapsed summary is at most nine lines');
     assert.notEqual(s.fade, 'none');
     await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = '20px'; }); await frames();
     s = await state(); assert.equal(s.hidden, false);
-    assert.ok(Math.abs(s.height - 9 * s.line) <= .5, 'font size change while clamped preserves exactly nine rendered lines');
+    assert.ok(s.lines >= 3 && s.lines <= 9);
+    assert.ok(Math.abs(s.height - s.lines * s.line) <= .5, 'font size change while clamped preserves whole rendered lines within the measured budget');
     await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = ''; c.shadowRoot.querySelector('.summary-text').style.whiteSpace = ''; });
     await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
     await frames(); await shot(`${locale}-${theme}-${width}-collapsed`);
@@ -1012,7 +1014,18 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
       });
       assert.equal(visible.positive, true, 'first signal and pane have positive boxes');
       if (evidence) await writeFile(join(evidence, `ait-514-${locale}-${theme}-1024-first-signal.json`), JSON.stringify(visible, null, 2));
-      assert.equal(visible.visible, true, `first signal visible at 1024×640: ${JSON.stringify(visible)}`);
+      assert.equal((await state()).lines, 3, '1024×640 keeps the approved three-line minimum');
+      await shadow(page, c => {
+        const pane = c.shadowRoot.querySelector('.analysis-content'), signal = c.shadowRoot.querySelector('.signals li');
+        pane.scrollTop += signal.getBoundingClientRect().bottom - pane.getBoundingClientRect().bottom + 1;
+      }); await frames();
+      const reached = await shadow(page, c => {
+        const pane = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(), signal = c.shadowRoot.querySelector('.signals li').getBoundingClientRect();
+        return { pane: pane.toJSON(), signal: signal.toJSON() };
+      });
+      assert.ok(reached.pane.width > 0 && reached.pane.height > 0 && reached.signal.width > 0 && reached.signal.height > 0);
+      assert.ok(reached.signal.top >= reached.pane.top && reached.signal.bottom <= reached.pane.bottom, 'first signal reachable by scrolling at 1024×640 (D514s a2)');
+      await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await frames();
     }
     const before = await frameBoxes();
     await shadow(page, c => { const b = c.shadowRoot.querySelector('.summary-toggle'); b.focus({ preventScroll: true }); });
