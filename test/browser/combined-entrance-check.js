@@ -29,7 +29,7 @@ globalThis.fetch=async(url,options={})=>{
 };
 const client={async start({callId}){trace.push('admission');trace.push('permission');if(denied)throw Object.assign(new Error('blocked'),{name:'NotAllowedError'});trace.push('call');const events=voiceEvents();return {callId,providerSessionId:'fixture',events,async setInput(value){trace.push(['capture',value])},async setOutput(){},async updateContext(){},async sendText(text){trace.push(['typed',text])},async pause(){return {acknowledged:true,paused:true}},async resume(){return {acknowledged:true,paused:false}},async heartbeat(){return {acknowledged:true,browserLivenessDeadlineAt:Date.now()+30000}},async close(){events.end();return {closureConfirmed:true}}}}};
 globalThis.mount=(snapshot)=>{c.configure({entrance:'combined',copy:locale==='de'?de:en,session:snapshot||createSession({demo:true,locale,settings:{origin:'chosen',voice:'fixture'}}),voiceClient:client})};
-const session=saved?JSON.parse(saved):createSession({demo:true,locale,settings:{origin:new URL(location.href).searchParams.has('unchosen')?'default':'chosen',voice:'fixture'}});session.featureMatrix={best:{text:granted?allowed:blocked,voice:granted?allowed:blocked,analysis:allowed}};mount(session);
+const session=saved?JSON.parse(saved):createSession({demo:true,locale,settings:{origin:new URL(location.href).searchParams.has('unchosen')?'default':'chosen',voice:'fixture'}});if(new URL(location.href).searchParams.has('opener'))session.opener={text:locale==='de'?'Willkommen. Ihre KI-Assistenz ist bereit.':'Welcome. Your AI assistant is ready.',locale};session.featureMatrix={best:{text:granted?allowed:blocked,voice:granted?allowed:blocked,analysis:allowed}};mount(session);
 c.addEventListener('aithema-consent',e=>{trace.push('consent');globalThis.consent=e.detail});
 globalThis.grant=()=>{granted=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
 globalThis.ready=true;
@@ -213,4 +213,92 @@ export async function combinedEntranceCheck(t) {
   }
   assert.equal(tables.length, 204);
   if (evidence) await writeFile(join(evidence, 'ait-506-rects.json'), JSON.stringify(tables, null, 2));
+}
+
+// Dedicated integration matrix: the pre-input host row and every composer slot
+// must fit above the real footer, including data-phone-short viewports.
+export async function combinedOpenerCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-opener-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, tables = [];
+  if (evidence) await mkdir(join(evidence, 'shots'), { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390,1000],[1024,1000],[1440,1000],[390,620],[390,568]]) {
+    const page = await browser.newPage(), problems = [];
+    try {
+      page.on('pageerror', error => problems.push(error.message));
+      await page.setViewport({ width, height });
+      await page.emulateMediaFeatures([{ name:'prefers-color-scheme', value:theme }, { name:'prefers-reduced-motion', value:'reduce' }]);
+      await page.setRequestInterception(true);
+      page.on('request', request => { void (new URL(request.url()).pathname === '/combined-fixture'
+        ? request.respond({ status:200, contentType:'text/html', body:fixture }) : request.continue()); });
+      await page.goto(`${server.url}/combined-fixture?locale=${locale}&opener&passiveDenied`);
+      await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
+      const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+      const shot = async state => {
+        await settle();
+        const measured = await boxes(page);
+        const placement = await page.$eval('aithema-session', c => {
+          const root = c.shadowRoot, row = root.querySelector('[data-id="host:opener"]');
+          const rect = node => { const r=node.getBoundingClientRect();return [r.x,r.y,r.width,r.height]; };
+          const selectors = ['[data-id="host:opener"]','textarea','.composer-mic','.send','.composer-feedback','.composer-status'];
+          return { opener:rect(row), footer:rect(root.querySelector('.display-foot')), dock:rect(root.querySelector('.composer-dock')),
+            scroll:rect(root.querySelector('.conversation-scroll')), short:root.querySelector('.workspace').hasAttribute('data-phone-short'),
+            count:root.querySelectorAll('[data-id="host:opener"]').length,
+            visible:selectors.map(selector => {const node=root.querySelector(selector),r=node.getBoundingClientRect();
+              const hit=root.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+              return { selector,box:rect(node),hit:hit===node||node.contains(hit),visibility:getComputedStyle(node).visibility };}) };
+        });
+        measured.opener = placement.opener;
+        positive(measured);
+        tables.push({locale,theme,width,height,state,boxes:measured,placement});
+        if (evidence) await writeFile(join(evidence,'ait-506-opener-rects.json'),JSON.stringify(tables,null,2));
+        if (evidence && width!==1024) await page.screenshot({ path:join(evidence,'shots',`ait-506-${locale}-${theme}-${width}x${height}-opener-${state}.png`),fullPage:true });
+        assert.equal(placement.count,1,'one shared opener row');
+        assert.equal(placement.short,height<=620,'short-phone matrix exercises the real layout flag');
+        for (const target of placement.visible) {
+          positive({[target.selector]:target.box});
+          assert.ok(target.box[0]>=0 && target.box[1]>=0 && target.box[0]+target.box[2]<=width+.5 && target.box[1]+target.box[3]<=height+.5,
+            `${locale}/${theme}/${width}x${height}/${state} visible ${target.selector}: ${JSON.stringify(placement)}`);
+          assert.equal(target.visibility,'visible');
+          assert.equal(target.hit,true,`${state}/${target.selector} is unobscured: ${JSON.stringify(placement)}`);
+        }
+        assert.ok(placement.opener[1]>=placement.scroll[1]-.5 && placement.opener[1]+placement.opener[3]<=Math.min(placement.scroll[1]+placement.scroll[3],placement.dock[1])+.5,
+          `opener fits above the composer: ${JSON.stringify(placement)}`);
+        return measured;
+      };
+      const initial=await shot('ready');
+      await exposedFeedback(page,'.composer-reason');
+      assert.equal(await page.evaluate(() => c.session.transcript.length),0);
+      await page.evaluate(() => {
+        globalThis.openerRow=c.shadowRoot.querySelector('[data-id="host:opener"]');
+        c.receive({seq:c.session.seq+1,type:'turn.final',data:{id:'host:opener',role:'assistant',origin:'host',content:c.session.opener.text}});
+      });
+      unmoved(initial,await shot('persisted'));
+      assert.equal(await page.evaluate(() => openerRow===c.shadowRoot.querySelector('[data-id="host:opener"]')),true);
+      await page.type('aithema-session >>> textarea','A combined draft');await page.click('aithema-session >>> .send');
+      unmoved(initial,await shot('consent'));
+      await page.evaluate(() => {failSend=true;grant();});
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed'));
+      await exposedFeedback(page,'.composer-reason');
+      unmoved(initial,await shot('send-failed'));
+      await page.evaluate(() => {failSend=false;});await page.click('aithema-session >>> .send');
+      await page.waitForFunction(() => sent.length===1);
+      await exposedFeedback(page,'.composer-saved-announcement');
+      unmoved(initial,await shot('saved'));
+      await page.click('aithema-session >>> .composer-mic');
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-mic').getAttribute('aria-pressed')==='true');
+      unmoved(initial,await shot('listening'));
+      await page.click('aithema-session >>> .voice-close');
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length>0);
+      unmoved(initial,await shot('call-ended'));
+      assert.deepEqual(problems,[]);
+    } finally { await page.close(); }
+  }
+  assert.equal(tables.length,140);
 }

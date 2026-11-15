@@ -421,3 +421,6 @@ test('AIT-501 v2.2: the real host open/adopt/configure return resumes typing fro
 import { combinedEntranceCheck } from './combined-entrance-check.js';
 test('AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440',
   { timeout: 180_000 }, combinedEntranceCheck);
+
+import { combinedOpenerCheck } from './combined-entrance-check.js';
+test('AIT-506: shared opener and short-phone states stay visible and stable', { timeout:180_000 }, combinedOpenerCheck);
