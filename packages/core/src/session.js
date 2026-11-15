@@ -1,3 +1,4 @@
+import { stagedImage } from './image-input.js';
 import { createConceptIntent, reduceConceptIntent } from './concept-intent.js';
 import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
@@ -7,7 +8,7 @@ import { parseReply, normalizeQuestionCard } from './reply.js';
 // An erased choice falls back to the core default preset, like createSession's default.
 const ERASED_PRESET = 'best';
 const erasedTurn = turn => Object.fromEntries(Object.entries(turn).filter(([key]) =>
-  !['content', 'question_short', 'options', 'origin', 'model', 'provider', 'engine'].includes(key)));
+  !['content', 'attachments', 'question_short', 'options', 'origin', 'model', 'provider', 'engine'].includes(key)));
 export const inputRevision = session => `${session.inputRevision}:${session.conversationConsentRevision ?? session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 // Identity still invalidates assessment input, but an admitted reply owns its turn.
 export const replyInputRevision = session => inputRevision({ ...session,
@@ -44,7 +45,7 @@ export function hasOpenReplyQuestion(session) {
   return Boolean(turn && (parseReply(turn).question_short || /[?？]\s*$/u.test(turn.content ?? '')));
 }
 /** Durable: withdrawal and expiry mark turns but never remove their transcript entries. */
-export const conversationStarted = session => session.transcript.length > 0 || (session.uploads?.length ?? 0) > 0;
+export const conversationStarted = session => session.transcript.length > 0 || (session.uploads ?? []).some(upload => !stagedImage(upload));
 export const emptyUnderstanding = session => ({ ...capBuildReadiness({}, [], session.preset), version: 1,
   inputRevision: null, locale: session.locale, draft: false, questionHistory: [] });
 export function createSession({ id = crypto.randomUUID(), locale = 'en', identified = false, demo = false,
@@ -66,7 +67,12 @@ export function applyEvent(session, event) {
       ? { ...event.data, ...parseReply(event.data) } : event.data;
     next.transcript.push(withAITextOrigin({ ...data, ...(next.voiceInterruptions?.[data.id]
       ? { interruption: next.voiceInterruptions[data.id] } : {}) }));
-    if (event.data.role === 'user') next.inputRevision += 1;
+    if (event.data.role === 'user') {
+      next.inputRevision += 1;
+      const attached = new Set(event.data.attachments ?? []);
+      next.uploads = next.uploads.map(upload => attached.has(upload.id) && upload.state === 'staged-ready'
+        ? { ...upload, state: 'sent', turnId: event.data.id } : upload);
+    }
   } else if (event.type === 'voice.interrupted') {
     next.voiceInterruptions = { ...next.voiceInterruptions, [event.data.id]: event.data.interruption };
     next.transcript = next.transcript.map(turn => turn.id === event.data.id && turn.role === 'assistant'
@@ -77,7 +83,8 @@ export function applyEvent(session, event) {
   } else if (event.type === 'upload.state') {
     const upload = event.data;
     next.uploads = [...(next.uploads ?? []).filter(u => u.id !== upload.id),
-      upload.erased || upload.withdrawn ? { id: upload.id, state: 'withdrawn', erased: true, withdrawn: true } : upload];
+      (upload.erased || upload.withdrawn) && !stagedImage(upload) ? { id: upload.id, state: 'withdrawn', erased: true, withdrawn: true } : upload];
+    if (stagedImage(upload) || upload.kind === 'image' && upload.state === 'withheld') { next.seq = event.seq; return next; }
     next.inputRevision += 1;
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
     if (upload.state === 'withdrawn') {
@@ -153,6 +160,8 @@ export function applyEvent(session, event) {
       next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
     }
     if (event.type === 'consent.revised') {
+      if (!event.data.granted || event.data.removed?.includes('imageInput')) next.uploads = next.uploads.map(upload => upload.kind === 'image' && !upload.erased
+        ? { ...upload, state: stagedImage(upload) ? 'staged-discarded' : 'withheld', ...(stagedImage(upload) ? { erased: true } : {}) } : upload);
       next.consentRevision += 1; next.consentWithdrawn = !event.data.granted;
       if (!conversationUnchanged && next.identity) next.identity = { ...next.identity, role: null };
       // The ledger revision always advances; draft-only edits keep the input
@@ -165,6 +174,8 @@ export function applyEvent(session, event) {
       }
     } else {
       next.withdrawalRevision += 1;
+      const attached = new Set(session.transcript.find(turn => turn.id === event.data.turnId)?.attachments ?? []);
+      next.uploads = next.uploads.map(upload => attached.has(upload.id) ? { id: upload.id, state: 'withdrawn', erased: true, withdrawn: true } : upload);
       if (next.identity) next.identity = { ...next.identity, role: null };
       next.transcript = next.transcript.map(t => t.id === event.data.turnId || t.role === 'assistant' || event.type === 'session.erased'
         ? { ...erasedTurn(t), erased: true, withdrawn: true } : t);
