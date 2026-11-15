@@ -247,7 +247,9 @@ export async function combinedOpenerCheck(t) {
           const root = c.shadowRoot, row = root.querySelector('[data-id="host:opener"]');
           const rect = node => { const r=node.getBoundingClientRect();return [r.x,r.y,r.width,r.height]; };
           const selectors = ['[data-id="host:opener"]','textarea','.composer-mic','.send','.composer-feedback','.composer-status'];
-          return { opener:rect(row), footer:rect(root.querySelector('.display-foot')), dock:rect(root.querySelector('.composer-dock')),
+          const shell=root.querySelector('.transcript-shell');
+          return { shell:{box:rect(shell),height:shell.scrollHeight,client:shell.clientHeight,top:shell.scrollTop},
+            concept:rect(root.querySelector('.concept-bar')),opener:rect(row), footer:rect(root.querySelector('.display-foot')), dock:rect(root.querySelector('.composer-dock')),
             scroll:rect(root.querySelector('.conversation-scroll')), short:root.querySelector('.workspace').hasAttribute('data-phone-short'),
             count:root.querySelectorAll('[data-id="host:opener"]').length,
             visible:selectors.map(selector => {const node=root.querySelector(selector),r=node.getBoundingClientRect();

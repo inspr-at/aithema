@@ -49,6 +49,7 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
     grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-status { height:44px; }
+  .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
   .workspace[data-entrance="combined"][data-phone-short] textarea { height:44px; min-height:44px; }
