@@ -1015,12 +1015,22 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     assert.equal((await state()).text, '<img src=x onerror=alert(1)> the person');
   }
   // Width and font changes trigger real overflow measurement without a new assessment.
-  await update('Word '.repeat(100)); await frames();
+  await page.setViewport({ width: 1440, height: 1000 });
+  await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = 'pre-line'; });
+  await update(Array(9).fill('A clear booking and approval workflow for teams.').join('\n')); await frames();
+  assert.equal((await state()).hidden, true, 'nine lines fit at the wide width');
+  await page.setViewport({ width: 390, height: 1000 }); await frames();
+  assert.equal((await state()).hidden, false, 'width change alone exposes measured overflow');
+  await page.setViewport({ width: 1440, height: 1000 }); await frames();
+  assert.equal((await state()).hidden, true, 'widening hides the unneeded toggle');
   await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = '32px'; }); await frames();
   assert.equal((await state()).hidden, false);
   await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
   await shadow(page, c => { const session = structuredClone(window.summarySession); session.id += '-different'; session.understanding.summary = window.summaryLong; c.configure({ session, copy: { ...window.summaryCopy } }); });
   await frames(); assert.equal((await state()).expanded, 'false', 'different conversation resets expansion');
+  await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
+  await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.erased', data: {} }));
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').hidden), true, 'erasure removes the toggle');
   if (evidence) await writeFile(join(evidence, 'ait-514-rects.json'), JSON.stringify(rows, null, 2));
   t.diagnostic(`AIT-514 ${rows.length} positive geometry comparisons`);
 });
