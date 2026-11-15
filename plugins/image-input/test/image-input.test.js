@@ -35,3 +35,21 @@ for (const [filename, bytes, reason] of [['fixture.heic', Buffer.from('heic'), '
     assert.equal(result.bytes, undefined);
   });
 }
+
+test('AIT-510: alpha stays PNG and the normalized pixels retain transparency', async () => {
+  const { default: sharp } = await import('sharp'); const { createImageInput } = await import('../src/index.js');
+  const source = await sharp({ create: { width: 2, height: 1, channels: 4, background: { r: 200, g: 0, b: 0, alpha: .5 } } }).png().toBuffer();
+  const result = await createImageInput().normalize(source, { filename: 'alpha.png' }, { deadlineAt: Date.now() + 25000 });
+  assert.equal(result.status, 'staged-ready'); assert.equal(result.mediaType, 'image/png');
+  const pixel = await sharp(result.bytes).raw().toBuffer(); assert.ok(pixel[3] >= 126 && pixel[3] <= 129);
+});
+test('AIT-510: oversized image dimensions are refused before pixel decoding', async () => {
+  const { default: sharp } = await import('sharp'); const { createImageInput } = await import('../src/index.js');
+  const source = await sharp({ create: { width: 1, height: 1, channels: 3, background: '#ff0000' } }).png().toBuffer();
+  source.writeUInt32BE(100000, 16); source.writeUInt32BE(100000, 20);
+  let crc = 0xffffffff;
+  for (const byte of source.subarray(12, 29)) { crc ^= byte; for (let i = 0; i < 8; i++) crc = crc >>> 1 ^ (crc & 1 ? 0xedb88320 : 0); }
+  source.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 29);
+  const result = await createImageInput().normalize(source, { filename: 'huge.png' }, { deadlineAt: Date.now() + 25000 });
+  assert.equal(result.status, 'staged-refused'); assert.equal(result.reason, 'dimensions'); assert.equal(result.bytes, undefined);
+});

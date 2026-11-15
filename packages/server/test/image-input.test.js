@@ -120,3 +120,20 @@ test('AIT-510: fixture pixels reach reply and final understanding only after ima
   assert.ok(Object.keys(files).some(path => path.startsWith('images/')));
   assert.equal(JSON.stringify(storage.db.prepare('SELECT * FROM events').all()).includes(source.toString('base64')), false);
 });
+
+test('AIT-510: late normalization cannot restore a discarded or consent-revoked image', t => {
+  const f = fixture(t), first = stage(f, 'first'), second = stage(f, 'second');
+  f.storage.withdrawUpload(f.session.id, first.id);
+  f.storage.reviseConsent(f.session.id, true, {}, { conversationUnchanged: true, removed: ['imageInput'] });
+  for (const image of [first, second]) {
+    assert.equal(f.storage.completeUpload(f.session.id, image.id, { status: 'staged-ready', bytes: Buffer.from('late'), mediaType: 'image/png', w: 1, h: 1 }), null);
+    assert.equal(f.storage.uploadBytes(f.session.id, image.id), null);
+  }
+});
+test('AIT-510: replaying erased staged events does not invent input revisions', async t => {
+  const { applyEvent, createSession } = await import('@inspr/aithema-core');
+  const f = fixture(t), image = stage(f); f.storage.withdrawUpload(f.session.id, image.id);
+  const replay = f.storage.read(f.session.id).reduce(applyEvent, createSession({ id: f.session.id, demo: true }));
+  assert.equal(inputRevision(replay), inputRevision(f.storage.get(f.session.id)));
+  assert.equal(replay.uploads[0].state, 'staged-discarded');
+});
