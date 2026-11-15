@@ -94,6 +94,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       if (card) c.receive({ seq: 11, type: 'turn.final', data: { id: 'question', role: 'assistant', inputRevision: inputRevision(c.session),
         content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
         options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }, { locale, theme, voice, card, turns, visuals });
     await settleEvidenceFrame(page);
   };
@@ -166,17 +167,20 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   await t.test('short phone keyboard grows at most three lines with stable Send', async () => {
     await reset(390, 844, 'de', 'dark', { card: true });
     await page.evaluate(() => {
-      globalThis.originalComposerViewport = visualViewport;
+      globalThis.originalComposerViewport = visualViewport; globalThis.originalComposerTouch = Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints');
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
       const viewport = new EventTarget(); Object.assign(viewport, { height: 420, offsetTop: 0, scale: 1 });
       Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+      document.querySelector('aithema-session').shadowRoot.querySelector('textarea').focus({ preventScroll: true });
       window.dispatchEvent(new Event('resize'));
     });
     try {
-      await settleEvidenceFrame(page); const before = await geometry(page);
-      await draft(page, 30); await settleEvidenceFrame(page); const after = await capture('ait-513-de-dark-390-keyboard');
+      await settleHeld(page); const before = await geometry(page);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard')), true, 'the visual keyboard is open with composer focus');
+      await draft(page, 30); await settleHeld(page); const after = await capture('ait-513-de-dark-390-keyboard');
       stable(before, after, 'keyboard'); assert.ok(after.boxes.textarea.height <= 92.5, 'three 24px lines plus 20px padding');
       assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'short input can grow');
-    } finally { await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.originalComposerViewport }); window.dispatchEvent(new Event('resize')); }); }
+    } finally { await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.originalComposerViewport }); if (globalThis.originalComposerTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.originalComposerTouch); else delete navigator.maxTouchPoints; window.dispatchEvent(new Event('resize')); }); }
   });
   await t.test('failed send retains height; chip retains draft; successful typed send resets', async () => {
     await reset(1440, 900, 'en', 'light', { card: true }); await draft(page, 12); await settleEvidenceFrame(page);
