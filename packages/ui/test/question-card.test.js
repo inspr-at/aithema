@@ -267,6 +267,9 @@ test('AIT-463 BC9: an identity unlock keeps the answered reply card without Retr
 
 // Layout contracts use a clamped scroll box; real geometry is covered on the browser lane.
 function navigationScene(t) {
+  // Immediate pointer actions share one clock even when lane work exceeds 500 ms.
+  // Deadline tests below replace this with their explicitly advanced clock.
+  t.mock.method(window.performance, 'now', () => 0);
   const c = setup(); question(c);
   const root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
   let top = 0;

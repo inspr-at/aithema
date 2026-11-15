@@ -221,7 +221,8 @@ for (const finish of ['listening', 'ended', 'before-refusal']) test(`voice-busy 
   t.after(() => f.c.configure({ session: createSession(), copy: en }));
   f.root.querySelector('.voice-start').click(); await tick();
   events.push({ type: 'speaking', callId }); await tick();
-  const pending = Promise.withResolvers(); f.post(() => pending.promise);
+  // Each HTTP attempt owns a fresh body, including the bounded automatic resend.
+  const pending = Promise.withResolvers(); f.post(() => pending.promise.then(response => response.clone()));
   const request = f.c.focusQuestion(f.c.openQuestionItems[0].id);
   const rejected = assert.rejects(request, { reason: 'reply-in-flight' });
   if (finish === 'before-refusal') { events.push({ type: 'listening', callId }); await tick(); }
