@@ -1603,7 +1603,7 @@ for (const asynchronousDelivery of [false, true]) {
 // AIT-507: every timestamp comes from the same pinned clock, including consent.
 async function offerFixture(t, afterMessages = 2) {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
-  const f = fixture(t, { clockedConsent: true }); f.host.emailOffer = { afterMessages };
+  const f = fixture(t, { clockedConsent: true, emailOffer: { afterMessages } });
   const s = await f.create(), base = `/api/sessions/${s.id}`;
   const claim = (action = 'show') => f.call(`${base}/email-ask`, { action, why: 'offer' });
   const send = async (id = crypto.randomUUID()) => {
@@ -1648,4 +1648,21 @@ after(async () => {
   if (!directory) return;
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, 'ait-507-host-target.json'), JSON.stringify({ file: 'packages/server/test/host-routes.test.js', ticket: 'AIT-507' }));
+});
+
+for (const afterMessages of [0, 3, '2', null]) test(`AIT-507 invalid threshold fails at startup (${afterMessages})`, t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const host = createDemoHost({ storage, emailOffer: { afterMessages } });
+  assert.throws(() => createHandlers({ storage, host, consent: mockConsent }), /emailOffer/u);
+});
+test('AIT-507 opener, uploads and a failed reply cannot trigger the offer', async t => {
+  const f = await offerFixture(t, 1);
+  f.storage.append(f.s.id, 'turn.final', { id: 'host:opener', role: 'assistant', origin: 'host', content: 'Welcome.' });
+  f.storage.append(f.s.id, 'upload.state', { id: 'only-document', state: 'ready' });
+  assert.equal((await (await f.claim()).json()).accepted, false);
+  f.storage.append(f.s.id, 'turn.final', { id: 'voice-final', role: 'user', source: 'voice', content: 'A requirement.' });
+  assert.equal((await (await f.claim()).json()).accepted, false, 'wait for a settled reply');
+  f.storage.append(f.s.id, 'turn.final', { id: 'next-reply', role: 'assistant', content: 'A reply.' });
+  const shown = await (await f.claim()).json(); assert.equal(shown.accepted, true); assert.equal(shown.emailOffer.at, 'next-reply');
 });
