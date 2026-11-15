@@ -1,4 +1,6 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession } from '../../core/src/session.js';
@@ -36,4 +38,12 @@ test('AIT-517: first-paint opt-in reserves one additional 44 px action at both h
   shell.innerHTML = firstPaintMarkupFor({ voice: false, contactLauncher: true });
   assert.equal(shell.querySelector('.audio-rail'), null);
   assert.equal(shell.querySelectorAll('.header-actions > span').length, 3);
+});
+
+// Remote unit runs reserve evidence too, including when the behaviour is red.
+after(async () => {
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (!evidence) return;
+  await mkdir(evidence, { recursive: true });
+  await writeFile(join(evidence, 'contact-slot-unit.json'), JSON.stringify({ file: 'packages/ui/test/contact-slot.test.js', tests: 2 }) + '\n');
 });
