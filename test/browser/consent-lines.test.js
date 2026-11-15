@@ -101,7 +101,7 @@ async function scene(page, locale, theme, width, missing) {
     session.conceptCost = { maxMicro: 10000 }; session.featureMatrix = matrix;
     // These legacy line/editor scenes represent an already validated visual wish.
     // AIT-509's separate matrix below verifies that idle hosts stay silent.
-    if (!matrix.best.html.available) session.conceptStatus = { phase: 'idle',
+    if (!matrix.best.html.available) session.conceptStatus = { phase: 'waiting',
       consentRequest: { id: 'fixture-visual-wish', sourceTurnId: 'c1-user' } };
     session.transcript = [{ id: 'c1-user', role: 'user', content: locale === 'de' ? 'Wir verlieren Zeit beim Schreiben von Angeboten.' : 'We lose time writing quotes.' }];
     session.operations = { inputRevision: inputRevision(session), running: ['reaction', 'understanding'], lastFailure: null };
