@@ -35,7 +35,7 @@ function checkNames(workflow, event) {
     // Evaluate the actual condition for each event; unsupported syntax throws.
     if (condition && !runInNewContext(condition.replace(/^\$\{\{|\}\}$/gu, '')
       .replaceAll('outputs.duplicate-of', "outputs['duplicate-of']"), {
-      github: { event_name: event }, cancelled: () => false,
+      github: { event_name: event }, cancelled: () => false, always: () => true,
       needs: { changes: { result: 'success', outputs: { 'duplicate-of': '' } } },
     })) return [];
     const name = /^    name: (.+)$/mu.exec(job.body)?.[1] ?? job.key;
@@ -52,7 +52,7 @@ test('both required workflows request merge-group checks', () => {
 });
 
 test('PR and merge-group events run the same shard and required check names', () => {
-  const expected = ['test', 'browser (1/9)', 'browser (2/9)', 'browser (3/9)', 'browser (4/9)', 'browser (5/9)', 'browser (6/9)', 'browser (7/9)', 'browser (8/9)', 'browser (9/9)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'unit (1/3)', 'unit (2/3)', 'unit (3/3)', 'preview-security', 'dco', 'dco-tests'];
+  const expected = ['test', 'browser (1/12)', 'browser (2/12)', 'browser (3/12)', 'browser (4/12)', 'browser (5/12)', 'browser (6/12)', 'browser (7/12)', 'browser (8/12)', 'browser (9/12)', 'browser (10/12)', 'browser (11/12)', 'browser (12/12)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'browser', 'unit (1/3)', 'unit (2/3)', 'unit (3/3)', 'preview-security', 'dco', 'dco-tests'];
   for (const event of ['pull_request', 'merge_group']) {
     assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)).filter(name => name !== 'changes'), expected);
   }
@@ -61,7 +61,7 @@ test('PR and merge-group events run the same shard and required check names', ()
 test('ruleset browser summaries fail closed unless every worker shard passed', () => {
   const job = block(block(workflows[0], 'jobs'), 'browser-required', 2);
   assert.match(job, /^    needs: \[changes, browser\]$/mu);
-  assert.match(job, /^    if: \$\{\{ !cancelled\(\) \}\}$/mu);
+  assert.match(job, /^    if: \$\{\{ always\(\) \}\}$/mu);
   assert.match(job, /^        shard: \[1, 2, 3, 4\]$/mu);
   assert.doesNotMatch(job, /continue-on-error/u);
   const command = /^        run: (.+)$/mu.exec(job)[1];

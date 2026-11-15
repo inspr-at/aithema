@@ -81,7 +81,7 @@ test('PRs, merge groups, non-main pushes and reruns never query or skip', t => {
   }
 });
 
-test('duplicate pushes skip every worker and pack/boot; all other contexts run full CI', () => {
+test('duplicate pushes skip heavy work and pack/boot; all other contexts run full CI', () => {
   const contexts = [context()];
   for (const event of ['push', 'pull_request', 'merge_group']) {
     for (const result of ['success', 'failure', 'skipped', '']) {
@@ -94,7 +94,12 @@ test('duplicate pushes skip every worker and pack/boot; all other contexts run f
   for (const ctx of contexts) {
     const duplicate = ctx.github.event_name === 'push' && ctx.github.ref === 'refs/heads/main' && ctx.github.run_attempt === 1 &&
       ctx.needs.changes.result === 'success' && ctx.needs.changes.outputs['duplicate-of'] !== '';
-    for (const id of ['unit', 'browser', 'preview-security']) assert.equal(evaluate(ci.jobs[id].if, ctx), !duplicate, id);
+    for (const id of ['unit', 'preview-security']) assert.equal(evaluate(ci.jobs[id].if, ctx), !duplicate, id);
+    assert.equal(evaluate(ci.jobs.browser.if, ctx), true, 'Browser workers report explicit success');
+    for (const step of ci.jobs.browser.steps) {
+      assert.equal(evaluate(step.if, ctx), step.name === 'Duplicate-main success' ? duplicate
+        : step.name === 'Docs-only success' ? false : !duplicate, step.name ?? step.run ?? step.uses);
+    }
     for (const step of ci.jobs.test.steps) {
       if (step.name === 'Docs-only success' || step.name === 'Require every unit shard') continue;
       assert.equal(evaluate(step.if, ctx), !duplicate, step.name ?? step.run ?? step.uses);
@@ -143,8 +148,8 @@ test('npm cache warming installs only on a cache miss with scripts disabled and 
   }
 });
 
-test('required aggregates allow only verified duplicate skips and never mask a failure', () => {
-  for (const [id, dependency] of [['test', 'unit'], ['browser-required', 'browser']]) {
+test('unit aggregate allows verified duplicate skips; browser summaries always require success', () => {
+  for (const [id, dependency] of [['test', 'unit'], ['browser-required', 'browser'], ['browser-aggregate', 'browser']]) {
     const gate = ci.jobs[id].steps.find(step => step.name === `Require every ${dependency} shard`);
     assert.ok(gate);
     for (const ctx of [context(), context('push', ''), context('pull_request'), context('merge_group'), context('push', '123', 'failure'), context('push', '123', 'success', 2)]) {
@@ -153,7 +158,7 @@ test('required aggregates allow only verified duplicate skips and never mask a f
         const env = Object.fromEntries(Object.entries(gate.env ?? {}).map(([key, value]) => [key, String(evaluate(value, ctx))]));
         const command = gate.run.replaceAll(`\${{ needs.${dependency}.result }}`, result);
         const executed = spawnSync('bash', ['-c', command], { env });
-        assert.equal(executed.status === 0, result === 'success' || (duplicate && result === 'skipped'), `${id}: ${result} / ${JSON.stringify(ctx)}`);
+        assert.equal(executed.status === 0, result === 'success' || (dependency === 'unit' && duplicate && result === 'skipped'), `${id}: ${result} / ${JSON.stringify(ctx)}`);
       }
     }
   }
@@ -163,13 +168,14 @@ test('preview-security pins the runner supported by its Playwright engines (AIT-
   assert.equal(ci.jobs['preview-security']['runs-on'], 'ubuntu-24.04');
 });
 
-test('resource caps and required summaries stay fixed while AIT-470 adds browser capacity', () => {
+test('resource caps and required summaries stay fixed while AIT-532 adds browser capacity', () => {
   assert.deepEqual(Object.keys(ci.on), ['pull_request', 'merge_group', 'push']);
   assert.deepEqual(Object.fromEntries(Object.entries(ci.jobs).map(([id, job]) => [id, [job.name ?? id, job['timeout-minutes'], job.strategy?.matrix.shard]])), {
     changes: ['changes', 5, undefined], test: ['test', 10, undefined],
     'npm-cache': ['npm-cache', 3, undefined],
-    browser: ['browser (${{ matrix.shard }}/9)', 10, [1, 2, 3, 4, 5, 6, 7, 8, 9]],
+    browser: ['browser (${{ matrix.shard }}/12)', 10, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
     'browser-required': ['browser (${{ matrix.shard }}/4)', 1, [1, 2, 3, 4]],
+    'browser-aggregate': ['browser', 1, undefined],
     unit: ['unit (${{ matrix.shard }}/3)', 10, [1, 2, 3]], 'preview-security': ['preview-security', 6, undefined],
   });
   assert.equal(ci.jobs.test.steps.find(step => step.name === 'Boot standalone host from candidate tarballs')['timeout-minutes'], 2);

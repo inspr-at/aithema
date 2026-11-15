@@ -2,7 +2,7 @@
 
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
-CI hours (measured baseline AEON-1407, 2026-10-15). All nine browser shards run
+CI hours (measured baseline AEON-1407, 2026-10-15). All twelve browser shards run
 at once on full runs. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
@@ -27,10 +27,26 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-Nine worker shards report `browser (1/9)` through `browser (9/9)`. The ruleset
+Twelve worker shards report `browser (1/12)` through `browser (12/12)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
-skipped shard fails the summaries. PR and merge-group events use the same jobs.
+cancelled, skipped or missing shard fails the summaries. All four aliases deliberately
+retain their dependency on the entire matrix, so each requires all twelve workers.
+PR and merge-group events use the same jobs. Both aliases and the parallel `browser`
+aggregate use `always()` with an unconditional success-only result gate; cancellation
+cannot turn their gate into a successful job-level skip.
+
+### Required-check transition (AIT-532)
+
+The required checks remain `dco`, `dco-tests`, `test`, `browser (1/4)`,
+`browser (2/4)`, `browser (3/4)` and `browser (4/4)`. The new single `browser`
+check depends on the same complete worker matrix and is initially **not required**.
+Merge the parallel aggregate while retaining every old required name. After owner
+approval, DEVOPS switches only the browser requirements from the four aliases to
+`browser` and records the ruleset change in its audit. Verify the aggregate under
+the new protection, then remove the four aliases in a separate change only after
+the coordinator confirms the switch. Future worker-count changes leave the single
+required `browser` name stable. This change does not edit GitHub settings.
 
 Unit workers report `unit (1/3)`, `unit (2/3)` and `unit (3/3)`. The required `test` job needs
 all three workers and retains its exact name and ten-minute cap. Its unconditional
@@ -57,12 +73,14 @@ first main push attempt, `changes` uses the workflow's token (`actions: read`
 only in that job and the existing unit aggregate) for one Actions API lookup,
 limited to 15 seconds. Only completed successful canonical `ci` merge-group
 runs with the exact push SHA qualify. The `duplicate-of` output and job summary
-link the original run. Unit/browser workers and preview-security skip entirely;
-`test` skips pack/boot and artifact work. Required aggregates accept skipped
-workers only for that verified duplicate and still reject every real failure.
-Required names, shard counts and existing job caps stay unchanged. Only the
-lookup, npm cache warmer and five cheap aggregate jobs execute, targeting at
-most 60 runner-seconds on a cache hit or 150 after a lockfile change.
+link the original run. Unit workers and preview-security skip entirely;
+`test` skips pack/boot and artifact work. Every browser worker runs a cheap
+`Duplicate-main success` step and skips installation, browsers and artifact work.
+Browser summaries require actual worker success, even for a verified duplicate;
+only the unit aggregate accepts its verified skipped workers. Required names and
+existing job caps stay unchanged. The lookup, npm cache warmer, twelve cheap
+browser workers and six aggregate jobs execute. The previous five-aggregate-only
+60/150 runner-second estimate no longer applies; no new runtime claim is made.
 The warmer preserves main-scoped npm caches with a script-free install only
 on a cache miss, because PRs cannot restore caches scoped to merge-group refs.
 Missing matches, failed runs, API errors, timeouts or untrusted metadata run
@@ -279,7 +297,7 @@ Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
 with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
-deterministic LPT across **nine** bins, followed by whole-file moves/swaps
+deterministic LPT across **twelve** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
@@ -310,8 +328,13 @@ not a 410 s target. The current target is 405 s; the hard ceiling remains 420 s.
 AIT-470 adds a ninth bin because the new unlock workload projects eight bins
 at 425.784–428.702 s;
 no weights, headroom target, hard ceiling or required summary names are lowered.
+AIT-532 expands to twelve bins for RC25: current weights and a separate growth
+projection reserve AIT-506's additional 180 s for start-journey plus at least
+378.094 s for AIT-524's clarify-now. Both projections must keep every bin at or
+below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
+The projection never overwrites measured `.weight.json` history.
 
-Each CI shard writes `browser-timings-N-of-9` artifacts (14-day retention).
+Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.
 Nested subtests are excluded because their parent's duration already includes
@@ -327,10 +350,10 @@ npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
 npm run test:browser-shards
 ```
 
-The importer accepts complete historical six/seven/eight-shard and current nine-shard runs;
+The importer accepts complete historical six/seven/eight/nine-shard and current twelve-shard runs;
 it rejects mixed counts, missing indices, duplicates, and expired artifacts.
-CI screenshots use `browser-evidence-N-of-9`; the full nightly matrix uses
-`full-browser-evidence-N-of-9`. All nine workers run concurrently, so this adds
+CI screenshots use `browser-evidence-N-of-12`; the full nightly matrix uses
+`full-browser-evidence-N-of-12`. All twelve workers run concurrently, so this adds
 runner minutes while keeping wall-clock time comparable.
 
 Nightly selects the full Cartesian matrix with `AITHEMA_FULL_MATRIX=1`.
@@ -338,9 +361,9 @@ It retains GitHub Actions' `CI=true`, including the CI timing budgets in
 fixtures such as `scoped-consent-edges.js`. An evidence directory alone keeps
 PR width rotation when `CI` is set; local manual evidence retains its existing
 full-matrix path. GitHub Actions never enables the manual axe audit. Nightly
-retains nine shards and a 25-minute job timeout; successful complete jobs must
+retains twelve shards and a 25-minute job timeout; successful complete jobs must
 finish within 17:30 (70%) before claiming measured headroom. Small timing
-artifacts are `full-browser-timings-N-of-9`, separate from viewport screenshots.
+artifacts are `full-browser-timings-N-of-12`, separate from viewport screenshots.
 
 The script downloads only the small timing artifacts through the selected `gh`
 account, pinned to `inspr-at/aithema`. Both automatic selection and explicit

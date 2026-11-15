@@ -69,9 +69,16 @@ npm run demo
 ```
 
 Open http://127.0.0.1:3000 and stop the server with Ctrl+C. PR CI runs
-`npm ci`, reproducible release packing and `npm test` once, plus nine browser
+`npm ci`, reproducible release packing and `npm test` once, plus twelve browser
 shards, with ten-minute job limits. Nightly units keep ten-minute limits.
 DCO checks run separately.
+AIT-532 adds a parallel aggregate named `browser`, which requires all twelve
+worker shards to succeed. Docs-only PRs keep explicit worker success steps.
+The four existing required `browser (n/4)` aliases stay in place during the
+transition; the new aggregate is not initially required. After owner approval,
+DEVOPS can switch the required browser checks to `browser`; only after confirmation
+may a later change remove the aliases. No GitHub settings change here. The planner
+keeps its 405 s target and 420 s ceiling, and nightly/timing artifacts use `N-of-12`.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.
 The unit watchdog always reports the active/last subtest and uncaught-error stacks.
 On remote evidence runs, `AITHEMA_EVIDENCE_DIR` also collects per-file unit
@@ -131,7 +138,7 @@ a ZIP download, the dialog at a 400 × 800 viewport (inside the viewport, no
 horizontal overflow, hovering presets, selects and gauges moves no control, Escape
 returns focus) and the Advanced tab against a loopback OpenAI-compatible fixture
 (handshake, model choice and a streamed test chat). Console errors, page exceptions and failed
-same-origin requests fail the test. The separate PR CI `browser` jobs run nine shards on
+same-origin requests fail the test. The separate PR CI `browser` jobs run twelve shards on
 Ubuntu with Node 24 and ten-minute limits;
 `npm test` does not require a browser. To prove the missing JSON content-type
 regression is detected, run `AITHEMA_BROWSER_REGRESSION=1 npm run test:browser`:
