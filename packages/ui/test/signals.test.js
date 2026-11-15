@@ -100,3 +100,40 @@ test('AIT-515 same-conversation configure and five-item interval retain expansio
   c.configure({ session: fresh, copy: en }); final(c, seven);
   assert.equal(texts(c).length, 5, 'different conversation resets expansion');
 });
+
+test('AIT-515 SSE backlog and reconnect are quiet, then live signals highlight after lane status', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
+  const c = setup(), controllers = [], original = globalThis.fetch, encoder = new TextEncoder();
+  const settle = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
+  final(c, seven);
+  globalThis.fetch = async (url, init = {}) => String(url).endsWith('/events')
+    ? new Response(new ReadableStream({ start(controller) {
+      controllers.push(controller);
+      init.signal?.addEventListener('abort', () => { try { controller.close(); } catch {} }, { once: true });
+    } })) : Response.json(c.session);
+  t.after(() => { c.remove(); globalThis.fetch = original; });
+  document.body.append(c); await settle();
+  assert.equal(controllers.length, 1);
+  const send = (controller, event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+  const assessment = (controller, signals) => {
+    const s = c.session;
+    send(controller, { seq: s.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(s.understanding,
+      { signals, constraints: {}, progress: {}, summary: 'You use orders.', openQuestions: [] },
+      { transcript: s.transcript, inputRevision: inputRevision(s) }) });
+  };
+  const ready = controller => send(controller, { type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], failures: [], lastFailure: null } });
+  assessment(controllers[0], [...seven, 'Replayed']); await settle();
+  assert.equal(texts(c)[0], 'Replayed');
+  assert.equal(c.shadowRoot.querySelectorAll('[data-signal-new]').length, 0, 'initial SSE backlog is not a live arrival');
+  ready(controllers[0]); await settle();
+  assessment(controllers[0], [...seven, 'Replayed', 'Live']); await settle();
+  assert.equal(c.shadowRoot.querySelectorAll('[data-signal-new]').length, 1, 'post-barrier live arrival highlights');
+  controllers[0].close(); await settle(); t.mock.timers.tick(1000); await settle();
+  assert.equal(controllers.length, 2);
+  assessment(controllers[1], [...seven, 'Replayed', 'Live', 'Reconnect']); await settle();
+  assert.equal(texts(c)[0], 'Reconnect');
+  assert.equal(c.shadowRoot.querySelectorAll('[data-signal-new]').length, 0, 'reconnect clears old marks and never replays them');
+  ready(controllers[1]); await settle();
+  assessment(controllers[1], [...seven, 'Replayed', 'Live', 'Reconnect', 'Live again']); await settle();
+  assert.equal(c.shadowRoot.querySelectorAll('[data-signal-new]').length, 1);
+});
