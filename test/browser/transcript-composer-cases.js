@@ -138,6 +138,11 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         const state = await capture(`ait-511-${locale}-${theme}-${width}-visuals-${visuals}`);
         positive(state.boxes['.concept-bar'], 'visual bar'); assert.equal(state.boxes['.concept-bar'].height, 44, 'visual bar uses one 44px row');
       }
+      if (width === 1440) {
+        await reset(width, 640, locale, theme, { card: true, voice: true });
+        await capture(`ait-511-${locale}-${theme}-${width}-short-desktop-card`);
+        await draft(page, 30); await settleEvidenceFrame(page); await capture(`ait-513-${locale}-${theme}-${width}-short-desktop-capped`);
+      }
     });
   }
   for (const voice of [false, true]) await t.test(`1024x640 question card stays reachable voice=${voice}`, async () => {
