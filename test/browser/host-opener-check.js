@@ -82,6 +82,10 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
     await frames(page); const persisted=await rects(page);stable(shown,persisted,'persisted');
     assert.equal(await page.evaluate(() => openerRow===component.shadowRoot.querySelector('[data-id="host:opener"]')),true);
     await shot('persisted');
+    await page.evaluate(() => component.receive({seq:2,type:'voice.interrupted',data:{id:'host:opener',interruption:{heardLength:'unknown'}}}));
+    await frames(page);const interrupted=await rects(page);stable(persisted,interrupted,'interrupted');
+    assert.equal(await page.evaluate(() => component.session.transcript[0].content),text);
+    await shot('interrupted');
     const long=(text+' ').repeat(10).slice(0,1000);await seed(long);const longBoxes=await rects(page);stable(shown,longBoxes,'long');
     assert.equal(await page.evaluate(() => getComputedStyle(component.shadowRoot.querySelector('[data-id="host:opener"] .turn-text')).webkitLineClamp),'6');
     await shot('long');
@@ -93,7 +97,7 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
     await page.waitForFunction(() => component.session.transcript.some(t=>t.role==='user'));
     assert.deepEqual(await page.evaluate(() => component.session.transcript.map(t=>t.id==='host:opener'?'host':t.role)),['host','user']);
     assert.equal(await page.evaluate(() => component.shadowRoot.querySelectorAll('[data-id="host:opener"]').length),1);
-    tables.push({locale,theme,width,empty,shown,persisted,long:longBoxes});
+    tables.push({locale,theme,width,empty,shown,persisted,interrupted,long:longBoxes});
   });
   assert.deepEqual(errors,[]);
   if(evidence) await writeFile(join(evidence,'ait-505-rects.json'),JSON.stringify(tables,null,2));
