@@ -81,7 +81,7 @@ keeps showing. Existing `more` and `plural` exports remain supported.
 
 **Overview and Clarify (AIT-503, AIT-504, AIT-516; #438, #439, #441).**
 The overview status slot covers Up to date, Updating, preparing, stale idle and
-failure, reserving 4.35em for the reachable three-line worst case plus its action.
+failure, reserving 4.35em for the reachable three-line worst case, including its action.
 The bounded snapshot read waits 18 seconds before one GET with a two-second
 deadline; an ahead snapshot restores the complete projection, with a revision
 fence and a finalized-turn fence. An action on its own row has no separator;
