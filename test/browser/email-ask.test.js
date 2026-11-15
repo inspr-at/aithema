@@ -481,7 +481,7 @@ test('AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any rec
 
 test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-inline-offer-'));
-  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
   if (evidence) await mkdir(evidence, { recursive: true });
