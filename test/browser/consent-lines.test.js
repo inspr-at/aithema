@@ -1429,8 +1429,29 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
       const visible = await shadow(page, c => { const r = c.shadowRoot.querySelector('.concept-activity-text .consent-action').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width, height: r.height }; });
       assert.ok(visible.width > 0 && visible.height > 0 && visible.top >= 0 && visible.bottom <= 500);
       await record(t, page, `ait509-${locale}-${theme}-${width}-keyboard-ask`, { visible, keyboardBefore, keyboardAfter });
+      await page.setViewport({ width, height: 844 }); await frame(page);
     }
-    results.push({ locale, theme, width, before, after });
+    const beforeGrant = await measure();
+    for (const [selector, r] of Object.entries(beforeGrant)) assert.ok(r.width > 0 && r.height > 0, selector + ': positive pre-grant box');
+    await page.evaluate(() => {
+      ait509Session.featureMatrix.best.images = { available: true, reason: null };
+      ait509Session.consentRevision++;
+      ait509Session.conceptStatus = { phase: 'idle' };
+      ait509View.update(ait509Session);
+    });
+    await frame(page);
+    const afterGrant = await measure();
+    for (const [selector, r] of Object.entries(afterGrant)) {
+      assert.ok(r.width > 0 && r.height > 0, selector + ': positive post-grant box');
+      for (const key of Object.keys(r)) assert.ok(Math.abs(r[key] - beforeGrant[selector][key]) <= 0.5, `${selector}.${key}: grant no shift`);
+    }
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text .consent-action')), null);
+    if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-granted`, { beforeGrant, afterGrant });
+    results.push({ locale, theme, width, before, after, beforeGrant, afterGrant });
   }
   assert.equal(results.length, 6);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-509'); await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, `rects-${locale}.json`), JSON.stringify({ head: evidenceCommit, results }, null, 2));
+  }
 });
