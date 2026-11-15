@@ -74,6 +74,8 @@ shards, with ten-minute job limits. Nightly units keep ten-minute limits.
 DCO checks run separately.
 AIT-532 adds a parallel aggregate named `browser`, which requires all twelve
 worker shards to succeed. Docs-only PRs keep explicit worker success steps.
+Both browser summaries preserve the verified first-attempt duplicate main push
+skip exception; PRs and merge groups require successful workers.
 The four existing required `browser (n/4)` aliases stay in place during the
 transition; the new aggregate is not initially required. After owner approval,
 DEVOPS can switch the required browser checks to `browser`; only after confirmation

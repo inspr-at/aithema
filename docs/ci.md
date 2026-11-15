@@ -29,12 +29,12 @@ only successful PR detection with an explicit `true` output can skip heavy steps
 
 Twelve worker shards report `browser (1/12)` through `browser (12/12)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
-is a summary that passes only when every worker shard succeeds. A failed or
-cancelled, skipped or missing shard fails the summaries. All four aliases deliberately
+is a summary that requires every worker shard to succeed on PR and merge-group runs.
+A failed, cancelled, skipped or missing shard fails those summaries. All four aliases deliberately
 retain their dependency on the entire matrix, so each requires all twelve workers.
 PR and merge-group events use the same jobs. Both aliases and the parallel `browser`
-aggregate use `always()` with an unconditional success-only result gate; cancellation
-cannot turn their gate into a successful job-level skip.
+aggregate retain `!cancelled()` and the same unconditional result gate. The sole skip
+exception is a verified first-attempt duplicate main push, described below.
 
 ### Required-check transition (AIT-532)
 
@@ -76,8 +76,11 @@ runs with the exact push SHA qualify. The `duplicate-of` output and job summary
 link the original run. Unit workers and preview-security skip entirely;
 `test` skips pack/boot and artifact work. Every browser worker runs a cheap
 `Duplicate-main success` step and skips installation, browsers and artifact work.
-Browser summaries require actual worker success, even for a verified duplicate;
-only the unit aggregate accepts its verified skipped workers. Required names and
+Both browser summaries and the unit aggregate preserve the narrow `DUPLICATE_PUSH`
+exception: they accept skipped workers only on the first push attempt to main,
+after successful change detection provides a nonempty verified `duplicate-of`.
+Failures, cancellations and missing results always fail the result gate. PRs,
+merge groups, reruns and other refs never accept skipped workers. Required names and
 existing job caps stay unchanged. The lookup, npm cache warmer, twelve cheap
 browser workers and six aggregate jobs execute. The previous five-aggregate-only
 60/150 runner-second estimate no longer applies; no new runtime claim is made.

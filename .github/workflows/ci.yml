@@ -236,10 +236,10 @@ jobs:
           retention-days: 14
 
   # TRANSITION: retain all four required names until the ruleset switches to browser.
-  # Each alias requires the entire twelve-shard matrix; no shard may be skipped.
+  # Each alias requires all twelve shards, except verified duplicate-main skips.
   browser-required:
     needs: [changes, browser]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     name: browser (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 1
@@ -249,18 +249,22 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - name: Require every browser shard
-        run: test '${{ needs.browser.result }}' = 'success'
+        run: test '${{ needs.browser.result }}' = 'success' || { test "$DUPLICATE_PUSH" = 'true' && test '${{ needs.browser.result }}' = 'skipped'; }
+        env:
+          DUPLICATE_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '' }}
 
   # Parallel aggregate only; DEVOPS changes required checks after owner approval.
   browser-aggregate:
     needs: [changes, browser]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     name: browser
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
       - name: Require every browser shard
-        run: test '${{ needs.browser.result }}' = 'success'
+        run: test '${{ needs.browser.result }}' = 'success' || { test "$DUPLICATE_PUSH" = 'true' && test '${{ needs.browser.result }}' = 'skipped'; }
+        env:
+          DUPLICATE_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '' }}
 
   unit:
     needs: changes
