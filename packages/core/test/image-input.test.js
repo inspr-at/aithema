@@ -1,5 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+if (process.env.AITHEMA_EVIDENCE_DIR) {
+  mkdirSync(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+  writeFileSync(join(process.env.AITHEMA_EVIDENCE_DIR, 'image-input-targeted.json'), JSON.stringify({ ticket: 'AIT-510', suite: 'image-input targeted' }) + '\n');
+}
 import { createSession, applyEvent, inputRevision, reasoningRequest } from '../src/index.js';
 
 const event = (session, data) => ({ type: 'upload.state', seq: session.seq + 1, data });
