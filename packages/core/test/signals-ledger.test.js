@@ -70,3 +70,11 @@ test('AIT-515 summary and signal prompt uses direct address, formal German and s
   assert.match(prompt, /provenance prose/u);
   assert.match(prompt, /Quoted evidence is untouched/u);
 });
+
+test('AIT-515 scope-specific consent removal prunes affected signals; unrelated visual removal preserves the ledger', () => {
+  const s = final(seeded(), ['Visitor signal']);
+  const visual = event(s, 'consent.revised', { granted: true, conversationUnchanged: true, removed: ['images'] });
+  assert.deepEqual(visual.signalLedger, s.signalLedger);
+  const analysis = event(s, 'consent.revised', { granted: true, removed: ['analysis'] });
+  assert.deepEqual(analysis.signalLedger, []);
+});

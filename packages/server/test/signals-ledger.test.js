@@ -61,7 +61,7 @@ test('AIT-515 consent grant reset preserves first-seen sequence in durable repla
 
 test('AIT-515 upload withdrawal prunes ledger and erases derived bytes', t => {
   const { storage, id, final } = fixture(t);
-  storage.append(id, 'upload.state', { id: 'doc', state: 'accepted', filename: 'notes.txt', text: 'Document source' });
+  storage.append(id, 'upload.state', { id: 'doc', state: 'accepted', filename: 'notes.txt', text: 'Document source', at: new Date(now()).toISOString() });
   final([{ text: 'Unique document signal', basis: 'document' }]);
   storage.withdrawUpload(id, 'doc');
   assert.deepEqual(storage.get(id).signalLedger, []);
