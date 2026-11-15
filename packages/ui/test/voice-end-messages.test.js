@@ -213,7 +213,11 @@ for (const [reason, key, state] of [
 });
 
 for (const copy of [en, de]) test(`AIT-508: idle end keeps Start and text continuation usable (${copy === en ? 'EN' : 'DE'})`, async t => {
-  const { rail, events } = fixture(t, { copy }); await rail.start();
+  let starts = 0, resumed;
+  const f = fixture(t, { copy, start() { return !starts++ ? f.session
+    : { ...f.session, callId: 'next-call', providerSessionId: 'next-segment', events: resumed = voiceEvents() }; } });
+  t.after(() => resumed?.end());
+  const { rail, events } = f; await rail.start();
   events.push({ type: 'ended', callId: 'call', reason: 'idle' }); await flush();
   assert.equal(rail.errorKey, 'voiceIdleEnded'); assert.equal(rail.conversationTimeExpired, false);
   assert.equal(rail.button('start').disabled, false); assert.equal(label(rail), copy.voiceIdleEnded);

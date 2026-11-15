@@ -148,7 +148,7 @@ test('AIT-508: ledger admission excludes another unresolved logical call while a
   assert.throws(() => reserve('next-segment', 'next-call'), { code: 'not-admitted', message: 'budget reconciling' });
   for (const admission of [first, repair]) {
     const claim = budget.claim(admission.attemptId);
-    budget.settleVoice(claim.claimId, { outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
+    budget.settleVoice(claim.claimId, { attemptId: admission.attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
       usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
   }
   assert.doesNotThrow(() => reserve('settled-next-segment', 'next-call'));

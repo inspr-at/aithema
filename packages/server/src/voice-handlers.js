@@ -795,7 +795,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
           ...(error.code === 'deadline' && error.reason === 'time-limit' ? { reason: error.reason, timeLimit: error.timeLimit }
-            : voiceConfigurationRefused(error) ? { reason: error.reason } : VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
+            : voiceConfigurationRefused(error) || error.reason === 'budget reconciling' ? { reason: error.reason } : VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : error.status === 429 && error.retryAfter !== undefined ? 429 : 502,
           error.status === 429 && error.retryAfter !== undefined ? { 'retry-after': error.retryAfter } : {});
         return json({ error: 'voice-unavailable' }, 503);
       }

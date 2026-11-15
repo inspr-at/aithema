@@ -192,7 +192,7 @@ export class SQLiteBudgetLedger {
         if (!parent || parent.session_id !== sessionId || parent.lane !== 'voice' || parent.state !== 'dispatched' || parent.voice_closing) throw new PluginError('not-admitted');
       }
       if (this.db.prepare('SELECT 1 FROM budget_attempts WHERE attempt_id=?').get(attemptId)) throw new PluginError('already-claimed');
-      if (lane === 'voice' && this.storage.creditState(sessionId)?.timed === false && this.hasUnreconciledVoice(sessionId, voiceEstimate?.callId)) throw new PluginError('not-admitted', 'budget reconciling');
+      if (lane === 'voice' && this.storage.creditState(sessionId)?.timed === false && this.hasUnreconciledVoice(sessionId, voiceEstimate?.callId)) throw Object.assign(new PluginError('not-admitted', 'budget reconciling'), { reason: 'budget reconciling' });
       if (!this.canAdmit(sessionId, maxMicro, maxVisitorMicro)) throw new PluginError('not-admitted', 'Budget denied');
       this.db.prepare(`INSERT INTO budget_attempts(attempt_id,session_id,lane,max_micro,state,request_sha256,binding_sha256)
         VALUES (?,?,?,?,'admitted',?,?)`).run(attemptId, sessionId, lane, maxMicro, requestSha256, bindingSha256);

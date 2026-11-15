@@ -138,7 +138,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     });
     return pending ? 'budget reconciling' : null;
   };
-  const assertFreshVoice = sessionId => { const reason = freshVoiceReason(sessionId); if (reason) throw new PluginError('not-admitted', reason); };
+  const assertFreshVoice = sessionId => { const reason = freshVoiceReason(sessionId); if (reason) throw Object.assign(new PluginError('not-admitted', reason), { reason }); };
   const admitBudget = async (session, request, beforeReserve = () => {}) => {
     conversationLimits.start(session.id);
     const wallet = ownerWallet?.(session);
