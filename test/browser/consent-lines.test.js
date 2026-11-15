@@ -64,6 +64,12 @@ async function fixture(t, real = false, purpose = false, revision = false) {
       return json({ granted: true, consentRevision: page.state.consentRevision, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: page.state.consentRevision, conversationUnchanged: true } } });
     }
     if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, consentRevision: page.state.consentRevision ?? page.state.snapshot.consentRevision, featureMatrix: page.state.matrix });
+    // Requested-visual recovery scenes acknowledge only fixture work, never providers.
+    if (page.state?.snapshot && request.method() === 'POST' && path.endsWith('/concepts')) {
+      page.state.snapshot.conceptStatus = { phase: 'idle' };
+      return json({ event: { seq: ++page.state.seq, type: 'concept.state', data: {
+        intent: page.state.snapshot.conceptIntent, status: { phase: 'idle' } } } });
+    }
     if (path.endsWith('/features') && !real) return json(page.state ? { featureMatrix: page.state.matrix } : {});
     if (path.endsWith('/retry') && page.state) return json({});
     if (path.endsWith('/events')) return request.continue({ headers: { ...request.headers(), 'last-event-id': '0' } });
@@ -93,6 +99,10 @@ async function scene(page, locale, theme, width, missing) {
     session.locale = locale; session.seq = 100; session.consentRevision = 1;
     session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs'; session.conceptVisualKind = 'html';
     session.conceptCost = { maxMicro: 10000 }; session.featureMatrix = matrix;
+    // These legacy line/editor scenes represent an already validated visual wish.
+    // AIT-509's separate matrix below verifies that idle hosts stay silent.
+    if (!matrix.best.html.available) session.conceptStatus = { phase: 'idle',
+      consentRequest: { id: 'fixture-visual-wish', sourceTurnId: 'c1-user' } };
     session.transcript = [{ id: 'c1-user', role: 'user', content: locale === 'de' ? 'Wir verlieren Zeit beim Schreiben von Angeboten.' : 'We lose time writing quotes.' }];
     session.operations = { inputRevision: inputRevision(session), running: ['reaction', 'understanding'], lastFailure: null };
     c.configure({ copy, session, host: { library: true }, voicePresentation: manifest.presentation, voiceClient: { manifest } });
@@ -329,7 +339,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
     session.featureMatrix.best.html = { available: false, reason: 'session paused', unpaused: { available: false, reason: 'current processing consent required' } };
     c.configure({ session, copy });
   });
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), '', 'AIT-509: a paused reload cannot recreate an idle visual ask');
   await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
   const before = await boxes(page, geometry);
   await page.locator('aithema-session >>> .notice button').click();
@@ -338,7 +348,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), de.preparingOverview, 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…', 'drafts keep their separate refusal');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), '', 'AIT-509: unrelated consent cannot create a visual ask while paused');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
 
@@ -406,7 +416,7 @@ test('AIT-197 R2 images: the stage uses image consent words', async t => {
     await scene(page, locale, 'light', 390, ['html']);
     await shadow(page, async (c, locale) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); const session = structuredClone(c.session);
       session.conceptVisualKind = 'image'; session.featureMatrix.best.images = session.featureMatrix.best.html; c.configure({ session, copy }); }, locale);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Bilder brauchen Ihre Einwilligung\u00a0· Einwilligen…' : 'Images need your consent\u00a0· Give consent…');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Zum Erstellen von Bildern ist eine Einwilligung nötig.\u00a0· Einwilligung geben' : 'Images need consent to be created.\u00a0· Give consent');
     await record(t, page, `${locale}-image-line`, { images: true });
   }
 });
@@ -505,7 +515,7 @@ for (const feature of ['voice', 'html']) test(`AIT-197 R2 High: removing only ${
   await page.locator('aithema-session >>> .consent-save').click();
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   assert.equal(page.posts[0].granted, true); assert.equal(await shadow(page, c => c.session.consentWithdrawn), false);
-  assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), `${words.de[feature]}\u00a0· ${words.de.action}`);
+  assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), feature === 'html' ? '' : `${words.de[feature]}\u00a0· ${words.de.action}`, 'AIT-509: declining visual consent clears its pending ask');
 });
 
 for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AIT-197 R3 ${locale}: paused consent with ${project ? 'earlier project' : 'only off-topic turns'}, 390/1440 L/D`, { timeout: 120_000 }, async t => {
@@ -1376,12 +1386,13 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
       globalThis.ait509Session = session;
     }, locale);
     const measure = () => shadow(page, c => {
-      const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', '.attach', '.send', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
+      const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', '.attach', '.send', '.turn', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
       return Object.fromEntries(selectors.map(selector => { const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
         return [selector, { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom }]; }));
     });
     await frame(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), '');
+    await page.hover('aithema-session >>> .turn');
     const before = await measure();
     for (const [selector, r] of Object.entries(before)) { assert.ok(r.width > 0, selector + ': positive width'); assert.ok(r.height > 0, selector + ': positive height'); }
     if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-idle`, { boxes: before });

@@ -1542,8 +1542,8 @@ test('AIT-386: image APIs reject HTML items, bytes and URLs not minted for that 
 for (const copy of [de, en]) test(`AIT-386: explicit HTML consent wording survives Off (${copy.display.locale})`, t => {
   const { root } = setup(t, { copy, concepts: [], session: { settings: { visuals: 'off' }, conceptVisualKind: 'html', visualsBound: true,
     featureMatrix: { best: { html: { available: false, reason: 'current processing consent required' } } } } });
-  assert.equal(root.querySelector('.concept-activity-text .consent-line-copy').textContent, `${copy.featureConsent.html}\u00a0· `);
-  assert.equal(root.querySelector('.concept-activity-text').dataset.consentFeature, 'html');
+  assert.equal(root.querySelector('.concept-activity-text').textContent, '', 'AIT-509: Off at idle carries no consent text');
+  assert.equal(root.querySelector('.concept-activity-text').dataset.consentFeature, undefined);
 });
 
 // Tick's binding carry-in from AIT-386: layout follows kept images, never HTML bytes.
@@ -1589,9 +1589,9 @@ function conceptConsentFixture(t, copy = en) {
   view.update(session);
   return { ...f, view, events,
     ask() { session = { ...session, conceptStatus: { phase: 'waiting', consentRequest: { id: 'validated-wish', sourceTurnId: 'first' } } }; view.update(session); },
-    async grant(verified = true) {
+    async grant(verified = true, selected = ['images']) {
       allowed = true; session = { ...session, consentRevision: session.consentRevision + 1 };
-      view.update(session, { consentRevision: session.consentRevision, selected: ['images'], features: { images: ['images'] } }, verified); await tick();
+      view.update(session, { consentRevision: session.consentRevision, selected, features: { images: ['images'] } }, verified); await tick();
     },
     change(data) { session = { ...session, ...data }; view.update(session); },
   };
@@ -1622,7 +1622,8 @@ for (const action of ['review', 'cancel', 'expiry', 'withdrawal', 'erasure', 'se
   else if (action === 'session') f.change({ id: 'another-session' });
   else if (action === 'input') f.change({ inputRevision: f.c.session.inputRevision + 1 });
   else if (action === 'settings') f.change({ settings: { ...f.c.session.settings, revision: f.c.session.settings.revision + 1 } });
-  else f.view.cancelConsent();
+  else if (action === 'review') f.root.querySelector('.ready__consent').click();
+  else f.c.cancelConsent();
   await f.grant();
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
 });
@@ -1638,5 +1639,11 @@ test('AIT-509: an in-page host can open the consent editor and cancel the pendin
   assert.equal(f.root.querySelector('dialog.settings').open, true);
   f.root.querySelector('dialog.settings').dispatchEvent(new window.Event('cancel', { cancelable: true }));
   await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
+});
+
+test('AIT-509: a settled partial grant declines the concept; a later grant cannot revive it', async t => {
+  const f = conceptConsentFixture(t); f.ask(); f.root.querySelector('.concept-activity-text .consent-action').click();
+  await f.grant(true, []); await f.grant();
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
 });

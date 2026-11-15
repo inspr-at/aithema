@@ -115,8 +115,8 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     // The settings dialog defers consent to the host; its message comes from the i18n bundle.
     const { en } = await import('../../packages/ui/src/i18n/en.js');
     component.dispatchEvent(new CustomEvent('aithema-consent', { detail: { reason: 'settings', features: ['text'] } }));
-    assert.equal(location.pathname, '/consent/');
-    assert.equal(new URLSearchParams(location.search).get('session'), component.session.id);
+    assert.equal(component.shadowRoot.querySelector('dialog.settings').open, true, 'AIT-509: host consent stays in-page');
+    assert.notEqual(location.pathname, '/consent/');
     assert.ok(posts.length >= 9);
     assert.ok(posts.every(post => post.contentType === 'application/json'));
     assert.equal(posts[0].path, '/api/sessions', 'browser creation uses the guarded JSON request');
