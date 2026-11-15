@@ -11,7 +11,7 @@ async function until(predicate) {
   }
   assert.fail('Expected progress within 500 ms');
 }
-async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = async () => {}, ...settings } = {}) {
+async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = async () => {}, durationMs = 10_000, ...settings } = {}) {
   const closed = [], pauses = [], resumes = []; let generation = 0;
   const receipt = ({ callId }) => {
     const providerSessionId = `conv_${++generation}`;
@@ -19,7 +19,7 @@ async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = 
       credential: { providerSessionId, connectionType: transport, ttlMs: 60_000,
         ...(transport === 'webrtc' ? { conversationToken: `fixture-token-${providerSessionId}` }
           : { signedUrl: `wss://socket.example.test/call?conversation_id=${providerSessionId}` }) },
-      spendDeadlineAt: Date.now() + 10_000, browserLivenessDeadlineAt: Date.now() + 10_000 };
+      spendDeadlineAt: Date.now() + durationMs, browserLivenessDeadlineAt: Date.now() + durationMs };
   };
   const control = {
     start: async request => receipt(request), recover: async request => receipt(request),
@@ -477,8 +477,8 @@ for (const transport of ['webrtc', 'websocket']) {
 }
 
 for (const shape of ['tool', 'end_call', 'close-code']) test(`AIT-508: silence ${shape} ends idle without paid recovery`, async t => {
-  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
-  const local = await setup(t); let recoveries = 0;
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000 }); let recoveries = 0;
   local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
   const callbacks = local.sdk.starts[0];
   if (shape === 'tool') callbacks.onAgentToolResponse({ tool_name: 'end_call', result: { reason: 'silence_timeout' } });
@@ -491,8 +491,8 @@ for (const shape of ['tool', 'end_call', 'close-code']) test(`AIT-508: silence $
 });
 
 for (const shape of ['end_call', 'close-code']) test(`AIT-508: SDK generic ${shape} after 120 seconds silence is idle, never recovery`, async t => {
-  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
-  const local = await setup(t); let recoveries = 0;
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000 }); let recoveries = 0;
   local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
   t.mock.timers.tick(120_000);
   local.sdk.starts[0].onDisconnect(shape === 'end_call'

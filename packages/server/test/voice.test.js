@@ -3761,9 +3761,10 @@ test('AIT-508: a fresh call waits for the prior session call to reconcile despit
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const h = voiceFixture(t, { unknown: true, cap: { capMilliseconds: 600_000 },
     host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
+  t.mock.method(Date, 'now', h.now);
   const first = await h.start(); h.advance(2000);
   const closing = h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
-  await h.waitForClosure(first.providerSessionId); t.mock.timers.tick(10_000); await closing; await h.handlers.idle();
+  await h.waitForClosure(first.providerSessionId); h.advance(10_000); t.mock.timers.tick(10_000); await closing; await h.handlers.idle();
   const credentials = h.traffic.filter(url => url.includes('/token?')).length;
   const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
   const denied = await h.route('/voice', { callId: 'next-call' });
@@ -3775,4 +3776,19 @@ test('AIT-508: a fresh call waits for the prior session call to reconcile despit
   h.runtime.reconcileVoice(record.attemptId, { ...record.terminal, outcome: 'completed', closureConfirmed: true,
     usage: { providerSeconds: 2, providerMinutes: 2 / 60, pausedSeconds: 0, visitorSeconds: 2, upstreamMicro: 2000, visitorMicro: 4000 } });
   const next = await h.start('settled-next'); assert.notEqual(next.callId, first.callId);
+});
+
+test('AIT-508: a fresh bounded call after an empty ended call uses continuation presentation', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const presentations = [], h = voiceFixture(t, {
+    host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }),
+    voiceOptions: { presentation(locale, options) { presentations.push(options); return { agent: { language: locale, firstMessage: options.hasPriorTurns ? 'Continue' : 'Welcome' } }; } },
+  });
+  t.mock.method(Date, 'now', h.now);
+  const first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'idle' }); await h.handlers.idle();
+  assert.equal(h.storage.get(h.session.id).transcript.length, 0);
+  const next = await h.start('next-empty-call');
+  assert.notEqual(first.callId, next.callId); assert.equal(presentations[0].hasPriorTurns, false);
+  assert.equal(presentations.at(-1).hasPriorTurns, true); assert.equal(next.overrides.agent.firstMessage, 'Continue');
 });
