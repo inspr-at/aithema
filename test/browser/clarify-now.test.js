@@ -913,3 +913,90 @@ test('AIT-504 follow-up: capture every overview state for the release design che
   }
   await writeFile(join(evidence, 'overview-screenshots.json'), JSON.stringify(records, null, 2));
 });
+
+test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-signals-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), errors = [], rects = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  page.on('pageerror', e => errors.push(e.message));
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(join(evidence, 'shots'), { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  await shadow(page, c => {
+    window.fetch = async (url, init = {}) => String(url).endsWith('/events')
+      ? new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }))
+      : Response.json(c.session);
+  });
+  const frame = async () => {
+    const result = await shadow(page, c => Object.fromEntries(['.band', '.understanding', '.understanding > .foot', '.composer-shell', '.attach', '.send', '.voice-state'].map(selector => {
+      const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+      return [selector, { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom }];
+    })));
+    for (const [selector, r] of Object.entries(result)) assert.ok(r.width > 0 && r.height > 0, `${selector} positive box`);
+    return result;
+  };
+  const stable = (before, after, name) => {
+    for (const selector of Object.keys(before)) for (const key of selector === '.composer-shell' ? ['bottom'] : ['x', 'y', 'width', 'height'])
+      assert.ok(Math.abs(before[selector][key] - after[selector][key]) <= .5, `${name} ${selector}/${key} shifted`);
+    rects.push({ name, before, after });
+  };
+  for (const locale of ['en', 'de']) for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
+    const name = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.mouse.move(-1, -1);
+    await shadow(page, async (c, locale, theme, manifest) => {
+      const { createSession, inputRevision, reduceUnderstanding } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const s = createSession({ demo: true, locale });
+      s.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true }, uploads: { available: true } } };
+      s.transcript = [{ id: 'person', role: 'user', content: 'We use orders.' }, { id: 'reply', role: 'assistant', content: 'Which orders?', inputRevision: inputRevision(s) }];
+      s.operations = { inputRevision: inputRevision(s), running: [], failures: [], lastFailure: null };
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
+      c.configure({ session: s, copy, voiceClient: { manifest, async start() { throw new Error('No provider calls'); } } });
+      window.signalValues = Array.from({ length: 7 }, (_, i) => ({ text: locale === 'de' ? `Sie nutzen den Ablauf ${i + 1}.` : `You use workflow ${i + 1}.`, basis: i === 0 ? 'assistant' : i === 1 ? 'document' : 'visitor' }));
+      window.signalFinal = values => {
+        const s = c.session;
+        c.receive({ seq: s.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(s.understanding,
+          { signals: values, summary: locale === 'de' ? 'Sie möchten Abläufe vereinfachen.' : 'You want simpler workflows.', constraints: {}, progress: {}, openQuestions: [] },
+          { transcript: s.transcript, inputRevision: inputRevision(s), locale }) });
+      };
+      window.signalFinal(window.signalValues);
+    }, locale, theme, voiceManifest);
+    await settle(page);
+    await shadow(page, c => c.shadowRoot.querySelector('.signals-section').scrollIntoView({ block: 'nearest' }));
+    await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 5);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-basis').length), 1);
+    const baseline = await frame();
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-collapsed.png`) });
+    await shadow(page, c => { c.shadowRoot.querySelector('.signals-toggle').focus(); c.shadowRoot.querySelector('.signals-toggle').click(); });
+    await settle(page); stable(baseline, await frame(), `${name}-expand`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 7);
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.signals-toggle')), true);
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-expanded.png`) });
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); c.shadowRoot.querySelector('.signals-toggle').click(); });
+    await settle(page);
+    const row = await shadow(page, c => { const r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    assert.ok(row.width > 0 && row.height > 0);
+    await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
+    const before = await frame();
+    await shadow(page, () => window.signalFinal([...window.signalValues, { text: 'Newest signal', basis: 'visitor' }]));
+    await settle(page); stable(before, await frame(), `${name}-deferred`);
+    const deferred = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.signal-text').textContent, r: c.shadowRoot.querySelector('.signals li').getBoundingClientRect().toJSON() }));
+    assert.equal(deferred.text, locale === 'de' ? 'Sie nutzen den Ablauf 1.' : 'You use workflow 1.');
+    assert.ok(deferred.r.width > 0 && deferred.r.height > 0);
+    assert.ok(Math.abs(deferred.r.y - row.y) <= .5);
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-deferred.png`) });
+    await page.mouse.move(-1, -1); await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signal-text').textContent), 'Newest signal');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signals-toggle').textContent), locale === 'de' ? 'Alle anzeigen (8)' : 'Show all (8)');
+    const mark = await shadow(page, c => { const n = c.shadowRoot.querySelector('[data-signal-new]'); return n && { animation: getComputedStyle(n).animationName, background: getComputedStyle(n).backgroundColor }; });
+    assert.ok(mark); assert.equal(mark.animation, 'none', 'reduced motion uses a static mark');
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-new-static.png`) });
+  }
+  assert.deepEqual(errors, []);
+  if (evidence) await writeFile(join(evidence, 'signals-rects.json'), JSON.stringify({ rects, errors }, null, 2));
+});
