@@ -102,7 +102,7 @@ export class EmailOffer {
     if (!address || address.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(address)) {
       this.invalid = true; this.message = this.copy.hostSurface.verify.invalid; this.paint(); return;
     }
-    this.saving = true; this.message = this.copy.hostSurface.verify.sending; this.paint();
+    this.invalid = false; this.saving = true; this.message = this.copy.hostSurface.verify.sending; this.paint();
     let response;
     try { response = this.email.address ? await this.verification.resend() : await this.verification.saveAndConfirm(address); }
     catch { response = { ok: false }; }
@@ -123,6 +123,7 @@ export const emailOfferStyles = `
   border:1px solid var(--aithema-line); border-radius:12px; background:var(--aithema-surface); color:var(--aithema-ink); font-size:14px; line-height:1.5; }
 .email-offer__lead { margin:0 32px 10px 0; min-height:3lh; }
 .email-offer form { display:grid; gap:6px; margin:0; }
+.email-offer form > * { grid-area:auto; min-width:0; }
 .email-offer__row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; min-height:44px; }
 .email-offer .m-in { grid-area:auto; min-width:0; }
 .email-offer__address { min-width:0; overflow-wrap:anywhere; }

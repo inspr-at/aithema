@@ -35,15 +35,15 @@ const stable = (before, after, label) => {
 
 // Only this test supplies fixture values. The shipped component reads every
 // tier, price, balance, address and ask record through its normal host routes.
-async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0, emailOffer, initialMessages = 4, lock = false } = {}) {
+async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0, emailOffer, initialMessages = 4, lock = false, tierAllowances } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock } = options;
+    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances } = options;
     const canConfirm = delivery && confirmationEnabled;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     const { voiceEvents } = await import('/packages/core/src/live-voice.js');
     window.ait164Fetch ??= window.fetch.bind(window);
-    const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
+    const allowancesMicro = tierAllowances ?? { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
     window.ait164Locale = locale;
     const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, lowClaim: { after: 0, armed: true }, creditsReads: 0, visitorReads: 0, identityReads: 0, saving: false, saveFails: false, linkFails: false, requests: [], voiceEvents: null };
     const tier = () => state.confirmed ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
@@ -51,7 +51,7 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
       assessmentUnlocked: !lock || state.confirmed, conceptsUnlocked: !lock || state.confirmed, verificationRequired: lock, pollVerification: false, resendAfterMs: 0, delivery: 'sent' });
     const visitor = () => ({ address: state.address, tier: tier(), limitMicro: allowancesMicro[tier()] });
     if (low || out) state.spent = allowancesMicro[tier()] - (out ? 0 : 980_000);
-    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? 'emailGiven' : canConfirm && !state.confirmed ? 'emailConfirmed' : null;
+    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? allowancesMicro.emailGiven > allowancesMicro.anonymous ? 'emailGiven' : canConfirm && allowancesMicro.emailConfirmed > allowancesMicro.anonymous ? 'emailConfirmed' : null : canConfirm && !state.confirmed ? 'emailConfirmed' : null;
       return { tiers: { current, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm, allowancesMicro },
         exhausted: state.spent >= limitMicro, lowAtMicro: Math.max(limitMicro / 10, 5 * 100_000), lowAtMaxMicro: Math.max(allowancesMicro.emailConfirmed / 10, 5 * 100_000),
         emailOffer: state.offer ?? {}, emailAsk: state.ask, emailAskAfter: state.after, lowEmailAsk: state.lowClaim, nowMs: Date.now(), limitSlot: null,
@@ -67,7 +67,7 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
         if (method === 'PUT') { state.requests.push('save'); state.noticeVersion = JSON.parse(init.body).noticeVersion; while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails) return Response.json({ error: 'unavailable' }, { status: 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: true });
       }
-      if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true }); }
+      if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true, ...(emailOffer ? { visitorEmail: { canSave: true, canDelete: true } } : {}) }); }
       if (/\/identity\/(request|change|resend)$/u.test(path)) { state.requests.push('link'); return Response.json({ identity: identity() }, { status: state.linkFails ? 503 : 200 }); }
       if (path.endsWith('/email-ask')) {
         const body = JSON.parse(init.body);
@@ -116,7 +116,7 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `u${i}`, role: 'user', content: locale === 'de' ? 'Ja.' : 'Yes.' } });
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `a${i}`, role: 'assistant', content: locale === 'de' ? 'Wie soll es weitergehen?' : 'How would you like to continue?' } }); };
     if (voice) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock });
+  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances });
   await until(page, () => {
     const c = document.querySelector('aithema-session'), s = window.ait164;
     return s.creditsReads > 0 && s.visitorReads > 0 && s.identityReads > 0 &&
@@ -501,6 +501,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
     let baseline = null;
     const shot = async state => {
+      await settle(page);
       if (baseline) {
         const current = await measured();
         const shift = Math.max(...baseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - current[i][j]))));
@@ -509,7 +510,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
       if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
     await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent'); await shot('entrance');
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), true);
     await shot('before-input');
@@ -524,12 +525,25 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     const state = await shadow(page, c => { const r = c.shadowRoot; return { notice: r.querySelector('.email-offer .m-notice-text').textContent, href: r.querySelector('.email-offer .m-pp').getAttribute('href'), inert: r.querySelector('form.composer').inert, count: c.session.transcript.length, active: r.activeElement?.id }; });
     assert.match(state.notice, locale === 'en' ? /advertising/ : /Werbung/); assert.equal(state.href, '/privacy'); assert.equal(state.inert, false); assert.equal(state.count, 4); assert.notEqual(state.active, 'email-offer-input');
     baseline = after; await shot('capture');
+    await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'invalid'; row.querySelector('form').requestSubmit(); });
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').getAttribute('aria-invalid')), 'true'); await shot('invalid');
+    await page.evaluate(() => { window.ait164.saving = true; window.ait164.linkFails = true; });
     await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled); await shot('saving');
+    await page.evaluate(() => { window.ait164.saving = false; });
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').disabled && window.ait164.requests.includes('link'));
+    await shot('delivery-failed');
+    await page.evaluate(() => { window.ait164.linkFails = false; }); await click(page, '.email-offer__send');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'sent');
     assert.equal(await page.evaluate(() => window.ait164.noticeVersion), 'ait-135-v1'); await shot('sent');
     await shadow(page, c => { window.ait164.confirmed = true; c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, status: 'verified', address: 'visitor@example.test', assessmentUnlocked: true, conceptsUnlocked: true } }); });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'confirmed'); await shot('confirmed');
     baseline = null;
+    for (const [variant, confirmedAllowance] of [['confirm', 24_000_000], ['lock-only', 12_000_000]]) {
+      await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, lock: true,
+        tierAllowances: { anonymous: 12_000_000, emailGiven: 12_000_000, emailConfirmed: confirmedAllowance } });
+      await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await shot(variant);
+    }
     await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, address: 'saved@example.test', lock: true });
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false);
