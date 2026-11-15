@@ -992,6 +992,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.ok(Math.abs(deferred.r.y - row.y) <= .5);
     if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-deferred.png`) });
     await page.mouse.move(-1, -1); await settle(page);
+    stable(before, await frame(), `${name}-apply`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signal-text').textContent), newest);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signals-toggle').textContent), locale === 'de' ? 'Alle anzeigen (8)' : 'Show all (8)');
     const mark = await shadow(page, c => { const n = c.shadowRoot.querySelector('[data-signal-new]'); return n && { animation: getComputedStyle(n).animationName, background: getComputedStyle(n).backgroundColor }; });
