@@ -10,11 +10,11 @@ import { settleEvidenceFrame } from './start2-display-helpers.js';
 
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const positive = (box, label) => assert.ok(box.width > 0 && box.height > 0, `${label}: positive box ${JSON.stringify(box)}`);
-const frame = ['.band', '.display-foot', '.composer-actions .attach', '.send'];
+const frame = ['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send'];
 const geometry = async page => { const state = await shadow(page, c => {
   const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
   const input = r.querySelector('textarea'), shell = r.querySelector('.transcript-shell');
-  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.audio-rail', '.concept-bar', ...['.band', '.display-foot', '.composer-actions .attach', '.send']]
+  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.audio-rail', '.concept-bar', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
     .filter(selector => r.querySelector(selector)).map(selector => [selector, box(selector)])),
   inputScroll: input.scrollHeight, inputClient: input.clientHeight, value: input.value,
   scroll: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight,
