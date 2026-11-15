@@ -72,6 +72,29 @@ test('AIT-506: legacy choice entrance keeps mode selection and Start', t => {
   assert.ok(f.c.shadowRoot.querySelector('.ready__modes'));
   assert.equal(f.c.shadowRoot.querySelector('.composer-mic'), null);
 });
+test('AIT-506: shared opener renders once before input and persists in the same row', t => {
+  const f = fixture(t), source = f.c.session;
+  source.opener = { text: 'Welcome from a host.', locale: source.locale };
+  f.configure(f.c, source);
+  const root = f.c.shadowRoot, selector = '[data-id="host:opener"]';
+  assert.equal(root.querySelectorAll(selector).length, 1, 'one shared render-only row');
+  const row = root.querySelector(selector);
+  assert.equal(f.c.session.transcript.length, 0);
+  assert.equal(root.querySelector('.workspace').dataset.understanding, 'absent');
+  f.c.receive({ seq: 1, type: 'turn.final', data: { id: 'host:opener', role: 'assistant', origin: 'host', content: source.opener.text } });
+  assert.equal(root.querySelectorAll(selector).length, 1);
+  assert.equal(root.querySelector(selector), row, 'canonical persistence keeps row identity');
+  assert.equal(root.querySelector('.workspace').dataset.understanding, 'absent');
+});
+for (const boundary of ['history', 'withdrawn', 'erased']) test(`AIT-506: shared opener respects ${boundary} projection boundary`, t => {
+  const f = fixture(t), source = f.c.session;
+  source.opener = { text: 'Welcome from a host.', locale: source.locale };
+  if (boundary === 'history') source.transcript = [{ id: 'prior', role: 'user', content: 'Prior visitor input.' }];
+  if (boundary === 'withdrawn') source.consentWithdrawn = true;
+  if (boundary === 'erased') source.tombstone = { at: new Date(Date.now()).toISOString() };
+  f.configure(f.c, source);
+  assert.equal(f.c.shadowRoot.querySelectorAll('[data-id="host:opener"]').length, 0);
+});
 test('AIT-506: Send snapshots text before consent, locks edits, sends once after Agree', async t => {
   const f = fixture(t); f.input('Snapshot at Send'); f.send();
   assert.equal(f.events.at(-1)?.mode, 'text');
