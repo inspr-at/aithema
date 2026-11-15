@@ -9,7 +9,9 @@
   email delivery, privacy capability and the daily visitor claim ports are
   required for an eligible offer.
 - Before visitor input, the overview and empty Settings capture form are absent;
-  saved-address Change/Delete remain reachable. The verification lock stays until
+  saved-address Change/Delete remain reachable. The credits popover hides its
+  email action while capture is deferred and reserves its existing slot.
+  The verification lock stays until
   confirmation. The host opener, assistant turns, documents, partials and
   duplicate messages cannot advance the offer's accepted-message count.
 - The existing email-ask route accepts `why: 'offer'` with `show` or `dismiss`.
@@ -28,6 +30,7 @@
   without saving or replacing the address.
 - With `emailOffer` configured, the demo's next-tier projection can offer a
   positive confirmation delta directly when saving provides no credit increase.
+  `createDemoHost` forwards the option to `createVisitorCredits({ emailOffer })`.
   Without the policy, its tier projection stays unchanged. Save refusals use
   `verify.invalid` and mark the field invalid; other save failures use
   `email.failed`, saving uses `email.saving`, and confirmation-link failures

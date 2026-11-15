@@ -3760,6 +3760,8 @@ identity port, the privacy-document capability, and the visitor-wide
 `createDemoHost({ emailOffer: { afterMessages: 2 } })`.
 
 Before visitor input, the overview and Settings' empty capture form are absent.
+The credits popover hides its email action while capture is deferred, reserving
+the action's space so revealing it does not move the popover.
 A saved address keeps its Change and Delete controls in Settings. The host opener
 never counts as visitor input. Confirmation still unlocks the assessment and
 concepts; starting a conversation does not require an email address.
@@ -3798,6 +3800,7 @@ copy overrides apply. No new copy keys are required. The additive
 used by the server and UI, so packed consumers use the same policy and predicates.
 With `emailOffer` configured, the demo tier projection offers confirmation
 directly when saving adds no credit but confirmation has a positive delta.
+The demo forwards that option to `createVisitorCredits({ emailOffer })`.
 Without the policy, the demo keeps its existing tier projection.
 Save refusals use `verify.invalid` and mark the field invalid; other save
 failures use `email.failed`. Saving uses `email.saving`, and a confirmation-link

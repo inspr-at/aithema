@@ -259,6 +259,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits[data-session-credits] .host-credits__equivalence { grid-area:6/1; }
 .credits-check { display:grid; flex:none; } .credits-check svg { width:14px; height:14px; }
 .credits-email { display:inline-flex; align-items:center; min-height:28px; position:relative; font-weight:600; color:var(--aithema-paper); text-decoration:underline; text-underline-offset:3px; }
+/* Keep the deferred email action in its existing popup slot. */
+.credits-email[data-capture-deferred] { display:inline-flex !important; visibility:hidden; pointer-events:none; }
 .credits-email::after { content:""; position:absolute; inset:-8px -4px; }
 .credits-email:focus-visible { outline-color:var(--aithema-paper); }
 .host-credits__equivalence { font-size:11.5px; opacity:.7; }

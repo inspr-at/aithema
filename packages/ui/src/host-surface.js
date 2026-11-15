@@ -430,7 +430,9 @@ export class HostSurface {
     const hasOfferCopy = Object.hasOwn(c, 'afterConfirm') && c !== de.hostSurface.credits && c !== en.hostSurface.credits;
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
     setText(nextLine, next ? tierText(fill(c[next === 'emailGiven' ? 'withEmail' : scoped && tiers.current === 'anonymous' && !hasOfferCopy ? 'withConfirmed' : Object.hasOwn(c, 'afterConfirm') ? 'afterConfirm' : 'withConfirmed'], { tier: format(tiers.allowancesMicro?.[next], locale), n: format(tiers.allowancesMicro?.[next], locale) })) : !capped && out && (scoped || this.limitCopy.footer !== false) ? c.noMore : '');
-    nextLine.hidden = capped || !next && (!out || !scoped && this.limitCopy.footer === false); link.hidden = !next;
+    const captureDeferred = Boolean(this.#session().emailOffer && !hasOfferVisitorInput(this.#session()));
+    nextLine.hidden = capped || !next && (!out || !scoped && this.limitCopy.footer === false); link.hidden = !next || captureDeferred;
+    link.toggleAttribute('data-capture-deferred', captureDeferred);
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
     // Reserve the track without overriding narrow/legal-host display rules.
     track.hidden = false; track.style.visibility = owner ? '' : 'hidden';
