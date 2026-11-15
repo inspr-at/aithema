@@ -67,6 +67,8 @@ export const hostStyles = `
 /* Pending has no Cancel action; its hidden reservation must not add a row above the message. */
 .verify-dialog .verify-form[data-mode=pending] .verify-cancel { display:none; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
+/* Keep the localized hint slot when capture changes to pending. */
+.verify-dialog[data-email-offer] .verify__note { min-height:2lh; }
 /* Opted-in capture uses the pending layout before acknowledgement as well. */
 :is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
 :is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) > .verify__lead { grid-area:lead; }
