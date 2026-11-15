@@ -502,6 +502,14 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     let baseline = null;
     const shot = async state => {
       await settle(page);
+      const bounds = await shadow(page, c => {
+        const row = c.shadowRoot.querySelector('.email-offer');
+        return row ? { offer: row.getBoundingClientRect().toJSON(), shell: c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect().toJSON() } : null;
+      });
+      if (bounds) {
+        for (const box of Object.values(bounds)) assert.ok(box.width > 0 && box.height > 0, `${label}/${state}: positive offer geometry`);
+        assert.ok(bounds.offer.left >= bounds.shell.left - .5 && bounds.offer.right <= bounds.shell.right + .5, `${label}/${state}: offer fits the transcript`);
+      }
       if (baseline) {
         const current = await measured();
         const shift = Math.max(...baseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - current[i][j]))));

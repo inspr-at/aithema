@@ -119,7 +119,7 @@ export class EmailOffer {
 }
 
 export const emailOfferStyles = `
-.email-offer { position:relative; align-self:start; list-style:none; min-width:0; max-width:38rem; padding:16px; margin:0 0 16px;
+.email-offer { position:relative; align-self:start; list-style:none; min-width:0; width:100%; max-width:38rem; padding:16px; margin:0 0 16px;
   border:1px solid var(--aithema-line); border-radius:12px; background:var(--aithema-surface); color:var(--aithema-ink); font-size:14px; line-height:1.5; }
 .email-offer__lead { margin:0 32px 10px 0; min-height:3lh; }
 .email-offer form { display:grid; gap:6px; margin:0; }
