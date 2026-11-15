@@ -48,3 +48,30 @@ test('AIT-515 export retains newest-first legacy strings and additive signal met
   assert.ok(zip.includes('"signals": [\n    "New",\n    "Old"\n  ]'));
   assert.ok(zip.includes('"basis": "assistant"'));
 });
+
+test('AIT-515 consent grant reset preserves first-seen sequence in durable replay', t => {
+  const { storage, id, final } = fixture(t); final(['Retained fact']);
+  const firstSeen = storage.get(id).signalLedger[0].firstSeen;
+  storage.reviseConsent(id, true); final(['Retained fact', 'Later fact']);
+  const s = storage.get(id), replay = storage.read(id).reduce(applyEvent, createSession({ id }));
+  assert.equal(s.signalLedger.find(i => i.text === 'Retained fact').firstSeen, firstSeen);
+  assert.deepEqual(replay.understanding.signals, s.understanding.signals);
+  assert.deepEqual(replay.signalLedger, s.signalLedger);
+});
+
+test('AIT-515 upload withdrawal prunes ledger and erases derived bytes', t => {
+  const { storage, id, final } = fixture(t);
+  storage.append(id, 'upload.state', { id: 'doc', state: 'accepted', filename: 'notes.txt', text: 'Document source' });
+  final([{ text: 'Unique document signal', basis: 'document' }]);
+  storage.withdrawUpload(id, 'doc');
+  assert.deepEqual(storage.get(id).signalLedger, []);
+  for (const row of storage.db.prepare('SELECT bytes FROM content WHERE session_id=?').all(id)) assert.doesNotMatch(row.bytes ?? '', /Unique document signal/iu);
+});
+
+test('AIT-515 stale assessment cannot change the current ledger', t => {
+  const { storage, id, final } = fixture(t); final(['Current fact']);
+  const before = storage.get(id), revision = inputRevision(before);
+  storage.append(id, 'turn.final', { id: 'later', role: 'user', content: 'New input' });
+  assert.equal(storage.append(id, 'understanding.updated', { ...before.understanding, signals: ['Stale fact'] }, revision), null);
+  assert.deepEqual(storage.get(id).signalLedger, before.signalLedger);
+});

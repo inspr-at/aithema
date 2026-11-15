@@ -83,3 +83,16 @@ test('AIT-515 reset preserves identities without a highlight storm; erasure and 
   const fresh = setup().session; c.configure({ session: fresh, copy: en }); final(c, seven);
   assert.equal(texts(c).length, 5);
 });
+
+test('AIT-515 same-conversation configure and five-item interval retain expansion; reconnect never replays highlights', () => {
+  const c = setup(); final(c, seven); c.shadowRoot.querySelector('.signals-toggle').click();
+  c.shadowRoot.querySelector('.signals-toggle').blur();
+  final(c, seven.slice(0, 3)); assert.equal(c.shadowRoot.querySelector('.signals-toggle').hidden, true);
+  final(c, seven); assert.equal(texts(c).length, 7, 'temporary short lists retain the expanded preference');
+  c.configure({ session: c.session, copy: en });
+  assert.equal(texts(c).length, 7, 'same-conversation configure retains expansion');
+  assert.equal(c.shadowRoot.querySelectorAll('[data-signal-new]').length, 0, 'snapshot mount is quiet');
+  const fresh = setup().session;
+  c.configure({ session: fresh, copy: en }); final(c, seven);
+  assert.equal(texts(c).length, 5, 'different conversation resets expansion');
+});
