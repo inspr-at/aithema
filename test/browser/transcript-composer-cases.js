@@ -271,10 +271,11 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   });
   await t.test('device send resets height after canonical acceptance', async () => {
     await reset(1440, 900);
-    await shadow(page, c => {
+    await shadow(page, async c => {
+      const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
       const session = structuredClone(c.session); session.processingPreset = 'device';
       session.featureMatrix.device = { text: { available: true } };
-      c.configure({ session, deviceReasoning: { id: 'fixture', model: 'fixture', async connect() {}, async *stream() { yield JSON.stringify({ content: 'Fixture reply.', question_short: null, options: [] }); } } });
+      c.configure({ copy, session, deviceReasoning: { id: 'fixture', model: 'fixture', async connect() {}, async *stream() { yield JSON.stringify({ content: 'Fixture reply.', question_short: null, options: [] }); } } });
     });
     await draft(page, 12); await settleEvidenceFrame(page); const before = await geometry(page);
     await shadow(page, c => c.shadowRoot.querySelector('form.composer').requestSubmit());
