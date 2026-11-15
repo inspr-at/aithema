@@ -19,8 +19,8 @@ const geometry = page => shadow(page, c => {
   inputScroll: input.scrollHeight, inputClient: input.clientHeight, value: input.value,
   scroll: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight,
   growth: parseFloat(getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-composer-growth')),
-  noticeParent: r.querySelector('.voice-notices').parentElement.className,
-  noticeHeight: r.querySelector('.voice-notices').getBoundingClientRect().height,
+  noticeParent: r.querySelector('.voice-notices')?.parentElement.className ?? '',
+  noticeHeight: r.querySelector('.voice-notices')?.getBoundingClientRect().height ?? 0,
   listPadding: parseFloat(getComputedStyle(shell.querySelector('ol')).paddingBottom),
   jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
   cardHidden: r.querySelector('.qcard').hidden };
