@@ -91,7 +91,10 @@ test('AIT-503 malformed-command error without a reason is terminal', async () =>
   assert.equal(core.classifyFocusRefusal({ error: 'reasoning-unavailable' }), 'terminal', 'opaque failure codes never imply a safe retry');
 });
 
-test('AIT-503 refusal classifier remains internal in RC24', async () => {
+test('gate2 M1: core exports no question-focus subpath or refusal classifier', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(Object.hasOwn(manifest.exports, './question-focus'), false);
   const core = await import('../src/index.js');
   assert.equal(core.classifyFocusRefusal, undefined);
   assert.equal(core.FOCUS_REFUSAL_CLASSES, undefined);

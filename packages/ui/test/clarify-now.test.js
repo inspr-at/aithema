@@ -732,3 +732,39 @@ test('gate1 L2: accepted retry guidance preserves literal host failure copy', as
   assert.equal(f.rows()[1].querySelector('.question-failed-long').textContent, 'Host $& status');
   assert.equal(f.root.querySelector('.clarify-announcement').textContent, 'Host $& status. You can retry.');
 });
+
+for (const acceptance of ['http', 'event', 'snapshot']) test(`gate2 L2: redelivered reaction failure clears on ${acceptance} focus acceptance`, async t => {
+  const f = fixture(t), pending = Promise.withResolvers();
+  const failure = { lane: 'reaction', retryable: true, error: 'reasoning-unavailable', inputRevision: inputRevision(f.c.session) };
+  f.lane([], [failure]);
+  f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  // A new decoded object (with different property order) is the same failure.
+  f.lane([], [{ inputRevision: failure.inputRevision, error: failure.error, retryable: true, lane: 'reaction' }]);
+  assert.equal(f.root.querySelector('.reaction-failure').hidden, false, 'pending POST retains the failure');
+  const receipt = f.accept();
+  if (acceptance === 'event') f.c.receive(receipt.event);
+  if (acceptance === 'snapshot') {
+    const snapshot = structuredClone(f.c.session);
+    snapshot.seq = receipt.event.seq; snapshot.questionFocus = receipt.event.data;
+    snapshot.focusedQuestion = receipt.event.data.question;
+    t.mock.method(globalThis, 'fetch', async () => Response.json(snapshot));
+    const rejected = assert.rejects(request, TypeError);
+    pending.reject(new TypeError('offline')); await rejected;
+  } else {
+    pending.resolve(Response.json(receipt, { status: 202 })); await request;
+  }
+  assert.equal(f.root.querySelector('.reaction-failure').hidden, true);
+  assert.equal(f.c.session.operations.lastFailure, null);
+  assert.equal(f.rows()[1].dataset.state, 'requesting');
+  assert.equal(f.calls.length, 1);
+});
+for (const locale of ['en', 'de']) test(`gate2 L1: ${locale} focus-retry announcement offers Retry`, async t => {
+  const f = fixture(t, locale), copy = locale === 'de' ? de : en;
+  f.post(() => { throw new TypeError('offline'); });
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), TypeError);
+  assert.equal(f.rows()[1].dataset.state, 'focus-retry');
+  const announcement = f.root.querySelector('.clarify-announcement').textContent;
+  assert.ok(announcement.includes(copy.clarifyFailed));
+  assert.match(announcement, locale === 'de' ? /Erneut versuchen/ : /You can retry/);
+});
