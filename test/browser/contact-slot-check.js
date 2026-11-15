@@ -47,7 +47,13 @@ export async function contactSlotCheck(t) {
   const capture = async name => {
     if (!evidence) return;
     await mkdir(join(evidence, 'shots'), { recursive: true });
+    const scroll = await page.evaluate(() => [scrollX, scrollY]);
+    if (/-pinned$|-scrolled$|-email-pane$|-long$/.test(name)) {
+      await page.$eval('#contact-open', n => n.scrollIntoView({ block: 'center' }));
+      await settle();
+    }
     await page.screenshot({ path: join(evidence, 'shots', `${name}.png`), fullPage: false, captureBeyondViewport: false });
+    await page.evaluate(([x, y]) => scrollTo(x, y), scroll); await settle();
   };
   for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
     const name = `${width}-${locale}-${theme}`;
@@ -110,6 +116,12 @@ export async function contactSlotCheck(t) {
     assert.equal(await visible('#contact-launch'), width < 960, `${name}: launcher follows sidebar mode`);
     const frames = ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.sidebar-contact', '.attach', '.send'];
     const pinned = await rects(frames); positive(pinned, name);
+    await page.focus('#contact-open'); await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('#contact-overlay', d => d.open), true, 'pinned CTA opens the host dialog');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.$eval('#contact-open', n => n === document.activeElement), true, 'pinned CTA regains focus');
+    // Focus scrolling is a visitor action; restore the page before frame comparisons.
+    await page.evaluate(() => scrollTo(0, 0)); await settle();
     await capture(`${name}-pinned`);
     await page.evaluate(() => { document.querySelector('aithema-session').shadowRoot.querySelector('.analysis-content').scrollTop = 600; });
     await settle();
@@ -146,7 +158,25 @@ export async function contactSlotCheck(t) {
     assert.equal(empty[0][3], 0, `${name}: empty pinned slot consumes zero height`);
     assert.equal(await visible('#contact-launch'), true, `${name}: empty sidebar retains launcher`);
     await capture(`${name}-empty`);
-    checks.push({ name, before, mounted, pinned, scrolled, empty, shiftPx: 0 });
+    // A long host section is filled before reconfigure, so its bounded row is
+    // reserved at mount rather than testing unsupported asynchronous growth.
+    await page.evaluate(() => {
+      const { c, copy } = window.contactFixture;
+      const card = document.createElement('section'); card.slot = 'sidebar-contact'; card.id = 'contact-card';
+      const button = document.createElement('button'); button.id = 'contact-open'; button.textContent = document.getElementById('contact-launch').getAttribute('aria-label');
+      button.onclick = () => document.getElementById('contact-overlay').showModal();
+      const text = document.createElement('p'); text.textContent = 'Contact information. '.repeat(500);
+      card.append(button, text); c.append(card);
+      c.configure({ copy, session: structuredClone(c.session), voiceClient: {}, host: { library: true } });
+    });
+    await settle();
+    const long = await rects(['.sidebar-contact', '.understanding']); positive(long, `${name}: long contact`);
+    assert.ok(long[0][3] <= (width < 960 ? 224 : long[1][3] * .3) + .5, 'long contact stays bounded');
+    await page.evaluate(() => { document.querySelector('aithema-session').shadowRoot.querySelector('.sidebar-contact').scrollTop = 100; });
+    assert.ok(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.sidebar-contact').scrollTop > 0), 'long host contact scrolls independently');
+    stable(long, await rects(['.sidebar-contact', '.understanding']), `${name}: contact scroll`);
+    await capture(`${name}-long`);
+    checks.push({ name, before, mounted, pinned, scrolled, empty, long, shiftPx: 0 });
     if (evidence) await writeFile(join(evidence, 'contact-rects.json'), JSON.stringify(checks, null, 2) + '\n');
   }
   assert.equal(checks.length, 12);
