@@ -26,6 +26,11 @@ const pointerClick = async (page, selector) => {
   await page.mouse.move(0, 0);
 };
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
+const openCredits = page => shadow(page, c => {
+  const entry = c.shadowRoot.querySelector('.host-credits'), button = entry.querySelector('.host-credits__button');
+  if (entry.hasAttribute('data-pinned')) button.click();
+  button.click(); // Activation runs the production viewport-positioning handler.
+});
 const fixed = ['.composer-shell', '.send', '.understanding > .foot', '.display-foot', '.host-credits', '.engine-info'];
 const stable = (before, after, label) => {
   const shift = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
@@ -610,10 +615,13 @@ test('AIT-507 deferred credits email link is hidden with reserved positive geome
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await fixture(page, locale, { delivery: true, emailOffer: {}, initialMessages: 0 });
-    await shadow(page, (c, theme) => { c.setAttribute('theme', theme); c.shadowRoot.querySelector('.host-credits').setAttribute('data-pinned', ''); }, theme);
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    await openCredits(page);
     await settle(page);
     const targets = ['.host-credits', '.credits-popup', '.credits-email', '.host-credits__scope', '.host-credits__next'];
     const sample = async () => { const result = await boxes(page, targets); for (const box of result) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive reserved popup geometry`); return result; };
+    const inViewport = async () => { const box = (await sample())[1]; assert.ok(box[0] >= -.5 && box[1] >= -.5 && box[0] + box[2] <= width + .5 && box[1] + box[3] <= page.viewport().height + .5, `${label}: popup fits viewport ${box}`); };
+    await inViewport();
     const before = await sample();
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.credits-email')).visibility), 'hidden', `${label}: before-input email link is hidden`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.credits-email').hidden), true);
@@ -621,6 +629,7 @@ test('AIT-507 deferred credits email link is hidden with reserved positive geome
     await page.evaluate(() => window.ait164.reply()); await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.credits-email').hidden), false);
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.credits-email')).visibility), 'visible');
+    await inViewport();
     const after = await sample(), shift = Math.max(...before.flatMap((box, i) => box.map((v, j) => Math.abs(v - after[i][j]))));
     assert.ok(shift <= .5, `${label}: reserved popup shift ${shift}`); rects.push({ label, targets, before, after, shift });
     if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-after-input-credits.png`) });
@@ -651,6 +660,8 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
     const sample = async targets => {
       const result = await boxes(page, targets);
       for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${scenario}/${targets[i]}: positive geometry ${box}`);
+      const popup = result[targets.indexOf('.credits-popup')];
+      if (popup) assert.ok(popup[0] >= -.5 && popup[1] >= -.5 && popup[0] + popup[2] <= width + .5 && popup[1] + popup[3] <= page.viewport().height + .5, `${label}/${scenario}: popup fits viewport ${popup}`);
       return result;
     };
     const compare = async (targets, before, state) => {
@@ -704,7 +715,7 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email-offer-input').value), 'a(b)@example.com');
       await settle(page); await compare(targets, before, 'refused'); await shot('refused');
     } else {
-      await shadow(page, c => c.shadowRoot.querySelector('.host-credits').setAttribute('data-pinned', ''));
+      await openCredits(page);
       await settle(page);
       const targets = ['.host-credits', '.credits-popup', '.host-credits__scope', '.host-credits__current'];
       if (scenario === 'saved-address') targets.push('.credits-email', '.host-credits__next');
