@@ -356,7 +356,9 @@ npm run test:browser-shards
 The importer accepts complete historical six/seven/eight/nine-shard and current twelve-shard runs;
 it rejects mixed counts, missing indices, duplicates, and expired artifacts.
 CI screenshots use `browser-evidence-N-of-12`; the full nightly matrix uses
-`full-browser-evidence-N-of-12`. All twelve workers run concurrently, so this adds
+`full-browser-evidence-N-of-12`. CI creates its evidence directory before tests;
+individual evidence writers also create their destination for isolated runs.
+All twelve workers run concurrently, so this adds
 runner minutes while keeping wall-clock time comparable.
 
 Nightly selects the full Cartesian matrix with `AITHEMA_FULL_MATRIX=1`.

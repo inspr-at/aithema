@@ -211,6 +211,11 @@ jobs:
         run: npm ci
       - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         run: npm run setup:browser
+      - name: Create browser evidence directory
+        if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
+        run: mkdir -p "$AITHEMA_EVIDENCE_DIR"
+        env:
+          AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
       - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
         run: npm run test:browser -- --shard ${{ matrix.shard }}/12
         env:

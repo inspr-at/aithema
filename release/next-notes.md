@@ -14,3 +14,5 @@
   the switch. No GitHub settings change in this delivery. Timing/evidence artifact
   names use `N-of-12`, with historical timing imports retained. The 405 s planner
   target and 420 s hard ceiling are unchanged. There is no host API change.
+  CI prepares the browser evidence directory before tests, and isolated evidence
+  writers create their destination rather than depending on test order.

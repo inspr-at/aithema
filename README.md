@@ -81,6 +81,8 @@ transition; the new aggregate is not initially required. After owner approval,
 DEVOPS can switch the required browser checks to `browser`; only after confirmation
 may a later change remove the aliases. No GitHub settings change here. The planner
 keeps its 405 s target and 420 s ceiling, and nightly/timing artifacts use `N-of-12`.
+CI creates the browser evidence directory before testing; evidence writers also
+create their destination so isolated tests do not depend on earlier shard work.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.
 The unit watchdog always reports the active/last subtest and uncaught-error stacks.
 On remote evidence runs, `AITHEMA_EVIDENCE_DIR` also collects per-file unit
