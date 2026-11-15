@@ -1,88 +1,138 @@
 # Aithema 2026.10
 
-Version **261112091755.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261115062259.0.0**. Licensed under **AGPL-3.0-only**.
 
-Deleted conversations now show a clear end state and stop their requests. An email address our mail service would refuse is rejected on entry, and Settings no longer claims a link was sent after a refused resend. Hosts using asynchronous identity delivery must add `identity.acceptsAddress`; the new `aithema-erased` event lets hosts stop their own per-session requests.
+The overview now shows whether it is updating or up to date. Start continues after consent, the chat follows your answer, and call endings and email status give clearer, current information. Open questions recover honestly when Clarify cannot run, and their heading shows how many remain.
 
 ## What visitors notice
 
-- **Deleted chats end clearly (AIT-484, #428).** If a conversation is deleted elsewhere, the open page says it is no longer available and offers a new conversation, instead of continuing to make requests in the background.
-- **Honest delivery status (AIT-494, #431).** An email address our mail service would refuse (for example one with brackets or quotes) is now rejected as you enter it, and Settings no longer says a link was sent when it was not.
+- **Overview stays current (AIT-504, #438, #439).** After every answer the overview shows whether it is updating or up to date, so it never looks stuck.
+- **Start continues after consent (AIT-501, #440).** After giving consent from Start, the conversation continues where the visitor left off instead of asking for Start again.
+- **Chat follows your answer (AIT-512, #440).** After picking an option or sending a message, the chat keeps the new turn in view, and a quick second click can't hit a control that just moved.
+- **Honest call endings (AIT-502, #437).** When a call ends, the message says what actually happened: a failed connection, the call's maximum length, used-up credits, or simply that the call ended.
+- **Current email status (AIT-518, #436).** After a reload or a return to the tab, the conversation shows the confirmed email address right away.
+- **Accurate resend countdown (AIT-486, #434).** After the page reconnects, the resend countdown shows the wait the server actually enforces instead of a stale, longer one.
+- **Clarify recovers honestly (AIT-503, #438, #441).** When asking about an open question can't happen right away, the row says why and offers Retry when it can work, without duplicate replies.
+- **Counted open questions (AIT-516, #441).** The open-questions heading shows how many questions are still open, with correct singular and plural in English and German.
 
-This checks mail-service syntax, not whether a mailbox exists: a well-formed
-address that does not exist still shows `sent`. Quota, IP or global suppression,
-relay refusal and OPS `confirmationEnabled=false` can also still report `sent`
-without mail.
+The original overview freeze report did not reproduce. This release makes the
+status visible; it does not establish a scheduler bug or claim to fix one.
+
+## Was Besucher bemerken
+
+- **Überblick bleibt aktuell (AIT-504, #438, #439).** Nach jeder Antwort zeigt der Überblick, ob er aktualisiert wird oder auf dem neuesten Stand ist, und wirkt nie festgefahren.
+- **Start nach Einwilligung (AIT-501, #440).** Nach der Einwilligung über Start geht das Gespräch dort weiter, wo es begonnen wurde, ohne erneut Start zu verlangen.
+- **Chat folgt der Antwort (AIT-512, #440).** Nach der Auswahl einer Option oder dem Senden bleibt der neue Gesprächsschritt im Blick, und ein schneller zweiter Klick trifft kein gerade verschobenes Element.
+- **Klare Meldungen zum Anrufende (AIT-502, #437).** Endet ein Anruf, sagt die Meldung, was tatsächlich passiert ist: eine fehlgeschlagene Verbindung, die maximale Anrufdauer, aufgebrauchte Guthaben oder einfach das Ende des Anrufs.
+- **Aktueller E-Mail-Status (AIT-518, #436).** Nach dem Neuladen oder der Rückkehr zum Tab zeigt das Gespräch die bestätigte E-Mail-Adresse sofort an.
+- **Genauer Wartezähler (AIT-486, #434).** Nach einer erneuten Verbindung zeigt der Zähler die Wartezeit, die der Server tatsächlich verlangt, statt einer veralteten, längeren.
+- **Nachfragen erholt sich ehrlich (AIT-503, #438, #441).** Kann eine offene Frage gerade nicht nachgefragt werden, sagt die Zeile warum und bietet Erneut versuchen an, wenn es Erfolg haben kann, ohne doppelte Antworten.
+- **Gezählte offene Fragen (AIT-516, #441).** Die Überschrift der offenen Fragen zeigt, wie viele noch offen sind, mit korrekter Einzahl und Mehrzahl auf Deutsch und Englisch.
 
 ## For hosts
 
-**Erased conversations (AIT-484, #428).** A journal `session.erased`, or a snapshot
-404 with exactly `{error: 'session-not-found'}`, enters one terminal state:
-“This conversation is no longer available.” / “Dieses Gespräch ist nicht mehr verfügbar.”
-The element stops all its requests and timers for that conversation and keeps
-the existing new-conversation action. The new copy key is `conversationUnavailable`;
-other German visitor copy is unchanged.
+**Call endings (AIT-502, #437).** One voice-end classifier distinguishes connection
+failures, a call's maximum length, the conversation time cap, credits and ordinary
+ends. Optional `timeLimit: 'call' | 'conversation'` is additive on `voice.state`,
+the start receipt and snapshot projections, and on a plugin's `ended` event.
+A refused resumed call whose retained bound elapsed adds `reason: 'time-limit'`
+and `timeLimit` to the existing 504 `deadline` receipt; the HTTP status is unchanged.
+An ordinary fresh-start 504, timeout or expired media grant remains a connection
+failure with Retry, without automatic retry. `voiceConnectionFailed` keeps its
+text; `voiceDeadline` is deprecated but still exported. The close × appears only
+in failed states, with none in the phone status row.
 
-The public `aithema-erased` event bubbles, is composed and is not cancelable.
-Its detail is `{sessionId, via: 'journal' | 'not-found'}`; each erased id is
-announced once per element instance, at the moment of erasure. Hosts should stop
-their own per-session requests (for example consent, locale, handover) on
-`aithema-erased`, `aithema-open-conversation` with reason `deleted`, or
-`aithema-new-conversation`. The event is additive.
+**Copy compatibility (#437, #438, #441).** The shared resolver
+`packages/ui/src/copy-resolve.js` preserves legacy host overrides. A host's
+new-key override differing from the shipped default wins; otherwise a legacy
+override differing from the shipped default wins; otherwise the shipped new-key
+default wins. A bundle that includes the shipped new-key default does not hide a
+custom legacy value. For keys without a legacy fallback, use the host value,
+then the active locale's shipped value, then English; no empty label is rendered.
 
-**Address acceptance (AIT-490, AIT-494; #430, #431).** Breaking for hosts using
-`identity.asynchronousDelivery`: add a synchronous, pure `identity.acceptsAddress`
-hook before upgrading (for example the mail plugin's exported `acceptsRecipient`,
-with the same normalization as delivery). `createHostHandlers` now throws at
-startup if it is missing. Only `true` accepts; a throw counts as refusal.
-Syntax refusals return 400 `invalid-request` on identity request/change and
-`POST|PUT /api/visitor/email`; forms show their existing invalid message.
-Resends to a refused stored address record delivery `failed` without mail,
-slots or tokens. Synchronous hosts may omit the hook for compatibility.
+| New copy key | Legacy fallback / default |
+| --- | --- |
+| `voiceConnectFailed` | `voiceConnectionFailed` |
+| `voiceTimeLimit` | `voiceDeadline` (deprecated, still exported) |
+| `voiceMessagesNarrow.voiceConnectFailed` | No legacy fallback; active locale, then English |
+| `voiceMessagesNarrow.voiceTimeLimit` | No legacy fallback; active locale, then English |
+| `voiceMessageClose` | No legacy fallback; active locale, then English |
+| `overviewCurrent` | `final` |
+| `staleIdle` | No legacy fallback; active locale, then English |
+| `overviewStatusLabel` | No legacy fallback; active locale, then English |
+| `clarifyFailed` | `reasoningFailed`; accepted rows also retain `clarify.failed` beneath explicit root failure overrides |
+| `clarifyFailedShort` | Active locale, then English; accepted rows also retain `clarify.failedShort` |
+| `clarifyUnavailable` | No legacy fallback; active locale, then English |
+| `retryFailed` | `reasoningFailed` |
+| `replyFailed` | `reasoningFailed` |
+| `replyKeepTyping` | No legacy fallback; active locale, then English |
+| `questionsCounted` (`zero`, `one`, `other`) | `questions` |
+| `moreOne` | `more` (legacy overrides keep winning for both counts) |
 
-The mail-smtp plugin exports `acceptsRecipient(value, parseAddress = addressparser)`,
-the exact pre-send check. Refused visitor syntax includes quotes, comments,
-brackets, escapes, groups, control and format characters, plus lone surrogates
-(`Cs`), private-use (`Co`) and unassigned (`Cn`) code points next to AIT-487's
-classes. Unicode ZWJ/ZWNJ domains stay refused; Chromium sends their punycode
-form, and that form is delivered. Delivery reaches the same mailbox, not
-necessarily byte-identical text: nodemailer may lowercase domains and encode
-IDN as punycode. Configured sender addresses are unchanged.
+The updated, still-exported `reasoningFailed` default is “That didn't work just
+now. Your messages are saved.” / “Das hat gerade nicht funktioniert. Ihre
+Nachrichten sind gespeichert.” Legacy overrides keep winning. The short “Not
+now” label belongs to `clarifyFailedShort`; `clarifyFailed` is the long message.
+Accepted-row `clarify.say.retry` overrides remain supported beneath explicit root
+failure overrides. Updating still uses `stale`; `preparingOverview` and `draft`
+retain their roles. `questionsCounted` replaces the German visitor heading
+“Was noch offen ist” with counted forms, while a host's `questions` override
+keeps showing. Existing `more` overrides remain supported.
 
-The demo now refuses addresses that its mail pre-send check refuses in every
-mode, including SMTP off; email-ask and Settings show the existing invalid
-message, and Settings no longer says a link was sent after a refused resend.
-The hook is syntax-only: it must do no I/O and consult no stored state, quotas
-or facts about other visitors. A well-formed nonexistent mailbox still shows
-`sent`; quota, IP or global suppression, relay refusal and OPS
-`confirmationEnabled=false` remain by-design cases of `sent` without mail.
-Older refused stored addresses keep email-given credit until changed or removed
-by 90-day retention; no migration is needed. RC22 rows already marked `sent`
-retain that state until resend, address change, confirmation within the 30-minute
-verification window, deletion/erasure, or the 24-hour pending cleanup.
+**Overview and Clarify (AIT-503, AIT-504, AIT-516; #438, #439, #441).**
+The overview status slot covers Up to date, Updating, preparing, stale idle and
+failure, reserving 4.35em for the reachable three-line worst case, including its action.
+The bounded snapshot read waits 18 seconds before one GET with a two-second
+deadline; an ahead snapshot restores the complete projection, with a revision
+fence and a finalized-turn fence. An action on its own row has no separator;
+long consent overrides clamp the text and keep the action.
 
-**CI-only (AIT-492, AIT-488 part A, AIT-497; #427, #429, #432).** Release tooling
-and scripts use bounded subprocess output with explicit maxBuffer and timeout,
-failing closed; the AIT-491 gate Lows are addressed. Dev dependencies update
-yaml to 2.8.3 and zod to 4.6.6 through `overrides.chromium-bidi.zod`.
-A browser check proves the Settings row and its controls stay within ±0.5 px
-across sent/failed for wrapping addresses; README and embedding caveats are
-clarified. These items change no shipped runtime behaviour or release closure.
+Clarify uses an internal, unexported Wait / Retryable / Actionable / Terminal
+policy, with answered-question reconciliation and prompt rules addressing the
+visitor. The question-row action is left-anchored in a fixed line. A diagnostic
+`console.warn('Aithema: clarify refusal', fields)` reports backend refusals,
+transport errors and accepted commands whose reply lane fails, with allowlisted
+codes and no conversation content. The local reply-in-flight guard stays quiet.
+Core has no public `./question-focus` subpath; its existing root focus functions
+remain exported. Approved EN/DE processing text updates `reasoningFailed`,
+`settings.fixedEffort`, `reasons.delegated` and `host.loadingBinding`.
+
+**Consent and keeping your place (AIT-501, AIT-512; #440).** The bubbling,
+composed, noncancelable `aithema-consent` detail adds `intent`, `mode` and
+`required`, keeping `reason: 'ready'` and the full `features`. Existing reason
+values are `chooser`, `ready`, `manage` and `settings`. `intent` is `start`
+for the ready card's Start action and `review` otherwise; `mode` is `type` or
+`voice`, and `required` lists the blocked feature needed for that mode.
+Start resumes after consent: text continues on its own; voice resumes only with
+live user activation, otherwise Start call gets focus. After navigating to a
+consent page, voice needs one click on “Start call”. A pick or send keeps the new
+turn in view, and every interactive transcript/card control has a double-click
+guard.
+
+**Identity refresh (AIT-518, AIT-486; #436, #434).** While an email link is
+pending, hosts see an earlier and slightly more frequent `POST S/identity/unlock`:
+at connect, page-visible, window focus and when a gate first opens. Checks
+coalesce within 250 ms, with one in flight; the host API is unchanged. After
+resync, the resend countdown re-anchors on a fresh identity view and can only
+shorten, never extend.
+
+**CI-only and dev-only (AIT-488 part B, #435).** happy-dom updates to 21.0.4,
+with orb finished-promise handling in a test helper. It is not shipped; the
+sixteen-module release closure is unchanged.
 
 [RC14's host requirements](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#for-hosts)
 still apply, including its breaking changes; Aithema recommends checking those
-requirements before upgrading from an earlier release.
+requirements before upgrading from an earlier release. RC23's asynchronous
+identity-delivery `identity.acceptsAddress` requirement also still applies.
 
 ## Breaking for hosts
 
-**One requirement relative to RC22 (`v261111083713.0.0`): AIT-494 requires
-`identity.acceptsAddress` when `identity.asynchronousDelivery === true`.**
-`createHostHandlers` throws at startup without it, so affected hosts must add
-the hook before upgrading. Use the mail plugin's exported `acceptsRecipient`
-with the same normalization as delivery. Only `true` accepts; a throw refuses.
-The new 400 refusals use the existing `invalid-request` error; `aithema-erased`
-and `acceptsRecipient` are additive. #426 prepared RC22; #427, #429 and #432
-change only tooling, dev dependencies, tests and docs.
+**None relative to RC23 (`v261112091755.0.0`).** The actual diff adds optional
+voice metadata, refusal metadata, consent-event fields and copy keys. It removes
+no public configuration or export, changes no HTTP status or host requirement,
+and preserves legacy copy overrides. The counted German heading is visitor copy;
+a `questions` override keeps its existing text. `voiceDeadline` stays exported,
+and the internal focus policy adds no public `./question-focus` subpath.
 
 ## Availability and verification
 
@@ -96,7 +146,7 @@ Release assets include module tarballs, the workspace archive, dependency locks,
 an SPDX SBOM and `release-set.json`. Verify the published attestations and
 `SHA256SUMS` before installation, following
 [RC14's verification and installation instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261112091755.0.0` in every download and installation URL. Retain the
+with tag `v261115062259.0.0` in every download and installation URL. Retain the
 verified assets, manifest and deployment pin for rollback to those exact bytes.
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261112091755.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261115062259.0.0/docs/embedding.md)
 for host integration.

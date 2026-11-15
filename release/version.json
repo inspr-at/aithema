@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261112091755.0.0",
+  "version": "261115062259.0.0",
   "release_channel": "stable",
-  "release_sequence": 34,
+  "release_sequence": 35,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-498 twenty-third candidate preparation; base afbf4eea074b5fdd5c81b3da496fa9f9256b8005; fifteenth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and MAC-LEAD 2026-11-12 10:08: RC23 is unblocked, draft the RC23 preparation brief now under the standing release go; brief approved 10:12 with changes applied; Markus away (OPS-581); sequence 34 under coordinator-held release-lock/seq-34 at afbf4eea074b5fdd5c81b3da496fa9f9256b8005; final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder review gate, push, PR, tag, tag push, GitHub release or publication"
+  "reservation_purpose": "AIT-525 twenty-fourth candidate preparation; UTC reservation 2026-11-15T06:22:59Z; base 8c9f7d1319ec4f0f3a382f4cce7e71f39ca7f089; sixteenth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19, and MAC-LEAD 2026-11-14 16:36: RC24 stays whole (503/504/516 included), candidate in the morning; brief approved 2026-11-15 07:03 with additions applied; sequence 35 under coordinator-held release-lock/seq-35; final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, OPS cut and verification precede publication; no builder review gate, push, PR, tag, tag push, GitHub release or publication"
 }
