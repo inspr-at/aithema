@@ -498,7 +498,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
   // All host deadlines and browser Date reads use one injected clock.
   await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
-  const targets = ['.composer-shell', '.send', '.display-foot'];
+  const targets = ['.composer-shell', 'textarea', '.composer-mic', '.send', '.composer-feedback', '.composer-status', '.display-foot'];
   const measured = async () => {
     const result = await boxes(page, targets);
     for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${targets[i]} must have positive geometry: ${box}`);
@@ -511,6 +511,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     let baseline = null, offerBaseline = null;
     const shot = async state => {
       await settle(page);
+      rects.push({ label, state, surface: 'combined-row', targets, boxes: await measured() });
       const bounds = await shadow(page, c => {
         const row = c.shadowRoot.querySelector('.email-offer');
         return row ? { offer: row.getBoundingClientRect().toJSON(), shell: c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect().toJSON() } : null;
@@ -536,6 +537,26 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
       if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
     await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    const entrance = await shadow(page, c => {
+      const root = c.shadowRoot, opener = root.querySelector('[data-id="host:opener"]');
+      const box = opener.getBoundingClientRect();
+      return { combined: root.querySelector('.workspace').dataset.entrance,
+        openers: root.querySelectorAll('[data-id="host:opener"]').length,
+        openerBox: [box.x, box.y, box.width, box.height],
+        canonical: c.session.transcript.length, offer: Boolean(root.querySelector('.email-offer')),
+        captureHidden: root.querySelector('.host-verify').hidden,
+        creditsEmailHidden: root.querySelector('.credits-email').hidden,
+        deferred: root.querySelector('.credits-email').hasAttribute('data-capture-deferred') };
+    });
+    assert.equal(entrance.combined, 'combined', `${label}: combined entrance with emailOffer`);
+    assert.equal(entrance.openers, 1, `${label}: exactly one shared entrance opener`);
+    assert.ok(entrance.openerBox[2] > 0 && entrance.openerBox[3] > 0, `${label}: positive opener geometry`);
+    assert.equal(entrance.canonical, 0, `${label}: opener remains render-only before input`);
+    assert.equal(entrance.offer, false, `${label}: no inline email form before input`);
+    assert.equal(entrance.captureHidden, true, `${label}: Settings capture deferred`);
+    assert.equal(entrance.creditsEmailHidden, true, `${label}: credits email link hidden`);
+    assert.equal(entrance.deferred, true, `${label}: credits email action deferred`);
+    rects.push({ label, state: 'entrance', surface: 'opener', box: entrance.openerBox });
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent'); await shot('entrance');
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), true);
