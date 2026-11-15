@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession } from '../../core/src/session.js';
+import { createSession, inputRevision } from '../../core/src/session.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 const window = new Window();
@@ -120,9 +120,9 @@ test('AIT-505: an ordinary streaming reply retains its live workspace until clea
   c.configure({ copy: en, session: source }); t.after(() => c.remove());
   const workspace = c.shadowRoot.querySelector('.workspace');
   assert.equal(workspace.dataset.stage, 'ready');
-  c.receive({ type: 'turn.partial', data: { id: 'streaming-reply', delta: 'A reply is arriving.' } });
+  c.receive({ type: 'turn.partial', data: { id: 'streaming-reply', delta: 'A reply is arriving.', inputRevision: inputRevision(c.session) } });
   assert.equal(workspace.dataset.stage, 'live', 'a streamed reply is visible while it arrives');
   assert.equal(workspace.dataset.understanding, 'present');
-  c.receive({ type: 'lane.status', data: { inputRevision: 0, running: [], failures: [{ lane: 'reaction', error: 'reasoning-unavailable', retryable: true }] } });
+  c.receive({ type: 'lane.failed', data: { lane: 'reaction', error: 'reasoning-unavailable', retryable: true } });
   assert.equal(workspace.dataset.stage, 'ready', 'clearing the only partial restores readiness');
 });
