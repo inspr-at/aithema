@@ -953,7 +953,7 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 1024 ? 640 : 1000 });
     await page.mouse.move(-10, -10);
-    await shadow(page, async (c, locale, theme) => {
+    await shadow(page, async (c, locale, theme, manifest) => {
       const { createSession, inputRevision } = await import('/packages/core/src/session.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = createSession({ demo: true, locale });
@@ -965,10 +965,10 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
       window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
         init.signal?.addEventListener('abort', () => controller.close(), { once: true });
       } })) : Response.json(session);
-      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: { manifest } });
       window.summarySession = session; window.summaryCopy = copy;
       window.summaryLong = (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35);
-    }, locale, theme);
+    }, locale, theme, voiceManifest);
     await frames();
     let s = await state(); assert.equal(s.button, true); assert.equal(s.hidden, true);
     assert.equal(s.heading, locale === 'de' ? 'Unser Verständnis bisher' : 'What we understood so far');
