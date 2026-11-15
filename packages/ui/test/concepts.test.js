@@ -1631,3 +1631,12 @@ test('AIT-509: images granted in start consent never show an ask', async t => {
   assert.equal(f.root.querySelector('.concept-activity-text .consent-action'), null);
   assert.equal(f.events.length, 0);
 });
+test('AIT-509: an in-page host can open the consent editor and cancel the pending concept', async t => {
+  const f = conceptConsentFixture(t); f.ask();
+  f.root.querySelector('.concept-activity-text .consent-action').click();
+  f.c.openConsent('images'); await tick();
+  assert.equal(f.root.querySelector('dialog.settings').open, true);
+  f.root.querySelector('dialog.settings').dispatchEvent(new window.Event('cancel', { cancelable: true }));
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
+});
