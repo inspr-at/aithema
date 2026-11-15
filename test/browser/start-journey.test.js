@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
+import { useNavigatingConsentHost } from './consent-helpers.js';
 import { startChild } from '../helpers.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 
@@ -18,6 +19,7 @@ async function setup(t, settings = {}, server = '../../demo/server.js') {
     env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
     args: browserArgs });
   const page = await browser.newPage(); page.setDefaultTimeout(30_000);
+  await useNavigatingConsentHost(page);
   const problems = []; page.on('pageerror', error => problems.push(error.message));
   t.after(() => assert.deepEqual(problems, []));
   const voice = [];

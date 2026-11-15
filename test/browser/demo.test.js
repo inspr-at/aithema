@@ -1,4 +1,4 @@
-import { mockConsent } from './consent-helpers.js';
+import { mockConsent, useNavigatingConsentHost } from './consent-helpers.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1726,6 +1726,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
         userDataDir: join(directory, `chrome-${locale}`), timeout: waitTimeout,
         args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
       const page = await browser.newPage(); await preparePage(page, languages);
+      await useNavigatingConsentHost(page);
       const problems = []; page.on('pageerror', error => problems.push(error.message));
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '#ai-notice', { text: full });

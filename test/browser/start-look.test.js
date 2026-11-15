@@ -10,6 +10,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from './launch.js';
+import { useNavigatingConsentHost } from './consent-helpers.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { palette } from '../../packages/ui/src/styles.js';
@@ -49,6 +50,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
     browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
       timeout: waitTimeout, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     const page = await browser.newPage(); page.setDefaultTimeout(waitTimeout);
+    await useNavigatingConsentHost(page);
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     page.on('console', message => { if (message.type() === 'error') problems.push(message.text()); });
     await page.evaluateOnNewDocument(() => {
