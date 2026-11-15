@@ -2626,10 +2626,12 @@ export class AithemaSession extends HTMLElement {
     }
     this.#syncPanes();
   }
-  // Anything the visitor contributed (or its withdrawal) means the conversation has begun.
+  // Keep an engaged workspace visible through withdrawal, uploads and streaming.
+  // The static host opener alone does not reveal it or qualify as visitor input.
   #hasInput() {
     const session = this.#session;
-    return Boolean(hasVisitorInput(session) || [...this.#partials.values()].some(turn => turn.role === 'user') || session.tombstone);
+    return Boolean(hasVisitorInput(session) || session.transcript.some(turn => turn.id !== 'host:opener' && turn.origin !== 'host') ||
+      session.uploads?.length || this.#partials.size || session.tombstone);
   }
   // START's journey (index.astro data-entry, data-choosing-preset): the entrance with the processing
   // choice, readiness once a choice is confirmed, then the live conversation after an explicit start or
