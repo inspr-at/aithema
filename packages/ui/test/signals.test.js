@@ -151,3 +151,16 @@ test('AIT-515 an empty final defers hiding under the pointer; a source reset sti
   assert.deepEqual(texts(c), [], 'privacy withdrawal never waits on pointer departure');
   assert.equal(root.querySelector('.signals-section').hidden, true);
 });
+
+test('AIT-515 four arrivals accumulated behind the pointer never flash as a whole batch', () => {
+  const c = setup(); final(c, seven); const root = c.shadowRoot, list = root.querySelector('.signals');
+  list.dispatchEvent(new window.Event('pointerenter'));
+  const added = [];
+  for (const text of ['Arrival A', 'Arrival B', 'Arrival C', 'Arrival D']) {
+    added.push(text); final(c, [...seven, ...added]);
+  }
+  assert.deepEqual(texts(c), seven.slice(0, 5));
+  list.dispatchEvent(new window.Event('pointerleave'));
+  assert.equal(texts(c)[0], 'Arrival D');
+  assert.equal(root.querySelectorAll('[data-signal-new]').length, 0, 'more than three newly displayed keys stay quiet');
+});
