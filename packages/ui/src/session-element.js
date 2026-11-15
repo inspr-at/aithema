@@ -1964,7 +1964,7 @@ export class AithemaSession extends HTMLElement {
     if (part === 'composer') {
       this.#syncReconciling();
       const text = this.#feature('text', true), input = root.querySelector('textarea');
-      const consentDraft = this.#combined && isConsentReason(text.reason);
+      const consentDraft = this.#combined && isConsentReason(text.rawReason ?? text.reason);
       input.disabled = !text.available && text.rawReason !== 'budget reconciling' && !consentDraft;
       input.readOnly = Boolean(this.#combined && this.#startIntent?.combined);
       this.#paintComposerMic();
