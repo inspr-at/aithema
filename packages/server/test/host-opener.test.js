@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { exportSession } from '../src/export.js';
-import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
+import { mockConsent, testToken, ownedRequest, readEvents } from '../../../test/helpers.js';
 const now = () => 1_800_000_000_000;
 const opener = { en: 'Welcome. Your AI assistant is ready.', de: 'Willkommen. Ihre KI-Assistenz ist bereit.' };
 async function fixture(t, options = {}) {
@@ -63,4 +63,14 @@ test('AIT-505: server export identifies host-authored opener', async t => {
   const zip = exportSession(f.storage.get(f.session.id), [], [], { exportedAt: new Date(now()).toISOString() }).toString();
   assert.match(zip, /## assistant \(host\)/u);
   assert.match(zip, /"origin": "host"/u);
+});
+
+test('AIT-505: peer SSE receives the opener before the first visitor turn', async t => {
+  const f = await fixture(t);
+  const stream = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/events`));
+  const received = readEvents(stream, 4);
+  const body = await (await f.send()).json();
+  const events = (await received).filter(event=>event.type==='turn.final');
+  assert.deepEqual(events.slice(0,2).map(event=>event.data.id),['host:opener','first']);
+  assert.deepEqual(events.slice(0,2).map(event=>event.seq),body.events.map(event=>event.seq));
 });

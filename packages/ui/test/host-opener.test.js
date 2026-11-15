@@ -23,3 +23,19 @@ test('AIT-505: render-only opener reconciles in place without visitor input or r
   assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'), row);
   assert.equal(c.shadowRoot.querySelector('.workspace').dataset.understanding, 'absent');
 });
+
+test('AIT-505: device mode inserts the host turn once into local model context', async t => {
+  const c = document.createElement('aithema-session'), source = session(), requests = [];
+  source.processingPreset = 'device'; source.featureMatrix.device = source.featureMatrix.best;
+  const deviceReasoning = {id:'fixture-device',model:'fixture-model',async connect(){},async *stream(request){requests.push(request);yield JSON.stringify({content:'A fixture reply.',question_short:null,options:[]});}};
+  c.configure({copy:en,session:source,deviceReasoning}); t.after(()=>c.remove());
+  c.shadowRoot.querySelector('.ready__start').click();
+  for (const text of ['First input','Second input']) {
+    c.shadowRoot.querySelector('textarea').value=text;c.shadowRoot.querySelector('.send').click();await tick();
+  }
+  assert.equal(requests.length,2);
+  assert.deepEqual(requests[0].messages.map(m=>m.role),['assistant','user']);
+  assert.equal(requests[0].messages[0].content,source.opener.text);
+  assert.match(requests[0].system,/first assistant message was written by the host/u);
+  assert.equal(c.session.transcript.filter(t=>t.id==='host:opener').length,1);
+});
