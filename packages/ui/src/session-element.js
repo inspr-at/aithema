@@ -1374,9 +1374,14 @@ export class AithemaSession extends HTMLElement {
   }
   #anchoredUpdate(update) {
     const focused = this.shadowRoot.activeElement, pointer = this.#hovered();
-    // A pointer in a reading pane wins; otherwise preserve keyboard reading there.
-    const hovered = pointer?.closest?.(PANES) ? pointer
-      : focused?.closest?.('.analysis-content') ? focused : pointer;
+    const focusPane = focused?.closest?.('.analysis-content');
+    const focusBox = focused?.getBoundingClientRect(), paneBox = focusPane?.getBoundingClientRect();
+    // Preserve visible keyboard reading. An offscreen action focused with preventScroll
+    // must not add overview slack when transcript navigation moves the page.
+    const readingFocus = paneBox && focusBox.width > 0 && focusBox.height > 0 &&
+      focusBox.bottom > Math.max(paneBox.top, 0) &&
+      focusBox.top < Math.min(paneBox.bottom, this.ownerDocument.defaultView.innerHeight);
+    const hovered = pointer?.closest?.(PANES) ? pointer : readingFocus ? focused : pointer;
     if (!hovered || this.#navigation && hovered.closest?.('.transcript-shell')) { update(); return; }
     // Host content in a slot belongs to the page: its chain ends at the document, never at this root.
     const chain = [];
