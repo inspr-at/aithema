@@ -75,8 +75,12 @@ for (const peer of [false,true]) test(`AIT-505: pre-input locale event resolves 
 });
 
 for (const boundary of ['erase', 'withdraw', 'consent']) test(`AIT-505: ${boundary} clears full opener text from a text-only dialog`, async t => {
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => new Response(new ReadableStream({ start(controller) {
+    options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+  } })));
   const c = document.createElement('aithema-session');
   c.configure({ copy: en, session: session() }); t.after(() => c.remove());
+  document.body.append(c);
   c.shadowRoot.querySelector('.ready__start').click();
   c.receive({ seq: 1, type: 'turn.final', data: { id: 'host:opener', role: 'assistant', origin: 'host', content: 'Welcome from a host.' } });
   c.shadowRoot.querySelector('.host-opener-more').click();
