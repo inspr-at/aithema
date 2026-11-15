@@ -531,6 +531,9 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .understanding { --inset:clamp(.9rem,2vw,1.35rem); position:relative; min-width:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) fit-content(30%) auto; overflow:hidden;
   padding:var(--inset); border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); background:color-mix(in srgb,var(--aithema-surface) 70%,transparent); }
 /* Host content is a separate, bounded row, outside analysis and its email overlay. */
+/* Rounded grid tracks can overflow by a pixel. Focus/scrollIntoView must not
+   scroll the pinned frame itself; only the analysis and contact rows scroll. */
+.workspace[data-contact] .understanding { overflow:clip; }
 .sidebar-contact { min-height:0; min-width:0; overflow:auto; }
 .sidebar-contact[hidden] { display:none; }
 slot[name="sidebar-contact"]::slotted(*) { margin:0; max-width:100%; box-sizing:border-box; }
