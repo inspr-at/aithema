@@ -49,6 +49,8 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
     grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-status { height:44px; }
+  /* Reclaim decorative band padding before reducing any touch target or copy. */
+  .workspace[data-entrance="combined"][data-phone-short] .band { padding-block:0; min-height:0; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell > .voice-notices { margin-top:0; }
