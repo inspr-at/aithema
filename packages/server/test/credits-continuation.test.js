@@ -6,7 +6,7 @@ import { createVoiceCap } from '../src/voice-cap.js';
 import { createComposedVoice } from '../src/composed/server.js';
 import { temporaryDb } from '../../../test/helpers.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
-import { createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
+import { createHandlers, createPluginRuntime, mockPresets, SQLiteBudgetLedger } from '../src/index.js';
 import { createConversationLimits } from '../src/conversation-limits.js';
 
 const HOUR = 3_600_000, epoch = 1_800_000_000_000;
@@ -133,4 +133,23 @@ for (const voiceIdleSeconds of [59, 3601, 120.5, null, '120']) test(`AIT-508: ho
   const runtime = createPluginRuntime({ storage: f.storage, now: Date.now, consent, presets: mockPresets() });
   assert.throws(() => { handlers = createHandlers({ storage: f.storage, pluginRuntime: runtime,
     host: { voiceIdleSeconds }, consent, log() {} }); }, TypeError);
+});
+
+
+test('AIT-508: ledger admission excludes another unresolved logical call while allowing same-call recovery', t => {
+  const f = fixture(t), sessionId = f.create();
+  f.storage.transitionCredits(sessionId, undefined, { type: 'start', now: Date.now() }, { conversationLimit: 'credits' });
+  const budget = new SQLiteBudgetLedger(f.storage, { now: Date.now });
+  const reserve = (attemptId, callId) => budget.admit({ attemptId, sessionId, lane: 'voice', maxMicro: 1,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+    voiceEstimate: { upstreamMicroPerMinute: 1, visitorMicroPerMinute: 0, callId } });
+  const first = reserve('first-segment', 'first-call');
+  const repair = reserve('repair-segment', 'first-call');
+  assert.throws(() => reserve('next-segment', 'next-call'), { code: 'not-admitted', message: 'budget reconciling' });
+  for (const admission of [first, repair]) {
+    const claim = budget.claim(admission.attemptId);
+    budget.settleVoice(claim.claimId, { outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
+      usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
+  }
+  assert.doesNotThrow(() => reserve('settled-next-segment', 'next-call'));
 });
