@@ -123,7 +123,7 @@ allowlisted codes, not conversation content. The local reply-in-flight guard
 stays quiet. Core exports no `./question-focus` subpath; its existing root focus
 functions remain available. AIT-516 counts open questions in EN/DE and adds
 singular readiness overflow copy. Approved processing strings change
-`reasoningFailed`, `settings.fixedEffort`, `errors.delegated` and
+`reasoningFailed`, `settings.fixedEffort`, `reasons.delegated` and
 `host.loadingBinding` in EN/DE.
 
 All new copy keys and fallbacks (#437, #438, #441):
@@ -158,7 +158,7 @@ is the long failure text. Accepted-row `clarify.say.retry` overrides remain
 supported beneath explicit root failure overrides. Updating still uses `stale`;
 `preparingOverview` and `draft` keep their roles. The German “Was noch offen ist”
 heading is replaced by counted visitor copy; a host's `questions` override keeps
-showing. Existing `more` and `plural` exports remain supported.
+showing. Existing `more` overrides and the `plural` helper remain supported.
 
 AIT-501 adds `intent`, `mode` and `required` to `aithema-consent` detail, retaining
 `reason: 'ready'` and full `features`. Reasons remain `chooser`, `ready`, `manage`
@@ -230,8 +230,8 @@ Preparation order (remote execution only):
    the lock, replaces the dependency and proves exact rollback, with mocks only.
    Tag-matching and admission tests use synthetic fixtures, never operational
    tags. WAIT/exit 3 or 7 means back off about five minutes and retry, up to
-   48 admissions; never run locally. The wrapper holds reservations during the
-   agm2 02:20–05:50 quiet window. Any test failure means stop and report.
+   48 admissions; never run locally. The wrapper holds reservations during
+   the lane's 02:20–05:50 quiet window. Any test failure means stop and report.
    Because the UI manifest version changes, also run the **whole browser suite**
    remotely, retaining per-file counts. PR CI repeats the browser checks.
 

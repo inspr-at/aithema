@@ -77,7 +77,7 @@ Accepted-row `clarify.say.retry` overrides remain supported beneath explicit roo
 failure overrides. Updating still uses `stale`; `preparingOverview` and `draft`
 retain their roles. `questionsCounted` replaces the German visitor heading
 “Was noch offen ist” with counted forms, while a host's `questions` override
-keeps showing. Existing `more` and `plural` exports remain supported.
+keeps showing. Existing `more` overrides and the `plural` helper remain supported.
 
 **Overview and Clarify (AIT-503, AIT-504, AIT-516; #438, #439, #441).**
 The overview status slot covers Up to date, Updating, preparing, stale idle and
@@ -95,7 +95,7 @@ transport errors and accepted commands whose reply lane fails, with allowlisted
 codes and no conversation content. The local reply-in-flight guard stays quiet.
 Core has no public `./question-focus` subpath; its existing root focus functions
 remain exported. Approved EN/DE processing text updates `reasoningFailed`,
-`settings.fixedEffort`, `errors.delegated` and `host.loadingBinding`.
+`settings.fixedEffort`, `reasons.delegated` and `host.loadingBinding`.
 
 **Consent and keeping your place (AIT-501, AIT-512; #440).** The bubbling,
 composed, noncancelable `aithema-consent` detail adds `intent`, `mode` and
