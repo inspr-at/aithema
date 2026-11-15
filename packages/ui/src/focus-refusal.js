@@ -14,4 +14,3 @@ export function classifyFocusRefusal(error) {
   if (error?.name === 'TypeError' || Number.isInteger(error?.status) && error.status >= 500 && error.status <= 599) return 'retryable';
   return 'terminal';
 }
-

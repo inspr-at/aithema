@@ -636,7 +636,7 @@ export class AithemaSession extends HTMLElement {
     if (signature !== this.#clarifyAnnouncement) {
       this.#clarifyAnnouncement = signature;
       const say = this.#clarifyNotice ? copy.stale : ['retry', 'focus-retry'].includes(focus?.state)
-        ? focus.state === 'retry' ? acceptedSay : primaryFailed
+        ? acceptedSay
         : focus?.state === 'unavailable' ? unavailableSay
         : focus ? copy.say[focus.reason ?? focus.state] : '';
       setText(root.querySelector('.clarify-announcement'), (say ?? '').replace('{q}', focus?.question ?? ''));
