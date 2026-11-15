@@ -504,3 +504,17 @@ test('AIT-509: a dispatch-ready wish blocked only by image consent waits without
   await h.handlers.conceptLane.run(h.id); assert.equal(h.records.length, 0);
   await h.request('consented-wish'); await h.handlers.idle(); assert.equal(h.records.length, 1);
 });
+test('AIT-509: only a corroborated current model wish at the readiness threshold asks for image consent', async t => {
+  const quote = 'For this dashboard, please show a visual concept.';
+  const h = await setup(t, { understanding: raw => ({ ...raw, conceptIntent: { request_quote: quote },
+    constraints: Object.fromEntries(h.session.preset.requiredSlots.map(slot => [slot, { value: 'Dashboard', evidence: quote }])),
+    progress: { talk: { value: h.session.preset.talkThreshold }, build: { value: 1 } },
+  }) });
+  const matrix = h.runtime.matrix.bind(h.runtime);
+  h.runtime.matrix = async session => { const m = await matrix(session); m.best.images = { available: false, reason: 'current processing consent required' }; return m; };
+  await h.turn('ordinary', 'A dashboard could help.');
+  assert.equal(h.storage.get(h.id).conceptStatus.consentRequest, undefined, 'ordinary talk cannot manufacture consent intent');
+  await h.turn('wish', quote);
+  assert.equal(h.records.length, 0);
+  assert.deepEqual(h.storage.get(h.id).conceptStatus.consentRequest, { id: 'wish', sourceTurnId: 'wish' });
+});
