@@ -40,9 +40,9 @@ const stable = (before, after, label) => {
 
 // Only this test supplies fixture values. The shipped component reads every
 // tier, price, balance, address and ask record through its normal host routes.
-async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0, emailOffer, initialMessages = 4, lock = false, tierAllowances } = {}) {
+async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0, emailOffer, initialMessages = 4, lock = false, tierAllowances, opener = false } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances } = options;
+    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener } = options;
     const canConfirm = delivery && confirmationEnabled;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
@@ -75,7 +75,7 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
       if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true, ...(emailOffer ? { visitorEmail: { canSave: true, canDelete: true } } : {}) }); }
       if (/\/identity\/(request|change|resend)$/u.test(path)) { state.requests.push('link'); return Response.json({ identity: identity() }, { status: state.linkFails ? 503 : 200 }); }
       if (path.endsWith('/email-ask')) {
-        const body = JSON.parse(init.body);
+        const body = JSON.parse(init.body); state.askRequests ??= []; state.askRequests.push(body);
         if (body.why === 'offer') {
           const accepted = body.action === 'dismiss' || !state.offer?.offered;
           state.offer = { offered: true, open: body.action === 'show', dismissed: body.action === 'dismiss', at: c.session.transcript.at(-1).id };
@@ -110,18 +110,22 @@ async function fixture(page, locale, { delivery = false, confirmationEnabled = d
       { id: `fixture-u${i}`, role: 'user', content: locale === 'de' ? 'Ich möchte meine Anforderungen besprechen.' : 'I would like to discuss my requirements.' },
       { id: `fixture-a${i}`, role: 'assistant', content: locale === 'de' ? 'Welche Ziele haben Sie?' : 'What are your goals?' },
     ]).flat();
+    if (opener) {
+      session.opener = { locale, text: locale === 'de' ? 'Willkommen. Ihre KI-Assistenz ist bereit.' : 'Welcome. Your AI assistant is ready.' };
+      if (opener === 'persisted') session.transcript.unshift({ id: 'host:opener', role: 'assistant', origin: 'host', content: session.opener.text });
+    } else delete session.opener;
     session.understanding = { ...session.understanding, inputRevision: inputRevision(session), readinessAssessed: true,
       summary: locale === 'de' ? 'Die Person möchte eine Website für ihr Vorhaben.' : 'The person wants a website for their project.', conversationReadiness: .5, implementationReadiness: .2 };
     session.featureMatrix = { best: { text: { available: !out }, analysis: { available: true }, voice: { available: !out } } };
     const voiceClient = voice ? { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
       async start(request) { const events = voiceEvents(); state.voiceEvents = events; return { callId: request.callId, providerSessionId: 'gate-fixture-provider', events,
         async setInput() {}, async setOutput() {}, async updateContext() {}, async heartbeat() {}, async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; }, async close() { events.end(); return { closureConfirmed: true, usage: { costEstimated: false } }; } }; } } : undefined;
-    c.setAttribute('motion', motion); c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: true } } });
+    c.setAttribute('motion', motion); c.configure({ session, copy, voiceClient, ...(opener ? { entrance: 'combined' } : {}), host: { credits: true, verification: { delivery, privacyDocumentConfigured: true } } });
     state.reply = () => { const i = c.session.transcript.length;
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `u${i}`, role: 'user', content: locale === 'de' ? 'Ja.' : 'Yes.' } });
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `a${i}`, role: 'assistant', content: locale === 'de' ? 'Wie soll es weitergehen?' : 'How would you like to continue?' } }); };
     if (voice) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances });
+  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener });
   await until(page, () => {
     const c = document.querySelector('aithema-session'), s = window.ait164;
     return s.creditsReads > 0 && s.visitorReads > 0 && s.identityReads > 0 &&
@@ -530,7 +534,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
         assert.ok(shift <= .5, `${label}/${state}: control shift ${shift}`); rects.push({ label, state, targets, before: baseline, after: current, shift });
       }
       if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
-    await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent'); await shot('entrance');
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
@@ -580,18 +584,18 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'confirmed'); await shot('confirmed');
     baseline = null;
     for (const [variant, confirmedAllowance] of [['confirm', 24_000_000], ['lock-only', 12_000_000]]) {
-      await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, lock: true,
+      await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, lock: true,
         tierAllowances: { anonymous: 12_000_000, emailGiven: 12_000_000, emailConfirmed: confirmedAllowance } });
       await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await shot(variant);
     }
-    await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, address: 'saved@example.test', lock: true });
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, address: 'saved@example.test', lock: true });
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.m-delete-mail').inert), false); await shot('saved-settings');
     await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
     await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').hidden), true); await shot('resend');
-    await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 1, voice: true });
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 1, voice: true });
     await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.call), 'active');
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('form.composer').inert), false); await shot('during-call');
@@ -614,7 +618,7 @@ test('AIT-507 deferred credits email link is hidden with reserved positive geome
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    await fixture(page, locale, { delivery: true, emailOffer: {}, initialMessages: 0 });
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: {}, initialMessages: 0 });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
     await openCredits(page);
     await settle(page);
@@ -652,7 +656,7 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-    await fixture(page, locale, { delivery: scenario !== 'used-up', emailOffer: { afterMessages: scenario === 'refused-focus' ? 2 : 1 }, initialMessages: scenario === 'refused-focus' ? 1 : 0,
+    await fixture(page, locale, { opener: true, delivery: scenario !== 'used-up', emailOffer: { afterMessages: scenario === 'refused-focus' ? 2 : 1 }, initialMessages: scenario === 'refused-focus' ? 1 : 0,
       out: scenario.startsWith('used-up'), address: ['saved-address', 'no-next-tier'].includes(scenario) ? 'saved@example.test' : null,
       confirmed: scenario === 'no-next-tier' });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
@@ -730,4 +734,39 @@ for (const scenario of ['used-up', 'used-up-mail', 'saved-address', 'no-next-tie
     }
   }
   if (evidence) await writeFile(join(evidence, `ait-507-b7-${scenario}-rects.json`), JSON.stringify(rects, null, 2));
+});
+
+test('AIT-507 integration: persisted opener alone exposes no email action or lock', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-opener-email-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+    for (const address of [null, 'saved@example.test']) {
+      await fixture(page, locale, { opener: 'persisted', emailOffer: { afterMessages: 1 }, initialMessages: 0, low: true, delivery: true, lock: true, address });
+      await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+      await settle(page);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent');
+      assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.email-offer, .email-low-line__action'))), false, `${label}: opener cannot expose offer or low-credit confirm action`);
+      assert.deepEqual(await page.evaluate(() => window.ait164.askRequests ?? []), [], 'no low-credit show or line claim before visitor input');
+      const targets = ['.display-foot', '.host-credits'];
+      const sample = async () => { const result = await boxes(page, targets); for (const box of result) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive opener-state boxes`); return result; };
+      const before = await sample();
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), !address);
+      if (!address) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.verify-lock').hidden), true);
+      const after = await sample(), shift = stable(before, after, `${label}/opener-settings`);
+      rects.push({ label, state: address ? 'opener-saved' : 'opener-empty', targets, before, after, shift });
+      if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-m1-opener-${address ? 'saved' : 'empty'}.png`) });
+      await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-507-m1-opener-rects.json'), JSON.stringify(rects, null, 2));
 });

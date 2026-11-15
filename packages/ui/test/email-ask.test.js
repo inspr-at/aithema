@@ -118,3 +118,11 @@ for (const next of ['emailGiven', 'emailConfirmed']) test(`AIT-507 integration: 
   f.ask.lowCredits = false;
   assert.equal(f.ask.reservedLowLine, null, 'disabled low-credit surfaces cannot reserve an opener confirm action');
 });
+
+test('AIT-507 integration: disabled low-credit surface reserves no opener action', t => {
+  const f = fixture(t);
+  f.session.transcript = [{ id: 'host:opener', origin: 'host', role: 'assistant', content: 'Welcome.' }];
+  f.ask.lowCredits = false;
+  f.ask.credits = { ...credits, tiers: { ...credits.tiers, next: 'emailConfirmed' }, balance: { owner: { availableMicro: 500_000 } } };
+  assert.equal(f.ask.reservedLowLine, null);
+});

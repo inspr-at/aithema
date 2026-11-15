@@ -1634,7 +1634,9 @@ for (const next of ['emailGiven', 'emailConfirmed']) test(`AIT-507 integration: 
   const f = await offerFixture(t, 1);
   await connectOfferOpener(f);
   const wallet = f.host.wallet(owner);
-  t.mock.method(f.host, 'wallet', () => ({ ...wallet, balance: () => ({ limitMicro: 10000000, committedMicro: 9900000 }), canAdmit: () => true }));
+  t.mock.method(f.host, 'wallet', () => ({ ...wallet, balance: () => ({ limitMicro: 10000000, committedMicro: 9900000 }), displayBalance: () => null, canAdmit: () => true }));
+  const receipt = await (await f.call(`${f.base}/credits`)).json();
+  assert.ok(receipt.balance.owner.availableMicro > 0 && receipt.balance.owner.availableMicro <= receipt.lowAtMicro, 'fixture is funded and low');
   t.mock.method(f.host, 'creditTiers', () => ({ current: next === 'emailGiven' ? 'anonymous' : 'emailGiven', next, delta: 5000000, canConfirm: true }));
   const low = f.host.lowEmailAsk(owner);
   for (const body of [{ action: 'line' }, { action: 'show', why: 'low' }]) {
