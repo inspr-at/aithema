@@ -913,3 +913,113 @@ test('AIT-504 follow-up: capture every overview state for the release design che
   }
   await writeFile(join(evidence, 'overview-screenshots.json'), JSON.stringify(records, null, 2));
 });
+
+// AIT-514 owns real typography/overflow and geometry here; no provider dispatch.
+test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidence', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-summary-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), rows = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const update = text => shadow(page, (c, text) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated',
+    data: { ...c.session.understanding, summary: text } }), text);
+  const state = () => shadow(page, c => {
+    const r = c.shadowRoot, p = r.querySelector('.summary-text'), b = r.querySelector('.summary-toggle'), h = r.querySelector('#summary-title');
+    const rect = p.getBoundingClientRect(), heading = h.getBoundingClientRect(), line = parseFloat(getComputedStyle(p).lineHeight);
+    return { button: !!b, hidden: b?.hidden, expanded: b?.getAttribute('aria-expanded'), name: b?.textContent,
+      controls: b?.getAttribute('aria-controls') === p.id, height: rect.height, width: rect.width, line,
+      heading: h.textContent, headingWidth: heading.width, headingHeight: heading.height,
+      fade: getComputedStyle(p).maskImage, html: p.innerHTML, text: p.textContent };
+  });
+  const frames = async () => { await settle(page); };
+  const shot = async name => { if (evidence) await page.screenshot({ path: join(evidence, `ait-514-${name}.png`), fullPage: true }); };
+  const frameBoxes = async () => {
+    const rects = await shadow(page, c => ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer', '.attach', '.send'].map(selector => {
+      const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return { selector, x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom };
+    }));
+    for (const r of rects) assert.ok(r.width > 0 && r.height > 0, `positive ${r.selector}`);
+    return rects;
+  };
+  const compare = (before, after, label) => {
+    before.forEach((r, i) => { for (const key of r.selector === '.composer' ? ['x', 'width', 'bottom'] : ['x', 'y', 'width', 'height']) {
+      assert.ok(Math.abs(r[key] - after[i][key]) <= .5, `${label} ${r.selector}.${key}: ${r[key]} → ${after[i][key]}`);
+    } }); rows.push({ label, before, after });
+  };
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 1024 ? 640 : 1000 });
+    await page.mouse.move(-10, -10);
+    await shadow(page, async (c, locale, theme) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/session.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' }];
+      Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
+        summary: 'Short.', signals: ['A stable signal'], openQuestions: [] });
+      // Every request stays in this browser; no fixture/provider operation is admitted.
+      window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
+        init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } })) : Response.json(session);
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      window.summarySession = session; window.summaryCopy = copy;
+      window.summaryLong = (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35);
+    }, locale, theme);
+    await frames();
+    let s = await state(); assert.equal(s.button, true); assert.equal(s.hidden, true);
+    assert.equal(s.heading, locale === 'de' ? 'Unser Verständnis bisher' : 'What we understood so far');
+    assert.ok(s.headingWidth > 1 && s.headingHeight > 1, 'heading is visibly rendered');
+    await shot(`${locale}-${theme}-${width}-fit`);
+    // Exact nine-line boundary, measured using real line boxes, then one line over.
+    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = 'pre-line'; });
+    await update(Array(9).fill('Line').join('\n')); await frames();
+    assert.equal((await state()).hidden, true, 'exact nine lines fit');
+    await update(Array(10).fill('Line').join('\n')); await frames();
+    s = await state(); assert.equal(s.hidden, false); assert.equal(s.expanded, 'false'); assert.equal(s.controls, true);
+    assert.ok(s.width > 0 && s.height > 0); assert.ok(s.height <= 9 * s.line + .5, 'collapsed summary is at most nine lines');
+    assert.notEqual(s.fade, 'none');
+    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = ''; });
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
+    await frames(); await shot(`${locale}-${theme}-${width}-collapsed`);
+    if (width === 1024) {
+      const visible = await shadow(page, c => { const p = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(), r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.top >= p.top && r.bottom <= p.bottom; });
+      assert.equal(visible, true, 'first signal visible at 1024×640');
+    }
+    const before = await frameBoxes();
+    await shadow(page, c => { const b = c.shadowRoot.querySelector('.summary-toggle'); b.focus({ preventScroll: true }); });
+    await page.keyboard.press('Enter'); await frames();
+    s = await state(); assert.equal(s.expanded, 'true'); assert.equal(s.name, locale === 'de' ? 'Weniger anzeigen' : 'Show less'); assert.equal(s.fade, 'none');
+    compare(before, await frameBoxes(), `${locale}/${theme}/${width} expand`);
+    await shot(`${locale}-${theme}-${width}-expanded`);
+    await update('A rewrite. '.repeat(150)); await frames(); assert.equal((await state()).expanded, 'true');
+    await update('Short again.'); await frames(); assert.equal((await state()).hidden, true);
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
+    await frames(); assert.equal((await state()).expanded, 'true', 'short rewrite keeps expansion preference');
+    await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await frames();
+    assert.equal((await state()).expanded, 'false');
+    // Rewrites above a resting pointer preserve the signal's positive box.
+    await shadow(page, c => c.shadowRoot.querySelector('.signals li').scrollIntoView({ block: 'center' })); await frames();
+    const signal = await shadow(page, c => { const r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    assert.ok(signal.width > 0 && signal.height > 0); await page.mouse.move(signal.x + signal.width / 2, signal.y + signal.height / 2);
+    await update('Short rewrite.'); await frames();
+    const afterSignal = await shadow(page, c => { const r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    assert.ok(afterSignal.width > 0 && afterSignal.height > 0); assert.ok(Math.abs(signal.y - afterSignal.y) <= .5, 'signal stays under pointer');
+    rows.push({ label: `${locale}/${theme}/${width} rewrite anchor`, before: signal, after: afterSignal });
+    await page.mouse.move(-10, -10);
+    await update('<img src=x onerror=alert(1)> the person'); await frames();
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.summary-text img') === null), true);
+    assert.equal((await state()).text, '<img src=x onerror=alert(1)> the person');
+  }
+  // Width and font changes trigger real overflow measurement without a new assessment.
+  await update('Word '.repeat(100)); await frames();
+  await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = '32px'; }); await frames();
+  assert.equal((await state()).hidden, false);
+  await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
+  await shadow(page, c => { const session = structuredClone(window.summarySession); session.id += '-different'; session.understanding.summary = window.summaryLong; c.configure({ session, copy: { ...window.summaryCopy } }); });
+  await frames(); assert.equal((await state()).expanded, 'false', 'different conversation resets expansion');
+  if (evidence) await writeFile(join(evidence, 'ait-514-rects.json'), JSON.stringify(rows, null, 2));
+  t.diagnostic(`AIT-514 ${rows.length} positive geometry comparisons`);
+});

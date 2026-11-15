@@ -1514,3 +1514,17 @@ for (const copy of [de, en]) test(`AIT-349: ${copy.display.locale} interruption 
   assert.equal(root.querySelector('.voice-interruption-label').textContent, copy.voiceInterrupted);
   assert.equal(root.querySelector('.turn-text').textContent, content);
 });
+
+test('AIT-514 summary heading defaults and additive native toggle preserve host copy', () => {
+  assert.equal(en.summary, 'What we understood so far');
+  assert.equal(de.summary, 'Unser Verständnis bisher');
+  assert.equal(en.summaryMore, 'Read more'); assert.equal(de.summaryMore, 'Mehr anzeigen');
+  assert.equal(en.showLess, 'Show less'); assert.equal(de.showLess, 'Weniger anzeigen');
+  const c = setup({ copy: { ...en, summary: 'Host heading', summaryMore: 'Host more', showLess: 'Host less' } });
+  const root = c.shadowRoot, button = root.querySelector('.summary-toggle');
+  assert.ok(button); assert.equal(button.tagName, 'BUTTON');
+  assert.equal(button.type, 'button'); assert.equal(button.hidden, true);
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.equal(root.getElementById(button.getAttribute('aria-controls')), root.querySelector('.summary-text'));
+  assert.equal(root.querySelector('#summary-title').textContent, 'Host heading');
+});
