@@ -1332,8 +1332,10 @@ export class AithemaSession extends HTMLElement {
     if (offer) {
       const pane = shell.getBoundingClientRect(), box = offer.getBoundingClientRect();
       const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
-      const target = box.height <= pane.height - padding ? offer : offer.querySelector('.email-offer__row');
-      shell.scrollTop += target.getBoundingClientRect().top - pane.top - padding;
+      const fits = box.height <= pane.height - padding;
+      const target = fits ? box : offer.querySelector('.email-offer__row').getBoundingClientRect();
+      const inset = fits ? padding : Math.max(padding, (pane.height - target.height) / 2);
+      shell.scrollTop += target.top - pane.top - inset;
     }
     const latest = [...shell.querySelectorAll('.turn')].at(-1);
     for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
