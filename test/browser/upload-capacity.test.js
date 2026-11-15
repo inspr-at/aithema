@@ -449,6 +449,10 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await mockConsent(page); await startTyping(page);
     await inShadow(page, async c => {
       window.imageAsks = []; window.imagePosts = []; window.imageSeq = 0;
+      const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
+      const context = canvas.getContext('2d'); context.fillStyle = '#e02030'; context.fillRect(0, 0, 1, 1);
+      window.imageFixtureBase64 = canvas.toDataURL('image/png').split(',')[1];
+      window.imageFixturePNG = Uint8Array.from(atob(window.imageFixtureBase64), c => c.charCodeAt(0));
       c.addEventListener('aithema-consent', e => window.imageAsks.push(e.detail));
       const session = structuredClone(c.session);
       session.featureMatrix.best.imageInput = { available: true, reason: null };
@@ -474,7 +478,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
         if (/\/uploads\/[^/]+\/image$/u.test(String(url))) {
           (window.imageOwnerHeaders ??= []).push(new Headers(options.headers).get('x-aithema-session-token'));
           if (window.imageDelay) await window.imageDelay;
-          return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } }); }
+          return new Response(window.imageFixturePNG, { headers: { 'content-type': 'image/png' } }); }
         if (/\/turns$/u.test(String(url)) && options.method === 'POST') {
           const body = JSON.parse(options.body); window.imagePosts.push(body);
           return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments, at: new Date(0).toISOString() } });
@@ -488,11 +492,11 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     const choose = async () => {
       if (width === 390) {
         const path = join(directory, 'fixture.png');
-        await writeFile(path, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII=', 'base64'));
+        await writeFile(path, Buffer.from(await page.evaluate(() => window.imageFixtureBase64), 'base64'));
         const chooser = await uploadChooser(page); await chooser.accept([path]); return;
       }
       await inShadow(page, (c, width) => {
-      const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.png', { type: 'image/png' }));
+      const transfer = new DataTransfer(); transfer.items.add(new File([window.imageFixturePNG], 'fixture.png', { type: 'image/png' }));
       if (width === 1024) c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
       else c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
       }, width);
@@ -530,6 +534,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined, digest: 'fixture', w: 1, h: 1 } });
       c.shadowRoot.querySelector('.image-refusals button')?.click();
     });
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-image .image-thumbnail')?.naturalWidth === 1);
     await shot('ready');
     if (width === 390) {
       await page.setViewport({ width, height: 530 });
@@ -554,7 +559,9 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await inShadow(page, c => c.shadowRoot.querySelector('.send').click());
     await page.waitForFunction(() => window.imagePosts.length === 1);
     const post = await page.evaluate(() => window.imagePosts[0]); assert.equal(post.content, ''); assert.equal(post.attachments.length, 1);
-    await waitForShadow(page, '.turn .image-thumbnail'); await shot('sent');
+    await waitForShadow(page, '.turn .image-thumbnail');
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.turn .image-thumbnail')?.naturalWidth === 1);
+    await shot('sent');
     const tileBefore = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
     assert.ok(tileBefore.w > 0 && tileBefore.h > 0);
     await inShadow(page, async c => {
@@ -567,7 +574,9 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     assert.ok(tileReload.w > 0 && tileReload.h > 0); assert.deepEqual(tileReload, tileBefore, 'reload reserves the image box before authenticated pixels arrive');
     assert.ok(await page.evaluate(() => window.imageRevocations > 0), 'the old object URL was revoked');
     await page.evaluate(() => { window.releaseImageDelay(); window.imageDelay = null; });
-    await waitForShadow(page, '.turn .image-thumbnail'); await shot('reload');
+    await waitForShadow(page, '.turn .image-thumbnail');
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.turn .image-thumbnail')?.naturalWidth === 1);
+    await shot('reload');
     assert.ok(await page.evaluate(() => window.imageOwnerHeaders.every(header => header === 'fixture')), 'all thumbnail requests use owner authentication');
     if (evidence) await writeFile(join(evidence, `${prefix}-rects.json`), JSON.stringify({ unstaged, before, changes, tileBefore, tileReload, after: await boxes() }, null, 2));
 
