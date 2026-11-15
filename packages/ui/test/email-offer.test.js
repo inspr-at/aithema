@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { Verification } from '../src/verification.js';
 import { EmailOffer } from '../src/email-offer.js';
+import * as offerExports from '../../core/src/email-offer.js';
 import { emailOfferEligibility, visitorMessageCount } from '../../core/src/email-offer.js';
 import { en } from '../src/i18n/en.js';
 
@@ -152,4 +153,8 @@ test('AIT-507 b7 saving keeps capture focusable and blocks duplicate submits', a
   assert.equal(busy.aria, 'true'); assert.equal(busy.button, 'true');
   assert.equal(saves, 1); assert.equal(input.getAttribute('aria-invalid'), 'true');
   assert.equal(input.getAttribute('aria-disabled'), 'false');
+});
+
+test('AIT-507 integration: temporary visitor-input bridge is not public API', () => {
+  assert.equal('hasOfferVisitorInput' in offerExports, false);
 });

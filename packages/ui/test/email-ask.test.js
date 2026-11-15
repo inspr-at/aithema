@@ -106,3 +106,15 @@ test('AIT-164: footer digits are tabular and reserve the server limit at every b
   assert.match(emailAskStyles, /host-credits__stack \{ font-variant-numeric:tabular-nums/u);
   assert.match(emailAskStyles, /host-credits__measure \{ visibility:hidden; white-space:nowrap/u);
 });
+
+for (const next of ['emailGiven', 'emailConfirmed']) test(`AIT-507 integration: opener alone cannot request or reserve low ${next} actions`, async t => {
+  const f = fixture(t);
+  f.session.emailOffer = { afterMessages: 1 };
+  f.session.transcript = [{ id: 'host:opener', origin: 'host', role: 'assistant', content: 'Welcome.' }];
+  const low = { ...credits, tiers: { ...credits.tiers, next }, balance: { owner: { availableMicro: 500_000, limitMicro: 10_000_000 } }, lowEmailAsk: { after: 0, armed: true } };
+  f.ask.setCredits(low); await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(f.requests, [], 'opener cannot request a low line or form');
+  assert.equal(Boolean(f.ask.open), false);
+  f.ask.lowCredits = false;
+  assert.equal(f.ask.reservedLowLine, null, 'disabled low-credit surfaces cannot reserve an opener confirm action');
+});
