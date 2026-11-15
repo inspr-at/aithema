@@ -219,31 +219,31 @@ test('current measured packing keeps every shard at or below the 405s headroom t
   assertBrowserShardHeadroom();
 });
 
-test('AIT-532: current measured workloads fit ten bins without changing either limit', t => {
-  assert.equal(browserShardCount, 10);
+test('AIT-532: current measured workloads fit twelve bins without changing either limit', t => {
+  assert.equal(browserShardCount, 12);
   const files = discoverBrowserTests();
   const packing = packBrowserTests(files);
   retainPlan('current', packing);
-  assert.equal(packing.shards.length, 10);
+  assert.equal(packing.shards.length, 12);
   assertBrowserShardCoverage(files, packing.shards);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Current ten-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Current twelve-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing);
 });
 
-test('AIT-532: ten bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
+test('AIT-532: twelve bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
   const files = discoverBrowserTests();
   const weights = { ...browserTestWeights,
     'test/browser/start-journey.test.js': browserTestWeights['test/browser/start-journey.test.js'] + 180,
     // AIT-524's measured reservation at 48956966; never lower an existing weight.
     'test/browser/clarify-now.test.js': Math.max(browserTestWeights['test/browser/clarify-now.test.js'], 378.094),
   };
-  const packing = packBrowserTests(files, weights, 10);
+  const packing = packBrowserTests(files, weights, 12);
   retainPlan('growth', packing);
-  assert.equal(packing.shards.length, 10);
+  assert.equal(packing.shards.length, 12);
   assertBrowserShardCoverage(files, packing.shards, weights);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Growth ten-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Growth twelve-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing, weights);
 });
 
