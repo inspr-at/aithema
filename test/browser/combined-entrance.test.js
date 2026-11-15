@@ -15,7 +15,8 @@ import {de} from '/packages/ui/src/i18n/de.js';
 const locale=new URL(location.href).searchParams.get('locale')||'en';
 document.documentElement.lang=locale;
 Date.now=()=>1800000000000;
-globalThis.trace=[];globalThis.sent=[];globalThis.granted=false;globalThis.denied=false;
+const saved=sessionStorage.getItem('combined-fixture-session');sessionStorage.removeItem('combined-fixture-session');
+globalThis.trace=[];globalThis.sent=[];globalThis.granted=Boolean(saved);globalThis.denied=false;
 const allowed={available:true},blocked={available:false,reason:'current processing consent required'};
 const c=document.createElement('aithema-session');document.body.append(c);globalThis.c=c;
 const nativeFetch=fetch;
@@ -28,7 +29,7 @@ globalThis.fetch=async(url,options={})=>{
 };
 const client={async start({callId}){trace.push('admission');trace.push('permission');if(denied)throw Object.assign(new Error('blocked'),{name:'NotAllowedError'});trace.push('call');const events=voiceEvents();return {callId,providerSessionId:'fixture',events,async setInput(value){trace.push(['capture',value])},async setOutput(){},async updateContext(){},async sendText(text){trace.push(['typed',text])},async close(){events.end();return {closureConfirmed:true}}}}};
 globalThis.mount=(snapshot)=>{c.configure({entrance:'combined',copy:locale==='de'?de:en,session:snapshot||createSession({demo:true,locale,settings:{origin:'chosen',voice:'fixture'}}),voiceClient:client})};
-const session=createSession({demo:true,locale,settings:{origin:'chosen',voice:'fixture'}});session.featureMatrix={best:{text:blocked,voice:blocked,analysis:allowed}};mount(session);
+const session=saved?JSON.parse(saved):createSession({demo:true,locale,settings:{origin:new URL(location.href).searchParams.has('unchosen')?'default':'chosen',voice:'fixture'}});session.featureMatrix={best:{text:granted?allowed:blocked,voice:granted?allowed:blocked,analysis:allowed}};mount(session);
 c.addEventListener('aithema-consent',e=>{trace.push('consent');globalThis.consent=e.detail});
 globalThis.grant=()=>{granted=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
 globalThis.ready=true;
@@ -87,6 +88,7 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
       const before = await boxes(page); positive(before);
       await page.click('aithema-session >>> .composer-mic');
       assert.deepEqual(await page.evaluate(() => trace), ['consent']);
+      unmoved(before, await shot('voice-consent'));
       await page.evaluate(() => { denied = true; grant(); });
       await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('textarea').readOnly);
       // Consent can outlive browser activation: a fresh click is always admitted.
@@ -112,9 +114,26 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
       unmoved(muted, await boxes(page));
       assert.ok(live.textarea[2] > 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      for (const mode of ['text', 'voice']) {
+        const url = `${server.url}/combined-fixture?locale=${locale}`;
+        await page.goto(url); await page.waitForFunction(() => globalThis.ready);
+        await page.type('aithema-session >>> textarea', 'Returned draft');
+        await page.click(`aithema-session >>> ${mode === 'text' ? '.send' : '.composer-mic'}`);
+        await page.$eval('aithema-session', c => { const snapshot = c.session; snapshot.consentRevision++; sessionStorage.setItem('combined-fixture-session', JSON.stringify(snapshot)); });
+        await page.goto('about:blank'); await page.goto(url); await page.waitForFunction(() => globalThis.ready);
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('textarea').value === 'Returned draft');
+        assert.equal(await page.$eval('aithema-session', (c, mode) => c.shadowRoot.activeElement === c.shadowRoot.querySelector(mode === 'voice' ? '.composer-mic' : 'textarea'), mode), true);
+        assert.deepEqual(await page.evaluate(() => sent), []);
+        assert.deepEqual(await page.evaluate(() => trace), []);
+        await shot(`${mode}-return`);
+      }
+      await page.goto(`${server.url}/combined-fixture?locale=${locale}&unchosen`); await page.waitForFunction(() => globalThis.ready);
+      assert.equal(await page.$eval('aithema-session', c => Boolean(c.shadowRoot.querySelector('.chooser'))), true);
+      assert.deepEqual(await page.evaluate(() => trace), []);
+      await shot('chooser');
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
   }
-  assert.equal(tables.length, 72);
+  assert.equal(tables.length, 120);
   if (evidence) await writeFile(join(evidence, 'ait-506-rects.json'), JSON.stringify(tables, null, 2));
 });
