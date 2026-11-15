@@ -114,7 +114,9 @@ export async function contactSlotCheck(t) {
     await page.evaluate(() => {
       const { c } = window.contactFixture;
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'contact-u1', role: 'user', content: document.documentElement.lang === 'de' ? 'Anforderungen' : 'Requirements' } });
-      const root = c.shadowRoot; root.querySelector('.workspace').removeAttribute('data-reveal');
+      const root = c.shadowRoot;
+      if (root.querySelector('.workspace').hasAttribute('data-reveal') && getComputedStyle(root.querySelector('.contact-launcher')).visibility !== 'visible') throw new Error('Contact must stay reachable during the sidebar reveal');
+      root.querySelector('.workspace').removeAttribute('data-reveal');
       // Long fixture content exercises the scroll owner without model work.
       root.querySelector('.summary').hidden = false;
       root.querySelector('.summary-text').textContent = (document.documentElement.lang === 'de' ? 'Eine Zusammenfassung. ' : 'A summary. ').repeat(1000);
@@ -122,7 +124,7 @@ export async function contactSlotCheck(t) {
     await settle();
     assert.equal(await visible('#contact-open'), true, `${name}: mounted pinned host content`);
     assert.equal(await visible('#contact-launch'), width < 960, `${name}: launcher follows sidebar mode`);
-    const frames = ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.sidebar-contact', '.attach', '.send'];
+    const frames = ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.sidebar-contact', '.display-foot', '.composer-shell', '.attach', '.send'];
     const pinned = await rects(frames); positive(pinned, name);
     await page.focus('#contact-open'); await page.keyboard.press('Enter');
     assert.equal(await page.$eval('#contact-overlay', d => d.open), true, 'pinned CTA opens the host dialog');
