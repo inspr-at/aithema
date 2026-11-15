@@ -11,7 +11,7 @@ import { settleEvidenceFrame } from './start2-display-helpers.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const positive = (box, label) => assert.ok(box.width > 0 && box.height > 0, `${label}: positive box ${JSON.stringify(box)}`);
 const frame = ['.band', '.display-foot', '.composer-actions .attach', '.send'];
-const geometry = page => shadow(page, c => {
+const geometry = async page => { const state = await shadow(page, c => {
   const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
   const input = r.querySelector('textarea'), shell = r.querySelector('.transcript-shell');
   return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.audio-rail', '.concept-bar', ...['.band', '.display-foot', '.composer-actions .attach', '.send']]
@@ -23,10 +23,18 @@ const geometry = page => shadow(page, c => {
   noticeHeight: r.querySelector('.voice-notices')?.getBoundingClientRect().height ?? 0,
   listPadding: parseFloat(getComputedStyle(shell.querySelector('ol')).paddingBottom),
   jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
-  cardHidden: r.querySelector('.qcard').hidden };
+  cardHidden: r.querySelector('.qcard').hidden,
+  footerHidden: getComputedStyle(r.querySelector('.display-foot')).display === 'none' };
 });
+  for (const selector of ['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child']) positive(state.boxes[selector], selector);
+  return state;
+};
 const stable = (before, after, label) => {
+  assert.equal(after.footerHidden, before.footerHidden, `${label}: footer visibility stays unchanged`);
   for (const selector of frame) {
+    // The existing short-phone keyboard layout explicitly hides the footer.
+    // Assert that state above; never compare its 0x0 box as no movement.
+    if (selector === '.display-foot' && before.footerHidden) continue;
     const a = before.boxes[selector], b = after.boxes[selector]; positive(a, selector); positive(b, selector);
     for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(a[key] - b[key]) <= .5, `${label}/${selector}/${key}: ${a[key]} -> ${b[key]}`);
   }
