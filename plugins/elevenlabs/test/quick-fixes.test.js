@@ -514,4 +514,10 @@ for (const locale of ['en', 'de']) test(`AIT-508: ${locale} fresh call continuat
   const continued = host.presentation(locale, { hasPriorTurns: true, hasPriorCalls: true }).agent.firstMessage;
   assert.notEqual(continued, initial); assert.doesNotMatch(continued, /Hello|Hallo/u);
   assert.match(continued, locale === 'en' ? /AI assistant/u : /KI-Assistenz/u);
+  const custom = locale === 'en' ? 'The host AI assistant is ready to continue.' : 'Die KI-Assistenz setzt das Gespräch fort.';
+  const overridden = await createElevenLabsVoiceHost({ agentName: 'fixture-agent', facadeSecretName: 'fixture-facade',
+    values: {}, costConfig: {}, qualifyBinding() {}, log() {}, spokenContinuations: { [locale]: custom },
+    fetchImpl() { assert.fail('No provider requests'); } });
+  t.after(() => overridden.close());
+  assert.equal(overridden.presentation(locale, { hasPriorTurns: true, hasPriorCalls: true }).agent.firstMessage, custom);
 });
