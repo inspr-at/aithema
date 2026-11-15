@@ -7,7 +7,9 @@
 - AIT-506: optional UI `configure({ entrance: 'combined' })`; default `'choice'`
   retains mode selection and Start. Combined mode shows text, mic and Send with
   the selected processing details and AI/voice disclosure from first paint,
-  without ready mic/speaker rows.
+  without ready mic/speaker rows. The attachment button is hidden. Chooser
+  Continue confirms processing and focuses the field; Send/mic requests consent.
+  The default choice entrance retains its Continue consent event.
 - Combined Send/mic consent events use `reason: 'ready'`, `intent: 'start'` and
   `mode: 'text'` / `'voice'`; legacy text mode stays `'type'`. `required` keeps the
   selected blocked feature and `features` the complete requested list. Text
@@ -18,12 +20,17 @@
   proof. A navigation return consumes the intent and restores the draft even
   without a grant, without sending or starting voice; a voice
   return focuses the composer mic for a fresh click. Expiry, erasure, withdrawal
-  and a new conversation clear the draft. A settings update cancels the old
+  and a new conversation clear the intent and its pending draft. An ordinary
+  unsent follow-up survives own, server and other-tab message withdrawals.
+  A settings update cancels the old
   revision intent while preserving and unlocking the field draft.
 - The composer mic starts a call when idle and delegates capture mute/unmute to
   the rail during a call. Typing keeps capture running and typed turns use the
   same call/session/context. Consent precedes admission and permission. Reuses
   `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` and host overrides.
+  Separate text-feedback and mic-status space is reserved from first paint, so
+  failures, consent actions and Saved announcements remain visible and exposed
+  to assistive technology alongside microphone denial or call-end status.
   No new copy keys or exports.
 
 ### Browser CI capacity (AIT-532)

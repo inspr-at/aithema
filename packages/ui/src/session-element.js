@@ -2941,7 +2941,7 @@ export class AithemaSession extends HTMLElement {
   }
   #clearStartIntent({ discardDraft = false } = {}) {
     const input = this.shadowRoot.querySelector('textarea');
-    if (input) { input.readOnly = false; if (discardDraft && this.#combined) input.value = ''; }
+    if (input) { input.readOnly = false; if (discardDraft && this.#startIntent?.combined) input.value = ''; }
     this.#clearStartRetry();
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#startFromNavigation = false; this.#checkingStartRestore = null;
     try { tabStorage()?.removeItem(START_INTENT_KEY); } catch { /* In-memory intent still works without storage. */ }

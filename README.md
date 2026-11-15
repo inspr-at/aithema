@@ -549,6 +549,9 @@ notice (selected processing details plus the AI/voice disclosure) directly above
 them. The default remains `entrance: 'choice'`, including
 its mode selection and Start button. Combined mode keeps the processing-preset
 chooser and omits the ready card's mode, microphone and speaker rows and Start.
+The attachment button is hidden in combined mode. Text feedback and microphone
+status have separate space reserved from first paint; send failures, consent
+actions and Saved announcements remain exposed while a mic status is present.
 Typing, focus and rendering never acquire media or prepare voice.
 
 In combined mode, Send and the composer mic emit `aithema-consent` with
@@ -567,8 +570,10 @@ liveness proof. Navigation restores it only after the same-tab check, including
 a return without granting consent, and consumes the intent. A later grant never
 auto-sends or auto-starts a call. Text return focuses the field; voice return
 focuses the composer mic and requires a fresh click. Expiry, erasure, withdrawal
-and a new conversation clear the intent and its draft. Changing processing
-settings cancels a pending intent for the old revision and keeps the editable
+and a new conversation clear the intent and its draft.
+An ordinary unsent follow-up survives a message withdrawal; only a pending
+combined snapshot is discarded. Changing processing settings cancels a pending
+intent for the old revision and keeps the editable
 field draft. During a call the same
 mic toggles capture through the rail; End call remains on the rail. Typing keeps
 capture running and Send delivers the typed turn through `rail.sendText` in the
@@ -1385,8 +1390,11 @@ keyboard. Up to 40rem wide it fills the viewport. Every changing value sits in a
 fixed box, so hover, saves and gauge updates never move a control. A conversation
 starts with START's entrance: the `promise` slot (or the default promise) and the
 orb above the four processing choices (START `LandingPresets`); Custom opens the
-dialog. Continue fires `aithema-consent` when the choice is not covered yet. Then
-readiness (START `ConversationReadiness`): model, consent, microphone and speaker
+dialog. In the default choice entrance, Continue fires `aithema-consent` when
+the choice is not covered yet. In combined mode, Continue confirms processing
+and focuses the field; explicit Send or mic requests any required consent. The
+default entrance then shows readiness (START `ConversationReadiness`): model,
+consent, microphone and speaker
 states, a reversible choice to speak or to type, and an explicit Start. Nothing
 asks for the microphone before a voice start. The call rail and the composer open
 with the conversation; the understanding column opens with the first input.
