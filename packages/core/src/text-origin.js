@@ -12,5 +12,9 @@ export function withAITextOrigin(data) {
     const { engine, ...metadata } = rest;
     return metadata;
   }
+  if (data.role === 'assistant' && origin === 'host') {
+    const { engine, operationId, ...host } = rest;
+    return { ...host, origin: 'host' };
+  }
   return data.role === 'user' ? rest : { ...rest, ...aiTextOrigin({ model, plugin: provider }) };
 }

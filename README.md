@@ -3746,3 +3746,5 @@ its wallet reports `creditScope: 'session'`. This is a display receipt, never
 an admission override. Host privacy links use the existing legal slot with
 `data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
 German, German digit grouping and a nonbreaking space before `Credits`.
+
+Optional host opener (AIT-505): core exports `hasVisitorInput(session)` for active user turns or accepted/unreadable documents. Host and AI assistant turns do not satisfy it. `hasConversationInput` remains a compatibility alias; `conversationStarted` still locks locale after any durable transcript entry. UI integrations can use `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` from `packages/ui/src/host-opener.js` for the render-only entrance projection.
