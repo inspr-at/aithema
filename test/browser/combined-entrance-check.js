@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
@@ -46,7 +45,7 @@ function unmoved(before, after) {
   for (const selector of Object.keys(before)) for (let i = 0; i < 4; i++) assert.ok(Math.abs(before[selector][i] - after[selector][i]) <= .5,
     `${selector}[${i}] moved: ${before[selector][i]} -> ${after[selector][i]}`);
 }
-test('AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440', { timeout: 180_000 }, async t => {
+export async function combinedEntranceCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-'));
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -137,4 +136,4 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
   }
   assert.equal(tables.length, 144);
   if (evidence) await writeFile(join(evidence, 'ait-506-rects.json'), JSON.stringify(tables, null, 2));
-});
+}
