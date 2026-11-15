@@ -312,7 +312,13 @@ class ComposerSize {
         const peer = this.root.querySelector('.composer-out'), style = peer && this.view.getComputedStyle(peer);
         if (peer && style.display !== 'none' && !['absolute', 'fixed'].includes(style.position)) {
           const peerProbe = peer.cloneNode(true); prepare(peerProbe); peer.parentNode.append(peerProbe);
-          try { peerFloor = peerProbe.getBoundingClientRect().height; }
+          try {
+            const peerCSS = this.view.getComputedStyle(peerProbe);
+            // The phone peer overlaps the card with a negative margin. Its
+            // grid contribution, rather than its border box, sets the floor.
+            peerFloor = peerProbe.getBoundingClientRect().height
+              + (parseFloat(peerCSS.marginTop) || 0) + (parseFloat(peerCSS.marginBottom) || 0);
+          }
           finally { peerProbe.remove(); }
         }
         this.baselineContext = baselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
