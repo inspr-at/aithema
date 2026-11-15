@@ -3755,3 +3755,24 @@ test('AIT-502 v2.2: resumed waiting-call bound refusal carries additive reason a
 test('AIT-502 v2.2: start receipt identifies the optional bound', async t => {
   const h = voiceFixture(t); assert.equal((await h.start()).timeLimit, 'call');
 });
+
+
+test('AIT-508: a fresh call waits for the prior session call to reconcile despite spare credits and duration', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const h = voiceFixture(t, { unknown: true, cap: { capMilliseconds: 600_000 },
+    host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
+  const first = await h.start(); h.advance(2000);
+  const closing = h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  await h.waitForClosure(first.providerSessionId); t.mock.timers.tick(10_000); await closing; await h.handlers.idle();
+  const credentials = h.traffic.filter(url => url.includes('/token?')).length;
+  const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+  const denied = await h.route('/voice', { callId: 'next-call' });
+  assert.equal(denied.status, 403); assert.equal((await denied.json()).reason, 'budget reconciling');
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, credentials);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+  assert.equal((await h.runtime.matrix(h.storage.get(h.session.id))).best.voice.reason, 'budget reconciling');
+  const record = h.storage.voiceCalls(h.session.id)[0];
+  h.runtime.reconcileVoice(record.attemptId, { ...record.terminal, outcome: 'completed', closureConfirmed: true,
+    usage: { providerSeconds: 2, providerMinutes: 2 / 60, pausedSeconds: 0, visitorSeconds: 2, upstreamMicro: 2000, visitorMicro: 4000 } });
+  const next = await h.start('settled-next'); assert.notEqual(next.callId, first.callId);
+});

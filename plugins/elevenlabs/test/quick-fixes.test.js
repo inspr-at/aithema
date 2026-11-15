@@ -475,3 +475,17 @@ for (const transport of ['webrtc', 'websocket']) {
     assert.equal(local.observed.some(event => event.type === 'ended'), false);
   });
 }
+
+for (const shape of ['tool', 'end_call', 'close-code']) test(`AIT-508: silence ${shape} ends idle without paid recovery`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  const local = await setup(t); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  const callbacks = local.sdk.starts[0];
+  if (shape === 'tool') callbacks.onAgentToolResponse({ tool_name: 'end_call', result: { reason: 'silence_timeout' } });
+  else callbacks.onDisconnect(shape === 'end_call'
+    ? { reason: 'agent', context: { type: 'end_call', reason: 'silence_timeout' } }
+    : { reason: 'agent', closeCode: 1000, closeReason: 'silence_timeout' });
+  await flush(); await flush();
+  assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
+  assert.ok(local.observed.some(e => e.type === 'ended' && e.reason === 'idle'));
+});

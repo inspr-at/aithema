@@ -443,3 +443,14 @@ test('AIT-345: supported coordinator reads explicit seconds and no host policy',
     assert.equal(h.coordinator.state.spendDeadlineAt, now + (maxDurationSeconds ?? 900) * 1000);
   }
 });
+
+for (const hold of ['listening', 'paused', 'waiting']) test(`AIT-508: composed ${hold} call ends idle at 120 seconds`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const events = [], h = fixture(t, { spendDeadlineAt: Date.now() + 900_000, browserLivenessDeadlineAt: Date.now() + (hold === 'waiting' ? 30_000 : 900_000),
+    relay: { audio() {}, silence() {}, event: e => events.push(e) } });
+  if (hold === 'paused') await h.coordinator.pause();
+  if (hold === 'waiting') { t.mock.timers.tick(30_000); assert.equal(h.coordinator.state.state, 'waiting'); }
+  t.mock.timers.tick(hold === 'waiting' ? 89_999 : 119_999); assert.notEqual(h.coordinator.state.state, 'ended');
+  t.mock.timers.tick(1); await Promise.resolve();
+  assert.equal(h.coordinator.state.state, 'ended'); assert.equal(events.at(-1).reason, 'idle');
+});
