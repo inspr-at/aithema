@@ -1622,7 +1622,10 @@ for (const action of ['review', 'cancel', 'expiry', 'withdrawal', 'erasure', 'se
   else if (action === 'session') f.change({ id: 'another-session' });
   else if (action === 'input') f.change({ inputRevision: f.c.session.inputRevision + 1 });
   else if (action === 'settings') f.change({ settings: { ...f.c.session.settings, revision: f.c.session.settings.revision + 1 } });
-  else if (action === 'review') f.root.querySelector('.ready__consent').click();
+  else if (action === 'review') {
+    f.root.querySelector('.footer-consent').click();
+    assert.equal(f.events.at(-1).intent, 'review');
+  }
   else f.c.cancelConsent();
   await f.grant();
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
