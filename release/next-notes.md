@@ -27,5 +27,7 @@
   first link for a saved guest, or resends a pending link under its cooldown,
   without saving or replacing the address.
 - The demo's next-tier projection can offer a positive confirmation delta
-  directly when saving provides no credit increase. There are no new copy keys
-  or public package exports.
+  directly when saving provides no credit increase. There are no new copy keys.
+- The additive `@inspr/aithema-core/email-offer` subpath exports shared
+  `emailOfferPolicy`, `emailOfferEligibility`, `visitorMessageCount` and
+  `hasOfferVisitorInput` helpers for the server and UI, including packed consumers.

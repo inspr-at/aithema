@@ -3792,6 +3792,9 @@ without saving or replacing the address.
 
 Copy comes from the existing `hostGive`, `hostConfirm`, `verify.lockLead`,
 `verify.send`, `verify.resend`, `verify.sent` and `verify.unlocked` keys, so host
-copy overrides apply. No new copy keys or public package exports are required.
+copy overrides apply. No new copy keys are required. The additive
+`@inspr/aithema-core/email-offer` subpath exports the shared `emailOfferPolicy`,
+`emailOfferEligibility`, `visitorMessageCount` and `hasOfferVisitorInput` helpers
+used by the server and UI, so packed consumers use the same policy and predicates.
 The demo tier projection offers confirmation directly when saving the address
 adds no credit but confirmation has a positive delta.
