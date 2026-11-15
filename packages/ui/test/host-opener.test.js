@@ -113,3 +113,16 @@ for (const input of ['visitor-withdrawal', 'assistant-greeting', 'pending-docume
     }
   });
 }
+
+test('AIT-505: an ordinary streaming reply retains its live workspace until cleared', t => {
+  const source = session(); delete source.opener;
+  const c = document.createElement('aithema-session');
+  c.configure({ copy: en, session: source }); t.after(() => c.remove());
+  const workspace = c.shadowRoot.querySelector('.workspace');
+  assert.equal(workspace.dataset.stage, 'ready');
+  c.receive({ type: 'turn.partial', data: { id: 'streaming-reply', delta: 'A reply is arriving.' } });
+  assert.equal(workspace.dataset.stage, 'live', 'a streamed reply is visible while it arrives');
+  assert.equal(workspace.dataset.understanding, 'present');
+  c.receive({ type: 'lane.status', data: { inputRevision: 0, running: [], failures: [{ lane: 'reaction', error: 'reasoning-unavailable', retryable: true }] } });
+  assert.equal(workspace.dataset.stage, 'ready', 'clearing the only partial restores readiness');
+});
