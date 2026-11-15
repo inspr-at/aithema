@@ -99,6 +99,8 @@ svg { display:block; flex:none; }
 .conversation { position:relative; min-width:0; display:grid; grid-template-rows:auto; align-content:start; gap:.85rem; }
 .head { display:flex; align-items:baseline; justify-content:space-between; gap:.15rem 1.5rem; }
 .workspace:not([data-stage="live"]) :is(.audio-rail, .transcript-shell, .composer) { display:none; }
+/* The combined entrance projects host copy before Start; an absent opener reserves no transcript space. */
+.workspace[data-host-opener-entrance]:not([data-stage="live"]) .transcript-shell:has([data-host-opener]) { display:block; height:auto; }
 /* Stage visibility wins over later image/phone layout rules in either mount. */
 .workspace:not([data-stage="live"]) :is(${CONCEPT_CONTROLS}) { display:none !important; }
 

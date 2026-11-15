@@ -2641,6 +2641,7 @@ export class AithemaSession extends HTMLElement {
     const stage = this.#stage(), mode = { entrance: 'chooser', ready: 'ready' }[stage] ?? '';
     const stageChanged = workspace.dataset.stage !== stage;
     workspace.dataset.stage = stage;
+    workspace.toggleAttribute('data-host-opener-entrance', this.#options.entrance === 'combined');
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
     // A host verification lock holds its email form there, so the pane is present while it is locked.
     const understanding = this.#hasInput() || this.#host?.locked ? 'present' : 'absent';
