@@ -27,7 +27,7 @@
   and exports. It works during calls and on phones without disabling the
   composer or moving focus. Saving uses `aria-disabled` to preserve capture
   focus, including after a refused save. The opted-in confirmation dialog
-  reserves pending-state row spacing before saving to keep the field, actions
+  reserves pending-state row order and spacing before saving to keep the field, actions
   and dialog stable on acknowledgement. Existing give/confirm/lock, Send/Resend, Sent and
   Unlocked copy keys preserve host overrides. Collection renders the existing
   privacy notice and sends its required `noticeVersion`; saved addresses use
