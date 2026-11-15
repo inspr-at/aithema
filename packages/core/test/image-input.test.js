@@ -45,3 +45,11 @@ test('AIT-510: shared bound excludes image bytes and charges configured image to
   assert.throws(() => reasoningInputBound(request), /image/u);
   assert.throws(() => reasoningInputBound(request, { ...capability, maxImages: 0 }), /image/u);
 });
+
+test('AIT-510: image-only purpose classification is neutral without an off-topic strike', async () => {
+  const { collectPurposeReply } = await import('../src/safeguards.js');
+  const request = { imageOnly: true, locale: 'en', purposePolicy: { offTopicLimit: 3, outputCheck: false }, system: 'Fixture', messages: [] };
+  const reply = await collectPurposeReply(request, async function* () { yield JSON.stringify({ content: 'What should be clarified in this screenshot?', question_short: null, options: [], scope: 'off' }); });
+  assert.equal(reply.scope, 'unclear');
+  assert.equal(reply.content, 'What should be clarified in this screenshot?');
+});
