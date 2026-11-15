@@ -5,24 +5,26 @@ import { createVoiceHandlers } from '../src/voice-handlers.js';
 import { createFacadeSecrets, elevenLabsCallbackPort } from '../../../plugins/elevenlabs/src/callbacks.js';
 const instant = 1_800_000_000_000;
 const opener = { en: 'Welcome. Your AI assistant is ready.' };
-async function fixture(t, { native = true, presentation, history = false, refused = false, configuredOpener = opener } = {}) {
+async function fixture(t, { native = true, presentation, history = false, refused = false, configuredOpener = opener, conversationLimit = 'time', failFirstAt } = {}) {
   t.mock.timers.enable({ apis: ['Date'], now: instant });
   const storage = new SQLiteStorage(':memory:', { now: () => instant });
   const session = storage.create({ demo: true, ownerToken: 'fixture-owner' });
   if (history) storage.append(session.id, 'turn.final', { id: 'old', role: 'user', content: 'Earlier input.' });
   const published = [], starts = [], secrets = createFacadeSecrets();
-  let complete;
+  let complete, admissions = 0;
   const adapter = { ...elevenLabsCallbackPort, bindCallbacks(operations) { complete = operations.onCompletion; return elevenLabsCallbackPort.bindCallbacks(operations); } };
   const handlers = createVoiceHandlers({ storage, secrets: native ? secrets : undefined, opener: configuredOpener, presentation,
     ownership: { token: () => 'fixture-owner' }, readBody: async r => new Uint8Array(await r.arrayBuffer()),
     now: () => instant, publish: (id, event) => published.push(event), onTurn() {},
-    runtime: { voiceServerAdapters: () => native ? [adapter] : [], async checkVoice() {},
+    runtime: { conversationLimits: { policy: () => conversationLimit, deadline: () => Infinity }, voiceServerAdapters: () => native ? [adapter] : [], async checkVoice() {},
       async admitVoice({ options }) {
-        if (refused) throw new TypeError('Fixture refusal');
+        admissions++;
+        if (refused || failFirstAt === 'admission' && admissions === 1) throw new TypeError('Fixture refusal');
         return { binding: { maxDurationSeconds: 120, publicFacadeBaseUrl: 'https://host.example.test' }, options, finish() {},
           plugin: { manifest: { liveVoice: { capabilities: { interruption: 'native' }, ownership: { turnTaking: 'provider' } } },
             ports: { serverAdapter: native ? adapter : undefined }, async start(request, opts) {
               starts.push(request);
+              if (failFirstAt === 'start' && admissions === 1) throw new TypeError('Fixture start failure');
               return { callId: request.callId, providerSessionId: starts.length === 1 ? 'fixture-generation' : `fixture-generation-${starts.length}`, signal: new AbortController().signal,
                 spendDeadlineAt: opts.spendDeadlineAt, browserLivenessDeadlineAt: opts.browserLivenessDeadlineAt,
                 snapshot: () => ({}), close: async () => ({ closureConfirmed: true, outcome: 'cancelled' }) };
@@ -117,4 +119,50 @@ test('AIT-505 L5: host heard length is bounded by canonical text', async t => {
   const turn = f.storage.get(f.session.id).transcript[0];
   assert.equal(turn.interruption.heardLength, opener.en.length);
   assert.equal(turn.content, opener.en);
+});
+
+for (const failFirstAt of ['admission', 'start']) test(`AIT-505 / AIT-508: ${failFirstAt} failure consumes first contact without claiming an opener on the next credits call`, async t => {
+  const f = await fixture(t, { conversationLimit: 'credits', failFirstAt });
+  assert.equal((await f.start()).status, 400);
+  assert.equal(f.storage.voiceLifecycle(f.session.id, 'fixture-call').state, 'ended');
+  assert.deepEqual(f.storage.get(f.session.id).transcript, []);
+  const response = await f.start('next-call');
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).presentation, 'continuation');
+  assert.notEqual(f.starts.at(-1).overrides?.agent.firstMessage, opener.en);
+  assert.deepEqual(f.storage.get(f.session.id).transcript, [], 'later logical calls cannot newly persist the first-contact opener');
+  assert.equal(f.published.filter(e => e.type === 'turn.final').length, 0);
+});
+
+test('AIT-505 / AIT-508: ElevenLabs recovery and a fresh credits call after idle never repeat or re-persist the opener', async t => {
+  const f = await fixture(t, { conversationLimit: 'credits' });
+  assert.equal((await f.start()).status, 201);
+  assert.equal(f.starts[0].overrides.agent.firstMessage, opener.en);
+  const original = f.storage.get(f.session.id).transcript[0];
+  const recovered = await f.post('/fixture-call/recover', { providerSessionId: 'fixture-generation' });
+  assert.equal(recovered.status, 200);
+  assert.equal((await recovered.json()).presentation, 'continuation');
+  assert.equal(f.starts[1].overrides.agent.firstMessage, '');
+  assert.equal((await f.post('/fixture-call/close', { providerSessionId: 'fixture-generation-2', reason: 'idle' })).status, 200);
+  assert.equal(f.storage.voiceLifecycle(f.session.id, 'fixture-call').terminalReason, 'idle');
+  const next = await f.start('after-idle');
+  assert.equal(next.status, 201);
+  assert.equal((await next.json()).presentation, 'continuation');
+  assert.notEqual(f.starts[2].overrides.agent.firstMessage, opener.en);
+  assert.deepEqual(f.storage.get(f.session.id).transcript, [original]);
+  assert.equal(f.storage.read(f.session.id).filter(e => e.type === 'turn.final' && e.data.id === 'host:opener').length, 1);
+  assert.equal(f.published.filter(e => e.type === 'turn.final' && e.data.id === 'host:opener').length, 1);
+});
+
+test('AIT-505 / AIT-508: no configured opener retains prior-call custom presentation context under credits policy', async t => {
+  const contexts = [];
+  const f = await fixture(t, { configuredOpener: {}, conversationLimit: 'credits', presentation(locale, context) {
+    contexts.push(context); return { agent: { language: locale, firstMessage: 'Your AI assistant is ready.' } };
+  } });
+  assert.equal((await f.start()).status, 201);
+  assert.deepEqual(contexts[0], { hasPriorTurns: false });
+  assert.equal((await f.post('/fixture-call/close', { providerSessionId: 'fixture-generation', reason: 'idle' })).status, 200);
+  assert.equal((await f.start('after-idle')).status, 201);
+  assert.deepEqual(contexts[1], { hasPriorTurns: true, hasPriorCalls: true });
+  assert.deepEqual(f.storage.get(f.session.id).transcript, []);
 });
