@@ -63,7 +63,7 @@ export async function checkVoiceEndMessages(t) {
         const visible = n => n && !n.hidden && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
         return { controls: Object.fromEntries(['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => [s, rect(root.querySelector(s))])),
           close: visible(close) ? rect(close) : null, closeLabel: close?.getAttribute('aria-label'), outsideLive: close?.parentElement === status.parentElement && !status.contains(close),
-          header: rect(root.querySelector('.band')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
+          header: rect(root.querySelector('.band')), composer: rect(root.querySelector('textarea')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
           narrowVisible: visible(status.querySelector('.consent-narrow')), label: status.getAttribute('aria-label'), errorKey: rail.errorKey,
           color: getComputedStyle(status).color, neutralColor,
           messagePresent: rail.root.hasAttribute('data-message') };
@@ -77,7 +77,9 @@ export async function checkVoiceEndMessages(t) {
         const r = window.endRail; r.session = null; r.endMessage(reason, { timeLimit: 'call' }); r.render();
       }, reason);
       const continued = await page.evaluate(() => window.readEnds());
-      unchanged(before.controls, continued.controls); box(continued.message); box(continued.retry);
+      unchanged(before.controls, continued.controls);
+      unchanged({ header: before.header, composer: before.composer }, { header: continued.header, composer: continued.composer });
+      box(continued.message); box(continued.retry);
       assert.equal(continued.errorKey, reason === 'idle' ? 'voiceIdleEnded' : 'voiceTimeLimit');
       const open = await page.evaluate(() => {
         const c = document.querySelector('aithema-session'), r = window.endRail;
@@ -85,7 +87,7 @@ export async function checkVoiceEndMessages(t) {
           composerDisabled: c.shadowRoot.querySelector('textarea').disabled };
       });
       assert.deepEqual(open, { expired: false, startDisabled: false, composerDisabled: false });
-      checks.push({ ticket: 'AIT-508', locale, theme, width, reason, before: before.controls, after: continued.controls, open, tolerancePx: .5 });
+      checks.push({ ticket: 'AIT-508', locale, theme, width, reason, before: before.controls, after: continued.controls, header: { before: before.header, after: continued.header }, composer: { before: before.composer, after: continued.composer }, open, tolerancePx: .5 });
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         const shots = join(process.env.AITHEMA_EVIDENCE_DIR, 'ait508-shots'); await mkdir(shots, { recursive: true });
         await page.screenshot({ path: join(shots, `${locale}-${theme}-${width}-${reason}.png`), fullPage: true });
