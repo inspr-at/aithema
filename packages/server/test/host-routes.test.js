@@ -1659,7 +1659,7 @@ for (const afterMessages of [0, 3, '2', null]) test(`AIT-507 invalid threshold f
 test('AIT-507 opener, uploads and a failed reply cannot trigger the offer', async t => {
   const f = await offerFixture(t, 1);
   f.storage.append(f.s.id, 'turn.final', { id: 'host:opener', role: 'assistant', origin: 'host', content: 'Welcome.' });
-  f.storage.append(f.s.id, 'upload.state', { id: 'only-document', state: 'ready' });
+  f.storage.append(f.s.id, 'upload.state', { id: 'only-document', state: 'ready', at: new Date(Date.now()).toISOString() });
   assert.equal((await (await f.claim()).json()).accepted, false);
   f.storage.append(f.s.id, 'turn.final', { id: 'voice-final', role: 'user', source: 'voice', content: 'A requirement.' });
   assert.equal((await (await f.claim()).json()).accepted, false, 'wait for a settled reply');
