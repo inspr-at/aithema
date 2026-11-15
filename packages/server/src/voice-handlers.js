@@ -316,7 +316,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
       const openerEvent = storage.connectVoiceWithOpener(sessionId, callId, { type: 'connected', epoch: entry.epoch, providerSessionId: entry.call.providerSessionId,
         authorizationRevision: voiceAuthorizationRevision(fresh), spendDeadlineAt: end,
-        browserLivenessDeadlineAt: entry.call.browserLivenessDeadlineAt }, opener);
+        browserLivenessDeadlineAt: entry.call.browserLivenessDeadlineAt }, !continuation && !hasPriorCalls ? opener : undefined);
       if (openerEvent) publish(sessionId, openerEvent);
       if (fresh.paused) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'pause' });
       const state = storage.voiceLifecycle(sessionId, callId);
