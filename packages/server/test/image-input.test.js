@@ -42,3 +42,23 @@ test('AIT-510: eight images have a separate quota from eight documents', t => {
   assert.throws(() => stage(f, 'ninth'), /limit/iu);
   assert.doesNotThrow(() => f.storage.postUploads(f.session.id, 'document', 'document', [{ filename: 'fixture.txt', mediaType: 'text/plain', bytes: Buffer.from('text'), deadlineAt: clock + 25000 }], SERVER_UPLOAD_LIMITS));
 });
+
+test('AIT-510: optional image-input withdrawal erases pixels, excludes images and keeps replies', t => {
+  const f = fixture(t), upload = stage(f);
+  f.storage.completeUpload(f.session.id, upload.id, { status: 'staged-ready', bytes: Buffer.from('normalized'), mediaType: 'image/png', digest: 'fixture', w: 2, h: 1 });
+  f.storage.postTurn(f.session.id, 'turn', Buffer.from('turn'), '', { attachments: [upload.id] });
+  f.storage.append(f.session.id, 'turn.final', { id: 'reply', role: 'assistant', content: 'Retained reply' });
+  f.storage.reviseConsent(f.session.id, true, {}, { conversationUnchanged: true, removed: ['imageInput'] });
+  const next = f.storage.get(f.session.id);
+  assert.equal(next.transcript.at(-1).content, 'Retained reply');
+  assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
+  assert.equal(next.uploads[0].state, 'withheld');
+});
+test('AIT-510: staged images expire after thirty minutes without conversation invalidation', t => {
+  const f = fixture(t), upload = stage(f), revision = inputRevision(f.storage.get(f.session.id));
+  assert.equal(upload.expiresAt, clock + 30 * 60 * 1000);
+  const events = f.storage.expireStagedUploads(f.session.id, clock + 30 * 60 * 1000);
+  assert.equal(events.length, 1);
+  assert.equal(inputRevision(f.storage.get(f.session.id)), revision);
+  assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
+});
