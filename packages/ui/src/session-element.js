@@ -1325,6 +1325,16 @@ export class AithemaSession extends HTMLElement {
     this.#follow = true; this.#questionCard?.reserve();
     if (this.#longReply) return;
     shell.scrollTop = shell.scrollHeight;
+    // An inline capture can be taller than the combined phone's reading pane.
+    // Reveal its entry controls before native focus; bottom-follow alone can
+    // leave them above the sticky header and make focus scroll the whole page.
+    const offer = this.#combined && shell.querySelector('ol > .email-offer:last-child');
+    if (offer) {
+      const pane = shell.getBoundingClientRect(), box = offer.getBoundingClientRect();
+      const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
+      const target = box.height <= pane.height - padding ? offer : offer.querySelector('.email-offer__row');
+      shell.scrollTop += target.getBoundingClientRect().top - pane.top - padding;
+    }
     const latest = [...shell.querySelectorAll('.turn')].at(-1);
     for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
     const readFull = latest?.querySelector('.turn-read-full'), signal = this.shadowRoot.querySelector('.voice-signal');
