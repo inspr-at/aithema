@@ -1,3 +1,4 @@
+import { validateImageInput } from '@inspr/aithema-core/image-input';
 import { modelPrice, providerMaxPrice, tokenCeilingMicro } from '@inspr/aithema-plugin-openrouter/pricing';
 import { manifest as openRouterManifest } from '@inspr/aithema-plugin-openrouter';
 import { usdMicro } from '@inspr/aithema-server';
@@ -25,6 +26,13 @@ export function openRouterConfig(values) {
   let prices;
   try { prices = JSON.parse(values.AITHEMA_OPENROUTER_PRICES); }
   catch { throw new TypeError('AITHEMA_OPENROUTER_PRICES is required as JSON with prompt/completion USD per token for every configured model'); }
+  let imageInputs = {};
+  if (values.AITHEMA_OPENROUTER_IMAGE_INPUT !== undefined) {
+    try { imageInputs = JSON.parse(values.AITHEMA_OPENROUTER_IMAGE_INPUT);
+      if (!imageInputs || typeof imageInputs !== 'object' || Array.isArray(imageInputs)) throw new TypeError();
+      for (const value of Object.values(imageInputs)) validateImageInput(value);
+    } catch { throw new TypeError('AITHEMA_OPENROUTER_IMAGE_INPUT requires model-keyed image bounds'); }
+  }
   const capMicro = usdMicro(values.AITHEMA_OPENROUTER_CAP_USD ?? '10');
   const uncertainEstimateMicro = usdMicro(values.AITHEMA_OPENROUTER_UNCERTAIN_ESTIMATE_USD ?? '0.01');
   const maxTokens = integer(values, 'OPENROUTER_MAX_TOKENS', 1200);
@@ -41,10 +49,11 @@ export function openRouterConfig(values) {
     .split(',').map(entry => entry.trim()).filter(Boolean);
   const binding = (model, maxTokens, effort, ignore) => {
     const price = modelPrice(prices, model);
-    return qualifyStartBinding({ plugin: 'openrouter', model, effort,
+    const imageInput = Object.hasOwn(imageInputs, model) ? imageInputs[model] : undefined;
+    return qualifyStartBinding({ ...(imageInput ? { imageInput } : {}), plugin: 'openrouter', model, effort,
       endpoint: 'https://openrouter.ai/api/v1/chat/completions', accountRef: 'start2-openrouter', secretRef: 'OPENROUTER_API_KEY',
       // Binding maximum is a technical price bound; admission holds the request estimate.
-      maxMicro: tokenCeilingMicro(maxInputTokens, maxTokens, price), maxTokens, maxInputTokens, rates: { inputMicro: 0, outputMicro: 0 },
+      maxMicro: tokenCeilingMicro(maxInputTokens, maxTokens, price) + (imageInput?.maxImages ?? 0) * (imageInput?.perImageMicro ?? 0), maxTokens, maxInputTokens, rates: { inputMicro: 0, outputMicro: 0 },
       routing: { require_parameters: true, allow_fallbacks: false,
         ...(providerOnly?.length ? { only: [...providerOnly] } : {}),
         ...(ignore?.length ? { ignore: [...ignore] } : {}),

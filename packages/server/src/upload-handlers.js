@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { inputRevision, PluginError, operationScope } from '@inspr/aithema-core';
+import { inputRevision, PluginError, operationScope, stagedImage } from '@inspr/aithema-core';
 import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { scanUploadMultipart } from './upload-multipart.js';
@@ -19,7 +19,7 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 const extractionWaiters = [];
 let extracting = false;
 function releaseExtraction() { extracting = false; extractionWaiters.shift()?.(); }
-function acquireExtraction(signal) {
+function acquireExtraction(signal, image = false) {
   return new Promise((resolve, reject) => {
     const abort = () => {
       const index = extractionWaiters.indexOf(start);
@@ -34,14 +34,17 @@ function acquireExtraction(signal) {
     };
     if (signal.aborted) { reject(signal.reason); return; }
     if (!extracting) { start(); return; }
-    extractionWaiters.push(start);
+    start.image = image;
+    const before = image ? -1 : extractionWaiters.findIndex(waiter => waiter.image);
+    if (before < 0) extractionWaiters.push(start); else extractionWaiters.splice(before, 0, start);
     signal.addEventListener('abort', abort, { once: true });
   });
 }
 const extensions = { pdf: EXTRACTOR_MEDIA_TYPES.pdf, docx: EXTRACTOR_MEDIA_TYPES.docx, xlsx: EXTRACTOR_MEDIA_TYPES.xlsx,
   pptx: EXTRACTOR_MEDIA_TYPES.pptx, txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', xml: 'application/xml' };
 export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
-  const detected = sniffDocument(bytes, { ...EXTRACTOR_LIMITS, maxBytes });
+  const gif = bytes.length >= 6 && /^GIF8[79]a$/u.test(Buffer.from(bytes.subarray(0, 6)).toString('ascii'));
+  const detected = gif ? { mediaType: 'image/gif', reason: 'unsupported' } : sniffDocument(bytes, { ...EXTRACTOR_LIMITS, maxBytes });
   const extension = /\.([a-z0-9]+)$/iu.exec(filename)?.[1].toLowerCase(), expected = extensions[extension];
   if (detected.reason) return detected;
   // Text subtypes are heuristic: an empty markdown/CSV/JSON file still belongs
@@ -49,8 +52,17 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
   if (TEXT_MEDIA_TYPES.includes(detected.mediaType) && TEXT_MEDIA_TYPES.includes(expected)) return { mediaType: expected };
   return extension && expected !== detected.mediaType ? { mediaType: detected.mediaType, reason: 'unsupported' } : detected;
 }
-export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured }) {
-  const limits = normalizeUploadLimits(configured), jobs = new Map();
+export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured, now = () => storage.now() }) {
+  const limits = normalizeUploadLimits(configured), jobs = new Map(), expiryTimers = new Map();
+  function expire(id) {
+    for (const event of storage.expireStagedUploads(id, now())) { jobs.get(event.data.id)?.controller.abort(); publish(id, event); }
+    clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
+    const pending = storage.get(id).uploads.filter(upload => stagedImage(upload) && !upload.erased);
+    if (pending.length && !signal.aborted) {
+      const timer = setTimeout(() => expire(id), Math.max(1, Math.min(...pending.map(upload => upload.expiresAt)) - now()));
+      timer.unref?.(); expiryTimers.set(id, timer);
+    }
+  }
   function start(id, uploadId) {
     if (jobs.has(uploadId)) return jobs.get(uploadId).promise;
     if (signal.aborted) return;
@@ -58,31 +70,35 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     jobs.set(uploadId, job);
     job.promise = Promise.resolve().then(async () => {
       const upload = storage.get(id).uploads.find(u => u.id === uploadId);
-      if (!upload || upload.state !== 'pending') return;
-      const scope = operationScope({ signal: AbortSignal.any([signal, controller.signal]), deadlineAt: upload.deadlineAt });
+      if (!upload || !['pending', 'staged-pending'].includes(upload.state)) return;
+      const scope = operationScope({ signal: AbortSignal.any([signal, controller.signal]), deadlineAt: upload.deadlineAt, now });
       let result, release;
       try {
-        release = await acquireExtraction(scope.signal);
+        release = await acquireExtraction(scope.signal, upload.kind === 'image');
         scope.signal.throwIfAborted();
         const session = storage.get(id);
-        if (session.tombstone || !session.uploads.some(u => u.id === uploadId && u.state === 'pending')) return;
+        if (session.tombstone || !session.uploads.some(u => u.id === uploadId && ['pending', 'staged-pending'].includes(u.state))) return;
         const bytes = storage.uploadBytes(id, uploadId);
         if (!bytes) result = { status: 'unreadable', reason: 'unavailable', truncated: false };
         else {
-          const detected = sniffUploadDocument(bytes, upload.filename, limits.maxBytes);
-          if (bytes.length > EXTRACTOR_LIMITS.maxBytes || detected.reason) result = { status: 'unreadable', reason: bytes.length > EXTRACTOR_LIMITS.maxBytes ? 'limit' : detected.reason, truncated: false };
-          else result = await runtime.extractUpload({ session, uploadId, bytes, metadata: { filename: upload.filename, mediaType: detected.mediaType },
-            options: { signal: scope.signal, deadlineAt: upload.deadlineAt, now: Date.now } });
+          if (upload.kind === 'image') result = await runtime.normalizeImageUpload({ session, uploadId, bytes, metadata: { filename: upload.filename, mediaType: upload.mediaType }, options: { signal: scope.signal, deadlineAt: upload.deadlineAt, now } });
+          else {
+            const detected = sniffUploadDocument(bytes, upload.filename, limits.maxBytes);
+            if (bytes.length > EXTRACTOR_LIMITS.maxBytes || detected.reason) result = { status: 'unreadable', reason: bytes.length > EXTRACTOR_LIMITS.maxBytes ? 'limit' : detected.reason, truncated: false };
+            else result = await runtime.extractUpload({ session, uploadId, bytes, metadata: { filename: upload.filename, mediaType: detected.mediaType },
+              options: { signal: scope.signal, deadlineAt: upload.deadlineAt, now } });
+          }
         }
       } catch (error) {
         result = { status: 'unreadable', reason: scope.signal.aborted ? scope.signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled'
           : error instanceof PluginError && ['deadline', 'limit'].includes(error.code) ? error.code : 'unavailable', truncated: false };
       } finally { release?.(); scope.dispose(); }
+      if (upload.kind === 'image' && result.status !== 'staged-ready') result = { status: 'staged-refused', reason: result.reason ?? 'unavailable' };
       if (signal.aborted) return; // shutdown keeps durable pending work for restart
       const current = storage.get(id);
-      if (current.tombstone || !current.uploads.some(u => u.id === uploadId && u.state === 'pending')) return;
+      if (current.tombstone || !current.uploads.some(u => u.id === uploadId && ['pending', 'staged-pending'].includes(u.state))) return;
       const event = storage.completeUpload(id, uploadId, result);
-      if (event) { publish(id, event); onInput(id); }
+      if (event) { publish(id, event); if (!stagedImage(event.data)) onInput(id); }
     }).finally(() => jobs.delete(uploadId));
     job.promise.catch(() => {});
     return job.promise;
@@ -99,16 +115,28 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     await job.promise;
   }
   return { cancelSession, cancelUpload,
+    async cancelImages(id) {
+      const ids = new Set(storage.get(id).uploads.filter(upload => upload.kind === 'image').map(upload => upload.id));
+      await Promise.all([...jobs.keys()].filter(uploadId => ids.has(uploadId)).map(uploadId => cancelUpload(id, uploadId)));
+    },
     async handle(request) {
-      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/uploads(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(withdraw))?)?$/u.exec(new URL(request.url).pathname);
+      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/uploads(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(withdraw|image))?)?$/u.exec(new URL(request.url).pathname);
       if (!match) return null;
       const [, id, uploadId, action] = match;
-      const ownerToken = ownership.token(request), session = storage.authorize(id, ownerToken);
+      const ownerToken = ownership.token(request);
+      storage.authorize(id, ownerToken); expire(id);
+      const session = storage.authorize(id, ownerToken);
       const guard = { ownerToken, revision: inputRevision(session) };
+      if (request.method === 'GET' && action === 'image') {
+        const availability = await runtime.imageInputAvailability(session, { signal: request.signal, deadlineAt: now() + 1000, now });
+        const current = storage.authorize(id, ownerToken), image = storage.imageUpload(id, uploadId);
+        if (availability.reason || current.consentRevision !== session.consentRevision || !image) return json({ error: 'image-unavailable' }, 404);
+        return new Response(image.imageBytes, { headers: { 'content-type': image.mediaType, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'" } });
+      }
       if (uploadId && (request.method === 'DELETE' && !action || request.method === 'POST' && action === 'withdraw')) {
         const event = storage.withdrawUpload(id, uploadId, guard);
         jobs.get(uploadId)?.controller.abort(new DOMException('Upload withdrawn', 'AbortError'));
-        await Promise.all([jobs.get(uploadId)?.promise, onWithdraw(id, event)]);
+        await Promise.all([jobs.get(uploadId)?.promise, stagedImage(event.data) ? Promise.resolve(publish(id, event)) : onWithdraw(id, event)]);
         return json({ withdrawn: uploadId, event, providerDeletion: 'not-confirmed' });
       }
       if (request.method === 'GET' && !uploadId) return json({ uploads: session.uploads, limits });
@@ -124,7 +152,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       requestsPerSession.set(id, active + 1); requestsInDeployment++;
       let retained = false;
       try {
-        const deadlineAt = Date.now() + limits.requestBudgetMs;
+        const deadlineAt = now() + limits.requestBudgetMs;
         const bytes = await readBody(request, limits.maxRequestBytes);
         const { parts, metadata } = scanUploadMultipart(bytes, request.headers.get('content-type'), limits.maxFilesPerRequest);
         const form = await new Request(request.url, { method: 'POST', headers: { 'content-type': request.headers.get('content-type') }, body: metadata }).formData();
@@ -140,7 +168,8 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         if (entries.length > limits.maxFilesPerRequest || entries.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload file limit');
         const files = entries.map(({ value: f, bytes }) => {
           const detected = sniffUploadDocument(bytes, f.name, limits.maxBytes);
-          return { bytes, filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
+          const image = /^image\//u.test(detected.mediaType) || /\.(?:png|jpe?g|webp|gif)$/iu.test(f.name) || !/\.[a-z0-9]+$/iu.test(f.name) && /^image\/(?:png|jpeg|webp|gif)$/u.test(f.type);
+          return { bytes, ...(image ? { kind: 'image' } : {}), filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
         });
         // Multipart boundary and the untrusted client MIME are transport details.
         // The receipt binds exact filenames, order, content bytes and base revision.
@@ -149,17 +178,22 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         const replay = storage.uploadReceipt(id, clientEventId, digest, guard);
         if (replay) return json({ accepted: true, ...replay, uploads: replay.events.map(e => e.data), limits });
-        const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt, now: Date.now });
-        storage.authorize(id, ownerToken);
-        if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
-        // An earlier file can finish during admission of the next batch. No receipt exists yet:
-        // let the client retry against fresh admission rather than reporting a byte conflict.
-        if (inputRevision(storage.get(id)) !== guard.revision) return json({ error: 'upload-rate-limit' }, 429);
-        if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
+        for (const image of [false, true]) {
+          if (!files.some(file => (file.kind === 'image') === image)) continue;
+          const availability = await (image ? runtime.imageInputAvailability : runtime.uploadAvailability)(session, { signal: request.signal, deadlineAt, now });
+          storage.authorize(id, ownerToken);
+          if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
+          // An earlier file can finish during admission of the next batch. No receipt exists yet:
+          // let the client retry against fresh admission rather than reporting a byte conflict.
+          if (inputRevision(storage.get(id)) !== guard.revision) return json({ error: 'upload-rate-limit' }, 429);
+          if (files.some(file => file.kind === 'image') && storage.get(id).consentRevision !== session.consentRevision) return json({ error: 'uploads-unavailable', reason: 'current processing consent required' }, 403);
+          if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
+        }
         const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision });
         if (!result.replayed) {
           for (const event of result.events) publish(id, event);
-          onInput(id, { pending: true });
+          if (result.events.some(event => !stagedImage(event.data))) onInput(id, { pending: true });
+          expire(id);
           const pending = result.events.map(event => start(id, event.data.id));
           // This callback captures no request body or multipart byte views.
           Promise.allSettled(pending).then(releasePendingRequest);
@@ -174,8 +208,9 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       }
     },
     resume() {
+      for (const id of storage.list()) expire(id);
       for (const id of storage.list()) for (const upload of storage.get(id).uploads) {
-        if (upload.state !== 'pending' || jobs.has(upload.id) || signal.aborted) continue;
+        if (!['pending', 'staged-pending'].includes(upload.state) || jobs.has(upload.id) || signal.aborted) continue;
         // Old durable backlogs may exceed today's admission budget. Drain their
         // metadata through the same FIFO and refuse new bodies until it clears.
         pendingUploadRequests++;
@@ -183,6 +218,6 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       }
     },
     idle: () => Promise.allSettled([...jobs.values()].map(j => j.promise)),
-    close: () => Promise.allSettled([...jobs.values()].map(j => { j.controller.abort(); return j.promise; })),
+    close: () => { for (const timer of expiryTimers.values()) clearTimeout(timer); expiryTimers.clear(); return Promise.allSettled([...jobs.values()].map(j => { j.controller.abort(); return j.promise; })); },
   };
 }
