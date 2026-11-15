@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession } from '../../core/src/session.js';
 import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -56,4 +57,19 @@ test('AIT-505: first send applies both returned events without a snapshot restor
   assert.equal(c.session.transcript[0].id,'host:opener');
   assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'),row);
   assert.equal(fetch.mock.callCount(),1);
+});
+
+for (const peer of [false,true]) test(`AIT-505: pre-input locale event resolves host copy in ${peer?'peer':'requesting'} tab`, async t => {
+  const c=document.createElement('aithema-session');c.configure({copy:en,session:session(),copyForLocale:locale=>locale==='de'?de:en});t.after(()=>c.remove());
+  c.shadowRoot.querySelector('.ready__start').click();
+  const event={seq:1,type:'session.locale-changed',data:{locale:'de',opener:{text:'Willkommen von einem Host.',locale:'de'}}};
+  if(peer)c.receive(event);
+  else {
+    t.mock.method(globalThis,'fetch',async()=>Response.json({event}));
+    assert.equal(await c.changeLocale('de'),true);
+  }
+  assert.equal(c.session.transcript.length,0);
+  assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"] .turn-text')?.textContent,event.data.opener.text);
+  c.receive({seq:2,type:'session.locale-changed',data:{locale:'en',opener:null}});
+  assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'),null,'missing locale clears the render-only row');
 });

@@ -97,3 +97,15 @@ for (const locale of ['en','de']) test(`AIT-505: ${locale} persistence pins its 
   assert.equal(first.id,'host:opener');assert.equal(first.content,opener[locale]);
   assert.throws(()=>f.storage.changeLocale(f.session.id,locale==='en'?'de':'en',{ownerToken:testToken}));
 });
+
+test('AIT-505: locale events publish resolved opener copy or explicit absence', async t => {
+  for(const configured of [opener,{en:opener.en}]) {
+    const f=await fixture(t,{opener:configured});
+    const response=await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/locale`,{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({locale:'de'})}));
+    assert.equal(response.status,200);const body=await response.json();
+    assert.deepEqual(body.event.data.opener,configured.de?{text:configured.de,locale:'de'}:null);
+    assert.equal(f.storage.get(f.session.id).transcript.length,0);
+    assert.equal('opener' in f.storage.read(f.session.id).findLast(e=>e.type==='session.locale-changed').data,false,'public copy is not journal content before input');
+  }
+});
