@@ -1666,3 +1666,9 @@ test('AIT-507 opener, uploads and a failed reply cannot trigger the offer', asyn
   f.storage.append(f.s.id, 'turn.final', { id: 'next-reply', role: 'assistant', content: 'A reply.' });
   const shown = await (await f.claim()).json(); assert.equal(shown.accepted, true); assert.equal(shown.emailOffer.at, 'next-reply');
 });
+
+test('AIT-507 policy without a threshold defaults to two messages', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
+  const f = fixture(t, { clockedConsent: true, emailOffer: {} }), s = await f.create();
+  assert.deepEqual(s.emailOffer, { afterMessages: 2 });
+});

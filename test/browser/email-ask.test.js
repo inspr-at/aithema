@@ -499,7 +499,14 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-    const shot = async state => { if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
+    let baseline = null;
+    const shot = async state => {
+      if (baseline) {
+        const current = await measured();
+        const shift = Math.max(...baseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - current[i][j]))));
+        assert.ok(shift <= .5, `${label}/${state}: control shift ${shift}`); rects.push({ label, state, before: baseline, after: current, shift });
+      }
+      if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
     await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent');
@@ -516,12 +523,13 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     assert.ok(shift <= .5, `${label}: control shift ${shift}`); rects.push({ label, before, after, shift });
     const state = await shadow(page, c => { const r = c.shadowRoot; return { notice: r.querySelector('.email-offer .m-notice-text').textContent, href: r.querySelector('.email-offer .m-pp').getAttribute('href'), inert: r.querySelector('form.composer').inert, count: c.session.transcript.length, active: r.activeElement?.id }; });
     assert.match(state.notice, locale === 'en' ? /advertising/ : /Werbung/); assert.equal(state.href, '/privacy'); assert.equal(state.inert, false); assert.equal(state.count, 4); assert.notEqual(state.active, 'email-offer-input');
-    await shot('capture');
+    baseline = after; await shot('capture');
     await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'sent');
     assert.equal(await page.evaluate(() => window.ait164.noticeVersion), 'ait-135-v1'); await shot('sent');
     await shadow(page, c => { window.ait164.confirmed = true; c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, status: 'verified', address: 'visitor@example.test', assessmentUnlocked: true, conceptsUnlocked: true } }); });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'confirmed'); await shot('confirmed');
+    baseline = null;
     await fixture(page, locale, { delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, address: 'saved@example.test', lock: true });
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false);
