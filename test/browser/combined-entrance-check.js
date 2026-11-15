@@ -29,7 +29,7 @@ globalThis.fetch=async(url,options={})=>{
 };
 const client={async start({callId}){trace.push('admission');trace.push('permission');if(denied)throw Object.assign(new Error('blocked'),{name:'NotAllowedError'});trace.push('call');const events=voiceEvents();return {callId,providerSessionId:'fixture',events,async setInput(value){trace.push(['capture',value])},async setOutput(){},async updateContext(){},async sendText(text){trace.push(['typed',text])},async pause(){return {acknowledged:true,paused:true}},async resume(){return {acknowledged:true,paused:false}},async heartbeat(){return {acknowledged:true,browserLivenessDeadlineAt:Date.now()+30000}},async close(){events.end();return {closureConfirmed:true}}}}};
 globalThis.mount=(snapshot)=>{c.configure({entrance:'combined',copy:locale==='de'?de:en,session:snapshot||createSession({demo:true,locale,settings:{origin:'chosen',voice:'fixture'}}),voiceClient:client})};
-const session=saved?JSON.parse(saved):createSession({demo:true,locale,settings:{origin:new URL(location.href).searchParams.has('unchosen')?'default':'chosen',voice:'fixture'}});if(new URL(location.href).searchParams.has('opener'))session.opener={text:locale==='de'?'Willkommen. Ihre KI-Assistenz ist bereit.':'Welcome. Your AI assistant is ready.',locale};session.featureMatrix={best:{text:granted?allowed:blocked,voice:granted?allowed:blocked,analysis:allowed}};mount(session);
+const session=saved?JSON.parse(saved):createSession({demo:true,locale,settings:{origin:new URL(location.href).searchParams.has('unchosen')?'default':'chosen',voice:'fixture'}});if(new URL(location.href).searchParams.has('opener'))session.opener={text:locale==='de'?'Willkommen. Ihre KI-Assistenz ist für Sie bereit.':'Welcome. Your AI assistant is ready to help.',locale};session.featureMatrix={best:{text:granted?allowed:blocked,voice:granted?allowed:blocked,analysis:allowed}};mount(session);
 c.addEventListener('aithema-consent',e=>{trace.push('consent');globalThis.consent=e.detail});
 globalThis.grant=()=>{granted=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
 globalThis.ready=true;
@@ -249,7 +249,7 @@ export async function combinedOpenerCheck(t) {
           const selectors = ['[data-id="host:opener"]','textarea','.composer-mic','.send','.composer-feedback','.composer-status'];
           const shell=root.querySelector('.transcript-shell');
           return { shell:{box:rect(shell),height:shell.scrollHeight,client:shell.clientHeight,top:shell.scrollTop},
-            concept:rect(root.querySelector('.concept-bar')),opener:rect(row), footer:rect(root.querySelector('.display-foot')), dock:rect(root.querySelector('.composer-dock')),
+            concept:rect(root.querySelector('.concept-bar')),intro:root.querySelector('.intro').hidden?null:rect(root.querySelector('.intro')),opener:rect(row), footer:rect(root.querySelector('.display-foot')), dock:rect(root.querySelector('.composer-dock')),
             scroll:rect(root.querySelector('.conversation-scroll')), short:root.querySelector('.workspace').hasAttribute('data-phone-short'),
             count:root.querySelectorAll('[data-id="host:opener"]').length,
             visible:selectors.map(selector => {const node=root.querySelector(selector),r=node.getBoundingClientRect();
@@ -275,6 +275,11 @@ export async function combinedOpenerCheck(t) {
           const a=placement.visible[i],b=placement.visible[j],x=Math.min(a.box[0]+a.box[2],b.box[0]+b.box[2])-Math.max(a.box[0],b.box[0]),
             y=Math.min(a.box[1]+a.box[3],b.box[1]+b.box[3])-Math.max(a.box[1],b.box[1]);
           assert.ok(x<=.5||y<=.5,`${state}: ${a.selector} overlaps ${b.selector}`);
+        }
+        if (placement.intro) {
+          positive({intro:placement.intro});
+          assert.ok(placement.intro[1]>=placement.opener[1]+placement.opener[3]-.5,
+            `readiness must not overlap the welcome: ${JSON.stringify(placement)}`);
         }
         assert.ok(placement.opener[1]>=placement.scroll[1]-.5 && placement.opener[1]+placement.opener[3]<=Math.min(placement.scroll[1]+placement.scroll[3],placement.dock[1])+.5,
           `opener fits above the composer: ${JSON.stringify(placement)}`);
