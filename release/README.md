@@ -54,6 +54,215 @@ and retention evidence for that CI source commit. A tag build from the same C
 must have the same normalized member digest; exact archive hashes remain specific
 to the candidate or published set.
 
+## Twenty-fourth candidate (AIT-525)
+
+The reserved coordinate is `261115062259.0.0` (UTC reservation time 2026-11-15T06:22:59Z),
+stable sequence 35 (previous: 34), status `reserved`, scheme `inspr-calver-3`.
+Marketing name: **Aithema 2026.10**, with the exact version below the notes title.
+Per RC20–RC23, the visible product name stays as documented in `docs/embedding.md`
+and hard-coded in the UI; changing it is a separate product decision. Both still
+say Aithema 2026.10. Authority is Markus's standing release go, Desk
+**4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19, and MAC-LEAD
+2026-11-14 16:36: “RC24 stays whole (503/504/516 included), candidate in the
+morning.” The 2026-11-15 06:59 brief was approved at 07:03 with two additions,
+both applied. The coordinator holds `release-lock/seq-35`, pushed on 2026-11-15
+at base `8c9f7d1319ec4f0f3a382f4cce7e71f39ca7f089` (L), annotated tag object
+`1dbbb50c62e249f3309846eea21745ff212eb94f`; the remote reference was checked.
+
+This is the **sixteenth release on the active fixed-candidate route (AIT-363 B)**.
+Order: lock tag (done), prep, coordinator gates, true merge preserving C,
+candidate marker, OPS cut, verification. There is **no merge freeze**: main
+keeps moving; the final committed RC head C is the candidate. Builders prepare
+only and invoke no reviewer models, pushes, PRs, tags, tag pushes, GitHub releases
+or publication. The coordinator owns release gates, push, PR, merge and the
+candidate marker; MAC-OPS owns the cut. This preparation changes release metadata
+and notes only. START pins separately; nothing waits on this release.
+
+Every requested Content item is on main at L. The complete first-parent range
+since `v261112091755.0.0` through L contains exactly nine PR merges:
+#433 (AIT-498 RC23 preparation, `324dfad9`),
+#434 (AIT-486, `f4d32c9b`), #435 (AIT-488 part B, `f8da293f`),
+#436 (AIT-518, `6ff89821`), #437 (AIT-502, `1173ddf5`),
+#438 (AIT-504 with AIT-503 non-visual work, `206af44d`),
+#439 (AIT-504 follow-ups, `bd0686b1`), #440 (AIT-501/AIT-512, `7a7d3d96`)
+and #441 (AIT-503 visible/AIT-516, `8c9f7d13`).
+Stop and report any difference; do not extend L's content range.
+#441's merged gated head is `81b6e4298ec4e4c1fafc552eebd0edb082df888d`
+(gate3), confirmed as its second parent.
+
+AIT-486 re-anchors the resend countdown on a fresh identity view after resync;
+it can only shorten, never extend. AIT-518 checks identity/unlock immediately at
+connect, page-visible, window focus and when a gate first opens. Checks coalesce
+within 250 ms with one in flight. The API is unchanged; hosts see an earlier and
+slightly more frequent `POST S/identity/unlock` while a link is pending.
+
+AIT-502 uses one voice-end classifier. Optional `timeLimit: 'call' | 'conversation'`
+on `voice.state`, the start receipt, snapshot projection and a plugin's `ended`
+event is additive. A resumed-call bound refusal adds optional
+`reason: 'time-limit'` and `timeLimit` to the existing 504 `deadline` receipt;
+other statuses and host requirements are unchanged. `voiceConnectionFailed`
+keeps its text; `voiceDeadline` is deprecated but still exported. A close ×
+appears only in failed states, with none in the phone status row.
+
+AIT-504 adds the overview status slot (Up to date / Updating / preparing /
+staleIdle / failure), the 18-second bounded snapshot read (one GET with a
+two-second deadline), snapshot apply and finalized-turn fence. Follow-ups fix
+the slot at 4.35em for the reachable three-line worst case, remove the separator
+before an action on its own row, add the ahead-snapshot revision fence and clamp
+long consent overrides while retaining the action. The original freeze report
+did not reproduce; this release makes status visible and does not claim to have
+found or fixed a scheduler bug. AIT-503's non-visual work adds the refusal trace,
+reconciles answered open questions and makes prompt questions address the visitor.
+
+AIT-503's visible work classifies Clarify refusals as Wait / Retryable /
+Actionable / Terminal through an internal, unexported UI policy. The question-row
+action is left-anchored in a fixed line. A documented diagnostic
+`console.warn('Aithema: clarify refusal', fields)` covers backend refusals,
+transport errors and accepted commands whose reply lane fails; fields contain
+allowlisted codes, not conversation content. The local reply-in-flight guard
+stays quiet. Core exports no `./question-focus` subpath; its existing root focus
+functions remain available. AIT-516 counts open questions in EN/DE and adds
+singular readiness overflow copy. Approved processing strings change
+`reasoningFailed`, `settings.fixedEffort`, `errors.delegated` and
+`host.loadingBinding` in EN/DE.
+
+All new copy keys and fallbacks (#437, #438, #441):
+
+| New key | Legacy fallback / default |
+| --- | --- |
+| `voiceConnectFailed` | `voiceConnectionFailed` |
+| `voiceTimeLimit` | `voiceDeadline` (deprecated, exported) |
+| `voiceMessagesNarrow.voiceConnectFailed` | No legacy fallback; active locale, then English |
+| `voiceMessagesNarrow.voiceTimeLimit` | No legacy fallback; active locale, then English |
+| `voiceMessageClose` | No legacy fallback; active locale, then English |
+| `overviewCurrent` | `final` |
+| `staleIdle` | No legacy fallback; active locale, then English |
+| `overviewStatusLabel` | No legacy fallback; active locale, then English |
+| `clarifyFailed` | `reasoningFailed`; accepted rows retain `clarify.failed` beneath explicit root overrides |
+| `clarifyFailedShort` | Active locale, then English; accepted rows retain `clarify.failedShort` |
+| `clarifyUnavailable` | No legacy fallback; active locale, then English |
+| `retryFailed` | `reasoningFailed` |
+| `replyFailed` | `reasoningFailed` |
+| `replyKeepTyping` | No legacy fallback; active locale, then English |
+| `questionsCounted` (`zero`, `one`, `other`) | `questions` |
+| `moreOne` | `more` (legacy override wins for both counts) |
+
+Shared resolver: `packages/ui/src/copy-resolve.js`. A host's new-key override
+differing from the shipped default wins; otherwise a legacy override differing
+from the shipped default wins; otherwise the shipped new-key default wins.
+Shipping a default new-key value in an older customized bundle does not mask its
+legacy override. Brand-new keys use host text, active-locale text, then English.
+`reasoningFailed` has a new default but remains exported, with legacy overrides
+preserved. The short “Not now” belongs to `clarifyFailedShort`; `clarifyFailed`
+is the long failure text. Accepted-row `clarify.say.retry` overrides remain
+supported beneath explicit root failure overrides. Updating still uses `stale`;
+`preparingOverview` and `draft` keep their roles. The German “Was noch offen ist”
+heading is replaced by counted visitor copy; a host's `questions` override keeps
+showing. Existing `more` and `plural` exports remain supported.
+
+AIT-501 adds `intent`, `mode` and `required` to `aithema-consent` detail, retaining
+`reason: 'ready'` and full `features`. Reasons remain `chooser`, `ready`, `manage`
+and `settings`; `intent` is `start` for ready-card Start and `review` otherwise,
+`mode` is `type` or `voice`, and `required` lists that mode's consent-blocked
+feature. Text resumes after consent on its own. Voice resumes only with live
+user activation; otherwise Start call gets focus. After navigating to a consent
+page, voice needs one click on “Start call”, as the README documents. AIT-512
+keeps the new turn in view after a pick/send and guards every interactive
+transcript/card control against a quick second click.
+
+**CI-only and dev-only (AIT-488 part B, #435):** happy-dom 21.0.4, with orb
+finished-promise handling in a test helper. It is not shipped; the sixteen-module
+release closure is unchanged. Voxtral (AIT-342) stays parked, private and outside
+the closure; provider-side live-call closure (AIT-446's second part) stays parked
+until ElevenLabs monitoring is enabled. Grok Voice is **not yet qualified in live
+use**; “Aithema recommends” is preserved. RC14's host requirements and RC23's
+asynchronous-delivery `identity.acceptsAddress` requirement still apply.
+
+The previous release `v261112091755.0.0`, stable sequence 34, AIT-498,
+is recorded in `history.json` at source `dce6115fa28ee19af167fa1c3daea28df8ba102d`
+and [its forge release](https://github.com/inspr-at/aithema/releases/tag/v261112091755.0.0),
+using the same fields as earlier published entries. Its tag resolves to that
+source; sequence 35 is reserved, not added to published history.
+
+Notes lead with the visible overview status, then consent continuation and a chat
+that follows the answer, honest call endings, current email status, an accurate
+resend countdown, honest Clarify recovery and counted open questions. The pills
+and benefits use the ticket wording. **Breaking for hosts relative to RC23: none**:
+the actual diff adds optional fields and copy keys, changes no configuration,
+HTTP status or required host integration, removes no public export and retains
+legacy overrides. The German heading is visitor copy, `voiceDeadline` remains
+exported, and the internal policy adds no core export subpath. MAC-LEAD owns the
+notes look.
+
+The final preparation lock's npm audit line is **0 vulnerabilities**:
+`npm audit --package-lock-only --omit=dev` reports **0 in the release closure**;
+`npm audit --package-lock-only` also reports **0**, leaving **0 dev-only**.
+happy-dom's earlier advisories are gone with 21.0.4 (AIT-488 part B).
+Stop and report any release-closure finding.
+
+Carried notes: `next-notes.md` already contains only `# Next release — unreleased`;
+there were no entries to fold. The #436–#441 host changes are covered in
+`notes.md` above. All manifests, lockfile entries and internal pins, including
+private source-only workspaces, mirror the reservation. Migration pins stay
+fixed. **presentation pin reviewed: unchanged at
+bd0a13816f728ad91c36d849f88168bcac4fdc6e**. Current upstream HEAD matches that
+revision. `release/verify-upstream-presentation.mjs` against inspr-at/inspr and
+`release/presentation-pin.mjs` both verify the complete tracked payload;
+config SHA-256 `bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`,
+manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
+No presentation files change. `release/evidence.json` remains historical;
+retained final-head evidence is authoritative for this preparation.
+
+Preparation order (remote execution only):
+
+1. Check Content and the unchanged coordinator-held lock at L. Commit reservation,
+   mirrors, internal pins, published history, notes and this runbook with
+   `git commit -s`, ending the message with
+   `Co-Authored-By: Codex <noreply@openai.com>`. Worktree:
+   `/Users/markus/Code/aithema-worktrees/ait-525`; branch:
+   `release/ait-525-twenty-fourth-release`; recorded builder session:
+   `AIT-525-prep` (`f0ca5084-c892-4d5e-8031-fdc23e212091`, role builder).
+2. Run the release test set on the **final committed C**, with the durable
+   fetch-retry wrapper for every `EVIDENCE_OUT` run. The candidate test builds
+   twice, verifies, smoke-tests the isolated sixteen-module consumer, reinstalls
+   the lock, replaces the dependency and proves exact rollback, with mocks only.
+   Tag-matching and admission tests use synthetic fixtures, never operational
+   tags. WAIT/exit 3 or 7 means back off about five minutes and retry, up to
+   48 admissions; never run locally. The wrapper holds reservations during the
+   agm2 02:20–05:50 quiet window. Any test failure means stop and report.
+   Because the UI manifest version changes, also run the **whole browser suite**
+   remotely, retaining per-file counts. PR CI repeats the browser checks.
+
+   ```sh
+   EVIDENCE_OUT="$PWD/dist/ait525-final" FETCH_TRIES=300 \
+     /Users/markus/.local/share/ait-qa/coordinator/rb-fetchretry.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-525/dist/ait525-final/candidate/`,
+   including `first/`, `candidate-evidence.json`, isolated deployment and consumer
+   pins/locks. Confirm `source_commit` equals C, and recompute `manifest_sha256`
+   and `normalized_digest` against `first/`. Make **no evidence-only commit after
+   the final build**; a source change requires another final-head build. Record
+   the actual passing release-test count in `.data/ait-525/handoff.txt`, together
+   with the browser results and per-file counts. RC23's runbook did not retain a
+   final count here; do not substitute an older candidate's count.
+4. Commit locally only; do not push or open a PR. Hand off C and every commit
+   since L, sequence 35 (previous: 34), version, retained directory, manifest
+   SHA-256, normalized digest, presentation result, Content range, breaking
+   decision and reason, final-lock audit, release/browser results, #441's merge
+   and gated head, and anything unproved in `.data/ait-525/handoff.txt`.
+   The coordinator owns gates, push, PR, green CI and true merge, then records
+   the candidate marker. MAC-OPS owns the cut. Retain evidence in durable owner
+   storage before publication; CI retains `reset-candidate-attempt-<N>` for
+   90 days. The builder never publishes.
+
 ## Twenty-third candidate (AIT-498)
 
 The reserved coordinate is `261112091755.0.0` (UTC reservation time 2026-11-12T09:17:55Z), stable sequence
