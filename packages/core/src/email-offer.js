@@ -1,11 +1,8 @@
 import { activeTurns } from './session.js';
-import * as documentContext from './document-context.js';
+import { hasVisitorInput } from './document-context.js';
 
-// AIT-505 supplies hasVisitorInput at integration. The current predicate has
-// the same active user/document semantics and keeps this opt-in independent.
-export const hasOfferVisitorInput = session => (documentContext.hasVisitorInput ?? documentContext.hasConversationInput)(session);
 export const visitorMessageCount = session => new Set(activeTurns(session)
-  .filter(turn => turn.role === 'user' && hasOfferVisitorInput({ ...session, transcript: [turn], uploads: [] }))
+  .filter(turn => turn.role === 'user' && hasVisitorInput({ ...session, transcript: [turn], uploads: [] }))
   .map(turn => turn.id)).size;
 
 export function emailOfferPolicy(value) {

@@ -3853,7 +3853,11 @@ action only for an unsaved address while capture is deferred, reserving the
 action's space when a next tier exists so revealing it does not move the popover.
 Without a next tier, the action and its reserved slot are absent.
 A saved address keeps its Change and Delete controls in Settings. The host opener
-never counts as visitor input. Confirmation still unlocks the assessment and
+never counts as visitor input. Accepted or unreadable documents do count as
+visitor input through core `hasVisitorInput`, revealing the overview and Settings
+capture, but do not advance the offer’s accepted-message threshold. An opener
+alone cannot trigger a low-credit form, line or confirmation action.
+Confirmation still unlocks the assessment and
 concepts; starting a conversation does not require an email address.
 
 The offer counts accepted text and final speech messages, deduplicated by turn
@@ -3886,7 +3890,7 @@ Copy comes from the existing `hostGive`, `hostConfirm`, `verify.lockLead`,
 `verify.send`, `verify.resend`, `verify.sent` and `verify.unlocked` keys, so host
 copy overrides apply. No new copy keys are required. The additive
 `@inspr/aithema-core/email-offer` subpath exports the shared `emailOfferPolicy`,
-`emailOfferEligibility`, `visitorMessageCount` and `hasOfferVisitorInput` helpers
+`emailOfferEligibility` and `visitorMessageCount` helpers
 used by the server and UI, so packed consumers use the same policy and predicates.
 With `emailOffer` configured, the demo tier projection offers confirmation
 directly when saving adds no credit but confirmation has a positive delta.

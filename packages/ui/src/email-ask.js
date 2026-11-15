@@ -1,3 +1,4 @@
+import { hasVisitorInput } from '../../core/src/document-context.js';
 import { activeTurns } from '../../core/src/session.js';
 import { fill, setText } from './dom.js';
 import { formatCredits } from './display.js';
@@ -66,8 +67,8 @@ export class EmailAsk {
     if (this.lowCredits && this.credits?.emailAskLowCredits !== false) return null;
     if (this.state.lowLine) return { ...this.state.lowLine, reserved: true };
     if (!lowCredit(this.credits)) return null;
-    const turns = activeTurns(this.session()), last = turns.at(-1);
-    if (last?.role !== 'assistant') return null;
+    const session = this.session(), turns = activeTurns(session), last = turns.at(-1);
+    if (!hasVisitorInput(session) || last?.role !== 'assistant' || last.id === 'host:opener' || last.origin === 'host') return null;
     return { ...(this.state.lowLine ?? { at: last.id, kind: this.credits?.tiers?.next === 'emailConfirmed' ? 'confirm' : this.eligible ? 'give' : 'none',
       deltaMicro: this.credits?.tiers?.delta ?? 0, availableMicro: this.credits?.balance?.owner?.availableMicro }), reserved: true };
   }
@@ -91,7 +92,9 @@ export class EmailAsk {
     if (!this.alive || !this.connected) return;
     if (this.dismissPending) { this.paint(); if (!this.busy) void this.act('dismiss'); return; }
     if (this.session().emailOffer && this.state.why === 'turn5' && !this.manual) this.open = false;
-    const turns = activeTurns(this.session()), replied = turns.at(-1)?.role === 'assistant', count = turns.filter(turn => turn.role === 'user').length;
+    const session = this.session(), turns = activeTurns(session), last = turns.at(-1);
+    const replied = hasVisitorInput(session) && last?.role === 'assistant' && last.id !== 'host:opener' && last.origin !== 'host';
+    const count = turns.filter(turn => turn.role === 'user').length;
     const low = this.lowCredits && this.credits?.emailAskLowCredits !== false && lowCredit(this.credits), safe = replied && !this.streaming() && !this.callActive && !this.typing;
     if (this.callActive && this.open && !this.desktop) { void this.dismiss(false); return; }
     if (!(this.session().emailOffer && this.state.why === 'turn5') && (this.state.why !== 'low' || this.lowCredits && this.credits?.emailAskLowCredits !== false) && this.state.open && !this.open && safe && (this.eligible || this.email.address)) {

@@ -1,7 +1,7 @@
 import { emailOfferPolicy, emailOfferEligibility, visitorMessageCount } from '../../core/src/email-offer.js';
 import { ACTOR_ROLES, createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
   assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
-  operationScope, untilCancelled, activeTurns } from '@inspr/aithema-core';
+  operationScope, untilCancelled, activeTurns, hasVisitorInput } from '@inspr/aithema-core';
 import { NotFoundError } from './storage.js';
 import { createTouchVisitor } from './host-activity.js';
 
@@ -421,7 +421,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           const low = !credits.exhausted && credits.balance.owner.availableMicro > 0 && credits.balance.owner.availableMicro <= credits.lowAtMicro;
           const eligible = !(host.emailAsk?.lowCredits === false && low) && !credits.exhausted && credits.tiers?.next === 'emailGiven' && credits.tiers.delta > 0 &&
             (host.demo === true || privacyDocumentConfigured(host)) && !host.visitor?.(ownerToken)?.address;
-          const settled = turns.at(-1)?.role === 'assistant';
+          const settled = hasVisitorInput(storage.get(id)) && turns.at(-1)?.role === 'assistant' &&
+            turns.at(-1).id !== 'host:opener' && turns.at(-1).origin !== 'host';
           let accepted = false;
           // Read-only credit projections never change the latch. The client
           // acknowledges a rise here; request bodies cannot supply a balance.

@@ -17,6 +17,9 @@
   The verification lock stays until
   confirmation. The host opener, assistant turns, documents, partials and
   duplicate messages cannot advance the offer's accepted-message count.
+  Accepted/unreadable documents do reveal the overview and Settings capture
+  through core `hasVisitorInput`; they do not advance that message count.
+  An opener alone cannot trigger low-credit forms, lines or confirmation actions.
 - The existing email-ask route accepts `why: 'offer'` with `show` or `dismiss`.
   The credit receipt and response add a private `emailOffer` record with
   `offered`, `open`, `dismissed`, `at`, `nextTier`, `deltaMicro`, and `revision`.
@@ -42,8 +45,8 @@
   `email.failed`, saving uses `email.saving`, and confirmation-link failures
   after saving use `verify.deliveryFailed`. There are no new copy keys.
 - The additive `@inspr/aithema-core/email-offer` subpath exports shared
-  `emailOfferPolicy`, `emailOfferEligibility`, `visitorMessageCount` and
-  `hasOfferVisitorInput` helpers for the server and UI, including packed consumers.
+  `emailOfferPolicy`, `emailOfferEligibility` and `visitorMessageCount` helpers for the
+  server and UI, including packed consumers.
 
 
 - AIT-505: additive `hasVisitorInput(session)` core export separates active visitor/document input from host or assistant text; `hasConversationInput` remains an alias. Existing workspace display triggers (withdrawn input, pending uploads and ordinary assistant greetings/streaming) remain visible without satisfying assessment/admission thresholds; a host-only opener does not reveal the overview. `conversationStarted` keeps its locale-locking meaning. UI `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` project the entrance opener without changing the canonical transcript.

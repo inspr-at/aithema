@@ -1647,6 +1647,10 @@ for (const next of ['emailGiven', 'emailConfirmed']) test(`AIT-507 integration: 
     assert.deepEqual(f.host.lowEmailAsk(owner), low, 'opener cannot consume the low-credit claim');
   }
   assert.equal((await (await f.claim()).json()).accepted, false);
+  await f.send('first-visitor');
+  const line = await (await f.call(`${f.base}/email-ask`, { action: 'line' })).json();
+  assert.equal(line.accepted, true, 'a real visitor reply retains the independent low-credit line');
+  assert.notEqual(line.emailAsk.lowLine.at, 'host:opener');
 });
 test('AIT-507 publishes policy, waits for N accepted messages, latches independently of low claims', async t => {
   const f = await offerFixture(t);

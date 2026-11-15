@@ -1,6 +1,4 @@
-import { hasOfferVisitorInput } from '../../core/src/email-offer.js';
 import { EmailOffer } from './email-offer.js';
-
 import { hasVisitorInput } from '../../core/src/document-context.js';
 import { de } from './i18n/de.js';
 import { en } from './i18n/en.js';
@@ -237,7 +235,7 @@ export class HostSurface {
     this.#refreshCredits(); this.update();
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
-  #captureDeferred() { return Boolean(this.#session().emailOffer && !this.usedUp && !hasOfferVisitorInput(this.#session())); }
+  #captureDeferred() { return Boolean(this.#session().emailOffer && !this.usedUp && !hasVisitorInput(this.#session())); }
   updateStreaming() { if (this.#erased) return; this.#verification?.setCaptureDeferred(this.#captureDeferred()); this.#verification?.update(); }
   update() { if (this.#erased) return; this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); this.#emailOffer?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }

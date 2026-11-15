@@ -1,6 +1,4 @@
-import { hasOfferVisitorInput } from '../../core/src/email-offer.js';
 import { emailOfferStyles } from './email-offer.js';
-
 import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
