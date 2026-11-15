@@ -1612,14 +1612,14 @@ async function offerFixture(t, afterMessages = 2, options = {}) {
   };
   return { ...f, s, base, claim, send };
 }
-// Exercise AIT-505's real successful-connection persistence path; no provider.
+// Exercise AIT-505's real composed/text-only connection persistence path.
 async function connectOfferOpener(f) {
   const voice = createVoiceHandlers({ storage: f.storage, opener: { en: 'Welcome. Your AI assistant is ready.' },
     ownership: { token: () => owner }, readBody: async r => new Uint8Array(await r.arrayBuffer()),
     now: () => Date.now(), publish() {}, onTurn() {},
     runtime: { conversationLimits: { policy: () => 'time', deadline: () => Infinity }, voiceServerAdapters: () => [], async checkVoice() {},
       async admitVoice({ options }) { return { binding: { maxDurationSeconds: 120 }, options, finish() {},
-        plugin: { manifest: { liveVoice: { capabilities: {}, ownership: { turnTaking: 'provider' } } }, async start(request) {
+        plugin: { manifest: { liveVoice: { capabilities: { opener: false }, ownership: { turnTaking: 'provider' } } }, async start(request) {
           return { callId: request.callId, providerSessionId: 'fixture-generation', signal: new AbortController().signal,
             snapshot: () => ({}), close: async () => ({ closureConfirmed: true, outcome: 'cancelled' }) };
         } } }; } } });
