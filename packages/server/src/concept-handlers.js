@@ -45,7 +45,10 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
   };
   const lane = new ConceptLane({ getSession: id => storage.get(id), prepare, policy, deadlineMs, estimateMs, now,
     consentRequired: async (session, visualKind) => {
-      const feature = (await runtime.matrix(session))[session.processingPreset ?? 'best']?.[visualKind];
+      // Older runtime adapters may expose admission without an availability
+      // matrix. Their existing admission port remains the authoritative gate.
+      const matrix = await runtime.matrix?.(session);
+      const feature = matrix?.[session.processingPreset ?? 'best']?.[visualKind];
       return feature?.available === false && isConsentReason(feature.reason);
     },
     admit: args => runtime.admit(args), processingAllowed: (session, scope, options) => runtime.processingAllowed(session, scope, options),
