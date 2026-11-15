@@ -4,17 +4,19 @@ import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { AudioRail } from '../src/audio-rail.js';
+import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
+import { fixture as voiceFixture, invocationOptions } from '../../../plugins/elevenlabs/test/fixtures.js';
 const window = new Window({ url: 'https://example.test' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'sessionStorage']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const blocked = { available: false, reason: 'current processing consent required' }, allowed = { available: true, reason: null };
 const tick = () => new Promise(resolve => setTimeout(resolve, 450));
-function fixture(t, { granted = false, entrance = 'combined', active = true } = {}) {
+function fixture(t, { granted = false, entrance = 'combined', active = true, client } = {}) {
   let now = 1_800_000_000_000;
   t.mock.method(Date, 'now', () => now);
   sessionStorage.clear();
   const starts = [], sends = [], events = [];
-  t.mock.method(AudioRail.prototype, 'start', function () { starts.push(this); return Promise.resolve(); });
+  if (!client) t.mock.method(AudioRail.prototype, 'start', function () { starts.push(this); return Promise.resolve(); });
   t.mock.getter(globalThis, 'navigator', () => ({ userActivation: { isActive: active }, permissions: { async query() { return { state: 'denied' }; } } }));
   let c = document.createElement('aithema-session');
   const session = createSession({ demo: true });
@@ -22,7 +24,7 @@ function fixture(t, { granted = false, entrance = 'combined', active = true } = 
   session.featureMatrix = { best: { text: granted ? allowed : blocked, voice: blocked, analysis: allowed } };
   const configure = (next = c, snapshot = session) => {
     c = next; c.addEventListener('aithema-consent', e => events.push(e.detail));
-    c.configure({ copy: en, session: snapshot, entrance, voiceClient: {} }); document.body.append(c); return c;
+    c.configure({ copy: en, session: snapshot, entrance, voiceClient: client ?? {} }); document.body.append(c); return c;
   };
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
@@ -123,4 +125,22 @@ for (const action of ['withdrawal', 'erasure', 'new-session']) test(`AIT-506: ${
   assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
   assert.equal(f.c.shadowRoot.querySelector('textarea')?.value ?? '', '');
   await f.grant(); assert.equal(f.sends.length, 0);
+});
+
+test('AIT-506: real adapter admission precedes denied permission and settles zero charge', async t => {
+  const trace = [], reports = [];
+  const local = voiceFixture({ now: () => Date.now(), prepareCall: async () => { trace.push('admission'); },
+    providerDetails: id => ({ conversation_id: id, status: 'done', metadata: { call_duration_secs: 0, cost: 0 } }) });
+  const client = createElevenLabsClient({ sdk: local.sdk, AudioContext: local.sdk.AudioContext,
+    mediaDevices: { async getUserMedia() { trace.push('permission'); throw Object.assign(new Error('fixture blocked'), { name: 'NotAllowedError' }); } },
+    control: { ...local.control, start: (request, options) => local.control.start(request, invocationOptions({ ...options, report: value => reports.push(value) })) },
+    persistEvent: async () => {} });
+  // The SDK fixture acquires through its own mediaDevices, as the browser SDK does.
+  local.sdk.mediaDevices.getUserMedia = async () => { trace.push('permission'); throw Object.assign(new Error('fixture blocked'), { name: 'NotAllowedError' }); };
+  const f = fixture(t, { client }); f.c.addEventListener('aithema-consent', () => trace.push('consent'));
+  f.mic(); assert.deepEqual(trace, ['consent']); await f.grant();
+  assert.deepEqual(trace, ['consent', 'admission', 'permission']);
+  assert.equal(reports.length, 1); assert.equal(reports[0].chargedMicro, 0);
+  assert.equal(reports[0].usage.visitorMicro, 0);
+  assert.equal(f.c.shadowRoot.querySelector('textarea').disabled, false);
 });
