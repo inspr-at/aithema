@@ -11,7 +11,7 @@ async function until(predicate) {
   }
   assert.fail('Expected progress within 500 ms');
 }
-async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = async () => {}, durationMs = 10_000, ...settings } = {}) {
+async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = async () => {}, durationMs = 10_000, conversationLimit, ...settings } = {}) {
   const closed = [], pauses = [], resumes = []; let generation = 0;
   const receipt = ({ callId }) => {
     const providerSessionId = `conv_${++generation}`;
@@ -19,6 +19,7 @@ async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = 
       credential: { providerSessionId, connectionType: transport, ttlMs: 60_000,
         ...(transport === 'webrtc' ? { conversationToken: `fixture-token-${providerSessionId}` }
           : { signedUrl: `wss://socket.example.test/call?conversation_id=${providerSessionId}` }) },
+      ...(conversationLimit === undefined ? {} : { conversationLimit }),
       spendDeadlineAt: Date.now() + durationMs, browserLivenessDeadlineAt: Date.now() + durationMs };
   };
   const control = {
@@ -478,7 +479,7 @@ for (const transport of ['webrtc', 'websocket']) {
 
 for (const shape of ['tool', 'end_call', 'close-code']) test(`AIT-508: silence ${shape} ends idle without paid recovery`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
-  const local = await setup(t, { durationMs: 900_000 }); let recoveries = 0;
+  const local = await setup(t, { durationMs: 900_000, conversationLimit: 'credits' }); let recoveries = 0;
   local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
   const callbacks = local.sdk.starts[0];
   if (shape === 'tool') callbacks.onAgentToolResponse({ tool_name: 'end_call', result: { reason: 'silence_timeout' } });
@@ -492,7 +493,7 @@ for (const shape of ['tool', 'end_call', 'close-code']) test(`AIT-508: silence $
 
 for (const shape of ['end_call', 'close-code']) test(`AIT-508: SDK generic ${shape} after 120 seconds silence is idle, never recovery`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
-  const local = await setup(t, { durationMs: 900_000 }); let recoveries = 0;
+  const local = await setup(t, { durationMs: 900_000, conversationLimit: 'credits' }); let recoveries = 0;
   local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
   t.mock.timers.tick(120_000);
   local.sdk.starts[0].onDisconnect(shape === 'end_call'
@@ -520,4 +521,13 @@ for (const locale of ['en', 'de']) test(`AIT-508: ${locale} fresh call continuat
     fetchImpl() { assert.fail('No provider requests'); } });
   t.after(() => overridden.close());
   assert.equal(overridden.presentation(locale, { hasPriorTurns: true, hasPriorCalls: true }).agent.firstMessage, custom);
+});
+
+test('AIT-508: legacy time-policy end_call keeps the existing provider-end classification', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000 });
+  t.mock.timers.tick(120_000);
+  local.sdk.starts[0].onDisconnect({ reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } });
+  await flush(); await flush();
+  assert.equal(local.closed.at(-1)?.reason, 'provider-end');
 });

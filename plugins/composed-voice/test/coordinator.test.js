@@ -446,7 +446,7 @@ test('AIT-345: supported coordinator reads explicit seconds and no host policy',
 
 for (const hold of ['listening', 'paused', 'waiting']) test(`AIT-508: composed ${hold} call ends idle at 120 seconds`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
-  const events = [], h = fixture(t, { spendDeadlineAt: Date.now() + 900_000, browserLivenessDeadlineAt: Date.now() + (hold === 'waiting' ? 30_000 : 900_000),
+  const events = [], h = fixture(t, { conversationLimit: 'credits', spendDeadlineAt: Date.now() + 900_000, browserLivenessDeadlineAt: Date.now() + (hold === 'waiting' ? 30_000 : 900_000),
     relay: { audio() {}, silence() {}, event: e => events.push(e) } });
   if (hold === 'paused') await h.coordinator.pause();
   if (hold === 'waiting') { t.mock.timers.tick(30_000); assert.equal(h.coordinator.state.state, 'waiting'); }
@@ -457,13 +457,13 @@ for (const hold of ['listening', 'paused', 'waiting']) test(`AIT-508: composed $
 
 for (const voiceIdleSeconds of [59, 3601, 120.5, null, '120']) test(`AIT-508: invalid composed idle duration ${voiceIdleSeconds} fails closed`, t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
-  assert.throws(() => fixture(t, { voiceIdleSeconds }), TypeError);
+  assert.throws(() => fixture(t, { conversationLimit: 'credits', voiceIdleSeconds }), TypeError);
 });
 test('AIT-508: accepted typed input resets composed idle; assistant output cannot be cut by idle', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const release = Promise.withResolvers(), entered = Promise.withResolvers();
   t.after(() => release.resolve());
-  const events = [], h = fixture(t, { voiceIdleSeconds: 60, spendDeadlineAt: Date.now() + 900_000,
+  const events = [], h = fixture(t, { conversationLimit: 'credits', voiceIdleSeconds: 60, spendDeadlineAt: Date.now() + 900_000,
     browserLivenessDeadlineAt: Date.now() + 900_000, replyExecutor: { async *execute() {
       yield { type: 'operation', replyId: 'long-reply' }; yield { type: 'delta', text: 'Still speaking. ' };
       entered.resolve(); await release.promise;
@@ -479,7 +479,7 @@ test('AIT-508: accepted typed input resets composed idle; assistant output canno
 for (const hold of ['paused', 'waiting']) test(`AIT-508: ${hold} stops output and still reaches idle while reasoning is pending`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const release = Promise.withResolvers(), entered = Promise.withResolvers(); t.after(() => release.resolve());
-  const events = [], h = fixture(t, { spendDeadlineAt: Date.now() + 900_000,
+  const events = [], h = fixture(t, { conversationLimit: 'credits', spendDeadlineAt: Date.now() + 900_000,
     browserLivenessDeadlineAt: Date.now() + (hold === 'waiting' ? 30_000 : 900_000),
     replyExecutor: { async *execute() {
       yield { type: 'operation', replyId: 'held-reply' }; entered.resolve(); await release.promise;
@@ -489,4 +489,11 @@ for (const hold of ['paused', 'waiting']) test(`AIT-508: ${hold} stops output an
   if (hold === 'paused') await h.coordinator.pause();
   t.mock.timers.tick(120_000);
   assert.equal(h.coordinator.state.state, 'ended'); assert.equal(events.at(-1).reason, 'idle');
+});
+
+test('AIT-508: legacy time-policy composed call keeps its original bound without an idle end', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const h = fixture(t, { spendDeadlineAt: Date.now() + 900_000, browserLivenessDeadlineAt: Date.now() + 900_000 });
+  t.mock.timers.tick(120_000); assert.equal(h.coordinator.state.state, 'active');
+  t.mock.timers.tick(780_000); assert.equal(h.coordinator.state.terminalReason, 'spend-deadline');
 });

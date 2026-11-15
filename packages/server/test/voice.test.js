@@ -3787,7 +3787,7 @@ test('AIT-508: a fresh bounded call after an empty ended call uses continuation 
     } },
   });
   t.mock.method(Date, 'now', h.now);
-  const first = await h.start();
+  const first = await h.start(); assert.equal(first.conversationLimit, 'credits');
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'idle' }); await h.handlers.idle();
   assert.equal(h.storage.get(h.session.id).transcript.length, 0);
   const next = await h.start('next-empty-call');

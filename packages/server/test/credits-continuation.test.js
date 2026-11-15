@@ -75,7 +75,7 @@ for (const hold of ['paused', 'waiting']) test(`AIT-508: composed idle ${hold} s
     stt: { stream() {} }, tts: { speak() {} }, replyExecutor: { execute() {} },
     authorize: async () => true, commitUtterance: async () => {}, admitComponent: async () => {} });
   call = await plugin.start({ sessionId: id, callId: 'idle-call', ownerToken: 'fixture-owner' }, {
-    now: Date.now, deadlineAt: Date.now() + 5000, spendDeadlineAt: Date.now() + 900_000,
+    conversationLimit: 'credits', now: Date.now, deadlineAt: Date.now() + 5000, spendDeadlineAt: Date.now() + 900_000,
     browserLivenessDeadlineAt: Date.now() + (hold === 'waiting' ? 30_000 : 900_000),
     attempt: { attemptId: 'idle-parent', claimId: 'idle-claim', maxMicro: 0, consume() {} },
     report(terminal) { reports.push(terminal); if (terminal.closureConfirmed) cap.settle(reservation, terminal.usage.providerSeconds); },
