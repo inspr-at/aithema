@@ -1020,6 +1020,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.equal(deferred.text, locale === 'de' ? 'Sie nutzen den Ablauf 1.' : 'You use workflow 1.');
     assert.ok(deferred.r.width > 0 && deferred.r.height > 0);
     assert.ok(Math.abs(deferred.r.y - row.y) <= .5);
+    for (const key of ['x', 'width', 'height']) assert.ok(Math.abs(deferred.r[key] - row[key]) <= .5, `${name} pointer row/${key} shifted`);
     if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-deferred.png`) });
     await page.mouse.move(-1, -1); await settle(page);
     stable(before, await frame(), `${name}-apply`);
