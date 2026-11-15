@@ -10,8 +10,8 @@
 - The composer grows upward with its draft, capped by 40% of the visual viewport
   and the reply/card budget; short phone viewports allow at most three lines.
   Short desktop viewports reduce outer spacing in both composer states; longer
-  used-up copy scrolls in its keyboard-focusable body. Attach, Send and the bottom
-  edge stay fixed. Failed sends and answer-chip
+  used-up copy scrolls in its body, keyboard-focusable only while overflowing.
+  Attach, Send and the bottom edge stay fixed. Failed sends and answer-chip
   sends retain a separate draft and its size; accepted typed/device sends reset
   the matching draft. Follow mode re-pins; a resting transcript pointer wins
   and Latest exposes the occluded tail.

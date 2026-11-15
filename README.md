@@ -1372,8 +1372,8 @@ The composer grows upward with typed or pasted text, within 40% of the visual
 viewport and the room left for the latest reply and a visible question card.
 Short phone viewports allow at most three lines before the field scrolls. Short
 desktop viewports reduce outer spacing in both composer states; longer used-up
-copy scrolls in its keyboard-focusable body. Attach,
-Send and the composer's bottom edge stay in place. Following readers stay at the
+copy scrolls in its body, which becomes keyboard-focusable only while overflowing.
+Attach, Send and the composer's bottom edge stay in place. Following readers stay at the
 latest turn; a resting transcript pointer keeps its row and gets Latest instead.
 Only an accepted typed/device send clears the matching draft and its height;
 failed sends, answer-chip sends and edits made during a pending send retain it.

@@ -383,7 +383,12 @@ export class PhoneComposerViewport {
       if (notices) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
       this.composerSize.fit();
       const outBody = root.querySelector('.composer-out__body');
-      if (outBody) outBody.tabIndex = outBody.scrollHeight > outBody.clientHeight ? 0 : -1;
+      // Only clipped copy needs its own keyboard scroll target. Fitting copy
+      // keeps the original DOM, including the AIT-411 default panel contract.
+      if (outBody) {
+        if (outBody.scrollHeight > outBody.clientHeight) outBody.tabIndex = 0;
+        else outBody.removeAttribute('tabindex');
+      }
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
       const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
