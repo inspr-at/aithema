@@ -286,6 +286,9 @@ export async function combinedOpenerCheck(t) {
         return measured;
       };
       const initial=await shot('ready');
+      assert.equal(await page.$eval('aithema-session',c=>c.shadowRoot.querySelector('[data-id="host:opener"] .turn-text').textContent),
+        locale==='de'?'Willkommen. Ihre KI-Assistenz ist für Sie bereit.':'Welcome. Your AI assistant is ready to help.',
+        'the configured welcome preserves its UTF-8 text');
       await exposedFeedback(page,'.composer-reason');
       assert.equal(await page.evaluate(() => c.session.transcript.length),0);
       await page.type('aithema-session >>> textarea','A combined draft');await page.click('aithema-session >>> .send');
