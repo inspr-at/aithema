@@ -66,12 +66,12 @@ export async function contactSlotCheck(t) {
     const c = document.querySelector('aithema-session'), n = c.querySelector(selector) ?? c.shadowRoot.querySelector(selector);
     return n.checkVisibility({ checkVisibilityCSS: true }) && !n.closest('[inert]');
   }, selector);
-  const capture = async name => {
+  const capture = async (name, contactSelector = '#contact-open') => {
     if (!evidence) return;
     await mkdir(join(evidence, 'shots'), { recursive: true });
     const scroll = await page.evaluate(() => [scrollX, scrollY]);
     if (/-pinned$|-scrolled$|-email-pane$|-long$/.test(name)) {
-      await page.$eval('#contact-open', n => n.scrollIntoView({ block: 'center' }));
+      await page.$eval(contactSelector, n => n.scrollIntoView({ block: 'center' }));
       await settle();
     }
     await page.screenshot({ path: join(evidence, 'shots', `${name}.png`), fullPage: false, captureBeyondViewport: false });
@@ -228,7 +228,20 @@ export async function contactSlotCheck(t) {
     assert.equal(await page.$eval('[slot="contact-launcher"]', n => n === document.activeElement), true);
     assert.equal(await page.$eval('aithema-session', c => JSON.stringify(c.session.transcript)), before);
     const shiftPx = stable(header, await rects(['.band', '.audio-rail']), `${name}: overlay`);
-    demoChecks.push({ name, header, shiftPx });
+    // Populate the shipped demo's sidebar without sending input to its server.
+    await page.$eval('aithema-session', c => {
+      c.setAttribute('motion', 'off');
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: 'contact-demo-u1', role: 'user', content: c.session.locale === 'de' ? 'Anforderungen' : 'Requirements',
+      } });
+      c.shadowRoot.querySelector('.workspace').removeAttribute('data-reveal');
+    });
+    await settle();
+    const pinned = await rects(['.sidebar-contact', '.understanding > .foot']); positive(pinned, `${name}: pinned demo`);
+    assert.equal(await page.$eval('.demo-contact-open:not(.demo-contact-launcher)', n => n.textContent), label);
+    await capture(`${name}-pinned`, '.demo-contact-open:not(.demo-contact-launcher)');
+    stable(header, await rects(['.band', '.audio-rail']), `${name}: populated demo header`);
+    demoChecks.push({ name, header, pinned, shiftPx });
   }
   assert.equal(demoChecks.length, 8);
   if (evidence) await writeFile(join(evidence, 'contact-demo.json'), JSON.stringify(demoChecks, null, 2) + '\n');
