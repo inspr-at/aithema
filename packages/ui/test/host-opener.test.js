@@ -73,3 +73,20 @@ for (const peer of [false,true]) test(`AIT-505: pre-input locale event resolves 
   c.receive({seq:2,type:'session.locale-changed',data:{locale:'en',opener:null}});
   assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'),null,'missing locale clears the render-only row');
 });
+
+for (const boundary of ['erase', 'withdraw', 'consent']) test(`AIT-505: ${boundary} clears full opener text from a text-only dialog`, async t => {
+  const c = document.createElement('aithema-session');
+  c.configure({ copy: en, session: session() }); t.after(() => c.remove());
+  c.shadowRoot.querySelector('.ready__start').click();
+  c.receive({ seq: 1, type: 'turn.final', data: { id: 'host:opener', role: 'assistant', origin: 'host', content: 'Welcome from a host.' } });
+  c.shadowRoot.querySelector('.host-opener-more').click();
+  const dialog = c.shadowRoot.querySelector('.voice-reply-dialog');
+  assert.equal(dialog.open, true);
+  assert.equal(dialog.querySelector('.voice-reply-text').textContent, 'Welcome from a host.');
+  const event = boundary === 'erase' ? { type: 'session.erased', data: { at: new Date().toISOString() } }
+    : boundary === 'withdraw' ? { type: 'turn.withdrawn', data: { turnId: 'host:opener' } }
+      : { type: 'consent.revised', data: { granted: false, changed: [], removed: [] } };
+  c.receive({ seq: 2, ...event });
+  assert.equal(dialog.open, false, 'invalidated full text cannot remain visible');
+  assert.equal(dialog.querySelector('.voice-reply-text').textContent, '', 'invalidated full text cannot remain in hidden DOM');
+});
