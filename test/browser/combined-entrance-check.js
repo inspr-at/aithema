@@ -256,6 +256,7 @@ export async function combinedOpenerCheck(t) {
         });
         measured.opener = placement.opener;
         positive(measured);
+        positive({ footer:placement.footer, dock:placement.dock, scroll:placement.scroll });
         tables.push({locale,theme,width,height,state,boxes:measured,placement});
         if (evidence) await writeFile(join(evidence,'ait-506-opener-rects.json'),JSON.stringify(tables,null,2));
         if (evidence && width!==1024) await page.screenshot({ path:join(evidence,'shots',`ait-506-${locale}-${theme}-${width}x${height}-opener-${state}.png`),fullPage:true });
@@ -267,6 +268,11 @@ export async function combinedOpenerCheck(t) {
             `${locale}/${theme}/${width}x${height}/${state} visible ${target.selector}: ${JSON.stringify(placement)}`);
           assert.equal(target.visibility,'visible');
           assert.equal(target.hit,true,`${state}/${target.selector} is unobscured: ${JSON.stringify(placement)}`);
+        }
+        for (let i=0;i<placement.visible.length;i++) for(let j=i+1;j<placement.visible.length;j++) {
+          const a=placement.visible[i],b=placement.visible[j],x=Math.min(a.box[0]+a.box[2],b.box[0]+b.box[2])-Math.max(a.box[0],b.box[0]),
+            y=Math.min(a.box[1]+a.box[3],b.box[1]+b.box[3])-Math.max(a.box[1],b.box[1]);
+          assert.ok(x<=.5||y<=.5,`${state}: ${a.selector} overlaps ${b.selector}`);
         }
         assert.ok(placement.opener[1]>=placement.scroll[1]-.5 && placement.opener[1]+placement.opener[3]<=Math.min(placement.scroll[1]+placement.scroll[3],placement.dock[1])+.5,
           `opener fits above the composer: ${JSON.stringify(placement)}`);
