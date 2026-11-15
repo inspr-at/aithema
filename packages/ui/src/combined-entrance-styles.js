@@ -49,12 +49,11 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
     grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-status { height:44px; }
-  /* Reclaim decorative band padding before reducing any touch target or copy. */
-  .workspace[data-entrance="combined"][data-phone-short] .band { padding-block:0; min-height:0; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
-  .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
+  .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }
+  .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:0; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell > .voice-notices { margin-top:0; }
-  .workspace[data-entrance="combined"][data-phone-short] .turn.user { padding-block:6px; }
+  .workspace[data-entrance="combined"][data-phone-short] .turn.user { padding-block:0; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
   .workspace[data-entrance="combined"][data-phone-short] textarea { height:44px; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
