@@ -972,7 +972,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-basis').length), 1);
     const baseline = await frame();
     if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-collapsed.png`) });
-    await shadow(page, c => { c.shadowRoot.querySelector('.signals-toggle').focus(); c.shadowRoot.querySelector('.signals-toggle').click(); });
+    await shadow(page, c => { c.shadowRoot.querySelector('.signals-toggle').focus({ preventScroll: true }); c.shadowRoot.querySelector('.signals-toggle').click(); });
     await settle(page); stable(baseline, await frame(), `${name}-expand`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 7);
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.signals-toggle')), true);

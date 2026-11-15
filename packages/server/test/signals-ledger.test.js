@@ -18,7 +18,7 @@ test('AIT-515 persisted ledger survives reset and replay, journal/snapshot carry
   final(['Unique sensitive signal']);
   const ledger = storage.get(id).signalLedger;
   assert.equal(ledger.length, 1);
-  storage.changeLocale(id, 'de');
+  storage.append(id, 'session.locale-changed', { locale: 'de' });
   assert.deepEqual(storage.get(id).signalLedger, ledger);
   final(['Unique sensitive signal', 'New fact']);
   const current = storage.get(id);

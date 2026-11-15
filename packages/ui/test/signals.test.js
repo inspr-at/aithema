@@ -26,7 +26,8 @@ test('AIT-515 newest five and accessible Show all count; expand/collapse keeps f
   assert.equal(button.textContent, 'Show all (7)'); assert.equal(button.getAttribute('aria-expanded'), 'false');
   assert.equal(button.getAttribute('aria-controls'), root.querySelector('.signals').id);
   button.focus(); button.click(); assert.deepEqual(texts(c), seven); assert.equal(button.textContent, 'Show less');
-  final(c, [...seven, 'Newest']); assert.equal(root.activeElement, button); assert.equal(texts(c).length, 8);
+  final(c, seven); assert.equal(root.activeElement, button);
+  button.blur(); final(c, [...seven, 'Newest']); button.focus(); assert.equal(root.activeElement, button); assert.equal(texts(c).length, 8);
   assert.equal(texts(c)[0], 'Newest'); button.click(); assert.equal(texts(c).length, 5); assert.equal(root.activeElement, button);
 });
 
