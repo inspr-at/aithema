@@ -94,3 +94,22 @@ for (const boundary of ['erase', 'withdraw', 'consent']) test(`AIT-505: ${bounda
   assert.equal(dialog.open, false, 'invalidated full text cannot remain visible');
   assert.equal(dialog.querySelector('.voice-reply-text').textContent, '', 'invalidated full text cannot remain in hidden DOM');
 });
+
+for (const input of ['visitor-withdrawal', 'assistant-greeting', 'pending-document']) {
+  test(`AIT-505: ${input} preserves the existing live workspace`, async t => {
+    const source = session();
+    delete source.opener;
+    if (input === 'pending-document') source.uploads = [{ id: 'document', state: 'uploading', name: 'Notes.txt' }];
+    else source.transcript = [{ id: 'existing', role: input === 'assistant-greeting' ? 'assistant' : 'user', content: 'Existing conversation.' }];
+    const c = document.createElement('aithema-session');
+    c.configure({ copy: en, session: source }); t.after(() => c.remove());
+    const workspace = c.shadowRoot.querySelector('.workspace');
+    assert.equal(workspace.dataset.stage, 'live', 'existing engagement keeps the composer on screen');
+    assert.equal(workspace.dataset.understanding, 'present', 'existing engagement keeps the overview on screen');
+    if (input === 'visitor-withdrawal') {
+      c.receive({ seq: 1, type: 'turn.withdrawn', data: { turnId: 'existing', reason: 'withdrawal' } });
+      assert.equal(workspace.dataset.stage, 'live', 'withdrawal does not return to the entrance');
+      assert.equal(workspace.dataset.understanding, 'present', 'withdrawal retains the overview status slot');
+    }
+  });
+}
