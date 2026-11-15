@@ -1371,7 +1371,10 @@ export class AithemaSession extends HTMLElement {
     finally { if (--this.#anchorDepth === 0 && this.#erased) this.#paintErased(); }
   }
   #anchoredUpdate(update) {
-    const hovered = this.#hovered();
+    const hit = this.#hovered();
+    // Status actions have real padding outside their reserved line. Anchor the
+    // line, not a button/label whose box changes when the status clears.
+    const hovered = hit?.closest?.('.question-state') ?? hit;
     if (!hovered || this.#navigation && hovered.closest?.('.transcript-shell')) { update(); return; }
     // Host content in a slot belongs to the page: its chain ends at the document, never at this root.
     const chain = [];
@@ -3580,6 +3583,7 @@ export class AithemaSession extends HTMLElement {
     // An erased conversation has no server snapshot: any read can only 404 (AIT-464).
     if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone) return;
     const sessionId = this.#session.id, startCursor = this.#cursor, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
+    const operationsAtRead = this.#session.operations;
     // A read begun before the local listening acknowledgement cannot repaint
     // its cached paused verdict afterward, even within the same rail generation.
     const projectionRevision = this.#voiceResumeRevision, resume = this.#voiceResumeProjection;
@@ -3648,7 +3652,9 @@ export class AithemaSession extends HTMLElement {
       }
       this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
-      if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
+      // Lane statuses are volatile and can advance without a journal sequence.
+      // A read started before a newer status cannot restore its old busy state.
+      if (session.operations && this.#session.operations === operationsAtRead) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting
       // projection cannot undo the visitor's local terminal intent.
       if (session.voiceLifecycle && session.voiceLifecycle.callId !== this.#rail?.endedCall?.callId) this.#rail?.receiveState(session.voiceLifecycle);

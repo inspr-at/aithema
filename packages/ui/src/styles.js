@@ -600,9 +600,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .clarify-action[aria-disabled="true"] { cursor:default; background:transparent; }
 /* D524(a2): visible status copy is inert; only the intrinsic action acts.
    Split the separator space with the button inset to retain the label anchor.
-   Real padding gives a 44px box while balanced margins reserve 36px. */
+   Real padding gives a 44px box while balanced margins reserve 36px.
+   Paint above the next row's empty top padding, never its text or controls. */
 .question-state:has(.question-status:not([hidden])) { grid-template-columns:minmax(0,max-content) 9px minmax(max-content,1fr); }
-.question-state:has(.question-status:not([hidden])) .clarify-action { grid-column:3; display:inline-grid; grid-template-columns:auto; justify-self:start; width:max-content; min-width:44px; height:auto; min-height:44px; padding:4px 9px; margin:-4px 0; outline-offset:0; }
+.question-state:has(.question-status:not([hidden])) .clarify-action { grid-column:3; display:inline-grid; grid-template-columns:auto; justify-self:start; width:max-content; min-width:44px; height:auto; min-height:44px; padding:4px 9px; margin:-4px 0; outline-offset:0; z-index:2; }
 .question-state:has(.question-status:not([hidden])) .clarify-content { grid-area:1/1; }
 /* Reserve both existing labels at the resting weight, so Asking cannot grow
    the Retry target or displace the status while its request is pending. */
