@@ -914,8 +914,8 @@ test('AIT-504 follow-up: capture every overview state for the release design che
   await writeFile(join(evidence, 'overview-screenshots.json'), JSON.stringify(records, null, 2));
 });
 
-// AIT-524 / D524(a): failure copy is inert; only the native Retry box acts.
-test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440', { timeout: 240_000 }, async t => {
+// AIT-524 / D524(a2): every visible status is inert; only its native action acts.
+test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440', { timeout: 480_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-retry-box-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'fixture.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage(), records = [], errors = [];
@@ -939,14 +939,14 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
       const why = status.querySelector('.question-why'); visible.text = box(why);
     }
     return { stable, visible, state: row.dataset.state, disabled: button.getAttribute('aria-disabled'), busy: button.getAttribute('aria-busy'),
-      name: button.getAttribute('aria-label'), description: button.getAttribute('aria-describedby'), questionId: row.dataset.questionId,
+      paused: c.session.paused, dialogOpen: Boolean(root.querySelector('dialog[open]')), name: button.getAttribute('aria-label'), description: button.getAttribute('aria-describedby'), questionId: row.dataset.questionId,
       statusHidden: status.hidden, sameNode: button === window.retry524Button, posts: window.retry524Posts,
       rowPaint: getComputedStyle(row).backgroundColor, paint: getComputedStyle(button).backgroundColor,
       pseudo: getComputedStyle(button, '::after').content,
       cursor: [status, row.querySelector('.question-separator')].map(n => getComputedStyle(n).cursor),
       neighbours: [0, 2].map(i => {
         const n = root.querySelectorAll('.open-question')[i], action = n.querySelector('button'), b = box(action), p = getComputedStyle(action, '::after');
-        return { row: box(n), text: box(n.querySelector('.question-text')), action: { ...b, y: b.y + parseFloat(p.top), bottom: b.bottom - parseFloat(p.bottom) } };
+        return { row: box(n), text: box(n.querySelector('.question-text')), action: { ...b, y: b.y + (parseFloat(p.top) || 0), bottom: b.bottom - (parseFloat(p.bottom) || 0) } };
       }) };
   });
   const positive = (group, context) => { for (const [name, b] of Object.entries(group)) assert.ok(b.width > 0 && b.height > 0, `${context}/${name}: positive measured box`); };
@@ -954,7 +954,8 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
   const overlap = (a, b) => a.x < b.right && a.right > b.x && a.y < b.bottom && a.bottom > b.y;
   const centre = b => [b.x + b.width / 2, b.y + b.height / 2];
   const shot = async name => { if (evidence) await page.screenshot({ path: join(evidence, 'shots', `${name}.png`), fullPage: false, captureBeyondViewport: false }); };
-  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) for (const failure of ['retry', 'focus-retry']) {
+  for (const failure of ['refused-paused', 'refused-consent', 'retry', 'focus-retry']) await t.test(failure, async () => {
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     const context = `${locale}-${theme}-${width}-${failure}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await shadow(page, async (c, locale, theme, failure) => {
@@ -977,6 +978,7 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
       window.retry524ExpectedName = `${failed}\u00a0· ${defaults.clarify.retry}`;
       window.retry524Reset = async () => {
+        for (const dialog of c.shadowRoot.querySelectorAll('dialog[open]')) dialog.close();
         c.configure({ session, copy });
         const item = c.openQuestionItems[1], revision = inputRevision(c.session);
         window.retry524Posts = [];
@@ -984,6 +986,10 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
           window.retry524Post = () => Response.json({ event: { seq: c.session.seq + 1, type: 'question.focused', data: { ...item, questionId: item.id, requestId: 'retry524', chosenBy: 'user', inputRevision: revision } } }, { status: 202 });
           await c.focusQuestion(item.id);
           c.receive({ type: 'lane.failed', data: { lane: 'reaction', retryable: true, inputRevision: revision } });
+        } else if (failure.startsWith('refused-')) {
+          if (failure === 'refused-paused') c.receive({ type: 'session.paused', data: { paused: true } });
+          window.retry524Post = () => Response.json({ reason: failure === 'refused-paused' ? 'paused' : 'consent-required' }, { status: 409 });
+          await c.focusQuestion(item.id).catch(() => {});
         } else {
           const original = window.setTimeout;
           window.setTimeout = (fn, delay, ...args) => delay === 60_000 ? (window.retry524Expire = fn, 0) : original.call(window, fn, delay, ...args);
@@ -1003,13 +1009,16 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
     }, locale, theme, failure);
     await page.mouse.move(0, 0); await settle(page);
     const rest = await measure(); positive(rest.stable, context); positive(rest.visible, context);
-    assert.equal(rest.state, failure); assert.equal(rest.sameNode, true);
+    const expectedState = failure.startsWith('refused-') ? 'refused' : failure;
+    assert.equal(rest.state, expectedState); assert.equal(rest.sameNode, true);
     // Start with the actual bug: native pointer hit testing on failure copy.
     for (const part of ['glyph', 'text', 'separator']) {
       await page.mouse.move(...centre(rest.visible[part])); await settle(page);
       const hover = await measure();
       await page.mouse.click(...centre(rest.visible[part])); await settle(page);
-      const clicked = await measure(); assert.equal(clicked.posts.length, 0, `${context}/${part}: real click sends no request`); assert.equal(clicked.state, failure);
+      const clicked = await measure(); assert.equal(clicked.posts.length, 0, `${context}/${part}: real click sends no request`); assert.equal(clicked.state, expectedState);
+      assert.equal(clicked.paused, rest.paused, `${context}/${part}: pause state untouched`);
+      assert.equal(clicked.dialogOpen, false, `${context}/${part}: no consent request opened`);
       assert.equal(hover.rowPaint, 'rgba(0, 0, 0, 0)', `${context}/${part}: no persistent row tint`);
       assert.equal(hover.paint, 'rgba(0, 0, 0, 0)', `${context}/${part}: inert hover does not tint Retry`);
       stationary(rest.stable, clicked.stable, context); stationary(rest.visible, clicked.visible, context);
@@ -1046,11 +1055,37 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
     if (width !== 1024) await shot(`${context}-hover`);
     await page.mouse.move(0, 0); await shadow(page, () => window.retry524Button.focus({ preventScroll: true })); await settle(page);
     const focused = await measure(); stationary(rest.stable, focused.stable, context); stationary(rest.visible, focused.visible, context);
-    assert.equal(focused.name, await page.evaluate(() => window.retry524ExpectedName));
     const tree = await ax.send('Accessibility.getFullAXTree');
-    assert.ok(tree.nodes.some(n => n.role?.value === 'button' && n.name?.value === focused.name), 'Retry has the full failure plus Retry accessible name');
+    if (!failure.startsWith('refused-')) {
+      assert.equal(focused.name, await page.evaluate(() => window.retry524ExpectedName));
+      assert.ok(tree.nodes.some(n => n.role?.value === 'button' && n.name?.value === focused.name), 'Retry has the full failure plus Retry accessible name');
+    }
     assert.ok(focused.description); assert.equal(focused.sameNode, true);
     if (width !== 1024) await shot(`${context}-focus`);
+    if (failure.startsWith('refused-')) {
+      for (const activation of ['centre', 'Enter', 'Space']) {
+        await page.evaluate(() => window.retry524Reset()); await settle(page);
+        if (activation === 'centre') await page.mouse.click(...centre(b));
+        else { await shadow(page, () => window.retry524Button.focus({ preventScroll: true })); await page.keyboard.press(activation); }
+        await settle(page);
+        const activated = await measure(); stationary(rest.stable, activated.stable, `${context}/${activation}`);
+        if (failure === 'refused-paused') {
+          assert.equal(activated.posts.length, 1); assert.ok(activated.posts[0].url.endsWith('/pause'));
+          assert.equal(activated.posts[0].body.paused, false);
+          await shadow(page, c => window.retry524Release(Response.json({ event: { seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } } })));
+          await settle(page);
+          const cleared = await measure(); stationary(rest.stable, cleared.stable, `${context}/cleared`);
+          assert.equal(cleared.statusHidden, true); assert.equal(cleared.paused, false);
+          if (activation === 'centre') records.push({ locale, theme, width, failure, rest, hovered, focused, activated, cleared });
+        } else {
+          assert.equal(activated.posts.length, 0); assert.equal(activated.dialogOpen, true, 'Review opens consent only when activated');
+          if (activation === 'centre') records.push({ locale, theme, width, failure, rest, hovered, focused, activated });
+        }
+      }
+      await page.evaluate(() => window.retry524Reset()); await page.mouse.move(0, 0); await settle(page);
+      if (width !== 1024) await shot(`${context}-rest`);
+      continue;
+    }
     const points = { centre: centre(b), top: [b.x + b.width / 2, b.y + 1], bottom: [b.x + b.width / 2, b.bottom - 1], left: [b.x + 1, b.y + b.height / 2], right: [b.right - 1, b.y + b.height / 2] };
     for (const activation of [...Object.keys(points), 'Enter', 'Space']) {
       await page.evaluate(() => window.retry524Reset()); await page.mouse.move(0, 0); await settle(page);
@@ -1060,7 +1095,11 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
       const pending = await measure(); positive(pending.visible, context);
       assert.equal(pending.posts.length, 1, `${context}/${activation}: exactly one request`);
       assert.ok(pending.posts[0].url.endsWith(failure === 'retry' ? '/retry' : '/focus-question'));
-      assert.equal(pending.disabled, 'true'); assert.equal(pending.busy, 'true'); assert.equal(pending.statusHidden, true); assert.equal(pending.sameNode, true);
+      assert.equal(pending.disabled, 'true'); assert.equal(pending.busy, 'true'); assert.equal(pending.statusHidden, false, 'requesting keeps the status and column-3 target until cleared');
+      assert.equal(pending.visible.button.x, b.x, 'requesting keeps column-3 start');
+      assert.equal(pending.visible.button.y, b.y, 'requesting keeps padded target top');
+      assert.equal(pending.visible.button.height, b.height, 'requesting keeps real padded target height');
+      stationary({ status: rest.visible.status }, { status: pending.visible.status }, `${context}/pending status`); assert.equal(pending.sameNode, true);
       stationary(rest.stable, pending.stable, `${context}/pending`);
       // A second native activation while pending must be fenced.
       await page.mouse.click(...centre(pending.visible.button)); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
@@ -1078,6 +1117,7 @@ test('AIT-524 Retry-only hit testing, real padding and stationary rows: EN/DE li
     await page.evaluate(() => window.retry524Reset()); await page.mouse.move(0, 0); await settle(page);
     if (width !== 1024) await shot(`${context}-rest`);
   }
+  });
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait524-rects.json'), JSON.stringify(records, null, 2));
 });
