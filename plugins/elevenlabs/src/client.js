@@ -372,7 +372,9 @@ export function createElevenLabsClient(ports = {}) {
           if (reasons.some(value => typeof value === 'string' && /^(?:silence[_ -](?:timeout|end)|silence_end_call_timeout|idle[_ -]timeout)$/iu.test(value))) return true;
           const terminal = details?.reason === 'agent' && details?.context?.type === 'end_call' ||
             details?.closeCode === 1000 || details?.context?.type === 'close' && details.context.code === 1000;
-          return terminal && Date.now() - lastVisitorAt >= 120_000 && lastActivity !== 'speaking';
+          // Final transcripts arrive after speech ends. Allow that delivery lag
+          // when qualifying the provider's own 120-second silence termination.
+          return terminal && Date.now() - lastVisitorAt >= 110_000 && lastActivity !== 'speaking';
         };
         const observeAssistant = eventId => {
           if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;

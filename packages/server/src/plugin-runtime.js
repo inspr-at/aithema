@@ -127,11 +127,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     releaseReplyReplay(sessionId, entry);
   };
   let ownerWallet, costRetryOffset = 0, costJob;
-  const freshVoiceReason = sessionId => {
+  const freshVoiceReason = (sessionId, currentCallId = null) => {
     if (conversationLimits.policy?.(sessionId) !== 'credits') return null;
-    if (budget.hasUnreconciledVoice(sessionId)) return 'budget reconciling';
+    if (budget.hasUnreconciledVoice(sessionId, currentCallId)) return 'budget reconciling';
     // Legacy/orphan records without a ledger claim must still prove closure.
     const pending = storage.voiceCalls(sessionId).some(record => {
+      if (currentCallId && record.callId === currentCallId) return false;
       if (record.attemptId && budget.get(record.attemptId)) return false;
       const terminal = record.reconciliation ?? record.terminal;
       return !terminal?.closureConfirmed || terminal.outcome === 'uncertain' || !terminal.usage || terminal.usage.costEstimated === true;
@@ -304,7 +305,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const terminalReason = !options.existingCall && conversationLimits.reason(session.id);
     if (terminalReason) return { reason: terminalReason };
     if (feature === 'voice' && !options.existingCall && !options.voiceContinuation && !options.textReplay) {
-      const reason = freshVoiceReason(session.id); if (reason) return { reason };
+      // Snapshot previews describe the retained call too. Its own open claim
+      // cannot block Resume, takeover or replay; fresh admission stays strict.
+      const current = conversationLimits.policy?.(session.id) === 'credits' ? storage.voiceLifecycle(session.id) : null;
+      const reason = freshVoiceReason(session.id, current && current.state !== 'ended' ? current.callId : null);
+      if (reason) return { reason };
     }
     if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
       (visual(feature) && !session.identity.conceptsUnlocked))) return { reason: 'verification required' };

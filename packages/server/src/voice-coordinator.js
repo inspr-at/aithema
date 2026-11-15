@@ -57,11 +57,11 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   let history = [], historyBytes = 0, commitTail = Promise.resolve();
   const replies = new Set();
   const idleEnabled = conversationLimit === 'credits';
-  let idleTimer, lastAcceptedAt = startedAt;
+  let idleTimer, idleSince = startedAt;
   function armIdle() {
     clearTimeout(idleTimer);
     if (!idleEnabled || state.state === 'ended' || state.state === 'active' && [...replies].some(reply => !reply.idleStopped)) return;
-    idleTimer = setTimeout(() => { void close('idle'); }, Math.max(0, lastAcceptedAt + voiceIdleSeconds * 1000 - now()));
+    idleTimer = setTimeout(() => { void close('idle'); }, Math.max(0, idleSince + voiceIdleSeconds * 1000 - now()));
     idleTimer.unref?.();
   }
   let interruptionTail = Promise.resolve();
@@ -192,7 +192,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         event({ type: 'final', role: 'user', turnId: turn.id, text, ...(turn.speechEndAt === undefined ? {} : { speechEndAt: turn.speechEndAt }) });
         dispatch({ type: 'accepted', turnId: turn.id });
         acceptedTurns++;
-        lastAcceptedAt = now(); armIdle();
+        idleSince = now(); armIdle();
         delivery?.accept();
         committed.resolve();
       };
@@ -426,9 +426,16 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       throw error;
     } finally {
       const remaining = (playback?.endAt ?? 0) - now();
+      const finishOutput = () => {
+        replies.delete(delivery);
+        // A natural output completion starts a full silence window. Held or
+        // interrupted calls retain their existing deadline even if work finishes later.
+        if (idleEnabled && complete && !signal.aborted && !delivery.idleStopped && state.state === 'active') idleSince = now();
+        armIdle();
+      };
       if (!delivery.interrupted && remaining > 0) {
-        const cleanup = setTimeout(() => { replies.delete(delivery); armIdle(); }, remaining); cleanup.unref?.();
-      } else replies.delete(delivery);
+        const cleanup = setTimeout(finishOutput, remaining); cleanup.unref?.();
+      } else finishOutput();
       if (playback) { playback.stop(); await playback.finish().catch(() => {}); }
       armIdle(); await interruptionTail;
     }
