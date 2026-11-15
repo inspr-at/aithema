@@ -34,7 +34,6 @@ export const combinedEntranceStyles = `
 .composer-mic svg { width:20px; height:20px; }
 .composer-mic[aria-pressed="true"] { background:color-mix(in srgb,var(--aithema-accent) 12%,var(--aithema-surface)); }
 .composer-status { grid-area:status; align-self:center; min-width:0; height:2.6em; overflow:auto; color:var(--aithema-muted); font-size:.72rem; line-height:1.3; }
-.composer-status:empty { visibility:hidden; }
 @media(min-width:60rem) {
   /* Reserve the conversation width before the overview reveals. */
   .workspace[data-entrance="combined"][data-understanding="absent"] { grid-template-columns:minmax(0,1.55fr) minmax(22rem,.88fr); column-gap:clamp(1rem,2.5vw,2rem); }

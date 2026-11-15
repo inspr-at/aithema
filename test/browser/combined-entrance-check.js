@@ -228,7 +228,7 @@ export async function combinedOpenerCheck(t) {
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, tables = [];
   if (evidence) await mkdir(join(evidence, 'shots'), { recursive: true });
-  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390,1000],[1024,1000],[1440,1000],[390,620],[390,568]]) {
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390,1000],[1024,1000],[1440,1000],[390,620],[390,568]]) await t.test(`${locale}/${theme}/${width}x${height}`, async () => {
     const page = await browser.newPage(), problems = [];
     try {
       page.on('pageerror', error => problems.push(error.message));
@@ -288,7 +288,7 @@ export async function combinedOpenerCheck(t) {
       unmoved(initial,await shot('persisted'));
       assert.equal(await page.evaluate(() => openerRow===c.shadowRoot.querySelector('[data-id="host:opener"]')),true);
       await page.evaluate(() => {failSend=false;});await page.click('aithema-session >>> .send');
-      await page.waitForFunction(() => sent.length===1);
+      await page.waitForFunction(() => sent.length===1 && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-saved-announcement').textContent.length>0);
       await exposedFeedback(page,'.composer-saved-announcement');
       unmoved(initial,await shot('saved'));
       await page.click('aithema-session >>> .composer-mic');
@@ -299,6 +299,6 @@ export async function combinedOpenerCheck(t) {
       unmoved(initial,await shot('call-ended'));
       assert.deepEqual(problems,[]);
     } finally { await page.close(); }
-  }
+  });
   assert.equal(tables.length,140);
 }
