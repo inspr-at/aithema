@@ -59,3 +59,16 @@ test('AIT-510: refusal records survive typing until explicitly dismissed', async
   f.root.querySelector('.image-refusals button').click();
   assert.equal(f.root.querySelector('.image-refusals'), null);
 });
+
+test('AIT-510: staging and decoding do not clear a reply in flight; pending images cannot send', async t => {
+  const { inputRevision } = await import('@inspr/aithema-core');
+  const f = fixture(t);
+  f.c.receive({ sessionId: f.c.session.id, type: 'turn.partial', data: { id: 'running-reply', delta: 'A reply in flight', inputRevision: inputRevision(f.c.session), settingsRevision: 0 } });
+  const partial = f.root.querySelector('.partial')?.textContent;
+  assert.ok(partial?.includes('A reply in flight'));
+  await choose(f.root, [new window.File(['fixture'], 'fixture.png', { type: 'image/png' })]);
+  assert.equal(f.root.querySelector('.partial')?.textContent, partial);
+  assert.equal(f.root.querySelector('.send').disabled, true);
+  f.root.querySelector('.send').click(); await tick();
+  assert.equal(f.calls.some(call => call.url.endsWith('/turns') && call.options.method === 'POST'), false);
+});
