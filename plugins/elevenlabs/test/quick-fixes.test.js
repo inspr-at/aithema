@@ -495,6 +495,7 @@ for (const shape of ['end_call', 'close-code']) test(`AIT-508: SDK generic ${sha
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
   const local = await setup(t, { durationMs: 900_000, conversationLimit: 'credits' }); let recoveries = 0;
   local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  local.control.heartbeat = async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 900_000 });
   for (let second = 0; second < 120; second++) { t.mock.timers.tick(1000); await flush(); }
   local.sdk.starts[0].onDisconnect(shape === 'end_call'
     ? { reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } }
@@ -526,6 +527,7 @@ for (const locale of ['en', 'de']) test(`AIT-508: ${locale} fresh call continuat
 test('AIT-508: legacy time-policy end_call keeps the existing provider-end classification', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
   const local = await setup(t, { durationMs: 900_000 });
+  local.control.heartbeat = async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 900_000 });
   for (let second = 0; second < 120; second++) { t.mock.timers.tick(1000); await flush(); }
   local.sdk.starts[0].onDisconnect({ reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } });
   await flush(); await flush();
