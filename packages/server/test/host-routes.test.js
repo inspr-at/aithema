@@ -1597,3 +1597,45 @@ for (const asynchronousDelivery of [false, true]) {
     });
   }
 }
+
+// AIT-507: every timestamp comes from the same pinned clock, including consent.
+async function offerFixture(t, afterMessages = 2) {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
+  const f = fixture(t, { clockedConsent: true }); f.host.emailOffer = { afterMessages };
+  const s = await f.create(), base = `/api/sessions/${s.id}`;
+  const claim = (action = 'show') => f.call(`${base}/email-ask`, { action, why: 'offer' });
+  const send = async (id = crypto.randomUUID()) => {
+    await f.call(`${base}/turns`, { content: 'systems: API', clientEventId: id }); await f.handlers.idle();
+  };
+  return { ...f, s, base, claim, send };
+}
+test('AIT-507 publishes policy, waits for N accepted messages, latches independently of low claims', async t => {
+  const f = await offerFixture(t);
+  assert.deepEqual((await (await f.call(f.base)).json()).emailOffer, { afterMessages: 2 });
+  assert.equal((await (await f.claim()).json()).accepted, false);
+  await f.send('offer-first'); await f.send('offer-first');
+  assert.equal((await (await f.claim()).json()).accepted, false, 'duplicate acceptance cannot advance count');
+  await f.send('offer-second');
+  const low = f.host.lowEmailAsk(owner);
+  const response = await f.claim(); assert.equal(response.status, 200);
+  const shown = await response.json(); assert.equal(shown.accepted, true); assert.equal(shown.emailOffer.offered, true);
+  assert.equal(shown.emailOffer.at, f.storage.get(f.s.id).transcript.at(-1).id);
+  assert.deepEqual(f.host.lowEmailAsk(owner), low);
+  await f.claim('dismiss');
+  assert.equal((await (await f.claim()).json()).accepted, false);
+  f.at(86_401_001);
+  assert.equal((await (await f.claim()).json()).accepted, false, 'durable conversation latch outlives the day');
+});
+test('AIT-507 claims once per rolling visitor day across conversations, including a lock-only saved address', async t => {
+  const f = await offerFixture(t, 1);
+  f.host.creditTiers = () => ({ current: 'emailGiven', next: null, delta: 0, canConfirm: true });
+  await f.call('/api/visitor/email', { address: 'saved@example.test', noticeVersion: 'ait-135-v1' }, owner, 'PUT');
+  await f.send(); assert.equal((await (await f.claim()).json()).accepted, true);
+  const next = await f.create(), base = `/api/sessions/${next.id}`;
+  await f.call(`${base}/turns`, { content: 'systems: API', clientEventId: 'second-session' }); await f.handlers.idle();
+  assert.equal((await (await f.call(`${base}/email-ask`, { action: 'show', why: 'offer' })).json()).accepted, false);
+});
+test('AIT-507 no policy preserves the legacy fifth-turn route', async t => {
+  const f = await offerFixture(t, 1); delete f.host.emailOffer; await f.send();
+  assert.equal((await (await f.claim()).json()).accepted, false);
+});
