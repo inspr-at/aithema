@@ -62,3 +62,61 @@ test('AIT-510: staged images expire after thirty minutes without conversation in
   assert.equal(inputRevision(f.storage.get(f.session.id)), revision);
   assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
 });
+
+test('AIT-510: fixture pixels reach reply and final understanding only after image-only send, with owner-only export', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: clock });
+  const { createHandlers, createPluginRuntime } = await import('../src/index.js');
+  const { PluginRegistry } = await import('@inspr/aithema-core');
+  const { createOpenRouterReasoning } = await import('@inspr/aithema-plugin-openrouter');
+  const { createImageInput } = await import('../../../plugins/image-input/src/index.js');
+  const { qualifyStartBinding } = await import('../../../demo/processing-consent.js');
+  const { ownedRequest, unzip } = await import('../../../test/helpers.js');
+  const { default: sharp } = await import('sharp');
+  const storage = new SQLiteStorage(), seen = [], imageInput = { maxImages: 4, maxTokensPerImage: 1600 };
+  const binding = qualifyStartBinding({ plugin: 'openrouter', model: 'anthropic/fixture', effort: 'none', endpoint: 'https://example.test/chat',
+    accountRef: 'fixture', secretRef: 'fixture', maxMicro: 1000000, maxTokens: 1000, rates: { inputMicro: 1, outputMicro: 1 }, imageInput }, clock);
+  const consent = { coverage({ scope, consentRevision }) { return { covered: true, ...scope, scope, consentRevision, checkedAt: clock, expiresAt: clock + 60000 }; } };
+  const reasoning = createOpenRouterReasoning({ binding, prices: { 'anthropic/fixture': { prompt: .000001, completion: .000001 } }, resolveSecret: () => 'fixture',
+    fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body), parts = body.messages.flatMap(m => Array.isArray(m.content) ? m.content : []);
+      const image = parts.find(p => p.type === 'image_url'); let red = false;
+      if (image) {
+        const pixels = await sharp(Buffer.from(image.image_url.url.split(',')[1], 'base64')).resize(1, 1).removeAlpha().raw().toBuffer();
+        red = pixels[0] > 200 && pixels[1] < 70 && pixels[2] < 70;
+      }
+      seen.push({ stream: body.stream, red });
+      const summary = red ? 'Red screenshot' : 'No screenshot';
+      const result = body.stream ? { content: summary, question_short: null, options: [] } : { summary, signals: [summary], openQuestions: [],
+        constraints: Object.fromEntries(storage.get(session.id).preset.slots.map(key => [key, null])),
+        progress: { talk: { value: .2, reasoning: 'Fixture' }, build: { value: .1, reasoning: 'Fixture' } }, actor: null, engagement: null, conceptIntent: null };
+      const usage = { prompt_tokens: 1800, completion_tokens: 20, cost: 0 };
+      return body.stream ? new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(result) }, finish_reason: 'stop' }], usage })}\n\ndata: [DONE]\n\n`)
+        : Response.json({ choices: [{ message: { content: JSON.stringify(result) }, finish_reason: 'stop' }], usage });
+    } });
+  const registry = new PluginRegistry().register(reasoning).register(createImageInput());
+  const presets = { best: { plugins: ['openrouter', 'image-input'], bindings: { reaction: binding, understanding: binding }, policy: { endpoints: [binding.endpoint] }, imageInput: { plugin: 'image-input' } } };
+  const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent, now: () => clock });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, now: () => clock });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken, demo: true }), revision = inputRevision(session);
+  const source = await sharp({ create: { width: 2, height: 1, channels: 3, background: '#ff0000' } }).png().toBuffer();
+  const form = new FormData(); form.append('clientEventId', 'fixture-image'); form.append('files', new File([source], 'red.png', { type: 'image/png' }));
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/uploads`, { method: 'POST', body: form }));
+  assert.equal(response.status, 202, JSON.stringify(await response.clone().json()));
+  await handlers.idle();
+  const staged = storage.get(session.id).uploads[0]; assert.equal(staged.state, 'staged-ready');
+  assert.equal(inputRevision(storage.get(session.id)), revision); assert.deepEqual(seen, [], 'attach schedules no provider work');
+  const route = `http://localhost/api/sessions/${session.id}/uploads/${staged.id}/image`;
+  assert.equal((await handlers.handle(new Request(route))).status, 404);
+  const imageResponse = await handlers.handle(ownedRequest(route)); assert.equal(imageResponse.status, 200); assert.equal(imageResponse.headers.get('cache-control'), 'no-store');
+  const send = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/turns`, { method: 'POST', body: JSON.stringify({ clientEventId: 'sent-image', content: '', attachments: [staged.id] }) }));
+  assert.equal(send.status, 200); await handlers.idle();
+  assert.ok(seen.some(call => call.stream && call.red), 'reply depends on the actual fixture pixels');
+  assert.ok(seen.some(call => !call.stream && call.red), 'final understanding depends on the actual fixture pixels');
+  assert.equal(storage.get(session.id).understanding.summary, 'Red screenshot');
+  const exported = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/export`));
+  assert.equal(exported.status, 200);
+  const files = unzip(Buffer.from(await exported.arrayBuffer()), { binary: true });
+  assert.ok(Object.keys(files).some(path => path.startsWith('images/')));
+  assert.equal(JSON.stringify(storage.db.prepare('SELECT * FROM events').all()).includes(source.toString('base64')), false);
+});
