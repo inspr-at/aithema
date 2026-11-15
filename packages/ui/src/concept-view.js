@@ -1,3 +1,4 @@
+import { resolveCopy } from './copy-resolve.js';
 import { consentTimeout } from './consent-timer.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
@@ -51,6 +52,7 @@ export function paintFailureLine(line, words, suffix = '') {
 
 /** Generic START viewer experience, owner-authenticated artifacts and scoped previews. */
 export class ConceptView {
+  #consentIntent; #consentIntentTimer; #consentRequestId;
   #erased = false;
   #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
@@ -82,6 +84,9 @@ export class ConceptView {
       action.className = 'drafts-consent-action-reserve'; action.textContent = copy.featureConsent.action;
       line.append(action); root.querySelector('.drafts-reason-reserve').append(line);
     }
+    const conceptConsentSizer = document.createElement('span');
+    conceptConsentSizer.textContent = `${resolveCopy(copy, 'conceptConsent', 'featureConsent.images')}${reasonSeparator}${resolveCopy(copy, 'conceptConsentAction', 'featureConsent.action')}`;
+    root.querySelector('.drafts-reason-reserve').append(conceptConsentSizer);
     // Withdrawal and expiry share the existing status grid, including wrapped DE copy.
     root.querySelector('.concept-withdrawn-reserve').replaceChildren();
     for (const key of ['conceptWithdrawn', 'conceptDraftWithdrawn', 'conceptImageWithdrawn']) {
@@ -96,8 +101,8 @@ export class ConceptView {
     if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
     root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });
   }
-  constructor({ transport, root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL }) {
-    Object.assign(this, { transport, root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL });
+  constructor({ transport, root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL, intentTTL }) {
+    Object.assign(this, { transport, root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry, previewURL, intentTTL });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
     this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -235,7 +240,7 @@ export class ConceptView {
   }
   erased() {
     if (this.#erased) return;
-    this.#erased = true; this.#lifetime++; this.#epoch++; this.#canvasEpoch++;
+    this.#erased = true; this.cancelConsent(); this.#lifetime++; this.#epoch++; this.#canvasEpoch++;
     clearTimeout(this.#withdrawnTimer); this.#withdrawnUntil = 0;
     clearInterval(this.#timer); this.#timer = null; this.#pendingScopes.clear();
     this.#phone.removeEventListener('change', this.#placeAccess);
@@ -257,6 +262,7 @@ export class ConceptView {
     if (!this.#timer) { this.#timer = setInterval(() => this.progress(), 1000); this.#timer.unref?.(); }
   }
   suspend() {
+    this.cancelConsent();
     this.#lifetime++; this.#busy = false; this.gates();
     this.#phone.removeEventListener('change', this.#placeAccess);
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
@@ -264,6 +270,7 @@ export class ConceptView {
     this.clearBackdrop(); this.clearThumbnail(); clearTimeout(this.#withdrawnTimer); this.#epoch++; this.#loads.clear(); clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.suspendCanvas(); this.close();
   }
   async endEligibility() {
+    this.cancelConsent();
     if (!this.#session || this.#session.tombstone || this.#session.processingPreset === 'device') return;
     const sessionId = this.#session.id;
     try {
@@ -274,6 +281,7 @@ export class ConceptView {
   }
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
   reviseConsent(changed, granted = true, removed) {
+    if (!granted) this.cancelConsent();
     // Unknown names still take the session's bounded refresh path. Known names
     // can remove their surfaces immediately even in a mixed future event.
     if (!Array.isArray(changed)) return;
@@ -314,9 +322,10 @@ export class ConceptView {
     const previous = this.#visible.at(-1), wasPending = this.#session?.conceptStatus?.phase === 'pending';
     const lostSource = wasPending && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn &&
       !session.transcript.some(next => next.id === turn.id && !next.erased && !next.withdrawn));
-    if (changedOwner) { this.#pendingScopes.clear(); this.#consentRefreshFailed = false; this.#canvasWithdrawnKind = undefined; this.#consentDocument = undefined; this.#previewDenied.clear(); this.#withdrawnKind = undefined; this.#previewRetryAt = 0; this.#stageFeature = undefined; this.#imageLayout = false; }
+    if (changedOwner) { this.#pendingScopes.clear(); this.#consentRefreshFailed = false; this.#canvasWithdrawnKind = undefined; this.#consentDocument = undefined; this.#previewDenied.clear(); this.#withdrawnKind = undefined; this.#previewRetryAt = 0; this.#stageFeature = undefined; this.#imageLayout = false; this.#consentRequestId = undefined; }
     this.#session = session;
     if (consentDocument) this.#consentDocument = consentDocument;
+    this.#syncConsentIntent(consentVerified);
     if (this.#canvasWithdrawnKind && this.covered(this.#canvasWithdrawnKind)) this.#canvasWithdrawnKind = undefined;
     const partial = !changedOwner && !session.consentWithdrawn && !session.tombstone && (this.#consentRefreshFailed ? this.#visible.at(-1) : this.#visible.find(item => !this.covered(conceptKind(item), item)));
     if (partial) {
@@ -452,23 +461,85 @@ export class ConceptView {
       (current.rawReason ?? current.reason) !== 'verification required';
     if (!this.#session.paused || initial || consentChanged || gateLifted) this.#stageFeature = current;
     const feature = this.#session.consentWithdrawn || this.#session.tombstone ? this.feature() : this.#stageFeature;
-    const words = conceptStateText({ copy: this.copy, status, feature, items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
+    let words = conceptStateText({ copy: this.copy, status, feature, items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
+    if (status.consentRequest && !this.#validConsentIntent()) words = '';
     // Tick L1: pausing gates actions, but keeps the stage's pre-pause words.
     // A reload has no previous words: initialize from the underlying feature verdict.
     // A lifted verification gate, consent withdrawal and erasure still repaint.
     if (initial || !this.#session.paused || consentChanged || gateLifted || this.#session.consentWithdrawn || this.#session.tombstone) {
       const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
-      if (!['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError && (!this.items.length || !feature.available)) this.#paintReason(text, feature, words, line);
+      if (status.consentRequest || !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError && (!this.items.length || !feature.available)) this.#paintReason(text, feature, words, line);
       else paintConsentLine(text, { copy: this.copy, feature: (this.#withdrawnKind ?? this.visualKind()) === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener, this.#withdrawnKind ?? this.visualKind()) });
     }
     if (status.phase === 'pending') {
       const estimate = conceptProgress(status); node.value = estimate.percent;
       countdown.textContent = estimate.overdue ? this.copy.conceptOverdue : this.copy.conceptCountdown.replace('{seconds}', estimate.seconds);
     } else { node.value = status.phase === 'ready' ? 100 : 0; countdown.textContent = ''; }
-    this.root.querySelector('.concept-rail').dataset.phase = status.phase;
+    // Consent waits use the reserved idle cell, including the grant-to-request edge.
+    this.root.querySelector('.concept-rail').dataset.phase = status.consentRequest ? 'idle' : status.phase;
     this.paintBackdropState(unbound);
   }
+  // Shares Start's TTL helper and revision/one-use semantics, without tab storage or
+  // any microphone path. The original Start implementation stays unchanged.
+  #validConsentIntent() {
+    const intent = this.#consentIntent, session = this.#session;
+    return intent && intent.expiresAt > Date.now() && intent.sessionId === session.id &&
+      intent.settingsRevision === session.settings.revision && intent.inputRevision === session.inputRevision &&
+      intent.withdrawalRevision === session.withdrawalRevision && session.conceptStatus?.consentRequest?.id === intent.id && !session.consentWithdrawn && !session.tombstone &&
+      !session.paused && !this.root.ownerDocument.hidden && session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id === intent.sourceTurnId;
+  }
+  cancelConsent() {
+    if (!this.#consentIntent && !this.#consentIntentTimer) return;
+    clearTimeout(this.#consentIntentTimer); this.#consentIntentTimer = null; this.#consentIntent = null;
+    if (this.#session && !this.#erased) { this.progress(); this.gates(); }
+  }
+  #syncConsentIntent(verified) {
+    if (this.#consentIntent && !this.#validConsentIntent()) this.cancelConsent();
+    const request = this.#session.conceptStatus?.consentRequest;
+    if (request?.id && request.id !== this.#consentRequestId) {
+      const feature = this.feature();
+      if (!feature.available && isConsentReason(feature.rawReason ?? feature.reason)) {
+        this.cancelConsent(); this.#consentRequestId = request.id;
+        const session = this.#session;
+        const lifetime = this.intentTTL('type');
+        this.#consentIntent = { ...request, sessionId: session.id, settingsRevision: session.settings.revision,
+          inputRevision: session.inputRevision, withdrawalRevision: session.withdrawalRevision,
+          consentRevision: session.consentRevision, expiresAt: Date.now() + lifetime, requested: false };
+        if (!this.#validConsentIntent()) this.cancelConsent();
+        else {
+          this.#consentIntentTimer = setTimeout(() => this.cancelConsent(), lifetime);
+          this.#consentIntentTimer.unref?.();
+        }
+      }
+    }
+    const intent = this.#consentIntent, feature = this.visualKind() === 'html' ? 'html' : 'images';
+    const purposes = this.#consentDocument?.features?.[feature];
+    if (verified && this.#validConsentIntent() && intent.requested && this.#session.consentRevision > intent.consentRevision &&
+      this.#consentDocument?.consentRevision === this.#session.consentRevision) {
+      const covered = purposes?.length && purposes.every(id => this.#consentDocument.selected.includes(id));
+      // A settled decision consumes the holder, including a partial grant.
+      // Clear before any async work or duplicate event can run it a second time.
+      this.cancelConsent(); if (covered) void this.request();
+    }
+  }
   #paintReason(text, feature, words, line) {
+    const consent = !feature.available && isConsentReason(feature.rawReason ?? feature.reason);
+    const intent = this.#validConsentIntent() && this.#consentIntent;
+    if (consent && (this.#session.conceptStatus?.consentRequest ||
+      !this.#withdrawnKind && !['pending', 'failed', 'waiting'].includes(this.#session.conceptStatus?.phase))) {
+      if (!intent) { text.textContent = ''; delete text.dataset.consentFeature; return; }
+      const images = this.visualKind() !== 'html';
+      const copy = images ? { ...this.copy, featureConsent: { ...this.copy.featureConsent,
+        images: resolveCopy(this.copy, 'conceptConsent', 'featureConsent.images'),
+        action: resolveCopy(this.copy, 'conceptConsentAction', 'featureConsent.action') } } : this.copy;
+      paintConsentLine(text, { copy, feature: images ? 'images' : 'html', verdict: feature, open: opener => {
+        if (!this.#validConsentIntent()) { this.cancelConsent(); return; }
+        this.#consentIntent.requested = true;
+        this.consent?.(opener, this.visualKind(), 'concept');
+      } });
+      this.#nameConsentLine(text);
+      return;
+    }
     const disabled = !feature.available && (feature.rawReason ?? feature.reason) === 'visuals off';
     if (disabled || line.recovery) {
       // The same native action as C1; only the destination differs.
@@ -483,6 +554,9 @@ export class ConceptView {
       text.querySelector('.drafts-disabled-copy').textContent = `${disabled ? this.copy.display.draftsDisabled : line.message}${reasonSeparator}`;
       text.querySelector('.drafts-settings-action').textContent = disabled ? this.copy.display.draftsEnable : line.label;
     } else paintConsentLine(text, { copy: this.copy, feature: (this.#withdrawnKind ?? this.visualKind()) === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener, this.#withdrawnKind ?? this.visualKind()) });
+    this.#nameConsentLine(text);
+  }
+  #nameConsentLine(text) {
     const consentLabel = text.querySelector('.consent-line-copy');
     if (consentLabel) {
       consentLabel.id = `consent-${text === this.root.querySelector('.concept-activity-text') ? 'rail' : 'canvas'}-sentence`;
@@ -822,7 +896,8 @@ export class ConceptView {
       feature: this.#session?.paused && !this.#session.consentWithdrawn && !this.#session.tombstone ? this.#stageFeature ?? feature : feature });
     const costCopy = line.action ? creditCost(this.#session.conceptCost.maxMicro, this.copy) : '';
     const request = this.root.querySelector('.concept-request');
-    this.root.querySelector('.concept-activity').hidden = line.action && !['pending', 'failed', 'waiting'].includes(this.#session?.conceptStatus?.phase);
+    const phase = this.#session?.conceptStatus?.consentRequest ? 'idle' : this.#session?.conceptStatus?.phase;
+    this.root.querySelector('.concept-activity').hidden = line.action && !['pending', 'failed', 'waiting'].includes(phase);
     request.textContent = this.#session?.conceptStatus?.phase === 'failed' && line.action ? [this.copy.conceptRetry, costCopy].filter(Boolean).join(reasonSeparator) : line.text;
     request.hidden = !line.action;
     request.disabled = this.#busy || pending || !feature.available || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';

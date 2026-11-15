@@ -70,6 +70,8 @@ export const de = {
   conceptClose: 'Zurück zum Gespräch', conceptPrevious: 'Vorheriger', conceptNext: 'Nächster', conceptDownload: 'Bild herunterladen',
   conceptRequest: 'Entwurf anfordern', conceptRegenerate: 'Neu erstellen', conceptRetry: 'Erneut versuchen', conceptUp: 'Gefällt mir', conceptDown: 'Gefällt mir nicht',
   conceptReject: 'Ablehnen und ausblenden', conceptImageAlt: 'Visueller Entwurf einer Oberfläche aus diesem Gespräch',
+  conceptConsent: 'Zum Erstellen von Bildern ist eine Einwilligung nötig.',
+  conceptConsentAction: 'Einwilligung geben',
   conceptIntro: 'Sobald genügend Angaben vorliegen, können Sie einen ersten Entwurf anfordern.', conceptNeedsInput: 'Beschreiben Sie zuerst Ihr Anliegen.',
   conceptWaiting: 'Wunsch nach einem Entwurf vorgemerkt. Es fehlen noch Angaben.', conceptRendering: 'Ihr Entwurf entsteht …',
   conceptCountdown: 'Noch etwa {seconds} s (geschätzt)', conceptOverdue: 'Der Entwurf braucht etwas länger …', conceptReady: 'Ihr Entwurf ist fertig.',
