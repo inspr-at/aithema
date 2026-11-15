@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow } from './demo-helpers.js';
+import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow, uploadChooser } from './demo-helpers.js';
 import { mockConsent } from './consent-helpers.js';
 
 // The page uses only injected intake/model fixtures; no provider is contacted.
@@ -25,6 +25,13 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       session.featureMatrix.best.imageInput = { available: true, reason: null };
       session.featureMatrix.best.images = { available: true, reason: null };
       session.featureMatrix.best.uploads = { available: true, reason: null };
+      session.settings.voice = 'off'; session.settings.origin = 'chosen';
+      session.featureMatrix.best.voice = { available: false, reason: 'voice off' };
+      session.inputRevision = 1;
+      session.transcript = [{ id: 'existing-input', role: 'user', content: 'A screenshot for the project', at: new Date(0).toISOString() },
+        { id: 'existing-reply', role: 'assistant', content: 'Which part should be clarified?', at: new Date(1).toISOString() }];
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      session.understanding = { ...session.understanding, summary: 'A project screenshot', inputRevision: inputRevision(session), readinessAssessed: true };
       const fetch = window.fetch.bind(window);
       window.fetch = async (url, options = {}) => {
         if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
@@ -35,7 +42,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
           return Response.json({ events: files.map(file => ({ sessionId: c.session.id, seq: c.session.seq + ++window.imageSeq, type: 'upload.state', data: {
             id: `fixture-${window.imageSeq}`, filename: file.name, kind: 'image', state: 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
         }
-        if (/\/uploads\/[^/]+\/image$/u.test(String(url))) return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } });
+        if (/\/uploads\/[^/]+\/image$/u.test(String(url))) return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } });
         if (/\/turns$/u.test(String(url)) && options.method === 'POST') {
           const body = JSON.parse(options.body); window.imagePosts.push(body);
           return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments, at: new Date(0).toISOString() } });
@@ -43,15 +50,23 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
         return fetch(url, options);
       };
       const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ session, copy, sessionToken: 'fixture' });
+      c.configure({ session, copy, sessionToken: 'fixture', voiceClient: {} });
     });
     await startTyping(page);
-    const choose = () => inShadow(page, c => {
+    const choose = async () => {
+      if (width === 390) {
+        const path = join(directory, 'fixture.png');
+        await writeFile(path, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII=', 'base64'));
+        const chooser = await uploadChooser(page); await chooser.accept([path]); return;
+      }
+      await inShadow(page, (c, width) => {
       const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.png', { type: 'image/png' }));
-      const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
-    });
+      if (width === 1024) c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+      else c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
+      }, width);
+    };
     await choose(); await waitForShadow(page, '.staged-image');
-    const boxes = () => inShadow(page, c => Object.fromEntries(['.band', '.attach', '.send', '.composer'].map(selector => {
+    const boxes = () => inShadow(page, c => Object.fromEntries(['.band', '.audio-rail', '.attach', '.send', '.composer', ...(window.innerWidth >= 1024 ? ['.understanding', '.understanding .foot'] : [])].map(selector => {
       const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, bottom: r.bottom }];
     })));
     const before = await boxes();
@@ -61,7 +76,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     if (evidence) await mkdir(evidence, { recursive: true });
     const shot = async state => { if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `${prefix}-${state}.png`) }); };
     await shot('pending');
-    for (const reason of ['unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable']) {
+    for (const reason of ['unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'batch']) {
       await inShadow(page, (c, reason) => { const image = c.session.uploads.find(u => u.kind === 'image');
         c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason } });
       }, reason);

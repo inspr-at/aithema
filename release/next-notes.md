@@ -41,7 +41,7 @@
   listed in README.md.
 - New EN/DE copy: imageConsentJit, imageInputFeature, imagePreparing, imageRemove,
   imageLiveCall, imageUnsupportedModel, imageWithheld, uploadsSupported,
-  uploadsReselect (plural), imageRefusals and their per-reason entries,
+  uploadsReselect (plural), imageRefusals and their per-reason entries (including batch limits),
   features.imageInput, featureConsent.imageInput, processingConsent.items.image-input,
   plus native/capability refusal reasons and updated upload format/retention copy.
   Refusals persist through typing in the bounded reason slot, below blocking

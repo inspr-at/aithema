@@ -7,9 +7,9 @@ export { plural } from './copy-resolve.js';
 // The route's defaults (packages/server/src/upload-limits.js): 20 MiB per document, 21 MiB per
 // request including framing. Hosts can only lower them; limits GET and successful POST report them.
 export const UPLOAD_LIMITS = Object.freeze({ maxBytes: 20 * 1024 * 1024, maxRequestBytes: 21 * 1024 * 1024,
-  maxFilesPerRequest: 8, maxDocumentsPerSession: 8, maxSessionBytes: 160 * 1024 * 1024 });
+  maxFilesPerRequest: 8, maxDocumentsPerSession: 8, maxImagesPerSession: 8, maxSessionBytes: 160 * 1024 * 1024 });
 // Extensions the server sniffs and extracts; a file without one is left to the server's sniffing.
-export const UPLOAD_EXTENSIONS = Object.freeze(['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'md', 'csv', 'json', 'xml']);
+export const UPLOAD_EXTENSIONS = Object.freeze(['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'md', 'csv', 'json', 'xml', 'png', 'jpg', 'jpeg', 'webp', 'gif']);
 export const UPLOAD_ACCEPT = UPLOAD_EXTENSIONS.map(extension => `.${extension}`).join(',');
 // Multipart framing, byte for byte as the browser writes it (HTML multipart/form-data encoding):
 // the clientEventId field, then one part per file, then the closing delimiter. The browser picks
@@ -26,6 +26,7 @@ export const filePartBytes = (file, boundary = MAX_BOUNDARY) => partBytes(file.n
 export function formBytes(boundary = MAX_BOUNDARY) {
   return 2 + boundary + 2 + utf8('Content-Disposition: form-data; name="clientEventId"\r\n\r\n') + 36 + 2 + 2 + boundary + 2 + 2;
 }
+export const isImageFile = file => /\.(?:png|jpe?g|webp|gif)$/iu.test(file.name) || !/\.[a-z0-9]+$/iu.test(file.name) && /^image\/(?:png|jpeg|webp|gif)$/u.test(file.type);
 const extension = name => /\.([a-z0-9]+)$/iu.exec(name)?.[1].toLowerCase() ?? null;
 const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, key) => values[key] ?? match);
 
@@ -65,9 +66,11 @@ export function planUploads(files, { limits: raw, uploads = [] } = {}) {
     else if (!possible || file.size > room(limits, filePartBytes(file))) refused.push({ name: file.name, reason: 'size', limit });
     else fitting.push(file);
   }
-  const active = uploads.filter(u => u.state !== 'withdrawn' && !u.erased);
+  const active = uploads.filter(u => !['withdrawn', 'staged-discarded', 'withheld'].includes(u.state) && !u.erased);
   const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0), adding = fitting.reduce((sum, f) => sum + f.size, 0);
-  const blocked = !fitting.length ? null : active.length + fitting.length > limits.maxDocumentsPerSession ? 'count'
+  const images = active.filter(u => u.kind === 'image').length, addingImages = fitting.filter(isImageFile).length;
+  const blocked = !fitting.length ? null : images + addingImages > limits.maxImagesPerSession ? 'images'
+    : active.length - images + fitting.length - addingImages > limits.maxDocumentsPerSession ? 'count'
     : used + adding > limits.maxSessionBytes ? 'session' : null;
   const batches = [];
   if (!blocked) for (const file of fitting) {
@@ -97,6 +100,7 @@ export function refusalText(copy, { refused, blocked, limits }, locale) {
   const u = copy.uploads, sentences = [];
   if (refused.length && !uploadsPossible(limits)) return u.impossible;
   if (refused.length) sentences.push(fill(u.refused, { list: refused.map(r => fill(r.reason === 'type' ? u.type : u.tooLarge, { name: r.name, size: formatBytes(r.limit ?? 0, locale) })).join(', ') }));
+  if (blocked === 'images') sentences.push(copy.imageRefusals.limit);
   if (blocked === 'count') sentences.push(fill(u.tooMany, { files: limits.maxDocumentsPerSession }));
   if (blocked === 'session') sentences.push(fill(u.sessionFull, { size: formatBytes(limits.maxSessionBytes, locale) }));
   return sentences.join(' ');

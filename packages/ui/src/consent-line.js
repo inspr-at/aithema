@@ -1,3 +1,4 @@
+import { resolveCopy } from './copy-resolve.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { node, setText } from './dom.js';
 
@@ -12,7 +13,9 @@ export function reasonAction(label, activate) {
 }
 
 /** The C1 sentence shared by visible statuses, AT descriptions and hover/focus help. */
-export const featureConsentText = (copy, feature) => copy.featureConsent[feature === 'transcription' ? 'voice' : feature];
+export const featureConsentText = (copy, feature) => feature === 'imageInput'
+  ? resolveCopy(copy, 'featureConsent.imageInput', 'imageConsentJit', copy.display?.locale)
+  : copy.featureConsent[feature === 'transcription' ? 'voice' : feature];
 
 /** Visual narrow copy stays out of the live text; wide remains the full AT sentence. */
 export function paintNarrowText(label, text, textNarrow) {

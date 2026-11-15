@@ -3820,8 +3820,9 @@ auto-orients, removes metadata, and emits JPEG or alpha-preserving PNG at most
 (up to four unique, owned, ready image upload IDs). Blank content is accepted
 only with attachments. Sending atomically binds those staged images to the user
 turn and marks them `sent`; request receipts bind text **and** attachments.
-Live-call image sends are refused with `image-live-call`; images can be sent in
-text mode. An image-only turn is neutral for purpose classification. Only sent
+A binding with a lower image limit refuses a larger attachment set with
+`image-input-limit`. Live-call image sends are refused with `image-live-call`;
+images can be sent in text mode. An image-only turn is neutral for purpose classification. Only sent
 images use the source-withdrawal cascade. `maxImagesPerSession` defaults to 8,
 separate from the eight-document quota, while source-byte limits remain shared.
 Hosts can lower it through upload limits or `AITHEMA_UPLOAD_MAX_IMAGES`.
@@ -3857,7 +3858,7 @@ New copy keys are `imageConsentJit`, `imageInputFeature`, `imagePreparing`,
 `imageRemove`, `imageLiveCall`, `imageUnsupportedModel`, `imageWithheld`,
 `uploadsSupported`, plural `uploadsReselect`, `imageRefusals` (unsupported, size,
 limit, empty, malformed, dimensions, deadline, cancelled, unavailable, session,
-model and live-call), `features.imageInput`, `featureConsent.imageInput`, and
+model, live-call and batch), `features.imageInput`, `featureConsent.imageInput`, and
 `processingConsent.items.image-input`. Upload limits now describe the accepted
 image formats and normalized-image retention. Refusals are bounded structured
 records, retained through typing until dismissed, a successful attach, or a

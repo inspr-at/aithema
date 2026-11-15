@@ -514,6 +514,7 @@ export const de = {
   uploadsSupported: "Unterstützt: PDF, Word, Excel, PowerPoint, Text sowie Bilder als PNG, JPEG, WebP oder GIF",
   uploadsReselect: {"one": "Datei bitte erneut auswählen.", "other": "Dateien bitte erneut auswählen."},
   imageRefusals: {
+    "batch": "Bis zu vier Bilder lassen sich zusammen senden.",
     "unsupported": "Dateityp wird nicht angenommen. PNG, JPEG, WebP oder GIF verwenden.",
     "size": "Das Bild ist für diesen Upload zu groß.",
     "limit": "In diesem Gespräch können keine weiteren Bilder hinzugefügt werden.",

@@ -1,3 +1,6 @@
+import { ImageInputView } from './image-input.js';
+import { stagedImage } from '../../core/src/image-input.js';
+import { isImageFile } from './uploads.js';
 import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
@@ -127,6 +130,7 @@ export class AithemaSession extends HTMLElement {
   #savedTimer; #saved = false; #savedAnnouncement = false; #savedAnnouncedAt = -Infinity; #sendFailed = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
+  #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer;
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -173,7 +177,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
-    this.#cancelUploads();
+    this.#cancelUploads(); this.#images?.destroy(); this.#images = null;
     clearTimeout(this.#clarifyWaitTimer); clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
@@ -202,6 +206,7 @@ export class AithemaSession extends HTMLElement {
     // clear() may render the old tree; keep its binding signal until that render finishes.
     this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
+    this.#imageLayout = session.featureMatrix?.[session.processingPreset ?? 'best']?.imageInput?.available === true || isConsentReason(session.featureMatrix?.[session.processingPreset ?? 'best']?.imageInput?.reason);
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
     this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
@@ -1656,7 +1661,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#session.consentWithdrawn) return 'withdrawn';
     const matrix = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best'] ?? {};
     // Drafts have an optional grant; their verdict never makes conversation consent missing.
-    return FEATURES.some(feature => feature !== 'html' && isConsentReason(matrix[feature]?.reason)) ? 'missing' : 'granted';
+    return FEATURES.some(feature => !['html', 'imageInput'].includes(feature) && isConsentReason(matrix[feature]?.reason)) ? 'missing' : 'granted';
   }
   // Mode-dependent controls; a choice made at conversation start can switch the mode in place.
   #renderMode() {
@@ -1975,11 +1980,11 @@ export class AithemaSession extends HTMLElement {
         send.querySelector('svg').outerHTML = icon(paused ? 'play' : 'arrowRight');
         send.dataset.command = paused ? 'resume' : 'send';
       }
-      send.disabled = paused ? this.#composerResuming : this.#sending || !text.available;
+      send.disabled = paused ? this.#composerResuming : this.#sending || !text.available || this.#images?.pending;
       // A blocking verdict supersedes the failed attempt, including after it becomes available again.
       if (!text.available || this.#rail?.moved) this.#sendFailed = false;
       const reason = root.querySelector('.composer-reason');
-      reason.toggleAttribute('data-shortcut', text.available && !this.#rail?.moved && !this.#uploadNotice && !this.#retryFiles.length && !this.#sendFailed);
+      reason.toggleAttribute('data-shortcut', text.available && !this.#rail?.moved && !this.#uploadNotice && !this.#retryFiles.length && !this.#sendFailed && !this.#images?.hasRefusals && !this.#images?.pending && !this.#imageIntent);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       const feedback = root.querySelector('.composer-feedback');
       const showSaved = this.#saved && reason.hasAttribute('data-shortcut') && !this.#composerPaused;
@@ -1992,7 +1997,7 @@ export class AithemaSession extends HTMLElement {
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#composerPaused ? '' : !text.available || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
-        : this.#uploadNotice || copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
+        : this.#images?.pending ? resolveCopy(copy, 'imagePreparing', undefined, this.#session.locale) : this.#uploadNotice || copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
       setText(root.querySelector('#upload-retry-reason'), this.#retryFiles.length ? plural(copy.uploads.notUploaded, this.#retryFiles.length) : '');
       if (this.#retryFiles.length) {
         const refusal = this.#retryRefusal();
@@ -2026,6 +2031,11 @@ export class AithemaSession extends HTMLElement {
         if (consentCopy) consentCopy.tabIndex = 0; else retryLabel.tabIndex = 0;
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
+      } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
+        paintConsentLine(reason, { copy, feature: 'imageInput', text: copy.imageConsentJit, verdict: { available: false, reason: CONSENT_REASON },
+          open: opener => this.#dialog.openConsent('imageInput', opener) });
+      } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#images?.hasRefusals) {
+        this.#images.paintRefusals(reason);
       } else {
         if (reason.querySelector('.upload-retry-copy')) reason.replaceChildren();
         paintConsentLine(reason, { copy, feature: 'text', text: words,
@@ -2063,6 +2073,10 @@ export class AithemaSession extends HTMLElement {
       const newConversation = root.querySelector('.purpose-new');
       newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
       root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
+      this.#imageLayout ||= Boolean(this.#imageIntent || this.#images?.attachments.length);
+      root.querySelector('.composer').toggleAttribute('data-image-input', this.#imageLayout);
+      root.querySelector('.composer').toggleAttribute('data-image-state', Boolean(this.#imageIntent || this.#images?.hasRefusals));
+      this.#images?.update(copy);
       this.#paintAttach();
       const out = root.querySelector('.composer-out'), usedUp = this.#composerUsedUp;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
@@ -2153,7 +2167,7 @@ export class AithemaSession extends HTMLElement {
         const row = element('li'); row.append(document.createTextNode('')); return row;
       }, (row, feature) => {
         const value = this.#feature(feature, true);
-        row.className = value.available ? '' : 'unavailable'; row.firstChild.nodeValue = copy.features[feature];
+        row.className = value.available ? '' : 'unavailable'; row.firstChild.nodeValue = feature === 'imageInput' ? resolveCopy(copy, 'features.imageInput', 'imageInputFeature', this.#session.locale) : copy.features[feature];
         const reason = row.querySelector('span');
         if (value.available || this.#session.pauseReason === 'purpose') reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = this.#rail?.moved ? copy.voiceInAnotherTab : value.reason;
       });
@@ -2230,6 +2244,7 @@ export class AithemaSession extends HTMLElement {
         if (t.role === 'user' && !sign.firstChild) sign.innerHTML = icon('person');
         row.querySelector('.turn-text').textContent = t.erased ? copy.withdrawn : t.content;
         row.querySelector('.turn-text').removeAttribute('tabindex');
+        this.#images?.paintTurn(row, t);
         paintVoiceInterruption(row, t, copy);
         const focusQuestion = !t.erased && !t.withdrawn && t.role === 'assistant' && this.#clarifyReplies.get(t.focusRequestId);
         let meta = row.querySelector('.clarify-meta');
@@ -2603,7 +2618,7 @@ export class AithemaSession extends HTMLElement {
   // Anything the visitor contributed (or its withdrawal) means the conversation has begun.
   #hasInput() {
     const session = this.#session;
-    return Boolean(session.transcript.length || session.uploads?.length || this.#partials.size || session.tombstone);
+    return Boolean(session.transcript.length || (session.uploads ?? []).some(upload => !stagedImage(upload)) || this.#partials.size || session.tombstone);
   }
   // START's journey (index.astro data-entry, data-choosing-preset): the entrance with the processing
   // choice, readiness once a choice is confirmed, then the live conversation after an explicit start or
@@ -3034,7 +3049,7 @@ export class AithemaSession extends HTMLElement {
   #transcriptEntries(turns) {
     // Files of one request share a time; the order they were first seen breaks the tie (a state change
     // moves an upload to the end of the session's list).
-    const uploads = (this.#session.uploads ?? []).map(upload => {
+    const uploads = (this.#session.uploads ?? []).filter(upload => upload.kind !== 'image').map(upload => {
       if (upload.at && !this.#uploadAt.has(upload.id)) this.#uploadAt.set(upload.id, { at: upload.at, order: this.#uploadAt.size });
       const seen = this.#uploadAt.get(upload.id);
       return { key: `upload:${upload.id}`, upload, at: seen?.at ?? '', order: seen?.order ?? -1 };
@@ -3102,6 +3117,10 @@ export class AithemaSession extends HTMLElement {
   // transcript or the composer) go the same way. The overlay is absolutely placed: it never moves layout.
   #mountUploads() {
     const root = this.shadowRoot, input = root.querySelector('.attach-input'), zone = root.querySelector('.conversation');
+    this.#images = new ImageInputView({ form: root.querySelector('.composer'), copy: this.#copy, session: () => this.#session, canRead: () => this.#feature('imageInput').available === true,
+      changed: () => { if (this.isConnected) { this.#render('composer'); this.#render('transcript'); } },
+      fetchImage: id => this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(id)}/image`), { headers: this.#headers(), cache: 'no-store' }),
+      remove: id => { const row = root.querySelector(`.staged-image[data-id="${id}"]`); if (row) void this.#removeImage(id); } });
     root.querySelector('.attach__label').textContent = this.#copy.uploads.attach;
     root.querySelector('.drop-overlay strong').textContent = this.#copy.uploads.dropActive;
     root.querySelector('.attach').addEventListener('click', () => {
@@ -3110,6 +3129,13 @@ export class AithemaSession extends HTMLElement {
       void this.#loadLimits(); input.click();
     });
     input.addEventListener('change', () => { const files = [...input.files ?? []]; input.value = ''; void this.#attach(files); });
+    zone.addEventListener('paste', event => {
+      const files = [...event.clipboardData?.files ?? []].filter(isImageFile);
+      if (!files.length) return;
+      const text = event.clipboardData.getData('text/plain');
+      if (!text) event.preventDefault();
+      void this.#attach(files);
+    });
     const carriesFiles = event => [...event.dataTransfer?.types ?? []].includes('Files');
     zone.addEventListener('dragenter', event => {
       if (!carriesFiles(event)) return;
@@ -3144,7 +3170,8 @@ export class AithemaSession extends HTMLElement {
   #attachRefusal() {
     const copy = this.#copy, feature = this.#feature('uploads', true);
     if (this.#session.pauseReason === 'purpose') return copy.purposePaused;
-    if (!feature.available) return copy.uploads.unavailable.replace('{reason}', feature.reason);
+    const image = this.#feature('imageInput', true);
+    if (!feature.available && !isConsentReason(feature.rawReason ?? feature.reason) && !image.available && !isConsentReason(image.rawReason ?? image.reason)) return copy.uploads.unavailable.replace('{reason}', feature.reason);
     if (this.#uploading) return copy.uploads.busy;
     return uploadsPossible(this.#limits) ? '' : copy.uploads.impossible;
   }
@@ -3186,6 +3213,14 @@ export class AithemaSession extends HTMLElement {
   }
   async #attach(files, retry = false) {
     if (!files.length || !this.isConnected) return;
+    const needsImages = files.some(isImageFile), image = this.#feature('imageInput', true), documents = this.#feature('uploads', true);
+    if (needsImages && !image.available && isConsentReason(image.rawReason ?? image.reason) || files.some(file => !isImageFile(file)) && !documents.available && isConsentReason(documents.rawReason ?? documents.reason)) {
+      this.#imageIntent = { files, id: this.#session.id }; clearTimeout(this.#imageIntentTimer);
+      this.#imageIntentTimer = setTimeout(() => { this.#imageIntent = null; this.#uploadNotice = plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), files.length); this.#render('composer'); }, 180000);
+      this.#requestConsent('use', [...new Set([...(needsImages ? ['imageInput'] : []), ...(!documents.available ? ['uploads', 'text'] : [])])], 'attach');
+      this.#render('composer'); return;
+    }
+    if (needsImages && !image.available) { this.#images.refuse(files.filter(isImageFile).map(file => ({ name: file.name, reason: 'model' }))); this.#render('composer'); return; }
     const copy = this.#copy, sessionId = this.#session.id, refusal = retry ? this.#retryRefusal() : this.#attachRefusal();
     if (refusal) { this.#uploadRefusal(refusal); return; }
     const controller = new AbortController(); this.#uploadController = controller;
@@ -3217,6 +3252,9 @@ export class AithemaSession extends HTMLElement {
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
       }
+      const imageRefusals = plan.refused.filter(record => /\.(?:png|jpe?g|webp|gif|heic|heif|bmp|tiff?|avif|svg)$/iu.test(record.name));
+      if (imageRefusals.length || plan.blocked && needsImages) this.#images.refuse([...imageRefusals.map(record => ({ ...record, reason: record.reason === 'type' ? 'unsupported' : record.reason })),
+        ...(plan.blocked && needsImages ? [{ reason: plan.blocked === 'images' || plan.blocked === 'count' ? 'limit' : 'session' }] : [])]);
       this.#uploadNotice = notices.filter(Boolean).join(reasonSeparator);
     } finally {
       if (this.#uploadController === controller) {
@@ -3225,7 +3263,27 @@ export class AithemaSession extends HTMLElement {
       }
     }
   }
+  async #removeImage(id) {
+    const sessionId = this.#session.id;
+    try {
+      const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${sessionId}/uploads/${encodeURIComponent(id)}/withdraw`), {}, { sessionToken: this.#sessionToken });
+      if (!response.ok) throw new Error();
+      const body = await response.json(); if (sessionId === this.#session.id) this.receive(body.event);
+    } catch { this.#status(this.#copy.uploads.withdrawFailed); }
+  }
+  #consumeImageIntent() {
+    const pending = this.#imageIntent;
+    if (!pending || pending.id !== this.#session.id || !this.isConnected) return;
+    if (pending.files.some(isImageFile) && !this.#feature('imageInput').available || pending.files.some(file => !isImageFile(file)) && !this.#feature('uploads').available) return;
+    this.#imageIntent = null; clearTimeout(this.#imageIntentTimer);
+    void this.#attach(pending.files);
+  }
   #cancelUploads() {
+    clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
+    if (this.#session) for (const upload of this.#session.uploads ?? []) if (stagedImage(upload) && !upload.erased) {
+      void this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(upload.id)}/withdraw`), {}, { sessionToken: this.#sessionToken, keepalive: true }).catch(() => {});
+    }
+    this.#images?.destroy();
     clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
     this.#retryFiles = []; this.#uploadController?.abort();
   }
@@ -3262,6 +3320,7 @@ export class AithemaSession extends HTMLElement {
     } catch { return current() ? copy.uploads.failed : ''; }
     if (!current()) return '';
     if (response.ok && body) {
+      this.#images?.clear();
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);
       return '';
@@ -3280,13 +3339,16 @@ export class AithemaSession extends HTMLElement {
   async #send(answer) {
     const root = this.shadowRoot, input = root.querySelector('textarea'), button = root.querySelector('.send');
     const option = typeof answer === 'string', content = option ? answer : input.value;
-    if (this.#sending || !this.#feature('text').available || !content.trim()) return;
+    const attachments = this.#images?.attachments ?? [];
+    if (this.#sending || this.#images?.pending || !this.#feature('text').available || (!content.trim() && !attachments.length)) return;
+    if (attachments.length > 4) { this.#images.refuse([{ reason: 'batch' }]); this.#render('composer'); return; }
+    if (attachments.length && this.#hasLiveCall()) { this.#images.refuse([{ reason: 'live-call' }]); this.#render('composer'); return; }
     this.#rail?.notices.clear(); this.#rail?.clearMessage();
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content, !option); return; }
     this.#beginNavigation();
     const sessionId = this.#session.id;
     const voiceSession = this.#rail && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
-    if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
+    if (!this.#pending || this.#pending.content !== content || JSON.stringify(this.#pending.attachments ?? []) !== JSON.stringify(attachments)) this.#pending = { clientEventId: crypto.randomUUID(), content, ...(attachments.length ? { attachments } : {}),
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
     if (this.#navigation) this.#navigation.userId = this.#pending.clientEventId;
     clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false;
@@ -3304,7 +3366,7 @@ export class AithemaSession extends HTMLElement {
         if (this.#erased || sessionId !== this.#session.id) return;
       }
       if (!option && input.value === content) input.value = '';
-      this.#pending = null; this.#sendFailed = false;
+      this.#pending = null; this.#sendFailed = false; this.#images?.clear(); this.#uploadNotice = '';
       if (voiceText) this.#status(this.#copy.voiceTextSent); else this.#confirmSaved();
     } catch { if (!this.#erased && sessionId === this.#session.id) { this.#navigation = null; this.#sendFailed = true; this.#clearNotice(); } }
     finally { if (!this.#erased && sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); this.#host?.update(); } }
@@ -3432,7 +3494,8 @@ export class AithemaSession extends HTMLElement {
       }
       // Every upload state is new input: a running reply belongs to the input before it.
       if (event.type === 'upload.state') {
-        this.#partials.clear(); this.#failure = false;
+        this.#images?.receive(event.data);
+        if (!stagedImage(event.data) && event.data.state !== 'withheld') { this.#partials.clear(); this.#failure = false; }
         // "Reading them…" ends with the last pending file; each chip then says how it went.
         if (this.#reading && this.#notice === this.#reading && !this.#session.uploads.some(u => u.state === 'pending')) this.#notice = '';
       }
@@ -3654,6 +3717,7 @@ export class AithemaSession extends HTMLElement {
       this.#rail?.reconcileAdmission();
       this.#renderMode(); this.#renderVoice(); this.#concept.update(this.#session); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');
+      this.#consumeImageIntent();
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));
       // Feature refusals redact immediately. A slow consent read must never
       // keep a refused artifact alive while the host document is refreshed.

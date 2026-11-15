@@ -765,4 +765,32 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 :host([data-aithema-erased]) .fold-strip > .erased-end { line-height:1.2; flex-direction:row; align-items:center; justify-content:space-between; gap:8px; padding:0; font-size:12px; }
 :host([data-aithema-erased]) .fold-strip .erased-end__new { flex:none; padding-inline:8px; }
 :host([data-aithema-erased]) .intro__card > .erased-end { align-self:center; justify-self:center; }
+
+/* Image preparation changes content inside fixed tiles, never their footprint. */
+.staged-images { display:flex; grid-column:1/-1; gap:8px; height:88px; max-width:100%; overflow-x:auto; overflow-y:hidden; }
+.staged-images[hidden] { display:none; }
+.staged-image { position:relative; flex:0 0 112px; height:88px; display:grid; grid-template-rows:48px 40px; border-radius:8px;
+  background:color-mix(in srgb,var(--aithema-ink) 8%,var(--aithema-paper)); border:1px solid var(--aithema-line); overflow:hidden; }
+.staged-image__preview { display:block; min-height:0; }
+.staged-image__status { display:block; font-size:11px; line-height:13px; padding:2px 5px; overflow:auto; overflow-wrap:anywhere; }
+.staged-image[data-state="staged-refused"] .staged-image__status { color:var(--aithema-warning); }
+.staged-image__remove { position:absolute; right:0; top:0; width:44px; height:44px; min-height:44px; padding:0; font-size:22px;
+  color:var(--aithema-ink); background:color-mix(in srgb,var(--aithema-paper) 85%,transparent); }
+.image-thumbnail { display:block; width:100%; height:100%; object-fit:contain; }
+.turn-images { display:flex; flex-wrap:wrap; gap:8px; grid-column:2; }
+.turn-image { display:block; flex:none; overflow:hidden; border-radius:6px; background:color-mix(in srgb,var(--aithema-ink) 8%,var(--aithema-paper)); }
+.image-refusals { display:flex; align-items:flex-start; gap:5px; height:40px; max-height:40px; overflow:auto; color:var(--aithema-warning); }
+.image-refusals__icon { flex:none; width:14px; height:14px; margin-top:2px; }
+.image-refusals__icon svg { width:14px; height:14px; }
+.image-refusals__list { flex:1; min-width:0; }
+.image-refusal { display:block; overflow-wrap:anywhere; }
+.image-refusals button { flex:none; min-height:40px; padding:0 4px; color:inherit; }
+.composer-reason:has(.image-refusals) { max-height:40px; }
+@media(max-width:600px) {
+  /* Reserve the short phone reason slot with the declared input capability. */
+  .workspace[data-phone-short] .composer[data-image-input] { padding-top:50px; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:44px; margin:0; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason { position:static; width:auto; height:auto; max-height:44px; clip-path:none; overflow:auto; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-shortcut] { visibility:hidden; }
+}
 `;
