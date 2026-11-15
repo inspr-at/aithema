@@ -137,3 +137,17 @@ test('AIT-515 SSE backlog and reconnect are quiet, then live signals highlight a
   assessment(controllers[1], [...seven, 'Replayed', 'Live', 'Reconnect', 'Live again']); await settle();
   assert.equal(c.shadowRoot.querySelectorAll('[data-signal-new]').length, 1);
 });
+
+test('AIT-515 an empty final defers hiding under the pointer; a source reset still clears immediately', () => {
+  const c = setup(); final(c, seven); const root = c.shadowRoot, list = root.querySelector('.signals');
+  list.dispatchEvent(new window.Event('pointerenter'));
+  final(c, []);
+  assert.deepEqual(texts(c), seven.slice(0, 5), 'empty final cannot remove the row under a resting pointer');
+  assert.equal(root.querySelector('.signals-section').hidden, false);
+  list.dispatchEvent(new window.Event('pointerleave'));
+  assert.deepEqual(texts(c), []); assert.equal(root.querySelector('.signals-section').hidden, true);
+  final(c, seven); list.dispatchEvent(new window.Event('pointerenter'));
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } });
+  assert.deepEqual(texts(c), [], 'privacy withdrawal never waits on pointer departure');
+  assert.equal(root.querySelector('.signals-section').hidden, true);
+});
