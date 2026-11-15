@@ -437,7 +437,9 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
     for (const state of ['rest', 'requesting', 'wait', 'retry', 'focus-retry', 'unavailable', 'cleared']) {
       await shadow(page, c => { window.rc24Reset(); c.shadowRoot.querySelector('.open-questions').scrollIntoView({ block: 'center' }); });
       await settle(page);
-      const before = await boxes(page, state === 'unavailable');
+      // D524(a2): only status actions change their own box; the reserved line stays fixed.
+      const omitAction = ['unavailable', 'retry', 'focus-retry', 'cleared'].includes(state);
+      const before = await boxes(page, omitAction);
       const resting = await shadow(page, c => {
         const row = c.shadowRoot.querySelector('.open-question');
         const boxes = ['.question-text', '.clarify-icon'].map(selector => {
@@ -484,14 +486,14 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       }, state);
       let beforeClear;
       if (state === 'cleared') {
-        await settle(page); beforeClear = await boxes(page);
+        await settle(page); beforeClear = await boxes(page, omitAction);
         await shadow(page, c => {
           window.rc24Post = () => new Promise(resolve => { window.rc24Release = resolve; });
           c.shadowRoot.querySelector('.clarify-action').click();
         });
       }
       await settle(page);
-      const after = await boxes(page, state === 'unavailable');
+      const after = await boxes(page, omitAction);
       if (beforeClear) for (let i = 0; i < beforeClear.length; i++) {
         assert.ok(beforeClear[i].width > 0 && beforeClear[i].height > 0, `${beforeClear[i].selector}: positive before clearing`);
         for (const key of ['x', 'y', 'width', 'height']) assert.equal(after[i][key], beforeClear[i][key], `exact 0 px while clearing/${beforeClear[i].selector}/${key}`);
@@ -506,7 +508,7 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       }
       await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
       await settle(page);
-      const repainted = await boxes(page, state === 'unavailable');
+      const repainted = await boxes(page, omitAction);
       for (let i = 0; i < after.length; i++) for (const key of ['x', 'y', 'width', 'height']) {
         assert.ok(repainted[i].width > 0 && repainted[i].height > 0);
         assert.ok(Math.abs(repainted[i][key] - after[i][key]) <= 0.5, `resting pointer repaint/${state}/${after[i].selector}/${key}`);
@@ -523,7 +525,7 @@ test('AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/
       assert.ok(check.noOverflow); assert.ok(!check.text.includes('undefined'));
       if (state === 'rest') assert.equal(check.posts, 0);
       else if (state === 'cleared') {
-        assert.equal(check.posts, 2); assert.ok(check.postPaths[1].endsWith('/retry')); assert.equal(check.statusHidden, true);
+        assert.equal(check.posts, 2); assert.ok(check.postPaths[1].endsWith('/retry')); assert.equal(check.statusHidden, false, 'D524(a2): pending retry retains status geometry');
       } else assert.equal(check.posts, state === 'unavailable' ? 2 : 1);
       if (state === 'unavailable') assert.ok(check.actionHidden);
       else if (['retry', 'focus-retry'].includes(state)) assert.match(check.text, locale === 'de' ? /Gerade nicht/ : /Not now|Couldn't ask just now/);
@@ -955,6 +957,7 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
   const centre = b => [b.x + b.width / 2, b.y + b.height / 2];
   const shot = async name => { if (evidence) await page.screenshot({ path: join(evidence, 'shots', `${name}.png`), fullPage: false, captureBeyondViewport: false }); };
   for (const failure of ['refused-paused', 'refused-consent', 'retry', 'focus-retry']) await t.test(failure, async () => {
+  try {
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     const context = `${locale}-${theme}-${width}-${failure}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
@@ -1099,6 +1102,7 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
       assert.equal(pending.visible.button.x, b.x, 'requesting keeps column-3 start');
       assert.equal(pending.visible.button.y, b.y, 'requesting keeps padded target top');
       assert.equal(pending.visible.button.height, b.height, 'requesting keeps real padded target height');
+      assert.equal(pending.visible.button.width, b.width, 'requesting never grows the target under the pointer');
       stationary({ status: rest.visible.status }, { status: pending.visible.status }, `${context}/pending status`); assert.equal(pending.sameNode, true);
       stationary(rest.stable, pending.stable, `${context}/pending`);
       // A second native activation while pending must be fenced.
@@ -1116,6 +1120,13 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
     }
     await page.evaluate(() => window.retry524Reset()); await page.mouse.move(0, 0); await settle(page);
     if (width !== 1024) await shot(`${context}-rest`);
+  }
+  } catch (error) {
+    if (evidence) {
+      await writeFile(join(evidence, `ait524-${failure}-failure.txt`), error.stack);
+      await shot(`${failure}-failure`);
+    }
+    throw error;
   }
   });
   assert.deepEqual(errors, []);
