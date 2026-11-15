@@ -61,7 +61,7 @@ test('PR and merge-group events run the same shard and required check names', ()
 test('ruleset browser summaries fail closed unless every worker shard passed', () => {
   const job = block(block(workflows[0], 'jobs'), 'browser-required', 2);
   assert.match(job, /^    needs: \[changes, browser\]$/mu);
-  assert.match(job, /^    if: \$\{\{ always\(\) \}\}$/mu);
+  assert.match(job, /^    if: \$\{\{ !cancelled\(\) \}\}$/mu);
   assert.match(job, /^        shard: \[1, 2, 3, 4\]$/mu);
   assert.doesNotMatch(job, /continue-on-error/u);
   const command = /^        run: (.+)$/mu.exec(job)[1];

@@ -148,7 +148,7 @@ test('npm cache warming installs only on a cache miss with scripts disabled and 
   }
 });
 
-test('unit aggregate allows verified duplicate skips; browser summaries always require success', () => {
+test('unit and browser summaries allow only verified duplicate skips', () => {
   for (const [id, dependency] of [['test', 'unit'], ['browser-required', 'browser'], ['browser-aggregate', 'browser']]) {
     const gate = ci.jobs[id].steps.find(step => step.name === `Require every ${dependency} shard`);
     assert.ok(gate);
@@ -158,7 +158,7 @@ test('unit aggregate allows verified duplicate skips; browser summaries always r
         const env = Object.fromEntries(Object.entries(gate.env ?? {}).map(([key, value]) => [key, String(evaluate(value, ctx))]));
         const command = gate.run.replaceAll(`\${{ needs.${dependency}.result }}`, result);
         const executed = spawnSync('bash', ['-c', command], { env });
-        assert.equal(executed.status === 0, result === 'success' || (dependency === 'unit' && duplicate && result === 'skipped'), `${id}: ${result} / ${JSON.stringify(ctx)}`);
+        assert.equal(executed.status === 0, result === 'success' || (duplicate && result === 'skipped'), `${id}: ${result} / ${JSON.stringify(ctx)}`);
       }
     }
   }
