@@ -77,7 +77,7 @@ Accepted-row `clarify.say.retry` overrides remain supported beneath explicit roo
 failure overrides. Updating still uses `stale`; `preparingOverview` and `draft`
 retain their roles. `questionsCounted` replaces the German visitor heading
 “Was noch offen ist” with counted forms, while a host's `questions` override
-keeps showing. Existing `more` overrides and the `plural` helper remain supported.
+keeps showing. Existing `more` overrides remain supported.
 
 **Overview and Clarify (AIT-503, AIT-504, AIT-516; #438, #439, #441).**
 The overview status slot covers Up to date, Updating, preparing, stale idle and

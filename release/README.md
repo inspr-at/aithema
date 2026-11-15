@@ -158,7 +158,7 @@ is the long failure text. Accepted-row `clarify.say.retry` overrides remain
 supported beneath explicit root failure overrides. Updating still uses `stale`;
 `preparingOverview` and `draft` keep their roles. The German “Was noch offen ist”
 heading is replaced by counted visitor copy; a host's `questions` override keeps
-showing. Existing `more` overrides and the `plural` helper remain supported.
+showing. Existing `more` overrides remain supported.
 
 AIT-501 adds `intent`, `mode` and `required` to `aithema-consent` detail, retaining
 `reason: 'ready'` and full `features`. Reasons remain `chooser`, `ready`, `manage`
