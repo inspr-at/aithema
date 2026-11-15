@@ -13,6 +13,8 @@ export const combinedEntranceStyles = `
 /* Keep the welcome first and its coordinates stable when readiness gives way
    to the conversation. Processing choices remain on the same scroll surface. */
 .workspace[data-entrance="combined"] .concept-thread:has([data-host-opener]) { order:-1; min-height:6rem; }
+/* Before input, the full welcome owns its intrinsic height above readiness. */
+.workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:has([data-host-opener]) { flex:none; }
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:not(:has(ol > li)) { display:none; }
 .workspace[data-entrance="combined"] .transcript-shell { display:block; height:100%; min-height:0; }
 /* Canonical replies gain playback controls. Reserve their row before input so
