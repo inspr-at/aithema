@@ -12,6 +12,7 @@
     "./extractor-zip": "./src/extractor-zip.js",
     "./invocation": "./src/invocation.js",
     "./session": "./src/session.js",
+    "./question-focus": "./src/question-focus.js",
     "./ui-html": "./src/ui-html.js",
     "./reply": "./src/reply.js",
     "./prompts": "./src/prompts.js",
