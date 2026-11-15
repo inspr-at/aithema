@@ -2,6 +2,8 @@
 export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:1rem; }
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; }
+/* The whole entrance/transcript surface scrolls above the reserved input row. */
+.workspace[data-entrance="combined"] .conversation-scroll { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:auto; scrollbar-gutter:stable; gap:.85rem; }
 .workspace[data-entrance="combined"] .intro { flex:none; min-height:0; grid-template-columns:minmax(0,1fr); padding:.5rem 0; gap:.5rem; }
 .workspace[data-entrance="combined"] .intro[hidden] { display:none; }
 .workspace[data-entrance="combined"] .intro__prompt { display:none; }
