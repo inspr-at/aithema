@@ -31,6 +31,9 @@
   Separate text-feedback and mic-status space is reserved from first paint, so
   failures, consent actions and Saved announcements remain visible and exposed
   to assistive technology alongside microphone denial or call-end status.
+  Configured openers use the shared render-only `host:opener` row once; canonical
+  persistence retains its row identity. The welcome stays above the composer and
+  footer on short phones; processing details remain on the entrance scroll surface.
   No new copy keys or exports.
 
 - AIT-505: additive `hasVisitorInput(session)` core export separates active visitor/document input from host or assistant text; `hasConversationInput` remains an alias. Existing workspace display triggers (withdrawn input, pending uploads and ordinary assistant greetings/streaming) remain visible without satisfying assessment/admission thresholds; a host-only opener does not reveal the overview. `conversationStarted` keeps its locale-locking meaning. UI `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` project the entrance opener without changing the canonical transcript.

@@ -9,10 +9,14 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .intro__prompt { display:none; }
 .workspace[data-entrance="combined"] .intro__card { width:100%; }
 .workspace[data-entrance="combined"] .ready { width:100%; padding:1rem; gap:.5rem; }
-.workspace[data-entrance="combined"] .concept-thread { flex:1 1 0; min-height:0; }
+.workspace[data-entrance="combined"] .concept-thread { display:block; flex:1 1 0; min-height:0; }
+/* Keep the welcome first and its coordinates stable when readiness gives way
+   to the conversation. Processing choices remain on the same scroll surface. */
+.workspace[data-entrance="combined"] .concept-thread:has([data-host-opener]) { order:-1; min-height:6rem; }
+.workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:not(:has(ol > li)) { display:none; }
 .workspace[data-entrance="combined"] .transcript-shell { display:block; height:100%; min-height:0; }
 .workspace[data-entrance="combined"] .composer-dock { display:block; flex:none; }
-.workspace[data-entrance="combined"] .composer-shell { display:block; }
+.workspace[data-entrance="combined"] .composer-shell { display:grid; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;
   grid-template-areas:"notice notice notice" "message mic send" "feedback feedback feedback" "status status status"; gap:8px; }
 .workspace[data-entrance="combined"] textarea { grid-area:message; height:4.5rem; min-height:4.5rem; padding:.25rem 0; }
@@ -34,7 +38,10 @@ export const combinedEntranceStyles = `
 }
 @media(max-width:600px) {
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
-  .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:12rem; }
+  .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px; }
+  .workspace[data-entrance="combined"][data-phone-short] textarea { height:44px; min-height:44px; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
   .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
   .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
 }

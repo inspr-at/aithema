@@ -2205,11 +2205,6 @@ export class AithemaSession extends HTMLElement {
       if (replyNotice && !replyNotice.hidden && !failures.some(f => f.lane === 'reaction')) this.#render('aside');
       const replacingFailure = this.#replyRetrySlot?.inline && replyNotice && !replyNotice.hidden;
       const entries = this.#transcriptEntries(this.#session.transcript.filter(t => !t.erased || t.role === 'user'));
-      // AIT-505 integration slot: render-only snapshot opener, never local transcript input.
-      const opener = this.#session.opener;
-      if (this.#combined && opener?.locale === this.#session.locale && opener.text && !this.#session.transcript.some(t => t.id === 'host:opener')) {
-        entries.unshift({ key: 'host:opener', turn: { id: 'host:opener', role: 'assistant', origin: 'host', content: opener.text } });
-      }
       const rows = new Map([...list.children].map(row => [row.dataset.id, row]));
       const hovered = this.#onTranscript, kept = new Set(entries.map(entry => entry.key));
       // Rows that go are removed first, so a surviving row never moves past them: moving a node drops its focus.

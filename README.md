@@ -553,6 +553,10 @@ chooser and omits the ready card's mode, microphone and speaker rows and Start.
 The attachment button is hidden in combined mode. Text feedback and microphone
 status have separate space reserved from first paint; send failures, consent
 actions and Saved announcements remain exposed while a mic status is present.
+Configured host openers use the shared render-only `host:opener` row before input;
+canonical persistence takes over that same row. The welcome stays above the
+composer and footer, including short phone viewports. Processing details remain
+available on the entrance scroll surface.
 Typing, focus and rendering never acquire media or prepare voice.
 
 In combined mode, Send and the composer mic emit `aithema-consent` with
