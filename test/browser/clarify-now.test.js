@@ -997,6 +997,9 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = ''; });
     await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
     await frames(); await shot(`${locale}-${theme}-${width}-collapsed`);
+    const readMoreName = locale === 'de' ? 'Mehr anzeigen' : 'Read more';
+    const namedToggle = (tree, name, expanded) => tree && (tree.role === 'button' && tree.name === name && tree.expanded === expanded || tree.children?.some(child => namedToggle(child, name, expanded)));
+    assert.ok(namedToggle(await page.accessibility.snapshot({ interestingOnly: false }), readMoreName, false), 'screen reader finds the named collapsed native control');
     if (width === 1024) {
       const visible = await shadow(page, c => {
         const p = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(), r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect();
@@ -1011,6 +1014,7 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     await shadow(page, c => { const b = c.shadowRoot.querySelector('.summary-toggle'); b.focus({ preventScroll: true }); });
     await page.keyboard.press('Enter'); await frames();
     s = await state(); assert.equal(s.expanded, 'true'); assert.equal(s.name, locale === 'de' ? 'Weniger anzeigen' : 'Show less'); assert.equal(s.fade, 'none');
+    assert.ok(namedToggle(await page.accessibility.snapshot({ interestingOnly: false }), s.name, true), 'screen reader finds the named expanded native control');
     compare(before, await frameBoxes(), `${locale}/${theme}/${width} expand`);
     await shot(`${locale}-${theme}-${width}-expanded`);
     await update('A rewrite. '.repeat(150)); await frames(); assert.equal((await state()).expanded, 'true');
