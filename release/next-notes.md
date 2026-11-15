@@ -89,6 +89,8 @@
   Configured openers use the shared render-only `host:opener` row once; canonical
   persistence retains its row identity. The welcome stays above the composer and
   footer on short phones; processing details remain on the entrance scroll surface.
+  The transcript height accounts for its sticky-header inset; native focus in an
+  inline email offer preserves the offer and combined input positions.
   No new copy keys or exports.
 
 ### Credit-only conversations (AIT-508, opt-in)

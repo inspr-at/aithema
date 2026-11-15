@@ -16,7 +16,9 @@ export const combinedEntranceStyles = `
 /* Before input, the full welcome owns its intrinsic height above readiness. */
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:has([data-host-opener]) { flex:none; }
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:not(:has(ol > li)) { display:none; }
-.workspace[data-entrance="combined"] .transcript-shell { display:block; height:100%; min-height:0; }
+/* The sticky-header guard adds a top margin after page scroll. Deduct that
+   inset from the pane height so native focus cannot scroll a second container. */
+.workspace[data-entrance="combined"] .transcript-shell { display:block; height:calc(100% - var(--transcript-top-inset,0px)); min-height:0; }
 /* Canonical replies gain playback controls. Reserve their row before input so
    persistence cannot resize the welcome bubble or shift the content below it. */
 .workspace[data-entrance="combined"] [data-host-opener]:not(:has(.reply-actions))::after { content:''; display:block; height:44px; }
