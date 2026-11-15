@@ -567,6 +567,11 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await inShadow(page, c => c.shadowRoot.querySelector('.send').click());
     await page.waitForFunction(() => window.imagePosts.length === 1);
     const post = await page.evaluate(() => window.imagePosts[0]); assert.equal(post.content, ''); assert.equal(post.attachments.length, 1);
+    await inShadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'understanding.updated', data: {
+        ...c.session.understanding, summary: 'A project screenshot', inputRevision: inputRevision(c.session), readinessAssessed: true } });
+    });
     await waitForShadow(page, '.turn .image-thumbnail');
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.turn .image-thumbnail')?.naturalWidth === 1);
     await shot('sent');
