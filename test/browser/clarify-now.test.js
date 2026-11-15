@@ -945,6 +945,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
   };
   for (const locale of ['en', 'de']) for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
     const name = `${locale}-${theme}-${width}`;
+    const newest = locale === 'de' ? 'Sie ergänzen einen neuen Ablauf.' : 'You add a new workflow.';
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
     await page.mouse.move(-1, -1);
     await shadow(page, async (c, locale, theme, manifest) => {
@@ -983,7 +984,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.ok(row.width > 0 && row.height > 0);
     await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
     const before = await frame();
-    await shadow(page, () => window.signalFinal([...window.signalValues, { text: 'Newest signal', basis: 'visitor' }]));
+    await shadow(page, (_c, text) => window.signalFinal([...window.signalValues, { text, basis: 'visitor' }]), newest);
     await settle(page); stable(before, await frame(), `${name}-deferred`);
     const deferred = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.signal-text').textContent, r: c.shadowRoot.querySelector('.signals li').getBoundingClientRect().toJSON() }));
     assert.equal(deferred.text, locale === 'de' ? 'Sie nutzen den Ablauf 1.' : 'You use workflow 1.');
@@ -991,7 +992,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.ok(Math.abs(deferred.r.y - row.y) <= .5);
     if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-deferred.png`) });
     await page.mouse.move(-1, -1); await settle(page);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signal-text').textContent), 'Newest signal');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signal-text').textContent), newest);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signals-toggle').textContent), locale === 'de' ? 'Alle anzeigen (8)' : 'Show all (8)');
     const mark = await shadow(page, c => { const n = c.shadowRoot.querySelector('[data-signal-new]'); return n && { animation: getComputedStyle(n).animationName, background: getComputedStyle(n).backgroundColor }; });
     assert.ok(mark); assert.equal(mark.animation, 'none', 'reduced motion uses a static mark');
