@@ -17,8 +17,11 @@ test('AIT-515 normalized text keys keep first-seen order across shuffled finals;
   for (const old of prior) assert.equal(s.signalLedger.find(i => i.key === old.key).firstSeen, old.firstSeen);
   s = final(s, ['Second reworded', 'Newest']);
   assert.deepEqual(s.understanding.signals, ['Second reworded', 'Newest']);
-  assert.equal(s.signalLedger.length, 2);
-  assert.equal(new Set(s.signalLedger.map(i => i.key)).size, 2);
+  assert.equal(s.signalLedger.length, 4);
+  assert.equal(new Set(s.signalLedger.map(i => i.key)).size, 4);
+  s = final(s, ['First', 'Newest']);
+  assert.equal(s.signalLedger.find(i => i.key === 'first').firstSeen, prior.find(i => i.key === 'first').firstSeen);
+  assert.deepEqual(s.understanding.signals, ['Newest', 'First']);
 });
 
 test('AIT-515 ledger survives all emptyUnderstanding resets and a draft without reminting', () => {
