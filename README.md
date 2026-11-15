@@ -3883,3 +3883,6 @@ records. `reasoningRequest` adds the `imageOnly` classification flag.
 admission for byte resolution; synchronous `prepareBody` still supplies
 estimation. `ImageOperationOptions.resolveImage` and optional
 `imageDispatchCurrent` are in-process authority callbacks, never browser input.
+
+Staged-image changes also preserve an admitted voice callback when append-only
+voice finals arrive; only conversation input remains in that comparison.

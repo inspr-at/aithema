@@ -1,4 +1,4 @@
-import { imageReferences, reasoningInputBound, imageInputScope, imageInputFee, validateImageInput } from '@inspr/aithema-core/image-input';
+import { stagedImage, imageReferences, reasoningInputBound, imageInputScope, imageInputFee, validateImageInput } from '@inspr/aithema-core/image-input';
 import { providerProcessingFacts } from './provider-processing.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
@@ -259,7 +259,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     return added.length > 0 && added.every(turn => ['user', 'assistant'].includes(turn.role) && !turn.erased && !turn.withdrawn) &&
       current.inputRevision === session.inputRevision + added.filter(turn => turn.role === 'user').length &&
       hash(transcriptBytes(current.transcript.slice(0, session.transcript.length))) === hash(transcriptBytes(session.transcript)) &&
-      hash(current.uploads) === hash(session.uploads);
+      hash(current.uploads.filter(upload => !stagedImage(upload))) === hash(session.uploads.filter(upload => !stagedImage(upload)));
   };
   const voiceUnchanged = (session, allowPaused = false) => {
     const current = storage.get(session.id);

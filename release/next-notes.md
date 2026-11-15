@@ -58,3 +58,6 @@
 - Extensionless files labelled with an image MIME type and excluded HEIC/AVIF
   containers stay in the staged, non-input refusal path; they never fall through
   to document extraction or schedule model work. HEIC remains unsupported.
+
+- Staged image states are excluded from the append-only voice callback fence;
+  attaching, preparing, refusing or discarding an image cannot reject that reply.
