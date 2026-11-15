@@ -486,3 +486,21 @@ test('references prefer latest liked base and exactly one archived rejection', a
   assert.deepEqual(h.records[3].spec.references.map(r => r.role), ['previous', 'rejected']);
   assert.deepEqual(h.records[3].spec.references[1].bytes, h.storage.conceptArtifact(h.id, third.id).bytes);
 });
+
+test('AIT-509: a dispatch-ready wish blocked only by image consent waits without claiming or spending', async t => {
+  const h = await setup(t); await h.turn('first'); h.readiness();
+  // Record under normal permission, then refuse only the visual producer before dispatch.
+  h.handlers.conceptLane.recordIntent(h.id, { intentId: 'validated-wish', sourceTurnId: 'first' });
+  const matrix = h.runtime.matrix.bind(h.runtime);
+  h.runtime.matrix = async session => { const m = await matrix(session); m.best.images = { available: false, reason: 'current processing consent required' }; return m; };
+  await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
+  const session = h.storage.get(h.id);
+  assert.equal(h.records.length, 0);
+  assert.equal(session.conceptStatus.phase, 'waiting');
+  assert.deepEqual(session.conceptStatus.consentRequest, { id: 'validated-wish', sourceTurnId: 'first' });
+  assert.equal(session.conceptIntent.visualIntent, null, 'a later grant alone is never a spending request');
+  assert.equal(session.conceptIntent.attemptedRevisions.length, 0, 'consent does not consume the cadence claim');
+  h.runtime.matrix = matrix;
+  await h.handlers.conceptLane.run(h.id); assert.equal(h.records.length, 0);
+  await h.request('consented-wish'); await h.handlers.idle(); assert.equal(h.records.length, 1);
+});

@@ -1575,3 +1575,59 @@ for (const target of ['preview', 'viewer', 'composer']) for (const moved of [fal
   timers.mock.calls.find(call => call.arguments[1] === 4000).arguments[0]();
   assert.equal(root.activeElement, moved || target === 'composer' ? composer : root.querySelector('.concept-activity-text .consent-action'));
 });
+
+// AIT-509: the producer publishes only a validated, dispatch-ready consent ask.
+function conceptConsentFixture(t, copy = en) {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const f = setup(t, { copy, concepts: [], session: { visualsBound: true } });
+  let allowed = false;
+  view.feature = () => allowed ? { available: true } : { available: false, rawReason: 'current processing consent required', reason: 'current processing consent required' };
+  const events = []; f.c.addEventListener('aithema-consent', e => events.push(e.detail));
+  let session = f.c.session;
+  view.update(session);
+  return { ...f, view, events,
+    ask() { session = { ...session, conceptStatus: { phase: 'waiting', consentRequest: { id: 'validated-wish', sourceTurnId: 'first' } } }; view.update(session); },
+    async grant(verified = true) {
+      allowed = true; session = { ...session, consentRevision: session.consentRevision + 1 };
+      view.update(session, { consentRevision: session.consentRevision, selected: ['images'], features: { images: ['images'] } }, verified); await tick();
+    },
+    change(data) { session = { ...session, ...data }; view.update(session); },
+  };
+}
+for (const copy of [en, de]) test(`AIT-509 ${copy.display.locale}: idle consent is silent; validated ask grants exactly once`, async t => {
+  const f = conceptConsentFixture(t, copy), line = f.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, '', 'no permanent visual consent text');
+  assert.ok(f.root.querySelector('.drafts-reason-reserve').children.length > 0, 'sizers remain mounted');
+  f.ask();
+  assert.equal(line.textContent, copy.display.locale === 'de'
+    ? 'Zum Erstellen von Bildern ist eine Einwilligung nötig.\u00a0· Einwilligung geben'
+    : 'Images need consent to be created.\u00a0· Give consent');
+  line.querySelector('.consent-action').click();
+  assert.equal(f.events.at(-1).reason, 'use'); assert.equal(f.events.at(-1).intent, 'concept');
+  assert.deepEqual(f.events.at(-1).features, ['images']);
+  assert.equal(f.calls.filter(c => c.options.body).length, 0, 'no dispatch before authoritative grant');
+  await f.grant(false); assert.equal(f.calls.filter(c => c.options.body).length, 0, 'unverified coverage cannot consume');
+  await f.grant(); await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
+  assert.equal(line.querySelector('.consent-action'), null);
+});
+for (const action of ['review', 'cancel', 'expiry', 'withdrawal', 'erasure', 'session', 'input', 'settings', 'decline']) test(`AIT-509: ${action} cannot resume a concept`, async t => {
+  let now = 1000000; t.mock.method(Date, 'now', () => now);
+  const f = conceptConsentFixture(t); f.ask(); f.root.querySelector('.concept-activity-text .consent-action').click();
+  if (action === 'expiry') now += 180001;
+  else if (action === 'withdrawal') f.change({ consentWithdrawn: true });
+  else if (action === 'erasure') f.change({ tombstone: true });
+  else if (action === 'session') f.change({ id: 'another-session' });
+  else if (action === 'input') f.change({ inputRevision: f.c.session.inputRevision + 1 });
+  else if (action === 'settings') f.change({ settings: { ...f.c.session.settings, revision: f.c.session.settings.revision + 1 } });
+  else f.view.cancelConsent();
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
+});
+test('AIT-509: images granted in start consent never show an ask', async t => {
+  const f = conceptConsentFixture(t); await f.grant(); f.ask();
+  assert.equal(f.root.querySelector('.concept-activity-text .consent-action'), null);
+  assert.equal(f.events.length, 0);
+});
