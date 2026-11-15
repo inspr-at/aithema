@@ -473,6 +473,9 @@ test('AIT-508: accepted typed input resets composed idle; assistant output canno
   await h.coordinator.sendText('Continue', { deliveryId: 'typed-continue' }); await entered.promise;
   t.mock.timers.tick(120_000); assert.equal(h.coordinator.state.state, 'active');
   release.resolve(); await h.coordinator.idle(); t.mock.timers.tick(1); await Promise.resolve();
+  assert.equal(h.coordinator.state.state, 'active', 'AIT-508 B5: finishing output restarts the full idle window');
+  t.mock.timers.tick(59_998); assert.equal(h.coordinator.state.state, 'active');
+  t.mock.timers.tick(1); await Promise.resolve();
   assert.equal(h.coordinator.state.state, 'ended'); assert.equal(events.at(-1).reason, 'idle');
 });
 

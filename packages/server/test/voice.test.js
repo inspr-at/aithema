@@ -3815,3 +3815,48 @@ for (const conversationLimit of ['time', 'credits']) test(`AIT-508: host idle co
     assert.equal(Object.hasOwn(call, 'conversationLimit'), false);
   }
 });
+
+for (const action of ['resume', 'takeover', 'replay']) test(`AIT-508 B5: current call snapshot permits ${action} without admitting a fresh call`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 },
+    host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
+  t.mock.method(Date, 'now', h.now);
+  const response = await h.route('/voice', { callId: 'held-call', tabId: 'first-tab' });
+  assert.equal(response.status, 201); const first = await response.json();
+  const identity = { providerSessionId: first.providerSessionId, epoch: first.epoch, tabId: 'first-tab' };
+  if (action !== 'replay') {
+    h.storage.transitionVoiceLifecycle(h.session.id, first.callId, { type: 'lease-expired' });
+    assert.equal(h.storage.voiceLifecycle(h.session.id).state, 'waiting');
+  }
+  const verdict = (await h.runtime.matrix(h.storage.get(h.session.id))).best.voice;
+  const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+  const rail = new AudioRail({ root, copy: en, feature: () => verdict, context: () => ({}),
+    waitingCall: action === 'replay' ? undefined : h.storage.voiceLifecycle(h.session.id),
+    client: { tabId: action === 'takeover' ? 'second-tab' : 'first-tab' },
+    lastReply: () => ({ turnId: 'latest-reply', text: 'The latest answer.' }) });
+  t.after(async () => { rail.session = null; rail.destroy(); await window.happyDOM.close(); });
+  if (action === 'replay') {
+    rail.session = { callId: first.callId, replayLastReply: async () => ({ kind: 'text', text: 'The latest answer.' }) };
+    rail.state = 'listening'; rail.render();
+    assert.equal(verdict.available, true, `live voice verdict: ${verdict.reason}`);
+    assert.equal(rail.notices.audioAvailable(), true, 'a refreshed live verdict retains native last-reply audio');
+    assert.deepEqual(await rail.notices.replay(), { kind: 'text', text: 'The latest answer.' });
+  } else {
+    rail.render();
+    assert.equal(root.querySelector('.pause').disabled, false, `held voice verdict: ${verdict.reason}`);
+    assert.notEqual(verdict.reason, 'budget reconciling');
+    let current = identity;
+    if (action === 'takeover') {
+      const takeover = await h.route(`/voice/${first.callId}/takeover`, { ...identity, tabId: 'second-tab', explicit: true });
+      assert.equal(takeover.status, 200); const held = await takeover.json();
+      current = { providerSessionId: held.providerSessionId, epoch: held.epoch, tabId: 'second-tab' };
+    }
+    const recovered = await h.route(`/voice/${first.callId}/recover`, { ...current, explicit: true });
+    assert.equal(recovered.status, 200); const next = await recovered.json();
+    assert.equal((await h.route(`/voice/${first.callId}/resume`, { ...current, providerSessionId: next.providerSessionId })).status, 200);
+    assert.equal(h.storage.voiceLifecycle(h.session.id).state, 'active');
+  }
+  const credentials = h.provisioned.length;
+  assert.equal((await h.route('/voice', { callId: 'different-call', tabId: 'second-tab' })).status, 409);
+  assert.equal(h.provisioned.length, credentials, 'snapshot permission cannot mint a fresh logical call');
+});

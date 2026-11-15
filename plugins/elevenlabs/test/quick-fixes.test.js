@@ -533,3 +533,20 @@ test('AIT-508: legacy time-policy end_call keeps the existing provider-end class
   await flush(); await flush();
   assert.equal(local.closed.at(-1)?.reason, 'provider-end');
 });
+
+for (const shape of ['end_call', 'close-code']) test(`AIT-508 B5: generic ${shape} 119.5 seconds after a final user turn is idle without recovery`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_800_000_000_000 });
+  const local = await setup(t, { durationMs: 900_000, conversationLimit: 'credits' }); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  local.control.heartbeat = async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 900_000 });
+  t.mock.timers.tick(1000); message(local.sdk, 1); await flush();
+  assert.ok(local.observed.some(event => event.type === 'final' && event.role === 'user'));
+  for (let second = 0; second < 119; second++) { t.mock.timers.tick(1000); await flush(); }
+  t.mock.timers.tick(500);
+  local.sdk.starts[0].onDisconnect(shape === 'end_call'
+    ? { reason: 'agent', context: { type: 'end_call', reason: 'Agent ended the call' } }
+    : { reason: 'agent', closeCode: 1000, context: { type: 'close', code: 1000 } });
+  await flush(); await flush();
+  assert.equal(recoveries, 0); assert.equal(local.closed.at(-1)?.reason, 'idle');
+  assert.ok(local.observed.some(event => event.type === 'ended' && event.reason === 'idle'));
+});
