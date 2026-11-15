@@ -126,3 +126,11 @@ test('AIT-508: opted-in host accepts text after two hours with the same conversa
   assert.equal(current.transcript.filter(t => t.role === 'user').length, 2);
   assert.equal(storage.read(session.id).some(e => e.type === 'conversation.end-requested'), false);
 });
+
+for (const voiceIdleSeconds of [59, 3601, 120.5, null, '120']) test(`AIT-508: host idle option rejects ${voiceIdleSeconds} at startup`, t => {
+  let handlers; t.after(() => handlers?.close());
+  const f = fixture(t), consent = { coverage: () => ({ covered: false }) };
+  const runtime = createPluginRuntime({ storage: f.storage, now: Date.now, consent, presets: mockPresets() });
+  assert.throws(() => { handlers = createHandlers({ storage: f.storage, pluginRuntime: runtime,
+    host: { voiceIdleSeconds }, consent, log() {} }); }, TypeError);
+});

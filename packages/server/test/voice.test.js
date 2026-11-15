@@ -3796,3 +3796,19 @@ test('AIT-508: a fresh bounded call after an empty ended call uses continuation 
   assert.equal(next.presentation, 'continuation');
   assert.equal(next.overrides.agent.firstMessage, next.overrides.agent.language === 'de' ? 'Ihre KI-Assistenz setzt das Gespräch fort.' : 'Your AI assistant is ready to continue.');
 });
+
+for (const conversationLimit of ['time', 'credits']) test(`AIT-508: host idle configuration reaches only ${conversationLimit} policy call options`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const h = voiceFixture(t, { host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit, voiceIdleSeconds: 60 }) });
+  t.mock.method(Date, 'now', h.now);
+  const start = h.plugin.start.bind(h.plugin); let admitted;
+  h.plugin.start = (request, options) => { admitted = options; return start(request, options); };
+  const call = await h.start();
+  if (conversationLimit === 'credits') {
+    assert.equal(admitted.conversationLimit, 'credits'); assert.equal(admitted.voiceIdleSeconds, 60);
+    assert.equal(call.conversationLimit, 'credits');
+  } else {
+    assert.equal(Object.hasOwn(admitted, 'conversationLimit'), false); assert.equal(Object.hasOwn(admitted, 'voiceIdleSeconds'), false);
+    assert.equal(Object.hasOwn(call, 'conversationLimit'), false);
+  }
+});
