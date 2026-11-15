@@ -552,7 +552,8 @@ overrides supply the blocked-microphone status beside the row.
 
 The combined draft lives inside the existing one-use intent, for either mode,
 with its 3-minute text / 60-second voice TTL, settings revision and `tabId`
-liveness proof. Navigation restores it only after the same-tab check; it never
+liveness proof. Navigation restores it only after the same-tab check, including
+a return without granting consent, and consumes the intent. A later grant never
 auto-sends or auto-starts a call. Text return focuses the field; voice return
 focuses the composer mic and requires a fresh click. Expiry, erasure, withdrawal
 and a new conversation clear the intent and its draft. During a call the same

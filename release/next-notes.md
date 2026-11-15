@@ -13,7 +13,8 @@
   consent settles, then sends it once for an in-place covering grant.
 - Both modes store the draft inside the AIT-501 one-use intent with its existing
   3-minute text / 60-second voice TTL, settings revision and same-tab `tabId`
-  proof. A navigation return restores without sending or starting voice; a voice
+  proof. A navigation return consumes the intent and restores the draft even
+  without a grant, without sending or starting voice; a voice
   return focuses the composer mic for a fresh click. Expiry, erasure, withdrawal
   and a new conversation clear the draft.
 - The composer mic starts a call when idle and delegates capture mute/unmute to

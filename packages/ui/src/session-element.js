@@ -2996,6 +2996,15 @@ export class AithemaSession extends HTMLElement {
       intent.settingsRevision !== this.#session.settings.revision || this.#session.consentWithdrawn || this.#session.tombstone) {
       this.#clearStartIntent({ discardDraft: true }); this.#render('composer'); return;
     }
+    // A return consumes only a draft, never permission to submit or acquire media.
+    // Restore it even when the visitor returned without granting processing.
+    if (this.#combined && intent.combined && this.#startFromNavigation) {
+      this.#clearStartIntent();
+      this.shadowRoot.querySelector('textarea').value = intent.draft;
+      this.#inputMode = intent.mode; this.#render('composer');
+      if (this.#mayFocus()) this.shadowRoot.querySelector(intent.mode === 'voice' ? '.composer-mic' : 'textarea')?.focus({ preventScroll: true });
+      return;
+    }
     // A lagging host ledger owns its refresh window. Only a settled verdict can cancel Start.
     if (this.#consentRefresh) return;
     if (isConsentReason(this.#feature(intent.mode === 'voice' ? 'voice' : 'text').reason)) {
@@ -3006,11 +3015,9 @@ export class AithemaSession extends HTMLElement {
     const navigation = this.#startFromNavigation;
     this.#clearStartIntent(); // Consume before rendering or calling a host port.
     if (this.#combined && intent.combined) {
-      const input = this.shadowRoot.querySelector('textarea');
-      if (navigation) input.value = intent.draft;
       this.#inputMode = intent.mode;
       this.#render('composer');
-      if (navigation || intent.mode === 'voice' && !globalThis.navigator?.userActivation?.isActive) {
+      if (intent.mode === 'voice' && !globalThis.navigator?.userActivation?.isActive) {
         if (this.#mayFocus()) this.shadowRoot.querySelector(intent.mode === 'voice' ? '.composer-mic' : 'textarea')?.focus({ preventScroll: true });
       } else this.#startCombined(intent.mode, intent.draft);
       return;
