@@ -32,7 +32,7 @@ test('AIT-505: device mode inserts the host turn once into local model context',
   c.configure({copy:en,session:source,deviceReasoning}); t.after(()=>c.remove());
   c.shadowRoot.querySelector('.ready__start').click();
   for (const text of ['First input','Second input']) {
-    c.shadowRoot.querySelector('textarea').value=text;c.shadowRoot.querySelector('.send').click();await tick();
+    c.shadowRoot.querySelector('textarea').value=text;c.shadowRoot.querySelector('form.composer').dispatchEvent(new window.Event('submit', { cancelable: true }));await tick();
   }
   assert.equal(requests.length,2);
   assert.deepEqual(requests[0].messages.map(m=>m.role),['assistant','user']);
@@ -52,7 +52,7 @@ test('AIT-505: first send applies both returned events without a snapshot restor
   });
   c.shadowRoot.querySelector('.ready__start').click();
   const row=c.shadowRoot.querySelector('[data-id="host:opener"]');
-  c.shadowRoot.querySelector('textarea').value='An invoice system.';c.shadowRoot.querySelector('.send').click();await tick();
+  c.shadowRoot.querySelector('textarea').value='An invoice system.';c.shadowRoot.querySelector('form.composer').dispatchEvent(new window.Event('submit', { cancelable: true }));await tick();
   assert.deepEqual(c.session.transcript.map(turn=>turn.role),['assistant','user']);
   assert.equal(c.session.transcript[0].id,'host:opener');
   assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'),row);
