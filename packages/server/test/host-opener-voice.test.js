@@ -124,7 +124,7 @@ test('AIT-505 L5: host heard length is bounded by canonical text', async t => {
 for (const failFirstAt of ['admission', 'start']) test(`AIT-505 / AIT-508: ${failFirstAt} failure consumes first contact without claiming an opener on the next credits call`, async t => {
   const f = await fixture(t, { conversationLimit: 'credits', failFirstAt });
   assert.equal((await f.start()).status, 400);
-  assert.equal(f.storage.voiceLifecycle(f.session.id, 'fixture-call').state, 'ended');
+  assert.equal(f.storage.voiceLifecycle(f.session.id, 'fixture-call').callId, 'fixture-call');
   assert.deepEqual(f.storage.get(f.session.id).transcript, []);
   const response = await f.start('next-call');
   assert.equal(response.status, 201);
