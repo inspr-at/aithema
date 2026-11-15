@@ -572,6 +572,26 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     const state = await shadow(page, c => { const r = c.shadowRoot; return { notice: r.querySelector('.email-offer .m-notice-text').textContent, href: r.querySelector('.email-offer .m-pp').getAttribute('href'), inert: r.querySelector('form.composer').inert, count: c.session.transcript.length, active: r.activeElement?.id }; });
     assert.match(state.notice, locale === 'en' ? /advertising/ : /Werbung/); assert.equal(state.href, '/privacy'); assert.equal(state.inert, false); assert.equal(state.count, 4); assert.notEqual(state.active, 'email-offer-input');
     baseline = after; await shot('capture');
+    // Native focus must not move the inline offer inside the combined scrollers.
+    const focusTargets = ['.email-offer', '.email-offer__row', '.email-offer__send', ...targets];
+    const focusSample = () => shadow(page, (c, selectors) => {
+      const root = c.shadowRoot;
+      return { boxes: selectors.map(selector => { const b = root.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        scrolls: ['.workspace', '.conversation', '.conversation-scroll', '.concept-thread', '.transcript-shell'].map(selector => {
+          const n = root.querySelector(selector), b = n.getBoundingClientRect();
+          return { selector, top: n.scrollTop, height: n.clientHeight, content: n.scrollHeight, y: b.y, boxHeight: b.height };
+        }), documentScroll: scrollY };
+    }, focusTargets);
+    const beforeFocus = await focusSample();
+    await shadow(page, c => c.shadowRoot.querySelector('#email-offer-input').focus());
+    await settle(page);
+    const afterFocus = await focusSample();
+    for (const sample of [beforeFocus, afterFocus]) for (const box of sample.boxes) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive native-focus geometry`);
+    const focusShift = Math.max(...beforeFocus.boxes.flatMap((box, i) => box.map((n, j) => Math.abs(n - afterFocus.boxes[i][j]))));
+    rects.push({ label, state: 'native-focus', targets: focusTargets, before: beforeFocus.boxes, after: afterFocus.boxes, shift: focusShift, beforeFocus, afterFocus });
+    if (evidence) await writeFile(join(evidence, 'ait-507-rects.json'), JSON.stringify(rects, null, 2));
+    await shot('capture-focused');
+    assert.ok(focusShift <= .5, `${label}: native focus shifts the combined offer ${focusShift}px; ${JSON.stringify({ beforeFocus, afterFocus })}`);
     await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'invalid'; row.querySelector('form').requestSubmit(); });
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').getAttribute('aria-invalid')), 'true'); await shot('invalid');
     for (const status of [400, 503]) {
