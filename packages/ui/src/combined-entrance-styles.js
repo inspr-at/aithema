@@ -27,6 +27,7 @@ export const combinedEntranceStyles = `
 .composer-status { grid-area:feedback; align-self:center; min-width:0; height:2.6em; overflow:auto; color:var(--aithema-muted); font-size:.72rem; line-height:1.3; }
 .composer-status:empty { visibility:hidden; }
 .composer-actions:has(.composer-status:not(:empty)) .composer-feedback { visibility:hidden; }
+.workspace[data-entrance="combined"] .composer-actions:has(.composer-status:not(:empty)) .composer-feedback .composer-reason { visibility:hidden; }
 @media(min-width:60rem) {
   /* Reserve the conversation width before the overview reveals. */
   .workspace[data-entrance="combined"][data-understanding="absent"] { grid-template-columns:minmax(0,1.55fr) minmax(22rem,.88fr); column-gap:clamp(1rem,2.5vw,2rem); }

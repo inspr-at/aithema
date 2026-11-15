@@ -336,6 +336,13 @@ browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
 browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
   browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 200);
 
+// AIT-506: remote run ait-5f85e1b00b164b6186a07920, a79a3498:
+// complete start-journey file passed 16/16 cases, including the combined
+// entrance matrix. Observed file duration 143.622222626s; ceil(*1.25)=180s.
+// Retain this diagnostic floor outside trusted rolling-main history.
+browserTestWeights['test/browser/start-journey.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-journey.test.js'], 180);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.
