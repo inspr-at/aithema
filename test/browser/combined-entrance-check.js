@@ -145,6 +145,16 @@ export async function combinedEntranceCheck(t) {
       assert.deepEqual(await page.evaluate(() => trace), []);
       unmoved(initial, await shot('chooser'));
       await entranceFits(page, '.chooser');
+      const continuation = await page.$eval('aithema-session', c => {
+        const button = c.shadowRoot.querySelector('.chooser__continue');
+        button.scrollIntoView({ block: 'nearest' });
+        const box = button.getBoundingClientRect();
+        const hit = c.shadowRoot.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return { box: [box.x, box.y, box.width, box.height], reachable: button === hit || button.contains(hit) };
+      });
+      positive({ continue: continuation.box });
+      assert.equal(continuation.reachable, true, 'Continue remains reachable on the entrance surface');
+      unmoved(initial, await boxes(page));
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
   }
