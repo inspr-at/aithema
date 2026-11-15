@@ -3759,7 +3759,7 @@ test('AIT-502 v2.2: start receipt identifies the optional bound', async t => {
 
 test('AIT-508: a fresh call waits for the prior session call to reconcile despite spare credits and duration', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
-  const h = voiceFixture(t, { slowClosure: true, cap: { capMilliseconds: 600_000 },
+  const h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 }, slowClosure: true, cap: { capMilliseconds: 600_000 },
     host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
   t.mock.method(Date, 'now', h.now);
   const first = await h.start(); h.advance(2000);
@@ -3773,6 +3773,9 @@ test('AIT-508: a fresh call waits for the prior session call to reconcile despit
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
   assert.equal((await h.runtime.matrix(h.storage.get(h.session.id))).best.voice.reason, 'budget reconciling');
   h.endClient(first.providerSessionId); await closing; await h.handlers.idle();
+  const settled = h.storage.voiceCalls(h.session.id)[0].terminal;
+  assert.equal(settled.closureConfirmed, true); assert.equal(settled.usage.costEstimated, false);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
   const next = await h.start('settled-next'); assert.notEqual(next.callId, first.callId);
 });
 
@@ -3780,7 +3783,7 @@ test('AIT-508: a fresh bounded call after an empty ended call uses continuation 
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const phrases = { de: { opening: 'Hallo, hier ist eine KI-Assistenz.', continuation: 'Ihre KI-Assistenz setzt das Gespräch fort.' },
     en: { opening: 'Hello, this is an AI assistant.', continuation: 'Your AI assistant is ready to continue.' } };
-  const presentations = [], h = voiceFixture(t, {
+  const presentations = [], h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 },
     host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }),
     voiceOptions: { presentation(locale, options) {
       presentations.push(options); return { agent: { language: locale, firstMessage: phrases[locale][options.hasPriorTurns ? 'continuation' : 'opening'] } };
@@ -3799,7 +3802,7 @@ test('AIT-508: a fresh bounded call after an empty ended call uses continuation 
 
 for (const conversationLimit of ['time', 'credits']) test(`AIT-508: host idle configuration reaches only ${conversationLimit} policy call options`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
-  const h = voiceFixture(t, { host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit, voiceIdleSeconds: 60 }) });
+  const h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 }, host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit, voiceIdleSeconds: 60 }) });
   t.mock.method(Date, 'now', h.now);
   const start = h.plugin.start.bind(h.plugin); let admitted;
   h.plugin.start = (request, options) => { admitted = options; return start(request, options); };
