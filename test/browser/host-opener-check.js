@@ -28,14 +28,14 @@ globalThis.fetch = async (url, options = {}) => {
   }
   return Response.json(c.session);
 };
-globalThis.seed = (locale, text, preset = 'best') => {
+globalThis.seed = (locale, text, preset = 'best', entrance) => {
   const session = createSession({ locale, demo:true, processingPreset:preset });
   session.settings.origin = 'chosen';
   session.featureMatrix = { [preset]: { text:{available:true}, analysis:{available:true} } };
   if (text) session.opener = { text, locale };
   const deviceReasoning = { id:'fixture-device',model:'fixture-model',async connect(){},async *stream(request){ globalThis.deviceRequest=request; yield JSON.stringify({content:'A fixture reply.',question_short:null,options:[]});} };
-  c.configure({copy:locale==='de'?de:en,session,deviceReasoning:preset==='device'?deviceReasoning:undefined});
-  c.shadowRoot.querySelector('.ready__start').click();
+  c.configure({copy:locale==='de'?de:en,session,deviceReasoning:preset==='device'?deviceReasoning:undefined,entrance});
+  if (entrance !== 'combined') c.shadowRoot.querySelector('.ready__start').click();
 };
 globalThis.component = c; globalThis.ready = true;
 </script></body></html>`;
@@ -72,11 +72,18 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
     await page.setViewport({width,height:900});
     await page.evaluate(theme => {document.documentElement.style.colorScheme=theme;component.setAttribute('theme',theme);},theme);
     const seed = async text => { await page.evaluate((locale,text) => seed(locale,text),locale,text); await frames(page); };
+    const shot = async state => { if(evidence && width!==1024) await page.screenshot({path:join(evidence,`ait-505-${locale}-${theme}-${width}-${state}.png`),fullPage:true}); };
+    await page.evaluate((locale,text) => seed(locale,text,'best','combined'),locale,text);await frames(page);
+    const entranceBox = await page.evaluate(() => {const r=component.shadowRoot.querySelector('[data-id="host:opener"]').getBoundingClientRect();return {selector:'host:opener',x:r.x,y:r.y,width:r.width,height:r.height};});
+    positive([entranceBox]);
+    assert.equal(await page.evaluate(() => component.session.transcript.length),0,'entrance opener remains render-only');
+    await shot('entrance');
+    await page.click('aithema-session >>> .ready__start');await frames(page);
+    const afterStart=await rects(page);positive(afterStart);await shot('after-start');
     await seed(null); const empty=await rects(page); positive(empty);
     await seed(text); const shown=await rects(page); stable(empty,shown,'render-only');
     assert.equal(await page.evaluate(() => component.session.transcript.length),0);
     assert.equal(await page.evaluate(() => component.shadowRoot.querySelector('.workspace').dataset.understanding),'absent');
-    const shot = async state => { if(evidence && width!==1024) await page.screenshot({path:join(evidence,`ait-505-${locale}-${theme}-${width}-${state}.png`),fullPage:true}); };
     await shot('opener');
     await page.evaluate(text => {globalThis.openerRow=component.shadowRoot.querySelector('[data-id="host:opener"]');component.receive({seq:1,type:'turn.final',data:{id:'host:opener',role:'assistant',origin:'host',content:text}});},text);
     await frames(page); const persisted=await rects(page);stable(shown,persisted,'persisted');
@@ -97,7 +104,7 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
     await page.waitForFunction(() => component.session.transcript.some(t=>t.role==='user'));
     assert.deepEqual(await page.evaluate(() => component.session.transcript.map(t=>t.id==='host:opener'?'host':t.role)),['host','user']);
     assert.equal(await page.evaluate(() => component.shadowRoot.querySelectorAll('[data-id="host:opener"]').length),1);
-    tables.push({locale,theme,width,empty,shown,persisted,interrupted,long:longBoxes});
+    tables.push({locale,theme,width,entrance:entranceBox,afterStart,empty,shown,persisted,interrupted,long:longBoxes});
   });
   assert.deepEqual(errors,[]);
   if(evidence) await writeFile(join(evidence,'ait-505-rects.json'),JSON.stringify(tables,null,2));
