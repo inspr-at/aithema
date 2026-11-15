@@ -19,6 +19,9 @@ export const combinedEntranceStyles = `
 /* The sticky-header guard adds a top margin after page scroll. Deduct that
    inset from the pane height so native focus cannot scroll a second container. */
 .workspace[data-entrance="combined"] .transcript-shell { display:block; height:calc(100% - var(--transcript-top-inset,0px)); min-height:0; }
+/* This pane already clears the sticky band and fixed input/footer. The page's
+   dock-sized focus margin would scroll an inline field out of this smaller pane. */
+.workspace[data-entrance="combined"] .transcript-shell :is(button,a,input,textarea,select,[tabindex]) { scroll-margin:2px; }
 /* Canonical replies gain playback controls. Reserve their row before input so
    persistence cannot resize the welcome bubble or shift the content below it. */
 .workspace[data-entrance="combined"] [data-host-opener]:not(:has(.reply-actions))::after { content:''; display:block; height:44px; }
