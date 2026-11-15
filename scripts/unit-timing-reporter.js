@@ -18,6 +18,15 @@ export default async function* unitTimings(source) {
     }) + '\n');
   }
   for await (const { type, data } of source) {
+    if (output && type === 'test:fail') {
+      const error = data.details?.error, describe = value => {
+        try { return JSON.stringify(value)?.slice(0, 4000); } catch { return '[not serializable]'; }
+      };
+      appendFileSync(resolve(directory, 'failures.jsonl'), JSON.stringify({ type, name: data.name,
+        file: data.file ? relative(process.cwd(), data.file).replaceAll('\\', '/') : null,
+        message: error?.message?.slice(0, 4000), stack: error?.stack?.slice(0, 8000),
+        actual: describe(error?.actual), expected: describe(error?.expected), code: error?.code }) + '\n');
+    }
     if (output && type === 'test:summary') {
       appendFileSync(output, JSON.stringify({ type, ...data,
         ...(data.file ? { file: relative(process.cwd(), data.file).replaceAll('\\', '/') } : {}),
