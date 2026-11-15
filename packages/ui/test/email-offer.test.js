@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import { Verification } from '../src/verification.js';
 import { EmailOffer } from '../src/email-offer.js';
 import { emailOfferEligibility, visitorMessageCount } from '../../core/src/email-offer.js';
 import { en } from '../src/i18n/en.js';
@@ -60,4 +61,26 @@ test('AIT-507 saved address uses resend; dismiss remains latched', async t => {
   await f.offer.save(); assert.deepEqual(f.calls.at(-1), ['resend']);
   await f.offer.dismiss(); f.offer.update(); await Promise.resolve();
   assert.equal(f.calls.filter(c => c.why === 'offer' && c.action === 'show').length, 1);
+});
+
+test('AIT-507 saved guest requests its first link; pending resend preserves cooldown and address', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+  const window = new Window({ url: 'http://local/' }); globalThis.document = window.document;
+  const host = window.document.createElement('div'); window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' });
+  const entry = window.document.createElement('section'), lock = window.document.createElement('section'), dialog = window.document.createElement('dialog');
+  root.append(entry, lock, dialog);
+  const calls = [], address = 'saved@example.test';
+  const pending = { status: 'verification-pending', address, assessmentUnlocked: true, pollVerification: false, resendAfterMs: 10_000, delivery: 'sent' };
+  const verification = new Verification({ root, entry, lock, dialog, copy: en, demo: true,
+    identity: { ...pending, status: 'guest', resendAfterMs: 0 },
+    request: async (path, body) => { calls.push({ path, body }); return { ok: true, body: { identity: pending } }; } });
+  t.after(async () => { verification.destroy(); delete globalThis.document; await window.happyDOM.close(); });
+  assert.equal((await verification.resend()).sent, true);
+  assert.deepEqual(calls, [{ path: 'identity/request', body: { address } }]);
+  assert.equal((await verification.resend()).status, 429);
+  assert.equal(calls.length, 1, 'cooldown blocks another delivery');
+  verification.set({ ...pending, resendAfterMs: 0 });
+  assert.equal((await verification.resend()).ok, true);
+  assert.deepEqual(calls.at(-1), { path: 'identity/resend', body: {} });
 });
