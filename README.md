@@ -3756,7 +3756,8 @@ supported. Other thresholds are refused at startup. The session snapshot
 publishes the resolved `emailOffer: { afterMessages }` policy. Hosts enable the
 existing verification and credit surfaces in the UI and provide a delivering
 identity port, the privacy-document capability, and the visitor-wide
-`claimEmailAsk` / `emailAskAfter` ports.
+`claimEmailAsk` / `emailAskAfter` ports. The demo helper also accepts
+`createDemoHost({ emailOffer: { afterMessages: 2 } })`.
 
 Before visitor input, the overview and Settings' empty capture form are absent.
 A saved address keeps its Change and Delete controls in Settings. The host opener

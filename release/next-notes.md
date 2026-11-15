@@ -3,7 +3,8 @@
 ## Host notes
 
 - AIT-507 adds opt-in server `host.emailOffer: { afterMessages: 1 | 2 }`
-  (`{}` defaults to 2), published as `session.emailOffer`. Invalid thresholds
+  (`{}` defaults to 2), published as `session.emailOffer`. The demo helper accepts
+  the same `emailOffer` option in `createDemoHost`. Invalid thresholds
   fail at startup. Configure the existing UI verification and credit surfaces;
   email delivery, privacy capability and the daily visitor claim ports are
   required for an eligible offer.
