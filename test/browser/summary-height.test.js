@@ -45,7 +45,8 @@ test('AIT-514 height-aware clamp keeps heading and first signal visible with who
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
-      session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' }];
+      session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' },
+        { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.', inputRevision: inputRevision(session) }];
       Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
         summary: Array(20).fill(locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.').join('\n'),
         signals: [locale === 'de' ? 'Ein klarer Ablauf' : 'A clear workflow'], openQuestions: [] });

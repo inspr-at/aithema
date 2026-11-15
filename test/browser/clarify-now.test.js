@@ -970,7 +970,8 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
-      session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' }];
+      session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' },
+        { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.', inputRevision: inputRevision(session) }];
       Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
         summary: 'Short.', signals: ['A stable signal'], openQuestions: [] });
       // Every request stays in this browser; no fixture/provider operation is admitted.
