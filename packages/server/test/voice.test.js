@@ -3843,7 +3843,7 @@ for (const action of ['resume', 'takeover', 'replay']) test(`AIT-508 B5: current
     assert.deepEqual(await rail.notices.replay(), { kind: 'text', text: 'The latest answer.' });
   } else {
     rail.render();
-    assert.equal(root.querySelector('.pause').disabled, false, `held voice verdict: ${verdict.reason}`);
+    assert.equal(root.querySelector('.voice-pause').disabled, false, `held voice verdict: ${verdict.reason}`);
     assert.notEqual(verdict.reason, 'budget reconciling');
     let current = identity;
     if (action === 'takeover') {
