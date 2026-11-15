@@ -475,3 +475,18 @@ test('AIT-508: accepted typed input resets composed idle; assistant output canno
   release.resolve(); await h.coordinator.idle(); t.mock.timers.tick(1); await Promise.resolve();
   assert.equal(h.coordinator.state.state, 'ended'); assert.equal(events.at(-1).reason, 'idle');
 });
+
+for (const hold of ['paused', 'waiting']) test(`AIT-508: ${hold} stops output and still reaches idle while reasoning is pending`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const release = Promise.withResolvers(), entered = Promise.withResolvers(); t.after(() => release.resolve());
+  const events = [], h = fixture(t, { spendDeadlineAt: Date.now() + 900_000,
+    browserLivenessDeadlineAt: Date.now() + (hold === 'waiting' ? 30_000 : 900_000),
+    replyExecutor: { async *execute() {
+      yield { type: 'operation', replyId: 'held-reply' }; entered.resolve(); await release.promise;
+      yield { type: 'completion', replyId: 'held-reply', text: '' };
+    } }, relay: { audio() {}, silence() {}, event: e => events.push(e) } });
+  await h.coordinator.sendText('Continue', { deliveryId: 'held-turn' }); await entered.promise;
+  if (hold === 'paused') await h.coordinator.pause();
+  t.mock.timers.tick(120_000);
+  assert.equal(h.coordinator.state.state, 'ended'); assert.equal(events.at(-1).reason, 'idle');
+});
