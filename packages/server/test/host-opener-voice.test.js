@@ -358,3 +358,31 @@ test('AIT-537: an undeclared plugin is text-only with one diagnostic per id', as
   assert.deepEqual(f.storage.get(f.session.id).transcript.map(t => t.id), ['host:opener']);
   assert.deepEqual(logs.filter(e => e.event === 'voice.opener-undeclared'), [{ event: 'voice.opener-undeclared', plugin: 'fixture-voice' }]);
 });
+
+for (const locale of ['en', 'de']) test(`AIT-538: reference wiring speaks disclosure-safe ${locale} fallback per locale`, async t => {
+  const logs = [], configuredOpener = { en: opener.en, de: 'Willkommen.' };
+  const f = await fixture(t, { locale, configuredOpener, presentation: await reference(t), log: value => logs.push(value) });
+  assert.deepEqual(logs, [{ event: 'voice.host-opener-fallback', locale: 'de' }]);
+  assert.equal((await f.start()).status, 201);
+  const message = f.starts[0].overrides.agent.firstMessage;
+  if (locale === 'en') {
+    assert.equal(message, opener.en);
+    assert.deepEqual(f.storage.get(f.session.id).transcript.map(t => t.id), ['host:opener']);
+  } else {
+    assert.match(message, /KI-Assistenz/u);
+    assert.notEqual(message, configuredOpener.de);
+    assert.notEqual(message, '');
+    assert.deepEqual(f.storage.get(f.session.id).transcript, []);
+  }
+});
+test('AIT-537 / AIT-538: reference wiring after an audible idle call continues without an opener offer', async t => {
+  const contexts = [], presentation = await reference(t);
+  const f = await fixture(t, { conversationLimit: 'credits', presentation: (locale, ctx) => { contexts.push(ctx); return presentation(locale, ctx); } });
+  await f.start(); await f.event({ type: 'final', role: 'assistant', text: opener.en });
+  await f.post('/fixture-call/close', { providerSessionId: 'fixture-generation', reason: 'idle' });
+  const next = await f.start('after-idle'); assert.equal(next.status, 201);
+  assert.equal((await next.json()).presentation, 'continuation');
+  assert.deepEqual(contexts.at(-1), { hasPriorTurns: true, hasPriorCalls: true });
+  assert.equal(f.starts[1].overrides.agent.firstMessage, 'The AI assistant continues.');
+  assert.deepEqual(f.storage.get(f.session.id).transcript.map(t => t.id), ['host:opener']);
+});
