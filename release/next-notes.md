@@ -4,6 +4,8 @@
 
 - AIT-509: visual consent text is now silent at idle for all hosts. The bound
   rail keeps its sizers; Settings keeps per-feature status and withdrawal.
+- Combined desktop composers and overview panes retain the fixed footer inset,
+  keeping their controls above the footer throughout consent transitions.
 - Validated visual requests blocked only by consent offer a just-in-time ask in
   the reserved rail slot. Its memory-only continuation expires within three
   minutes and needs a newer authoritative covering grant; cancellation, review,

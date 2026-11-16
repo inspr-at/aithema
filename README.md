@@ -589,7 +589,8 @@ durable permission to generate: only a fresh explicit request can continue it.
 Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
 microphone and Send side by side from first paint, with the existing processing
 notice (selected processing details plus the AI/voice disclosure) directly above
-them. The default remains `entrance: 'choice'`, including
+them. Desktop composers and overview panes retain the fixed footer reservation.
+The default remains `entrance: 'choice'`, including
 its mode selection and Start button. Combined mode keeps the processing-preset
 chooser and omits the ready card's mode, microphone and speaker rows and Start.
 The combined transcript reserves the sticky-header inset inside its scrolling
