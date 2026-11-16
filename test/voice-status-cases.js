@@ -20,14 +20,14 @@ export function voiceStatusCases(copy) {
   ];
 }
 
-// Tick’s AIT-302 table, with LEAD’s AIT-540 M2 German terminology ruling, DE / EN.
+// Tick’s AIT-302 table, with LEAD’s AIT-540 M2 and b4 authorization rulings, DE / EN.
 const approvedNarrowForms = {
   'closing': ['Wird beendet …', 'Ending …'],
   'creditEnding': ['Wird beendet …', 'Ending …'],
   'consent-withdrawn': ['Einwilligung entzogen', 'Consent withdrawn'],
   'consent-revised': ['Einwilligung geändert', 'Consent changed'],
-  'session-revoked': ['Einwilligung entzogen', 'Permission withdrawn'],
-  'call-authorization-lost': ['Einwilligung ungültig', 'Permission expired'],
+  'session-revoked': ['Freigabe widerrufen', 'Permission withdrawn'],
+  'call-authorization-lost': ['Freigabe abgelaufen', 'Permission expired'],
   'spend cap reached': ['Anbieterlimit erreicht', 'Provider limit reached'],
   'OpenRouter spend cap exhausted': ['Anbieterlimit erreicht', 'Provider limit reached'],
   'spend-deadline': ['Anruf beendet', 'Call ended'],
