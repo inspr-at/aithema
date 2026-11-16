@@ -124,9 +124,9 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 bubble: list.lastElementChild.getBoundingClientRect().toJSON(),
                 overflow: [...list.querySelectorAll('*')].map(n => ({ className: n.className, bottom: n.getBoundingClientRect().bottom, position: getComputedStyle(n).position })).filter(n => n.bottom > list.getBoundingClientRect().bottom) });
               const original = inspect(), experiments = [];
-              for (const [target, property, value] of [[jump, 'display', 'none'], [jump, 'position', 'static'], [jump, 'marginTop', '-46px'], [list, 'overflow', 'hidden'], [list, 'contain', 'paint'], [shell, 'display', 'block']]) {
+              for (const [target, property, value] of [[jump, 'display', 'none'], [shell.querySelector('.voice-notices'), 'display', 'none'], [jump, 'order', '0'], [jump, 'position', 'static'], [jump, 'marginTop', '-46px'], [list, 'overflow', 'hidden'], [list, 'contain', 'paint'], [shell, 'display', 'block']]) {
                 const style = target.getAttribute('style'); target.style[property] = value; shell.scrollTop = shell.scrollHeight;
-                experiments.push({ property, value, ...inspect() });
+                experiments.push({ target: target.className, property, value, ...inspect() });
                 if (style === null) target.removeAttribute('style'); else target.setAttribute('style', style);
               }
               shell.scrollTop = original.scroll;
