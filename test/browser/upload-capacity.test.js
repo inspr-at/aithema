@@ -514,6 +514,12 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     const boxes = () => inShadow(page, c => Object.fromEntries(['.band', '.audio-rail', ...(window.imageEntrance === 'combined' ? ['.composer-mic'] : ['.attach']), '.send', '.composer', ...(window.innerWidth >= 1024 ? ['.understanding', '.understanding .foot'] : [])].map(selector => {
       const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, bottom: r.bottom }];
     })));
+    // Compare decode events only after the requested viewport's layout is active.
+    const resize = async height => {
+      await page.setViewport({ width, height });
+      await page.waitForFunction(height => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace')
+        .hasAttribute('data-phone-short') === (window.innerWidth <= 600 && height <= 620), {}, height);
+    };
     const unstaged = await boxes();
     for (const r of Object.values(unstaged)) assert.ok(r.w > 0 && r.h > 0, 'positive frame before staging');
     await choose(); await waitForShadow(page, '.staged-image');
@@ -529,13 +535,14 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     const shot = async state => { if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `${prefix}-${state}.png`) }); };
     await shot('pending');
     if (entrance === 'combined' && width === 390) for (const height of [620, 568]) {
-      await page.setViewport({ width, height });
+      await resize(height);
       const shortBefore = await boxes();
       for (const r of Object.values(shortBefore)) assert.ok(r.w > 0 && r.h > 0, 'positive short-phone baseline');
       await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
         c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason: 'malformed' } });
       });
       const shortAfter = await boxes();
+      if (evidence) await writeFile(join(evidence, `${prefix}-short-${height}-probe.json`), JSON.stringify({ before: shortBefore, after: shortAfter }, null, 2));
       for (const [selector, r] of Object.entries(shortAfter)) {
         assert.ok(r.w > 0 && r.h > 0, `${selector} positive at ${height}`);
         for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - shortBefore[selector][edge]) <= .5, `${height} ${selector}.${edge}`);
@@ -555,7 +562,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
         c.shadowRoot.querySelector('.image-refusals button').click();
       });
     }
-    if (entrance === 'combined' && width === 390) await page.setViewport({ width, height: 900 });
+    if (entrance === 'combined' && width === 390) await resize(900);
     for (const reason of ['unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'batch']) {
       await inShadow(page, (c, reason) => { const image = c.session.uploads.find(u => u.kind === 'image');
         c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason } });
@@ -577,7 +584,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-image .image-thumbnail')?.naturalWidth === 1);
     await shot('ready');
     if (width === 390) {
-      await page.setViewport({ width, height: 530 });
+      await resize(530);
       await inShadow(page, c => c.shadowRoot.querySelector('textarea').focus());
       const compact = await boxes(); for (const r of Object.values(compact)) assert.ok(r.w > 0 && r.h > 0);
       await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
@@ -592,7 +599,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       assert.ok(visible.w > 0 && visible.h > 0 && visible.top >= 0 && visible.bottom <= 530); assert.equal(visible.clip, 'none');
       changes.push({ reason: 'keyboard-malformed', before: compact, rects: after }); await shot('keyboard');
       await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image'); c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined } }); c.shadowRoot.querySelector('.image-refusals button').click(); });
-      await page.setViewport({ width, height: 900 });
+      await resize(900);
     }
     assert.deepEqual(await page.evaluate(() => window.imageAsks), [], 'both image purposes granted at start: no ask');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason .consent-action') === null), true, 'no consent line');
