@@ -44,6 +44,8 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .attach { display:none; }
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:center; }
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
+/* Image refusals use a bounded 40px list; reserve its action row before intake. */
+.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:44px; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
 .composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
