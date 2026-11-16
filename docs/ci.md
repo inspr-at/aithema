@@ -304,7 +304,9 @@ deterministic LPT across **twelve** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
-tries at most 100,000 nodes to meet that target. On failure it retains the
+tries at most 100,000 nodes to meet that target, completing bins around the
+largest remaining file and rejecting fills that leave insufficient remaining
+capacity. On failure it retains the
 original plan for the guard's diagnostics. `npm run test:browser-shards` checks
 complete, exactly-once coverage, a separate **405 s projected headroom target**, and the
 unchanged **420 s per-bin ceiling**; this leaves
@@ -353,7 +355,7 @@ their 25% margin, giving a 395 s ceiling. Its known AIT-531 `axe is not defined`
 failure truncates an existing case; the failed file's wall time is never used
 to lower its historical reservation. These measured ceilings supersede
 provisional rounded floors and remain outside trusted main history. The
-original packer, all inherited weights and floors, twelve shards, the 405 s
+LPT and pairwise refinement, all inherited weights and floors, twelve shards, the 405 s
 target, the 420 s ceiling and all required check names remain unchanged.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
