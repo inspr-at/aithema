@@ -56,6 +56,8 @@
   createChatCompletions prepareDispatch/resolveImage/imageDispatchCurrent.
   Unsupported image filenames stay in the non-input refusal path even for
   direct multipart callers; the format help line lists the exact accepted types.
+  Named documents retain byte-sniffed document admission despite false image
+  MIME hints; actual image bytes always select image staging.
 
 - Extensionless files labelled with an image MIME type and excluded HEIC/AVIF
   containers stay in the staged, non-input refusal path; they never fall through

@@ -93,6 +93,19 @@ export interface Reasoning {
 }
 ```
 
+Image input is additive: `Reasoning` remains text-only. `ImageInputCapability`
+declares a binding's `maxImages`, `maxTokensPerImage` and optional
+`perImageMicro`. `ImageReference` carries `uploadId`, `digest`, `w`, `h` and a
+normalized JPEG/PNG `mediaType`; it contains no pixels.
+`ImageReasoningRequest` adds optional image references to messages, and
+`ImageReasoning` declares `imageInput: true` for its stream/structured methods.
+`ImageOperationOptions` extends the authority envelope with `resolveImage` and
+optional `imageDispatchCurrent`; bytes are resolved only after admission.
+`ImageInput.normalize` is the separate local normalizer operation, returning
+bounded normalized pixels/metadata or a staged refusal. See the
+[image host contract](../README.md#image-and-screenshot-input-ait-510-host-notes)
+for consent, per-binding costs, staging, native installation and formats.
+
 Honor `signal` and the absolute `deadlineAt` for the entire operation, including
 response-body reads. Pass the same optional `now` clock that produced the
 deadline to nested operations and `operationScope`; it defaults to `Date.now`.
@@ -411,6 +424,12 @@ in their linked source modules.
 - `HTMLGeneration`
 - `HTMLProblem`
 - `Health`
+- `ImageInput`
+- `ImageInputCapability`
+- `ImageOperationOptions`
+- `ImageReasoning`
+- `ImageReasoningRequest`
+- `ImageReference`
 - `LaneBindings`
 - `LiveVoice`
 - `LiveVoiceDeclaration`

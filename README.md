@@ -3886,6 +3886,8 @@ PNG, JPEG, WebP and GIF (first frame only) can be attached as model input with
 `@inspr/aithema-plugin-image-input`. HEIC/HEIF, AVIF, SVG, TIFF and BMP are not
 accepted. Image MIME hints and excluded HEIC/AVIF container headers stay in the
 non-input staged refusal path even without a recognized filename extension.
+For a recognized document filename, a false image MIME hint cannot replace the
+document path; sniffed image bytes still select image staging.
 The plugin owns its pinned native `sharp` dependency; the core and server
 packages do not acquire a native dependency. Production installations must
 include optional platform binaries. Qualify `npm ci --omit=dev` with
