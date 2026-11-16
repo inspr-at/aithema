@@ -836,10 +836,10 @@ const c = document.createElement('aithema-session'), session = createSession({ d
 session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
 c.configure({ copy: en, session }); document.body.append(c);
 c.receive({ seq: 1, type: 'turn.final', data: { id: 't1', role: 'user', content: 'Fixture' } });
-window.assess = (signals, openQuestions) => {
+window.assess = (signals, openQuestions, summary = 'Fixture summary') => {
   const s = c.session;
   c.receive({ seq: s.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(s.understanding,
-    { summary: 'Fixture summary', signals, openQuestions, constraints: Object.fromEntries(s.preset.slots.map(slot => [slot, null])),
+    { summary, signals, openQuestions, constraints: Object.fromEntries(s.preset.slots.map(slot => [slot, null])),
       progress: { talk: { value: .5 }, build: { value: .5 } } }, { transcript: s.transcript, inputRevision: inputRevision(s) }) });
 };
 window.fixtureReady = true;
@@ -971,16 +971,18 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     await tall('1400px'); await fixture.evaluate(signals => window.assess(signals, ['One open question?']), short);
     const roomy = await pane(); assert.equal(roomy.spare, true, 'this pane has spare space');
     let before = await hover(2);
+    // AIT-515 defers signal changes under the pointer. Grow the summary above
+    // the unchanged signals to retain this generic slack-anchoring contract.
     // Every growth here needs slack; repeated rounds must not accumulate it.
     for (let round = 0; round < 5; round++) {
-      await fixture.evaluate(signals => window.assess(signals, ['One open question?']), [grown, ...short.slice(1)]);
+      await fixture.evaluate((signals, summary) => window.assess(signals, ['One open question?'], summary), short, grown);
       await still(2, before, `growth ${round} in a pane with spare space`);
       assert.notEqual((await pane()).bottom, '', 'temporary slack makes the room');
       await fixture.evaluate(signals => window.assess(signals, ['One open question?']), short);
       await still(2, before, `shrink ${round} in a pane with spare space`);
       assert.deepEqual(await pane(), roomy, 'back to the original content: no slack, even while hovered');
     }
-    await fixture.evaluate(signals => window.assess(signals, ['One open question?']), [grown, ...short.slice(1)]);
+    await fixture.evaluate((signals, summary) => window.assess(signals, ['One open question?'], summary), short, grown);
     await fixture.mouse.move(4, 4);
     assert.deepEqual(await pane(), roomy, 'leaving the component leaves 0 px residual padding');
     await tall('');
@@ -988,7 +990,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     await fixture.evaluate((signals, questions) => window.assess(signals, questions), short, questions);
     const baseline = await pane(); assert.equal(baseline.spare, false, 'this pane has scroll room');
     before = await hover(2);
-    await fixture.evaluate((signals, questions) => window.assess(signals, questions), [grown, ...short.slice(1)], questions);
+    await fixture.evaluate((signals, questions, summary) => window.assess(signals, questions, summary), short, questions, grown);
     await still(2, before, 'growth of a preceding item');
     await fixture.evaluate((signals, questions) => window.assess(signals, questions), short, questions);
     await still(2, before, 'shrink of a preceding item');
