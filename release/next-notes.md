@@ -33,6 +33,8 @@
 - New owner-authenticated no-store `GET /uploads/:id/image`, fixed staging tiles
   and reserved transcript thumbnail boxes, revocable blob URLs, and normalized
   image files in ZIP export under images/. Bytes stay outside JSON/events/logs.
+  In both entrance modes, staging grows above the bottom-anchored controls;
+  asynchronous preparation and refusals retain the reserved layout.
 - Image requests retain references until dispatch, use at most four images from
   the last two user turns, and leave draft understanding text-only. One shared
   text-plus-image token helper serves all three admission/settlement/pricing sites.

@@ -337,6 +337,13 @@ projection reserve AIT-506's additional 180 s for start-journey plus at least
 below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
 The projection never overwrites measured `.weight.json` history.
 
+AIT-510 retains twelve shards, the 405 s target and 420 s ceiling. The complete
+expanded `upload-capacity.test.js` passed 29/29 in remote run
+`06ef5ed315-2092`, head `06ef5ed315`, with screenshots in both entrance modes.
+Its measured file duration, including hooks and teardown, was 56.591475583 s;
+`ceil(56.591475583 × 1.25) = 71` supplies a conservative diagnostic floor.
+Remote evidence does not enter trusted rolling-main `.weight.json` history.
+
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.

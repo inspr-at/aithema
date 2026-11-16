@@ -3968,6 +3968,8 @@ normalized ready/sent pixels, with `Cache-Control: no-store` and a current
 image-consent check. Clients fetch with the owner header into revocable blob
 URLs. Fixed staging tiles hold preparing/failure states; sent thumbnails are
 inside their user turn, with boxes reserved from stored `w` and `h`. Upload
+staging grows above the bottom-anchored controls in both entrance modes;
+asynchronous preparation and refusals retain the reserved layout. Upload
 metadata adds `digest`, `w`, `h`, and `expiresAt`; turn data adds `attachments`.
 Normalized image bytes stay out of snapshots, receipts, journal and host events.
 ZIP exports include sent images under `images/` and their metadata in
