@@ -1,5 +1,6 @@
 import { node, reconcile, setText } from './dom.js';
 import { resolveCopy } from './copy-resolve.js';
+import { reasonSeparator } from './consent-line.js';
 import { signalKey } from '../../core/src/understanding.js';
 
 /** Presentation state is tab-local; identity and order come from the server. */
@@ -78,7 +79,7 @@ export class SignalList {
       setText(row.querySelector('.signal-text'), item.text);
       let provenance = row.querySelector('.signal-provenance');
       if (item.basis === 'assistant') {
-        if (!provenance) { provenance = node('span', 'signal-provenance'); provenance.append(' · ', node('span', 'signal-basis')); row.append(provenance); }
+        if (!provenance) { provenance = node('span', 'signal-provenance'); provenance.append(reasonSeparator, node('span', 'signal-basis')); row.append(provenance); }
         setText(provenance.querySelector('.signal-basis'), resolveCopy(this.#copy, 'signalUnconfirmed', null, this.#locale));
       } else provenance?.remove();
       row.toggleAttribute('data-signal-new', this.#marked.has(item.key));

@@ -775,7 +775,8 @@ or fewer. The toggle stays right-aligned in the heading row, reserving both
 labels so expansion leaves its click target fixed. The existing `signals`
 heading key now means “Signals” / “Signale” in EN/DE (German previously read
 “Was konkret erkennbar war”); host overrides still win. Assistant attribution
-reads “ · unconfirmed” / “ · unbestätigt” in muted ink. New rows use a tint
+reads “ · unconfirmed” / “ · unbestätigt” in muted ink, using the shared
+nonbreaking `reasonSeparator`. New rows use a tint
 without an edge stripe; the toggle focus ring stays inside its button. Expanded
 preference is kept in tab memory for the conversation,
 including temporary short lists and assessment resets, and cleared on erasure

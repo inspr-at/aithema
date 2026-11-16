@@ -5,6 +5,7 @@ import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithem
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { styles } from '../src/styles.js';
+import { reasonSeparator } from '../src/consent-line.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -193,13 +194,13 @@ test('AIT-515 r10 latest held final replaces a pending addition even when it mat
 test('AIT-515 r10 assistant provenance has a separator and matching impersonal headings retain host overrides', () => {
   for (const [copy, heading, label] of [[en, 'Signals', 'unconfirmed'], [de, 'Signale', 'unbestätigt']]) {
     const c = setup(copy); final(c, [{ text: 'Suggestion', basis: 'assistant' }]);
-    assert.equal(c.shadowRoot.querySelector('.signal-provenance').textContent, ` · ${label}`);
+    assert.equal(c.shadowRoot.querySelector('.signal-provenance').textContent, `${reasonSeparator}${label}`);
     assert.equal(c.shadowRoot.querySelector('#signals-title').textContent, heading);
   }
   const c = setup({ ...de, signals: 'Host heading', signalUnconfirmed: 'Host basis' });
   final(c, [{ text: 'Suggestion', basis: 'assistant' }]);
   assert.equal(c.shadowRoot.querySelector('#signals-title').textContent, 'Host heading');
-  assert.equal(c.shadowRoot.querySelector('.signal-provenance').textContent, ' · Host basis');
+  assert.equal(c.shadowRoot.querySelector('.signal-provenance').textContent, `${reasonSeparator}Host basis`);
 });
 
 test('AIT-515 r10 arrival tint has no edge stripe or shadow', () => {
