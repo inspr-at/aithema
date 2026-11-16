@@ -453,8 +453,8 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
     const capacity = browserShardHeadroomTarget * 1000;
     const entries = sortedFiles.map(file => ({ file, size: Math.ceil(weightOf(file) * 1000 - 1e-9) }));
     let remainingNodes = 100_000;
-    // Complete a bin around the largest remaining file. Every feasible packing
-    // has such a bin; sorting completions by fill avoids equivalent bin orders.
+    // Complete a bin around the largest remaining file. Seeding each bin this
+    // way removes equivalent bin permutations; try fullest completions first.
     function complete(remaining, bin) {
       if (--remainingNodes < 0) return false;
       if (!remaining.length) return bin === shardCount;

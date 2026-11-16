@@ -355,8 +355,15 @@ their 25% margin, giving a 395 s ceiling. Its known AIT-531 `axe is not defined`
 failure truncates an existing case; the failed file's wall time is never used
 to lower its historical reservation. These measured ceilings supersede
 provisional rounded floors and remain outside trusted main history. The
-LPT and pairwise refinement, all inherited weights and floors, twelve shards, the 405 s
+LPT placement and pairwise refinement, all inherited weights and floors, twelve shards, the 405 s
 target, the 420 s ceiling and all required check names remain unchanged.
+
+Explicit remote QA can add `test/browser/evidence-reporter.js` beside the spec
+reporter. It retains every nested failure and complete file summaries in
+`browser-complete.jsonl` under `AITHEMA_EVIDENCE_DIR`, even when the lane prints
+only a log tail. Bounded whole-suite batches keep the same committed head and
+serial test execution; the operator file retains its existing isolated force-exit
+run. This reporter does not change CI selection or reporting.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
