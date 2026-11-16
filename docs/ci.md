@@ -337,6 +337,15 @@ projection reserve AIT-506's additional 180 s for start-journey plus at least
 below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
 The projection never overwrites measured `.weight.json` history.
 
+AIT-511/AIT-513 register the transcript/composer parent in `question-card.test.js`
+through a named helper import, retaining shard attribution and workload hashing.
+Remote run `94838fb6e0-37340` at `94838fb6` passed all 38 cases in that parent
+in 37.653856666 s. The temporary 125 s file floor retains its existing 76.696 s
+allocation and adds that parent with 25% margin (123.763320833 s, rounded up).
+Other parents failed in that diagnostic file; this passing-parent observation
+is a conservative planning floor, outside trusted rolling-main history. The
+twelve bins, 405 s target, 420 s ceiling and all other floors stay unchanged.
+
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.

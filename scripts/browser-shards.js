@@ -362,6 +362,15 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.
+// AIT-511/AIT-513: remote 94838fb6e0-37340 at 94838fb6 passed all 38
+// transcript/composer cases in 37.653856666s. Retain the existing 76.696s
+// allocation and add that parent with a 25% margin: 123.763320833s, rounded
+// up to a 125s diagnostic floor. The parent is registered in question-card
+// and its named helper import participates in the workload hash. Other parents
+// in that diagnostic file failed; this is not trusted rolling-main history.
+browserTestWeights['test/browser/question-card.test.js'] = Math.max(
+  browserTestWeights['test/browser/question-card.test.js'], 125);
+
 export const browserShardCount = 12;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
