@@ -274,6 +274,7 @@ class ComposerSize {
     const phone = this.view.matchMedia('(max-width:600px)').matches;
     const viewport = visual?.height ?? this.view.innerHeight;
     const short = phone && workspace.hasAttribute('data-phone-short');
+    const keyboard = workspace.hasAttribute('data-phone-keyboard');
     const minimum = parseFloat(css.minHeight) || (short ? 44 : 56);
     const actualChrome = composer.height - field.height;
     const card = this.root.querySelector('.qcard');
@@ -286,13 +287,13 @@ class ComposerSize {
       - this.root.querySelector('.concept-bar').getBoundingClientRect().height - 32
       : entrancePane ? entrancePane.getBoundingClientRect().height + composer.height
         : shell.getBoundingClientRect().height + (parseFloat(shellCSS.marginBottom) || 0) + composer.height;
-    const baselineContext = [field.width, viewport, short, minimum, css.font, css.lineHeight].join('/');
+    const baselineContext = [field.width, viewport, short, keyboard, workspace.dataset.stage, minimum, css.font, css.lineHeight].join('/');
     const context = [baselineContext, actualChrome.toFixed(1), available.toFixed(1)].join('/');
     // A card closing or a notice arriving is not a visitor edit. In particular,
     // an answer-chip send cannot expand a retained draft into newly free space.
     if (!visitor && this.value === this.input.value && this.context === context) return;
     this.value = this.input.value; this.context = context;
-    const following = this.following();
+    const following = this.following(), previousEffective = this.effective ?? 0;
     const line = parseFloat(css.lineHeight) || 24;
     const padding = (parseFloat(css.paddingTop) || 0) + (parseFloat(css.paddingBottom) || 0);
     // The hidden used-up peer can stretch the live form. Measure intrinsic
@@ -312,10 +313,9 @@ class ComposerSize {
       const measured = probeInput.getBoundingClientRect().height;
       natural = native ? measured : probeInput.scrollHeight;
       chrome = probe.getBoundingClientRect().height - measured;
-      // Viewport classes can change reserved chrome after the first fit (for
-      // example keyboard disclosure rows). Growth uses that same current floor.
-      const measuredBaselineContext = `${baselineContext}/${chrome.toFixed(3)}`;
-      if (this.baselineContext !== measuredBaselineContext) {
+      // Only responsive modes reset the empty baseline. Visitor-added chrome
+      // remains growth, including attachment rows measured by this same owner.
+      if (this.baselineContext !== baselineContext) {
         let peerFloor = 0;
         const peer = this.root.querySelector('.composer-out'), style = peer && this.view.getComputedStyle(peer);
         if (peer && style.display !== 'none' && !['absolute', 'fixed'].includes(style.position)) {
@@ -329,7 +329,7 @@ class ComposerSize {
           }
           finally { peerProbe.remove(); }
         }
-        this.baselineContext = measuredBaselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
+        this.baselineContext = baselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
       }
     } finally { probe.remove(); }
     let cap = Math.min(.4 * viewport, available - (card && !card.hidden && !short ? 150 : 0) - (short ? 0 : 128));
@@ -341,9 +341,12 @@ class ComposerSize {
       this.resize(() => {
         workspace.style.setProperty('--composer-field-height', `${height}px`);
         const effective = form.getBoundingClientRect().height;
+        this.effective = effective;
         workspace.style.setProperty('--aithema-composer-height', `${effective}px`);
         workspace.style.setProperty('--aithema-composer-growth', `${Math.max(0, effective - this.baseline)}px`);
-        if (Math.abs(field.height - height) > .1) { this.painted(); this.changed({ following }); }
+        if (Math.abs(field.height - height) > .1 || Math.abs(previousEffective - effective) > .1) {
+          this.painted(); this.changed({ following });
+        }
       });
     } finally { this.fitting = false; }
   }
@@ -389,14 +392,6 @@ export class PhoneComposerViewport {
       const movedNotices = Boolean(notices && notices.parentNode !== parent);
       if (movedNotices) parent.append(notices);
       if (notices) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
-      this.composerSize.fit();
-      const outBody = root.querySelector('.composer-out__body');
-      // Only clipped copy needs its own keyboard scroll target. Fitting copy
-      // keeps the original DOM, including the AIT-411 default panel contract.
-      if (outBody) {
-        if (outBody.scrollHeight > outBody.clientHeight) outBody.tabIndex = 0;
-        else outBody.removeAttribute('tabindex');
-      }
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
       const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
@@ -408,6 +403,14 @@ export class PhoneComposerViewport {
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
       workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && touch && editing && this.fullHeight - height >= 150));
+      this.composerSize.fit();
+      const outBody = root.querySelector('.composer-out__body');
+      // Only clipped copy needs its own keyboard scroll target. Fitting copy
+      // keeps the original DOM, including the AIT-411 default panel contract.
+      if (outBody) {
+        if (outBody.scrollHeight > outBody.clientHeight) outBody.tabIndex = 0;
+        else outBody.removeAttribute('tabindex');
+      }
       const values = {
         '--phone-height': height + (viewport?.offsetTop ?? 0),
         '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),

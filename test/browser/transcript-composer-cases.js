@@ -330,6 +330,13 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     const after = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
     positive(after, 'pointer row after growth'); assert.ok(Math.abs(after.top - target.box.top) <= .5, 'resting row remains still');
     assert.equal((await geometry(page)).jump, 'visible', 'Latest offers the newly occluded tail');
+    const latest = await shadow(page, c => {
+      const button = c.shadowRoot.querySelector('.transcript-latest'), box = button.getBoundingClientRect();
+      const hit = c.shadowRoot.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return { box: box.toJSON(), reachable: hit === button || button.contains(hit) };
+    });
+    positive(latest.box, 'visible Latest action'); assert.equal(latest.box.height, 44, 'Latest retains a real 44px target');
+    assert.equal(latest.reachable, true, 'the floating Latest action is reachable');
     const beforeNotice = await geometry(page);
     await shadow(page, c => { c.shadowRoot.querySelector('.voice-notice--recovered').textContent = 'Connection recovered.'; });
     await settleHeld(page); const afterNotice = await geometry(page); stable(beforeNotice, afterNotice, 'async notice');

@@ -1444,7 +1444,9 @@ pane, counted once. Combined desktop layout retains the band layout’s fixed
 footer clearance; short desktop feedback shares the reserved disclosure row.
 The sizing owner publishes two measured CSS outputs on the workspace:
 `--aithema-composer-height` (effective composer height) and
-`--aithema-composer-growth` (growth above the current minimum composer height).
+`--aithema-composer-growth` (growth above the empty composer baseline for the
+current layout). Visitor-added composer content contributes to this growth;
+viewport, keyboard and entrance/live layout changes reset the empty baseline.
 These are measurements, not host configuration. Existing host height and palette
 overrides continue to apply. Phone clearance uses the measured dock subtraction; a trailing conversation
 margin reserves only visitor growth to keep the stacked overview frame fixed.

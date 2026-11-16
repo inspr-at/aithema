@@ -21,7 +21,10 @@
   combined reading pane. Combined desktop retains the fixed-footer clearance;
   short desktop feedback shares the reserved disclosure row.
 - Additive measured CSS outputs on the workspace:
-  `--aithema-composer-height` and `--aithema-composer-growth`. Hosts keep their
+  `--aithema-composer-height` and `--aithema-composer-growth`. Added visitor content
+  counts as growth; responsive viewport/keyboard/stage modes reset the empty
+  baseline. Effective form changes re-pin following readers even if the field
+  stays the same size. Hosts keep their
   existing height/theme/copy overrides. No new options, copy keys, events or
   package exports. Phone dock subtraction, card margin, notice end reservation
   and pointer slack remain distinct padding/clearance owners. A trailing phone
