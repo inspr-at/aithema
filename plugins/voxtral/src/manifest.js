@@ -24,7 +24,7 @@ export const manifest = deepFreeze({ id: 'voxtral-voice', version: '0.0.0', apiV
   vendor: componentManifest.vendor, presentation: componentManifest.presentation,
   liveVoice: { reasoning: 'delegated', transcript: { finality: 'turns', persistence: 'durable' },
     ownership: { stt: 'server', tts: 'server', turnTaking: 'server' },
-    capabilities: { sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'native',
+    capabilities: { opener: false, sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'native',
       pause: 'emulated', resume: 'emulated', interrupt: 'native', heard: 'unavailable' },
     billing: { visitor: 'Components require separate admission; money is estimated.',
       upstream: 'STT, reasoning and TTS require separate child claims; no aggregate upstream charge.' } },

@@ -262,7 +262,7 @@ test('AIT-138 fix 3: exhaustion reports are owner authenticated, validated, and 
   assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'ended', 'exhaustion cannot undo explicit hang-up');
 });
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, providerCeiling = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost, purposePolicy, log } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, providerCeiling = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost, purposePolicy, log, configuredOpener } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -316,7 +316,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
   } };
   const host = createHost?.({ storage, now });
-  let handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, purposePolicy, log, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
+  let handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, purposePolicy, log, opener: configuredOpener, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
@@ -3779,7 +3779,7 @@ test('AIT-508: a fresh call waits for the prior session call to reconcile despit
   const next = await h.start('settled-next'); assert.notEqual(next.callId, first.callId);
 });
 
-test('AIT-508: a fresh bounded call after an empty ended call uses continuation presentation', async t => {
+test('AIT-508: a fresh bounded call after an audible ended call uses continuation presentation', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const phrases = { de: { opening: 'Hallo, hier ist eine KI-Assistenz.', continuation: 'Ihre KI-Assistenz setzt das Gespräch fort.' },
     en: { opening: 'Hello, this is an AI assistant.', continuation: 'Your AI assistant is ready to continue.' } };
@@ -3791,8 +3791,11 @@ test('AIT-508: a fresh bounded call after an empty ended call uses continuation 
   });
   t.mock.method(Date, 'now', h.now);
   const first = await h.start(); assert.equal(first.conversationLimit, 'credits');
+  await h.route(`/voice/${first.callId}/events`, { providerSessionId: first.providerSessionId, event: {
+    callId: first.callId, turnId: `${first.providerSessionId}:assistant:0`, type: 'final', role: 'assistant',
+    text: first.overrides.agent.firstMessage } });
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'idle' }); await h.handlers.idle();
-  assert.equal(h.storage.get(h.session.id).transcript.length, 0);
+  assert.equal(h.storage.get(h.session.id).transcript.length, 1);
   const next = await h.start('next-empty-call');
   assert.notEqual(first.callId, next.callId); assert.equal(presentations[0].hasPriorTurns, false);
   assert.equal(presentations.at(-1).hasPriorTurns, true); assert.equal(presentations.at(-1).hasPriorCalls, true);
@@ -3859,4 +3862,38 @@ for (const action of ['resume', 'takeover', 'replay']) test(`AIT-508 B5: current
   const credentials = h.provisioned.length;
   assert.equal((await h.route('/voice', { callId: 'different-call', tabId: 'second-tab' })).status, 409);
   assert.equal(h.provisioned.length, credentials, 'snapshot permission cannot mint a fresh logical call');
+});
+
+test('AIT-537: dispatched failure before connect retains credits guard until settlement, then retries first contact', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const opener = { en: 'Your AI assistant is ready.', de: 'Ihre KI-Assistenz ist bereit.' };
+  const h = voiceFixture(t, { slowClosure: true, configuredOpener: opener, durationBinding: { usdPerCredit: 0.000001 },
+    host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
+  t.mock.method(Date, 'now', h.now);
+  const originalStart = h.plugin.start;
+  let first;
+  h.plugin.start = async (...args) => {
+    const call = await originalStart(...args);
+    if (!first) {
+      first = call;
+      const current = h.storage.get(h.session.id);
+      h.storage.changeSettings(h.session.id, { processingPreset: current.processingPreset, settings: current.settings },
+        { ownerToken: 'voice-owner', baseRevision: current.settings.revision, confirm: true });
+    }
+    return call;
+  };
+  assert.equal((await h.route('/voice', { callId: 'failed-before-connect' })).status, 403);
+  await h.waitForClosure(first.providerSessionId);
+  assert.deepEqual(h.storage.get(h.session.id).transcript, []);
+  const attempts = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").all();
+  assert.equal(attempts.length, 1); assert.equal(attempts[0].state, 'dispatched');
+  const denied = await h.route('/voice', { callId: 'still-pending' });
+  assert.equal(denied.status, 403); assert.equal((await denied.json()).reason, 'budget reconciling');
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 1);
+  h.endClient(first.providerSessionId); await h.handlers.idle();
+  assert.equal(h.runtime.budget.get(attempts[0].attempt_id).state, 'settled');
+  const next = await h.start('settled-retry');
+  assert.equal(next.presentation, 'opening');
+  assert.equal(next.overrides.agent.firstMessage, opener[h.storage.get(h.session.id).locale]);
+  assert.deepEqual(h.storage.get(h.session.id).transcript.map(t => t.id), ['host:opener']);
 });

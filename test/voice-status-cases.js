@@ -20,12 +20,12 @@ export function voiceStatusCases(copy) {
   ];
 }
 
-// Tick’s binding AIT-302 round-3 table approval (2026-10-18), DE / EN.
+// Tick’s AIT-302 table, with LEAD’s AIT-540 M2 and b4 authorization rulings, DE / EN.
 const approvedNarrowForms = {
   'closing': ['Wird beendet …', 'Ending …'],
   'creditEnding': ['Wird beendet …', 'Ending …'],
-  'consent-withdrawn': ['Freigabe widerrufen', 'Consent withdrawn'],
-  'consent-revised': ['Freigabe geändert', 'Consent changed'],
+  'consent-withdrawn': ['Einwilligung entzogen', 'Consent withdrawn'],
+  'consent-revised': ['Einwilligung geändert', 'Consent changed'],
   'session-revoked': ['Freigabe widerrufen', 'Permission withdrawn'],
   'call-authorization-lost': ['Freigabe abgelaufen', 'Permission expired'],
   'spend cap reached': ['Anbieterlimit erreicht', 'Provider limit reached'],

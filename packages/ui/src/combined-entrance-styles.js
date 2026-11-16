@@ -1,6 +1,9 @@
-// The opt-in entrance and live call share one bottom-anchored composer.
+// The opt-in entrance and live call share a top-anchored control frame.
+// Its intrinsic notice follows the controls; disclosures cannot resize the frame.
 export const combinedEntranceStyles = `
-.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:1rem; }
+/* The fixed footer is outside grid flow. Reserve its full 44px row, padding
+   and border inside the host height so the notice can grow above it. */
+.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:calc(57px + env(safe-area-inset-bottom,0px) + 1rem); }
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; gap:8px; }
 /* The whole entrance/transcript surface scrolls above the reserved input row. */
 .workspace[data-entrance="combined"] .conversation-scroll { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:auto; scrollbar-gutter:stable; gap:.85rem; }
@@ -31,19 +34,41 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-dock { display:block; flex:none; }
 .workspace[data-entrance="combined"] .composer-shell { display:grid; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;
-  grid-template-areas:"notice notice notice" "message mic send" "feedback feedback feedback" "status status status"; gap:8px; }
+  grid-template-areas:"message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; gap:8px; }
 .workspace[data-entrance="combined"] textarea { grid-area:message; height:4.5rem; min-height:4.5rem; padding:.25rem 0; }
 .workspace[data-entrance="combined"] .composer-actions { display:contents; }
 .workspace[data-entrance="combined"] .attach { display:none; }
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:center; }
-.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; height:44px; font-size:.72rem; }
+.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
-.composer-notice { grid-area:notice; height:8.7em; overflow:auto; margin:0; color:var(--aithema-muted); font-size:.75rem; line-height:1.45; }
+.composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
+.composer-notice-reserve { display:grid; visibility:hidden; pointer-events:none; font-size:.75rem; line-height:1.45; }
+.composer-notice-reserve > * { grid-area:1/1; }
+.composer-notice { position:absolute; top:0; left:0; right:0; height:auto; max-height:8.7em; margin:0; color:var(--aithema-muted); font-size:.75rem; line-height:1.45; }
 .composer-mic { grid-area:mic; align-self:center; display:grid; place-items:center; width:44px; height:44px; padding:0; border:1px solid var(--aithema-line); border-radius:50%; color:var(--aithema-accent); background:var(--aithema-surface); }
 .composer-mic svg { width:20px; height:20px; }
 .composer-mic[aria-pressed="true"] { background:color-mix(in srgb,var(--aithema-accent) 12%,var(--aithema-surface)); }
-.composer-status { grid-area:status; align-self:center; min-width:0; height:2.6em; overflow:auto; color:var(--aithema-muted); font-size:.72rem; line-height:1.3; }
+.composer-status { align-self:stretch; min-width:0; color:var(--aithema-muted); font-size:.72rem; line-height:1.3; }
+.composer-status-slot, .composer-status-reserve, .composer-feedback-reserve { display:grid; min-width:0; }
+.composer-status-slot { grid-area:status; }
+.composer-status-slot > *, .composer-status-reserve > *, .composer-feedback-reserve > * { grid-area:1/1; }
+.composer-status-reserve, .composer-feedback-reserve { visibility:hidden; pointer-events:none; }
+.composer-status-reserve { font-size:.72rem; line-height:1.3; }
+.composer-feedback-reserve { align-items:center; }
+.composer-reserve-line { font-size:inherit; line-height:1.3; overflow-wrap:anywhere; }
+.composer-reserve-line kbd { font:inherit; padding:0 .2em; border:1px solid var(--aithema-line-strong); border-radius:3px; }
+.composer-reserve-line .question-status { height:auto; white-space:nowrap; }
+.composer-reserve-line .question-status svg { width:14px; height:14px; }
+.composer-reserve-action { white-space:nowrap; }
+.composer-reserve-phone { display:none; }
+.composer-notice__phone { display:none; }
+.composer-notice__more { display:inline; min-height:44px; padding:0 4px; text-decoration:underline; color:var(--aithema-accent); }
+.composer-notice-dialog { width:min(36rem,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; color:var(--aithema-ink); background:var(--aithema-surface); border:1px solid var(--aithema-line); border-radius:16px; }
+.composer-notice-dialog h2 { margin:0 44px 16px 0; font-size:1rem; }
+.composer-notice-dialog p { font-size:.875rem; line-height:1.5; }
+.composer-notice-dialog button { position:absolute; top:8px; right:8px; width:44px; height:44px; }
+.composer-notice-dialog svg { width:20px; height:20px; }
 @media(min-width:60rem) {
   /* Reserve the conversation width before the overview reveals. */
   .workspace[data-entrance="combined"][data-understanding="absent"] { grid-template-columns:minmax(0,1.55fr) minmax(22rem,.88fr); column-gap:clamp(1rem,2.5vw,2rem); }
@@ -53,12 +78,16 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }
   .workspace[data-entrance="combined"] [data-host-opener] > strong { margin-bottom:0; }
-  /* Short phones share one reserved feedback/status row. Each has its own
-     column; the complete notice and long status remain internally scrollable. */
-  .workspace[data-entrance="combined"][data-phone-short] .composer-notice { height:5em; }
+  /* A new offer can use the full conversation reading area. The rail above
+     it stays in the same scroller and can scroll away; the input stays pinned. */
+  .workspace[data-entrance="combined"] .conversation-scroll:has(.email-offer) .concept-thread { flex:0 0 100%; }
+  .composer-notice { position:static; max-height:none; }
+  .composer-notice-reserve { display:none; }
+  .composer-notice__wide, .composer-reserve-wide { display:none; }
+  .composer-reserve-phone { display:block; }
+  .composer-notice__phone { display:inline; }
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
-    grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
-  .workspace[data-entrance="combined"][data-phone-short] .composer-status { height:44px; }
+    grid-template-areas:"message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:2px; }
