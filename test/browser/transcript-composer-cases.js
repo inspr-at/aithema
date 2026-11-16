@@ -59,11 +59,11 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   await shadow(page, c => { globalThis.composerSeed = structuredClone(c.session); });
   const records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR; let fittingChecks = 0;
   if (evidence) await mkdir(evidence, { recursive: true });
-  const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false, usedUp = false } = {}) => {
+  const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false, usedUp = false, entrance = 'choice' } = {}) => {
     await page.mouse.move(0, 0); await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await shadow(page, async (c, options) => {
-      const { locale, theme, voice, card, turns, visuals, usedUp } = options;
+      const { locale, theme, voice, card, turns, visuals, usedUp, entrance } = options;
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
       const { inputRevision } = await import('/packages/core/src/session.js');
@@ -89,7 +89,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         if (path.endsWith(`/sessions/${s.id}`)) return Response.json(c.session);
         return Response.json({});
       };
-      c.configure({ copy, session: s, ...(voice ? { voiceClient: { manifest, async start() { throw new Error('No voice calls in layout fixtures'); } } } : {}) });
+      c.configure({ entrance, copy, session: s, ...(voice ? { voiceClient: { manifest, async start() { throw new Error('No voice calls in layout fixtures'); } } } : {}) });
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       document.querySelector('#locale').value = locale; paintUtilities(copy);
@@ -97,7 +97,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
         options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    }, { locale, theme, voice, card, turns, visuals, usedUp });
+    }, { locale, theme, voice, card, turns, visuals, usedUp, entrance });
     await settleEvidenceFrame(page);
   };
   const capture = async label => {
@@ -171,6 +171,35 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     assert.ok(gap >= -.5 && gap <= 24.5, `reply/card clearance stays between 0 and 24px: ${gap}`);
     records.push({ label: `card-${voice}`, before, after });
   });
+  for (const [width, height] of [[1440, 900], [1024, 640], [390, 844], [390, 620], [390, 568]]) {
+    await t.test(`combined entrance grows upward without overlap ${width}x${height}`, async () => {
+      for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+        await reset(width, height, locale, theme, { entrance: 'combined' });
+        const measure = () => shadow(page, c => {
+          const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
+          return { boxes: Object.fromEntries(['.band', '.understanding', '.understanding > .foot', '.send', '.composer-mic', 'textarea', '.composer-notice', '.composer', '.transcript-shell'].map(selector => [selector, box(selector)])),
+            hiddenAttach: getComputedStyle(r.querySelector('.attach')).display === 'none' };
+        });
+        const before = await measure();
+        assert.equal(before.hiddenAttach, true, 'combined entrance keeps Attach hidden');
+        await draft(page, 12); await settleEvidenceFrame(page);
+        const after = await measure();
+        for (const state of [before, after]) for (const [selector, box] of Object.entries(state.boxes)) positive(box, `combined ${selector}`);
+        assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'combined field grows with a multiline draft');
+        for (const selector of ['.band', '.understanding', '.understanding > .foot', '.send', '.composer-mic']) {
+          for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(before.boxes[selector][key] - after.boxes[selector][key]) <= .5,
+            `combined ${width}x${height}/${selector}/${key}: ${before.boxes[selector][key]} -> ${after.boxes[selector][key]}`);
+        }
+        assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, 'combined composer bottom stays pinned');
+        assert.ok(after.boxes['.transcript-shell'].bottom <= after.boxes['.composer'].top + .5, 'combined transcript clears composer');
+        for (const selector of ['.send', '.composer-mic']) assert.ok(after.boxes.textarea.right <= after.boxes[selector].left + .5, 'combined field clears actions');
+        const label = `ait-513-combined-${locale}-${theme}-${width}x${height}`;
+        await capture(label); records.push({ label: `${label}-frame`, before, after });
+        await draft(page, 30); await settleEvidenceFrame(page);
+        assert.ok((await geometry(page)).inputScroll > (await geometry(page)).inputClient, 'combined capped field scrolls internally');
+      }
+    });
+  }
   await t.test('short phone keyboard grows at most three lines with stable Send', async () => {
     await reset(390, 844, 'de', 'dark', { card: true });
     await page.evaluate(() => {
