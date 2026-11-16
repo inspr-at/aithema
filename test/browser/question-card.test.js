@@ -809,7 +809,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
         return { folded: r.querySelector('.workspace').hasAttribute('data-folded'), canvas: r.querySelector('.drafts-canvas').checkVisibility(),
           blocked: r.querySelector('.concept-request').disabled && r.querySelector('.concept-request').hidden,
           text: text.textContent, action: text.querySelector('button')?.textContent, promise: globalThis.noDraftsCopy.layout.canvasEmpty,
-          expectedAction: c.session.conceptCost ? globalThis.noDraftsCopy.featureConsent.action : globalThis.noDraftsCopy.display.draftsRetry };
+          expectedAction: c.session.conceptCost ? globalThis.noDraftsCopy.conceptConsentAction : globalThis.noDraftsCopy.display.draftsRetry };
       });
       assert.equal(stateCheck.folded, true, `${label}/${state}: transient refusal keeps fold`);
       assert.equal(stateCheck.canvas, true); assert.equal(stateCheck.blocked, true);
