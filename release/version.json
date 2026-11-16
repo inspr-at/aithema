@@ -2,7 +2,7 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261116004750.0.0",
+  "version": "261116143738.0.0",
   "release_channel": "stable",
   "release_sequence": 36,
   "migration": {
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-539 twenty-fifth candidate preparation; UTC reservation 2026-11-16T00:47:50Z; base ab0444a8dc7e642dd3811725050e60efe29e2502; seventeenth release on the active AIT-363 fixed-candidate route; Markus's standing release go, Desk 4d867165-4eb5-4b69-8980-88d43a7ec64b, 2026-10-19; MAC-LEAD priority order 2026-11-15 09:52: AIT-505, AIT-506, AIT-507, AIT-508 and AIT-524; brief approved 2026-11-15 20:4x with planned limitation wording, and both host-doc corrections added 2026-11-16 01:4x; sequence 36 under coordinator-held release-lock/seq-36; final committed head C is fixed while main keeps moving; coordinator gates, green CI, true merge, candidate marker, MAC-OPS cut and verification precede publication; no builder reviewer model, push, PR, tag, tag push, GitHub release or publication"
+  "reservation_purpose": "AIT-539 RC25 re-preparation after AIT-540 M1\u2013M6; UTC reservation 2026-11-16T14:37:38Z; base eff9c36ba16845a4c2f001735381efa8b3547715 (#452); sequence 36 under unchanged release-lock/seq-36 at ab0444a8dc7e642dd3811725050e60efe29e2502; LEAD approved re-cut 2026-11-16 09:3x under the approved RC25 brief and fix-before-publish ruling; seventeenth release on the AIT-363 fixed-candidate route; coordinator owns gates, push, PR, green CI, merge and candidate marker; MAC-OPS owns cut; preparation only, no builder publication"
 }
