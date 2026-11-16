@@ -189,6 +189,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     await shadow(page, c => { c.shadowRoot.querySelector('.signals-toggle').focus({ preventScroll: true }); c.shadowRoot.querySelector('.signals-toggle').click(); });
     await settle(page); stable(baseline, await frame(), `${name}-expand`);
     const expandedToggle = await toggleGeometry();
+    if (evidence) await writeFile(join(evidence, 'signals-toggle-current.json'), JSON.stringify({ name, collapsedToggle, expandedToggle }, null, 2));
     for (const [state, geometry] of [['collapsed', collapsedToggle], ['expanded', expandedToggle]]) {
       assert.ok(geometry.box.width > 0 && geometry.box.height > 0, `${name} ${state} toggle positive box`);
       assert.ok(geometry.questions.width > 0 && geometry.questions.height > 0, `${name} ${state} questions heading positive box`);
