@@ -1104,10 +1104,10 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
 test('AIT-514 height-aware clamp respects the pane budget and keeps controls stable', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-summary-height-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
-  const browser = await browserForFile(), page = await browser.newPage(), rows = [], guards = [];
+  const browser = await browserForFile(), page = await browser.newPage(), rows = [], guards = [], reachability = [];
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
-  t.after(async () => { if (evidence) await writeFile(join(evidence, 'ait-514-height-budget.json'), JSON.stringify({ head: evidenceCommit, rows, guards }, null, 2)); });
+  t.after(async () => { if (evidence) await writeFile(join(evidence, 'ait-514-height-budget.json'), JSON.stringify({ head: evidenceCommit, rows, guards, reachability }, null, 2)); });
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.evaluateOnNewDocument(() => {
@@ -1218,7 +1218,59 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
       const rects = await frames(), get = selector => rects.find(box => box.selector === selector);
       const separate = (a, b) => a.right <= b.left + .5 || b.right <= a.left + .5 || a.bottom <= b.top + .5 || b.bottom <= a.top + .5;
       assert.ok(separate(get('.composer-mic'), get('.send')), `${label}: microphone and Send do not overlap`);
-      assert.ok(separate(get('.understanding'), get('.composer')), `${label}: overview and composer do not overlap`);
+      // AIT-514 r3: the combined phone reading surface extends behind the
+      // anchored composer. Check its real controls through native scrolling.
+      await shadow(page, (c, locale) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated',
+        data: { ...c.session.understanding, openQuestions: [locale === 'de' ? 'Wer gibt die Buchung frei?' : 'Who approves the booking?'] } }), locale);
+      for (const state of ['fit', 'collapsed', 'expanded']) {
+        await page.mouse.move(-10, -10);
+        await update(state === 'fit' ? (locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.')
+          : Array(30).fill(locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.').join('\n'));
+        if (state === 'expanded') await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
+        await settle();
+        const controls = await shadow(page, c => {
+          const root = c.shadowRoot, workspace = root.querySelector('.workspace');
+          const selectors = 'button,a[href],input,textarea,select,[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+          window.summaryPhoneControls = [...root.querySelectorAll(`.analysis-content :is(${selectors})`)].filter(n => {
+            const r = n.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && !n.closest('[hidden],[inert]') && !n.disabled;
+          });
+          return { count: window.summaryPhoneControls.length,
+            summary: window.summaryPhoneControls.some(n => n.matches('.summary-toggle')),
+            action: window.summaryPhoneControls.some(n => n.closest('.open-question')),
+            inset: parseFloat(getComputedStyle(workspace).paddingBottom),
+            workspace: workspace.getBoundingClientRect().toJSON(),
+            composer: root.querySelector('.composer').getBoundingClientRect().toJSON() };
+        });
+        assert.ok(controls.workspace.width > 0 && controls.workspace.height > 0 && controls.composer.width > 0 && controls.composer.height > 0, `${label}/${state}: positive scroll surface and composer`);
+        assert.ok(controls.inset >= controls.composer.height, `${label}/${state}: page scroll surface bottom inset clears the composer: ${JSON.stringify(controls)}`);
+        assert.equal(controls.summary, state !== 'fit', `${label}/${state}: expected summary control`);
+        if (state !== 'fit') assert.equal((await measure()).expanded, String(state === 'expanded'), `${label}/${state}: expected summary state`);
+        assert.equal(controls.action, true, `${label}/${state}: action word is included`);
+        assert.ok(controls.count > 0, `${label}/${state}: overview has interactive controls`);
+        for (let index = 0; index < controls.count; index++) {
+          await shadow(page, (c, index) => window.summaryPhoneControls[index].scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }), index);
+          await settle();
+          const reached = await shadow(page, (c, index) => {
+            const root = c.shadowRoot, n = window.summaryPhoneControls[index], r = n.getBoundingClientRect();
+            const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+            return { control: r.toJSON(), name: n.textContent.trim(), className: n.className,
+              pane: root.querySelector('.analysis-content').getBoundingClientRect().toJSON(),
+              composer: root.querySelector('.composer').getBoundingClientRect().toJSON(),
+              band: root.querySelector('.band').getBoundingClientRect().toJSON(),
+              hit: hit?.tagName, hitControl: hit === n || n.contains(hit),
+              pageScroll: window.scrollY, paneScroll: root.querySelector('.analysis-content').scrollTop };
+          }, index);
+          reachability.push({ label, state, index, inset: controls.inset, ...reached });
+          for (const name of ['control', 'pane', 'composer', 'band']) assert.ok(reached[name].width > 0 && reached[name].height > 0, `${label}/${state}/${index}: positive ${name}`);
+          assert.ok(reached.control.top >= Math.max(0, reached.band.bottom, reached.pane.top) && reached.control.bottom <= Math.min(reached.composer.top, reached.pane.bottom), `${label}/${state}/${index}: entire control reachable above composer: ${JSON.stringify(reached)}`);
+          assert.equal(reached.hitControl, true, `${label}/${state}/${index}: centre hit resolves to the control itself: ${JSON.stringify(reached)}`);
+          if (evidence) await page.screenshot({ path: join(evidence, `ait-514-combined-${locale}-${theme}-390x${height}-${state}-control-${index}.png`) });
+        }
+        if (evidence) await page.screenshot({ path: join(evidence, `ait-514-combined-${locale}-${theme}-390x${height}-${state}.png`), fullPage: true });
+        if (state === 'expanded') { await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle(); }
+      }
+      await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; window.scrollTo(0, 0); }); await settle();
     }
   }
   for (const row of rows) {
