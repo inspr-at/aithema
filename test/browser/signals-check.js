@@ -22,6 +22,28 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
   page.on('pageerror', e => errors.push(e.message));
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(join(evidence, 'shots'), { recursive: true });
+  const capture = async (name, { held = false } = {}) => {
+    if (!evidence || page.viewport().width === 1024) return;
+    await page.screenshot({ path: join(evidence, 'shots', `${name}.png`) });
+    if (held || page.viewport().width > 600) return;
+    // The primary view keeps the held row and basis visible. A second phone
+    // view records the toggle above the dock, including on short phones.
+    await shadow(page, c => {
+      const root = c.shadowRoot;
+      window.signalCaptureOrigins = [document.scrollingElement, ...root.querySelectorAll('*')]
+        .filter(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth)
+        .map(n => [n, n.scrollTop, n.scrollLeft]);
+      const toggle = root.querySelector('.signals-toggle');
+      toggle.scrollIntoView({ block: 'center', behavior: 'instant' });
+      const box = toggle.getBoundingClientRect(), dock = root.querySelector('.composer-shell').getBoundingClientRect();
+      if (box.bottom > dock.top - 12) window.scrollBy({ top: box.bottom - dock.top + 12, behavior: 'instant' });
+    });
+    try { await settle(page); await page.screenshot({ path: join(evidence, 'shots', `${name}-toggle.png`) }); }
+    finally {
+      await page.evaluate(() => { for (const [n, top, left] of window.signalCaptureOrigins) n.scrollTo({ top, left, behavior: 'instant' }); delete window.signalCaptureOrigins; });
+      await settle(page);
+    }
+  };
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
@@ -154,12 +176,12 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 5);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-basis').length), 1);
     const baseline = await frame();
-    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-collapsed.png`) });
+    await capture(`${name}-collapsed`);
     await shadow(page, c => { c.shadowRoot.querySelector('.signals-toggle').focus({ preventScroll: true }); c.shadowRoot.querySelector('.signals-toggle').click(); });
     await settle(page); stable(baseline, await frame(), `${name}-expand`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 7);
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.signals-toggle')), true);
-    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-expanded.png`) });
+    await capture(`${name}-expanded`);
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); c.shadowRoot.querySelector('.signals-toggle').click(); });
     await settle(page);
     const row = await shadow(page, c => { const r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
@@ -173,14 +195,14 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.ok(deferred.r.width > 0 && deferred.r.height > 0);
     assert.ok(Math.abs(deferred.r.y - row.y) <= .5);
     for (const key of ['x', 'width', 'height']) assert.ok(Math.abs(deferred.r[key] - row[key]) <= .5, `${name} pointer row/${key} shifted`);
-    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-deferred.png`) });
+    await capture(`${name}-deferred`, { held: true });
     await page.mouse.move(-1, -1); await settle(page);
     stable(before, await frame(), `${name}-apply`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signal-text').textContent), newest);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signals-toggle').textContent), locale === 'de' ? 'Alle anzeigen (8)' : 'Show all (8)');
     const mark = await shadow(page, c => { const n = c.shadowRoot.querySelector('[data-signal-new]'); return n && { animation: getComputedStyle(n).animationName, background: getComputedStyle(n).backgroundColor }; });
     assert.ok(mark); assert.equal(mark.animation, 'none', 'reduced motion uses a static mark');
-    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `${name}-new-static.png`) });
+    await capture(`${name}-new-static`);
     await page.evaluate(() => window.signalTick(1999));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('[data-signal-new]').length), 1);
     await page.evaluate(() => window.signalTick(1));
