@@ -791,6 +791,10 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
       // rather than mutating the live client's feature matrix before the GET.
       const session = structuredClone(c.session);
       session.featureMatrix.best.html = reason ? { available: false, reason } : { available: true };
+      // D509a keeps idle hosts silent; this recovery scene has a validated wish.
+      session.conceptStatus = reason === 'current processing consent required'
+        ? { phase: 'waiting', consentRequest: { id: `fold-consent-${session.seq}`, sourceTurnId: 'source' } } : { phase: 'idle' };
+      c.session.conceptStatus = structuredClone(session.conceptStatus);
       session.conceptCost = cost; session.seq = c.session.seq + 1; session.paused = false;
       globalThis.noDraftsSnapshot = session;
       const refreshed = new Promise(resolve => c.addEventListener('aithema-features', resolve, { once: true }));
