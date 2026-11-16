@@ -850,3 +850,42 @@ test('AIT-507 integration: persisted opener alone exposes no email action or loc
   }
   if (evidence) await writeFile(join(evidence, 'ait-507-m1-opener-rects.json'), JSON.stringify(rects, null, 2));
 });
+
+for (const finding of ['M3', 'M4', 'M6']) test(`AIT-540 ${finding}: one readable in-chat offer from page scroll zero`, { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-rc25-offer-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE:'off', AITHEMA_IMAGE_MODE:'off', AITHEMA_HTML_MODE:'off' });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  await page.evaluateOnNewDocument(() => { const OriginalDate=Date; window.Date=class extends OriginalDate { constructor(...args){super(...(args.length?args:[100_000]));} static now(){return 100_000;} }; });
+  await page.goto(demo.url, {waitUntil:'domcontentloaded'}); await until(page,()=>document.querySelector('aithema-session')?.session);
+  for (const locale of ['en','de']) for (const theme of ['light','dark']) for (const width of [390,1024,1440]) await t.test(`${locale}/${theme}/${width}`,async()=>{
+    await page.setViewport({width,height:width===390?844:1000});
+    await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'reduce'}]);
+    await fixture(page,locale,{opener:true,delivery:true,emailOffer:{afterMessages:2},initialMessages:1,lock:true,voice:finding==='M6'});
+    await shadow(page,(c,theme)=>c.setAttribute('theme',theme),theme);
+    await page.evaluate(()=>window.scrollTo(0,0)); await settle(page);
+    await shadow(page,c=>c.shadowRoot.querySelector('textarea').focus({preventScroll:true}));
+    const before=await shadow(page,c=>({focus:c.shadowRoot.activeElement?.id,scroll:scrollY}));
+    await page.evaluate(()=>window.ait164.reply()); await until(page,()=>document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
+    const view=await shadow(page,c=>{
+      const r=c.shadowRoot, offer=r.querySelector('.email-offer'), lock=r.querySelector('.verify-lock');
+      const rect=n=>n.getBoundingClientRect().toJSON();
+      return {offer:rect(offer),pane:rect(r.querySelector('.transcript-shell')),field:rect(offer.querySelector('input')),button:rect(offer.querySelector('.email-offer__send')),
+        row:rect(offer.querySelector('.email-offer__row')),lead:rect(offer.querySelector('.email-offer__lead')),
+        focus:r.activeElement?.id,scroll:scrollY,lockHidden:lock.hidden,lockTitle:lock.querySelector('h3').textContent,lockLead:lock.querySelector('.verify-lock__lead').textContent,
+        lockFormVisible:!![...lock.querySelectorAll('form')].find(n=>n.getBoundingClientRect().height>0),closeSvg:!!offer.querySelector('.email-offer__dismiss svg')};
+    });
+    for(const name of ['offer','pane','field','button','row','lead']) assert.ok(view[name].width>0&&view[name].height>0,`${name}: positive box`);
+    if(finding==='M3') {
+      assert.equal(view.lockHidden,false,'overview keeps title and lead'); assert.ok(view.lockTitle&&view.lockLead);
+      assert.equal(view.lockFormVisible,false,'AIT-540 M3: visible offer owns the only email form');
+    } else if(finding==='M4') {
+      assert.equal(view.closeSvg,true,'AIT-540 M4: dismiss uses the shared SVG icon');
+      if(width<=520){assert.ok(Math.abs(view.field.width-view.row.width)<=.5,'full-width phone field');assert.ok(Math.abs(view.button.width-view.row.width)<=.5,'full-width phone button');assert.ok(view.button.top>=view.field.bottom,'phone button below field');}
+      assert.ok(view.button.height>=44,'actual 44px button');
+    } else {
+      assert.equal(view.scroll,before.scroll,'offer never scrolls the page');assert.equal(view.focus,before.focus,'offer never takes focus');
+      if(width===390) assert.ok(view.offer.top>=view.pane.top-.5&&view.offer.bottom<=view.pane.bottom+.5,`AIT-540 M6: complete during-call offer fits: ${JSON.stringify(view)}`);
+    }
+  });
+});

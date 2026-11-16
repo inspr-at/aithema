@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
 import { startChild } from '../helpers.js';
-const fixture = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0}aithema-session{--aithema-height:900px}</style></head><body><script type="module">
+export const fixture = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0}aithema-session{--aithema-height:900px}</style></head><body><script type="module">
 import '/packages/ui/src/session-element.js';
 import {createSession} from '/packages/core/src/session.js';
 import {voiceEvents} from '/packages/core/src/live-voice.js';

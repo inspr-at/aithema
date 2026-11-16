@@ -1012,6 +1012,10 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
     }, locale, theme, failure);
     await page.mouse.move(0, 0); await settle(page);
     const rest = await measure(); positive(rest.stable, context); positive(rest.visible, context);
+    // AIT-540 M5: the dot bisects the status-to-label gap, not its 9px column.
+    const gapCentre = (rest.visible.status.right + rest.visible.label.x) / 2;
+    const dotCentre = rest.visible.separator.x + rest.visible.separator.width / 2;
+    assert.ok(Math.abs(gapCentre - dotCentre) <= .5, `${context}: AIT-540 centred separator (${dotCentre} vs ${gapCentre})`);
     const expectedState = failure.startsWith('refused-') ? 'refused' : failure;
     assert.equal(rest.state, expectedState); assert.equal(rest.sameNode, true);
     // Start with the actual bug: native pointer hit testing on failure copy.
