@@ -28,3 +28,6 @@ test('AIT-309: legal hosts without credits respect every compact fit at 900/1024
 import { contactSlotCheck } from './contact-slot-check.js';
 test('AIT-517: pinned host contact, reachable launcher and first-paint reservation in EN/DE light/dark',
   { timeout: 180_000 }, contactSlotCheck);
+
+test('AIT-517: combined entrance contact geometry with host opener and short phones',
+  { timeout: 180_000 }, t => contactSlotCheck(t, { combined: true }));

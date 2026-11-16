@@ -6,7 +6,7 @@ import { startChild } from '../helpers.js';
 import { browserForFile } from './shared-browser.js';
 import { firstPaintMarkupFor } from '../../packages/ui/src/first-paint.js';
 
-export async function contactSlotCheck(t) {
+export async function contactSlotCheck(t, { combined = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-contact-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'sessions.sqlite'));
   const browser = await browserForFile();
@@ -81,9 +81,10 @@ export async function contactSlotCheck(t) {
     await page.screenshot({ path: join(evidence, 'shots', `${name}.png`), fullPage: false, captureBeyondViewport: false });
     await page.evaluate(([x, y]) => scrollTo(x, y), scroll); await settle();
   };
-  for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
-    const name = `${width}-${locale}-${theme}`;
-    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+  const sizes = combined ? [[390, 844], [1024, 1000], [1440, 1000], [390, 620], [390, 568]] : [[390, 844], [1024, 1000], [1440, 1000]];
+  for (const [width, height] of sizes) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    const name = `${width}-${locale}-${theme}${combined ? `-combined-${height}` : ''}`;
+    await page.setViewport({ width, height });
     await page.goto(`${demo.url}/contact-fixture`, { waitUntil: 'domcontentloaded' });
     await page.evaluate(({ markup, theme, locale }) => {
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
@@ -101,7 +102,7 @@ export async function contactSlotCheck(t) {
       const b = document.querySelector(s).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
     }));
     await capture(`${name}-first-paint`);
-    await page.evaluate(async locale => {
+    await page.evaluate(async ({ locale, combined }) => {
       await import('/packages/ui/src/session-element.js');
       const { createSession } = await import('/packages/core/src/session.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -111,14 +112,25 @@ export async function contactSlotCheck(t) {
         ? new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }))
         : Response.json(String(url).endsWith('/features') ? session.featureMatrix : session);
       const c = document.querySelector('aithema-session');
-      window.contactFixture = { c, copy };
-      c.configure({ copy, session, voiceClient: {}, host: { library: true } });
-    }, locale);
+      window.contactFixture = { c, copy, combined };
+      if (combined) session.opener = { text: locale === 'de' ? 'Willkommen. Ihre KI-Assistenz ist bereit.' : 'Welcome. Your AI assistant is ready.', locale };
+      c.configure({ copy, session, voiceClient: {}, host: { library: true }, ...(combined ? { entrance: 'combined' } : {}) });
+    }, { locale, combined });
     await settle();
     const mounted = await rects(['.band', '.audio-rail']);
     const firstPaintShift = stable(before, mounted, `${name}: first paint`);
     assert.equal(await visible('#contact-launch'), true, `${name}: reachable before input`);
     await capture(`${name}-launcher`);
+    if (combined) {
+      assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent', 'host opener is not visitor input');
+      assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelectorAll('[data-id="host:opener"]').length), 1);
+      const controls = await rects(['.contact-launcher', '.composer-mic', '.send', '.display-foot']); positive(controls, name);
+      for (const b of controls) assert.ok(b[0] >= -.5 && b[1] >= -.5 && b[0] + b[2] <= width + .5 && b[1] + b[3] <= height + .5, `${name}: controls fit viewport ${b}`);
+      for (let i = 0; i < controls.length; i++) for (let j = i + 1; j < controls.length; j++) {
+        const a = controls[i], b = controls[j];
+        assert.ok(Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0]) <= .5 || Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]) <= .5, `${name}: controls do not overlap`);
+      }
+    }
     // Real keyboard activation, native modal focus trap, and return to the host opener.
     await page.focus('#contact-launch');
     await page.keyboard.press('Enter');
@@ -130,7 +142,8 @@ export async function contactSlotCheck(t) {
     await page.keyboard.press('Tab');
     assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.activeElement?.classList.contains('settings-open')), true, 'Tab continues into Settings');
     await page.evaluate(() => {
-      const { c } = window.contactFixture;
+      const { c, combined } = window.contactFixture;
+      if (combined) c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'host:opener', role: 'assistant', origin: 'host', content: c.session.opener.text } });
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'contact-u1', role: 'user', content: document.documentElement.lang === 'de' ? 'Anforderungen' : 'Requirements' } });
       const root = c.shadowRoot;
       if (root.querySelector('.workspace').hasAttribute('data-reveal') && getComputedStyle(root.querySelector('.contact-launcher')).visibility !== 'visible') throw new Error('Contact must stay reachable during the sidebar reveal');
@@ -142,7 +155,7 @@ export async function contactSlotCheck(t) {
     await settle();
     assert.equal(await visible('#contact-open'), true, `${name}: mounted pinned host content`);
     assert.equal(await visible('#contact-launch'), width < 960, `${name}: launcher follows sidebar mode`);
-    const frames = ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.sidebar-contact', '.display-foot', '.composer-shell', '.attach', '.send'];
+    const frames = ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.sidebar-contact', '.display-foot', '.composer-shell', combined ? '.composer-mic' : '.attach', '.send'];
     const pinned = await rects(frames); positive(pinned, name);
     const beforeFocus = await sidebarScroll();
     await page.focus('#contact-open'); await page.keyboard.press('Enter');
@@ -193,13 +206,13 @@ export async function contactSlotCheck(t) {
     // A long host section is filled before reconfigure, so its bounded row is
     // reserved at mount rather than testing unsupported asynchronous growth.
     await page.evaluate(() => {
-      const { c, copy } = window.contactFixture;
+      const { c, copy, combined } = window.contactFixture;
       const card = document.createElement('section'); card.slot = 'sidebar-contact'; card.id = 'contact-card';
       const button = document.createElement('button'); button.id = 'contact-open'; button.textContent = document.getElementById('contact-launch').getAttribute('aria-label');
       button.onclick = () => document.getElementById('contact-overlay').showModal();
       const text = document.createElement('p'); text.textContent = (document.documentElement.lang === 'de' ? 'Kontaktinformationen. ' : 'Contact information. ').repeat(500);
       card.append(button, text); c.append(card);
-      c.configure({ copy, session: structuredClone(c.session), voiceClient: {}, host: { library: true } });
+      c.configure({ copy, session: structuredClone(c.session), voiceClient: {}, host: { library: true }, ...(combined ? { entrance: 'combined' } : {}) });
     });
     await settle();
     const long = await rects(['.sidebar-contact', '.understanding']); positive(long, `${name}: long contact`);
@@ -209,9 +222,10 @@ export async function contactSlotCheck(t) {
     stable(long, await rects(['.sidebar-contact', '.understanding']), `${name}: contact scroll`);
     await capture(`${name}-long`);
     checks.push({ name, frameSelectors: frames, before, mounted, pinned, scrolled, empty, long, shiftPx: Math.max(firstPaintShift, analysisShift, emailShift, foldShift) });
-    if (evidence) await writeFile(join(evidence, 'contact-rects.json'), JSON.stringify(checks, null, 2) + '\n');
+    if (evidence) await writeFile(join(evidence, combined ? 'contact-combined-rects.json' : 'contact-rects.json'), JSON.stringify(checks, null, 2) + '\n');
   }
-  assert.equal(checks.length, 12);
+  assert.equal(checks.length, combined ? 20 : 12);
+  if (combined) return;
   // Exercise the shipped demo host too: its own copy, CTA listener and dialog,
   // with the provider-blocked server and no processing or contact submission.
   const demoChecks = [];
