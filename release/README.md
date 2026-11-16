@@ -245,6 +245,131 @@ manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed
 No presentation files change. `release/evidence.json` remains historical;
 retained final-head evidence is authoritative for this preparation.
 
+**B3 same-host browser evidence (coordinator / LEAD ruling, 2026-11-16).**
+All 35 browser files completed on **mbp2606**, against preparation checkpoint
+`a1263b6603d7aba96e2d700955d5704c7ad28422`. Retain B2 batch 1; B3 reran the
+17 former agm2 files and ran operator login separately, using `AGM2=0 MBP2607=0`,
+`FETCH_TRIES=300`, `EVIDENCE_OUT`, and the durable fetch-retry wrapper after the
+05:50 Vienna quiet hold. Every admitted suite completed; none was cancelled.
+The earlier interrupted attempt and agm2 batch are superseded for this proof.
+
+Baseline: AIT-506 final `bc504f61eeaa1d262041739b7867852f9f56788b`, same
+**mbp2606** host, main run `bc504f61ee-69381` and isolated operator run
+`bc504f61ee-72395`. Matching granularity is **exact per-file passing/failing
+counts and top-level failing test names**, including missing or extra names;
+nested test names are not the granularity retained by the baseline. All 35 files
+match, totaling **1,196 passed / 14 failed / 1,210 tests**, with zero skipped,
+cancelled or todo. These are **known mbp2606-only failures under AIT-531**,
+accepted by this ruling as matching baseline failures, never described as passing.
+**GitHub CI on the release PR is the authoritative browser proof**: all twelve
+Ubuntu browser shards must be fully green, with no exceptions. That check is
+owned by the coordinator and is not claimed by this preparation.
+
+Counts below are passed / failed / total. Every file is under `test/browser/`;
+baseline counts come from AIT-506's final `m3-final-browser-counts.tsv`.
+
+| File | Host | Run id | Actual P/F/T | Baseline P/F/T |
+| --- | --- | --- | --- | --- |
+| `admin-pages.test.js` | mbp2606 | `a1263b6603-35698` | 2/0/2 | 2/0/2 |
+| `audio-replay.test.js` | mbp2606 | `a1263b6603-35698` | 193/0/193 | 193/0/193 |
+| `clarify-now.test.js` | mbp2606 | `a1263b6603-35698` | 17/0/17 | 17/0/17 |
+| `composed-media.test.js` | mbp2606 | `a1263b6603-35698` | 7/1/8 | 7/1/8 |
+| `composed-qualification.test.js` | mbp2606 | `a1263b6603-35698` | 15/0/15 | 15/0/15 |
+| `confirmation-design.test.js` | mbp2606 | `a1263b6603-35698` | 1/0/1 | 1/0/1 |
+| `consent-lines.test.js` | mbp2606 | `a1263b6603-35698` | 34/0/34 | 34/0/34 |
+| `credit-hold.test.js` | mbp2606 | `a1263b6603-35698` | 1/0/1 | 1/0/1 |
+| `demo.test.js` | mbp2606 | `a1263b6603-35698` | 10/0/10 | 10/0/10 |
+| `email-ask.test.js` | mbp2606 | `a1263b6603-35698` | 25/0/25 | 25/0/25 |
+| `email-mail-space.test.js` | mbp2606 | `a1263b6603-35698` | 379/0/379 | 379/0/379 |
+| `email-unlock-reply.test.js` | mbp2606 | `a1263b6603-35698` | 6/0/6 | 6/0/6 |
+| `external-plugin.test.js` | mbp2606 | `a1263b6603-35698` | 1/0/1 | 1/0/1 |
+| `footer-width-sweep.test.js` | mbp2606 | `a1263b6603-35698` | 4/0/4 | 4/0/4 |
+| `host-surface.test.js` | mbp2606 | `a1263b6603-35698` | 20/1/21 | 20/1/21 |
+| `html-preview.test.js` | mbp2606 | `a1263b6603-35698` | 84/2/86 | 84/2/86 |
+| `identity-unlock.test.js` | mbp2606 | `a1263b6603-35698` | 17/0/17 | 17/0/17 |
+| `lane-race-kit.test.js` | mbp2606 | `a1263b6603-61265` | 4/0/4 | 4/0/4 |
+| `language-first-paint.test.js` | mbp2606 | `a1263b6603-61265` | 1/0/1 | 1/0/1 |
+| `operator-login.test.js` | mbp2606 | `a1263b6603-15834` | 26/0/26 | 26/0/26 |
+| `orb-reveal.test.js` | mbp2606 | `a1263b6603-61265` | 6/0/6 | 6/0/6 |
+| `pause-phone.test.js` | mbp2606 | `a1263b6603-61265` | 77/0/77 | 77/0/77 |
+| `question-card.test.js` | mbp2606 | `a1263b6603-61265` | 35/6/41 | 35/6/41 |
+| `safeguards.test.js` | mbp2606 | `a1263b6603-61265` | 13/0/13 | 13/0/13 |
+| `start-journey.test.js` | mbp2606 | `a1263b6603-61265` | 29/0/29 | 29/0/29 |
+| `start-look.test.js` | mbp2606 | `a1263b6603-61265` | 23/0/23 | 23/0/23 |
+| `start2-display-continuity.test.js` | mbp2606 | `a1263b6603-61265` | 15/0/15 | 15/0/15 |
+| `start2-display-geometry.test.js` | mbp2606 | `a1263b6603-61265` | 13/0/13 | 13/0/13 |
+| `start2-display-matrix.test.js` | mbp2606 | `a1263b6603-61265` | 1/0/1 | 1/0/1 |
+| `start2-display.test.js` | mbp2606 | `a1263b6603-61265` | 80/1/81 | 80/1/81 |
+| `tick-followups.test.js` | mbp2606 | `a1263b6603-61265` | 6/0/6 | 6/0/6 |
+| `understanding-failure.test.js` | mbp2606 | `a1263b6603-61265` | 29/3/32 | 29/3/32 |
+| `upload-capacity.test.js` | mbp2606 | `a1263b6603-61265` | 5/0/5 | 5/0/5 |
+| `visitor-credit-tiers.test.js` | mbp2606 | `a1263b6603-61265` | 10/0/10 | 10/0/10 |
+| `voice-presentation.test.js` | mbp2606 | `a1263b6603-61265` | 7/0/7 | 7/0/7 |
+
+Accepted top-level failure names (**known mbp2606-only failures under AIT-531**):
+
+- `composed-media.test.js` — “AIT-350: Settings provider switch viewports, focus and 0 px geometry”.
+- `host-surface.test.js` — “AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN”.
+- `html-preview.test.js` — “AIT-400: withdrawal preserves the top transcript row and reserved status slot”.
+- `question-card.test.js` — “AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement”.
+- `question-card.test.js` — “AIT-512: picks and sends keep the new turn visible without stealing reading position”.
+- `start2-display.test.js` — “AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390”.
+- `understanding-failure.test.js` — “AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px”.
+
+The seven top-level failures above account for the 14 failed tests including
+nested failures. Per-file counts, complete top-level names, error classes and
+comparison results are retained in `.data/ait-539/b3-browser-comparison.json`
+and `b3-browser-counts.tsv`. Evidence roots: `dist/ait539-b2-browser-1/`,
+`dist/ait539-b3-browser-2/` and `dist/ait539-b3-browser-3/`.
+
+**Tree identity and scope.** L = `ab0444a8dc7e642dd3811725050e60efe29e2502`
+is tree-identical to `bc504f61eeaa1d262041739b7867852f9f56788b`
+(`git diff bc504f61 ab0444a8` is empty). `bc504f61..C'` touches release
+files only: version mirrors and internal pins, release history/notes/metadata,
+and the two requested README host-document corrections; no executable source,
+style or test change. Its `git diff --stat bc504f61 C'` summary is:
+
+```text
+ README.md                           |  11 +-
+ package-lock.json                   |  78 +++----
+ package.json                        |   2 +-
+ packages/core/package.json          |   2 +-
+ packages/server/package.json        |   6 +-
+ packages/ui/package.json            |   4 +-
+ plugins/claude-html/package.json    |   6 +-
+ plugins/codex-imagegen/package.json |   4 +-
+ plugins/device/package.json         |   4 +-
+ plugins/elevenlabs/package.json     |   6 +-
+ plugins/extract-ooxml/package.json  |   4 +-
+ plugins/extract-pdf/package.json    |   4 +-
+ plugins/extract-text/package.json   |   4 +-
+ plugins/grok-voice/package.json     |   6 +-
+ plugins/mail-smtp/package.json      |   4 +-
+ plugins/mistral/package.json        |   4 +-
+ plugins/openai-images/package.json  |   4 +-
+ plugins/openrouter/package.json     |   4 +-
+ plugins/voxtral/package.json        |   6 +-
+ plugins/zitadel-oidc/package.json   |   2 +-
+ release/README.md                   | 368 ++++++++++++++++++++++++++++++++
+ release/history.json                |   9 +
+ release/next-notes.md               | 185 ----------------
+ release/notes.md                    | 411 +++++++++++++++++++++++++-----------
+ release/version.json                |   6 +-
+ 25 files changed, 755 insertions(+), 389 deletions(-)
+```
+
+The B3 evidence commit changes only this `release/README.md` text;
+`git diff --stat a1263b66 C'` is recorded in the handoff. Browser results remain
+applicable to final C' without another browser run under the B3 ruling.
+
+Release-test checkpoint `a1263b66`, mbp2606 run `a1263b6603-93882`:
+**176 passed / 2 failed / 178 tests**. The failures are the permitted macOS-only
+AIT-529 pair, “sibling marker bound failure escapes the outer rethrow guard”
+and “sibling marker bound failure escapes the fallback rethrow guard”. They
+are failures, not passes. After this evidence commit, rerun the exact release
+set below on final C', rebuild `dist/ait539-final/candidate/`, and bind that
+head and both digests in the handoff. Make no evidence-only commit afterward.
+
 Preparation order (remote execution only):
 
 1. Check Content and the unchanged coordinator-held lock at L. Commit reservation,
@@ -264,8 +389,10 @@ Preparation order (remote execution only):
    `MBP2607=0`. It holds reservations during the lane's 02:20–05:50 quiet window.
    Any failure means stop and report except the known macOS-only AIT-529
    release-candidate-gate sibling-marker pair, acceptable only on a macOS lane
-   host and explicitly named. Also run the **whole browser suite** remotely
-   because the UI manifest version changes; retain per-file counts.
+   host and explicitly named. The **whole browser suite** must also complete
+   remotely because the UI manifest version changes; the B3 same-host baseline
+   exception and per-file evidence above govern browser preparation. The release
+   PR's authoritative GitHub browser CI still requires fully green shards.
 
    ```sh
    MBP2607=0 EVIDENCE_OUT="$PWD/dist/ait539-final" FETCH_TRIES=300 \
