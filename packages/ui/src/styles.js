@@ -572,7 +572,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
 .summary-text[data-collapsed] { max-height:calc(var(--summary-lines,9) * 1lh); overflow:hidden;
   mask-image:linear-gradient(to bottom,#000 calc(100% - 1.55em),transparent); }
-.summary-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.75rem; min-height:44px; }
+.summary-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:stretch; gap:.75rem; min-height:44px; }
+.summary-heading > h3 { display:flex; align-items:center; }
 .summary-toggle-slot { display:grid; min-width:0; font-size:.8125rem; font-weight:600; }
 .summary-toggle-slot > * { grid-area:1 / 1; min-height:44px; padding:.35rem 0; }
 /* Reserve both localized labels, including while the native button is hidden. */

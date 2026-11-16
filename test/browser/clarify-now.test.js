@@ -1129,7 +1129,9 @@ for (const check of ['stationary heading toggle', 'first signal clears the activ
       await setupOverviewFixture(page, locale, theme);
       await shadow(page, (c, locale) => {
         c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
-          summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35) } });
+          summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35),
+          signals: [locale === 'de' ? 'Rund 400 Rechnungen pro Monat' : 'About 400 invoices monthly'],
+          openQuestions: locale === 'de' ? ['Welches System ist im Einsatz?', 'Wer gibt Rechnungen frei?'] : ['Which system do you use?', 'Who approves invoices?'] } });
         c.shadowRoot.querySelector('.analysis-content').scrollTop = 0;
       }, locale);
       await settle(page);
@@ -1146,6 +1148,7 @@ for (const check of ['stationary heading toggle', 'first signal clears the activ
         for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(collapsed.button[key] - expanded.button[key]) <= .5,
           `${label}: toggle.${key} stays put: ${collapsed.button[key]} -> ${expanded.button[key]}`);
         for (const value of [collapsed, expanded]) {
+          assert.ok(value.button.left >= Math.max(0, value.pane.left) && value.button.right <= Math.min(width, value.pane.right), `${label}: toggle horizontally in view`);
           assert.ok(value.button.top >= Math.max(0, value.pane.top) && value.button.bottom <= Math.min(height, value.pane.bottom), `${label}: toggle fully in view`);
           assert.ok(value.heading.left < value.button.left && Math.abs((value.heading.top + value.heading.bottom) / 2 - (value.button.top + value.button.bottom) / 2) <= .5, `${label}: toggle shares the heading row`);
         }
