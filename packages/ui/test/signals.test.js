@@ -4,6 +4,7 @@ import { Window } from 'happy-dom';
 import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { styles } from '../src/styles.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -173,4 +174,36 @@ test('AIT-515 four arrivals accumulated behind the pointer never flash as a whol
   list.dispatchEvent(new window.Event('pointerleave'));
   assert.equal(texts(c)[0], 'Arrival D');
   assert.equal(root.querySelectorAll('[data-signal-new]').length, 0, 'more than three newly displayed keys stay quiet');
+});
+
+
+test('AIT-515 r10 latest held final replaces a pending addition even when it matches the displayed rows', () => {
+  const c = setup(); final(c, seven);
+  const root = c.shadowRoot, list = root.querySelector('.signals');
+  list.dispatchEvent(new window.Event('pointerenter'));
+  final(c, [...seven, 'Withdrawn suggestion']);
+  assert.deepEqual(texts(c), seven.slice(0, 5), 'pending addition stays held');
+  final(c, seven);
+  list.dispatchEvent(new window.Event('pointerleave'));
+  assert.deepEqual(texts(c), seven.slice(0, 5), 'the latest final wins when the pointer leaves');
+  assert.equal(root.querySelectorAll('[data-signal-new]').length, 0, 'a dropped pending addition never highlights');
+  assert.equal(root.querySelector('.signals-toggle').textContent, 'Show all (7)');
+});
+
+test('AIT-515 r10 assistant provenance has a separator and matching impersonal headings retain host overrides', () => {
+  for (const [copy, heading, label] of [[en, 'Signals', 'unconfirmed'], [de, 'Signale', 'unbestätigt']]) {
+    const c = setup(copy); final(c, [{ text: 'Suggestion', basis: 'assistant' }]);
+    assert.equal(c.shadowRoot.querySelector('.signal-provenance').textContent, ` · ${label}`);
+    assert.equal(c.shadowRoot.querySelector('#signals-title').textContent, heading);
+  }
+  const c = setup({ ...de, signals: 'Host heading', signalUnconfirmed: 'Host basis' });
+  final(c, [{ text: 'Suggestion', basis: 'assistant' }]);
+  assert.equal(c.shadowRoot.querySelector('#signals-title').textContent, 'Host heading');
+  assert.equal(c.shadowRoot.querySelector('.signal-provenance').textContent, ' · Host basis');
+});
+
+test('AIT-515 r10 arrival tint has no edge stripe or shadow', () => {
+  const rule = styles.match(/\.signals li\[data-signal-new\] \{([^}]+)\}/u)?.[1];
+  assert.ok(rule, 'arrival style exists');
+  assert.doesNotMatch(rule, /box-shadow|border-(?:left|inline-start)/u, 'arrival tint leaves the bullet unobstructed');
 });

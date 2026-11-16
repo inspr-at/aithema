@@ -17,7 +17,7 @@ const settle = page => shadow(page, async c => {
 test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440', { timeout: 480_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-signals-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
-  const browser = await browserForFile(), page = await browser.newPage(), errors = [], rects = [], reachability = [];
+  const browser = await browserForFile(), page = await browser.newPage(), errors = [], rects = [], reachability = [], toggles = [];
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   page.on('pageerror', e => errors.push(e.message));
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
@@ -175,10 +175,34 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 5);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-basis').length), 1);
+    const toggleGeometry = () => shadow(page, c => {
+      const root = c.shadowRoot, button = root.querySelector('.signals-toggle');
+      const rect = button.getBoundingClientRect(), questions = root.querySelector('#open-questions-title').getBoundingClientRect();
+      const style = getComputedStyle(button), content = root.querySelector('.analysis-content').getBoundingClientRect();
+      return { box: rect.toJSON(), questions: questions.toJSON(), content: content.toJSON(),
+        outline: parseFloat(style.outlineWidth), offset: parseFloat(style.outlineOffset),
+        hit: root.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest('.signals-toggle') === button };
+    });
+    const collapsedToggle = await toggleGeometry();
     const baseline = await frame();
     await capture(`${name}-collapsed`);
     await shadow(page, c => { c.shadowRoot.querySelector('.signals-toggle').focus({ preventScroll: true }); c.shadowRoot.querySelector('.signals-toggle').click(); });
     await settle(page); stable(baseline, await frame(), `${name}-expand`);
+    const expandedToggle = await toggleGeometry();
+    for (const [state, geometry] of [['collapsed', collapsedToggle], ['expanded', expandedToggle]]) {
+      assert.ok(geometry.box.width > 0 && geometry.box.height > 0, `${name} ${state} toggle positive box`);
+      assert.ok(geometry.questions.width > 0 && geometry.questions.height > 0, `${name} ${state} questions heading positive box`);
+      assert.ok(geometry.questions.top >= geometry.box.bottom, `${name} questions heading stays below the toggle click target`);
+    }
+    for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(collapsedToggle.box[key] - expandedToggle.box[key]) <= .5,
+      `${name} toggle/${key} stays fixed across expansion: ${JSON.stringify({ collapsedToggle, expandedToggle })}`);
+    // The focus ring must fit inside the clipping pane. An inset ring also
+    // works when a phone has scrolled the heading above the viewport.
+    const ring = expandedToggle, outward = Math.max(0, ring.outline + ring.offset);
+    assert.ok(ring.outline > 0, `${name} expanded toggle has a focus ring`);
+    assert.ok(ring.box.left - outward >= ring.content.left - .5 && ring.box.right + outward <= ring.content.right + .5,
+      `${name} Show less focus ring is not clipped horizontally`);
+    toggles.push({ name, collapsed: collapsedToggle, expanded: expandedToggle });
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 7);
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.signals-toggle')), true);
     await capture(`${name}-expanded`);
@@ -200,8 +224,8 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     stable(before, await frame(), `${name}-apply`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signal-text').textContent), newest);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.signals-toggle').textContent), locale === 'de' ? 'Alle anzeigen (8)' : 'Show all (8)');
-    const mark = await shadow(page, c => { const n = c.shadowRoot.querySelector('[data-signal-new]'); return n && { animation: getComputedStyle(n).animationName, background: getComputedStyle(n).backgroundColor }; });
-    assert.ok(mark); assert.equal(mark.animation, 'none', 'reduced motion uses a static mark');
+    const mark = await shadow(page, c => { const n = c.shadowRoot.querySelector('[data-signal-new]'); return n && { animation: getComputedStyle(n).animationName, background: getComputedStyle(n).backgroundColor, shadow: getComputedStyle(n).boxShadow }; });
+    assert.ok(mark); assert.equal(mark.shadow, 'none', 'arrival tint has no edge stripe'); assert.equal(mark.animation, 'none', 'reduced motion uses a static mark');
     await capture(`${name}-new-static`);
     await page.evaluate(() => window.signalTick(1999));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('[data-signal-new]').length), 1);
@@ -209,5 +233,5 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('[data-signal-new]').length), 0);
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'signals-rects.json'), JSON.stringify({ rects, reachability, errors }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'signals-rects.json'), JSON.stringify({ rects, reachability, toggles, errors }, null, 2));
 });
