@@ -64,7 +64,7 @@ export class HostSurface {
       request: (path, body) => this.#call(this.#sessionPath(path), body), session, streaming,
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     if (this.#session().emailOffer && this.#verification) this.#emailOffer = new EmailOffer({ root, copy, verification: this.#verification,
-      session, streaming, request: (path, body) => this.#call(this.#sessionPath(path), body), changed: () => this.#onCredits?.() });
+      session, streaming, request: (path, body) => this.#call(this.#sessionPath(path), body), changed: () => { this.updateStreaming(); this.#onCredits?.(); } });
     root.querySelector('dialog.verify-dialog').toggleAttribute('data-email-offer', Boolean(this.#emailOffer));
     this.#verification?.setCaptureDeferred(this.#captureDeferred());
     this.#mountHandover(); this.#mountFoot();
@@ -236,7 +236,7 @@ export class HostSurface {
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
   #captureDeferred() { return Boolean(this.#session().emailOffer && !this.usedUp && !hasVisitorInput(this.#session())); }
-  updateStreaming() { if (this.#erased) return; this.#verification?.setCaptureDeferred(this.#captureDeferred()); this.#verification?.update(); }
+  updateStreaming() { if (this.#erased) return; this.#verification?.setCaptureDeferred(this.#captureDeferred()); this.#verification?.setInlineOffer(Boolean(this.#emailOffer?.entry)); this.#verification?.update(); }
   update() { if (this.#erased) return; this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); this.#emailOffer?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.

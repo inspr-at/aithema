@@ -36,7 +36,7 @@ for (const bundle of [de, en]) test(`AIT-231 ${bundle.display.locale}: demo cons
   const visible = { consentTitle: host.consentTitle, mockRecipients: host.consentPage.mockRecipients,
     mockConsequence: host.consentPage.mockConsequence, mockTerms: host.consentPage.mockTerms, consentUse: host.consentUse };
   assert.deepEqual(Buffer.from(JSON.stringify(visible)), Buffer.from(JSON.stringify(previous[bundle.display.locale])));
-  const previousProcessing = bundle.display.locale === 'de' ? START_GERMAN_CONSENT : { intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
+  const previousProcessing = bundle.display.locale === 'de' ? { ...START_GERMAN_CONSENT, intro: 'Legen Sie einmal fest, für welche Verarbeitung Sie Ihre Einwilligung erteilen. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange Ihre Einwilligung die gewählte Verarbeitung abdeckt, können Sie Einstellungen ändern, ohne erneut eine Einwilligung zu erteilen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.', withdrawal: 'Sie können Einwilligungen hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.' } : { intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
   for (const key of ['intro', 'withdrawal']) assert.deepEqual(Buffer.from(demo.processingConsent[key]), Buffer.from(previousProcessing[key]), key);
   assert.deepEqual(bundle, before, 'the demo never mutates the shipped defaults');
   const defaults = JSON.stringify({ intro: bundle.processingConsent.intro, withdrawal: bundle.processingConsent.withdrawal, title: bundle.host.consentTitle, use: bundle.host.consentUse,
@@ -47,5 +47,5 @@ for (const bundle of [de, en]) test(`AIT-231 ${bundle.display.locale}: demo cons
 
 test('AIT-228: mock consent intro uses Tick-approved EN wording and its existing DE mirror', () => {
   assert.equal(withDemoConsentCopy(en).host.consentPage.intro, "Choose which processing you allow for this conversation. Items you don't select are not allowed.");
-  assert.equal(withDemoConsentCopy(de).host.consentPage.intro, 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.');
+  assert.equal(withDemoConsentCopy(de).host.consentPage.intro, 'Wählen Sie, für welche Verarbeitung Sie Ihre Einwilligung für dieses Gespräch erteilen. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.');
 });

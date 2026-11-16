@@ -275,7 +275,7 @@ export const en = {
   entrance: { promise: ['Your project.', 'Your process.', 'Optimised with AI.'], lead: 'Discuss your project and receive a first assessment.' },
   // START src/content/conversation-readiness.ts and the readiness card (v2.inputModeLabel, voiceInput, entryTyping, consentStart).
   ready: {
-    title: 'Before you start', model: 'AI model', consent: 'Data consent', microphone: 'Microphone', speaker: 'Voice output', visuals: 'Visual concepts',
+    title: 'Before you start', model: 'AI model', consent: 'Status', microphone: 'Microphone', speaker: 'Voice output', visuals: 'Visual concepts',
     granted: 'Granted', missing: 'Consent needed', notNeeded: 'Not needed on this device', off: 'Off', on: 'On',
     checkOnStart: 'Check when starting', onOnStart: 'On when starting', notConnected: 'Connect under Settings › Advanced',
     micGranted: `Allowed${reasonSeparator}not yet active`, micDenied: 'Blocked in browser', micPrompt: 'Allow when starting',
@@ -354,6 +354,7 @@ export const en = {
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
   paused: 'Conversation paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
   controlFailed: 'Could not save this change. Try again.',
+  composerNoticeMore: 'More',
   composer: 'Your message', placeholder: 'Type your next message here\u00a0…', placeholderCompact: 'Your message …', placeholderVoice: 'Just start talking – or type.', placeholderFullHold: 'Just keep talking.', send: 'Send',
   shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Summary', signals: 'Signals', questions: 'Open questions',
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
