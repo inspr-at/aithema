@@ -197,6 +197,8 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     }
     for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(collapsedToggle.box[key] - expandedToggle.box[key]) <= .5,
       `${name} toggle/${key} stays fixed across expansion: ${JSON.stringify({ collapsedToggle, expandedToggle })}`);
+    assert.equal(collapsedToggle.hit, true, `${name} collapsed toggle receives the pointer at its centre`);
+    assert.equal(expandedToggle.hit, true, `${name} expanded toggle still receives the pointer at the same target`);
     // The focus ring must fit inside the clipping pane. An inset ring also
     // works when a phone has scrolled the heading above the viewport.
     const ring = expandedToggle, outward = Math.max(0, ring.outline + ring.offset);
