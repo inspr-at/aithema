@@ -5,7 +5,7 @@ import { reduceUnderstanding, understandingSchema } from './understanding.js';
 import { reasoningRequest } from './prompts.js';
 import { assertReasoning, operationScope, matchesSchema } from './reasoning.js';
 import { untilCancelled, cancellableStream } from './cancellation.js';
-import { hasConversationInput, understandingDeferred } from './document-context.js';
+import { hasVisitorInput, understandingDeferred } from './document-context.js';
 import { aiTextOrigin } from './text-origin.js';
 import { ReplyStream } from './reply.js';
 import { collectPurposeReply } from './safeguards.js';
@@ -139,9 +139,9 @@ export class SessionLanes {
             !(this.retainUnderstanding(session, persisted) && persisted.understanding.inputRevision === inputRevision(persisted))) return 'stale';
         }
       } else {
-        if (!hasConversationInput(session)) return 'deferred';
+        if (!hasVisitorInput(session)) return 'deferred';
         if (!focus && (this.purposePolicy && this.scopeKnown ? this.scopeKnown(id, revision) :
-          activeTurns(session).some(t => t.role === 'assistant' && replyIsCurrent(session, t)))) return 'cached';
+          activeTurns(session).some(t => t.role === 'assistant' && t.origin !== 'host' && replyIsCurrent(session, t)))) return 'cached';
         if (this.getSession(id).paused) return 'paused';
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';

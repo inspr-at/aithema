@@ -1,16 +1,18 @@
+import { emailOfferStyles } from './email-offer.js';
+import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
-import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
+import { applyEvent, inputRevision, replyIsCurrent, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems, conversationStarted } from '../../core/src/session.js';
 import { classifyFocusRefusal, FOCUS_REFUSAL_CLASSES } from './focus-refusal.js';
 import { ReplyStream } from '../../core/src/reply.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { warnFocusRefusal } from './clarify-diagnostic.js';
 import { resolveCopy, plural } from './copy-resolve.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
-import { understandingDeferred } from '../../core/src/document-context.js';
+import { hasVisitorInput, understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
@@ -32,6 +34,7 @@ import { node, setText, reconcile } from './dom.js';
 import { HostSurface } from './host-surface.js';
 import { hostStyles } from './host-styles.js';
 import { entranceStyles } from './entrance-styles.js';
+import { combinedEntranceStyles } from './combined-entrance-styles.js';
 import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, languageFlag, formatCredits } from './display.js';
@@ -155,6 +158,7 @@ export class AithemaSession extends HTMLElement {
    * `voicePresentation` supplies the selected adapter label and localized presentation.
    * `concepts.previewURL` is the canonical same-host HTML preview route admitted by the host CSP.
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
+   * `entrance: 'combined'` opts into a shared text/mic row; the default is 'choice'.
    * `copyForLocale(locale)` supplies host copy for in-place locale changes before interaction.
    * `paimosImportUrl` and `paimosImportVersion: 1` enable creating a Paimos project via form POST.
    * `host` ({library, verification, handover, credits, locale, operator}) turns on the host surface (AIT-104 B2):
@@ -163,6 +167,7 @@ export class AithemaSession extends HTMLElement {
   configure(options) {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
+    if (options.entrance !== undefined && !['choice', 'combined'].includes(options.entrance)) throw new TypeError('Unknown entrance');
     if (this.#erased && session.id === this.#session.id) {
       this.#session.locale = session.locale;
       this.#options.copy = copy; this.#sessionToken = sessionToken; this.#options.sessionToken = sessionToken;
@@ -173,7 +178,7 @@ export class AithemaSession extends HTMLElement {
     }
     if (session.id !== this.#session?.id) this.#summaryExpanded = false;
     this.#summaryView?.disconnect();
-    const returningStart = this.#session ? null : this.#readStartIntent(session.id);
+    const returningStart = this.#session ? null : this.#readStartIntent(session.id, options.entrance === 'combined');
     if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
     this.ownerDocument.defaultView?.removeEventListener('orientationchange', this.#releaseErasedHeights);
@@ -304,7 +309,9 @@ export class AithemaSession extends HTMLElement {
     }
     const item = this.openQuestionItems.find(item => item.id === questionId);
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
-    const focus = this.#clarify = { questionId, question: item?.question, inputRevision: revision,
+    const retryState = this.#clarify?.questionId === questionId && ['retry', 'focus-retry'].includes(this.#clarify.state)
+      ? this.#clarify.state : null;
+    const focus = this.#clarify = { questionId, question: item?.question, inputRevision: revision, retryState,
       sessionId, clickSeq: this.#session.seq, priorRequestId: this.#session.questionFocus?.requestId, turnIds: new Set(this.#session.transcript.map(turn => turn.id)),
       tries: 0, state: 'requesting', pending: false, waitOperations: this.#session.operations,
       replyFailureVersion: this.#reactionFailureVersion };
@@ -454,7 +461,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#clarify?.state !== 'retry' || this.#clarify.pending || this.#clarifyRequest) return;
     const focus = this.#clarify, sessionId = this.#session.id;
     const diagnostic = focus.diagnostic = { status: null, accepted: false, failureReported: false };
-    focus.pending = true; focus.state = 'requesting';
+    focus.retryState = 'retry'; focus.pending = true; focus.state = 'requesting';
     // Retire the failure being retried before sending, so a newer failure that
     // arrives ahead of the HTTP acknowledgement cannot be erased by that ack.
     this.#retireReactionFailure();
@@ -596,9 +603,13 @@ export class AithemaSession extends HTMLElement {
       row.dataset.state = state;
       const button = row.querySelector('button'), status = row.querySelector('.question-status'), separator = row.querySelector('.question-separator');
       const reason = own && state === 'refused' ? focus.reason : null;
-      const failed = ['retry', 'focus-retry'].includes(state);
-      const failedText = state === 'retry' ? acceptedFailed : primaryFailed;
-      const failedShort = state === 'retry' ? acceptedShort : resolveCopy(this.#copy, 'clarifyFailedShort', null, this.#session.locale);
+      // Keep the compact status/action geometry under the pointer until the
+      // retry POST settles; the reserved line and native button stay in place.
+      const statusState = state === 'requesting' && focus?.pending ? focus.retryState ?? state : state;
+      const failed = ['retry', 'focus-retry'].includes(statusState);
+      const failedText = statusState === 'retry' ? acceptedFailed : primaryFailed;
+      const failedShort = statusState === 'retry' ? acceptedShort : resolveCopy(this.#copy, 'clarifyFailedShort', null, this.#session.locale);
+      if (failed) button.setAttribute('data-target-labels', `${copy.retry}\n${copy.asking}`); else button.removeAttribute('data-target-labels');
       const withReason = failed || state === 'unavailable' || Boolean(reason);
       status.hidden = !withReason; separator.hidden = !withReason || reason === 'deadline' || state === 'unavailable';
       button.hidden = state === 'none' || reason === 'deadline' || state === 'unavailable';
@@ -612,7 +623,7 @@ export class AithemaSession extends HTMLElement {
       const glyph = withReason ? '' : CLARIFY_ICONS[{ requesting: 'spin', selected: 'check', asked: 'check' }[state] ?? 'ask'];
       if (button.querySelector('.clarify-icon').innerHTML !== glyph) button.querySelector('.clarify-icon').innerHTML = glyph;
       if (withReason) {
-        const signature = `${state}/${reason}/${this.#copyLocale}/${failedText}/${failedShort}/${focus?.refusalCode ?? ''}`;
+        const signature = `${statusState}/${reason}/${this.#copyLocale}/${failedText}/${failedShort}/${focus?.refusalCode ?? ''}`;
         if (status.dataset.state !== signature) {
           status.replaceChildren(); status.insertAdjacentHTML('beforeend', CLARIFY_ICONS[reason === 'deadline' ? 'clock' : reason === 'paused' ? 'pause' : reason ?? 'warn']);
           if (failed) {
@@ -655,7 +666,7 @@ export class AithemaSession extends HTMLElement {
       if (sessionId !== this.#session.id || !['en', 'de'].includes(locale) || !this.#options.copyForLocale?.(locale)) return false;
       if (locale === this.#session.locale) return true;
       if (this.#erased) { this.#session.locale = locale; this.#repaintLocale(); return true; }
-      if (this.#hasInput() || this.#sending || this.#uploading || this.#rail?.root.dataset.call === 'active') return false;
+      if (conversationStarted(this.#session) || this.#sending || this.#uploading || this.#rail?.root.dataset.call === 'active') return false;
       try {
         const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/locale`, { locale }, { sessionToken: this.#sessionToken });
         if (!response.ok || sessionId !== this.#session.id) return false;
@@ -728,7 +739,7 @@ export class AithemaSession extends HTMLElement {
     // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
-    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${actorRoleStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${actorRoleStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}${emailOfferStyles}${combinedEntranceStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent"${this.#combined ? ' data-entrance="combined"' : ''}>
       <header class="toolbar band"><div class="band-identity"><div class="band-orb"></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>${this.#voiceBound ? '<div class="audio-rail"></div>' : ''}<div class="header-actions">
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
@@ -738,14 +749,16 @@ export class AithemaSession extends HTMLElement {
           <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div></header>
       <section class="conversation" id="conversation-middle" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
 </header>
+        ${this.#combined ? '<div class="conversation-scroll">' : ''}
         <div class="intro" hidden><div class="intro__prompt"><div class="intro__orb"></div><div class="intro__promise"><slot name="promise"><h2 class="promise"></h2><p class="promise__lead"></p></slot></div></div>
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-access"><div class="concept-rail"></div><div class="concept-preview-slot"></div><span class="concept-withdrawn" role="status" tabindex="-1"></span></div>${this.#voiceBound ? '<div class="voice-notices"></div>' : ''}</div>
         <div class="concept-thread"><div class="concept-backdrop" aria-hidden="true"><img alt="" aria-hidden="true" decoding="async"><img alt="" aria-hidden="true" decoding="async"></div><div class="concept-bottom"><span class="concept-bottom-label" role="status"></span><progress max="100" value="0" aria-hidden="true"></progress></div><div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div><span class="concept-backdrop-hint" aria-hidden="true"></span></div>
-        <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
+        ${this.#combined ? '</div>' : ''}
+        <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer">${this.#combined ? '<p class="composer-notice" id="composer-notice"></p>' : ''}<label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
-            <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
+            <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span>${this.#combined ? '<small class="composer-status" id="composer-status" role="status"></small><button class="composer-mic" type="button" aria-describedby="composer-status composer-notice"></button>' : ''}<button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
@@ -778,7 +791,12 @@ export class AithemaSession extends HTMLElement {
             <p class="host-credits__daily-cap" hidden></p><span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot><span class="host-credits__demo"></span></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" data-footer-popup hidden><slot name="legal"></slot><button class="legal-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="legal-popup"><span id="legal-label" data-copy="legal"></span>${icon('chevron')}</button><div class="footer-popup legal-popup" id="legal-popup" role="dialog" aria-label="${this.#copy.legal}" hidden></div></div></div></div></footer></div>
-      <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
+      <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>
+      ${this.#voiceBound ? '' : `<dialog class="voice-reply-dialog" aria-labelledby="voice-reply-title" aria-describedby="voice-reply-note">
+        <h2 id="voice-reply-title" tabindex="-1" autofocus data-copy="voiceLastReply"></h2><p class="voice-reply-note" id="voice-reply-note" data-copy="voiceReplayTextOnly"></p><p class="voice-reply-text"></p>
+        <button class="voice-reply-close" type="button" data-copy="voiceReplayClose"></button></dialog>`}`;
+    const textReplyDialog = root.querySelector('.voice-reply-dialog');
+    textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
     this.#summaryView = new SummaryView({ root, expanded: this.#summaryExpanded,
       onChange: expanded => { this.#summaryExpanded = expanded; }, anchor: update => this.#anchored(update) });
     this.#summaryView.connect();
@@ -831,7 +849,7 @@ export class AithemaSession extends HTMLElement {
     this.#placeOrb();
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, operator: this.#options.host?.operator, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).
-      state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
+      state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: conversationStarted(this.#session) || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
       consentPresentation: this.#options.consentPresentation ?? this.#options.voicePresentation,
@@ -893,6 +911,11 @@ export class AithemaSession extends HTMLElement {
       if (e.key === 'Enter' && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.#send(); }
     });
     root.querySelector('textarea').addEventListener('input', () => { if (this.#uploadNotice && !this.#retryFiles.length) { this.#uploadNotice = ''; this.#render('composer'); } });
+    root.querySelector('.composer-mic')?.addEventListener('click', () => {
+      if (this.#rail?.session) this.#rail.button('input').click();
+      else this.#startCombined('voice');
+    });
+    if (this.#combined) this.#watchMicrophone();
     this.#mountUploads();
     root.querySelector('.expand').addEventListener('click', () => {
       const details = [...root.querySelectorAll('.cleared details')];
@@ -950,7 +973,7 @@ export class AithemaSession extends HTMLElement {
           if (resuming && !root.querySelector('.composer-reason').hasAttribute('data-shortcut')) {
             root.querySelector('.composer-feedback').setAttribute('data-voice-space', '');
           }
-          this.#syncVoicePause(rail); this.#syncRailFit();
+          this.#syncVoicePause(rail); this.#syncRailFit(); this.#paintComposerMic(rail);
         },
         onPartial: event => {
           if (this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) return;
@@ -1088,7 +1111,7 @@ export class AithemaSession extends HTMLElement {
   // A conversation from the library (open, new, reset, or the replacement of a deleted one). The host
   // usually handles it (its voice clients belong to one conversation); otherwise this element switches.
   #adopt(session, reason) {
-    this.#clearStartIntent();
+    this.#clearStartIntent({ discardDraft: true });
     const event = new CustomEvent('aithema-open-conversation', { detail: { session: structuredClone(session), reason, previousSessionId: this.#session.id },
       bubbles: true, composed: true, cancelable: true });
     this.#refocus = '.conversations-toggle';
@@ -1310,6 +1333,18 @@ export class AithemaSession extends HTMLElement {
     this.#follow = true; this.#questionCard?.reserve();
     if (this.#longReply) return;
     shell.scrollTop = shell.scrollHeight;
+    // An inline capture can be taller than the combined phone's reading pane.
+    // Reveal its entry controls before native focus; bottom-follow alone can
+    // leave them above the sticky header and make focus scroll the whole page.
+    const offer = this.#combined && shell.querySelector('ol > .email-offer:last-child');
+    if (offer) {
+      const pane = shell.getBoundingClientRect(), box = offer.getBoundingClientRect();
+      const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
+      const fits = box.height <= pane.height - padding;
+      const target = fits ? box : offer.querySelector('.email-offer__row').getBoundingClientRect();
+      const inset = fits ? padding : Math.max(padding, (pane.height - target.height) / 2);
+      shell.scrollTop += target.top - pane.top - inset;
+    }
     const latest = [...shell.querySelectorAll('.turn')].at(-1);
     for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
     const readFull = latest?.querySelector('.turn-read-full'), signal = this.shadowRoot.querySelector('.voice-signal');
@@ -1324,8 +1359,11 @@ export class AithemaSession extends HTMLElement {
       if (latest.getBoundingClientRect().height > room) {
         latest.toggleAttribute('data-start-only', room < 88);
         const openFullReply = row => {
-          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
           const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+          delete dialog.dataset.hostOpener;
+          this.shadowRoot.querySelector('#voice-reply-title').textContent = this.#copy.voiceLastReply;
+          this.shadowRoot.querySelector('#voice-reply-note').textContent = this.#copy.voiceReplayTextOnly;
+          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
           if (!dialog.open) dialog.showModal();
         };
         if (room < 88 && signal) {
@@ -1381,7 +1419,10 @@ export class AithemaSession extends HTMLElement {
     const readingFocus = paneBox && focusBox.width > 0 && focusBox.height > 0 &&
       focusBox.bottom > Math.max(paneBox.top, 0) &&
       focusBox.top < Math.min(paneBox.bottom, this.ownerDocument.defaultView.innerHeight);
-    const hovered = pointer?.closest?.(PANES) ? pointer : readingFocus ? focused : pointer;
+    const hit = pointer?.closest?.(PANES) ? pointer : readingFocus ? focused : pointer;
+    // Status actions have real padding outside their reserved line. Anchor the
+    // line, not a button/label whose box changes when the status clears.
+    const hovered = hit?.closest?.('.question-state') ?? hit;
     if (!hovered || this.#navigation && hovered.closest?.('.transcript-shell')) { update(); return; }
     // Host content in a slot belongs to the page: its chain ends at the document, never at this root.
     const chain = [];
@@ -1494,6 +1535,7 @@ export class AithemaSession extends HTMLElement {
     void this.#rail?.close('session-erased', { serverEnded: true });
     this.#dialog?.close();
     for (const dialog of root.querySelectorAll('dialog.verify-dialog,dialog.actor-sheet,.voice-reply-dialog')) if (dialog.open) dialog.close();
+    root.querySelector('.voice-reply-text')?.replaceChildren();
     if (!this.#session.tombstone) {
       const event = via === 'journal' ? this.#erasureJournal ?? remembered?.event : { seq: this.#cursor + 1, type: 'session.erased', data: { at: new Date().toISOString() } };
       if (event) { this.#erasedIds.get(id).event = structuredClone(event); this.#session = applyEvent(this.#session, event); this.#cursor = this.#session.seq; }
@@ -1622,12 +1664,14 @@ export class AithemaSession extends HTMLElement {
   }
   #creditsChanged({ allowanceChanged = false, settledCall, receiptFailed = false } = {}) {
     if (!this.#host) return;
+    const settlingVoice = settledCall && settledCall === this.#rail?.endedCall && !settledCall.settled;
     if (settledCall) this.#rail?.settleLedger(settledCall);
+    const voiceSettled = settlingVoice && settledCall.settled;
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
     const textReason = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason;
     const deniedText = !this.#hasLiveCall() && ['budget denied', 'budget reconciling'].includes(textReason);
     // A failed receipt can resolve fallback copy, but supplies no new admission facts.
-    const refresh = !receiptFailed && (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
+    const refresh = !receiptFailed && (voiceSettled || allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close(this.#host.endReason ?? 'host-limit');
@@ -1729,7 +1773,7 @@ export class AithemaSession extends HTMLElement {
     else if (before === 'device' && this.isConnected) this.#connect();
   }
   #newConversation({ processingPreset, settings }) {
-    this.#clearStartIntent();
+    this.#clearStartIntent({ discardDraft: true });
     if (this.#erased) { void this.#newAfterErased(); return; }
     this.#dialog.close();
     this.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: { processingPreset, settings: structuredClone(settings ?? {}),
@@ -1763,7 +1807,7 @@ export class AithemaSession extends HTMLElement {
   }
   #requestConsent(reason, features = FEATURES.filter(f => isConsentReason(this.#feature(f).reason)), intent = 'review') {
     if (intent !== 'start') this.#clearStartIntent();
-    const mode = this.#mode(), required = features.filter(f => f === (mode === 'voice' ? 'voice' : 'text'));
+    const mode = intent === 'start' && this.#combined ? this.#startIntent?.mode ?? this.#mode() : this.#mode(), required = features.filter(f => f === (mode === 'voice' ? 'voice' : 'text'));
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
     this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId: this.#session.id, reason, features: [...features], intent, mode, required },
@@ -1973,7 +2017,10 @@ export class AithemaSession extends HTMLElement {
     if (part === 'composer') {
       this.#syncReconciling();
       const text = this.#feature('text', true), input = root.querySelector('textarea');
-      input.disabled = !text.available && text.rawReason !== 'budget reconciling';
+      const consentDraft = this.#combined && isConsentReason(text.rawReason ?? text.reason);
+      input.disabled = !text.available && text.rawReason !== 'budget reconciling' && !consentDraft;
+      input.readOnly = Boolean(this.#combined && this.#startIntent?.combined);
+      this.#paintComposerMic();
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
@@ -1992,7 +2039,7 @@ export class AithemaSession extends HTMLElement {
         send.querySelector('svg').outerHTML = icon(paused ? 'play' : 'arrowRight');
         send.dataset.command = paused ? 'resume' : 'send';
       }
-      send.disabled = paused ? this.#composerResuming : this.#sending || !text.available;
+      send.disabled = paused ? this.#composerResuming : this.#sending || Boolean(this.#combined && this.#startIntent) || !text.available && !consentDraft;
       // A blocking verdict supersedes the failed attempt, including after it becomes available again.
       if (!text.available || this.#rail?.moved) this.#sendFailed = false;
       const reason = root.querySelector('.composer-reason');
@@ -2193,8 +2240,14 @@ export class AithemaSession extends HTMLElement {
       // Rows that go are removed first, so a surviving row never moves past them: moving a node drops its focus.
       for (const [key, row] of rows) if (!kept.has(key)) { row.remove(); rows.delete(key); }
       let next = list.firstElementChild;
-      for (const { key, turn: t, upload, lowLine } of entries) {
+      for (const { key, turn: t, upload, lowLine, emailOffer } of entries) {
         let row = rows.get(key); rows.delete(key);
+        if (emailOffer) {
+          if (!row) { row = node('li', 'email-offer'); row.dataset.id = key; }
+          this.#host.emailOffer.paintRow(row);
+          if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
+          continue;
+        }
         if (lowLine) {
           if (!row) { row = node('li', lowLine.reserved ? 'email-low-reserve' : 'email-low-line'); row.dataset.id = key; }
           this.#host.emailAsk.paintLine(row, lowLine);
@@ -2247,6 +2300,25 @@ export class AithemaSession extends HTMLElement {
         if (t.role === 'user' && !sign.firstChild) sign.innerHTML = icon('person');
         row.querySelector('.turn-text').textContent = t.erased ? copy.withdrawn : t.content;
         row.querySelector('.turn-text').removeAttribute('tabindex');
+        row.toggleAttribute('data-host-opener', t.id === 'host:opener' && t.origin === 'host');
+        let openerMore = row.querySelector('.host-opener-more');
+        if (row.hasAttribute('data-host-opener')) {
+          if (!openerMore) {
+            openerMore = node('button', 'host-opener-more'); openerMore.type = 'button';
+            openerMore.setAttribute('aria-haspopup', 'dialog');
+            openerMore.addEventListener('click', () => {
+              root.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
+              const dialog = root.querySelector('.voice-reply-dialog');
+              dialog.dataset.hostOpener = 'true';
+              root.querySelector('#voice-reply-title').textContent = this.#copy.hostOpenerTitle;
+              root.querySelector('#voice-reply-note').textContent = this.#copy.hostOpenerTextOnly;
+              dialog.showModal();
+            });
+            row.append(openerMore);
+          }
+          setText(openerMore, copy.voiceReadFullReply);
+          openerMore.hidden = true;
+        } else openerMore?.remove();
         paintVoiceInterruption(row, t, copy);
         const focusQuestion = !t.erased && !t.withdrawn && t.role === 'assistant' && this.#clarifyReplies.get(t.focusRequestId);
         let meta = row.querySelector('.clarify-meta');
@@ -2497,7 +2569,13 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, pick = part => [this.#aiNotice?.[part], this.#copy.aiNotice?.[part]].find(value => typeof value === 'string' && value.trim());
     root.querySelector('.legal-popup')?.setAttribute('aria-label', this.#copy.legal);
     const notice = aiNotice(this.#session.locale, { text: pick('text'), voice: pick('voice') });
-    setText(root.querySelector('#ai-notice'), this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text);
+    const words = this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text;
+    setText(root.querySelector('#ai-notice'), words);
+    const composerNotice = root.querySelector('.composer-notice');
+    if (composerNotice) {
+      const processing = this.#copy.settings?.processingDetails?.[this.#session.processingPreset ?? 'best'];
+      setText(composerNotice, [processing, words].filter(Boolean).join(' '));
+    }
     setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);
     setText(root.querySelector('.ai-notice__short'), this.#copy.layout.aiShort);
     root.querySelector('.ai-notice').setAttribute('aria-label', `Aithema 2026.10${reasonSeparator}${this.#copy.layout.aiShort}`);
@@ -2554,6 +2632,10 @@ export class AithemaSession extends HTMLElement {
     if (flag.dataset.kind !== kind) { flag.dataset.kind = kind; flag.innerHTML = languageFlag(kind); }
   }
   #syncPanes() {
+    for (const row of this.shadowRoot.querySelectorAll('[data-host-opener]')) {
+      const text = row.querySelector('.turn-text'), more = row.querySelector('.host-opener-more');
+      if (more) more.hidden = text.scrollHeight <= text.clientHeight;
+    }
     for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
       pane.toggleAttribute('data-top', pane.scrollTop > 4);
       pane.toggleAttribute('data-bottom', pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4);
@@ -2618,10 +2700,12 @@ export class AithemaSession extends HTMLElement {
     }
     this.#syncPanes();
   }
-  // Anything the visitor contributed (or its withdrawal) means the conversation has begun.
+  // Keep an engaged workspace visible through withdrawal, uploads and streaming.
+  // The static host opener alone does not reveal it or qualify as visitor input.
   #hasInput() {
     const session = this.#session;
-    return Boolean(session.transcript.length || session.uploads?.length || this.#partials.size || session.tombstone);
+    return Boolean(hasVisitorInput(session) || session.transcript.some(turn => turn.id !== 'host:opener' && turn.origin !== 'host') ||
+      session.uploads?.length || this.#partials.size || session.tombstone);
   }
   // START's journey (index.astro data-entry, data-choosing-preset): the entrance with the processing
   // choice, readiness once a choice is confirmed, then the live conversation after an explicit start or
@@ -2639,9 +2723,10 @@ export class AithemaSession extends HTMLElement {
     const stage = this.#stage(), mode = { entrance: 'chooser', ready: 'ready' }[stage] ?? '';
     const stageChanged = workspace.dataset.stage !== stage;
     workspace.dataset.stage = stage;
+    workspace.toggleAttribute('data-host-opener-entrance', this.#options.entrance === 'combined');
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
     // A host verification lock holds its email form there, so the pane is present while it is locked.
-    const understanding = this.#hasInput() || this.#host?.locked ? 'present' : 'absent';
+    const understanding = this.#hasInput() || !this.#session.emailOffer && this.#host?.locked ? 'present' : 'absent';
     // Only an opening on screen animates (data-reveal): the first paint of a conversation that already has input does not.
     if (understanding === 'present' && workspace.dataset.understanding === 'absent' && intro.hasAttribute('data-mode')) {
       workspace.dataset.reveal = ''; setTimeout(() => workspace.removeAttribute('data-reveal'), REVEAL_MS);
@@ -2806,8 +2891,8 @@ export class AithemaSession extends HTMLElement {
     this.#render('transcript');
     if (result.ok) {
       // Readiness follows; Start takes focus. START continues into consent when the choice is not covered yet.
-      this.shadowRoot.querySelector('.ready__start')?.focus();
-      if (result.ack.consent?.required) this.#requestConsent('chooser', result.ack.consent.features);
+      this.shadowRoot.querySelector(this.#combined ? 'textarea' : '.ready__start')?.focus();
+      if (!this.#combined && result.ack.consent?.required) this.#requestConsent('chooser', result.ack.consent.features);
     } else this.shadowRoot.querySelector('.chooser__continue')?.focus();
   }
   // START ConversationReadiness and the readiness card around it (index.astro .v2__consent): the model,
@@ -2822,7 +2907,8 @@ export class AithemaSession extends HTMLElement {
     const arrow = node('span', 'ready__arrow'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = icon('arrowRight');
     start.append(node('span', '', r.start), arrow);
     start.addEventListener('click', () => this.#start());
-    section.append(title, node('dl'), node('div', 'ready__actions'), route, modes, start);
+    section.append(title, node('dl'), node('div', 'ready__actions'), route);
+    if (!this.#combined) section.append(modes, start);
     if (this.#voiceBound) this.#watchMicrophone();
     return section;
   }
@@ -2848,26 +2934,29 @@ export class AithemaSession extends HTMLElement {
     const voice = this.#feature('voice'), device = this.#session.processingPreset === 'device';
     return !device && Boolean(this.#voiceClientFor()) && engineView(this.#session).voice !== SETTINGS_OFF && (voice.available || isDynamicReason(voice.reason));
   }
-  #mode() { return this.#voiceChoice() ? this.#inputMode ?? 'voice' : 'type'; }
+  get #combined() { return this.#options?.entrance === 'combined'; }
+  #mode() { return this.#combined ? this.#inputMode ?? 'text' : this.#voiceChoice() ? this.#inputMode ?? 'voice' : 'type'; }
   // Read-only, as START: a permission query never acquires the microphone or starts a provider.
   #watchMicrophone() {
     if (this.#permission) return;
     this.#permission = Promise.resolve().then(() => globalThis.navigator?.permissions?.query?.({ name: 'microphone' })).then(status => {
       if (!status) return;
-      const update = () => { this.#microphone = status.state; if (this.shadowRoot.querySelector('.ready')) this.#render('transcript'); };
+      const update = () => { this.#microphone = status.state; if (this.shadowRoot.querySelector('.ready')) this.#render('transcript'); this.#paintComposerMic(); };
       status.addEventListener?.('change', update); update();
     }).catch(() => { this.#microphone = 'unknown'; });
   }
   #paintReady(section) {
     const copy = this.#copy, r = copy.ready, device = this.#session.processingPreset === 'device', view = engineView(this.#session);
     setText(section.querySelector('#ready-title'), r.title);
-    setText(section.querySelector('.ready__start > span'), r.start);
-    const slot = section.querySelector('.ready__input-slot');
-    if (Boolean(slot.querySelector('.ready__modes')) !== this.#voiceBound || !slot.firstElementChild) slot.replaceChildren(this.#readyInput());
-    slot.querySelector('.ready__modes')?.setAttribute('aria-label', r.inputMode);
-    const textOnly = slot.querySelector('.ready__input > span:last-child');
-    if (textOnly) setText(textOnly, r.textOnly);
-    for (const button of section.querySelectorAll('.ready__mode')) setText(button.querySelector('span'), r[button.dataset.mode]);
+    if (!this.#combined) {
+      setText(section.querySelector('.ready__start > span'), r.start);
+      const slot = section.querySelector('.ready__input-slot');
+      if (Boolean(slot.querySelector('.ready__modes')) !== this.#voiceBound || !slot.firstElementChild) slot.replaceChildren(this.#readyInput());
+      slot.querySelector('.ready__modes')?.setAttribute('aria-label', r.inputMode);
+      const textOnly = slot.querySelector('.ready__input > span:last-child');
+      if (textOnly) setText(textOnly, r.textOnly);
+      for (const button of section.querySelectorAll('.ready__mode')) setText(button.querySelector('span'), r[button.dataset.mode]);
+    }
     const consent = this.#consentState(), local = this.#device?.model, mode = this.#mode(), voiceMode = mode === 'voice';
     const visuals = device ? SETTINGS_OFF : view.visuals;
     const effort = view.effort, model = modelDisplayName(view.model?.id, copy, view.model?.label);
@@ -2876,7 +2965,7 @@ export class AithemaSession extends HTMLElement {
       ['model', 'settings', r.model, device ? local ? `${copy.engine.localModel}: ${local}` : r.notConnected
         : [model, effort && effort !== 'none' ? copy.settings.efforts[effort] ?? effort : null].filter(Boolean).join(reasonSeparator), device && !local ? 'pending' : 'selected'],
       ['consent', 'info', r.consent, consent === 'device' ? r.notNeeded : consent === 'granted' ? r.granted : r.missing, ['device', 'granted'].includes(consent) ? 'confirmed' : 'pending'],
-      ...this.#voiceBound ? [
+      ...this.#voiceBound && !this.#combined ? [
         ['microphone', 'mic', r.microphone, voiceMode ? microphone[0] : r.off, voiceMode ? microphone[1] : 'off'],
         ['speaker', 'volume', r.speaker, voiceMode ? r.onOnStart : r.off, voiceMode ? 'selected' : 'off'],
       ] : [],
@@ -2929,17 +3018,21 @@ export class AithemaSession extends HTMLElement {
     this.#startRetryTimer = setTimeout(function startRetryTimer() { void refresh(); }, [2000, 4000, 8000][attempt]);
     this.#startRetryTimer.unref?.();
   }
-  #clearStartIntent() {
+  #clearStartIntent({ discardDraft = false } = {}) {
+    const input = this.shadowRoot.querySelector('textarea');
+    if (input) { input.readOnly = false; if (discardDraft && this.#startIntent?.combined) input.value = ''; }
     this.#clearStartRetry();
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#startFromNavigation = false; this.#checkingStartRestore = null;
     try { tabStorage()?.removeItem(START_INTENT_KEY); } catch { /* In-memory intent still works without storage. */ }
+    if (this.#combined && this.#session && this.shadowRoot.querySelector('.composer-mic') && !this.#erased) this.#render('composer');
   }
-  #readStartIntent(sessionId) {
+  #readStartIntent(sessionId, combined) {
     try {
       const storage = tabStorage(), value = storage?.getItem(START_INTENT_KEY);
       storage?.removeItem(START_INTENT_KEY);
       const intent = JSON.parse(value ?? 'null'), now = Date.now();
-      return intent?.sessionId === sessionId && ['type', 'voice'].includes(intent.mode) &&
+      return intent?.sessionId === sessionId && ['type', 'text', 'voice'].includes(intent.mode) &&
+        (!intent.combined || combined && typeof intent.draft === 'string' && intent.draft.length <= 8000) &&
         Number.isSafeInteger(intent.settingsRevision) && intent.settingsRevision >= 0 &&
         Number.isSafeInteger(intent.consentRevision) && intent.consentRevision >= 0 &&
         Number.isFinite(intent.expiresAt) && intent.expiresAt > now && intent.expiresAt <= now + startIntentTTL(intent.mode) ? intent : null;
@@ -2954,10 +3047,10 @@ export class AithemaSession extends HTMLElement {
     // sessionStorage can be copied into another window. Like the voice journal,
     // a live owner answering for this identity disproves a same-tab return.
     // Voice always stops at Start call, even when no identity proof is possible.
-    if (intent.mode === 'type') {
+    if (intent.mode === 'type' || intent.combined) {
       const sameTab = typeof intent.tabId === 'string' && await voiceCallAbandoned(intent.tabId);
       if (this.#startIntent !== intent || this.#checkingStartRestore !== intent) return;
-      if (!sameTab) { this.#clearStartIntent(); return; }
+      if (!sameTab) { this.#clearStartIntent({ discardDraft: true }); this.#render('composer'); return; }
     }
     this.#checkingStartRestore = null;
     this.#consumeStartIntent();
@@ -2968,7 +3061,8 @@ export class AithemaSession extends HTMLElement {
   }
   #expireStartIntent() {
     clearTimeout(this.#startIntentTimer);
-    this.#startIntentTimer = setTimeout(() => this.#clearStartIntent(), Math.max(0, this.#startIntent.expiresAt - Date.now()));
+    const expire = () => { this.#clearStartIntent({ discardDraft: true }); this.#render('composer'); };
+    this.#startIntentTimer = setTimeout(function startIntentTimer() { expire(); }, Math.max(0, this.#startIntent.expiresAt - Date.now()));
     this.#startIntentTimer.unref?.();
   }
   #mayFocus() {
@@ -2979,9 +3073,18 @@ export class AithemaSession extends HTMLElement {
   #consumeStartIntent({ settled = false } = {}) {
     const intent = this.#startIntent;
     if (!intent || this.#checkingStartRestore) return;
-    if (intent.expiresAt <= Date.now() || intent.sessionId !== this.#session.id || intent.mode !== this.#mode() ||
+    if (intent.expiresAt <= Date.now() || intent.sessionId !== this.#session.id || !this.#combined && intent.mode !== this.#mode() ||
       intent.settingsRevision !== this.#session.settings.revision || this.#session.consentWithdrawn || this.#session.tombstone) {
-      this.#clearStartIntent(); return;
+      this.#clearStartIntent({ discardDraft: true }); this.#render('composer'); return;
+    }
+    // A return consumes only a draft, never permission to submit or acquire media.
+    // Restore it even when the visitor returned without granting processing.
+    if (this.#combined && intent.combined && this.#startFromNavigation) {
+      this.#clearStartIntent();
+      this.shadowRoot.querySelector('textarea').value = intent.draft;
+      this.#inputMode = intent.mode; this.#render('composer');
+      if (this.#mayFocus()) this.shadowRoot.querySelector(intent.mode === 'voice' ? '.composer-mic' : 'textarea')?.focus({ preventScroll: true });
+      return;
     }
     // A lagging host ledger owns its refresh window. Only a settled verdict can cancel Start.
     if (this.#consentRefresh) return;
@@ -2992,11 +3095,54 @@ export class AithemaSession extends HTMLElement {
     if (this.#session.consentRevision <= intent.consentRevision || this.ownerDocument.visibilityState !== 'visible') return;
     const navigation = this.#startFromNavigation;
     this.#clearStartIntent(); // Consume before rendering or calling a host port.
+    if (this.#combined && intent.combined) {
+      this.#inputMode = intent.mode;
+      this.#render('composer');
+      if (intent.mode === 'voice' && !globalThis.navigator?.userActivation?.isActive) {
+        if (this.#mayFocus()) this.shadowRoot.querySelector(intent.mode === 'voice' ? '.composer-mic' : 'textarea')?.focus({ preventScroll: true });
+      } else this.#startCombined(intent.mode, intent.draft);
+      return;
+    }
     if (intent.mode === 'voice' && (navigation || !globalThis.navigator?.userActivation?.isActive)) {
       const focus = this.#mayFocus();
       this.#started = true; this.#inputMode = 'voice'; this.#render('transcript'); this.#render('composer');
       if (focus) this.shadowRoot.querySelector('.voice-start')?.focus({ preventScroll: true });
     } else this.#start();
+  }
+  #paintComposerMic(rail = this.#rail) {
+    if (!this.#combined) return;
+    const button = this.shadowRoot.querySelector('.composer-mic');
+    if (!button) return;
+    const active = Boolean(rail?.session), target = active ? rail.button('input') : null;
+    const feature = this.#feature('voice'), pending = Boolean(this.#startIntent);
+    button.disabled = pending || Boolean(this.#host?.usedUp) ||
+      (active ? target.disabled : !this.#voiceChoice() || !feature.available && !isConsentReason(feature.reason) ||
+        ['connecting', 'closing'].includes(rail?.state) || Boolean(rail?.busy));
+    const label = active ? target.title : this.#copy.voiceStart;
+    button.title = label; button.setAttribute('aria-label', label);
+    if (active) button.setAttribute('aria-pressed', String(rail.input)); else button.removeAttribute('aria-pressed');
+    const glyph = active && !rail.input ? 'muted' : 'mic';
+    if (button.dataset.glyph !== glyph) { button.innerHTML = icon('mic', { slash: glyph === 'muted' }); button.dataset.glyph = glyph; }
+    const blocked = !active && (rail?.errorKey === 'voiceMicDenied' || this.#microphone === 'denied');
+    const words = blocked ? resolveCopy(this.#copy, 'voiceMessagesNarrow.voiceMicDenied', 'voiceMicDenied', this.#session.locale)
+      : !active && rail?.errorKey ? resolveCopy(this.#copy, rail.errorKey, null, this.#session.locale) : '';
+    setText(this.shadowRoot.querySelector('.composer-status'), words);
+    if (!active && !feature.available && !isConsentReason(feature.reason)) button.title = this.#feature('voice', true).reason ?? label;
+  }
+  #startCombined(mode, draft = this.shadowRoot.querySelector('textarea').value) {
+    if (!this.#combined || this.#startIntent || this.#sending) return;
+    const feature = this.#feature(mode === 'voice' ? 'voice' : 'text');
+    this.#inputMode = mode;
+    if (!feature.available && isConsentReason(feature.reason)) {
+      this.#startIntent = { sessionId: this.#session.id, mode, combined: true, draft,
+        settingsRevision: this.#session.settings.revision, consentRevision: this.#session.consentRevision,
+        expiresAt: Date.now() + startIntentTTL(mode), tabId: crypto.randomUUID() };
+      try { tabStorage()?.setItem(START_INTENT_KEY, JSON.stringify(this.#startIntent)); } catch { /* Storage is optional. */ }
+      this.#expireStartIntent(); this.#render('composer'); this.#requestConsent('ready', undefined, 'start'); return;
+    }
+    if (!feature.available) return;
+    if (mode === 'voice') { if (this.#voiceChoice()) void this.#rail?.start({ focus: false }); }
+    else void this.#send(draft, { snapshot: true });
   }
   #start() {
     const mode = this.#mode(), feature = this.#feature(mode === 'voice' ? 'voice' : 'text');
@@ -3050,6 +3196,10 @@ export class AithemaSession extends HTMLElement {
   // ahead of a running reply. A withdrawn upload keeps the place it had on this page; one already
   // withdrawn when the page loaded has no time left (it was erased) and stands before the turns.
   #transcriptEntries(turns) {
+    const projected = openerTranscript(this.#session, {
+      visible: this.#stage() === 'live' || this.#options.entrance === 'combined',
+    });
+    if (projected !== this.#session.transcript) turns = projected;
     // Files of one request share a time; the order they were first seen breaks the tie (a state change
     // moves an upload to the end of the session's list).
     const uploads = (this.#session.uploads ?? []).map(upload => {
@@ -3058,9 +3208,11 @@ export class AithemaSession extends HTMLElement {
       return { key: `upload:${upload.id}`, upload, at: seen?.at ?? '', order: seen?.order ?? -1 };
     }).sort((a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : a.order - b.order);
     const entries = []; let next = 0;
+    const emailOffer = this.#host?.emailOffer?.entry;
     for (const turn of turns) {
       if (turn.at) while (next < uploads.length && uploads[next].at < turn.at) entries.push(uploads[next++]);
       entries.push({ key: turn.id, turn });
+      if (emailOffer?.at === turn.id) entries.push({ key: `email-offer:${turn.id}`, emailOffer });
       const lowLine = this.#host?.emailAsk?.lowLine ?? this.#host?.emailAsk?.reservedLowLine;
       if (lowLine?.at === turn.id) entries.push({ key: `email-low:${turn.id}`, lowLine });
     }
@@ -3295,10 +3447,13 @@ export class AithemaSession extends HTMLElement {
     button.textContent = details.length && details.every(d => d.open) ? this.#copy.collapse : this.#copy.expand;
     button.disabled = !details.length;
   }
-  async #send(answer) {
+  async #send(answer, { snapshot = false } = {}) {
     const root = this.shadowRoot, input = root.querySelector('textarea'), button = root.querySelector('.send');
-    const option = typeof answer === 'string', content = option ? answer : input.value;
+    const option = typeof answer === 'string' && !snapshot, content = typeof answer === 'string' ? answer : input.value;
+    if (this.#combined && this.#startIntent) return;
+    if (this.#combined && content.trim() && isConsentReason(this.#feature('text').reason)) { this.#startCombined('text', content); return; }
     if (this.#sending || !this.#feature('text').available || !content.trim()) return;
+    if (this.#combined) { this.#started = true; this.#inputMode = 'text'; this.#render('transcript'); }
     this.#rail?.notices.clear(); this.#rail?.clearMessage();
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content, !option); return; }
     this.#beginNavigation();
@@ -3313,9 +3468,9 @@ export class AithemaSession extends HTMLElement {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
       if (this.#erased) return;
       if (!response.ok) throw new Error();
-      const event = await response.json();
+      const result = await response.json(), event = result.event ?? result;
       if (this.#erased || sessionId !== this.#session.id) return;
-      this.receive(event);
+      for (const saved of result.events ?? [event]) this.receive(saved);
       const voiceText = voiceSession && voiceSession === this.#rail.session && event.data.voiceCallId === voiceSession.callId;
       if (voiceText) {
         await this.#rail.sendText(content, { deliveryId: this.#pending.clientEventId });
@@ -3338,6 +3493,8 @@ export class AithemaSession extends HTMLElement {
     try {
       await device.connect({ signal: controller.signal, deadlineAt });
       if (!current()) return;
+      const opener = hostOpenerTurn(this.#session);
+      if (opener) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: opener });
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
       if (clearInput && input.value === content) input.value = '';
       const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
@@ -3360,7 +3517,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#erased) return;
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.type === 'session.not-found') { void this.#observeResponse(event.data.url, event.data.response); return; }
-    if (event.type === 'session.erased') { this.#clearStartIntent(); this.#erasureJournal = event; this.#enterErased(this.#session.id, 'journal'); return; }
+    if (event.type === 'session.erased') { this.#clearStartIntent({ discardDraft: true }); this.#erasureJournal = event; this.#enterErased(this.#session.id, 'journal'); return; }
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.seq) {
       if (event.seq <= this.#cursor) return;
@@ -3369,7 +3526,8 @@ export class AithemaSession extends HTMLElement {
       // Draft-only saves advance consent without invalidating the conversation,
       // matching the core reducer's checks before preserving browser processing.
       const consentRevised = event.type === 'consent.revised';
-      if (event.type === 'settings.changed' || event.type === 'turn.withdrawn' || consentRevised && !event.data.granted) this.#clearStartIntent();
+      if (event.type === 'settings.changed') this.#clearStartIntent();
+      if (event.type === 'turn.withdrawn' || consentRevised && !event.data.granted) this.#clearStartIntent({ discardDraft: true });
       if (consentRevised) { this.#watchConsentRefresh(event.data.granted, event.data.changed, event.data.removed); this.#concept.reviseConsent(event.data.changed, event.data.granted, event.data.removed); }
       const conversationUnchanged = consentRevised && event.data.granted &&
         event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
@@ -3377,6 +3535,9 @@ export class AithemaSession extends HTMLElement {
         consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
+        const replyDialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+        if (replyDialog?.open) replyDialog.close();
+        replyDialog?.querySelector('.voice-reply-text')?.replaceChildren();
         this.#navigation = null;
         this.#clearLaneStatusPending();
         this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyDiagnostics.clear();
@@ -3592,6 +3753,7 @@ export class AithemaSession extends HTMLElement {
     // An erased conversation has no server snapshot: any read can only 404 (AIT-464).
     if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone) return;
     const sessionId = this.#session.id, startCursor = this.#cursor, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
+    const operationsAtRead = this.#session.operations;
     // A read begun before the local listening acknowledgement cannot repaint
     // its cached paused verdict afterward, even within the same rail generation.
     const projectionRevision = this.#voiceResumeRevision, resume = this.#voiceResumeProjection;
@@ -3659,8 +3821,13 @@ export class AithemaSession extends HTMLElement {
         else this.#voiceResumeProjection = null;
       }
       this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
+      const openerChanged = JSON.stringify(this.#session.opener) !== JSON.stringify(session.opener);
+      if ('opener' in session) this.#session.opener = session.opener; else delete this.#session.opener;
+      if (openerChanged) this.#render('transcript');
       if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
-      if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
+      // Lane statuses are volatile and can advance without a journal sequence.
+      // A read started before a newer status cannot restore its old busy state.
+      if (session.operations && this.#session.operations === operationsAtRead) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting
       // projection cannot undo the visitor's local terminal intent.
       if (session.voiceLifecycle && session.voiceLifecycle.callId !== this.#rail?.endedCall?.callId) this.#rail?.receiveState(session.voiceLifecycle);

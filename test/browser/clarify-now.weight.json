@@ -19,5 +19,13 @@
         ]
       }
     ]
+  },
+  "diagnostic": {
+    "seconds": 378.094,
+    "evidence": "AIT-524 matrix shard-budget reservation. CI 43727987124 attempt 1, SHA 0e2e784f33f101295800e6fe8bad992b3f6e9353 (PR merge ref), browser-timings-8-of-9/batch-0.jsonl: clarify-now completed successfully, 17/17 tests, 13 top-level workloads, 302.474510797s summed work, 302.620380580s whole file. Shard later cancelled at the 10-minute job limit; no complete shard summary. Round summed work upward to milliseconds (302.475s), then apply the repo 25% warmup margin and round upward to milliseconds: 378.094s. Effective diagnostic floor in scripts/browser-shards.js; PR timing is excluded from trusted rolling-main samples.",
+    "runId": "43727987124",
+    "attempt": 1,
+    "sha": "0e2e784f33f101295800e6fe8bad992b3f6e9353",
+    "workload": "811ef37378b8a715f15b9cdd7c06ea091a2111db732c97d56843b3cf9deb0a60"
   }
 }

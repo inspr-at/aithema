@@ -192,6 +192,7 @@ export class AudioRail {
     if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
     if (this.errorKey === 'voiceEnded' && this.endedCall?.visitorDurationSource === 'aithema-measured') return this.copy.voiceEndedAithemaMeasured;
     if (this.errorKey === 'voiceConnectFailed') return resolveCopy(this.copy, 'voiceConnectFailed', 'voiceConnectionFailed', this.locale?.()) ?? this.copy.voiceConnectionFailed;
+    if (this.errorKey === 'voiceIdleEnded') return resolveCopy(this.copy, 'voiceIdleEnded', 'voiceEnded', this.locale?.()) ?? this.copy.voiceEnded;
     if (this.errorKey === 'voiceTimeLimit') return resolveCopy(this.copy, 'voiceTimeLimit', 'voiceDeadline', this.locale?.()) ?? this.copy.voiceDeadline;
     return this.copy[this.errorKey] ?? this.copy.voiceConnectionFailed;
   }
@@ -233,7 +234,7 @@ export class AudioRail {
     this.root.dataset.startupPhase = this.startupPhase ?? '';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
     this.root.toggleAttribute('data-moved', Boolean(this.moved));
-    this.root.toggleAttribute('data-time-bound', Boolean(this.timeBoundEnd || this.errorKey === 'voiceTimeLimit'));
+    this.root.toggleAttribute('data-time-bound', Boolean(this.timeBoundEnd || ['voiceTimeLimit', 'voiceIdleEnded'].includes(this.errorKey)));
     this.root.toggleAttribute('data-message', !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded', 'voiceMoved'].includes(this.errorKey));
     const dismiss = this.root.querySelector('.voice-message-close');
     dismiss.hidden = this.state !== 'failed' || !this.root.hasAttribute('data-message');

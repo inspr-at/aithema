@@ -672,3 +672,22 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
+
+for (const state of ['accepted', 'unreadable']) test(`AIT-507 integration: ${state} document reveals capture without advancing the message threshold`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+  const { c, root } = setup(t, { host: { verification: { delivery: true, privacyDocumentConfigured: true }, credits: true },
+    session: { emailOffer: { afterMessages: 1 }, identity: locked(),
+      transcript: [{ id: 'host:opener', role: 'assistant', origin: 'host', content: 'Welcome.' }] },
+    routes: { 'GET /identity': () => Response.json({ identity: locked(), delivery: true, privacyDocumentConfigured: true, visitorEmail: { canSave: true, canDelete: true } }),
+      'GET /visitor/email': () => Response.json({ visitor: { address: null }, notice: { version: 'fixture-notice' }, privacyDocumentConfigured: true }) } });
+  await tick(12);
+  assert.equal(root.querySelector('.workspace').dataset.understanding, 'absent');
+  assert.equal(root.querySelector('.host-verify').hidden, true);
+  assert.equal(root.querySelector('.verify-lock').hidden, true);
+  c.receive({ seq: c.session.seq + 1, type: 'upload.state', data: { id: 'document', state, filename: 'requirements.txt', at: new Date().toISOString(), text: 'Requirements.' } });
+  await tick(12);
+  assert.equal(root.querySelector('.workspace').dataset.understanding, 'present');
+  assert.equal(root.querySelector('.host-verify').hidden, false);
+  assert.equal(root.querySelector('.verify-lock').hidden, false);
+  assert.equal(root.querySelector('.email-offer'), null, 'document input does not advance the accepted-message count');
+});

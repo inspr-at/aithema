@@ -5,9 +5,10 @@ import { CONVERSATION_LIMIT_MS, PluginError } from '@inspr/aithema-core';
  * Expiry never cancels text jobs or mutates their budget reservations. */
 export function createConversationLimits({ storage, now = Date.now, durationMs = CONVERSATION_LIMIT_MS, publish = () => {} }) {
   const timers = new Map();
+  let conversationLimit = 'time';
   function cancel(id) { clearTimeout(timers.get(id)?.timer); timers.delete(id); }
   function arm(id, state) {
-    if (state?.status !== 'active') { cancel(id); return; }
+    if (state?.status !== 'active' || state.timed === false) { cancel(id); return; }
     if (timers.get(id)?.endsAt === state.endsAt) return;
     cancel(id);
     const timer = setTimeout(() => {
@@ -20,27 +21,34 @@ export function createConversationLimits({ storage, now = Date.now, durationMs =
     timer.unref?.(); timers.set(id, { timer, endsAt: state.endsAt });
   }
   function transition(id, event, ownerToken) {
-    const result = storage.transitionCredits(id, ownerToken, { ...event, now: now() }, { durationMs });
+    const result = storage.transitionCredits(id, ownerToken, { ...event, now: now() }, { durationMs, conversationLimit });
     arm(id, result.state);
     for (const e of result.events) publish(id, e);
     return result.state;
   }
   function check(id) {
     let state = storage.creditState(id);
-    if (state?.status === 'active' && Math.max(now(), state.lastNow) >= state.endsAt) state = transition(id, { type: 'tick' });
+    if (state?.timed !== false && state?.status === 'active' && Math.max(now(), state.lastNow) >= state.endsAt) state = transition(id, { type: 'tick' });
     return ['ending', 'ended'].includes(state?.status) ? state.endReason ?? 'session' : null;
   }
   return {
     configure(options) {
+      const policy = options.conversationLimit === undefined ? conversationLimit : options.conversationLimit;
+      if (!['time', 'credits'].includes(policy)) throw new TypeError('Invalid conversation limit policy');
+      conversationLimit = policy;
       now = options.now ?? now; publish = options.publish ?? publish;
       durationMs = options.durationMs ?? durationMs;
       if (!Number.isSafeInteger(durationMs) || durationMs < 1 || durationMs > CONVERSATION_LIMIT_MS) throw new TypeError('Invalid conversation deadline');
     },
     transition,
+    policy(id) {
+      const state = storage.creditState(id);
+      return state?.timed === false || !state && conversationLimit === 'credits' ? 'credits' : 'time';
+    },
     reason(id) {
       const state = storage.creditState(id);
       if (['ending', 'ended'].includes(state?.status)) return state.endReason ?? 'session';
-      return state?.status === 'active' && Math.max(now(), state.lastNow) >= state.endsAt ? 'one-hour' : null;
+      return state?.timed !== false && state?.status === 'active' && Math.max(now(), state.lastNow) >= state.endsAt ? 'one-hour' : null;
     },
     assertOpen(id) { const reason = check(id); if (reason) throw new PluginError('not-admitted', reason); },
     start(id) {
@@ -53,6 +61,10 @@ export function createConversationLimits({ storage, now = Date.now, durationMs =
     resume(onEnd = () => {}) {
       for (const id of storage.list()) {
         if (storage.get(id).tombstone) continue;
+        const state = storage.creditState(id);
+        if (conversationLimit === 'credits' && state?.timed !== false && ['ready', 'active'].includes(state?.status)) {
+          transition(id, { type: 'guard-migrate' });
+        }
         const reason = check(id);
         if (reason) onEnd(id, reason);
         arm(id, storage.creditState(id));
