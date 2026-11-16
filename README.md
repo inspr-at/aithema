@@ -549,7 +549,9 @@ microphone and Send side by side from first paint, with the existing processing
 notice (selected processing details plus the AI/voice disclosure) below the
 controls in a top-anchored frame. At 600 px and wider the notice uses its
 intrinsic height (up to 8.7em), growing down from the top of a slot sized
-from the actual processing-choice notices at the current width; phones show the first AI-disclosure sentence
+from the actual processing-choice notices at the current width. The desktop frame
+reserves the fixed footer inside the configured host height, so the full notice
+remains readable above it. Phones show the first AI-disclosure sentence
 and a **More** / **Mehr** button opening the full notice in a native dialog.
 `copy.composerNoticeMore` overrides that button label. The full text retains
 `aiNotice` then `copy.aiNotice` precedence, plus existing

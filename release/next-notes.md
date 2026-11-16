@@ -5,7 +5,8 @@
 - Combined entrance: top-anchored control frame with intrinsic notice below
   the field and feedback/status rows. The notice slot measures the actual
   processing-choice strings per width; its visible frame grows downward without
-  moving those controls. Phones show the first AI-disclosure
+  moving those controls. Desktop layout reserves the fixed footer inside the
+  configured host height, keeping the full notice above it. Phones show the first AI-disclosure
   sentence and a native-dialog disclosure. New additive copy key
   `copy.composerNoticeMore`: EN “More”, DE “Mehr”. Existing `aiNotice`,
   `copy.aiNotice` and `copy.settings.processingDetails` precedence is retained.
