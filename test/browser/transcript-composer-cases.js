@@ -327,6 +327,35 @@ export async function transcriptComposerCases(t) {
       }
     }
   });
+  await t.test('a late question preserves the next draft and its card/reply budget', async () => {
+    for (const [width, height] of [[1024, 640], [1440, 640], [390, 844]]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+      await reset(width, height, locale, theme, { voice: true }); await draft(page, 12);
+      await shadow(page, c => { globalThis.composerPending = Promise.withResolvers(); c.shadowRoot.querySelector('form.composer').requestSubmit(); });
+      await draft(page, 30); await settleEvidenceFrame(page);
+      await page.evaluate(() => globalThis.composerPending.resolve());
+      await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled);
+      await settleEvidenceFrame(page);
+      const label = `ait-513-late-card-${locale}-${theme}-${width}x${height}`;
+      const before = await capture(`${label}-draft`);
+      await shadow(page, async c => {
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        const question = c.session.locale === 'de' ? 'Welche Option passt?' : 'Which option fits?';
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'late-question', role: 'assistant', inputRevision: inputRevision(c.session),
+          content: question, question_short: question, options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
+      });
+      await settleEvidenceFrame(page); const after = await capture(label);
+      records.push({ label, before, after });
+      assert.equal(after.value, before.value, 'a late reply preserves the separate next draft');
+      assert.deepEqual(after.boxes['.composer'], before.boxes['.composer'], 'an asynchronous question never resizes the composer');
+      stable(before, after, 'late question');
+      for (const state of [before, after]) positive(state.boxes['.audio-rail'], 'late question audio rail');
+      assert.deepEqual(after.boxes['.audio-rail'], before.boxes['.audio-rail'], 'late question audio rail stays fixed');
+      positive(after.boxes['.qcard'], 'late question card'); positive(after.boxes['.qopts'], 'late question options');
+      assert.ok(after.boxes['.qcard'].height >= 150, 'a late card retains its 150px minimum');
+      assert.ok(after.boxes['.transcript-shell'].height >= 128, 'a late question retains the 128px reply floor');
+      assert.ok(after.boxes['.qopts'].height >= 44, 'a late question keeps an answer reachable');
+    }
+  });
   await t.test('failed send retains height; chip retains draft; successful typed send resets', async () => {
     await reset(1440, 900, 'en', 'light', { card: true }); await draft(page, 12); await settleEvidenceFrame(page);
     const grown = await geometry(page);
