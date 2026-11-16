@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PluginRegistry } from '@inspr/aithema-core';
 import { SQLiteStorage, createPluginRuntime, createHandlers } from '../src/index.js';
+import { createVoiceHandlers } from '../src/voice-handlers.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { manifest as elevenManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { manifest as grokManifest } from '../../../plugins/grok-voice/src/manifest.js';
@@ -121,6 +122,63 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
     await handlers.idle();
     assert.equal(h.storage.voiceLifecycle(h.session.id, 'active-call').state, 'ended');
     assert.deepEqual(closed, ['voice-host-unavailable']);
+  });
+  for (const explicit of [false, true]) test(`AIT-537: ${manifest.id} configuration-refused ${explicit ? 'Resume' : 'recovery'} ends a waiting call and releases the other tab`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+    const h = fixture(t, manifest), published = [], closed = [];
+    let operations, generation = 0;
+    const adapter = { bindCallbacks(ports) { operations = ports; return { callbackRoutes: [] }; } };
+    const plugin = h.registry.get(manifest.id);
+    plugin.ports = { serverAdapter: adapter };
+    plugin.start = async (request, options) => {
+      await options.attempt.consume();
+      const record = { ...request, providerSessionId: `offline-call-${++generation}`, startedAt: Date.now(),
+        spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt };
+      h.storage.saveVoiceCall(h.session.id, record);
+      return { ...record, signal: new AbortController().signal, snapshot: () => record,
+        async close(reason) {
+          const terminal = { attemptId: options.attempt.attemptId, providerSessionId: record.providerSessionId,
+            outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
+            usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } };
+          await options.report(terminal);
+          h.storage.saveVoiceCall(h.session.id, { ...record, reason, endedAt: Date.now(), terminal });
+          return terminal;
+        } };
+    };
+    const handlers = createVoiceHandlers({ storage: h.storage, runtime: h.runtime, callbackAdapter: adapter,
+      ownership: { token: () => h.owner }, readBody: async request => new Uint8Array(await request.arrayBuffer()),
+      publish: (id, event) => published.push({ id, ...event }), onClose: id => closed.push(id) });
+    t.after(() => handlers.close());
+    const post = (suffix, body) => handlers.handle(new Request(`https://host.example.test/api/sessions/${h.session.id}/voice${suffix}`, {
+      method: 'POST', body: JSON.stringify(body) }));
+    const started = await post('', { callId: 'waiting-call', tabId: 'first-tab' });
+    assert.equal(started.status, 201);
+    const receipt = await started.json(), authority = operations.getCall('waiting-call').signal;
+    assert.equal((await post('/waiting-call/close', { ...receipt, tabId: 'first-tab', reason: 'browser-liveness-deadline' })).status, 200);
+    await handlers.idle();
+    assert.equal(h.storage.voiceLifecycle(h.session.id, 'waiting-call').state, 'waiting');
+    assert.equal(operations.getCall('waiting-call'), null, 'settled transport must leave no live entry');
+    assert.equal(authority.aborted, false, 'recoverable closure retains logical authority');
+    published.length = 0; closed.length = 0;
+    h.model.bindings.reaction = h.understanding;
+    const refused = await post('/waiting-call/recover', { ...receipt, tabId: 'first-tab', explicit });
+    assert.equal(refused.status, 403);
+    assert.deepEqual(await refused.json(), { error: 'not-admitted', reason: 'voice-host-unavailable' });
+    await handlers.idle();
+    const logical = h.storage.voiceLifecycle(h.session.id, 'waiting-call');
+    assert.equal(logical.state, 'ended');
+    assert.equal(logical.terminalReason, 'voice-host-unavailable');
+    assert.ok(published.some(event => event.id === h.session.id && event.type === 'voice.state' &&
+      event.data.callId === 'waiting-call' && event.data.state === 'ended' && event.data.reason === 'voice-host-unavailable'),
+    'other tabs receive the terminal lifecycle');
+    assert.equal(authority.aborted, true, 'configuration refusal aborts logical authority');
+    assert.deepEqual(closed, [h.session.id], 'refused continuations retain the terminal close hook');
+    assert.equal(generation, 1, 'refused admission never starts another provider');
+    assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, 1);
+    h.model.bindings.reaction = h.reaction;
+    const fresh = await post('', { callId: 'other-tab-call', tabId: 'other-tab' });
+    assert.equal(fresh.status, 201, 'a fresh start in another tab must not get a stale-ownership 409');
+    assert.equal(generation, 2);
   });
   test(`AIT-397: ${manifest.id} invalid custom host returns only the neutral visitor failure`, async t => {
     const h = fixture(t, manifest, failures.missing);
