@@ -543,17 +543,24 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
           ...(c.shadowRoot.querySelector('.email-offer') ? ['.email-offer'] : [])];
         return Object.fromEntries(selectors.map(selector => {
           const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
-          return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }];
+          // An inline offer can scroll partially out of its reading pane. Keep
+          // the full positive box and separately record its actual paint clip.
+          const clip = selector === '.email-offer' ? c.shadowRoot.querySelector('.conversation-scroll').getBoundingClientRect() : null;
+          return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom,
+            ...(clip ? { clip: { x: clip.x, y: clip.y, right: clip.right, bottom: clip.bottom } } : {}) }];
         }));
       });
+      if (evidence) await writeFile(join(evidence, `${prefix}-${state}-clearance.json`), JSON.stringify(layout, null, 2));
       for (const [selector, r] of Object.entries(layout)) assert.ok(r.w > 0 && r.h > 0, `${state} ${selector} positive`);
       const entries = Object.entries(layout);
       for (let i = 0; i < entries.length; i++) for (let j = i + 1; j < entries.length; j++) {
         const [a, ar] = entries[i], [b, br] = entries[j];
-        assert.ok(Math.min(ar.right, br.right) - Math.max(ar.x, br.x) <= .5 || Math.min(ar.bottom, br.bottom) - Math.max(ar.y, br.y) <= .5,
+        const visible = r => r.clip ? { x: Math.max(r.x, r.clip.x), y: Math.max(r.y, r.clip.y),
+          right: Math.min(r.right, r.clip.right), bottom: Math.min(r.bottom, r.clip.bottom) } : r;
+        const av = visible(ar), bv = visible(br);
+        assert.ok(Math.min(av.right, bv.right) - Math.max(av.x, bv.x) <= .5 || Math.min(av.bottom, bv.bottom) - Math.max(av.y, bv.y) <= .5,
           `${state}: ${a} and ${b} do not overlap`);
       }
-      if (evidence) await writeFile(join(evidence, `${prefix}-${state}-clearance.json`), JSON.stringify(layout, null, 2));
     };
     if (entrance === 'combined') await waitForShadow(page, '.email-offer');
     await clearances('idle'); await shot('idle');
@@ -645,7 +652,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     // A real document-type refusal must survive image send (AIT-280 / AIT-510).
     await inShadow(page, c => {
       const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.unknown', { type: 'application/octet-stream' }));
-      c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
+      c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
     });
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('fixture.unknown'));
     const documentNotice = await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
@@ -697,7 +704,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     changes.push({ reason: 'withheld', rects: withheld });
     await inShadow(page, c => {
       const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.heic', { type: 'image/heic' }));
-      c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
+      c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
     });
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.image-refusals')?.textContent.includes('fixture.heic'));
     assert.equal(await page.evaluate(() => window.imageSeq), 1, 'HEIC is refused before upload');
