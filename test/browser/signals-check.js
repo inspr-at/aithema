@@ -17,7 +17,7 @@ const settle = page => shadow(page, async c => {
 test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440', { timeout: 480_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-signals-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
-  const browser = await browserForFile(), page = await browser.newPage(), errors = [], rects = [];
+  const browser = await browserForFile(), page = await browser.newPage(), errors = [], rects = [], reachability = [];
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   page.on('pageerror', e => errors.push(e.message));
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
@@ -70,11 +70,44 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.ok(attach.x + attach.width <= send.x + .5, 'Attach and Send never overlap');
     const separated = aside.x + aside.width <= composer.x + .5 || composer.x + composer.width <= aside.x + .5
       || aside.bottom <= composer.y + .5 || composer.bottom <= aside.y + .5;
-    if (!separated && evidence) {
+    if (!separated && evidence && page.viewport().width > 600) {
       await writeFile(join(evidence, 'signals-overlap.json'), JSON.stringify({ viewport: page.viewport(), result }, null, 2));
       await page.screenshot({ path: join(evidence, 'shots', 'signals-overlap.png') });
     }
-    assert.ok(separated, `sidebar and composer never overlap: ${JSON.stringify({ aside, composer })}`);
+    if (page.viewport().width > 600) {
+      assert.ok(separated, `sidebar and composer never overlap: ${JSON.stringify({ aside, composer })}`);
+    } else {
+      // The shared phone dock intentionally overlays the scrolling document.
+      // R2: prove each control reachable above it, rather than card separation.
+      const reachable = await shadow(page, c => {
+        const root = c.shadowRoot, workspace = root.querySelector('.workspace');
+        const origins = [document.scrollingElement, ...root.querySelectorAll('*')]
+          .filter(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth)
+          .map(n => [n, n.scrollTop, n.scrollLeft]);
+        const controls = [...root.querySelectorAll('.understanding :is(button,a,input,textarea,select,[tabindex])')]
+          .filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden');
+        const checks = controls.map(n => {
+          n.scrollIntoView({ block: 'center', behavior: 'instant' });
+          const dock = root.querySelector('.composer-shell').getBoundingClientRect();
+          const before = n.getBoundingClientRect();
+          if (before.bottom > dock.top - 12) window.scrollBy({ top: before.bottom - dock.top + 12, behavior: 'instant' });
+          const box = n.getBoundingClientRect(), hit = root.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          return { control: n.className, box: box.toJSON(), dock: dock.toJSON(), hit: hit === n || n.contains(hit) };
+        });
+        const inset = parseFloat(getComputedStyle(workspace).paddingBottom);
+        for (const [n, top, left] of origins) n.scrollTo({ top, left, behavior: 'instant' });
+        return { checks, inset };
+      });
+      assert.ok(reachable.checks.length > 0, 'phone overview has reachable controls');
+      for (const { control, box, dock, hit } of reachable.checks) {
+        assert.ok(box.width > 0 && box.height > 0, `${control} positive reachable box`);
+        assert.ok(box.top >= 0 && box.bottom <= dock.top + .5, `${control} scrolls fully above the composer: ${JSON.stringify({ box, dock })}`);
+        assert.equal(hit, true, `${control} receives the pointer above the composer`);
+        assert.ok(reachable.inset >= dock.height, 'phone bottom inset reserves at least the composer height');
+      }
+      reachability.push({ viewport: page.viewport(), ...reachable });
+      await settle(page);
+    }
     return result;
   };
   const stable = (before, after, name) => {
@@ -107,7 +140,14 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
       window.signalFinal(window.signalValues);
     }, locale, theme, voiceManifest, entrance);
     await settle(page);
-    await shadow(page, c => c.shadowRoot.querySelector('.signals-section').scrollIntoView({ block: 'nearest' }));
+    await shadow(page, c => {
+      const row = c.shadowRoot.querySelector('.signals li');
+      row.scrollIntoView({ block: 'center', behavior: 'instant' });
+      if (innerWidth <= 600) {
+        const box = row.getBoundingClientRect(), dock = c.shadowRoot.querySelector('.composer-shell').getBoundingClientRect();
+        if (box.bottom > dock.top - 24) window.scrollBy({ top: box.bottom - dock.top + 24, behavior: 'instant' });
+      }
+    });
     await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-text').length), 5);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.signal-basis').length), 1);
@@ -145,5 +185,5 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('[data-signal-new]').length), 0);
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'signals-rects.json'), JSON.stringify({ rects, errors }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'signals-rects.json'), JSON.stringify({ rects, reachability, errors }, null, 2));
 });
