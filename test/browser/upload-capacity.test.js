@@ -558,6 +558,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     await clearances('pending'); await shot('pending');
     if (entrance === 'combined' && width === 390) for (const height of [620, 568]) {
       await resize(height);
+      await clearances(`short-${height}-pending`); await shot(`short-${height}-pending`);
       const shortBefore = await boxes();
       for (const r of Object.values(shortBefore)) assert.ok(r.w > 0 && r.h > 0, 'positive short-phone baseline');
       await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
@@ -605,6 +606,11 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     });
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-image .image-thumbnail')?.naturalWidth === 1);
     await clearances('ready'); await shot('ready');
+    const shortState = async state => {
+      if (entrance !== 'combined' || width !== 390) return;
+      await resize(568); await clearances(`short-568-${state}`); await shot(`short-568-${state}`); await resize(900);
+    };
+    await shortState('ready');
     if (width === 390) {
       await resize(530);
       await inShadow(page, c => c.shadowRoot.querySelector('textarea').focus());
@@ -637,7 +643,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       c.shadowRoot.querySelector('.send').click();
     });
     await page.waitForFunction(() => window.imagePosts.length === 1);
-    await clearances('sending'); await shot('sending');
+    await clearances('sending'); await shot('sending'); await shortState('sending');
     await page.evaluate(() => { window.releaseImageSend(); window.imageSendDelay = null; });
     const post = await page.evaluate(() => window.imagePosts[0]); assert.equal(post.content, ''); assert.equal(post.attachments.length, 1);
     await inShadow(page, async c => {
@@ -648,7 +654,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     await waitForShadow(page, '.turn .image-thumbnail');
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.turn .image-thumbnail')?.naturalWidth === 1);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), documentNotice, 'document notice survives image send');
-    await clearances('sent-document-notice'); await shot('sent-document-notice');
+    await clearances('sent-document-notice'); await shot('sent-document-notice'); await shortState('sent-document-notice');
     await shot('sent');
     const tileBefore = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
     assert.ok(tileBefore.w > 0 && tileBefore.h > 0);
