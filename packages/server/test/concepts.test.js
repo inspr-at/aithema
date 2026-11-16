@@ -12,12 +12,15 @@ import { createOpenAIImages } from '../../../plugins/openai-images/src/index.js'
 import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
 import { png, withCredential, credentialFixtures } from '../../../test/image-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function setup(t, { path = ':memory:', intercept, references, budgetOptions, consent: supplied, imageBinding = localImageBinding, voice = false, understanding } = {}) {
+async function setup(t, { path = ':memory:', intercept, references, budgetOptions, consent: supplied, imageBinding = localImageBinding, scopedImages = false, voice = false, understanding } = {}) {
   const storage = new SQLiteStorage(path), reasoning = createMockReasoning(), images = createLocalImages({ delayMs: 1 });
   const consent = supplied ?? createMemoryConsentLedger(), presets = mockPresets();
   presets.best.plugins.push(images.manifest.id); presets.best.bindings.images = imageBinding; presets.best.policy = { endpoints: [imageBinding.endpoint] };
   const { imageCost, ...common } = imageBinding;
-  const selectedImages = imageBinding.maxMicro === 0 ? images : { ...images, binding: common };
+  // A scoped fixture delegates to the offline renderer without retaining its
+  // private local-provider identity, whose consent purpose is mock-conversation.
+  const selectedImages = imageBinding.maxMicro === 0 ? images : { ...images, binding: common,
+    ...(scopedImages ? { generate: (...args) => images.generate(...args) } : {}) };
   const registry = new PluginRegistry().register(reasoning).register(selectedImages), budget = new SQLiteBudgetLedger(storage, budgetOptions);
   const secrets = createFacadeSecrets();
   if (voice) { registry.register(createLocalVoiceProvider({ storage, revokeFacade: secrets.revoke, provisionFacade: () => {} })); presets.best.plugins.push('fake-voice'); presets.best.bindings.voice = localVoiceBinding; }
@@ -485,4 +488,92 @@ test('references prefer latest liked base and exactly one archived rejection', a
   await h.request('fourth', `/${first.id}/regenerate`); await h.handlers.idle();
   assert.deepEqual(h.records[3].spec.references.map(r => r.role), ['previous', 'rejected']);
   assert.deepEqual(h.records[3].spec.references[1].bytes, h.storage.conceptArtifact(h.id, third.id).bytes);
+});
+
+test('AIT-509: a dispatch-ready wish blocked only by image consent waits without claiming or spending', async t => {
+  const h = await setup(t); await h.turn('first'); h.readiness();
+  // Record under normal permission, then refuse only the visual producer before dispatch.
+  h.handlers.conceptLane.recordIntent(h.id, { intentId: 'validated-wish', sourceTurnId: 'first' });
+  const matrix = h.runtime.matrix.bind(h.runtime);
+  h.runtime.matrix = async session => { const m = await matrix(session); m.best.images = { available: false, reason: 'current processing consent required' }; return m; };
+  await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
+  const session = h.storage.get(h.id);
+  assert.equal(h.records.length, 0);
+  assert.equal(session.conceptStatus.phase, 'waiting');
+  assert.deepEqual(session.conceptStatus.consentRequest, { id: 'validated-wish', sourceTurnId: 'first' });
+  assert.equal(session.conceptIntent.visualIntent, null, 'a later grant alone is never a spending request');
+  assert.equal(session.conceptIntent.attemptedRevisions.length, 0, 'consent does not consume the cadence claim');
+  h.runtime.matrix = matrix;
+  await h.handlers.conceptLane.run(h.id); assert.equal(h.records.length, 0);
+  await h.request('consented-wish'); await h.handlers.idle(); assert.equal(h.records.length, 1);
+});
+test('AIT-509: only a corroborated current model wish at the readiness threshold asks for image consent', async t => {
+  const quote = 'For this dashboard, please show a visual concept.';
+  const h = await setup(t, { understanding: raw => ({ ...raw, conceptIntent: { request_quote: quote },
+    constraints: Object.fromEntries(h.session.preset.slots.map(slot => [slot, { value: 'Dashboard', evidence: quote }])),
+    progress: { talk: { ...raw.progress.talk, value: h.session.preset.talkThreshold }, build: { ...raw.progress.build, value: 1 } },
+  }) });
+  const matrix = h.runtime.matrix.bind(h.runtime);
+  h.runtime.matrix = async session => { const m = await matrix(session); m.best.images = { available: false, reason: 'current processing consent required' }; return m; };
+  await h.turn('ordinary', 'A dashboard could help.');
+  assert.equal(h.storage.get(h.id).conceptStatus.consentRequest, undefined, 'ordinary talk cannot manufacture consent intent');
+  await h.turn('wish', quote);
+  assert.equal(h.records.length, 0);
+  assert.deepEqual(h.storage.get(h.id).conceptStatus.consentRequest, { id: 'wish', sourceTurnId: 'wish' });
+});
+test('AIT-509: the real scoped consent POST preserves replies and cannot replay the deferred wish', async t => {
+  let images = false;
+  const binding = paidBinding(); binding.legal.purpose = 'images-fixture';
+  const consent = {
+    coverage(args) { return args.scope.purpose === 'images-fixture' && !images ? { covered: false } : exactConsent.coverage(args); },
+    describe() { return { contract: 'scoped-images-v1', selected: ['mock-processing', ...(images ? ['images-fixture'] : [])],
+      items: ['mock-processing', 'images-fixture'].map(id => ({ id, version: 1, title: id, recipients: 'Offline processor', text: 'Fixture processing' })) }; },
+    grant({ decision }) { if (decision) images = decision.items.includes('images-fixture'); return true; },
+    conversationUnchanged: () => true,
+  };
+  const h = await setup(t, { imageBinding: binding, scopedImages: true, consent }); await h.turn('first'); h.readiness();
+  const reply = h.storage.get(h.id).transcript.find(turn => turn.role === 'assistant'); assert.ok(reply);
+  h.handlers.conceptLane.recordIntent(h.id, { intentId: 'scoped-wish', sourceTurnId: 'first' });
+  await h.handlers.conceptLane.run(h.id);
+  assert.equal(h.storage.get(h.id).conceptStatus.phase, 'waiting'); assert.equal(h.records.length, 0);
+  const doc = await (await h.call('consent')).json();
+  assert.deepEqual(doc.features.images, ['images-fixture']);
+  const granted = await h.call('consent', { granted: true, processing: { contract: doc.contract,
+    revision: doc.consentRevision, items: ['mock-processing', 'images-fixture'] } });
+  assert.equal(granted.status, 200); await h.handlers.idle();
+  assert.equal(h.records.length, 0, 'the authoritative grant alone never spends');
+  const kept = h.storage.get(h.id).transcript.find(turn => turn.id === reply.id);
+  assert.equal(kept.content, reply.content); assert.equal(Boolean(kept.erased), false);
+  assert.equal((await h.request('approved-wish')).status, 202); await h.handlers.idle();
+  assert.equal((await h.request('approved-wish')).status, 200); await h.handlers.idle();
+  assert.equal(h.records.length, 1, 'the continuation goes through the existing idempotency gate');
+});
+
+for (const outcome of ['grant', 'decline', 'input']) test(`AIT-509 r10: wish before readiness survives later turns; ${outcome}`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const h = await setup(t); await h.turn('wish', 'Please show a concept for the dashboard.'); h.readiness(15);
+  h.handlers.conceptLane.recordIntent(h.id, { intentId: 'early-wish', sourceTurnId: 'wish' });
+  const matrix = h.runtime.matrix.bind(h.runtime);
+  h.runtime.matrix = async session => { const m = await matrix(session); m.best.images = { available: false, reason: 'current processing consent required' }; return m; };
+  await h.handlers.conceptLane.run(h.id);
+  assert.equal(h.storage.get(h.id).conceptStatus.consentRequest, undefined);
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent.sourceTurnId, 'wish');
+  await h.turn('details', 'The dashboard needs filters.'); await h.turn('ready', 'Tables show the results.');
+  h.readiness(25); await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
+  assert.deepEqual(h.storage.get(h.id).conceptStatus.consentRequest, { id: 'early-wish', sourceTurnId: 'wish' });
+  assert.equal(h.records.length, 0);
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+  if (outcome === 'input') await h.turn('new-input', 'Make it a chart.');
+  if (outcome === 'decline') {
+    await h.call('consent', { granted: false }); await h.call('consent', { granted: true });
+  }
+  h.runtime.matrix = matrix;
+  await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
+  assert.equal(h.records.length, 0, 'coverage alone never replays the earlier wish');
+  if (outcome === 'grant') {
+    assert.equal((await h.request('approved-delayed-wish')).status, 202); await h.handlers.idle();
+    assert.equal((await h.request('approved-delayed-wish')).status, 200); await h.handlers.idle();
+    assert.equal(h.records.length, 1, 'one explicit continuation dispatches through the existing dedupe gate');
+    assert.deepEqual(h.storage.get(h.id).concepts.at(-1).turnIds, ['wish', 'details', 'ready']);
+  }
 });

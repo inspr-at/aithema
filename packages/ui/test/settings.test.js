@@ -670,7 +670,8 @@ for (const copy of [de, en]) test(`AIT-237 ${copy.display.locale}: drafts off ac
   h.server.session.featureMatrix.best.images = refused('current processing consent required');
   h.q('[data-select="visuals"] .select__button').click(); h.option('visuals', 'Fake images').click(); await tick(6);
   assert.equal(line.querySelector('.drafts-settings-action'), null);
-  assert.equal(line.dataset.consentFeature, 'images');
+  assert.equal(line.dataset.consentFeature, undefined, 'AIT-509: selecting visuals does not manufacture a visual wish');
+  assert.equal(line.textContent, '');
 });
 
 test('the Custom card opens settings with Continue and preselects the host\'s Custom preset; a last choice is announced', async t => {

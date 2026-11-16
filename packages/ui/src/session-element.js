@@ -723,9 +723,16 @@ export class AithemaSession extends HTMLElement {
   // Host binding, independent of the selected preset, consent, pause or transient provider verdict.
   // voiceClients contains allowed catalog option IDs; an off-only/unconfigured host supplies none.
   get #voiceBound() { return Boolean(this.#voiceClient || Object.entries(this.#voiceClients ?? {}).some(([id, client]) => id !== SETTINGS_OFF && client)); }
+  /** Open the existing in-page consent editor for a host's consent event. */
+  openConsent(feature = 'text', opener = this.shadowRoot.activeElement) {
+    this.#dialog.openConsent(FEATURES.includes(feature) ? feature : 'text', opener);
+  }
+  /** Cancel a memory-only concept continuation when the host dismisses consent. */
+  cancelConsent() { this.#concept?.cancelConsent(); }
   /** Opens the settings dialog; `preset` preselects a preset (the chooser's Custom path). */
   openSettings(opener = this.shadowRoot.querySelector('.settings-open'), { tab = 'model', continueLabel = false, preset, anchor } = {}) {
     if (this.#erased) return;
+    this.#concept?.cancelConsent();
     if (anchor) { this.#dialog.openAt(tab, anchor, opener); if (anchor === '#email') this.#host?.verification?.focusEntry(); }
     else this.#dialog.open(opener, { tab, continueLabel, preset });
   }
@@ -865,17 +872,28 @@ export class AithemaSession extends HTMLElement {
       },
       saveConsent: body => this.#saveConsent(body),
       generalShown: () => this.#host?.verification?.email.beginSettings?.(),
-      closed: () => this.#host?.verification?.email.endSettings?.(),
+      closed: () => { this.#host?.verification?.email.endSettings?.(); this.#concept?.cancelConsent(); },
       catalog: () => this.#loadCatalog(), save: body => this.#saveSettings(body),
       endCall: () => this.#rail?.close(), connector: this.#connector,
       newConversation: detail => this.#newConversation(detail), consent: (reason, features) => this.#requestConsent(reason, features),
       // The re-rendered twin of a replaced opener, else the settings button, which is never replaced.
-      focusFallback: opener => [...root.querySelectorAll('[data-focus-key]')].find(node => opener?.dataset?.focusKey && node.dataset.focusKey === opener.dataset.focusKey &&
-        !node.closest('[hidden]')) ?? root.querySelector('.settings-open'),
+      focusFallback: opener => {
+        // Start may finish while this host's in-page consent modal still owns focus.
+        // Its removed opener hands focus to the resulting live control on close.
+        if (opener?.matches('.ready__start') && this.#started) {
+          if (this.#mode() !== 'voice') return root.querySelector('textarea');
+          const start = root.querySelector('.voice-start');
+          return !start?.disabled && this.#rail?.root.dataset.call !== 'active' ? start : root.querySelector('.audio-rail');
+        }
+        return [...root.querySelectorAll('[data-focus-key]')].find(node => opener?.dataset?.focusKey && node.dataset.focusKey === opener.dataset.focusKey &&
+          !node.closest('[hidden]')) ?? root.querySelector('.settings-open');
+      },
     } });
-    this.#concept = new ConceptView({ transport: (...args) => this.#api(...args), root, previewURL: this.#options.concepts?.previewURL, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
+    this.#concept = new ConceptView({ intentTTL: startIntentTTL, transport: (...args) => this.#api(...args), root, previewURL: this.#options.concepts?.previewURL, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
-      consent: (opener, kind) => this.#dialog.openConsent((kind ?? this.#session.conceptVisualKind) === 'html' ? 'html' : 'images', opener),
+      consent: (opener, kind, intent) => intent === 'concept'
+        ? this.#requestConsent('use', [(kind ?? this.#session.conceptVisualKind) === 'html' ? 'html' : 'images'], 'concept')
+        : this.#dialog.openConsent((kind ?? this.#session.conceptVisualKind) === 'html' ? 'html' : 'images', opener),
       retry: () => this.#refreshFeatures(),
       settings: opener => this.#dialog.openAt('model', this.#session.processingPreset === 'device'
         ? '.presets' : '[data-select="visuals"]', opener),
@@ -1820,6 +1838,7 @@ export class AithemaSession extends HTMLElement {
   }
   #requestConsent(reason, features = FEATURES.filter(f => isConsentReason(this.#feature(f).reason)), intent = 'review') {
     if (intent !== 'start') this.#clearStartIntent();
+    if (intent !== 'concept') this.#concept?.cancelConsent();
     const mode = intent === 'start' && this.#combined ? this.#startIntent?.mode ?? this.#mode() : this.#mode(), required = features.filter(f => f === (mode === 'voice' ? 'voice' : 'text'));
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
@@ -3613,7 +3632,7 @@ export class AithemaSession extends HTMLElement {
         this.#renderMode(); this.#dialog?.sync();
         if (this.isConnected) void this.#refreshFeatures();
       }
-      if ((invalidation || consentRevised || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
+      if ((invalidation || consentRevised || event.type === 'concept.state' && event.data.status?.consentRequest || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
         this.#updateVoiceTranscript(event);
         void deliverFocusedReply(this.#rail, event.data).catch(() => {});
