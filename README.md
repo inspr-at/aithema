@@ -3895,7 +3895,10 @@ identity port, the privacy-document capability, and the visitor-wide
 `claimEmailAsk` / `emailAskAfter` ports. The demo helper also accepts
 `createDemoHost({ emailOffer: { afterMessages: 2 } })`.
 
-Before visitor input, the overview and Settings' empty capture form are absent.
+With `emailOffer`, the overview follows AIT-505's workspace visibility: pending,
+accepted or unreadable uploads, partial speech, and non-opener assistant
+greetings also reveal it. A host opener alone does not. Settings' empty capture
+form instead waits for active visitor input through core `hasVisitorInput`.
 When a visitor is used up, capture stays available in Settings so the composer's
 upgrade action can recover credit even in a new conversation with no input.
 Deferral follows credit receipts and changes. The credits popover hides its email
@@ -3905,8 +3908,10 @@ Without a next tier, the action and its reserved slot are absent.
 A saved address keeps its Change and Delete controls in Settings. The host opener
 never counts as visitor input. Accepted or unreadable documents do count as
 visitor input through core `hasVisitorInput`, revealing the overview and Settings
-capture, but do not advance the offer’s accepted-message threshold. An opener
-alone cannot trigger a low-credit form, line or confirmation action.
+capture, but do not advance the offer’s accepted-message threshold. For every
+host with an opener, including hosts without `emailOffer`, the opener is not a
+settled reply: it alone cannot trigger a low-credit form, line or confirmation
+action.
 Confirmation still unlocks the assessment and
 concepts; starting a conversation does not require an email address.
 
@@ -3960,7 +3965,7 @@ saving so acknowledgement does not move the dialog or its field and action row.
 
 The UI shows the opener after the legacy Start action, and `configure({ entrance: 'combined', ... })` exposes the render-only opener before input. Missing locale copy reserves no entrance transcript space. It remains a render-only row until the first accepted text turn, the first completed document upload (accepted or unreadable), or an eligible successful voice connection (see provider rules below). Document completion claims the same once-only opener in its transaction, before the terminal upload event and any reply dispatch; pending, refused and withdrawn uploads do not claim it. Device processing inserts it locally before the first device turn. It never consumes a model invocation. The transcript region clamps the opener to six lines; the existing localized **Read full reply** control opens its complete text without moving the composer, including when no voice provider is configured. Its heading and explanatory note use the additive `hostOpenerTitle` and `hostOpenerTextOnly` EN/DE copy keys; host overrides keep winning. Full-reply copies are closed and cleared when input is withdrawn, consent is revoked, or the conversation is erased.
 
-Persistence uses one assistant turn with ID `host:opener`, `origin: 'host'`, and no model, provider or operation identity. Existing nonempty histories receive no inserted opener. Once persisted, it pins the locale like any transcript entry. Core exports `hasVisitorInput(session)` for active user turns or accepted/unreadable documents; host/AI assistant turns, pending documents and withdrawn/erased input do not satisfy it. `hasConversationInput` remains a compatibility alias. The UI preserves an already engaged workspace through withdrawn input, pending uploads and ordinary assistant greetings/streaming; those display states do not satisfy assessment or admission thresholds. A host-only opener does not reveal the overview. `conversationStarted` keeps its durable locale-locking meaning. UI integrations can use `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` from `packages/ui/src/host-opener.js` for the entrance projection.
+Persistence uses one assistant turn with ID `host:opener`, `origin: 'host'`, and no model, provider or operation identity. Existing nonempty histories receive no inserted opener. Once persisted, it pins the locale like any transcript entry. Core exports `hasVisitorInput(session)` for active user turns or accepted/unreadable documents; host/AI assistant turns, pending documents and withdrawn/erased input do not satisfy it. `hasConversationInput` remains a compatibility alias. The UI preserves an already engaged workspace through withdrawn input, pending uploads and ordinary assistant greetings/streaming; those display states do not satisfy assessment or admission thresholds. A host-only opener does not reveal the overview. `conversationStarted` keeps its durable locale-locking meaning. `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` in `packages/ui/src/host-opener.js` are internal UI helpers for the entrance projection, not package exports.
 
 The first `/turns` transaction persists opener then user input and broadcasts both journal events in order. For hosts with an opener configured, its JSON response preserves the legacy event-shaped fields and adds `event` (the user event) and `events` (ordered `[opener, turn]`, or `[turn]` when no opener was inserted). Replay returns that same ordered event list. Hosts without an opener retain the exact legacy event response. Their presentation context is unchanged under the time policy; credits follow the audible-call rule below. Clients apply every event in `events`, falling back to `[event]` for an older server. The `host:` and `voice:` namespaces are reserved and cannot be used in visitor `clientEventId` values. Voice turn IDs also reject the `host:` prefix.
 
