@@ -572,12 +572,12 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
 .summary-text[data-collapsed] { max-height:calc(var(--summary-lines,9) * 1lh); overflow:hidden;
   mask-image:linear-gradient(to bottom,#000 calc(100% - 1.55em),transparent); }
-.summary-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:stretch; gap:.75rem; min-height:44px; }
+.summary-heading { display:grid; grid-template-columns:minmax(0,1fr) fit-content(50%); align-items:stretch; gap:.75rem; min-height:44px; }
 .summary-heading > h3 { display:flex; align-items:center; }
 .summary-toggle-slot { display:grid; min-width:0; font-size:.8125rem; font-weight:600; }
-.summary-toggle-slot > * { grid-area:1 / 1; min-height:44px; padding:.35rem 0; }
+.summary-toggle-slot > * { grid-area:1 / 1; min-width:0; min-height:44px; padding:.35rem 0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 /* Reserve both localized labels, including while the native button is hidden. */
-.summary-toggle-slot > span { visibility:hidden; pointer-events:none; white-space:pre-wrap; }
+.summary-toggle-slot > span { visibility:hidden; pointer-events:none; }
 .summary-toggle { justify-self:stretch; font:inherit; color:var(--aithema-accent); }
 .analysis-content h3 { font-size:.86rem; font-weight:700; color:var(--aithema-ink); }
 .analysis-content ul { display:grid; gap:.45rem; margin:0; padding:0; list-style:none; }

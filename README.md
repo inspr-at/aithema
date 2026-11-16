@@ -522,11 +522,14 @@ are “Understood so far” (EN) and “Bisher verstanden” (DE); existing
 host overrides still win. A summary is collapsed with a fade when it exceeds the
 measured line budget: nine rendered lines in a tall analysis pane, otherwise
 three to nine whole lines based on the pane, heading row, first signal and the
-active 44 px bottom fade.
+44 px bottom fade reserved whenever rendered content follows the first signal,
+independently of scroll position.
 Where even three lines cannot keep the first signal visible (such as 1024×640),
 the clamp stays at three and the signal remains reachable within the scrolling
 pane. The budget is remeasured on resize, font and locale changes. The native
-toggle stays beside the heading in both states and uses the additive keys
+toggle stays beside the heading in both states. Long host toggle labels are
+capped at half the heading row and visually ellipsized; their full accessible
+names are retained. The toggle uses the additive keys
 `copy.summaryMore` (“Read more” / “Mehr anzeigen”)
 and shared `copy.showLess` (“Show less” / “Weniger anzeigen”). Missing keys fall back to the active locale; explicit host overrides
 win. Expansion stays in memory through assessment rewrites and same-conversation

@@ -25,11 +25,6 @@ export class SummaryView {
       this.observer.observe(this.root.querySelector('#summary-title'));
       this.observer.observe(this.root.querySelector('.signals'));
     }
-    const Mutation = this.view?.MutationObserver;
-    if (Mutation) {
-      this.fadeObserver = new Mutation(this.refresh);
-      this.fadeObserver.observe(this.root.querySelector('.analysis-content'), { attributes: true, attributeFilter: ['data-bottom'] });
-    }
     this.view?.addEventListener('resize', this.refresh);
     const fonts = this.root.ownerDocument.fonts;
     fonts?.addEventListener?.('loadingdone', this.refresh);
@@ -67,7 +62,13 @@ export class SummaryView {
         signalBox?.width > 0 && signalBox.height > 0) {
       const slack = parseFloat(this.view.getComputedStyle(pane).getPropertyValue('--aithema-slack-top')) || 0;
       const end = signalBox.bottom - paneBox.top + pane.scrollTop - slack;
-      const fade = pane.hasAttribute('data-bottom') ? 44 : 0;
+      // Following content and the signal move together on scroll or clamp changes.
+      // Ignore hidden children and anchoring padding; data-bottom is scroll state.
+      const follows = [...pane.children].some(child => {
+        const box = child.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && box.bottom > signalBox.bottom + .5;
+      });
+      const fade = follows ? 44 : 0;
       const room = paneBox.height - fade - (end - text.getBoundingClientRect().height);
       lines = Math.max(3, Math.min(9, Math.floor(room / line)));
     }
@@ -83,7 +84,7 @@ export class SummaryView {
     this.disconnect();
   }
   disconnect() {
-    this.connected = false; this.observer?.disconnect(); this.fadeObserver?.disconnect();
+    this.connected = false; this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.refresh);
     this.root.ownerDocument.fonts?.removeEventListener?.('loadingdone', this.refresh);
   }
