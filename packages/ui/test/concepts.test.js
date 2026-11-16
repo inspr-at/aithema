@@ -1677,6 +1677,7 @@ test('AIT-509: a fresh wish after visual coverage loss uses the just-in-time con
 });
 
 for (const copy of [en, de]) test(`AIT-509 r10 ${copy.display.locale}: a wish waiting for readiness shows waiting text without consent`, t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
   const f = conceptConsentFixture(t, copy);
   f.change({ conceptStatus: { phase: 'waiting' } });
   const line = f.root.querySelector('.concept-activity-text');
@@ -1704,6 +1705,7 @@ for (const outcome of ['grant', 'decline', 'input', 'source-removed']) test(`AIT
   if (outcome === 'grant') assert.equal(JSON.parse(posts[0].options.body).sourceTurnId, 'later');
 });
 for (const copy of [en, de]) for (const override of ['default', 'explicit', 'legacy']) test(`AIT-509 r10 ${copy.display.locale}: impersonal HTML ask with ${override} copy`, t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
   const custom = override === 'explicit' ? { ...copy, conceptDraftConsent: 'Host draft permission' }
     : override === 'legacy' ? { ...copy, featureConsent: { ...copy.featureConsent, html: 'Host draft permission' } } : copy;
   const f = conceptConsentFixture(t, custom);

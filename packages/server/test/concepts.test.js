@@ -564,6 +564,9 @@ for (const outcome of ['grant', 'decline', 'input']) test(`AIT-509 r10: wish bef
   assert.equal(h.records.length, 0);
   assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
   if (outcome === 'input') await h.turn('new-input', 'Make it a chart.');
+  if (outcome === 'decline') {
+    await h.call('consent', { granted: false }); await h.call('consent', { granted: true });
+  }
   h.runtime.matrix = matrix;
   await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
   assert.equal(h.records.length, 0, 'coverage alone never replays the earlier wish');
