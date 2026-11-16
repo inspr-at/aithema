@@ -17,8 +17,9 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:has([data-host-opener]) { flex:none; }
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:not(:has(ol > li)) { display:none; }
 /* The sticky-header guard adds a top margin after page scroll. Deduct that
-   inset from the pane height so native focus cannot scroll a second container. */
-.workspace[data-entrance="combined"] .transcript-shell { display:block; height:calc(100% - var(--transcript-top-inset,0px)); min-height:0; }
+   inset and the card-owned outside margin from the pane height. Neither
+   reservation is additional transcript padding. */
+.workspace[data-entrance="combined"] .transcript-shell { display:block; height:calc(100% - var(--transcript-top-inset,0px) - var(--question-card-height,0px)); min-height:0; }
 /* This pane already clears the sticky band and fixed input/footer. The page's
    dock-sized focus margin would scroll an inline field out of this smaller pane. */
 .workspace[data-entrance="combined"] .transcript-shell :is(button,a,input,textarea,select,[tabindex]) { scroll-margin:2px; }
@@ -32,21 +33,29 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-shell { display:grid; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;
   grid-template-areas:"notice notice notice" "message mic send" "feedback feedback feedback" "status status status"; gap:8px; }
-.workspace[data-entrance="combined"] textarea { grid-area:message; height:4.5rem; min-height:4.5rem; padding:.25rem 0; }
+.workspace[data-entrance="combined"] textarea { grid-area:message; height:var(--composer-field-height,4.5rem); min-height:4.5rem; padding:.25rem 0; }
 .workspace[data-entrance="combined"] .composer-actions { display:contents; }
 .workspace[data-entrance="combined"] .attach { display:none; }
-.workspace[data-entrance="combined"] .send { grid-area:send; align-self:center; }
+.workspace[data-entrance="combined"] .send { grid-area:send; align-self:end; }
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; height:44px; font-size:.72rem; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
 .composer-notice { grid-area:notice; height:8.7em; overflow:auto; margin:0; color:var(--aithema-muted); font-size:.75rem; line-height:1.45; }
-.composer-mic { grid-area:mic; align-self:center; display:grid; place-items:center; width:44px; height:44px; padding:0; border:1px solid var(--aithema-line); border-radius:50%; color:var(--aithema-accent); background:var(--aithema-surface); }
+.composer-mic { grid-area:mic; align-self:end; display:grid; place-items:center; width:44px; height:44px; padding:0; border:1px solid var(--aithema-line); border-radius:50%; color:var(--aithema-accent); background:var(--aithema-surface); }
 .composer-mic svg { width:20px; height:20px; }
 .composer-mic[aria-pressed="true"] { background:color-mix(in srgb,var(--aithema-accent) 12%,var(--aithema-surface)); }
 .composer-status { grid-area:status; align-self:center; min-width:0; height:2.6em; overflow:auto; color:var(--aithema-muted); font-size:.72rem; line-height:1.3; }
 @media(min-width:60rem) {
   /* Reserve the conversation width before the overview reveals. */
   .workspace[data-entrance="combined"][data-understanding="absent"] { grid-template-columns:minmax(0,1.55fr) minmax(22rem,.88fr); column-gap:clamp(1rem,2.5vw,2rem); }
+}
+/* Constrained desktop rows reserve disclosure/feedback/status from first paint;
+   only the field grows. This is independent of asynchronous card/copy changes. */
+@media(min-width:601px) and (max-height:700px) {
+  .workspace[data-entrance="combined"] .composer { padding-block:4px; row-gap:0;
+    grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
+  .workspace[data-entrance="combined"] .composer-notice, .workspace[data-entrance="combined"] .composer-status { height:44px; }
+  .workspace[data-entrance="combined"] textarea { min-height:3.5rem; height:var(--composer-field-height,3.5rem); }
 }
 @media(max-width:600px) {
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
@@ -65,8 +74,12 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell > .voice-notices { margin-top:0; }
   .workspace[data-entrance="combined"][data-phone-short] .turn.user { padding-block:0; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
-  .workspace[data-entrance="combined"][data-phone-short] textarea { height:44px; min-height:44px; }
+  .workspace[data-entrance="combined"][data-phone-short] textarea { height:var(--composer-field-height,44px); min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
+  /* Keyboard chrome keeps its reserved slots while the shared sizing owner
+     caps the field; the dock is still subtracted exactly once by the viewport. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer { row-gap:4px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice { height:44px; }
   .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
   .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
 }

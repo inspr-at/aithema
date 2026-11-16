@@ -263,7 +263,8 @@ class ComposerSize {
   fit(visitor = false) {
     if (!this.input || this.fitting) return;
     const workspace = this.root.querySelector('.workspace');
-    if (workspace.dataset.stage !== 'live' || this.root.querySelector('.conversation').hidden) return;
+    const combined = workspace.dataset.entrance === 'combined';
+    if (workspace.dataset.stage !== 'live' && !combined || this.root.querySelector('.conversation').hidden) return;
     const visual = this.view.visualViewport;
     if (visual && visual.scale !== 1) return;
     const form = this.root.querySelector('.composer'), shell = this.root.querySelector('.transcript-shell');
@@ -276,11 +277,15 @@ class ComposerSize {
     const minimum = parseFloat(css.minHeight) || (short ? 44 : 56);
     const actualChrome = composer.height - field.height;
     const card = this.root.querySelector('.qcard');
+    // Readiness is scrollable in combined mode; it must yield to a draft just
+    // like transcript content. Live mode still counts the card margin once.
+    const entrancePane = combined && workspace.dataset.stage !== 'live' && this.root.querySelector('.conversation-scroll');
     const available = phone ? viewport + (visual?.offsetTop ?? 0)
       - this.root.querySelector('.band').getBoundingClientRect().height
       - this.root.querySelector('.display-foot').getBoundingClientRect().height
       - this.root.querySelector('.concept-bar').getBoundingClientRect().height - 32
-      : shell.getBoundingClientRect().height + (parseFloat(shellCSS.marginBottom) || 0) + composer.height;
+      : entrancePane ? entrancePane.getBoundingClientRect().height + composer.height
+        : shell.getBoundingClientRect().height + (parseFloat(shellCSS.marginBottom) || 0) + composer.height;
     const baselineContext = [field.width, viewport, short, minimum, css.font, css.lineHeight].join('/');
     const context = [baselineContext, actualChrome.toFixed(1), available.toFixed(1)].join('/');
     // A card closing or a notice arriving is not a visitor edit. In particular,

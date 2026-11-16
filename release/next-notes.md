@@ -14,7 +14,11 @@
   Attach, Send and the bottom edge stay fixed. Failed sends and answer-chip
   sends retain a separate draft and its size; accepted typed/device sends reset
   the matching draft. Follow mode re-pins; a resting transcript pointer wins
-  and Latest exposes the occluded tail.
+  and Latest exposes the occluded tail. Combined entrance shares this owner
+  before and after input without treating an opener/draft as visitor input.
+  Short desktop and keyboard layouts reserve compact scrollable disclosure/status
+  slots; Send and mic stay pinned. The card margin is counted once outside the
+  combined reading pane.
 - Additive measured CSS outputs on the workspace:
   `--aithema-composer-height` and `--aithema-composer-growth`. Hosts keep their
   existing height/theme/copy overrides. No new options, copy keys, events or

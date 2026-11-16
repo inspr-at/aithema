@@ -1436,9 +1436,14 @@ Attach, Send and the composer's bottom edge stay in place. Following readers sta
 latest turn; a resting transcript pointer keeps its row and gets Latest instead.
 Only an accepted typed/device send clears the matching draft and its height;
 failed sends, answer-chip sends and edits made during a pending send retain it.
+Combined entrance uses the same sizing owner before and after visitor input;
+drafting beside a host opener does not reveal the overview. Short desktop and
+keyboard layouts reserve compact, scrollable disclosure/status slots and pin
+Send and mic while the field grows. The card margin stays outside the reading
+pane, counted once.
 The sizing owner publishes two measured CSS outputs on the workspace:
 `--aithema-composer-height` (effective composer height) and
-`--aithema-composer-growth` (growth above the current one/two-line baseline).
+`--aithema-composer-growth` (growth above the current minimum composer height).
 These are measurements, not host configuration. Existing host height and palette
 overrides continue to apply. Phone clearance uses the measured dock subtraction; a trailing conversation
 margin reserves only visitor growth to keep the stacked overview frame fixed.
