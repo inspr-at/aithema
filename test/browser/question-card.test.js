@@ -116,7 +116,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         const assertRest = async state => {
           if (![390, 1440].includes(width)) return;
           const before = await rest();
-          if (evidence && width === 1440 && state === 'card') {
+          if (laneEvidenceDirectory && width === 1440 && state === 'card') {
             const diagnostic = await shadow(page, c => {
               const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), list = shell.querySelector('ol'), jump = shell.querySelector('.transcript-latest');
               const inspect = () => ({ scroll: shell.scrollTop, client: shell.clientHeight, extent: shell.scrollHeight,
@@ -132,7 +132,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               shell.scrollTop = original.scroll;
               return { original, experiments };
             });
-            await writeFile(join(evidence, `ait-511-end-${label}.json`), JSON.stringify(diagnostic, null, 2));
+            await mkdir(laneEvidenceDirectory, { recursive: true });
+            await writeFile(join(laneEvidenceDirectory, `ait-511-end-${label}.json`), JSON.stringify(diagnostic, null, 2));
           }
           assert.ok(before.startVisible, `${state}: latest reply starts below the fade: ${JSON.stringify(before)}`);
           assert.ok(Math.abs(before.gap - before.turnGap) <= 1.5, `${state}: latest reply/card gap equals the turn gap: ${JSON.stringify(before)}`);
