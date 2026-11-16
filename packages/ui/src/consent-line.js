@@ -1,9 +1,9 @@
 import { resolveCopy } from './copy-resolve.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { node, setText } from './dom.js';
+import { reasonSeparator } from './reason-separator.js';
 
-// Keep each separator with the preceding copy or action when a reason wraps.
-export const reasonSeparator = '\u00a0· ';
+export { reasonSeparator } from './reason-separator.js';
 
 /** One native, underlined action for every reason line, including its first paint. */
 export function reasonAction(label, activate) {

@@ -1,4 +1,4 @@
-import { reasonSeparator } from '../consent-line.js';
+import { reasonSeparator } from '../reason-separator.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {

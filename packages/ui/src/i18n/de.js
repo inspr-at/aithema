@@ -1,4 +1,4 @@
-import { reasonSeparator } from '../consent-line.js';
+import { reasonSeparator } from '../reason-separator.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
