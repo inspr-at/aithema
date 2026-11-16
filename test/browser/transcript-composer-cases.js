@@ -354,7 +354,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     records.push({ label: 'pointer-at-followed-tail', before, after, target, row });
   });
   await t.test('added composer content contributes to measured growth and keeps the overview fixed', async () => {
-    await reset(390, 844); const before = await geometry(page);
+    await reset(390, 844, 'en', 'light', { turns: 22 }); const before = await geometry(page);
     // Model visitor-staged content without an upload or provider request.
     await shadow(page, c => {
       const slot = document.createElement('div'); slot.className = 'fixture-composer-content';
@@ -366,6 +366,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     records.push({ label: 'added-composer-content', before, after });
     const growth = after.boxes['.composer'].height - before.boxes['.composer'].height;
     assert.ok(growth >= 44, 'the added content genuinely grows the composer');
+    assert.ok(after.extent - after.client - after.scroll <= 1, 'following reaches the new content end in the same frame');
     assert.ok(Math.abs(after.growth - before.growth - growth) <= .5, 'reported growth includes added composer content');
     const effective = await shadow(page, c => parseFloat(getComputedStyle(c.shadowRoot.querySelector('.workspace')).getPropertyValue('--aithema-composer-height')));
     assert.ok(Math.abs(effective - after.boxes['.composer'].height) <= .5, 'published effective height includes added content');
