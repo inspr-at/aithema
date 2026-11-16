@@ -120,11 +120,11 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             const diagnostic = await shadow(page, c => {
               const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), list = shell.querySelector('ol'), jump = shell.querySelector('.transcript-latest');
               const inspect = () => ({ scroll: shell.scrollTop, client: shell.clientHeight, extent: shell.scrollHeight,
-                shell: shell.getBoundingClientRect().toJSON(), list: list.getBoundingClientRect().toJSON(),
+                shell: shell.getBoundingClientRect().toJSON(), shellCSS: { gap: getComputedStyle(shell).gap, minHeight: getComputedStyle(shell).minHeight, border: getComputedStyle(shell).border, zoom: getComputedStyle(shell).zoom }, list: list.getBoundingClientRect().toJSON(),
                 bubble: list.lastElementChild.getBoundingClientRect().toJSON(),
                 overflow: [...list.querySelectorAll('*')].map(n => ({ className: n.className, bottom: n.getBoundingClientRect().bottom, position: getComputedStyle(n).position })).filter(n => n.bottom > list.getBoundingClientRect().bottom) });
               const original = inspect(), experiments = [];
-              for (const [target, property, value] of [[jump, 'display', 'none'], [list, 'overflow', 'hidden'], [list, 'contain', 'paint'], [shell, 'display', 'block']]) {
+              for (const [target, property, value] of [[jump, 'display', 'none'], [jump, 'position', 'static'], [jump, 'marginTop', '-46px'], [list, 'overflow', 'hidden'], [list, 'contain', 'paint'], [shell, 'display', 'block']]) {
                 const style = target.getAttribute('style'); target.style[property] = value; shell.scrollTop = shell.scrollHeight;
                 experiments.push({ property, value, ...inspect() });
                 if (style === null) target.removeAttribute('style'); else target.setAttribute('style', style);
