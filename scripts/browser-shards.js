@@ -405,7 +405,7 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
     shards[index].push(file);
     totals[index] += weightOf(file);
   }
-  // AIT-312 / AIT-517: refine LPT with whole-file moves, swaps and rotations. Minimize
+  // AIT-312: refine LPT with deterministic whole-file moves/swaps. Minimize
   // makespan first, then squared load; never worsen LPT's makespan bound.
   // Strict improvement and stable iteration order make the result repeatable.
   const score = loads => [Math.max(...loads), loads.reduce((sum, load) => sum + load * load, 0)];
@@ -432,32 +432,7 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
         }
       }
     }
-    // Pairwise moves can settle just above the target even when three bins
-    // can exchange one file each and improve the same strict score (AIT-517).
-    if (!change) for (let a = 0; a < shardCount; a++) {
-      for (let b = a + 1; b < shardCount; b++) for (let c = b + 1; c < shardCount; c++) {
-        for (let x = 0; x < shards[a].length; x++) for (let y = 0; y < shards[b].length; y++) {
-          for (let z = 0; z < shards[c].length; z++) for (const reverse of [false, true]) {
-            const bins = [a, b, c], indices = [x, y, z];
-            const values = bins.map((bin, i) => weightOf(shards[bin][indices[i]]));
-            const candidate = [...totals];
-            for (let i = 0; i < 3; i++) candidate[bins[i]] += values[(i + (reverse ? 1 : 2)) % 3] - values[i];
-            const next = score(candidate);
-            if (better(next, best)) {
-              best = next; change = { cycle: { bins, indices, reverse }, candidate };
-            }
-          }
-        }
-      }
-    }
     if (!change) break;
-    if (change.cycle) {
-      const { bins, indices, reverse } = change.cycle;
-      const files = bins.map((bin, i) => shards[bin].splice(indices[i], 1)[0]);
-      for (let i = 0; i < 3; i++) shards[bins[i]].push(files[(i + (reverse ? 1 : 2)) % 3]);
-      totals.splice(0, totals.length, ...change.candidate);
-      continue;
-    }
     const { from, to, left, right, candidate } = change;
     const a = left === -1 ? [] : shards[from].splice(left, 1);
     const b = right === -1 ? [] : shards[to].splice(right, 1);
@@ -471,30 +446,48 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
   if (Math.max(...totals) > browserShardHeadroomTarget &&
       totals.reduce((sum, total) => sum + total, 0) <= shardCount * browserShardHeadroomTarget) {
     const fitted = Array.from({ length: shardCount }, () => []);
-    const loads = Array(shardCount).fill(0);
-    const milliseconds = file => Math.ceil(weightOf(file) * 1000 - 1e-9);
+    const capacity = browserShardHeadroomTarget * 1000;
+    const entries = sortedFiles.map(file => ({ file, size: Math.ceil(weightOf(file) * 1000 - 1e-9) }));
     let remainingNodes = 100_000;
-    function place(index) {
+    // Complete a bin around the largest remaining file. Every feasible packing
+    // has such a bin; sorting completions by fill avoids equivalent bin orders.
+    function complete(remaining, bin) {
       if (--remainingNodes < 0) return false;
-      if (index === sortedFiles.length) return true;
-      const file = sortedFiles[index], seenLoads = new Set();
-      // Try the fullest eligible bin first. Repeatedly trying empty bins fans
-      // out equivalent underfilled prefixes and can exhaust the node budget
-      // before finding a fit for the remaining small files (AIT-517).
-      const bins = loads.map((_, bin) => bin).sort((a, b) => loads[b] - loads[a] || a - b);
-      for (const bin of bins) {
-        if (seenLoads.has(loads[bin]) || loads[bin] + milliseconds(file) > browserShardHeadroomTarget * 1000) continue;
-        seenLoads.add(loads[bin]);
-        loads[bin] += milliseconds(file);
-        fitted[bin].push(file);
-        if (place(index + 1)) return true;
-        fitted[bin].pop();
-        loads[bin] -= milliseconds(file);
+      if (!remaining.length) return bin === shardCount;
+      const binsLeft = shardCount - bin;
+      const total = remaining.reduce((sum, entry) => sum + entry.size, 0);
+      if (!binsLeft || remaining.length < binsLeft || total > binsLeft * capacity || remaining[0].size > capacity) return false;
+      if (binsLeft === 1) { fitted[bin] = remaining.map(entry => entry.file); return true; }
+      // A completion below this fill would leave more work than the other bins
+      // can hold. Reject it before exploring its remaining assignments.
+      const minimumFill = total - (binsLeft - 1) * capacity;
+      const options = [];
+      function collect(start, size, indices) {
+        if (--remainingNodes < 0) return;
+        if (size >= minimumFill && remaining.length - indices.length >= binsLeft - 1) options.push({ size, indices: [...indices] });
+        const seenSizes = new Set();
+        for (let next = start; next < remaining.length; next++) {
+          const value = remaining[next].size;
+          if (seenSizes.has(value) || size + value > capacity) continue;
+          seenSizes.add(value);
+          indices.push(next); collect(next + 1, size + value, indices); indices.pop();
+          if (remainingNodes < 0) return;
+        }
+      }
+      collect(1, remaining[0].size, [0]);
+      if (remainingNodes < 0) return false;
+      // Stable collection order resolves equal-fill completions deterministically.
+      options.sort((a, b) => b.size - a.size);
+      for (const option of options) {
+        const selected = new Set(option.indices);
+        fitted[bin] = option.indices.map(index => remaining[index].file);
+        if (complete(remaining.filter((_, index) => !selected.has(index)), bin + 1)) return true;
         if (remainingNodes < 0) return false;
       }
+      fitted[bin] = [];
       return false;
     }
-    if (place(0)) return { shards: fitted, totals: loads.map(load => load / 1000) };
+    if (complete(entries, 0)) return { shards: fitted, totals: fitted.map(files => files.reduce((sum, file) => sum + Math.ceil(weightOf(file) * 1000 - 1e-9), 0) / 1000) };
   }
   return { shards, totals };
 }

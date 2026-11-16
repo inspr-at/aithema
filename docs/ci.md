@@ -300,12 +300,13 @@ Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
 with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
-deterministic LPT across **twelve** bins, followed by whole-file moves/swaps and three-file rotations
+deterministic LPT across **twelve** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
-tries at most 100,000 nodes to meet that target, filling the fullest eligible bin
-first to reduce underfilled search prefixes. On failure it retains the
+tries at most 100,000 nodes to meet that target. It completes one bin around
+the largest remaining file and rejects fills that leave too little remaining
+capacity. Fullest completions come first, with stable ties. On failure it retains the
 original plan for the guard's diagnostics. `npm run test:browser-shards` checks
 complete, exactly-once coverage, a separate **405 s projected headroom target**, and the
 unchanged **420 s per-bin ceiling**; this leaves
