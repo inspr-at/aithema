@@ -425,8 +425,10 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 :root[data-host-unavailable] #error button { min-height:44px; padding:8px 16px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); }
 
 /* A neutral host-owned contact fixture, with one compact header target. */
-.demo-contact { padding:12px 0; border-top:1px solid var(--line); }
+.demo-contact { display:flex; align-items:flex-start; gap:12px; padding:4px 0; border-top:1px solid var(--line); }
 .demo-contact-note { margin:0 0 8px; font-size:13px; line-height:1.5; color:var(--muted); }
+.demo-contact > .demo-contact-note { flex:1; min-width:0; margin:0; }
+.demo-contact > .demo-contact-open { flex:none; }
 .demo-contact-open, #demo-contact-close { min-height:44px; border:1px solid var(--line); border-radius:10px; padding:8px 14px; background:var(--surface); color:var(--accent); }
 .demo-contact-launcher { width:44px; height:44px; padding:10px; display:grid; place-items:center; }
 .demo-contact-launcher svg { width:20px; height:20px; }

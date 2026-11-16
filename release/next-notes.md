@@ -25,8 +25,8 @@
   Escape and focus return belong to the host. Besides the first-paint flag,
   there are no new configure options, event fields, contact events or exports.
   The library adds no contact form, handover request, AI processing or consent
-  dependency. The mock demo's neutral
-  local dialog sends nothing. New EN/DE demo keys:
+  dependency. The mock demo keeps its CTA beside the neutral note in a compact
+  row; its local dialog sends nothing. New EN/DE demo keys:
   `copy.host.slots.contact`, `copy.host.slots.contactNote`; its close button reuses
   `copy.host.outbox.close`. Host slot content and copy overrides retain ownership.
 

@@ -510,8 +510,9 @@ default markup and exports remain available; no new export or contact event is i
 ```
 
 Both host buttons can open the same host-owned dialog. The mock demo supplies a
-neutral CTA and local dialog, with no contact form or delivery. Its two new copy
-keys are `copy.host.slots.contact` and `copy.host.slots.contactNote` (EN/DE);
+neutral CTA beside a short demo note, and a local dialog with no contact form or
+delivery. Its two new copy keys are `copy.host.slots.contact` and
+`copy.host.slots.contactNote` (EN/DE);
 the close action reuses `copy.host.outbox.close`. These are demo content, not
 library slot fallbacks; host slot content and copy overrides retain ownership.
 
