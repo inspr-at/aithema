@@ -5,7 +5,7 @@
 - AIT-509: visual consent text is now silent at idle for all hosts. The bound
   rail keeps its sizers; Settings keeps per-feature status and withdrawal.
 - Combined desktop composers and overview panes retain the fixed footer inset,
-  accounting for the configured component height and keeping their controls above
+  accounting for the configured component height and position, keeping controls above
   the footer throughout consent transitions.
 - Validated visual requests blocked only by consent offer a just-in-time ask in
   the reserved rail slot. Its memory-only continuation expires within three
