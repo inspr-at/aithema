@@ -15,7 +15,7 @@ export const manifest = deepFreeze({
   liveVoice: { reasoning: 'delegated', transcript: { finality: 'turns', persistence: 'durable' },
     optionalCapabilities: { speakText: 'emulated' },
     ownership: { stt: 'browser', tts: 'browser', turnTaking: 'browser' },
-    capabilities: { sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'emulated',
+    capabilities: { opener: true, sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'emulated',
       pause: 'emulated', resume: 'emulated', interrupt: 'native', heard: 'native' },
     billing: { visitor: 'Local simulated time; no charge.', upstream: 'No upstream processing or charge.' } },
 });

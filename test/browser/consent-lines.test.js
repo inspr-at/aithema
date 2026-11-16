@@ -304,7 +304,7 @@ test('AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light', 
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
   const wording = await shadow(page, c => ({ intro: c.shadowRoot.querySelector('.consent-intro').textContent,
     terms: c.shadowRoot.querySelector('.consent-withdrawal').textContent }));
-  assert.equal(wording.intro, 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.');
+  assert.equal(wording.intro, 'Wählen Sie, für welche Verarbeitung Sie Ihre Einwilligung für dieses Gespräch erteilen. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.');
   assert.equal(wording.terms, 'Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.');
   const ready = await consentEvidenceReady(page);
   assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true); assert.equal(ready.introVisible, true, JSON.stringify(ready));
