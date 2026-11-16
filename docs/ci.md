@@ -304,9 +304,7 @@ deterministic LPT across **twelve** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
-tries at most 100,000 nodes to meet that target. It completes one bin around
-the largest remaining file and rejects fills that leave too little remaining
-capacity. Fullest completions come first, with stable ties. On failure it retains the
+tries at most 100,000 nodes to meet that target. On failure it retains the
 original plan for the guard's diagnostics. `npm run test:browser-shards` checks
 complete, exactly-once coverage, a separate **405 s projected headroom target**, and the
 unchanged **420 s per-bin ceiling**; this leaves
@@ -341,13 +339,15 @@ The projection never overwrites measured `.weight.json` history.
 
 AIT-517 partitions the combined email integration into the existing host-surface
 file using shared helpers; every relocated test body, assertion and timeout is
-unchanged. Diagnostic floors reserve 340 s for geometry, 350 s for email-ask and
-400 s for host-surface. Complete geometry run `ait-5e96229f4b684be182bea901`
+unchanged. Diagnostic floors reserve 331 s for geometry, 338 s for email-ask and
+395 s for host-surface. Complete geometry run `ait-5e96229f4b684be182bea901`
 measured 264.361 s (25% margin: 330.452 s). Run `6f0a725418-45712`
 measured email-ask at 342.982 s; moving its unchanged 73.381 s inline-offer case
 projects 269.601 s (25% margin: 337.002 s). Host-surface retains its historical
 244.435 s plan plus all four moved/new passing cases, totaling 120.273 s before
-their 25% margin; the resulting reservation is below 395 s. Its known AIT-531
+their 25% margin; the resulting reservation is below 395 s. These ceilings replace the provisional
+340/350/400 s floors, removing rounding beyond the required 25% margin; every
+inherited weight and floor remains unchanged. Its known AIT-531
 `axe is not defined` failure truncates an existing case, so that failed file's
 wall time is never used to lower its historical reservation. These are diagnostic
 floors outside trusted main history. Twelve shards, the 405 s target, the 420 s
