@@ -452,8 +452,9 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         title: input.parentElement.querySelector('span').textContent, text: [...input.closest('.consent-item').querySelectorAll('p')].map(p => p.textContent).join(' '), checked: input.checked })),
       visible: document.querySelector('main.consent-page').innerText,
     }));
-    assert.equal(consent.intro, START_GERMAN_CONSENT.intro);
-    assert.equal(await page.$eval('#consent-info', node => node.textContent), START_GERMAN_CONSENT.withdrawal);
+    assert.equal(consent.intro, 'Legen Sie einmal fest, für welche Verarbeitung Sie Ihre Einwilligung erteilen. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange Ihre Einwilligung die gewählte Verarbeitung abdeckt, können Sie Einstellungen ändern, ohne erneut eine Einwilligung zu erteilen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.');
+    // AIT-540 M2: LEAD's Einwilligung terminology supersedes this one START term.
+    assert.equal(await page.$eval('#consent-info', node => node.textContent), 'Sie können Einwilligungen hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.');
     assert.equal(await page.$eval('#consent-title', node => node.textContent), de.host.processingTitle);
     for (const item of consent.items) {
       const expected = item.id === 'drafts-anthropic' ? de.processingConsent.items[item.id] : START_GERMAN_CONSENT.items[item.id];

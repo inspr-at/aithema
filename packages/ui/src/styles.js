@@ -611,6 +611,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
    Real padding gives a 44px box while balanced margins reserve 36px.
    Paint above the next row's empty top padding, never its text or controls. */
 .question-state:has(.question-status:not([hidden])) { grid-template-columns:minmax(0,max-content) 9px minmax(max-content,1fr); }
+.question-state:has(.question-status:not([hidden])) .question-separator > span { position:relative; left:4.5px; }
 .question-state:has(.question-status:not([hidden])) .clarify-action { grid-column:3; display:inline-grid; grid-template-columns:auto; justify-self:start; width:max-content; min-width:44px; height:auto; min-height:44px; padding:4px 9px; margin:-4px 0; outline-offset:0; z-index:2; }
 .question-state:has(.question-status:not([hidden])) .clarify-content { grid-area:1/1; }
 /* Reserve both existing labels at the resting weight, so Asking cannot grow

@@ -1332,7 +1332,9 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
       Object.assign(visible, { status: box(status), glyph: box(status.querySelector('svg')), separator: box(row.querySelector('.question-separator')) });
       const why = status.querySelector('.question-why'); visible.text = box(why);
     }
-    return { stable, visible, state: row.dataset.state, disabled: button.getAttribute('aria-disabled'), busy: button.getAttribute('aria-busy'),
+    const range=root.ownerDocument.createRange(); range.selectNodeContents(row.querySelector('.question-separator'));
+    const dot=box({getBoundingClientRect:()=>range.getBoundingClientRect()});
+    return { stable, visible, dot, state: row.dataset.state, disabled: button.getAttribute('aria-disabled'), busy: button.getAttribute('aria-busy'),
       paused: c.session.paused, dialogOpen: Boolean(root.querySelector('dialog[open]')), name: button.getAttribute('aria-label'), description: button.getAttribute('aria-describedby'), questionId: row.dataset.questionId,
       statusHidden: status.hidden, sameNode: button === window.retry524Button, posts: window.retry524Posts,
       rowPaint: getComputedStyle(row).backgroundColor, paint: getComputedStyle(button).backgroundColor,
@@ -1404,6 +1406,11 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
     }, locale, theme, failure);
     await page.mouse.move(0, 0); await settle(page);
     const rest = await measure(); positive(rest.stable, context); positive(rest.visible, context);
+    // AIT-540 M5: the dot bisects the status-to-label gap, not its 9px column.
+    const gapCentre = (rest.visible.status.right + rest.visible.label.x) / 2;
+    positive({dot:rest.dot},context);
+    const dotCentre = rest.dot.x + rest.dot.width / 2;
+    assert.ok(Math.abs(gapCentre - dotCentre) <= .5, `${context}: AIT-540 centred separator (${dotCentre} vs ${gapCentre})`);
     const expectedState = failure.startsWith('refused-') ? 'refused' : failure;
     assert.equal(rest.state, expectedState); assert.equal(rest.sameNode, true);
     // Start with the actual bug: native pointer hit testing on failure copy.

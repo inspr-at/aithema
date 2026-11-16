@@ -562,8 +562,20 @@ click on "Start call".
 
 Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
 microphone and Send side by side from first paint, with the existing processing
-notice (selected processing details plus the AI/voice disclosure) directly above
-them. The default remains `entrance: 'choice'`, including
+notice (selected processing details plus the AI/voice disclosure) below the
+controls in a top-anchored frame. At 600 px and wider the notice uses its
+intrinsic content height, including longer host-supplied notices, growing down
+from the top of a slot sized from the actual processing-choice notices at the
+current width. The desktop frame
+reserves the fixed footer inside the configured host height, so the full notice
+remains readable above it. Phones show the first AI-disclosure sentence
+and a **More** / **Mehr** button opening the full notice in a native dialog.
+`copy.composerNoticeMore` overrides that button label. The full text retains
+`aiNotice` then `copy.aiNotice` precedence, plus existing
+`copy.settings.processingDetails` overrides. Feedback and microphone status
+reserve the real longest localized state at the current width, keeping the
+field, mic, Send and both rows stationary through state changes. The default
+remains `entrance: 'choice'`, including
 its mode selection and Start button. Combined mode keeps the processing-preset
 chooser and omits the ready card's mode, microphone and speaker rows and Start.
 The combined transcript reserves the sticky-header inset inside its scrolling
@@ -573,6 +585,22 @@ the full address remains available to assistive technology and in Settings.
 The attachment button is hidden in combined mode. Text feedback and microphone
 status have separate space reserved from first paint; send failures, consent
 actions and Saved announcements remain exposed while a mic status is present.
+Consent has one line and link in the composer; the ready card shows status,
+and the idle voice bar does not ask for consent before a mic gesture. Blocked
+microphone wording appears once in the composer; other voice failures remain
+in the voice bar, and the composer retains its call-ended status. German
+default consent copy uses **Einwilligung**, including `copy.ready.missing`,
+`copy.ready.granted`, `copy.clarify.consent`, `copy.clarify.say.consent`,
+`copy.voiceReasonsNarrow.{consentWithdrawn,consentRevised}`,
+`copy.processingConsent.{intro,withdrawal}` and `copy.host.consentPage.intro`.
+The demo's German processing intro uses the same term, retaining its existing
+persistence terms. `copy.ready.consent` defaults to “Status” in EN and DE,
+so the ready card reads “Status: Consent needed” / “Status: Einwilligung nötig”.
+Call authorization remains distinct from processing consent: German
+`copy.voiceReasonsNarrow.{permission,sessionRevoked}` and
+`copy.reasons.{call-authorization-lost,session-revoked}` retain their existing
+“Freigabe” wording. Compact German voice labels retain the 22-character bound.
+Host copy still wins.
 Configured host openers use the shared render-only `host:opener` row before input;
 canonical persistence takes over that same row. The welcome stays above the
 composer and footer, including short phone viewports. Processing details remain
@@ -3908,7 +3936,10 @@ identity port, the privacy-document capability, and the visitor-wide
 `claimEmailAsk` / `emailAskAfter` ports. The demo helper also accepts
 `createDemoHost({ emailOffer: { afterMessages: 2 } })`.
 
-Before visitor input, the overview and Settings' empty capture form are absent.
+With `emailOffer`, the overview follows AIT-505's workspace visibility: pending,
+accepted or unreadable uploads, partial speech, and non-opener assistant
+greetings also reveal it. A host opener alone does not. Settings' empty capture
+form instead waits for active visitor input through core `hasVisitorInput`.
 When a visitor is used up, capture stays available in Settings so the composer's
 upgrade action can recover credit even in a new conversation with no input.
 Deferral follows credit receipts and changes. The credits popover hides its email
@@ -3918,8 +3949,10 @@ Without a next tier, the action and its reserved slot are absent.
 A saved address keeps its Change and Delete controls in Settings. The host opener
 never counts as visitor input. Accepted or unreadable documents do count as
 visitor input through core `hasVisitorInput`, revealing the overview and Settings
-capture, but do not advance the offer’s accepted-message threshold. An opener
-alone cannot trigger a low-credit form, line or confirmation action.
+capture, but do not advance the offer’s accepted-message threshold. For every
+host with an opener, including hosts without `emailOffer`, the opener is not a
+settled reply: it alone cannot trigger a low-credit form, line or confirmation
+action.
 Confirmation still unlocks the assessment and
 concepts; starting a conversation does not require an email address.
 
@@ -3927,8 +3960,19 @@ The offer counts accepted text and final speech messages, deduplicated by turn
 ID. Assistant turns, the opener, documents, uploads and partial speech do not
 advance the threshold. A failed reply defers the offer until the next settled
 assistant reply. The inline element is outside canonical transcript data, model
-context and exports. It remains usable during a live call and leaves the
+context and exports. While that offer is visible, the overview lock keeps its
+title and lead and hides its own form, leaving one email action and credit
+statement. At widths up to 520 px, the offer field and its 44 px minimum
+button occupy separate full-width rows. The lead and privacy notice use their
+intrinsic height; only the message reserves its longest localized state.
+Dismiss uses the shared close icon. It remains usable during a live call and
+leaves the
 composer active on phones, without moving focus or opening the keyboard.
+The combined phone offer refreshes the sticky-band inset before scrolling the
+conversation pane to reveal the whole new offer (AIT-540 M6). Only an accepted
+`show` claim in the mounted page arms this one-use reveal; restored offers and
+credit refreshes retain the latest-turn position. Page scroll and keyboard focus
+are retained; no new host setting or event is needed.
 
 The existing `POST /api/sessions/:id/email-ask` route accepts
 `{ action: 'show' | 'dismiss', why: 'offer' }`. The server verifies the policy,
@@ -3973,7 +4017,7 @@ saving so acknowledgement does not move the dialog or its field and action row.
 
 The UI shows the opener after the legacy Start action, and `configure({ entrance: 'combined', ... })` exposes the render-only opener before input. Missing locale copy reserves no entrance transcript space. It remains a render-only row until the first accepted text turn, the first completed document upload (accepted or unreadable), or an eligible successful voice connection (see provider rules below). Document completion claims the same once-only opener in its transaction, before the terminal upload event and any reply dispatch; pending, refused and withdrawn uploads do not claim it. Device processing inserts it locally before the first device turn. It never consumes a model invocation. The transcript region clamps the opener to six lines; the existing localized **Read full reply** control opens its complete text without moving the composer, including when no voice provider is configured. Its heading and explanatory note use the additive `hostOpenerTitle` and `hostOpenerTextOnly` EN/DE copy keys; host overrides keep winning. Full-reply copies are closed and cleared when input is withdrawn, consent is revoked, or the conversation is erased.
 
-Persistence uses one assistant turn with ID `host:opener`, `origin: 'host'`, and no model, provider or operation identity. Existing nonempty histories receive no inserted opener. Once persisted, it pins the locale like any transcript entry. Core exports `hasVisitorInput(session)` for active user turns or accepted/unreadable documents; host/AI assistant turns, pending documents and withdrawn/erased input do not satisfy it. `hasConversationInput` remains a compatibility alias. The UI preserves an already engaged workspace through withdrawn input, pending uploads and ordinary assistant greetings/streaming; those display states do not satisfy assessment or admission thresholds. A host-only opener does not reveal the overview. `conversationStarted` keeps its durable locale-locking meaning. UI integrations can use `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` from `packages/ui/src/host-opener.js` for the entrance projection.
+Persistence uses one assistant turn with ID `host:opener`, `origin: 'host'`, and no model, provider or operation identity. Existing nonempty histories receive no inserted opener. Once persisted, it pins the locale like any transcript entry. Core exports `hasVisitorInput(session)` for active user turns or accepted/unreadable documents; host/AI assistant turns, pending documents and withdrawn/erased input do not satisfy it. `hasConversationInput` remains a compatibility alias. The UI preserves an already engaged workspace through withdrawn input, pending uploads and ordinary assistant greetings/streaming; those display states do not satisfy assessment or admission thresholds. A host-only opener does not reveal the overview. `conversationStarted` keeps its durable locale-locking meaning. `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` in `packages/ui/src/host-opener.js` are internal UI helpers for the entrance projection, not package exports.
 
 The first `/turns` transaction persists opener then user input and broadcasts both journal events in order. For hosts with an opener configured, its JSON response preserves the legacy event-shaped fields and adds `event` (the user event) and `events` (ordered `[opener, turn]`, or `[turn]` when no opener was inserted). Replay returns that same ordered event list. Hosts without an opener retain the exact legacy event response and presentation context. Clients apply every event in `events`, falling back to `[event]` for an older server. The `host:` namespace is reserved and cannot be used in visitor `clientEventId` values.
 
@@ -3981,4 +4025,4 @@ The first `/turns` transaction persists opener then user input and broadcasts bo
 
 **ElevenLabs and AIT-175:** for a host without its own `voice.presentation`, the configured locale opener also replaces the fresh-call spoken greeting. The server validates the existing locale-specific AI disclosure at startup and fails closed before any provider call if it is invalid. This deliberately reverses AIT-175's separation of visual host text and spoken greeting for these opted-in hosts. A supplied presentation keeps winning: its greeting is persisted normally, and connect does not persist the unspoken host opener. Native connect claims the opener only when the callback selects it as this call's first spoken message. A text-first conversation, an earlier connected call (including an empty call in a locale without an opener), any earlier logical call under the opted-in credits policy, or an automatic transport repair never speaks or newly persists the host opener at connect. Existing continuation presentation rules apply, and automatic repair stays silent. Refused admission and failed startup count as earlier logical credits calls even when no transcript was stored. Text and document claims retain their existing rules. Native greeting finals are linked structurally to the canonical opener only when this call was given that opener and no facade completion exists, including when an upload claims it between voice preparation and connection. Heard-prefix corrections retain the original host text and record interruption metadata only, with heard length bounded by the canonical text length.
 
-**Grok:** the opener is shown and included in canonical model context, but remains text-only (`opener: false`). A fresh first-contact connection still claims it once when the transcript is empty and no earlier connected call (or earlier logical credits call) exists; the provider speaks no separate greeting. Opener speech is a follow-up feature.
+**Grok:** the opener is shown and included in canonical model context, but remains text-only (`opener: false`). A fresh first-contact connection still claims it once when the transcript is empty and no earlier connected call (or earlier logical credits call) exists; the provider speaks no separate greeting. Opener speech is not included.
