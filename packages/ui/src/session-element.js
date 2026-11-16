@@ -1333,6 +1333,8 @@ export class AithemaSession extends HTMLElement {
   #revealPhoneOffer(row) {
     if (!this.#combined || !row.isConnected || !this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell'), before = shell.scrollTop;
+    const scroll = this.shadowRoot.querySelector('.conversation-scroll');
+    scroll.scrollTop += shell.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
     this.#syncBandScroll();
     const pane = shell.getBoundingClientRect(), box = row.getBoundingClientRect();
     const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);

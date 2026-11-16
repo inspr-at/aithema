@@ -73,6 +73,9 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }
   .workspace[data-entrance="combined"] [data-host-opener] > strong { margin-bottom:0; }
+  /* A new offer can use the full conversation reading area. The rail above
+     it stays in the same scroller and can scroll away; the input stays pinned. */
+  .workspace[data-entrance="combined"] .conversation-scroll:has(.email-offer) .concept-thread { flex:0 0 100%; }
   .composer-notice { max-height:none; }
   .composer-notice__wide, .composer-reserve-wide { display:none; }
   .composer-reserve-phone { display:block; }

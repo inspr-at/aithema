@@ -874,6 +874,7 @@ for (const finding of ['M3', 'M4', 'M6']) test(`AIT-540 ${finding}: one readable
       const rect=n=>n.getBoundingClientRect().toJSON();
       return {offer:rect(offer),pane:rect(r.querySelector('.transcript-shell')),field:rect(offer.querySelector('input')),button:rect(offer.querySelector('.email-offer__send')),
         row:rect(offer.querySelector('.email-offer__row')),lead:rect(offer.querySelector('.email-offer__lead')),
+        layout:['.band','.conversation-scroll','.concept-bar','.concept-thread','.transcript-shell'].map(s=>{const n=r.querySelector(s);return {selector:s,box:rect(n),scroll:n.scrollTop,client:n.clientHeight,content:n.scrollHeight,inset:n.style.getPropertyValue('--transcript-top-inset')};}),
         focus:r.activeElement?.id,scroll:scrollY,lockHidden:lock.hidden,lockTitle:lock.querySelector('h3').textContent,lockLead:lock.querySelector('.verify-lock__lead').textContent,
         lockFormVisible:!![...lock.querySelectorAll('form')].find(n=>n.getBoundingClientRect().height>0),closeSvg:!!offer.querySelector('.email-offer__dismiss svg')};
     });

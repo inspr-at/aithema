@@ -100,8 +100,8 @@ export class EmailOffer {
     const reserve = row.querySelector('.email-offer__message-reserve');
     const messages = [v.invalid, v.sending, v.sent, v.unlocked, v.deliveryFailed, v.rateLimited, v.failed,
       this.copy.hostSurface.email.saving, this.copy.hostSurface.email.failed];
-    if (reserve.dataset.copy !== JSON.stringify(messages)) {
-      reserve.dataset.copy = JSON.stringify(messages);
+    if (reserve.dataset.measureKey !== JSON.stringify(messages)) {
+      reserve.dataset.measureKey = JSON.stringify(messages);
       reserve.replaceChildren(...messages.map(text => { const span = row.ownerDocument.createElement('span'); span.textContent = text; return span; }));
     }
     const dismiss = row.querySelector('.email-offer__dismiss'); dismiss.setAttribute('aria-label', v.close); dismiss.disabled = this.busy || this.saving;
