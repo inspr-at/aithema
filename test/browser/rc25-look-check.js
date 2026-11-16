@@ -39,6 +39,15 @@ for (const finding of ['M1', 'M2']) test(`AIT-540 ${finding}: readable compact n
         assert.ok(notice.scroll<=notice.client+1, 'AIT-540 M1: no clipped notice line');
         if(width<600) assert.match(notice.summary ?? '', locale==='de'?/Mehr/:/More/, 'first sentence plus disclosure');
         else assert.ok(notice.box[3]<notice.line*5, 'desktop notice uses its real content height');
+        const presetBoxes=()=>page.$eval('aithema-session',c=>['textarea','.composer-mic','.send','.composer-feedback','.composer-status'].map(s=>{const r=c.shadowRoot.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
+        const beforePreset=await presetBoxes();beforePreset.forEach(b=>assert.ok(b[2]>0&&b[3]>0));
+        await page.evaluate(()=>{const snapshot=c.session;snapshot.processingPreset='eu';snapshot.featureMatrix.eu=structuredClone(snapshot.featureMatrix.best);mount(snapshot);});
+        await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+        const afterPreset=await presetBoxes();afterPreset.forEach(b=>assert.ok(b[2]>0&&b[3]>0));
+        for(let i=0;i<beforePreset.length;i++) for(let j=0;j<4;j++) assert.ok(Math.abs(beforePreset[i][j]-afterPreset[i][j])<=.5,
+          `AIT-540 M1: notice content grows downward without moving control ${i}[${j}]: ${beforePreset[i][j]} -> ${afterPreset[i][j]}`);
+        await shot('eu-notice');
+
         if(width<600) {
           const controls=()=>page.$eval('aithema-session',c=>['textarea','.composer-mic','.send','.composer-feedback','.composer-status'].map(s=>{const r=c.shadowRoot.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
           const before=await controls(); before.forEach(b=>assert.ok(b[2]>0&&b[3]>0));
@@ -64,6 +73,8 @@ for (const finding of ['M1', 'M2']) test(`AIT-540 ${finding}: readable compact n
         await shot('chooser');
         // The short-phone evidence must include the same changed states as desktop.
         if(height===568) {
+          await page.goto(`${server.url}/combined-fixture?locale=${locale}`);await page.waitForFunction(()=>globalThis.ready);
+          await page.click('aithema-session >>> .composer-mic');await shot('voice-consent');
           await page.goto(`${server.url}/combined-fixture?locale=${locale}`);await page.waitForFunction(()=>globalThis.ready);
           await page.type('aithema-session >>> textarea','A retained draft');await page.click('aithema-session >>> .send');await shot('text-consent');
           await page.evaluate(()=>grant());await page.waitForFunction(()=>sent.length===1);await shot('text-sent');
