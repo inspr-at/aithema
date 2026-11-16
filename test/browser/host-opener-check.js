@@ -35,7 +35,7 @@ globalThis.seed = (locale, text, preset = 'best', entrance) => {
   if (text) session.opener = { text, locale };
   const deviceReasoning = { id:'fixture-device',model:'fixture-model',async connect(){},async *stream(request){ globalThis.deviceRequest=request; yield JSON.stringify({content:'A fixture reply.',question_short:null,options:[]});} };
   c.configure({copy:locale==='de'?de:en,session,deviceReasoning:preset==='device'?deviceReasoning:undefined,entrance});
-  if (entrance !== 'combined') c.shadowRoot.querySelector('.ready__start').click();
+  if (entrance !== 'combined' && entrance !== 'choice') c.shadowRoot.querySelector('.ready__start').click();
 };
 globalThis.component = c; globalThis.ready = true;
 </script></body></html>`;
@@ -78,6 +78,8 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
     positive([entranceBox]);
     assert.equal(await page.evaluate(() => component.session.transcript.length),0,'entrance opener remains render-only');
     await shot('entrance');
+    // AIT-506 combined mode has no Start; exercise the legacy Start contract separately.
+    await page.evaluate((locale,text) => seed(locale,text,'best','choice'),locale,text);await frames(page);
     await page.click('aithema-session >>> .ready__start');await frames(page);
     const afterStart=await rects(page);positive(afterStart);await shot('after-start');
     await seed(null); const empty=await rects(page); positive(empty);

@@ -57,6 +57,43 @@
 - AIT-505: opted-in ElevenLabs hosts without custom `voice.presentation` speak the opener only on fresh first contact; startup disclosure validation fails closed. Native connect persists it only when the callback selects it as this call's first spoken message. Custom presentation wins and its greeting persists normally; connect does not claim the unspoken host opener. Text-first, an earlier connected call (including an empty call in a missing locale), later logical credits calls and automatic repair suppress both opener speech and new voice persistence. Refused admission or failed startup consumes first contact under credits policy. Text/upload claims are unchanged. Greeting mapping also links an upload-claimed opener when upload completes between voice preparation and connection. Corrections retain canonical text with bounded heard length. This reverses AIT-175's visual/spoken separation for those opted-in hosts. Grok (`opener: false`) keeps its once-only text-only claim on a fresh first-contact connection and speaks no separate greeting; opener speech is follow-up work.
 
 - AIT-505: opted-in public `session.locale-changed` events carry `data.opener: { text, locale } | null` so the requesting and peer tabs resolve pre-input copy immediately, without a full restore or journal persistence of host text. Current snapshots also refresh the render-only projection.
+### Combined entrance (AIT-506)
+
+- AIT-506: optional UI `configure({ entrance: 'combined' })`; default `'choice'`
+  retains mode selection and Start. Combined mode shows text, mic and Send with
+  the selected processing details and AI/voice disclosure from first paint,
+  without ready mic/speaker rows. The attachment button is hidden. Chooser
+  Continue confirms processing and focuses the field; Send/mic requests consent.
+  The default choice entrance retains its Continue consent event.
+- Combined Send/mic consent events use `reason: 'ready'`, `intent: 'start'` and
+  `mode: 'text'` / `'voice'`; legacy text mode stays `'type'`. `required` keeps the
+  selected blocked feature and `features` the complete requested list. Text
+  consent does not grant voice scopes. Send locks and snapshots its draft until
+  consent settles, then sends it once for an in-place covering grant.
+- Both modes store the draft inside the AIT-501 one-use intent with its existing
+  3-minute text / 60-second voice TTL, settings revision and same-tab `tabId`
+  proof. A navigation return consumes the intent and restores the draft even
+  without a grant, without sending or starting voice; a voice
+  return focuses the composer mic for a fresh click. Expiry, erasure, withdrawal
+  and a new conversation clear the intent and its pending draft. An ordinary
+  unsent follow-up survives own, server and other-tab message withdrawals.
+  A settings update cancels the old
+  revision intent while preserving and unlocking the field draft.
+- The composer mic starts a call when idle and delegates capture mute/unmute to
+  the rail during a call. Typing keeps capture running and typed turns use the
+  same call/session/context. Consent precedes admission and permission. Reuses
+  `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` and host overrides.
+  Separate text-feedback and mic-status space is reserved from first paint, so
+  failures, consent actions and Saved announcements remain visible and exposed
+  to assistive technology alongside microphone denial or call-end status.
+  Configured openers use the shared render-only `host:opener` row once; canonical
+  persistence retains its row identity. The welcome stays above the composer and
+  footer on short phones; processing details remain on the entrance scroll surface.
+  The transcript height accounts for its sticky-header inset; native focus in an
+  inline email offer preserves the offer and combined input positions.
+  Saved addresses use a single line with visual ellipsis beside Resend; full
+  address text remains available to assistive technology and in Settings.
+  No new copy keys or exports.
 
 ### Credit-only conversations (AIT-508, opt-in)
 

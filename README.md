@@ -534,7 +534,7 @@ out of On my device once a conversation has started), and `aithema-consent` with
 `{sessionId, reason, features, intent, mode, required}` when a choice needs consent;
 the host's consent interface answers it outside the modal dialog. The reason values
 are `chooser`, `ready`, `manage` and `settings`. The additive `intent` is `start`
-only for the ready card's Start action; other requests use `review`. `mode` is
+for the ready card's Start action and combined Send/mic; other requests use `review`. In the default entrance, `mode` is
 `type` or `voice`; `required` lists the consent-blocked feature needed for that
 mode, while `features` retains the full requested feature list. Start keeps a
 one-use, tab-scoped intent for at most three minutes for typing or 60 seconds for
@@ -543,6 +543,50 @@ written before the consent event is dispatched and deleted on use or cancellatio
 A covering consent snapshot or refresh resumes typing. Voice resumes only while
 user activation is active; after a navigation to a consent page, voice needs one
 click on "Start call".
+
+Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
+microphone and Send side by side from first paint, with the existing processing
+notice (selected processing details plus the AI/voice disclosure) directly above
+them. The default remains `entrance: 'choice'`, including
+its mode selection and Start button. Combined mode keeps the processing-preset
+chooser and omits the ready card's mode, microphone and speaker rows and Start.
+The combined transcript reserves the sticky-header inset inside its scrolling
+pane, so focusing an inline email offer keeps its controls in place. Saved
+addresses stay on one line beside Resend, with visual ellipsis when needed;
+the full address remains available to assistive technology and in Settings.
+The attachment button is hidden in combined mode. Text feedback and microphone
+status have separate space reserved from first paint; send failures, consent
+actions and Saved announcements remain exposed while a mic status is present.
+Configured host openers use the shared render-only `host:opener` row before input;
+canonical persistence takes over that same row. The welcome stays above the
+composer and footer, including short phone viewports. Processing details remain
+available on the entrance scroll surface.
+Typing, focus and rendering never acquire media or prepare voice.
+
+In combined mode, Send and the composer mic emit `aithema-consent` with
+`reason: 'ready'`, `intent: 'start'` and respectively `mode: 'text'` or `'voice'`;
+`required` identifies that mode's blocked feature, while `features` keeps the
+full requested list. A text grant does not replace the voice scopes. Send
+snapshots the draft and makes the field read-only until consent settles; an
+in-place covering grant sends that snapshot once. Voice follows consent,
+admission, microphone permission, then call startup through the selected client.
+The existing `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` copy and host
+overrides supply the blocked-microphone status beside the row.
+
+The combined draft lives inside the existing one-use intent, for either mode,
+with its 3-minute text / 60-second voice TTL, settings revision and `tabId`
+liveness proof. Navigation restores it only after the same-tab check, including
+a return without granting consent, and consumes the intent. A later grant never
+auto-sends or auto-starts a call. Text return focuses the field; voice return
+focuses the composer mic and requires a fresh click. Expiry, erasure, withdrawal
+and a new conversation clear the intent and its draft.
+An ordinary unsent follow-up survives a message withdrawal; only a pending
+combined snapshot is discarded. Changing processing settings cancels a pending
+intent for the old revision and keeps the editable
+field draft. During a call the same
+mic toggles capture through the rail; End call remains on the rail. Typing keeps
+capture running and Send delivers the typed turn through `rail.sendText` in the
+same session and context. No new copy keys or exports are introduced.
 
 A journal `session.erased`, or a snapshot 404 with exactly
 `{error: 'session-not-found'}`, enters the erased state. An exact refusal from
@@ -1355,8 +1399,11 @@ keyboard. Up to 40rem wide it fills the viewport. Every changing value sits in a
 fixed box, so hover, saves and gauge updates never move a control. A conversation
 starts with START's entrance: the `promise` slot (or the default promise) and the
 orb above the four processing choices (START `LandingPresets`); Custom opens the
-dialog. Continue fires `aithema-consent` when the choice is not covered yet. Then
-readiness (START `ConversationReadiness`): model, consent, microphone and speaker
+dialog. In the default choice entrance, Continue fires `aithema-consent` when
+the choice is not covered yet. In combined mode, Continue confirms processing
+and focuses the field; explicit Send or mic requests any required consent. The
+default entrance then shows readiness (START `ConversationReadiness`): model,
+consent, microphone and speaker
 states, a reversible choice to speak or to type, and an explicit Start. Nothing
 asks for the microphone before a voice start. The call rail and the composer open
 with the conversation; the understanding column opens with the first input.

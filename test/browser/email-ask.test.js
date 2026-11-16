@@ -498,7 +498,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
   // All host deadlines and browser Date reads use one injected clock.
   await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
-  const targets = ['.composer-shell', '.send', '.display-foot'];
+  const targets = ['.composer-shell', 'textarea', '.composer-mic', '.send', '.composer-feedback', '.composer-status', '.display-foot'];
   const measured = async () => {
     const result = await boxes(page, targets);
     for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${targets[i]} must have positive geometry: ${box}`);
@@ -511,6 +511,7 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     let baseline = null, offerBaseline = null;
     const shot = async state => {
       await settle(page);
+      rects.push({ label, state, surface: 'combined-row', targets, boxes: await measured() });
       const bounds = await shadow(page, c => {
         const row = c.shadowRoot.querySelector('.email-offer');
         return row ? { offer: row.getBoundingClientRect().toJSON(), shell: c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect().toJSON() } : null;
@@ -536,6 +537,26 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
       if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
     await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    const entrance = await shadow(page, c => {
+      const root = c.shadowRoot, opener = root.querySelector('[data-id="host:opener"]');
+      const box = opener.getBoundingClientRect();
+      return { combined: root.querySelector('.workspace').dataset.entrance,
+        openers: root.querySelectorAll('[data-id="host:opener"]').length,
+        openerBox: [box.x, box.y, box.width, box.height],
+        canonical: c.session.transcript.length, offer: Boolean(root.querySelector('.email-offer')),
+        captureHidden: root.querySelector('.host-verify').hidden,
+        creditsEmailHidden: root.querySelector('.credits-email').hidden,
+        deferred: root.querySelector('.credits-email').hasAttribute('data-capture-deferred') };
+    });
+    assert.equal(entrance.combined, 'combined', `${label}: combined entrance with emailOffer`);
+    assert.equal(entrance.openers, 1, `${label}: exactly one shared entrance opener`);
+    assert.ok(entrance.openerBox[2] > 0 && entrance.openerBox[3] > 0, `${label}: positive opener geometry`);
+    assert.equal(entrance.canonical, 0, `${label}: opener remains render-only before input`);
+    assert.equal(entrance.offer, false, `${label}: no inline email form before input`);
+    assert.equal(entrance.captureHidden, true, `${label}: Settings capture deferred`);
+    assert.equal(entrance.creditsEmailHidden, true, `${label}: credits email link hidden`);
+    assert.equal(entrance.deferred, true, `${label}: credits email action deferred`);
+    rects.push({ label, state: 'entrance', surface: 'opener', box: entrance.openerBox });
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent'); await shot('entrance');
     await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), true);
@@ -551,6 +572,26 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     const state = await shadow(page, c => { const r = c.shadowRoot; return { notice: r.querySelector('.email-offer .m-notice-text').textContent, href: r.querySelector('.email-offer .m-pp').getAttribute('href'), inert: r.querySelector('form.composer').inert, count: c.session.transcript.length, active: r.activeElement?.id }; });
     assert.match(state.notice, locale === 'en' ? /advertising/ : /Werbung/); assert.equal(state.href, '/privacy'); assert.equal(state.inert, false); assert.equal(state.count, 4); assert.notEqual(state.active, 'email-offer-input');
     baseline = after; await shot('capture');
+    // Native focus must not move the inline offer inside the combined scrollers.
+    const focusTargets = ['.email-offer', '.email-offer__row', '.email-offer__send', ...targets];
+    const focusSample = () => shadow(page, (c, selectors) => {
+      const root = c.shadowRoot;
+      return { boxes: selectors.map(selector => { const b = root.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
+        scrolls: ['.workspace', '.conversation', '.conversation-scroll', '.concept-thread', '.transcript-shell'].map(selector => {
+          const n = root.querySelector(selector), b = n.getBoundingClientRect();
+          return { selector, top: n.scrollTop, height: n.clientHeight, content: n.scrollHeight, y: b.y, boxHeight: b.height };
+        }), documentScroll: scrollY };
+    }, focusTargets);
+    const beforeFocus = await focusSample();
+    await shadow(page, c => c.shadowRoot.querySelector('#email-offer-input').focus());
+    await settle(page);
+    const afterFocus = await focusSample();
+    for (const sample of [beforeFocus, afterFocus]) for (const box of sample.boxes) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive native-focus geometry`);
+    const focusShift = Math.max(...beforeFocus.boxes.flatMap((box, i) => box.map((n, j) => Math.abs(n - afterFocus.boxes[i][j]))));
+    rects.push({ label, state: 'native-focus', targets: focusTargets, before: beforeFocus.boxes, after: afterFocus.boxes, shift: focusShift, beforeFocus, afterFocus });
+    if (evidence) await writeFile(join(evidence, 'ait-507-rects.json'), JSON.stringify(rects, null, 2));
+    await shot('capture-focused');
+    assert.ok(focusShift <= .5, `${label}: native focus shifts the combined offer ${focusShift}px; ${JSON.stringify({ beforeFocus, afterFocus })}`);
     await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'invalid'; row.querySelector('form').requestSubmit(); });
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').getAttribute('aria-invalid')), 'true'); await shot('invalid');
     for (const status of [400, 503]) {
@@ -604,6 +645,45 @@ test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, an
     await click(page, '.voice-close');
   }
   if (evidence) await writeFile(join(evidence, 'ait-507-rects.json'), JSON.stringify(rects, null, 2));
+});
+
+
+test('AIT-506 combined offer: a saved address keeps the capture row stable', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-offer-address-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  const targets = ['.email-offer', '.email-offer__row', '.email-offer__send', '.composer-shell', 'textarea', '.composer-mic', '.send', '.composer-feedback', '.composer-status'];
+  const address = 'visitor.with.a.long.address@example.test';
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 1 });
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    await page.evaluate(() => window.ait164.reply());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
+    await settle(page);
+    const before = await boxes(page, targets);
+    for (const box of before) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive capture geometry`);
+    if (evidence) await page.screenshot({ path: join(evidence, `ait-506-${label}-email-address-capture.png`) });
+    await page.evaluate(() => { window.ait164.linkFails = true; });
+    await shadow(page, (c, address) => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = address; row.querySelector('form').requestSubmit(); }, address);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'false' && window.ait164.requests.includes('link'));
+    await settle(page);
+    const after = await boxes(page, targets);
+    for (const box of after) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive saved-address geometry`);
+    const saved = await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'), address = row.querySelector('.email-offer__address'), message = row.querySelector('.email-offer__message');
+      return { address: address.textContent, title: address.title, addressBox: address.getBoundingClientRect().toJSON(), messageBox: message.getBoundingClientRect().toJSON() }; });
+    assert.equal(saved.address, address, `${label}: full saved address stays available`);
+    assert.ok(saved.addressBox.width > 0 && saved.addressBox.height > 0, `${label}: positive address box`);
+    const shift = Math.max(...before.flatMap((box, i) => box.map((n, j) => Math.abs(n - after[i][j]))));
+    rects.push({ label, targets, before, after, shift, saved });
+    if (evidence) { await writeFile(join(evidence, 'ait-506-email-address-rects.json'), JSON.stringify(rects, null, 2)); await page.screenshot({ path: join(evidence, `ait-506-${label}-email-address-saved.png`) }); }
+    assert.ok(shift <= .5, `${label}: saved address shifts combined offer ${shift}px; ${JSON.stringify({ before, after, saved })}`);
+  }
 });
 
 
