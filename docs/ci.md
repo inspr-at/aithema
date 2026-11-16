@@ -347,6 +347,10 @@ R10 run `28583d1290-34712` at `28583d12` measured 107.054550459 s for the
 complete file, including the added toggle geometry, focus and hit checks and
 200 signal captures. All new cases pass with the same three AIT-221 failures;
 raise the diagnostic reserve to 134 s (`ceil(107.054550459 × 1.25)`).
+The later complete passing run `ait-0c2e0381e26e47bb8d80ee17` at `1a202b3b`
+measured 178.881001943 s for all 33/33 cases, including every retry path that
+failed early in the baseline run. Reserve the full passing workload at 224 s
+(`ceil(178.881001943 × 1.25)`). This supersedes the 134 s diagnostic reserve.
 The sibling rolling-main samples, twelve bins, 405 s planning target, 420 s hard
 ceiling and required check names remain unchanged. Replace the diagnostic floor
 only when matching canonical-main measurements cover the changed workload.

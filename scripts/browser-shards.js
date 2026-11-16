@@ -358,8 +358,11 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // R10: complete run 28583d1290-34712 at 28583d12 measured 107.054550459s,
 // including the new toggle geometry/focus/hit checks and 200 signal captures.
 // ceil(*1.25)=134s; all new cases pass, with the same three AIT-221 baseline failures.
+// Complete passing run ait-0c2e0381e26e47bb8d80ee17 at 1a202b3b measured
+// 178.881001943s for all 33/33 cases, including every baseline retry path.
+// Reserve ceil(*1.25)=224s for that full passing workload. Trusted samples stay unchanged.
 browserTestWeights['test/browser/understanding-failure.test.js'] = Math.max(
-  browserTestWeights['test/browser/understanding-failure.test.js'], 134);
+  browserTestWeights['test/browser/understanding-failure.test.js'], 224);
 
 // AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
 // clarify-now 17/17 PASS before the later shard timeout. Top-level work:
