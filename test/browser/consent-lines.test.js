@@ -1396,7 +1396,7 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
     }, { locale, entrance });
     const label = `ait509-${locale}-${theme}-${width}${entrance === 'combined' ? `-combined-${height}` : ''}`;
     const measure = () => shadow(page, (c, entrance) => {
-      const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', ...(entrance === 'combined' ? ['.composer-mic', '.composer-notice', '.composer-feedback', '.composer-status'] : ['.attach']), '.send', '.turn', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
+      const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', '.display-foot', ...(entrance === 'combined' ? ['.composer-mic', '.composer-notice', '.composer-feedback', '.composer-status'] : ['.attach']), '.send', '.turn', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
       return Object.fromEntries(selectors.map(selector => { const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
         return [selector, { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom }]; }));
     }, entrance);
@@ -1405,6 +1405,9 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
     await page.hover('aithema-session >>> .turn');
     const before = await measure();
     for (const [selector, r] of Object.entries(before)) { assert.ok(r.width > 0, selector + ': positive width'); assert.ok(r.height > 0, selector + ': positive height'); }
+    for (const selector of ['.composer', ...(width >= 960 ? ['.understanding'] : [])]) {
+      assert.ok(before[selector].bottom <= before['.display-foot'].y + 0.5, `${selector}: the idle frame clears the fixed footer`);
+    }
     if (width !== 1024) await record(t, page, `${label}-idle`, { boxes: before });
     await page.evaluate(() => {
       ait509Session.conceptStatus = { phase: 'waiting', consentRequest: { id: 'validated-wish', sourceTurnId: 'c1-user' } };
