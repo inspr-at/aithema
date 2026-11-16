@@ -384,7 +384,7 @@ svg { display:block; flex:none; }
 /* An empty recovery region retains its accessible live text without its 1px
    hidden span extending the native scroll end beyond the last visible row.
    Pointer-held minimum-height reservations still keep their own space. */
-.transcript-shell > .voice-notices:not(:has(> .voice-notice:not([hidden]))) { overflow:clip; }
+.transcript-shell > .voice-notices:not(:has(> .voice-notice:not([hidden]):not(:empty))) { overflow:clip; }
 /* Visibility keeps the floating Latest action stable in both states. */
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }

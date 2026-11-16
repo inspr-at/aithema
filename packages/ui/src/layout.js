@@ -335,7 +335,18 @@ class ComposerSize {
     // A visitor can type the next draft before the preceding answer arrives.
     // Reserve its future card on that edit, so an asynchronous question never
     // has to shrink the draft or surrender the answer/reply floors.
-    const cardMinimum = !short && (card && !card.hidden || this.questionPending()) ? 150 : 0;
+    const visibleCard = card && !card.hidden;
+    let cardMinimum = !short && (visibleCard || this.questionPending()) ? 150 : 0;
+    if (phone && cardMinimum && !visibleCard) {
+      // The next question can use all three lines and a translated two-line
+      // hint. Reserve that expanded phone minimum before its text is known;
+      // later visitor edits with a visible card still use the normal cap.
+      const cardCSS = this.view.getComputedStyle(card);
+      cardMinimum = Math.max(cardMinimum,
+        3 * parseFloat(this.view.getComputedStyle(card.querySelector('.qtext')).lineHeight)
+        + 2 * parseFloat(this.view.getComputedStyle(card.querySelector('.qhint')).lineHeight) + 66
+        + parseFloat(cardCSS.paddingTop) + parseFloat(cardCSS.paddingBottom) + 2 * parseFloat(cardCSS.rowGap) + 2);
+    }
     const cardGap = phone && cardMinimum ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) || 0 : 0;
     let cap = Math.min(.4 * viewport, available - cardMinimum - cardGap - (short ? 0 : 128));
     cap = Math.max(minimum, cap - chrome);
