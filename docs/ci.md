@@ -369,6 +369,22 @@ and trusted main sample remains intact, with no case, assertion or timeout
 removed. The twelve shards, 405 s planner target and 420 s hard ceiling stay
 unchanged.
 
+The first R12 diagnostic increase made the unchanged AIT-532 growth projection
+red: **4917.039 s** against **12 × 405 = 4860 s**. The new contact fixture now
+reuses eight neutral documents with fresh component sessions, completes finite
+reduced-motion transitions deterministically, and captures the requested
+EN/DE/light/dark states plus a combined short phone. All **56 cases** and every
+assertion remain; the 352 original contact captures remain unchanged. Earlier
+expanded captures are retained with their evidence.
+Complete run `989b524b88-7713` at `989b524b` passed **84/84** in
+**87.788593125 s**. Its 25% requirement is `ceil(87.788593125 × 1.25) = 110 s`,
+already covered by the inherited **162 s** floor. Only the temporary R12
+**259 s** addition is removed; the **358 s** email reservation stays. All
+inherited floors and trusted main weights remain, along with the additional
+180 s growth reserve, twelve shards and unchanged 405/420 s limits. The
+aggregate growth workload becomes **4820.039 s**; the unchanged unit headroom
+guard verifies its actual placement.
+
 Explicit remote QA can add `test/browser/evidence-reporter.js` beside the spec
 reporter. It retains every nested failure and complete file summaries in
 `browser-complete.jsonl` under `AITHEMA_EVIDENCE_DIR`, even when the lane prints

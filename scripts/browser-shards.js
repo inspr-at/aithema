@@ -380,12 +380,14 @@ browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 395);
 
-// AIT-517 R12: complete files at a060c81f after the RC25 merge and short-window
-// matrix. Run ait-2c0ed87646cd4e3abec8ab7a passed154/154: start-look84/84,
-// 207.185602063s *1.25 ->259s; email-ask70/70,285.696125282s *1.25 ->358s.
-// Retain every older floor and trusted main sample; these are PR diagnostics.
-browserTestWeights['test/browser/start-look.test.js'] = Math.max(
-  browserTestWeights['test/browser/start-look.test.js'], 259);
+// AIT-517 R12: run ait-2c0ed87646cd4e3abec8ab7a at a060c81f measured
+// email-ask70/70,285.696125282s *1.25 ->358s. The first short fixture needed
+// a temporary259s start-look floor. Its unchanged growth projection was red.
+// After reusing neutral documents and retaining all56cases/assertions,
+// complete run989b524b88-7713 passed84/84 in87.788593125s (*1.25 ->110s).
+// The inherited162s start-look floor already covers that complete workload;
+// remove only this ticket's temporary259s addition, preserving older floors
+// and trusted main samples. PR diagnostics never replace main timing history.
 browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
   browserTestWeights['test/browser/email-ask.test.js'], 358);
 
