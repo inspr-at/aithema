@@ -361,7 +361,9 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
 // Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
-// 264.361s file wall time; *1.25 = 330.452s, rounded up to the measured 25% ceiling, 331s.
+// 264.361s file wall time minus unchanged combined contact case 39.781s:
+// ceil(224.580s *1.25)=281s. Move that case to start-look, which retains its
+// 112s historical plan plus ceil(39.781s *1.25): ceil(161.726s)=162s.
 // Email: complete run 6f0a725418-45712 at 6f0a7254 measured 342.982s;
 // relocate its unchanged 73.381s inline-offer case: 269.601s *1.25 < 338s (ceiling 338s).
 // Host surface retains its 244.435s historical plan, plus all four moved/new
@@ -370,7 +372,9 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // test's file duration to lower the historical host-surface reservation.
 // These diagnostic floors do not overwrite trusted rolling-main samples.
 browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display-geometry.test.js'], 331);
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 281);
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 162);
 browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
   browserTestWeights['test/browser/email-ask.test.js'], 338);
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(

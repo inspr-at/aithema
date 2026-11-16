@@ -337,21 +337,24 @@ projection reserve AIT-506's additional 180 s for start-journey plus at least
 below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
 The projection never overwrites measured `.weight.json` history.
 
-AIT-517 partitions the combined email integration into the existing host-surface
-file using shared helpers; every relocated test body, assertion and timeout is
-unchanged. Diagnostic floors reserve 331 s for geometry, 338 s for email-ask and
-395 s for host-surface. Complete geometry run `ait-5e96229f4b684be182bea901`
-measured 264.361 s (25% margin: 330.452 s). Run `6f0a725418-45712`
-measured email-ask at 342.982 s; moving its unchanged 73.381 s inline-offer case
-projects 269.601 s (25% margin: 337.002 s). Host-surface retains its historical
-244.435 s plan plus all four moved/new passing cases, totaling 120.273 s before
-their 25% margin; the resulting reservation is below 395 s. These ceilings replace the provisional
-340/350/400 s floors, removing rounding beyond the required 25% margin; every
-inherited weight and floor remains unchanged. Its known AIT-531
-`axe is not defined` failure truncates an existing case, so that failed file's
-wall time is never used to lower its historical reservation. These are diagnostic
-floors outside trusted main history. Twelve shards, the 405 s target, the 420 s
-ceiling, every existing weight and all required check names remain unchanged.
+AIT-517 distributes combined email integration into host-surface and the new
+combined contact matrix into start-look, which already owns short-phone entrance
+coverage. All relocated bodies, assertions and timeouts remain unchanged.
+Diagnostic floors reserve 281 s for geometry, 162 s for start-look, 338 s for
+email-ask and 395 s for host-surface. Complete geometry run
+`ait-5e96229f4b684be182bea901` measured 264.361 s, including the unchanged
+39.781 s contact matrix: its remainder needs ceil(224.580 × 1.25) = 281 s.
+Start-look retains its historical 112 s plan plus that matrix's 25% margin,
+ceil(112 + 39.781 × 1.25) = 162 s. Run `6f0a725418-45712` measured email-ask
+at 342.982 s; moving its unchanged 73.381 s inline-offer case projects
+269.601 s, whose 25% ceiling is 338 s. Host-surface retains its historical
+244.435 s plan plus four moved/new passing cases totaling 120.273 s before
+their 25% margin, giving a 395 s ceiling. Its known AIT-531 `axe is not defined`
+failure truncates an existing case; the failed file's wall time is never used
+to lower its historical reservation. These measured ceilings supersede
+provisional rounded floors and remain outside trusted main history. The
+original packer, all inherited weights and floors, twelve shards, the 405 s
+target, the 420 s ceiling and all required check names remain unchanged.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`

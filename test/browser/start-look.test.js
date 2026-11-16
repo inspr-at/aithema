@@ -334,3 +334,7 @@ test('AIT-307: readiness reserves only the input slot without voice; no empty ca
 
 import { combinedOpenerCheck } from './combined-entrance-check.js';
 test('AIT-506: shared opener and short-phone states stay visible and stable', { timeout:180_000 }, combinedOpenerCheck);
+
+import { contactSlotCheck } from './contact-slot-check.js';
+test('AIT-517: combined entrance contact geometry with host opener and short phones',
+  { timeout: 180_000 }, t => contactSlotCheck(t, { combined: true }));
