@@ -8,8 +8,8 @@ import { manifest as elevenManifest } from '../../../plugins/elevenlabs/src/mani
 import { manifest as grokManifest } from '../../../plugins/grok-voice/src/manifest.js';
 import { manifest as composedManifest } from '../src/composed/manifest.js';
 
-function fixture(t, manifest, change = () => {}, legacy = false) {
-  const storage = new SQLiteStorage(); t.after(() => storage.close());
+function fixture(t, manifest, change = () => {}, legacy = false, closeHandlers) {
+  const storage = new SQLiteStorage(); t.after(async () => { await closeHandlers?.(); storage.close(); });
   let clock = Date.now();
   const qualify = raw => ({ ...raw, legal: { approved: true, countries: ['AT'], training: false,
     retention: 'fixture', purpose: 'conversation', recipient: 'fixture', processors: [],
@@ -125,8 +125,8 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
   });
   for (const explicit of [false, true]) test(`AIT-537: ${manifest.id} configuration-refused ${explicit ? 'Resume' : 'recovery'} ends a waiting call and releases the other tab`, async t => {
     t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
-    const h = fixture(t, manifest), published = [], closed = [];
-    let operations, generation = 0;
+    let handlers, operations, generation = 0;
+    const h = fixture(t, manifest, () => {}, false, () => handlers?.close()), published = [], closed = [];
     const adapter = { bindCallbacks(ports) { operations = ports; return { callbackRoutes: [] }; } };
     const plugin = h.registry.get(manifest.id);
     plugin.ports = { serverAdapter: adapter };
@@ -145,10 +145,9 @@ for (const manifest of [elevenManifest, grokManifest, composedManifest]) {
           return terminal;
         } };
     };
-    const handlers = createVoiceHandlers({ storage: h.storage, runtime: h.runtime, callbackAdapter: adapter,
+    handlers = createVoiceHandlers({ storage: h.storage, runtime: h.runtime, callbackAdapter: adapter,
       ownership: { token: () => h.owner }, readBody: async request => new Uint8Array(await request.arrayBuffer()),
       publish: (id, event) => published.push({ id, ...event }), onClose: id => closed.push(id) });
-    t.after(() => handlers.close());
     const post = (suffix, body) => handlers.handle(new Request(`https://host.example.test/api/sessions/${h.session.id}/voice${suffix}`, {
       method: 'POST', body: JSON.stringify(body) }));
     const started = await post('', { callId: 'waiting-call', tabId: 'first-tab' });
