@@ -190,18 +190,25 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
       const range = document.createRange(); range.selectNodeContents(n);
       const narrow = n.querySelector('.consent-narrow');
       const rects = narrow && getComputedStyle(narrow).display !== 'none' ? [...narrow.getClientRects()] : [...range.getClientRects()];
-      return { popoverWidth: b.width, left: b.left, right: b.right, lines: new Set(rects.map(r => r.y)).size,
+      return { popup: { x: b.x, y: b.y, width: b.width, height: b.height, bottom: b.bottom },
+        bubble: { x: bubble.x, y: bubble.y, width: bubble.width, height: bubble.height, bottom: bubble.bottom },
+        popoverWidth: b.width, left: b.left, right: b.right, lines: new Set(rects.map(r => r.y)).size,
         overlapPx: Math.max(0, Math.min(b.bottom, bubble.bottom) - Math.max(b.top, bubble.top)),
         overflowWrap: style.overflowWrap, wordBreak: style.wordBreak, hyphens: style.hyphens, railText: n.textContent };
     });
     const label = `${locale}-${theme}-${width}-voice-failure`;
+    for (const [name, box] of Object.entries({ popup: view.popup, bubble: view.bubble }))
+      assert.ok(box.width > 0 && box.height > 0, `${label}: ${name} has a positive box: ${JSON.stringify(box)}`);
+    for (const box of before) assert.ok(box[2] > 0 && box[3] > 0, `${label}: baseline rail/frame has a positive box`);
     if (width >= 600) assert.equal(view.popoverWidth, Math.min(280, width - 32), `${label}: popover width`);
     else assert.ok(view.lines <= 2, `${label}: narrow failure is at most two lines`);
     if (width >= 600) assert.ok(view.left >= 16 && view.right <= width - 16, `${label}: inset 16 px: ${JSON.stringify(view)}`);
     else assert.ok(view.left >= 0 && view.right <= width, `${label}: narrow status stays in viewport`);
     assert.equal(view.overflowWrap, 'normal'); assert.equal(view.wordBreak, 'normal'); assert.equal(view.hyphens, 'manual');
     assert.equal(view.overlapPx, 0, `${label}: first bubble clear`);
-    assert.deepEqual(await boxes(page, railBoxes), before, `${label}: 0 px shift`);
+    const after = await boxes(page, railBoxes);
+    for (const box of after) assert.ok(box[2] > 0 && box[3] > 0, `${label}: final rail/frame has a positive box`);
+    assert.deepEqual(after, before, `${label}: 0 px shift`);
     const values = { ...view, shiftPx: 0 }; await evidence('F5', page, label, values); t.diagnostic(`PASS F5 ${label}: ${JSON.stringify(values)}`);
   }
 });
