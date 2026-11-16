@@ -1510,14 +1510,15 @@ for (const entrance of ['choice', 'combined']) test(`AIT-509 r10 ${entrance}: de
   });
   for (const outcome of ['grant', 'decline', 'input']) {
     await scene(page, 'en', 'light', 390, []); page.conceptPosts = [];
-    await shadow(page, (c, entrance) => {
+    await shadow(page, async (c, entrance) => {
+      const { en: copy } = await import('/packages/ui/src/i18n/en.js');
       const session = structuredClone(c.session);
       session.settings.visuals = null; session.conceptVisualKind = 'image';
       session.transcript.push({ id: 'later', role: 'user', content: 'The dashboard needs filters.' }); session.inputRevision++;
       session.conceptStatus = { phase: 'waiting', consentRequest: { id: 'delayed-wish', sourceTurnId: 'c1-user' } };
       session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
       globalThis.delayedSession = session;
-      c.configure({ entrance, session, voiceClient: {} });
+      c.configure({ copy, entrance, session, voiceClient: {} });
       delayedView.feature = () => delayedSession.featureMatrix.best.images;
       delayedView.update(delayedSession);
       globalThis.delayedEvents = [];

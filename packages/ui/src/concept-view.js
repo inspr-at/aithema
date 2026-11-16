@@ -84,11 +84,9 @@ export class ConceptView {
       action.className = 'drafts-consent-action-reserve'; action.textContent = copy.featureConsent.action;
       line.append(action); root.querySelector('.drafts-reason-reserve').append(line);
     }
-    for (const [key, legacy] of [['conceptConsent', 'images'], ['conceptDraftConsent', 'html']]) {
-      const sizer = document.createElement('span');
-      sizer.textContent = `${resolveCopy(copy, key, `featureConsent.${legacy}`)}${reasonSeparator}${resolveCopy(copy, 'conceptConsentAction', 'featureConsent.action')}`;
-      root.querySelector('.drafts-reason-reserve').append(sizer);
-    }
+    const conceptConsentSizer = document.createElement('span');
+    conceptConsentSizer.textContent = `${resolveCopy(copy, 'conceptConsent', 'featureConsent.images')}${reasonSeparator}${resolveCopy(copy, 'conceptConsentAction', 'featureConsent.action')}`;
+    root.querySelector('.drafts-reason-reserve').append(conceptConsentSizer);
     // Withdrawal and expiry share the existing status grid, including wrapped DE copy.
     root.querySelector('.concept-withdrawn-reserve').replaceChildren();
     for (const key of ['conceptWithdrawn', 'conceptDraftWithdrawn', 'conceptImageWithdrawn']) {
@@ -470,8 +468,7 @@ export class ConceptView {
     // A lifted verification gate, consent withdrawal and erasure still repaint.
     if (initial || !this.#session.paused || consentChanged || gateLifted || this.#session.consentWithdrawn || this.#session.tombstone) {
       const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
-      if (status.consentRequest || status.phase === 'waiting' && isConsentReason(feature.rawReason ?? feature.reason) ||
-        !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError && (!this.items.length || !feature.available)) this.#paintReason(text, feature, words, line);
+      if (status.consentRequest || !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError && (!this.items.length || !feature.available)) this.#paintReason(text, feature, words, line);
       else paintConsentLine(text, { copy: this.copy, feature: (this.#withdrawnKind ?? this.visualKind()) === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener, this.#withdrawnKind ?? this.visualKind()) });
     }
     if (status.phase === 'pending') {
@@ -486,13 +483,10 @@ export class ConceptView {
   // any microphone path. The original Start implementation stays unchanged.
   #validConsentIntent() {
     const intent = this.#consentIntent, session = this.#session;
-    if (!intent || !session) return false;
-    const turns = session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn);
-    return intent.expiresAt > Date.now() && intent.sessionId === session.id &&
+    return intent && intent.expiresAt > Date.now() && intent.sessionId === session.id &&
       intent.settingsRevision === session.settings.revision && intent.inputRevision === session.inputRevision &&
       intent.withdrawalRevision === session.withdrawalRevision && session.conceptStatus?.consentRequest?.id === intent.id && !session.consentWithdrawn && !session.tombstone &&
-      !session.paused && !this.root.ownerDocument.hidden && intent.latestTurnId &&
-      turns.at(-1)?.id === intent.latestTurnId && turns.some(t => t.id === intent.sourceTurnId);
+      !session.paused && !this.root.ownerDocument.hidden && session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id === intent.sourceTurnId;
   }
   cancelConsent() {
     if (!this.#consentIntent && !this.#consentIntentTimer) return;
@@ -508,10 +502,7 @@ export class ConceptView {
         this.cancelConsent(); this.#consentRequestId = request.id;
         const session = this.#session;
         const lifetime = this.intentTTL('type');
-        // The wish can predate readiness by several turns. Bind continuation to
-        // the input shown with this ask, while retaining the wish's provenance.
-        this.#consentIntent = { ...request, latestTurnId: session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id,
-          sessionId: session.id, settingsRevision: session.settings.revision,
+        this.#consentIntent = { ...request, sessionId: session.id, settingsRevision: session.settings.revision,
           inputRevision: session.inputRevision, withdrawalRevision: session.withdrawalRevision,
           consentRevision: session.consentRevision, expiresAt: Date.now() + lifetime, requested: false };
         if (!this.#validConsentIntent()) this.cancelConsent();
@@ -534,16 +525,13 @@ export class ConceptView {
   #paintReason(text, feature, words, line) {
     const consent = !feature.available && isConsentReason(feature.rawReason ?? feature.reason);
     const intent = this.#validConsentIntent() && this.#consentIntent;
-    if (consent && this.#session.conceptStatus?.phase === 'waiting' && !this.#session.conceptStatus.consentRequest) {
-      text.textContent = this.copy.conceptWaiting; delete text.dataset.consentFeature; return;
-    }
     if (consent && (this.#session.conceptStatus?.consentRequest ||
       !this.#withdrawnKind && !['pending', 'failed', 'waiting'].includes(this.#session.conceptStatus?.phase))) {
       if (!intent) { text.textContent = ''; delete text.dataset.consentFeature; return; }
       const images = this.visualKind() !== 'html';
-      const copy = { ...this.copy, featureConsent: { ...this.copy.featureConsent,
-        [images ? 'images' : 'html']: resolveCopy(this.copy, images ? 'conceptConsent' : 'conceptDraftConsent', images ? 'featureConsent.images' : 'featureConsent.html'),
-        action: resolveCopy(this.copy, 'conceptConsentAction', 'featureConsent.action') } };
+      const copy = images ? { ...this.copy, featureConsent: { ...this.copy.featureConsent,
+        images: resolveCopy(this.copy, 'conceptConsent', 'featureConsent.images'),
+        action: resolveCopy(this.copy, 'conceptConsentAction', 'featureConsent.action') } } : this.copy;
       paintConsentLine(text, { copy, feature: images ? 'images' : 'html', verdict: feature, open: opener => {
         if (!this.#validConsentIntent()) { this.cancelConsent(); return; }
         this.#consentIntent.requested = true;
