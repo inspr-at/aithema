@@ -1425,7 +1425,8 @@ The live transcript uses the remaining conversation height. Voice recovery notic
 are interactive end content in that scroll area; a voice binding alone reserves no
 empty row. Without a visible question card, short transcripts start at the top;
 with a card, the latest reply stays beside its question. Unbound visuals reserve
-no concept bar; configured image visuals keep their 44 px row.
+no concept bar; configured image visuals keep their 44 px row. The transcript keeps
+scroll gestures in its pane and suppresses boundary rebound.
 
 The composer grows upward with typed or pasted text, within 40% of the visual
 viewport and the room left for the latest reply and a visible question card.

@@ -370,7 +370,8 @@ svg { display:block; flex:none; }
 @media(prefers-reduced-motion:reduce) { :is(.concept-backdrop,.concept-preview) img { transition:none; } }
 
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
-.transcript-shell { position:relative; margin-top:var(--transcript-top-inset,0px); min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
+/* Contain scroll gestures without edge rebound moving a newly aligned reply. */
+.transcript-shell { position:relative; margin-top:var(--transcript-top-inset,0px); min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:none; scrollbar-gutter:stable;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   /* Fade only the real top edge; retain just enough inset for the first row. */
   mask-image:linear-gradient(to bottom,transparent 0,#000 8px);

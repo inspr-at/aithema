@@ -6,7 +6,8 @@
   notices appear as interactive transcript end content at every width. A voice
   binding reserves no empty notice row. Image visuals retain their 44 px bar;
   unbound visuals reserve none. Short transcripts align at the top without a
-  visible question card, and beside their question when a card is present.
+  visible question card, and beside their question when a card is present. Transcript
+  scrolling remains contained and suppresses native boundary rebound.
 - The composer grows upward with its draft, capped by 40% of the visual viewport
   and the reply/card budget; short phone viewports allow at most three lines.
   Short desktop viewports reduce outer spacing in both composer states; longer
