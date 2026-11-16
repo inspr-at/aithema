@@ -353,6 +353,24 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     positive(row, 'followed pointer row after notice'); assert.ok(Math.abs(row.top - target.box.top) <= .5, 'a notice cannot move a row even when follow was active before pointer entry');
     records.push({ label: 'pointer-at-followed-tail', before, after, target, row });
   });
+  await t.test('added composer content contributes to measured growth and keeps the overview fixed', async () => {
+    await reset(390, 844); const before = await geometry(page);
+    // Model visitor-staged content without an upload or provider request.
+    await shadow(page, c => {
+      const slot = document.createElement('div'); slot.className = 'fixture-composer-content';
+      slot.setAttribute('aria-hidden', 'true'); slot.style.cssText = 'height:44px;grid-column:1/-1';
+      c.shadowRoot.querySelector('.composer').prepend(slot);
+      c.shadowRoot.querySelector('textarea').dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await settleEvidenceFrame(page); const after = await geometry(page);
+    records.push({ label: 'added-composer-content', before, after });
+    const growth = after.boxes['.composer'].height - before.boxes['.composer'].height;
+    assert.ok(growth >= 44, 'the added content genuinely grows the composer');
+    assert.ok(Math.abs(after.growth - before.growth - growth) <= .5, 'reported growth includes added composer content');
+    const effective = await shadow(page, c => parseFloat(getComputedStyle(c.shadowRoot.querySelector('.workspace')).getPropertyValue('--aithema-composer-height')));
+    assert.ok(Math.abs(effective - after.boxes['.composer'].height) <= .5, 'published effective height includes added content');
+    stable(before, after, 'added composer content');
+  });
   await t.test('scrollHeight fallback grows and caps without native field-sizing', async () => {
     await reset(1440, 900); const before = await geometry(page);
     await page.evaluate(() => {
