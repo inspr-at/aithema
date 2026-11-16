@@ -57,7 +57,7 @@ export async function contactShortCheck(t) {
         c.shadowRoot.querySelector('.workspace').removeAttribute('data-reveal');
       });
       await settle();
-      const before = await sample(); positive(before.frames);
+      const before = await sample(); positive(before.frames); let phoneInset = null;
       if (width >= 960) {
         assert.ok(before.pinned || before.launched, `visible 44px contact control: ${JSON.stringify(before)}`);
         positive([before.reading]);
@@ -69,6 +69,7 @@ export async function contactShortCheck(t) {
           const fold = c.shadowRoot.querySelector('.fold').getBoundingClientRect(), link = c.querySelector('.demo-contact').getBoundingClientRect();
           return { fold: fold.toJSON(), link: link.toJSON(), handover: c.shadowRoot.querySelector('.handover__label').getBoundingClientRect().toJSON() };
         });
+        phoneInset = inset;
         positive([inset.fold, inset.link]);
         assert.ok(inset.link.left >= inset.fold.right - .5, `contact clears fold chevron: ${JSON.stringify(inset)}`);
         positive([inset.handover]);
@@ -100,7 +101,7 @@ export async function contactShortCheck(t) {
       assert.equal(reveal.phase, 'open'); assert.equal(reveal.inert, true, 'contact is inert during About');
       positive([reveal.box]); assert.equal(Number(reveal.opacity), 0, 'contact fades during About');
       await shot(`${label}-about`);
-      records.push({ label, before, after, shiftPx, dialog, settingsTop, reveal });
+      records.push({ label, before, after, shiftPx, phoneInset, dialog, settingsTop, reveal });
       if (evidence) await writeFile(join(evidence, 'contact-short-rects.json'), JSON.stringify(records, null, 2));
     });
   }

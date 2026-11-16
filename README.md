@@ -483,7 +483,8 @@ the header or other reserved rows need more room. Below 48rem window height,
 the desktop launcher stays visible and sidebar chrome compacts to keep its foot
 inside the frame. Its 44 px header slot remains reserved when hidden. The launcher
 fades and becomes inert during About, like the other header controls; the phone
-contact row has a 44 px inset to clear the fold chevron. Host content must fit its
+contact row and the personal-conversation action in the analysis pane have a
+44 px left inset to clear the fold chevron. Host content must fit its
 reserved row; filling or growing it later can move the analysis and is outside
 the no-layout-shift contract. The host owns the CTA's styling, accessible name,
 44 px launcher target, overlay, privacy and delivery policy, modal focus trap,

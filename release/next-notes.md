@@ -14,7 +14,8 @@
   leaves Tab order but retains its 44 px reservation. Short desktop windows keep
   the launcher visible and compact sidebar chrome so the foot is not clipped.
   The launcher fades and becomes inert during the About reveal, like Settings;
-  the phone contact row clears the fold chevron by 44 px.
+  the phone contact row and personal-conversation action clear the fold chevron
+  with a 44 px left inset.
 - **First-paint contract:** launcher hosts reserve 44 px more in
   `--aithema-header-actions-width` in render-blocking CSS on the placeholder and
   component (defaults 216 → 260 px desktop, 88 → 132 px below 600 px), with the

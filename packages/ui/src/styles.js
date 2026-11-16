@@ -564,7 +564,10 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
   .workspace[data-contact] .understanding { --inset:.75rem; }
   .workspace[data-contact] .readiness { padding-bottom:.25rem; }
 }
-@media(max-width:599px) { .sidebar-contact { padding-inline-start:44px; } }
+@media(max-width:599px) {
+  .sidebar-contact { padding-inline-start:44px; }
+  .workspace[data-contact] .handover-request { padding-inline-start:44px; }
+}
 @media(max-width:59.99rem) { .sidebar-contact { max-height:14rem; } }
 @media(max-width:44rem) { .contact-launcher { margin-inline-start:0; } }
 .understanding > .head { align-items:center; min-height:2.8rem; }
