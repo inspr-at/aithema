@@ -3386,7 +3386,12 @@ export class AithemaSession extends HTMLElement {
       // The host's limits may have arrived just now and leave no room: nothing is sent.
       if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(reasonSeparator); return; }
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads });
-      const notices = [replacement, refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
+      const imageRefusals = plan.refused.filter(record => /\.(?:png|jpe?g|webp|gif|heic|heif|bmp|tiff?|avif|svg)$/iu.test(record.name));
+      // Image refusals have their own dismiss/send lifetime. Keep document notices
+      // out of that lifecycle, including when one selection contains both kinds.
+      const documentPlan = { ...plan, refused: plan.refused.filter(record => !imageRefusals.includes(record)),
+        blocked: plan.blocked === 'images' || (needsImages && files.every(isImageFile)) ? null : plan.blocked };
+      const notices = [replacement, refusalText(copy, documentPlan, this.#session.locale)], count = plan.batches.flat().length;
       if (count) {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0;
@@ -3404,7 +3409,6 @@ export class AithemaSession extends HTMLElement {
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
       }
-      const imageRefusals = plan.refused.filter(record => /\.(?:png|jpe?g|webp|gif|heic|heif|bmp|tiff?|avif|svg)$/iu.test(record.name));
       if (imageRefusals.length || plan.blocked && needsImages) this.#images.refuse([...imageRefusals.map(record => ({ ...record, reason: record.reason === 'type' ? 'unsupported' : record.reason })),
         ...(plan.blocked && needsImages ? [{ reason: plan.blocked === 'images' || plan.blocked === 'count' ? 'limit' : 'session' }] : [])]);
       this.#uploadNotice = notices.filter(Boolean).join(reasonSeparator);
@@ -3521,7 +3525,7 @@ export class AithemaSession extends HTMLElement {
         if (this.#erased || sessionId !== this.#session.id) return;
       }
       if (!option && input.value === content) input.value = '';
-      this.#pending = null; this.#sendFailed = false; this.#images?.clear(); this.#uploadNotice = '';
+      this.#pending = null; this.#sendFailed = false; this.#images?.clear();
       if (voiceText) this.#status(this.#copy.voiceTextSent); else this.#confirmSaved();
     } catch { if (!this.#erased && sessionId === this.#session.id) { this.#navigation = null; this.#sendFailed = true; this.#clearNotice(); } }
     finally { if (!this.#erased && sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); this.#host?.update(); } }
