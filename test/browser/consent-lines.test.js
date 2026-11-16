@@ -1521,7 +1521,8 @@ for (const entrance of ['choice', 'combined']) test(`AIT-509 r10 ${entrance}: de
       delayedView.feature = () => delayedSession.featureMatrix.best.images;
       delayedView.update(delayedSession);
       globalThis.delayedEvents = [];
-      c.addEventListener('aithema-consent', e => { e.preventDefault(); delayedEvents.push(e.detail); }, { once: true });
+      // This injected host handles the grant below; stop the demo host editor.
+      c.addEventListener('aithema-consent', e => { e.stopImmediatePropagation(); delayedEvents.push(e.detail); }, { once: true, capture: true });
     }, entrance);
     page.state.snapshot = await shadow(page, () => structuredClone(delayedSession));
     await frame(page);
@@ -1543,5 +1544,48 @@ for (const entrance of ['choice', 'combined']) test(`AIT-509 r10 ${entrance}: de
     if (outcome === 'grant') await until(page, () => document.querySelector('aithema-session').session.conceptStatus?.phase === 'idle');
     assert.equal(page.conceptPosts.length, outcome === 'grant' ? 1 : 0, outcome);
     if (outcome === 'grant') assert.equal(page.conceptPosts[0].sourceTurnId, 'later');
+  }
+});
+
+test('AIT-509 r10: default HTML consent copy is impersonal and keeps positive frame boxes in EN/DE L/D', async t => {
+  const page = await fixture(t);
+  await page.evaluate(async () => {
+    const { ConceptView } = await import('/packages/ui/src/concept-view.js');
+    const update = ConceptView.prototype.update;
+    ConceptView.prototype.update = function (...args) { globalThis.htmlAskView = this; return update.apply(this, args); };
+  });
+  for (const locale of ['en', 'de']) for (const entrance of ['choice', 'combined']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await scene(page, locale, theme, width, []);
+    await shadow(page, async (c, { locale, entrance }) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(c.session);
+      session.conceptStatus = { phase: 'idle' }; session.settings.visuals = 'html';
+      session.featureMatrix.best.html = { available: false, reason: 'current processing consent required' };
+      globalThis.htmlAskSession = session;
+      c.configure({ copy, entrance, session, voiceClient: {} });
+      htmlAskView.feature = () => htmlAskSession.featureMatrix.best.html;
+      htmlAskView.update(htmlAskSession);
+    }, { locale, entrance });
+    await frame(page);
+    const selectors = ['.band', '.audio-rail', '.composer', '.send', '.display-foot'];
+    const before = await boxes(page, selectors);
+    for (const b of before) assert.ok(b[2] > 0 && b[3] > 0, 'positive HTML idle frame');
+    await page.evaluate(() => {
+      htmlAskSession.conceptStatus = { phase: 'waiting', consentRequest: { id: 'html-wish', sourceTurnId: 'c1-user' } };
+      htmlAskView.update(htmlAskSession);
+    });
+    await frame(page);
+    const after = await boxes(page, selectors);
+    for (const [i, b] of after.entries()) {
+      assert.ok(b[2] > 0 && b[3] > 0, 'positive HTML ask frame');
+      for (const [j, value] of b.entries()) assert.ok(Math.abs(value - before[i][j]) <= .5, `${selectors[i]}: HTML ask no shift`);
+    }
+    const state = await shadow(page, c => {
+      const line = c.shadowRoot.querySelector('.concept-activity-text'), b = line.getBoundingClientRect();
+      return { text: line.textContent, width: b.width, height: b.height, visible: line.checkVisibility({ visibilityProperty: true }) };
+    });
+    assert.equal(state.text, locale === 'de' ? 'Entwürfe: Einwilligung nötig.\u00a0· Einwilligung geben' : 'Drafts need consent to be created.\u00a0· Give consent');
+    assert.ok(state.width > 0 && state.height > 0 && state.visible);
+    await record(t, page, `ait509-${locale}-${theme}-${width}-${entrance}-html-ask`, { before, after, ...state });
   }
 });
