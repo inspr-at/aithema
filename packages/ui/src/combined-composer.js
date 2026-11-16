@@ -31,6 +31,17 @@ export function paintCombinedNotice(root, copy, { processing, words, firstSenten
   if (!notice) return;
   const full=[words, processing].filter(Boolean).join(' ');
   setText(notice.querySelector('.composer-notice__wide'), full);
+  // Each processing choice contributes its natural wrapped height to the slot.
+  // The visible frame starts at that slot's top and grows down inside it;
+  // changing the selected text cannot move the controls above the slot.
+  const reserve=root.querySelector('.composer-notice-reserve');
+  const variants=Object.values(copy.settings?.processingDetails ?? {}).map(detail=>[words, detail].filter(Boolean).join(' '));
+  const measureKey=JSON.stringify([full, ...variants]);
+  if(reserve.dataset.measureKey!==measureKey) {
+    reserve.dataset.measureKey=measureKey;
+    reserve.replaceChildren(...[full,...variants].map(text=>node('span','',text)));
+  }
+
   setText(notice.querySelector('.composer-notice__first'), firstSentence);
   setText(notice.querySelector('.composer-notice__more'), resolveCopy(copy, 'composerNoticeMore', null, locale));
   const dialog=root.querySelector('.composer-notice-dialog');
@@ -40,4 +51,4 @@ export function paintCombinedNotice(root, copy, { processing, words, firstSenten
   reserveCombinedComposer(root, copy, locale);
 }
 
-export const combinedNoticeMarkup = `<div class="composer-notice" id="composer-notice"><span class="composer-notice__wide"></span><span class="composer-notice__phone"><span class="composer-notice__first"></span> <button class="composer-notice__more" type="button" aria-haspopup="dialog" aria-controls="composer-notice-dialog"></button></span></div>`;
+export const combinedNoticeMarkup = `<div class="composer-notice-slot"><div class="composer-notice-reserve" aria-hidden="true" inert></div><div class="composer-notice" id="composer-notice"><span class="composer-notice__wide"></span><span class="composer-notice__phone"><span class="composer-notice__first"></span> <button class="composer-notice__more" type="button" aria-haspopup="dialog" aria-controls="composer-notice-dialog"></button></span></div></div>`;

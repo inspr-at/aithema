@@ -40,7 +40,10 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
-.composer-notice { grid-area:notice; height:auto; max-height:8.7em; margin:0; color:var(--aithema-muted); font-size:.75rem; line-height:1.45; }
+.composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
+.composer-notice-reserve { display:grid; visibility:hidden; pointer-events:none; font-size:.75rem; line-height:1.45; }
+.composer-notice-reserve > * { grid-area:1/1; }
+.composer-notice { position:absolute; top:0; left:0; right:0; height:auto; max-height:8.7em; margin:0; color:var(--aithema-muted); font-size:.75rem; line-height:1.45; }
 .composer-mic { grid-area:mic; align-self:center; display:grid; place-items:center; width:44px; height:44px; padding:0; border:1px solid var(--aithema-line); border-radius:50%; color:var(--aithema-accent); background:var(--aithema-surface); }
 .composer-mic svg { width:20px; height:20px; }
 .composer-mic[aria-pressed="true"] { background:color-mix(in srgb,var(--aithema-accent) 12%,var(--aithema-surface)); }
@@ -76,7 +79,8 @@ export const combinedEntranceStyles = `
   /* A new offer can use the full conversation reading area. The rail above
      it stays in the same scroller and can scroll away; the input stays pinned. */
   .workspace[data-entrance="combined"] .conversation-scroll:has(.email-offer) .concept-thread { flex:0 0 100%; }
-  .composer-notice { max-height:none; }
+  .composer-notice { position:static; max-height:none; }
+  .composer-notice-reserve { display:none; }
   .composer-notice__wide, .composer-reserve-wide { display:none; }
   .composer-reserve-phone { display:block; }
   .composer-notice__phone { display:inline; }

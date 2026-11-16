@@ -36,7 +36,7 @@ for (const bundle of [de, en]) test(`AIT-231 ${bundle.display.locale}: demo cons
   const visible = { consentTitle: host.consentTitle, mockRecipients: host.consentPage.mockRecipients,
     mockConsequence: host.consentPage.mockConsequence, mockTerms: host.consentPage.mockTerms, consentUse: host.consentUse };
   assert.deepEqual(Buffer.from(JSON.stringify(visible)), Buffer.from(JSON.stringify(previous[bundle.display.locale])));
-  const previousProcessing = bundle.display.locale === 'de' ? START_GERMAN_CONSENT : { intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
+  const previousProcessing = bundle.display.locale === 'de' ? { ...START_GERMAN_CONSENT, withdrawal: 'Sie können Einwilligungen hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.' } : { intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
   for (const key of ['intro', 'withdrawal']) assert.deepEqual(Buffer.from(demo.processingConsent[key]), Buffer.from(previousProcessing[key]), key);
   assert.deepEqual(bundle, before, 'the demo never mutates the shipped defaults');
   const defaults = JSON.stringify({ intro: bundle.processingConsent.intro, withdrawal: bundle.processingConsent.withdrawal, title: bundle.host.consentTitle, use: bundle.host.consentUse,

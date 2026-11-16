@@ -548,7 +548,8 @@ Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
 microphone and Send side by side from first paint, with the existing processing
 notice (selected processing details plus the AI/voice disclosure) below the
 controls in a top-anchored frame. At 600 px and wider the notice uses its
-intrinsic height (up to 8.7em); phones show the first AI-disclosure sentence
+intrinsic height (up to 8.7em), growing down from the top of a slot sized
+from the actual processing-choice notices at the current width; phones show the first AI-disclosure sentence
 and a **More** / **Mehr** button opening the full notice in a native dialog.
 `copy.composerNoticeMore` overrides that button label. The full text retains
 `aiNotice` then `copy.aiNotice` precedence, plus existing
@@ -573,7 +574,9 @@ default consent copy uses **Einwilligung**, including `copy.ready.consent`,
 `copy.ready.missing`, `copy.ready.granted`, `copy.clarify.consent`, `copy.clarify.say.consent`,
 `copy.voiceReasonsNarrow.{permission,consentWithdrawn,consentRevised,sessionRevoked}`,
 `copy.reasons.{call-authorization-lost,session-revoked}` and
-`copy.processingConsent.withdrawal`. Host copy still wins.
+`copy.processingConsent.withdrawal`. Compact German voice labels retain the
+22-character bound: “Einwilligung ungültig”, “Einwilligung entzogen” and
+“Einwilligung geändert”. Host copy still wins.
 Configured host openers use the shared render-only `host:opener` row before input;
 canonical persistence takes over that same row. The welcome stays above the
 composer and footer, including short phone viewports. Processing details remain

@@ -3,7 +3,9 @@
 ## Host notes — RC25 visual fixes (AIT-540 M1–M6)
 
 - Combined entrance: top-anchored control frame with intrinsic notice below
-  the field and feedback/status rows. Phones show the first AI-disclosure
+  the field and feedback/status rows. The notice slot measures the actual
+  processing-choice strings per width; its visible frame grows downward without
+  moving those controls. Phones show the first AI-disclosure
   sentence and a native-dialog disclosure. New additive copy key
   `copy.composerNoticeMore`: EN “More”, DE “Mehr”. Existing `aiNotice`,
   `copy.aiNotice` and `copy.settings.processingDetails` precedence is retained.
@@ -17,7 +19,8 @@
   `ready.missing` (“Einwilligung nötig”), `ready.granted` (“Erteilt”), `clarify.consent`, `clarify.say.consent`,
   `voiceReasonsNarrow.{permission,consentWithdrawn,consentRevised,sessionRevoked}`,
   `reasons.{call-authorization-lost,session-revoked}` and
-  `processingConsent.withdrawal`.
+  `processingConsent.withdrawal`. Compact voice labels keep the 22-character
+  bound: “Einwilligung ungültig”, “Einwilligung entzogen”, “Einwilligung geändert”.
   Existing host copy overrides keep winning.
 - While an opt-in `emailOffer` is visible, the overview lock keeps its title
   and lead and hides its form; Settings remains governed by the existing

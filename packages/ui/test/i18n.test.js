@@ -79,7 +79,7 @@ test('demo German consent stays verbatim START copy; all item versions and Engli
   const englishItems = { ...en.processingConsent.items, [englishId]: voiceEnglish };
   const { 'drafts-anthropic': drafts, ...startItems } = items;
   assert.ok(drafts, 'AIT-113 adds a separate host-authored draft item');
-  assert.deepEqual({ ...legal, items: Object.fromEntries(Object.entries(startItems).map(([id, { version, ...copy }]) => [id, copy])) }, START_GERMAN_CONSENT);
+  assert.deepEqual({ ...legal, items: Object.fromEntries(Object.entries(startItems).map(([id, { version, ...copy }]) => [id, copy])) }, { ...START_GERMAN_CONSENT, withdrawal: 'Sie können Einwilligungen hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.' });
   assert.equal(withDemoConsentCopy(en).processingConsent.intro, CONSENT_INTRO);
   assert.equal(withDemoConsentCopy(en).processingConsent.withdrawal, CONSENT_WITHDRAWAL);
   assert.deepEqual(CONSENT_ITEMS.map(item => item.id).sort(), Object.keys(items).sort());
