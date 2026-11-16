@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, cpSync, rmSync, mkdirSync, realpathSync, lstatSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, cpSync, rmSync, mkdirSync, realpathSync, lstatSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -89,7 +89,16 @@ export function testConsumer(directory, { offline = true, bootOnly = false } = {
       return { ...result, verified_packages: modules.length, verified_files: verifiedFiles, isolation: 'all module resolutions confined to temporary host' };
     };
     npm(['ci']); const installed = smoke();
+    const matches = (values, value) => !values?.length || !values.includes(`!${value}`) &&
+      (!values.some(entry => !entry.startsWith('!')) || values.includes('any') || values.includes(value));
+    const platformMatches = pkg => matches(pkg.os, process.platform) && matches(pkg.cpu, process.arch) &&
+      (!pkg.libc?.length || matches(pkg.libc, process.platform === 'linux' && process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl'));
     for (const [path, pkg] of Object.entries(locked.packages)) {
+      // npm retains all optional architectures in the lock but installs the host's closure.
+      if (path && pkg.optional && !existsSync(join(scratch, path, 'package.json'))) {
+        assert.equal(platformMatches(pkg), false, 'Only incompatible optional platform packages may be absent');
+        continue;
+      }
       if (path) assert.equal(JSON.parse(readFileSync(join(scratch, path, 'package.json'))).version, pkg.version);
     }
     if (bootOnly) {
