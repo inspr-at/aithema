@@ -28,10 +28,22 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, opener = {}, ti
   const staticPath = `${CUSTOM_LLM_BASE_PATH}/chat/completions`;
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
-  // Fail closed before any admission or provider call. Custom presentations own speech.
-  if (!presentation) for (const [language, firstMessage] of Object.entries(opener)) {
-    voiceOverrides({ agent: { language, firstMessage } });
-  }
+  const loggedFallbacks = new Set();
+  const eligibleOpener = (language, firstMessage) => {
+    try { voiceOverrides({ agent: { language, firstMessage } }); return true; }
+    catch (error) {
+      if (!presentation) throw error;
+      if (!loggedFallbacks.has(language)) {
+        loggedFallbacks.add(language);
+        try { (log ?? console.log)({ event: 'voice.host-opener-fallback', locale: language }); }
+        catch { /* Diagnostics cannot interrupt speech or accounting. */ }
+      }
+      return false;
+    }
+  };
+  // Without a presentation, fail closed at startup. Presentations retain their
+  // own disclosing greeting for each locale whose text-only opener fails validation.
+  for (const [language, firstMessage] of Object.entries(opener)) eligibleOpener(language, firstMessage);
   const facade = createCompletionsHandler({ ...operations, resolveSecret: ref => secrets.resolve(ref),
     staticSecretRef, timeoutMs, log,
     onBearerRejected: staticSecretRef ? () => reportBearerRejection(secrets) : undefined,
@@ -52,13 +64,17 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, opener = {}, ti
     prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false, hasPriorCalls = false, hostOpener }) {
       const facadeSecretRef = staticSecretRef ?? 'voice-' + randomUUID();
       const facadeCallId = staticSecretRef ? randomUUID() : undefined;
+      // Validate the exact offered bytes on every call, from the start snapshot.
+      const offered = Boolean(hostOpener && !continuation && !hasPriorTurns && eligibleOpener(locale, hostOpener));
+      const context = { hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}),
+        ...(offered ? { hostOpener } : {}) };
       // Automatic transport repair stays silent; a visitor's Resume uses host copy.
       const overrides = continuation && !explicitResume ? { agent: { language: locale, firstMessage: '' } }
-        : presentation ? presentation(locale, { hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}) }) : (hostOpener
+        : presentation ? presentation(locale, context) : (offered
           ? { agent: { language: locale, firstMessage: hostOpener } }
           : opener[locale] && hasPriorTurns ? { agent: { language: locale, firstMessage: spokenContinuations[locale] } } : undefined);
       return { identity: facadeCallId,
-        hostOpener: Boolean(hostOpener && !presentation && !continuation && !hasPriorTurns),
+        hostOpener: offered && overrides?.agent?.firstMessage === hostOpener && overrides.agent.language === locale,
         details: { facadeSecretRef, facadeCallId },
         request: { facadeSecretRef,
           facadeUrl: `${elevenLabsConfig(binding).publicFacadeBaseUrl}${staticSecretRef ? CUSTOM_LLM_BASE_PATH : `/api/voice/${callId}/llm`}`,
