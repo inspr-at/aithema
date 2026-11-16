@@ -1469,7 +1469,15 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
       await frame(page);
       const visible = await shadow(page, c => { const r = c.shadowRoot.querySelector('.concept-activity-text .consent-action').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width, height: r.height }; });
       assert.ok(visible.width > 0 && visible.height > 0 && visible.top >= 0 && visible.bottom <= 500);
-      await record(t, page, `${label}-keyboard-ask`, { visible, keyboardBefore, keyboardAfter });
+      const readingGap = await shadow(page, c => {
+        const box = node => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width, height: r.height }; };
+        const bubble = box(c.shadowRoot.querySelector('.turn.user'));
+        const ask = box(c.shadowRoot.querySelector('.concept-activity-text'));
+        return { bubble, ask, gap: ask.top - bubble.bottom };
+      });
+      assert.ok(readingGap.bubble.width > 0 && readingGap.bubble.height > 0 && readingGap.ask.width > 0 && readingGap.ask.height > 0, 'keyboard: positive visitor and ask boxes');
+      assert.ok(readingGap.gap >= 8, `keyboard: visitor bubble clears the consent ask by 8 px (${readingGap.gap})`);
+      await record(t, page, `${label}-keyboard-ask`, { visible, readingGap, keyboardBefore, keyboardAfter });
       await page.setViewport({ width, height }); await frame(page);
     }
     const beforeGrant = await measure();
