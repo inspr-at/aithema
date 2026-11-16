@@ -358,6 +358,17 @@ provisional rounded floors and remain outside trusted main history. The
 LPT placement and pairwise refinement, all inherited weights and floors, twelve shards, the 405 s
 target, the 420 s ceiling and all required check names remain unchanged.
 
+AIT-517 R12 remeasured both complete files after the RC25 merge and the new
+short-window contact matrix. Run `ait-2c0ed87646cd4e3abec8ab7a` at `a060c81f`
+passed **154/154**: start-look **84/84**, **207.185602063 s**; email-ask
+**70/70**, **285.696125282 s**. Their 25% margins require
+`ceil(207.185602063 × 1.25) = 259 s` and
+`ceil(285.696125282 × 1.25) = 358 s`. These raise the start-look/email-ask PR
+diagnostic reservations from 162/338 s to **259/358 s**. Every inherited floor
+and trusted main sample remains intact, with no case, assertion or timeout
+removed. The twelve shards, 405 s planner target and 420 s hard ceiling stay
+unchanged.
+
 Explicit remote QA can add `test/browser/evidence-reporter.js` beside the spec
 reporter. It retains every nested failure and complete file summaries in
 `browser-complete.jsonl` under `AITHEMA_EVIDENCE_DIR`, even when the lane prints

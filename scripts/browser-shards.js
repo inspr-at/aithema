@@ -380,6 +380,15 @@ browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 395);
 
+// AIT-517 R12: complete files at a060c81f after the RC25 merge and short-window
+// matrix. Run ait-2c0ed87646cd4e3abec8ab7a passed154/154: start-look84/84,
+// 207.185602063s *1.25 ->259s; email-ask70/70,285.696125282s *1.25 ->358s.
+// Retain every older floor and trusted main sample; these are PR diagnostics.
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 259);
+browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-ask.test.js'], 358);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.
