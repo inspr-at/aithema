@@ -677,6 +677,13 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           assert.ok(Math.abs(oversized.top - oversized.expectedTop) <= 1, `an oversized reply starts below the fade: ${JSON.stringify(oversized)}`);
           assert.equal(oversized.link, locale === 'de' ? 'Ganze Antwort lesen' : 'Read full reply');
           assert.equal(oversized.visible, true, 'the full-reply action stays visible while a long reply is top-aligned');
+          if (laneEvidenceDirectory) {
+            const look = await shadow(page, c => ({ boxes: Object.fromEntries(['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer', '.attach', '.send', '.transcript-shell', '.turn:last-child', '.qcard', '.turn:last-child .turn-read-full'].map(selector => [selector, c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON()])) }));
+            for (const [selector, box] of Object.entries(look.boxes)) assert.ok(box.width > 0 && box.height > 0, `oversized look/${selector}: positive box`);
+            await mkdir(laneEvidenceDirectory, { recursive: true });
+            await writeFile(join(laneEvidenceDirectory, `ait-511-oversized-rects-${label}.json`), JSON.stringify({ label: `oversized-${label}`, ...look }, null, 2));
+            await page.screenshot({ path: join(laneEvidenceDirectory, `ait-511-${label}-oversized-reply.png`), captureBeyondViewport: false });
+          }
           await shadow(page, c => c.shadowRoot.querySelector('.turn:last-child .turn-read-full').click());
           assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open && c.shadowRoot.querySelector('.voice-reply-text').textContent === c.session.transcript.at(-1).content), true, 'the full-reply action opens the exact complete answer');
           await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').close());
