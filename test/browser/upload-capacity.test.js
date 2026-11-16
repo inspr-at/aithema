@@ -528,8 +528,13 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     // Compare decode events only after the requested viewport's layout is active.
     const resize = async height => {
       await page.setViewport({ width, height });
-      await page.waitForFunction(height => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace')
-        .hasAttribute('data-phone-short') === (window.innerWidth <= 600 && height <= 620), {}, height);
+      await page.waitForFunction(height => {
+        const workspace = document.querySelector('aithema-session').shadowRoot.querySelector('.workspace');
+        return workspace.hasAttribute('data-phone-short') === (window.innerWidth <= 600 && height <= 620)
+          // Both 620 and 568 are short. Wait for the viewport owner's height,
+          // not just the unchanged boolean, before measuring its reading pane.
+          && (window.innerWidth > 600 || parseFloat(workspace.style.getPropertyValue('--phone-height')) === height);
+      }, {}, height);
     };
     const evidence = process.env.AITHEMA_EVIDENCE_DIR;
     const prefix = `${entrance === 'combined' ? 'combined-' : ''}${width}-${locale}-${theme}`;
