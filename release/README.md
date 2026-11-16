@@ -300,9 +300,11 @@ remains covered once in the host notes; no duplicate heading remains.
 All manifests, lockfile entries and internal pins, including private source-only
 workspaces, mirror the reservation. Migration pins stay fixed.
 **presentation pin reviewed: unchanged at bd0a13816f728ad91c36d849f88168bcac4fdc6e**.
-The local inspr-at/inspr checkout HEAD matches; upstream verification is
-recorded with the re-cut evidence. `release/verify-upstream-presentation.mjs`
-and `release/presentation-pin.mjs` both verify the complete tracked payload;
+The local and remote inspr-at/inspr HEADs match. Both verifiers passed
+on mbp2606 against the pinned upstream Git objects; archive mode omits the
+Git-index check, and the local tracked file list was independently compared.
+`release/verify-upstream-presentation.mjs` and `release/presentation-pin.mjs`
+both verify the complete tracked payload;
 config SHA-256 `bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`,
 manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
 No presentation files change. `release/evidence.json` remains historical;
@@ -311,13 +313,100 @@ retained final-head evidence is authoritative for this preparation.
 **Re-cut same-host browser evidence.** L′ and AIT-540 final head
 `4cf14bd0743b09b57ad44a97916070a56b15f526` have the same tree
 `191b9774a59a13eb5bc7b9f87565fadc17f3e8f6` (verified by `git rev-parse`).
-AIT-540's whole-browser mbp2606 run `4cf14bd074-38135` is therefore the
-same-host baseline: **1,278 passed / 14 failed / 1,292 tests** across 35 files,
-zero skipped or cancelled. Compare every file's counts and complete top-level
-failing test names. The 14 known mbp2606 failures under AIT-531 are accepted
-under LEAD's item 2, and remain failures. Re-cut results and the per-file table
-will be recorded here before the final candidate rebuild. The release PR's
-browser CI must still be fully green; the coordinator owns that gate.
+AIT-540's mbp2606 run `4cf14bd074-38135` supplies the 34-file baseline:
+**1,252 passed / 14 failed / 1,266 tests**, zero skipped, cancelled or todo.
+Its separately retained operator-login run used agm2, so it cannot supply that
+file's same-host baseline. Supplemental mbp2606 run `eff9c36ba1-80398`
+at committed L′ supplies operator-login: **26 passed / 0 failed / 26 tests**.
+The complete same-host baseline therefore totals **1,278 passed / 14 failed /
+1,292 tests** across 35 files.
+
+The re-cut whole-browser proof ran at committed preparation head
+`4df20e88e3ad7920f95f2ac19833fff5a8ecd2a4` on **mbp2606**: main run
+`4df20e88e3-57339` (34 files) and the isolated operator-login run
+`4df20e88e3-75242`. Both used `AGM2=0 MBP2607=0`, `FETCH_TRIES=300`,
+`EVIDENCE_OUT` and the durable fetch-retry wrapper. The main run's bounded
+watchdog was extended in place from 60 to 90 minutes because its baseline
+took 3,628 seconds; no suite was restarted or cancelled. All 35 files completed;
+**1,278 passed / 14 failed / 1,292 tests**, zero skipped, cancelled or todo.
+Every file's exact counts and **all 258 top-level names and outcomes**
+match the same-host baseline; there are no missing or extra records.
+The 14 known mbp2606 failures under AIT-531 remain failures, accepted under
+LEAD's item 2. The release PR's authoritative browser CI must still be fully
+green; the coordinator owns that gate and it is not claimed here.
+
+Counts below are passed / failed / total. Every file is under `test/browser/`;
+all actual and baseline runs in this table are on **mbp2606**.
+
+| File | Host | Run id | Actual P/F/T | Baseline run id | Baseline P/F/T |
+| --- | --- | --- | --- | --- | --- |
+| `admin-pages.test.js` | mbp2606 | `4df20e88e3-57339` | 2/0/2 | `4cf14bd074-38135` | 2/0/2 |
+| `audio-replay.test.js` | mbp2606 | `4df20e88e3-57339` | 193/0/193 | `4cf14bd074-38135` | 193/0/193 |
+| `clarify-now.test.js` | mbp2606 | `4df20e88e3-57339` | 17/0/17 | `4cf14bd074-38135` | 17/0/17 |
+| `composed-media.test.js` | mbp2606 | `4df20e88e3-57339` | 7/1/8 | `4cf14bd074-38135` | 7/1/8 |
+| `composed-qualification.test.js` | mbp2606 | `4df20e88e3-57339` | 15/0/15 | `4cf14bd074-38135` | 15/0/15 |
+| `confirmation-design.test.js` | mbp2606 | `4df20e88e3-57339` | 1/0/1 | `4cf14bd074-38135` | 1/0/1 |
+| `consent-lines.test.js` | mbp2606 | `4df20e88e3-57339` | 34/0/34 | `4cf14bd074-38135` | 34/0/34 |
+| `credit-hold.test.js` | mbp2606 | `4df20e88e3-57339` | 1/0/1 | `4cf14bd074-38135` | 1/0/1 |
+| `demo.test.js` | mbp2606 | `4df20e88e3-57339` | 10/0/10 | `4cf14bd074-38135` | 10/0/10 |
+| `email-ask.test.js` | mbp2606 | `4df20e88e3-57339` | 73/0/73 | `4cf14bd074-38135` | 73/0/73 |
+| `email-mail-space.test.js` | mbp2606 | `4df20e88e3-57339` | 379/0/379 | `4cf14bd074-38135` | 379/0/379 |
+| `email-unlock-reply.test.js` | mbp2606 | `4df20e88e3-57339` | 6/0/6 | `4cf14bd074-38135` | 6/0/6 |
+| `external-plugin.test.js` | mbp2606 | `4df20e88e3-57339` | 1/0/1 | `4cf14bd074-38135` | 1/0/1 |
+| `footer-width-sweep.test.js` | mbp2606 | `4df20e88e3-57339` | 4/0/4 | `4cf14bd074-38135` | 4/0/4 |
+| `host-surface.test.js` | mbp2606 | `4df20e88e3-57339` | 20/1/21 | `4cf14bd074-38135` | 20/1/21 |
+| `html-preview.test.js` | mbp2606 | `4df20e88e3-57339` | 84/2/86 | `4cf14bd074-38135` | 84/2/86 |
+| `identity-unlock.test.js` | mbp2606 | `4df20e88e3-57339` | 17/0/17 | `4cf14bd074-38135` | 17/0/17 |
+| `lane-race-kit.test.js` | mbp2606 | `4df20e88e3-57339` | 4/0/4 | `4cf14bd074-38135` | 4/0/4 |
+| `language-first-paint.test.js` | mbp2606 | `4df20e88e3-57339` | 1/0/1 | `4cf14bd074-38135` | 1/0/1 |
+| `operator-login.test.js` | mbp2606 | `4df20e88e3-75242` | 26/0/26 | `eff9c36ba1-80398` | 26/0/26 |
+| `orb-reveal.test.js` | mbp2606 | `4df20e88e3-57339` | 6/0/6 | `4cf14bd074-38135` | 6/0/6 |
+| `pause-phone.test.js` | mbp2606 | `4df20e88e3-57339` | 77/0/77 | `4cf14bd074-38135` | 77/0/77 |
+| `question-card.test.js` | mbp2606 | `4df20e88e3-57339` | 35/6/41 | `4cf14bd074-38135` | 35/6/41 |
+| `safeguards.test.js` | mbp2606 | `4df20e88e3-57339` | 13/0/13 | `4cf14bd074-38135` | 13/0/13 |
+| `start-journey.test.js` | mbp2606 | `4df20e88e3-57339` | 63/0/63 | `4cf14bd074-38135` | 63/0/63 |
+| `start-look.test.js` | mbp2606 | `4df20e88e3-57339` | 23/0/23 | `4cf14bd074-38135` | 23/0/23 |
+| `start2-display-continuity.test.js` | mbp2606 | `4df20e88e3-57339` | 15/0/15 | `4cf14bd074-38135` | 15/0/15 |
+| `start2-display-geometry.test.js` | mbp2606 | `4df20e88e3-57339` | 13/0/13 | `4cf14bd074-38135` | 13/0/13 |
+| `start2-display-matrix.test.js` | mbp2606 | `4df20e88e3-57339` | 1/0/1 | `4cf14bd074-38135` | 1/0/1 |
+| `start2-display.test.js` | mbp2606 | `4df20e88e3-57339` | 80/1/81 | `4cf14bd074-38135` | 80/1/81 |
+| `tick-followups.test.js` | mbp2606 | `4df20e88e3-57339` | 6/0/6 | `4cf14bd074-38135` | 6/0/6 |
+| `understanding-failure.test.js` | mbp2606 | `4df20e88e3-57339` | 29/3/32 | `4cf14bd074-38135` | 29/3/32 |
+| `upload-capacity.test.js` | mbp2606 | `4df20e88e3-57339` | 5/0/5 | `4cf14bd074-38135` | 5/0/5 |
+| `visitor-credit-tiers.test.js` | mbp2606 | `4df20e88e3-57339` | 10/0/10 | `4cf14bd074-38135` | 10/0/10 |
+| `voice-presentation.test.js` | mbp2606 | `4df20e88e3-57339` | 7/0/7 | `4cf14bd074-38135` | 7/0/7 |
+
+Accepted top-level failure names (**known mbp2606 failures under AIT-531**):
+
+- `composed-media.test.js` — “AIT-350: Settings provider switch viewports, focus and 0 px geometry”.
+- `host-surface.test.js` — “AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN”.
+- `html-preview.test.js` — “AIT-400: withdrawal preserves the top transcript row and reserved status slot”.
+- `question-card.test.js` — “AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement”.
+- `question-card.test.js` — “AIT-512: picks and sends keep the new turn visible without stealing reading position”.
+- `start2-display.test.js` — “AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390”.
+- `understanding-failure.test.js` — “AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px”.
+
+These seven top-level failures account for the 14 failed tests including nested
+failures. The AIT-400 comparison uses file, top-level name and exact per-file
+counts under LEAD's item 2; the accepted mbp2606 jitter may vary by nested
+viewport. No assertion or executable source changed for this re-preparation.
+Full counts, names, outcomes and comparison are retained in
+`.data/ait-539/recut-browser-comparison.json` and `recut-browser-counts.tsv`;
+raw browser evidence is in `dist/ait539-recut-browser-main/`,
+`dist/ait539-recut-browser-operator/` and `dist/ait539-recut-baseline-operator/`.
+
+**Tree identity and final-head scope.** L′ and AIT-540's tested head are
+identical trees. From L′, this preparation changes only manifest and lockfile
+version mirrors/internal pins, release metadata and notes. Published history,
+migration pins, presentation payload, source, styles and tests are unchanged.
+The evidence commit after the browser-tested preparation head changes only
+this `release/README.md`; its exact diff and final head C3 are recorded in the
+handoff. Browser evidence therefore covers the final prepared product tree.
+After that signed-off documentation commit, run the exact release set below
+on final C3 and rebuild `dist/ait539-final/candidate/`. Record its actual
+release result, source commit and both digests in the handoff. Make no
+evidence-only commit after that final build. The coordinator must verify tree
+identity at merge and green release PR CI before the candidate marker/cut.
 
 Preparation order (remote execution only):
 
@@ -328,7 +417,7 @@ Preparation order (remote execution only):
    `/Users/markus/Code/aithema-worktrees/ait-539`; branch:
    `release/ait-539-rc25-recut`; recorded builder session:
    `AIT-539-recut1` (`6ec1b663-b474-46a5-b93c-8440309b97c3`, role builder).
-2. Run the release test set on **final committed C**, using the durable fetch-retry
+2. Run the release test set on **final committed C3**, using the durable fetch-retry
    wrapper for every `EVIDENCE_OUT` run. The candidate builds twice, verifies,
    smoke-tests the isolated sixteen-module consumer, reinstalls its lock,
    replaces its dependency and proves exact rollback, with mocks only.
@@ -357,7 +446,7 @@ Preparation order (remote execution only):
 
 3. Retain `/Users/markus/Code/aithema-worktrees/ait-539/dist/ait539-final/candidate/`,
    including `first/`, `candidate-evidence.json`, isolated deployment and consumer
-   pins/locks. Confirm `source_commit` equals C and recompute `manifest_sha256`
+   pins/locks. Confirm `source_commit` equals C3 and recompute `manifest_sha256`
    and `normalized_digest` against `first/`. Make **no evidence-only commit after
    the final build**; any source or commit change requires another final-C build.
    Record the actual release-test count, lane platform, browser results and
