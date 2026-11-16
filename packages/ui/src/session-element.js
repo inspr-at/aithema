@@ -1212,8 +1212,7 @@ export class AithemaSession extends HTMLElement {
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? (this.#startFromNavigation ? null : this.#startIntent?.tabId) ?? null);
     if (this.#startIntent) void this.#refreshFeatures();
   };
-  #syncBandScroll = event => {
-    if (event?.type !== 'scroll') this.#syncCombinedFooterInset();
+  #syncBandScroll = () => {
     const band = this.shadowRoot.querySelector('.band'), workspace = this.shadowRoot.querySelector('.workspace');
     if (!band || !workspace) return;
     // The document can scroll before sticky engages; also cover an embedding scroll container.
@@ -2712,31 +2711,18 @@ export class AithemaSession extends HTMLElement {
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
     band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < required);
   }
-  #syncCombinedFooterInset() {
-    if (!this.#combined || this.#erased || this.ownerDocument.defaultView?.innerWidth < 600) return;
-    const workspace = this.shadowRoot.querySelector('.workspace'), footer = this.shadowRoot.querySelector('.display-foot');
-    const bounds = workspace?.getBoundingClientRect(), foot = footer?.getBoundingClientRect();
-    if (!bounds?.width || !bounds.height || !foot?.width || !foot.height) return;
-    // Reserve only the fixed footer's overlap with this host's workspace. A
-    // shorter embed needs no extra inset; a host masthead changes its position.
-    const inset = `${Math.max(0, Math.min(foot.height + 11, bounds.bottom - foot.top + 11))}px`;
-    if (workspace.style.getPropertyValue('--combined-footer-inset') !== inset) workspace.style.setProperty('--combined-footer-inset', inset);
-  }
   #observePanes() {
     this.#paneObserver?.disconnect();
-    this.#syncCombinedFooterInset();
     const Observer = this.ownerDocument.defaultView?.ResizeObserver;
     if (Observer) {
       this.#paneObserver = new Observer(() => {
         const band = this.shadowRoot.querySelector('.band');
         this.#syncRailFit();
-        this.#syncCombinedFooterInset();
         this.shadowRoot.querySelector('.edge-column').style.setProperty('--band-height', `${band.getBoundingClientRect().height}px`);
         this.#syncPanes();
       });
       for (const selector of ['.band', '.band-identity', '.header-actions']) this.#paneObserver.observe(this.shadowRoot.querySelector(selector));
       this.#syncRailFit();
-      if (this.#combined) this.#paneObserver.observe(this.shadowRoot.querySelector('.display-foot'));
       for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
         this.#paneObserver.observe(pane); for (const child of pane.children) this.#paneObserver.observe(child);
       }

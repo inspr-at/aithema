@@ -1,8 +1,9 @@
 // The opt-in entrance and live call share a top-anchored control frame.
 // Its intrinsic notice follows the controls; disclosures cannot resize the frame.
 export const combinedEntranceStyles = `
-/* Keep the fixed footer reservation relative to the configured host height. */
-.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:max(1rem,var(--combined-footer-inset,calc(57px + env(safe-area-inset-bottom,0px) + 1rem))); }
+/* The fixed footer is outside grid flow. Reserve its full 44px row, padding
+   and border inside the host height so the notice can grow above it. */
+.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:calc(57px + env(safe-area-inset-bottom,0px) + 1rem); }
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; gap:8px; }
 /* The whole entrance/transcript surface scrolls above the reserved input row. */
 .workspace[data-entrance="combined"] .conversation-scroll { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:auto; scrollbar-gutter:stable; gap:.85rem; }
