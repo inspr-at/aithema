@@ -358,7 +358,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     // Model visitor-staged content without an upload or provider request.
     await shadow(page, c => {
       const slot = document.createElement('div'); slot.className = 'fixture-composer-content';
-      slot.setAttribute('aria-hidden', 'true'); slot.style.cssText = 'height:44px;grid-column:1/-1';
+      slot.setAttribute('aria-hidden', 'true'); slot.style.cssText = 'height:88px;grid-column:1/-1';
       c.shadowRoot.querySelector('.composer').prepend(slot);
       c.shadowRoot.querySelector('textarea').dispatchEvent(new Event('input', { bubbles: true }));
     });
