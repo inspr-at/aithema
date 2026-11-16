@@ -1368,7 +1368,7 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
   }
 });
 
-for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-time image consent keep positive frame boxes, keyboard and L/D`, { timeout: 120_000 }, async t => {
+for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']) test(`AIT-509 ${locale}${entrance === 'combined' ? ' combined' : ''}: idle and just-in-time image consent keep positive frame boxes, keyboard and L/D`, { timeout: 240_000 }, async t => {
   const page = await fixture(t), results = [];
   // Capture the view through its public update boundary; no provider or timer runs.
   await page.evaluate(async () => {
@@ -1376,29 +1376,33 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
     const update = ConceptView.prototype.update;
     ConceptView.prototype.update = function (...args) { globalThis.ait509View = this; return update.apply(this, args); };
   });
-  for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+  const viewports = [390, 1024, 1440].map(width => ({ width, height: width === 390 ? 844 : 900 }));
+  if (entrance === 'combined') viewports.push({ width: 390, height: 620 }, { width: 390, height: 568 });
+  for (const theme of ['light', 'dark']) for (const { width, height } of viewports) {
     await scene(page, locale, theme, width, []);
-    await shadow(page, async (c, locale) => {
+    await page.setViewport({ width, height });
+    await shadow(page, async (c, { locale, entrance }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = c.session; session.conceptVisualKind = 'image';
       session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
-      c.configure({ session, copy, voiceClient: {} });
+      c.configure({ entrance, session, copy, voiceClient: {} });
       globalThis.ait509Session = session;
       // configure clones its input. This isolated view fixture must read the
       // same evolving snapshot for availability as for consent/status updates.
       globalThis.ait509View.feature = () => globalThis.ait509Session.featureMatrix.best.images;
-    }, locale);
-    const measure = () => shadow(page, c => {
-      const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', '.attach', '.send', '.turn', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
+    }, { locale, entrance });
+    const label = `ait509-${locale}-${theme}-${width}${entrance === 'combined' ? `-combined-${height}` : ''}`;
+    const measure = () => shadow(page, (c, entrance) => {
+      const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', ...(entrance === 'combined' ? ['.composer-mic', '.composer-notice', '.composer-feedback', '.composer-status'] : ['.attach']), '.send', '.turn', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
       return Object.fromEntries(selectors.map(selector => { const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
         return [selector, { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom }]; }));
-    });
+    }, entrance);
     await frame(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), '');
     await page.hover('aithema-session >>> .turn');
     const before = await measure();
     for (const [selector, r] of Object.entries(before)) { assert.ok(r.width > 0, selector + ': positive width'); assert.ok(r.height > 0, selector + ': positive height'); }
-    if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-idle`, { boxes: before });
+    if (width !== 1024) await record(t, page, `${label}-idle`, { boxes: before });
     await page.evaluate(() => {
       ait509Session.conceptStatus = { phase: 'waiting', consentRequest: { id: 'validated-wish', sourceTurnId: 'c1-user' } };
       ait509View.update(ait509Session);
@@ -1414,8 +1418,8 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
       return { text: line.innerText, width: r.width, height: r.height, top: r.top, bottom: r.bottom };
     });
     assert.equal(ask.text, locale === 'de' ? 'Zum Erstellen von Bildern ist eine Einwilligung nötig.\u00a0· Einwilligung geben' : 'Images need consent to be created.\u00a0· Give consent');
-    assert.ok(ask.width > 0 && ask.height > 0 && ask.bottom <= (width === 390 ? 844 : 900));
-    if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-ask`, { before, after, ask });
+    assert.ok(ask.width > 0 && ask.height > 0 && ask.top >= 0 && ask.bottom <= height);
+    if (width !== 1024) await record(t, page, `${label}-ask`, { before, after, ask });
     if (width === 390) {
       await page.locator('aithema-session >>> textarea').click();
       await page.setViewport({ width, height: 500 }); await frame(page);
@@ -1431,8 +1435,8 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
       await frame(page);
       const visible = await shadow(page, c => { const r = c.shadowRoot.querySelector('.concept-activity-text .consent-action').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width, height: r.height }; });
       assert.ok(visible.width > 0 && visible.height > 0 && visible.top >= 0 && visible.bottom <= 500);
-      await record(t, page, `ait509-${locale}-${theme}-${width}-keyboard-ask`, { visible, keyboardBefore, keyboardAfter });
-      await page.setViewport({ width, height: 844 }); await frame(page);
+      await record(t, page, `${label}-keyboard-ask`, { visible, keyboardBefore, keyboardAfter });
+      await page.setViewport({ width, height }); await frame(page);
     }
     const beforeGrant = await measure();
     for (const [selector, r] of Object.entries(beforeGrant)) assert.ok(r.width > 0 && r.height > 0, selector + ': positive pre-grant box');
@@ -1453,12 +1457,12 @@ for (const locale of ['en', 'de']) test(`AIT-509 ${locale}: idle and just-in-tim
       const request = c.shadowRoot.querySelector('.concept-request');
       return { hidden: request.hidden, disabled: request.disabled };
     }), { hidden: false, disabled: false }, 'the grant reaches the rendered Request control');
-    if (width !== 1024) await record(t, page, `ait509-${locale}-${theme}-${width}-granted`, { beforeGrant, afterGrant });
-    results.push({ locale, theme, width, before, after, beforeGrant, afterGrant });
+    if (width !== 1024) await record(t, page, `${label}-granted`, { beforeGrant, afterGrant });
+    results.push({ locale, theme, entrance, width, height, before, after, beforeGrant, afterGrant });
   }
-  assert.equal(results.length, 6);
+  assert.equal(results.length, entrance === 'combined' ? 10 : 6);
   if (process.env.AITHEMA_EVIDENCE_DIR) {
     const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-509'); await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, `rects-${locale}.json`), JSON.stringify({ head: evidenceCommit, results }, null, 2));
+    await writeFile(join(dir, `rects-${locale}-${entrance}.json`), JSON.stringify({ head: evidenceCommit, results }, null, 2));
   }
 });
