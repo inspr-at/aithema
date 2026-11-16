@@ -24,8 +24,8 @@
   through mount. `voice: false` still works; existing defaults and exports remain.
   Host CSS width overrides keep winning. The helper manages
   `--aithema-contact-launcher-width` (0 px by default, 44 px when declared);
-  custom totals still use `--aithema-header-actions-width`. The contact rail default
-  has zero specificity so host `headerRailReservation` overrides win.
+  custom totals still use `--aithema-header-actions-width`. Both library rail defaults
+  have zero specificity so host `headerRailReservation` overrides win.
 - Contact content, click listeners, styling, accessible names, modal focus trap,
   Escape and focus return belong to the host. Besides the first-paint flag,
   there are no new configure options, event fields, contact events or exports.

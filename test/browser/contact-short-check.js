@@ -84,7 +84,8 @@ export async function contactShortCheck(t) {
       await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings').close());
       assert.ok(Math.abs(dialog.top - settingsTop) <= .5, `contact uses Settings top anchor: ${dialog.top} vs ${settingsTop}`);
       await shot(`${label}-dialog`); await page.keyboard.press('Escape'); await settle();
-      if (width >= 960) stable(before.frames, (await sample()).frames);
+      const after = await sample();
+      const shiftPx = width >= 960 ? stable(before.frames, after.frames) : null;
       // At wide desktop fold first so About opens with a visible contact launcher.
       if (width >= 960 && height >= 768) await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.fold').click());
       await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.band-orb .orb').focus());
@@ -97,7 +98,7 @@ export async function contactShortCheck(t) {
       assert.equal(reveal.phase, 'open'); assert.equal(reveal.inert, true, 'contact is inert during About');
       positive([reveal.box]); assert.equal(Number(reveal.opacity), 0, 'contact fades during About');
       await shot(`${label}-about`);
-      records.push({ label, before, dialog, settingsTop, reveal });
+      records.push({ label, before, after, shiftPx, dialog, settingsTop, reveal });
       if (evidence) await writeFile(join(evidence, 'contact-short-rects.json'), JSON.stringify(records, null, 2));
     });
   }
@@ -107,6 +108,10 @@ export async function contactRailCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-contact-rail-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'sessions.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage(), results = [];
+  await page.evaluateOnNewDocument(() => {
+    const OriginalDate = Date;
+    window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } };
+  });
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
   await page.setRequestInterception(true);
   page.on('request', request => {

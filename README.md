@@ -501,7 +501,8 @@ set `--aithema-header-actions-width` in render-blocking host CSS to your existin
 width + 44 px (default 216 → 260 px; below 600 px, 88 → 132 px), on both the
 placeholder and component; use `headerRailReservation({ actionsWidth: '260px' })`
 when overriding the desktop width so both reserve the same rail row. Custom
-width overrides keep winning; the library contact rail default has zero specificity. The helper manages the reservation delta
+width overrides keep winning; both library rail defaults have zero specificity.
+The helper manages the reservation delta
 `--aithema-contact-launcher-width` (0 px by default, 44 px when declared);
 customize the total through `--aithema-header-actions-width`. The existing
 default markup and exports remain available; no new export or contact event is introduced.

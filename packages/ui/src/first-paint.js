@@ -64,7 +64,9 @@ ${selector} > .audio-rail { grid-column:2; grid-row:1; }
 // :defined alone is too early because session loading may still be pending.
 export const firstPaintStyles = `
 .aithema-shell { container:aithema-shell / inline-size; }
-${headerRailReservation()}
+/* Both built-in defaults are equally weak: contact wins by order, while a
+   host's headerRailReservation override wins over either library default. */
+${headerRailReservation({ selector: ':where(.aithema-shell > :is(aithema-session,.aithema-first-paint))' })}
 /* An opt-in placeholder declares the same extra target before and after mount.
    The mounted marker also keeps the reservation if a host removes its skeleton. */
 .aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint) { --aithema-contact-launcher-width:44px; }
