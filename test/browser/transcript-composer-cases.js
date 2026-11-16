@@ -14,7 +14,7 @@ const frame = ['.band', '.understanding', '.understanding > .foot', '.display-fo
 const geometry = async page => { const state = await shadow(page, c => {
   const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
   const input = r.querySelector('textarea'), shell = r.querySelector('.transcript-shell');
-  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.audio-rail', '.concept-bar', '.concept-access', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
+  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.composer-mic', '.audio-rail', '.concept-bar', '.concept-access', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
     .filter(selector => r.querySelector(selector)).map(selector => [selector, box(selector)])),
   inputScroll: input.scrollHeight, inputClient: input.clientHeight, value: input.value,
   scroll: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight,
@@ -258,6 +258,39 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       stable(before, after, 'keyboard'); assert.ok(after.boxes.textarea.height <= 92.5, 'three 24px lines plus 20px padding');
       assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'short input can grow');
     } finally { await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.originalComposerViewport }); if (globalThis.originalComposerTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.originalComposerTouch); else delete navigator.maxTouchPoints; window.dispatchEvent(new Event('resize')); }); }
+  });
+  await t.test('combined keyboard keeps its answer strip and pinned actions while the field grows', async () => {
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+      await reset(390, 844, locale, theme, { entrance: 'combined', card: true });
+      await page.evaluate(() => {
+        globalThis.originalComposerViewport = visualViewport; globalThis.originalComposerTouch = Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints');
+        Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
+        const viewport = new EventTarget(); Object.assign(viewport, { height: 420, offsetTop: 0, scale: 1 });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+        document.querySelector('aithema-session').shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+        window.dispatchEvent(new Event('resize'));
+      });
+      try {
+        await settleHeld(page); const before = await geometry(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard')), true, 'combined keyboard flag is active');
+        await draft(page, 30); await settleHeld(page);
+        const after = await capture(`ait-513-combined-${locale}-${theme}-390-keyboard`);
+        assert.equal(before.footerHidden, true); assert.equal(after.footerHidden, true, 'combined keyboard explicitly hides footer');
+        assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'combined keyboard field grows');
+        assert.ok(after.boxes.textarea.height <= 92.5, 'combined keyboard permits at most three lines');
+        positive(after.boxes['.qcard'], 'combined keyboard card'); positive(after.boxes['.qopts'], 'combined keyboard options');
+        assert.ok(after.boxes['.qopts'].height >= 44, 'combined keyboard keeps answer options reachable');
+        assert.ok(after.boxes['.qcard'].bottom <= after.boxes['.composer'].top + .5, 'combined keyboard card clears input');
+        for (const selector of [...frame.filter(selector => !['.composer-actions .attach', '.display-foot'].includes(selector)), '.composer-mic']) {
+          const a = before.boxes[selector], b = after.boxes[selector]; positive(a, selector); positive(b, selector);
+          for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(a[key] - b[key]) <= .5, `combined keyboard/${selector}/${key}: ${a[key]} -> ${b[key]}`);
+        }
+        assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, 'combined keyboard composer bottom stays pinned');
+        records.push({ label: `combined-keyboard-${locale}-${theme}`, before, after });
+      } finally {
+        await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.originalComposerViewport }); if (globalThis.originalComposerTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.originalComposerTouch); else delete navigator.maxTouchPoints; window.dispatchEvent(new Event('resize')); });
+      }
+    }
   });
   await t.test('failed send retains height; chip retains draft; successful typed send resets', async () => {
     await reset(1440, 900, 'en', 'light', { card: true }); await draft(page, 12); await settleEvidenceFrame(page);
