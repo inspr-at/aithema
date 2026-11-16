@@ -52,7 +52,7 @@ an option explicitly enables the extra contract:
 | Session snapshot | `opener: { text, locale }` when locale copy exists; `emailOffer: { afterMessages }` when enabled; otherwise absent. |
 | Opted-in `session.locale-changed` | `data.opener: { text, locale }` or `null`; render-only, not host text in journal metadata. |
 | `/turns` with opener configured | Keeps legacy event-shaped fields, adds `event` and ordered `events: [opener, turn]` (or `[turn]`); replay and SSE preserve order. Without an opener the response is unchanged. |
-| Host turn and export | `id: 'host:opener'`, `origin: 'host'`, no producer/operation identity; Markdown `assistant (host)`. Visitor `clientEventId` cannot use the reserved `host:` namespace. |
+| Host turn and export | `id: 'host:opener'`, `origin: 'host'`, no producer/operation identity; Markdown `assistant (host)`. |
 | Email-ask route / credit receipt | `why: 'offer'` for `show`/`dismiss`; private `emailOffer` record: `offered`, `open`, `dismissed`, `at`, `nextTier`, `deltaMicro`, `revision`. Absent without the policy. |
 | Email collection | Existing privacy notice and required `noticeVersion` still apply; verification lock remains until confirmation. |
 | Untimed credit guard / view | `timed: false`, `endsAt: null`, `remainingMs: null`; `'time'` keeps existing fields and deadline. |
@@ -62,6 +62,9 @@ an option explicitly enables the extra contract:
 | Fresh later-call presentation | `presentation: 'continuation'`; `prepareCallback` and host `presentation(locale, context)` add `hasPriorCalls: true` and retain `hasPriorTurns: true`. Host `spokenContinuations[locale]` wins, else neutral AI-disclosing continuation; automatic repair stays silent. |
 | Trusted duration admission | `voiceEstimate.callId`; one unreconciled logical call per session, otherwise existing refusal receipt adds `reason: 'budget reconciling'`. Same-call recovery retains its bound. |
 | Combined `aithema-consent` | Existing `reason: 'ready'`, `intent: 'start'`, `mode: 'text'` / `'voice'` (`'type'` for legacy text), `required` selected blocked feature, `features` complete list. No new event name or required host integration. |
+
+The `host:` clientEventId prefix is reserved for every host, including hosts
+without an opener; visitor `clientEventId` values cannot use it.
 
 **Copy compatibility.** These are all new EN/DE copy keys in this range:
 
@@ -91,7 +94,8 @@ metadata, with no host API change.
   email delivery, privacy capability and the daily visitor claim ports are
   required for an eligible offer.
 - Under `emailOffer`, the overview follows AIT-505 workspace visibility, including
-  accepted/unreadable uploads, partial speech and non-opener assistant greetings.
+  pending or accepted/unreadable uploads, partial speech and non-opener assistant
+  greetings.
   A host opener alone does not reveal it. The empty Settings capture form waits
   for active visitor input through core `hasVisitorInput`;
   saved-address Change/Delete remain reachable. The credits popover hides its
@@ -136,7 +140,7 @@ metadata, with no host API change.
   server and UI, including packed consumers.
 
 
-- AIT-505: additive `hasVisitorInput(session)` core export separates active visitor/document input from host or assistant text; `hasConversationInput` remains an alias. Existing workspace display triggers (withdrawn input, pending uploads, partial speech and ordinary assistant greetings/streaming) remain visible without satisfying assessment/admission thresholds; a host-only opener does not reveal the overview. `conversationStarted` keeps its locale-locking meaning. UI `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` project the entrance opener without changing the canonical transcript.
+- AIT-505: additive `hasVisitorInput(session)` core export separates active visitor/document input from host or assistant text; `hasConversationInput` remains an alias. Existing workspace display triggers (withdrawn input, pending uploads, partial speech and ordinary assistant greetings/streaming) remain visible without satisfying assessment/admission thresholds; a host-only opener does not reveal the overview. `conversationStarted` keeps its locale-locking meaning. Internal UI helpers `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` project the entrance opener without changing the canonical transcript; they are not package exports.
 
 - AIT-505: optional server `opener: { en?: string, de?: string }` (plain text, ≤1000 characters per locale; blank/missing disables without fallback), published as snapshot `opener: { text, locale }`. Render-only after legacy Start or before input with `configure({ entrance: 'combined', ... })`; missing locale copy reserves no entrance transcript space; persisted once at first `/turns`, first terminal upload (accepted or unreadable, in the same transaction before document-driven reply dispatch), or an eligible voice connection under the provider rules below; device mode keeps it local. Six-line clamp reuses the localized full-reply dialog, available in text/device mode without a voice provider; invalidation/erasure immediately closes and clears copied full text. Additive EN/DE `hostOpenerTitle` and `hostOpenerTextOnly` copy keys label the welcome-message full-text dialog; host overrides win.
 - AIT-505: canonical ID `host:opener`; reserved visitor `clientEventId` namespace `host:`. For hosts with an opener configured, `/turns` adds `event` and ordered `events: [opener, turn]` or `[turn]`, retaining legacy event-shaped fields and replay ordering. SSE peers receive both in order. Hosts without an opener keep their exact legacy response and presentation context. Pending/refused/withdrawn uploads do not claim an opener. Existing histories are unchanged; persistence pins locale.
@@ -265,11 +269,10 @@ The existing `voiceTimeLimit` text and Start/Retry anchors remain in use.
   for verified first-attempt duplicate main pushes; PRs and merge groups require
   successful workers.
   The four required `browser (n/4)` aliases remain during the transition.
-  The new aggregate is initially optional; DEVOPS changes the ruleset only after
-  owner approval, and aliases can be removed only after the coordinator confirms
-  the switch. No GitHub settings change in this delivery. Timing/evidence artifact
-  names use `N-of-12`, with historical timing imports retained. The 405 s planner
-  target and 420 s hard ceiling are unchanged. There is no host API change.
+  The new aggregate is initially optional; a ruleset change requires owner
+  approval, and aliases can be removed only after the switch is confirmed.
+  No GitHub settings change in this delivery. Timing/evidence artifact names use
+  `N-of-12`, with historical timing imports retained. The 405 s planner target and 420 s hard ceiling are unchanged. There is no host API change.
   CI prepares the browser evidence directory before tests, and isolated evidence
   writers create their destination rather than depending on test order.
 
@@ -309,7 +312,9 @@ Grok Voice is **not yet qualified in live use**. Grok's opener is text-only;
 no separate greeting is spoken. No provider credentials are bundled.
 
 [RC14's host requirements](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#for-hosts)
-and RC23's asynchronous-delivery `identity.acceptsAddress` requirement still apply.
+still apply, including its breaking changes; Aithema recommends checking those
+requirements before upgrading from an earlier release. RC23's asynchronous
+identity-delivery `identity.acceptsAddress` requirement also still applies.
 
 Release assets include module tarballs, the workspace archive, dependency locks,
 an SPDX SBOM and `release-set.json`. Verify the published attestations and

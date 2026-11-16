@@ -101,9 +101,9 @@ alias. There is **no `hasOfferVisitorInput` export**. The additive
 For **every host with an opener**, including hosts without `emailOffer`, the
 opener is not a settled reply: it alone cannot trigger a low-credit form, line
 or confirmation action. Under `emailOffer`, overview visibility follows AIT-505
-workspace display, so accepted/unreadable uploads, partial speech and non-opener
-assistant greetings also reveal it. A host opener alone does not. Settings'
-empty capture form instead waits for active visitor input via `hasVisitorInput`,
+workspace display, so pending or accepted/unreadable uploads, partial speech and
+non-opener assistant greetings also reveal it. A host opener alone does not.
+Settings' empty capture form instead waits for active visitor input via `hasVisitorInput`,
 with the existing used-up recovery exception. README host lines are corrected
 to make both distinctions explicit.
 
@@ -256,10 +256,11 @@ The earlier interrupted attempt and agm2 batch are superseded for this proof.
 Baseline: AIT-506 final `bc504f61eeaa1d262041739b7867852f9f56788b`, same
 **mbp2606** host, main run `bc504f61ee-69381` and isolated operator run
 `bc504f61ee-72395`. Matching granularity is **exact per-file passing/failing
-counts and top-level failing test names**, including missing or extra names;
-nested test names are not the granularity retained by the baseline. All 35 files
-match, totaling **1,196 passed / 14 failed / 1,210 tests**, with zero skipped,
-cancelled or todo. These are **known mbp2606-only failures under AIT-531**,
+counts and top-level failing test names**, including missing or extra names.
+The baseline does keep nested names for other files; AIT-400 is documented
+separately below, including the limits of its retained output. All 35 files
+match at the required granularity, totaling **1,196 passed / 14 failed / 1,210
+tests**, with zero skipped, cancelled or todo. These are **known mbp2606-only failures under AIT-531**,
 accepted by this ruling as matching baseline failures, never described as passing.
 **GitHub CI on the release PR is the authoritative browser proof**: all twelve
 Ubuntu browser shards must be fully green, with no exceptions. That check is
@@ -317,7 +318,28 @@ Accepted top-level failure names (**known mbp2606-only failures under AIT-531**)
 - `understanding-failure.test.js` — “AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px”.
 
 The seven top-level failures above account for the 14 failed tests including
-nested failures. Per-file counts, complete top-level names, error classes and
+nested failures. For `html-preview.test.js`, the exact per-file count is
+**84 passed / 2 failed / 86 tests**, equal to the baseline, and the top-level
+failure “AIT-400: withdrawal preserves the top transcript row and reserved status
+slot” matches. RC25's failing nested case is **`1024/light/de`**. The original
+baseline spec stdout could not be recovered; its timing stream records only
+this parent failure. However, its retained `ait400/initial-1024-de.json` records
+composer `[40.953125, 670, 564.5, 150]`, identical to RC25 and different from the
+unchanged captured frame `[40.953125, 669.296875, 564.5, 150.703125]`. The other
+five initial viewport cases match their captured frames, and the baseline's
+completed first-row checks omit only `1024/light/de`. These artifacts reconstruct
+**the same nested case**, rather than the different case described in the B4
+brief. The reconstruction is retained in `.data/ait-539/b4-baseline-ait400.json`;
+it is not a claim to have recovered the baseline spec stdout.
+
+Both runs are the known AIT-400 1 px composer-geometry jitter class on mbp2606
+(AIT-531). LEAD's explicit ruling (2026-11-16 07:4x, **CONFIRM**) accepts this
+failure under item 2: file, top-level test name and exact per-file count. That
+ruling also accepts a different nested viewport case inside this same AIT-400
+test as AIT-531 jitter; nested names are kept for other baseline files. This is
+an accepted **known mbp2606-only failure under AIT-531**, not a passing test.
+
+Per-file counts, complete top-level names, error classes and
 comparison results are retained in `.data/ait-539/b3-browser-comparison.json`
 and `b3-browser-counts.tsv`. Evidence roots: `dist/ait539-b2-browser-1/`,
 `dist/ait539-b3-browser-2/` and `dist/ait539-b3-browser-3/`.
@@ -361,6 +383,18 @@ style or test change. Its `git diff --stat bc504f61 C'` summary is:
 The B3 evidence commit changes only this `release/README.md` text;
 `git diff --stat a1263b66 C'` is recorded in the handoff. Browser results remain
 applicable to final C' without another browser run under the B3 ruling.
+
+**B4 documentation corrections.** The B4 commit after C' (`457f7c4d`) restores
+RC14's upgrade warning while retaining the RC23 requirement, corrects the
+AIT-400 evidence wording above and applies the five host-document corrections:
+Grok opener speech is not included; opener projection helpers are internal UI
+helpers, not package exports; the `host:` clientEventId prefix is reserved for
+every host; pending uploads also reveal the overview; and CI notes use neutral
+wording. Only `README.md`, `release/README.md` and `release/notes.md` change;
+`git diff --stat 457f7c4d C''` is recorded in the handoff. The B3 browser proof
+remains applicable under the B4 ruling. After this signed-off commit, rerun the
+release set below and rebuild the candidate at final C'', record the new run
+and digests in the handoff, and make no evidence-only commit after that build.
 
 Release-test checkpoint `a1263b66`, mbp2606 run `a1263b6603-93882`:
 **176 passed / 2 failed / 178 tests**. The failures are the permitted macOS-only
