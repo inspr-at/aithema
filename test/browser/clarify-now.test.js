@@ -1132,8 +1132,11 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
       scrollTop: root.querySelector('.analysis-content').scrollTop };
   });
   const frames = async () => {
-    const boxes = await shadow(page, c => ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer', '.attach', '.send'].map(selector =>
-      ({ selector, ...c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON() })));
+    const boxes = await shadow(page, c => {
+      const inputControl = c.shadowRoot.querySelector('.workspace').dataset.entrance === 'combined' ? '.composer-mic' : '.attach';
+      return ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer', inputControl, '.send'].map(selector =>
+        ({ selector, ...c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON() }));
+    });
     for (const box of boxes) assert.ok(box.width > 0 && box.height > 0, `positive frame ${box.selector}`);
     return boxes;
   };
@@ -1214,7 +1217,7 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
       }
       const rects = await frames(), get = selector => rects.find(box => box.selector === selector);
       const separate = (a, b) => a.right <= b.left + .5 || b.right <= a.left + .5 || a.bottom <= b.top + .5 || b.bottom <= a.top + .5;
-      assert.ok(separate(get('.attach'), get('.send')), `${label}: Attach and Send do not overlap`);
+      assert.ok(separate(get('.composer-mic'), get('.send')), `${label}: microphone and Send do not overlap`);
       assert.ok(separate(get('.understanding'), get('.composer')), `${label}: overview and composer do not overlap`);
     }
   }
