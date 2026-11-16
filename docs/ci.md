@@ -343,6 +343,10 @@ file. Complete remote run `b86c217e10-4534` at `b86c217e10` measured
 finished with 30 passing and the three authorized AIT-221 baseline failures;
 the new signal case and every exact settlement case pass. Reserve a temporary
 133 s floor (`ceil(106.018906167 × 1.25)`) outside trusted timing history.
+R10 run `28583d1290-34712` at `28583d12` measured 107.054550459 s for the
+complete file, including the added toggle geometry, focus and hit checks and
+200 signal captures. All new cases pass with the same three AIT-221 failures;
+raise the diagnostic reserve to 134 s (`ceil(107.054550459 × 1.25)`).
 The sibling rolling-main samples, twelve bins, 405 s planning target, 420 s hard
 ceiling and required check names remain unchanged. Replace the diagnostic floor
 only when matching canonical-main measurements cover the changed workload.

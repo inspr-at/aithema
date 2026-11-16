@@ -355,8 +355,11 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // ceil(*1.25)=133s. All new cases pass; the three AIT-221 failures match the
 // authorized baseline. This conservative diagnostic floor is not a trusted
 // timing sample; retain the sibling's rolling-main history unchanged.
+// R10: complete run 28583d1290-34712 at 28583d12 measured 107.054550459s,
+// including the new toggle geometry/focus/hit checks and 200 signal captures.
+// ceil(*1.25)=134s; all new cases pass, with the same three AIT-221 baseline failures.
 browserTestWeights['test/browser/understanding-failure.test.js'] = Math.max(
-  browserTestWeights['test/browser/understanding-failure.test.js'], 133);
+  browserTestWeights['test/browser/understanding-failure.test.js'], 134);
 
 // AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
 // clarify-now 17/17 PASS before the later shard timeout. Top-level work:
