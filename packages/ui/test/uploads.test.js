@@ -225,7 +225,7 @@ test('a failed withdrawal says so and keeps the chip', async t => {
 test('attaching sends one multipart request with the owner header, announces it and shows the chip from the acknowledgement', async t => {
   const { c, root, calls } = setup(t);
   assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
-  assert.equal(root.querySelector('.attach').title, 'Up to 8 files, 20 MB each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON or XML. The original file is not stored.');
+  assert.equal(root.querySelector('.attach').title, 'Up to 8 files, 20 MB each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP or GIF. Original documents are not stored; normalized images are kept until withdrawn or erased.');
   assert.equal(root.querySelector('#attach-limits').textContent, root.querySelector('.attach').title);
   await choose(root, [file('brief.pdf', 1200), file('notes.md', 30)]);
   const post = calls.find(call => call.options.method === 'POST');

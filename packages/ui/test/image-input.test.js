@@ -65,6 +65,28 @@ test('AIT-510: refusal records survive typing until explicitly dismissed', async
   assert.equal(f.root.querySelector('.image-refusals'), null);
 });
 
+for (const copy of [en, de]) for (const documentRefusal of [false, true]) {
+  test(`AIT-510: successful send clears image refusals and preserves document notices ${copy.display.locale}/${documentRefusal}`, async t => {
+    const f = fixture(t, copy);
+    const files = [new window.File(['fixture'], 'photo.heic', { type: 'image/heic' })];
+    if (documentRefusal) files.push(new window.File(['fixture'], 'blocked.exe'));
+    await choose(f.root, files);
+    assert.ok(f.root.querySelector('.image-refusals'));
+    f.root.querySelector('textarea').value = 'Hello';
+    f.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await tick(); await tick();
+    assert.equal(f.root.querySelector('.image-refusals'), null);
+    const reason = f.root.querySelector('.composer-reason');
+    assert.equal(reason.textContent.includes('photo.heic'), false, 'no duplicate image refusal remains after send');
+    if (documentRefusal) {
+      assert.equal(reason.textContent, copy === en ? 'Not attached: blocked.exe (file type not accepted).'
+        : 'Nicht angehängt: blocked.exe (Dateityp wird nicht angenommen).');
+      assert.equal(f.root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
+    } else assert.equal(reason.hasAttribute('data-shortcut'), true);
+    assert.equal(f.root.querySelector('.composer-saved-announcement').textContent, copy.saved);
+  });
+}
+
 test('AIT-510: staging and decoding do not clear a reply in flight; pending images cannot send', async t => {
   const { inputRevision } = await import('@inspr/aithema-core');
   const f = fixture(t);
