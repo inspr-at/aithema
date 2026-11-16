@@ -190,13 +190,13 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
       records.push({ label: `combined-opener-${locale}-${theme}-${width}`, before, after });
     }
   });
-  for (const [width, height] of [[1440, 900], [1024, 640], [390, 844], [390, 620], [390, 568]]) {
+  for (const [width, height] of [[1440, 900], [1440, 640], [1024, 640], [390, 844], [390, 620], [390, 568]]) {
     await t.test(`combined entrance grows upward without overlap ${width}x${height}`, async () => {
       for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
         await reset(width, height, locale, theme, { entrance: 'combined' });
         const measure = () => shadow(page, c => {
           const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
-          return { boxes: Object.fromEntries(['.band', '.understanding', '.understanding > .foot', '.send', '.composer-mic', 'textarea', '.composer-notice', '.composer', '.transcript-shell'].map(selector => [selector, box(selector)])),
+          return { boxes: Object.fromEntries(['.band', '.understanding', '.understanding > .foot', '.display-foot', '.send', '.composer-mic', 'textarea', '.composer-notice', '.composer', '.transcript-shell'].map(selector => [selector, box(selector)])),
             hiddenAttach: getComputedStyle(r.querySelector('.attach')).display === 'none' };
         });
         const before = await measure();
@@ -206,7 +206,8 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         const after = await measure();
         for (const state of [before, after]) for (const [selector, box] of Object.entries(state.boxes)) positive(box, `combined ${selector}`);
         assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'combined field grows with a multiline draft');
-        for (const selector of ['.band', '.understanding', '.understanding > .foot', '.send', '.composer-mic']) {
+        for (const state of [before, after]) assert.ok(state.boxes['.composer'].bottom <= state.boxes['.display-foot'].top + .5, 'combined composer clears the fixed footer');
+        for (const selector of ['.band', '.understanding', '.understanding > .foot', '.display-foot', '.send', '.composer-mic']) {
           for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(before.boxes[selector][key] - after.boxes[selector][key]) <= .5,
             `combined ${width}x${height}/${selector}/${key}: ${before.boxes[selector][key]} -> ${after.boxes[selector][key]}`);
         }
@@ -219,6 +220,10 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         const capped = await capture(`${label}-capped`);
         assert.ok(capped.inputScroll > capped.inputClient, 'combined capped field scrolls internally');
         assert.ok(capped.boxes['.composer'].height <= .4 * height + .5, 'combined composer respects visual viewport cap');
+        if (width === 1440) {
+          await reset(width, height, locale, theme, { entrance: 'combined', card: true });
+          await capture(`${label}-card`); await draft(page, 30); await settleEvidenceFrame(page); await capture(`${label}-card-capped`);
+        }
       }
     });
   }
