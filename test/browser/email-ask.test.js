@@ -897,3 +897,69 @@ for (const finding of ['M3', 'M4', 'M6']) test(`AIT-540 ${finding}: one readable
     }
   });
 });
+
+test('AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-offer-reload-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, records = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  if (evidence) await mkdir(join(evidence, 'shots'), { recursive: true });
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  let restoreDocument;
+  await page.setRequestInterception(true);
+  page.on('request', request => { void (new URL(request.url()).pathname === '/ait540-restore'
+    ? request.respond({ status: 200, contentType: 'text/html', body: restoreDocument }) : request.continue()); });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    await page.setViewport({ width: 390, height: 844 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 1, lock: true });
+    await page.evaluate(() => window.ait164.reply());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
+    // Persist an open offer followed by many complete turns, not a tail offer.
+    for (let i = 0; i < 8; i++) await page.evaluate(() => window.ait164.reply());
+    await settle(page);
+    const saved = await shadow(page, c => ({ session: c.session, credits: window.ait164.credits() }));
+    restoreDocument = `<!doctype html><html lang="${locale}"><meta charset="utf-8"><style>body{margin:0}aithema-session{--aithema-height:100dvh}</style><body><script type="module">
+      import '/packages/ui/src/session-element.js';
+      import {${locale} as copy} from '/packages/ui/src/i18n/${locale}.js';
+      const saved=${JSON.stringify(saved).replaceAll('<', '\\u003c')};
+      const c=document.createElement('aithema-session');c.setAttribute('theme','${theme}');c.setAttribute('motion','off');
+      c.innerHTML='<a slot="legal" data-aithema-privacy href="/privacy">Privacy</a>';document.body.append(c);
+      const creditsReady=new Promise(resolve=>globalThis.releaseCredits=resolve);
+      globalThis.fetch=async(url,init={})=>{
+        const path=new URL(url,location.href).pathname;
+        if(path.endsWith('/events'))return new Response(new ReadableStream({start(controller){init.signal?.addEventListener('abort',()=>controller.close(),{once:true})}}));
+        if(path.endsWith('/credits')){await creditsReady;return Response.json(saved.credits);}
+        if(path.endsWith('/visitor/email'))return Response.json({visitor:{address:null,tier:'anonymous'},notice:{version:'ait-135-v1',deliveryEnabled:true},privacyDocumentConfigured:true});
+        if(path.endsWith('/identity'))return Response.json({identity:saved.session.identity,delivery:true,privacyDocumentConfigured:true,visitorEmail:{canSave:true,canDelete:true}});
+        return Response.json(saved.session);
+      };
+      c.configure({session:saved.session,copy,entrance:'combined',host:{credits:true,verification:{delivery:true,privacyDocumentConfigured:true}}});
+      globalThis.ready=true;
+    </script></body></html>`;
+    await page.goto(`${demo.url}/ait540-restore`); await page.waitForFunction(() => globalThis.ready);
+    // Reload the same persisted snapshot, then deliver credits after first paint.
+    await page.reload(); await page.waitForFunction(() => globalThis.ready); await settle(page);
+    await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
+    const sample = () => shadow(page, c => {
+      const r = c.shadowRoot, rect = n => n.getBoundingClientRect().toJSON();
+      return { latest: rect(r.querySelector('ol > .turn:last-child')), pane: rect(r.querySelector('.transcript-shell')),
+        page: [scrollX, scrollY], focus: r.activeElement?.id, offer: r.querySelector('.email-offer') ? rect(r.querySelector('.email-offer')) : null };
+    });
+    const before = await sample();
+    await page.evaluate(() => globalThis.releaseCredits());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
+    const after = await sample(); records.push({ locale, theme, before, after });
+    if (evidence) {
+      await writeFile(join(evidence, 'ait-540-M6-reload-rects.json'), JSON.stringify(records, null, 2));
+      await page.screenshot({ path: join(evidence, 'shots', `ait-540-M6-${locale}-${theme}-390-reloaded-offer.png`) });
+    }
+    for (const state of [before, after]) for (const name of ['latest', 'pane']) assert.ok(state[name].width > 0 && state[name].height > 0, `${name}: positive reload box`);
+    assert.ok(after.offer.width > 0 && after.offer.height > 0, 'restored offer has a positive box');
+    assert.deepEqual(after.page, before.page, 'restoring an offer preserves page scroll');
+    assert.equal(after.focus, before.focus, 'restoring an offer preserves focus');
+    assert.ok(after.latest.top >= after.pane.top - .5 && after.latest.bottom <= after.pane.bottom + .5,
+      `AIT-540 M6: reload keeps the latest turn in view: ${JSON.stringify(after)}`);
+  }
+});
