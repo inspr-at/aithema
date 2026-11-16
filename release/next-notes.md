@@ -6,7 +6,8 @@
   the field and feedback/status rows. The notice slot measures the actual
   processing-choice strings per width; its visible frame grows downward without
   moving those controls. Desktop layout reserves the fixed footer inside the
-  configured host height, keeping the full notice above it. Phones show the first AI-disclosure
+  configured host height, keeping the full notice above it. Desktop notice height
+  follows its full content, including longer host copy; no 8.7em cap is promised. Phones show the first AI-disclosure
   sentence and a native-dialog disclosure. New additive copy key
   `copy.composerNoticeMore`: EN “More”, DE “Mehr”. Existing `aiNotice`,
   `copy.aiNotice` and `copy.settings.processingDetails` precedence is retained.
@@ -16,12 +17,16 @@
   microphone is named once in the composer, using existing
   `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` override precedence.
   Other voice failures remain in the voice bar; the composer retains call-ended
-  status. German defaults use “Einwilligung” consistently: `ready.consent`,
-  `ready.missing` (“Einwilligung nötig”), `ready.granted` (“Erteilt”), `clarify.consent`, `clarify.say.consent`,
-  `voiceReasonsNarrow.{permission,consentWithdrawn,consentRevised,sessionRevoked}`,
-  `reasons.{call-authorization-lost,session-revoked}` and
-  `processingConsent.withdrawal`. Compact voice labels keep the 22-character
-  bound: “Einwilligung ungültig”, “Einwilligung entzogen”, “Einwilligung geändert”.
+  status. German consent defaults use “Einwilligung”: `ready.missing`,
+  `ready.granted`, `clarify.consent`, `clarify.say.consent`,
+  `voiceReasonsNarrow.{consentWithdrawn,consentRevised}`,
+  `processingConsent.{intro,withdrawal}` and `host.consentPage.intro`.
+  The demo processing intro uses the same term while retaining its persistence
+  terms. `ready.consent` defaults to “Status” in EN and DE, avoiding a repeated
+  consent term. German call-authorization defaults remain distinct:
+  `voiceReasonsNarrow.{permission,sessionRevoked}` and
+  `reasons.{call-authorization-lost,session-revoked}` retain their prior “Freigabe”
+  wording. Compact voice labels keep their 22-character bound.
   Existing host copy overrides keep winning.
 - While an opt-in `emailOffer` is visible, the overview lock keeps its title
   and lead and hides its form; Settings remains governed by the existing
@@ -34,5 +39,7 @@
 - No new host option, event field or package export.
 
 - The combined phone offer refreshes the sticky-band inset before scrolling the
-  conversation pane to reveal the whole new offer (AIT-540 M6). Page scroll and
-  keyboard focus are retained; no new host setting or event is needed.
+  conversation pane to reveal the whole new offer (AIT-540 M6). Only an accepted
+  `show` claim in the mounted page arms this one-use reveal; restored offers and
+  credit refreshes retain the latest-turn position. Page scroll and keyboard focus
+  are retained; no new host setting or event is needed.

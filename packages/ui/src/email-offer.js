@@ -8,7 +8,7 @@ import { icon } from './icons.js';
 export class EmailOffer {
   constructor({ root, copy, verification, request, session, streaming, changed }) {
     Object.assign(this, { root, copy, verification, request, session, streaming, changed });
-    this.alive = true; this.connected = true; this.state = {}; this.step = 'capture'; this.message = '';
+    this.alive = true; this.connected = true; this.state = {}; this.step = 'capture'; this.message = ''; this.revealAt = null;
   }
   get email() { return this.verification.email; }
   get eligibility() {
@@ -19,6 +19,13 @@ export class EmailOffer {
   get entry() {
     return this.state.open && this.email.canCollect && activeTurns(this.session()).some(turn => turn.id === this.state.at)
       ? { at: this.state.at } : null;
+  }
+  // Only a show claim accepted in this mounted instance can reveal an offer.
+  // Restored/periodically refreshed credits never arm this one-use intent.
+  takeReveal(at) {
+    if (this.revealAt !== at) return false;
+    this.revealAt = null;
+    return true;
   }
   setCredits(credits) {
     this.credits = credits;
@@ -45,8 +52,12 @@ export class EmailOffer {
     this.busy = false;
     if (!this.alive) return;
     if (response?.ok && response.body?.emailOffer) {
-      if ((response.body.emailOffer.revision ?? 0) >= (this.state.revision ?? 0)) this.state = response.body.emailOffer;
-      if (response.body.accepted && action === 'show') this.variant = variant;
+      if ((response.body.emailOffer.revision ?? 0) >= (this.state.revision ?? 0)) {
+        this.state = response.body.emailOffer;
+        if (response.body.accepted && action === 'show' && this.state.open) {
+          this.variant = variant; this.revealAt = this.state.at;
+        }
+      }
     }
     if (action === 'show' && !response?.body?.accepted) this.declined = count;
     this.paint(); this.changed?.();

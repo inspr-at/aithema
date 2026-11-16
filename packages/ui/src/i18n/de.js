@@ -129,7 +129,7 @@ export const de = {
   voiceStatesNarrow: { microphone: 'Mikrofon freigeben', cleanup: 'Beendet vorigen …', low: 'Wenig Guthaben', idle: 'Bereit', connecting: 'Verbindet …', listening: 'Ich höre zu', speaking: 'Antwortet', paused: 'Pausiert', recovering: 'Verbindet erneut …', waiting: 'Pausiert', closing: 'Wird beendet …', failed: 'Anruf beendet', usedUp: 'Credits aufgebraucht', timeExpired: 'Zeit abgelaufen', creditEnding: 'Wird beendet …' },
   voiceMessagesNarrow: { voiceIdleEnded: 'Nach Stille beendet', voiceMicBusy: 'Mikrofon belegt', voiceMicUnavailable: 'Kein Mikrofonzugriff', voiceMicFailed: 'Mikrofon-Fehler', voiceNoReply: 'Keine Antwort', voiceMicDenied: 'Mikrofon gesperrt', voiceMicMissing: 'Kein Mikrofon', voiceAdmissionDenied: 'Nicht verfügbar', voiceConflict: 'Anruf in anderem Tab', voiceDeadline: 'Zeitlimit erreicht', voiceTimeLimit: 'Zeitlimit erreicht', voiceConnectFailed: 'Keine Verbindung', voiceConnectionFailed: 'Verbindung gestört', voiceRecoveryFailed: 'Verbindung gestört', voiceMoved: 'In anderem Tab', voiceClosureUncertain: 'Kostenabgleich …', voiceEnded: 'Anruf beendet', voicePauseFailed: 'Pause unbestätigt', voicePlaybackBlocked: 'Ton gesperrt' },
   voiceCreditStatus: { dailyCap: 'Tageslimit erreicht', session: 'Credits aufgebraucht', hostLimit: 'Sprache gerade nicht verfügbar' },
-  voiceReasonsNarrow: { unavailable: 'Nicht verfügbar', consent: 'Einwilligung nötig', paused: 'Pausiert', credits: 'Credits aufgebraucht', checking: 'Kostenabgleich …', off: 'Sprache aus', setup: 'Nicht eingerichtet', provider: 'Anbieter unerreichbar', ended: 'Anruf beendet', permission: 'Einwilligung ungültig', verification: 'E‑Mail bestätigen', providerLimit: 'Anbieterlimit erreicht', voiceLimit: 'Sprachlimit erreicht', consentWithdrawn: 'Einwilligung entzogen', consentRevised: 'Einwilligung geändert', sessionRevoked: 'Einwilligung entzogen', cancelled: 'Abgebrochen', disconnected: 'Verbindung getrennt', connectionExpired: 'Verbindung abgelaufen', notSaved: 'Nicht gespeichert', transcriptFull: 'Transkript voll', storageFull: 'Speicher voll', renderLimit: 'Limit erreicht', erased: 'Gespräch gelöscht' },
+  voiceReasonsNarrow: { unavailable: 'Nicht verfügbar', consent: 'Einwilligung nötig', paused: 'Pausiert', credits: 'Credits aufgebraucht', checking: 'Kostenabgleich …', off: 'Sprache aus', setup: 'Nicht eingerichtet', provider: 'Anbieter unerreichbar', ended: 'Anruf beendet', permission: 'Freigabe abgelaufen', verification: 'E‑Mail bestätigen', providerLimit: 'Anbieterlimit erreicht', voiceLimit: 'Sprachlimit erreicht', consentWithdrawn: 'Einwilligung entzogen', consentRevised: 'Einwilligung geändert', sessionRevoked: 'Freigabe widerrufen', cancelled: 'Abgebrochen', disconnected: 'Verbindung getrennt', connectionExpired: 'Verbindung abgelaufen', notSaved: 'Nicht gespeichert', transcriptFull: 'Transkript voll', storageFull: 'Speicher voll', renderLimit: 'Limit erreicht', erased: 'Gespräch gelöscht' },
   voiceCooldown: 'Neuer Versuch in {s} s', voiceCooldownNarrow: 'In {s} s',
   voiceMicBusy: 'Das Mikrofon ist belegt oder vom System gesperrt. Schließen Sie andere Apps, die es nutzen, oder prüfen Sie die Systemeinstellungen. Versuchen Sie es dann erneut.',
   voiceMicUnavailable: 'Dieser Browser erlaubt hier kein Mikrofon. Tippen Sie weiter oder öffnen Sie die Seite in einem anderen Browser.',
@@ -276,7 +276,7 @@ export const de = {
   entrance: { promise: ['Ihr Projekt.', 'Ihr Prozess.', 'Mit KI optimiert.'], lead: 'Klären Sie Ihr Vorhaben im Gespräch und erhalten Sie eine erste Einschätzung.' },
   // START src/content/conversation-readiness.ts und die Bereitschaftskarte (v2.inputModeLabel, voiceInput, entryTyping, consentStart).
   ready: {
-    title: 'Vor dem Gespräch', model: 'KI-Modell', consent: 'Einwilligung', microphone: 'Mikrofon', speaker: 'Sprachausgabe', visuals: 'Visuelle Entwürfe',
+    title: 'Vor dem Gespräch', model: 'KI-Modell', consent: 'Status', microphone: 'Mikrofon', speaker: 'Sprachausgabe', visuals: 'Visuelle Entwürfe',
     granted: 'Erteilt', missing: 'Einwilligung nötig', notNeeded: 'Auf diesem Gerät nicht nötig', off: 'Aus', on: 'An',
     checkOnStart: 'Beim Start prüfen', onOnStart: 'Beim Start aktiv', notConnected: 'Unter Einstellungen › Erweitert verbinden',
     micGranted: `Erlaubt${reasonSeparator}noch nicht aktiv`, micDenied: 'Im Browser blockiert', micPrompt: 'Beim Start erlauben',
@@ -596,8 +596,8 @@ export const de = {
     'start-cancelled': 'Start des Sprachgesprächs abgebrochen',
     'start-failed': 'Die Sprachverbindung ist fehlgeschlagen. Versuchen Sie es erneut oder schreiben Sie weiter.',
     'pause-failed': 'Die Pause wurde nicht bestätigt. Versuchen Sie es erneut.',
-    'call-authorization-lost': 'Die Einwilligung für dieses Sprachgespräch ist nicht mehr gültig',
-    'session-revoked': 'Die Einwilligung für dieses Gespräch wurde widerrufen',
+    'call-authorization-lost': 'Die Freigabe für dieses Sprachgespräch ist nicht mehr gültig',
+    'session-revoked': 'Die Freigabe für dieses Gespräch wurde widerrufen',
     'server-restart': 'Sprachgespräch nach einem Serverneustart beendet',
     'server-stopping': 'Sprachgespräch beendet, weil der Server herunterfährt',
     'transcript-persistence-failed': 'Die Transkription des Sprachgesprächs konnte nicht gespeichert werden',
@@ -631,7 +631,7 @@ export const de = {
     action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
     // Host-neutral defaults; embedding hosts supply their actual consent terms.
-    intro: 'Wählen Sie, welche Verarbeitung Sie freigeben. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
+    intro: 'Wählen Sie, für welche Verarbeitung Sie Ihre Einwilligung erteilen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.',
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
     withdrawal: 'Sie können Einwilligungen hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {
@@ -687,7 +687,7 @@ export const de = {
     conversationFailed: 'Das Gespräch konnte nicht geöffnet werden. Laden Sie die Seite neu.',
     consentPage: {
       mockNotice: 'Dies ist eine Demo-Verarbeitung.',
-      intro: 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.',
+      intro: 'Wählen Sie, für welche Verarbeitung Sie Ihre Einwilligung für dieses Gespräch erteilen. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.',
       selectAll: 'Alle auswählen', one: 'Eine Einwilligung erteilen', count: '{count} Einwilligungen erteilen', all: 'Alle Einwilligungen erteilen',
       none: 'Ohne Einwilligung weiter', back: 'Zurück', legend: 'Verarbeitung auswählen',
       loading: 'Aktuelle Einwilligungen werden geladen …', saving: 'Ihre Auswahl wird gespeichert …', retry: 'Erneut versuchen',

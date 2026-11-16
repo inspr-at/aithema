@@ -2256,13 +2256,12 @@ export class AithemaSession extends HTMLElement {
       for (const { key, turn: t, upload, lowLine, emailOffer } of entries) {
         let row = rows.get(key); rows.delete(key);
         if (emailOffer) {
-          const fresh = !row;
           if (!row) { row = node('li', 'email-offer'); row.dataset.id = key; }
           this.#host.emailOffer.paintRow(row);
           if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
           // Finish this render before exposing the offer to an immediate focus
           // gesture. A later animation frame races the native focus scroll.
-          if (fresh) queueMicrotask(() => {
+          if (this.#host.emailOffer.takeReveal(emailOffer.at)) queueMicrotask(() => {
             this.#syncRailFit(); this.#phoneViewport?.paint();
             this.#revealPhoneOffer(row);
           });

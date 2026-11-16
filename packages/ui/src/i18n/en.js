@@ -275,7 +275,7 @@ export const en = {
   entrance: { promise: ['Your project.', 'Your process.', 'Optimised with AI.'], lead: 'Discuss your project and receive a first assessment.' },
   // START src/content/conversation-readiness.ts and the readiness card (v2.inputModeLabel, voiceInput, entryTyping, consentStart).
   ready: {
-    title: 'Before you start', model: 'AI model', consent: 'Data consent', microphone: 'Microphone', speaker: 'Voice output', visuals: 'Visual concepts',
+    title: 'Before you start', model: 'AI model', consent: 'Status', microphone: 'Microphone', speaker: 'Voice output', visuals: 'Visual concepts',
     granted: 'Granted', missing: 'Consent needed', notNeeded: 'Not needed on this device', off: 'Off', on: 'On',
     checkOnStart: 'Check when starting', onOnStart: 'On when starting', notConnected: 'Connect under Settings › Advanced',
     micGranted: `Allowed${reasonSeparator}not yet active`, micDenied: 'Blocked in browser', micPrompt: 'Allow when starting',

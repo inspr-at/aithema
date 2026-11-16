@@ -548,8 +548,9 @@ Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
 microphone and Send side by side from first paint, with the existing processing
 notice (selected processing details plus the AI/voice disclosure) below the
 controls in a top-anchored frame. At 600 px and wider the notice uses its
-intrinsic height (up to 8.7em), growing down from the top of a slot sized
-from the actual processing-choice notices at the current width. The desktop frame
+intrinsic content height, including longer host-supplied notices, growing down
+from the top of a slot sized from the actual processing-choice notices at the
+current width. The desktop frame
 reserves the fixed footer inside the configured host height, so the full notice
 remains readable above it. Phones show the first AI-disclosure sentence
 and a **More** / **Mehr** button opening the full notice in a native dialog.
@@ -572,13 +573,18 @@ Consent has one line and link in the composer; the ready card shows status,
 and the idle voice bar does not ask for consent before a mic gesture. Blocked
 microphone wording appears once in the composer; other voice failures remain
 in the voice bar, and the composer retains its call-ended status. German
-default consent copy uses **Einwilligung**, including `copy.ready.consent`,
-`copy.ready.missing`, `copy.ready.granted`, `copy.clarify.consent`, `copy.clarify.say.consent`,
-`copy.voiceReasonsNarrow.{permission,consentWithdrawn,consentRevised,sessionRevoked}`,
-`copy.reasons.{call-authorization-lost,session-revoked}` and
-`copy.processingConsent.withdrawal`. Compact German voice labels retain the
-22-character bound: “Einwilligung ungültig”, “Einwilligung entzogen” and
-“Einwilligung geändert”. Host copy still wins.
+default consent copy uses **Einwilligung**, including `copy.ready.missing`,
+`copy.ready.granted`, `copy.clarify.consent`, `copy.clarify.say.consent`,
+`copy.voiceReasonsNarrow.{consentWithdrawn,consentRevised}`,
+`copy.processingConsent.{intro,withdrawal}` and `copy.host.consentPage.intro`.
+The demo's German processing intro uses the same term, retaining its existing
+persistence terms. `copy.ready.consent` defaults to “Status” in EN and DE,
+so the ready card reads “Status: Consent needed” / “Status: Einwilligung nötig”.
+Call authorization remains distinct from processing consent: German
+`copy.voiceReasonsNarrow.{permission,sessionRevoked}` and
+`copy.reasons.{call-authorization-lost,session-revoked}` retain their existing
+“Freigabe” wording. Compact German voice labels retain the 22-character bound.
+Host copy still wins.
 Configured host openers use the shared render-only `host:opener` row before input;
 canonical persistence takes over that same row. The welcome stays above the
 composer and footer, including short phone viewports. Processing details remain
@@ -3947,8 +3953,10 @@ Dismiss uses the shared close icon. It remains usable during a live call and
 leaves the
 composer active on phones, without moving focus or opening the keyboard.
 The combined phone offer refreshes the sticky-band inset before scrolling the
-conversation pane to reveal the whole new offer (AIT-540 M6). Page scroll and
-keyboard focus are retained; no new host setting or event is needed.
+conversation pane to reveal the whole new offer (AIT-540 M6). Only an accepted
+`show` claim in the mounted page arms this one-use reveal; restored offers and
+credit refreshes retain the latest-turn position. Page scroll and keyboard focus
+are retained; no new host setting or event is needed.
 
 The existing `POST /api/sessions/:id/email-ask` route accepts
 `{ action: 'show' | 'dismiss', why: 'offer' }`. The server verifies the policy,
