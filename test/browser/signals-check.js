@@ -84,7 +84,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
         const origins = [document.scrollingElement, ...root.querySelectorAll('*')]
           .filter(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth)
           .map(n => [n, n.scrollTop, n.scrollLeft]);
-        const controls = [...root.querySelectorAll('.understanding :is(button,a,input,textarea,select,[tabindex])')]
+        const controls = [...root.querySelectorAll('.understanding :is(button,a,input,textarea,select,[role="button"],[role="link"])')]
           .filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden');
         const checks = controls.map(n => {
           n.scrollIntoView({ block: 'center', behavior: 'instant' });
