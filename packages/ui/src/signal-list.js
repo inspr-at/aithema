@@ -4,7 +4,7 @@ import { signalKey } from '../../core/src/understanding.js';
 
 /** Presentation state is tab-local; identity and order come from the server. */
 export class SignalList {
-  #section; #list; #button; #anchor; #copy; #locale; #items = []; #pending = null;
+  #available = true; #section; #list; #button; #anchor; #copy; #locale; #items = []; #pending = null;
   #pointer = false; #sectionPointer = false; #timer; #marked = new Set(); #seenSeq = null;
   constructor(section, { state, anchor }) {
     this.state = state ?? { expanded: false, seen: new Set(), initialized: false };
@@ -31,7 +31,8 @@ export class SignalList {
   #flush(nextFocus) {
     if (this.#pending && !this.#busy(nextFocus)) this.#anchor(() => this.#apply(this.#pending));
   }
-  update(session, copy, { live = false } = {}) {
+  update(session, copy, { live = false, available = true } = {}) {
+    this.#available = available;
     this.#copy = copy; this.#locale = session.locale;
     const u = session.understanding, byText = new Map((u.signalItems ?? []).map(i => [signalKey(i.text), i]));
     const items = u.signals.map(text => ({ key: signalKey(text), text, ...byText.get(signalKey(text)) }));
@@ -48,9 +49,9 @@ export class SignalList {
     for (const item of items) this.state.seen.add(item.key);
     if (items.length) this.state.initialized = true;
     if (session.tombstone || session.consentWithdrawn) { this.clear(); return; }
-    // Empty/reset assessments must redact immediately. They do not reset the
+    // Source/reset assessments must redact immediately; empty finals may defer. They do not reset the
     // conversation's seen identities or its expanded preference.
-    if (!items.length || pruned) { this.#pending = null; this.#clearMark(); this.#items = items; this.#paint(); return; }
+    if (!u.readinessAssessed || pruned) { this.#pending = null; this.#clearMark(); this.#items = items; this.#paint(); return; }
     const changed = JSON.stringify(items) !== JSON.stringify(this.#items);
     if (changed && this.#busy()) {
       const pendingMarks = this.#pending?.fresh ?? [];
@@ -61,6 +62,7 @@ export class SignalList {
   }
   #apply({ items, fresh }) {
     this.#pending = null; this.#items = items;
+    if (fresh.length > 3) { this.#clearMark(); fresh = []; }
     if (fresh.length) {
       this.#clearMark(); this.#marked = new Set(fresh);
       this.#timer = setTimeout(() => { this.#timer = null; this.#marked.clear(); this.#paint(); }, 2000);
@@ -68,6 +70,7 @@ export class SignalList {
     this.#paint();
   }
   #paint() {
+    this.#section.hidden = !this.#available || !this.#items.length;
     const items = this.state.expanded ? this.#items : this.#items.slice(0, 5);
     reconcile(this.#list, items.map(i => [i.key, i]), () => {
       const row = node('li'); row.append(node('span', 'signal-text')); return row;
@@ -91,6 +94,7 @@ export class SignalList {
     this.state.expanded = false; this.state.seen.clear(); this.state.initialized = false;
     this.#paint();
   }
+  quiet() { this.#clearMark(); if (this.#pending) this.#pending.fresh = []; this.#paint(); }
   suspend() { this.#clearMark(); this.#pending = null; this.#pointer = false; this.#sectionPointer = false; this.#paint(); }
   destroy() { this.#clearMark(); this.#pending = null; this.#items = []; }
 }

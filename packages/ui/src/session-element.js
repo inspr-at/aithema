@@ -2381,7 +2381,6 @@ export class AithemaSession extends HTMLElement {
     for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
     const summary = u.summary.trim();
     root.querySelector('.summary').hidden ||= !summary;
-    root.querySelector('.signals-section').hidden ||= !u.signals.length;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
     const scale = root.querySelector('.scale');
     const readiness = u.readinessAssessed ? [
@@ -2522,7 +2521,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     root.querySelector('.summary-text').textContent = summary ? u.summary : '';
-    this.#signals.update(this.#session, copy, { live: this.#signalLiveSeq === this.#session.seq });
+    this.#signals.update(this.#session, copy, { live: this.#signalLiveSeq === this.#session.seq, available: !locked && (analysis.available || cached) && u.readinessAssessed });
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);
@@ -3503,7 +3502,7 @@ export class AithemaSession extends HTMLElement {
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
   receive(event) { this.#anchored(() => this.#receive(event)); }
-  #receive(event) {
+  #receive(event, { live = true } = {}) {
     if (this.#erased) return;
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.type === 'session.not-found') { void this.#observeResponse(event.data.url, event.data.response); return; }
@@ -3560,7 +3559,7 @@ export class AithemaSession extends HTMLElement {
       }
       const presetBefore = this.#session.processingPreset, settingsBefore = this.#session.settings;
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
-      if (event.type === 'understanding.updated' && !event.data.draft) this.#signalLiveSeq = event.seq;
+      if (event.type === 'understanding.updated' && !event.data.draft) this.#signalLiveSeq = live ? event.seq : null;
       // Every acknowledged journal event is a floor for older snapshot responses, including
       // the locale acknowledgement and a first turn arriving while that response is in flight.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
@@ -3900,6 +3899,7 @@ export class AithemaSession extends HTMLElement {
     while (!signal.aborted) {
       let reader;
       try {
+        this.#signalLiveSeq = null; this.#signals?.quiet();
         this.#connectionStatus(attempt ? this.#copy.reconnecting : this.#copy.connecting);
         const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/events`, {
           signal, headers: this.#headers({ 'Last-Event-ID': String(this.#cursor) }),
@@ -3910,7 +3910,14 @@ export class AithemaSession extends HTMLElement {
         this.#connectionStatus(this.#copy.connected); reader = response.body.getReader();
         // A reconnect may follow a host restart: grants held in memory may be gone (D6).
         if (attempt++ > 0) void this.#refreshFeatures();
-        for await (const event of serverEvents(reader)) { if (signal.aborted) break; this.receive(event); }
+        let replaying = true;
+        for await (const event of serverEvents(reader)) {
+          if (signal.aborted) break;
+          this.#anchored(() => this.#receive(event, { live: !replaying }));
+          // The reference server sends status after synchronous durable replay.
+          if ((!event.sessionId || event.sessionId === this.#session.id) && event.type === 'lane.status' &&
+            event.data.inputRevision === inputRevision(this.#session)) replaying = false;
+        }
       } catch { if (signal.aborted) return; }
       finally { await reader?.cancel().catch(() => {}); }
       if (signal.aborted) return;

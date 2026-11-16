@@ -17,11 +17,21 @@ function final(c, signals) {
   c.receive({ seq: s.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(s.understanding,
     { signals, constraints: {}, progress: {}, summary: 'You use orders.', openQuestions: [] }, { transcript: s.transcript, inputRevision: inputRevision(s) }) });
 }
+function connectForFocus(c, t) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => String(url).endsWith('/events')
+    ? new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => { try { controller.close(); } catch {} }, { once: true });
+    } })) : Response.json(c.session);
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'visitor', role: 'user', content: 'We use orders.' } });
+  document.body.append(c);
+  t.after(() => { c.remove(); globalThis.fetch = original; });
+}
 const texts = c => [...c.shadowRoot.querySelectorAll('.signal-text')].map(n => n.textContent);
 const seven = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'];
 
-test('AIT-515 newest five and accessible Show all count; expand/collapse keeps focus and conversation state', () => {
-  const c = setup(); final(c, seven); const root = c.shadowRoot, button = root.querySelector('.signals-toggle');
+test('AIT-515 newest five and accessible Show all count; expand/collapse keeps focus and conversation state', t => {
+  const c = setup(); connectForFocus(c, t); final(c, seven); const root = c.shadowRoot, button = root.querySelector('.signals-toggle');
   assert.deepEqual(texts(c), seven.slice(0, 5));
   assert.equal(button.textContent, 'Show all (7)'); assert.equal(button.getAttribute('aria-expanded'), 'false');
   assert.equal(button.getAttribute('aria-controls'), root.querySelector('.signals').id);
@@ -62,8 +72,8 @@ test('AIT-515 first/whole list never highlights; only one to three new keys high
   final(c, [...seven, 'New', 'A', 'B', 'C', 'D']); assert.equal(root.querySelectorAll('[data-signal-new]').length, 0);
 });
 
-test('AIT-515 pointer and focus defer model list changes until both leave', () => {
-  const c = setup(); final(c, seven); const root = c.shadowRoot, list = root.querySelector('.signals');
+test('AIT-515 pointer and focus defer model list changes until both leave', t => {
+  const c = setup(); connectForFocus(c, t); final(c, seven); const root = c.shadowRoot, list = root.querySelector('.signals');
   list.dispatchEvent(new window.Event('pointerenter'));
   final(c, [...seven, 'Newest']); assert.deepEqual(texts(c), seven.slice(0, 5));
   list.dispatchEvent(new window.Event('pointerleave')); assert.deepEqual(texts(c), ['Newest', ...seven.slice(0, 4)]);
