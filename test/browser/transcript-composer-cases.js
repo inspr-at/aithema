@@ -234,9 +234,13 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     assert.ok(after.inputScroll > after.inputClient, 'combined card caps long draft internally');
     const gap = after.boxes['.qcard'].top - after.boxes['.turn:last-child'].bottom;
     assert.ok(gap >= -.5 && gap <= 24.5, `combined reply/card clearance stays between 0 and 24px: ${gap}`);
-    for (const selector of frame.filter(selector => selector !== '.composer-actions .attach')) {
+    for (const selector of [...frame.filter(selector => selector !== '.composer-actions .attach'), '.composer-mic']) {
       const a = before.boxes[selector], b = after.boxes[selector]; positive(a, selector); positive(b, selector);
       for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(a[key] - b[key]) <= .5, `combined card/${selector}/${key}: ${a[key]} -> ${b[key]}`);
+    }
+    if (voice) {
+      positive(before.boxes['.audio-rail'], 'combined rail before'); positive(after.boxes['.audio-rail'], 'combined rail after');
+      assert.deepEqual(after.boxes['.audio-rail'], before.boxes['.audio-rail'], 'combined audio rail stays fixed');
     }
     assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, 'combined card composer bottom stays pinned');
     records.push({ label: `combined-card-${voice}`, before, after });
