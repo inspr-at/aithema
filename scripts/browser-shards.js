@@ -405,7 +405,7 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
     shards[index].push(file);
     totals[index] += weightOf(file);
   }
-  // AIT-312: refine LPT with deterministic whole-file moves/swaps. Minimize
+  // AIT-312 / AIT-517: refine LPT with whole-file moves, swaps and rotations. Minimize
   // makespan first, then squared load; never worsen LPT's makespan bound.
   // Strict improvement and stable iteration order make the result repeatable.
   const score = loads => [Math.max(...loads), loads.reduce((sum, load) => sum + load * load, 0)];
@@ -432,7 +432,32 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
         }
       }
     }
+    // Pairwise moves can settle just above the target even when three bins
+    // can exchange one file each and improve the same strict score (AIT-517).
+    if (!change) for (let a = 0; a < shardCount; a++) {
+      for (let b = a + 1; b < shardCount; b++) for (let c = b + 1; c < shardCount; c++) {
+        for (let x = 0; x < shards[a].length; x++) for (let y = 0; y < shards[b].length; y++) {
+          for (let z = 0; z < shards[c].length; z++) for (const reverse of [false, true]) {
+            const bins = [a, b, c], indices = [x, y, z];
+            const values = bins.map((bin, i) => weightOf(shards[bin][indices[i]]));
+            const candidate = [...totals];
+            for (let i = 0; i < 3; i++) candidate[bins[i]] += values[(i + (reverse ? 1 : 2)) % 3] - values[i];
+            const next = score(candidate);
+            if (better(next, best)) {
+              best = next; change = { cycle: { bins, indices, reverse }, candidate };
+            }
+          }
+        }
+      }
+    }
     if (!change) break;
+    if (change.cycle) {
+      const { bins, indices, reverse } = change.cycle;
+      const files = bins.map((bin, i) => shards[bin].splice(indices[i], 1)[0]);
+      for (let i = 0; i < 3; i++) shards[bins[i]].push(files[(i + (reverse ? 1 : 2)) % 3]);
+      totals.splice(0, totals.length, ...change.candidate);
+      continue;
+    }
     const { from, to, left, right, candidate } = change;
     const a = left === -1 ? [] : shards[from].splice(left, 1);
     const b = right === -1 ? [] : shards[to].splice(right, 1);
