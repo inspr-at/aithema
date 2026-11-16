@@ -585,7 +585,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .question-notice:not([data-on]) { visibility:hidden; }
 .questions-heading:has(.question-notice[data-on]) h3 { visibility:hidden; }
 .signals-toggle { justify-self:start; min-height:32px; padding:.25rem 0; font-size:.8125rem; color:var(--aithema-accent); font-weight:600; }
-.signal-basis { display:inline; font-size:.75rem; color:var(--aithema-muted); font-style:italic; }
+.signal-basis { display:inline; font-size:.75rem; color:var(--aithema-muted); }
 .signals li[data-signal-new] { border-radius:.3rem; background:color-mix(in srgb,var(--aithema-accent) 12%,transparent); box-shadow:inset 2px 0 var(--aithema-accent-bright); animation:signal-arrival 2s ease-out; }
 @keyframes signal-arrival { from { background:color-mix(in srgb,var(--aithema-accent) 24%,transparent); } to { background:color-mix(in srgb,var(--aithema-accent) 12%,transparent); } }
 :host([motion="off"]) .signals li[data-signal-new] { animation:none; }
