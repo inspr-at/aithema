@@ -339,9 +339,10 @@ The projection never overwrites measured `.weight.json` history.
 
 AIT-510 retains twelve shards, the 405 s target and 420 s ceiling. The complete
 expanded `upload-capacity.test.js` passed 29/29 in remote run
-`06ef5ed315-2092`, head `06ef5ed315`, with screenshots in both entrance modes.
-Its measured file duration, including hooks and teardown, was 56.591475583 s;
-`ceil(56.591475583 × 1.25) = 71` supplies a conservative diagnostic floor.
+`86de69650a-20594`, head `86de69650a`, including disclosure, inline email,
+document-notice persistence and short-phone image states in both entrances.
+Its measured file duration, including hooks and teardown, was 63.774576042 s;
+`ceil(63.774576042 × 1.25) = 80` raises the prior 71 s diagnostic floor.
 Remote evidence does not enter trusted rolling-main `.weight.json` history.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).

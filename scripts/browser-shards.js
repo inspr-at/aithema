@@ -359,12 +359,12 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
   browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
 
-// AIT-510: complete upload-capacity file, remote 06ef5ed315-2092,
-// head 06ef5ed315, 29/29 PASS with screenshots and both entrance modes.
-// File duration (including hooks/teardown) 56.591475583s; ceil(*1.25)=71s.
-// Diagnostic floor only: retain trusted rolling-main samples unchanged.
+// AIT-510 r10: complete upload-capacity file, remote 86de69650a-20594,
+// head 86de69650a, 29/29 PASS including disclosure/email/short-phone states.
+// File duration (including hooks/teardown) 63.774576042s; ceil(*1.25)=80s.
+// Raises the prior 71s diagnostic floor; trusted rolling-main samples unchanged.
 browserTestWeights['test/browser/upload-capacity.test.js'] = Math.max(
-  browserTestWeights['test/browser/upload-capacity.test.js'], 71);
+  browserTestWeights['test/browser/upload-capacity.test.js'], 80);
 
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
