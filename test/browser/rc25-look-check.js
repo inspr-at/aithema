@@ -25,6 +25,8 @@ for (const finding of ['M1', 'M2']) test(`AIT-540 ${finding}: readable compact n
       page.on('request', request => { void (new URL(request.url()).pathname === '/combined-fixture'
         ? request.respond({ status:200, contentType:'text/html', body:fixture }) : request.continue()); });
       await page.goto(`${server.url}/combined-fixture?locale=${locale}`); await page.waitForFunction(() => globalThis.ready);
+      // The default viewport-height host must clear the fixed footer too.
+      if(finding==='M1'&&width>=600) await page.$eval('aithema-session',c=>c.style.setProperty('--aithema-height','100dvh'));
       const shot=async state=>{ if(evidence&&width!==1024) await page.screenshot({path:join(evidence,'shots',`ait-540-${finding}-${locale}-${theme}-${width}x${height}-${state}.png`),fullPage:false}); };
       await shot('ready');
       if (finding === 'M1') {
@@ -37,6 +39,9 @@ for (const finding of ['M1', 'M2']) test(`AIT-540 ${finding}: readable compact n
         assert.ok(notice.box[2]>0 && notice.box[3]>0, 'positive notice geometry');
         assert.notEqual(notice.overflow, 'auto', 'AIT-540 M1: disclosure must not be a scrolling box');
         assert.ok(notice.scroll<=notice.client+1, 'AIT-540 M1: no clipped notice line');
+        const footer=await page.$eval('aithema-session',c=>{const r=c.shadowRoot.querySelector('.display-foot').getBoundingClientRect();return [r.x,r.y,r.width,r.height];});
+        assert.ok(footer[2]>0&&footer[3]>0,'positive footer geometry');
+        assert.ok(notice.box[1]+notice.box[3]<=footer[1]+.5,'AIT-540 M1: the entire notice clears the fixed footer at the default host height');
         if(width<600) assert.match(notice.summary ?? '', locale==='de'?/Mehr/:/More/, 'first sentence plus disclosure');
         else assert.ok(notice.box[3]<notice.line*5, 'desktop notice uses its real content height');
         const presetBoxes=()=>page.$eval('aithema-session',c=>['textarea','.composer-mic','.send','.composer-feedback','.composer-status'].map(s=>{const r=c.shadowRoot.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
