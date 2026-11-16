@@ -47,6 +47,26 @@ for (const finding of ['M1', 'M2']) test(`AIT-540 ${finding}: readable compact n
         for(let i=0;i<beforePreset.length;i++) for(let j=0;j<4;j++) assert.ok(Math.abs(beforePreset[i][j]-afterPreset[i][j])<=.5,
           `AIT-540 M1: notice content grows downward without moving control ${i}[${j}]: ${beforePreset[i][j]} -> ${afterPreset[i][j]}`);
         await shot('eu-notice');
+        if(width>=600) {
+          await page.evaluate(async()=>{
+            const {en}=await import('/packages/ui/src/i18n/en.js');
+            const {de}=await import('/packages/ui/src/i18n/de.js');
+            globalThis.fixtureCopy=structuredClone(document.documentElement.lang==='de'?de:en);
+            fixtureCopy.settings.processingDetails.best='A host.';
+            fixtureCopy.settings.processingDetails.eu='The selected providers process conversation messages for this host. '.repeat(3);
+            const snapshot=c.session;snapshot.processingPreset='best';mount(snapshot);
+          });
+          const beforeHost=await presetBoxes();beforeHost.forEach(b=>assert.ok(b[2]>0&&b[3]>0));
+          const beforeHeight=await page.$eval('aithema-session',c=>c.shadowRoot.querySelector('.composer-notice').getBoundingClientRect().height);
+          await page.evaluate(()=>{const snapshot=c.session;snapshot.processingPreset='eu';mount(snapshot);});
+          await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+          const afterHost=await presetBoxes();afterHost.forEach(b=>assert.ok(b[2]>0&&b[3]>0));
+          const afterHeight=await page.$eval('aithema-session',c=>c.shadowRoot.querySelector('.composer-notice').getBoundingClientRect().height);
+          assert.ok(afterHeight>beforeHeight,'host processing notice really grows');
+          for(let i=0;i<beforeHost.length;i++) for(let j=0;j<4;j++) assert.ok(Math.abs(beforeHost[i][j]-afterHost[i][j])<=.5,
+            `AIT-540 M1: longer host notice grows below pinned control ${i}[${j}]: ${beforeHost[i][j]} -> ${afterHost[i][j]}`);
+        }
+
 
         if(width<600) {
           const controls=()=>page.$eval('aithema-session',c=>['textarea','.composer-mic','.send','.composer-feedback','.composer-status'].map(s=>{const r=c.shadowRoot.querySelector(s).getBoundingClientRect();return [r.x,r.y,r.width,r.height];}));
