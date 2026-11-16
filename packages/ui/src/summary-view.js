@@ -25,6 +25,11 @@ export class SummaryView {
       this.observer.observe(this.root.querySelector('#summary-title'));
       this.observer.observe(this.root.querySelector('.signals'));
     }
+    const Mutation = this.view?.MutationObserver;
+    if (Mutation) {
+      this.fadeObserver = new Mutation(this.refresh);
+      this.fadeObserver.observe(this.root.querySelector('.analysis-content'), { attributes: true, attributeFilter: ['data-bottom'] });
+    }
     this.view?.addEventListener('resize', this.refresh);
     const fonts = this.root.ownerDocument.fonts;
     fonts?.addEventListener?.('loadingdone', this.refresh);
@@ -42,9 +47,13 @@ export class SummaryView {
       this.button.hidden = true;
       return;
     }
-    setText(this.button, resolveCopy(this.copy, this.expanded ? 'showLess' : 'summaryMore', null, this.locale));
+    const more = resolveCopy(this.copy, 'summaryMore', null, this.locale);
+    const less = resolveCopy(this.copy, 'showLess', null, this.locale);
+    setText(this.root.querySelector('.summary-toggle-more'), more);
+    setText(this.root.querySelector('.summary-toggle-less'), less);
+    setText(this.button, this.expanded ? less : more);
     // Subtract the paragraph's current height from the first signal's position:
-    // the remaining footprint includes the heading, gaps and localized toggle.
+    // the remaining footprint includes the heading row, gaps and localized toggle.
     // This also measures expanded text without temporarily collapsing it.
     // Scroll position and anchoring slack are not pane budget.
     const pane = this.root.querySelector('.analysis-content');
@@ -58,7 +67,8 @@ export class SummaryView {
         signalBox?.width > 0 && signalBox.height > 0) {
       const slack = parseFloat(this.view.getComputedStyle(pane).getPropertyValue('--aithema-slack-top')) || 0;
       const end = signalBox.bottom - paneBox.top + pane.scrollTop - slack;
-      const room = paneBox.height - (end - text.getBoundingClientRect().height);
+      const fade = pane.hasAttribute('data-bottom') ? 44 : 0;
+      const room = paneBox.height - fade - (end - text.getBoundingClientRect().height);
       lines = Math.max(3, Math.min(9, Math.floor(room / line)));
     }
     text.style.setProperty('--summary-lines', String(lines));
@@ -73,7 +83,7 @@ export class SummaryView {
     this.disconnect();
   }
   disconnect() {
-    this.connected = false; this.observer?.disconnect();
+    this.connected = false; this.observer?.disconnect(); this.fadeObserver?.disconnect();
     this.view?.removeEventListener('resize', this.refresh);
     this.root.ownerDocument.fonts?.removeEventListener?.('loadingdone', this.refresh);
   }

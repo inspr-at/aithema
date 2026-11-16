@@ -356,7 +356,7 @@ export const en = {
   controlFailed: 'Could not save this change. Try again.',
   composerNoticeMore: 'More',
   composer: 'Your message', placeholder: 'Type your next message here\u00a0…', placeholderCompact: 'Your message …', placeholderVoice: 'Just start talking – or type.', placeholderFullHold: 'Just keep talking.', send: 'Send',
-  shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'What we understood so far',
+  shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Understood so far',
   summaryMore: 'Read more', showLess: 'Show less', signals: 'Signals', questions: 'Open questions',
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
   export: 'Download conversation data', createProject: 'Create project', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected',

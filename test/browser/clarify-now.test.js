@@ -1138,8 +1138,10 @@ for (const check of ['stationary heading toggle', 'first signal clears the activ
       const positive = value => { for (const name of ['pane', 'heading', 'button', 'text', 'signal']) assert.ok(value[name].width > 0 && value[name].height > 0, `${label}: positive ${name}`); };
       positive(collapsed);
       if (check.startsWith('stationary')) {
+        if (evidence) await page.screenshot({ path: join(evidence, `ait-514-r10-${locale}-${theme}-${width}x${height}-collapsed.png`) });
         await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle(page);
         const expanded = await measure(); records.at(-1).expanded = expanded; positive(expanded);
+        if (evidence) await page.screenshot({ path: join(evidence, `ait-514-r10-${locale}-${theme}-${width}x${height}-expanded.png`) });
         assert.equal(collapsed.expanded, 'false'); assert.equal(expanded.expanded, 'true');
         for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(collapsed.button[key] - expanded.button[key]) <= .5,
           `${label}: toggle.${key} stays put: ${collapsed.button[key]} -> ${expanded.button[key]}`);
@@ -1148,6 +1150,7 @@ for (const check of ['stationary heading toggle', 'first signal clears the activ
           assert.ok(value.heading.left < value.button.left && Math.abs((value.heading.top + value.heading.bottom) / 2 - (value.button.top + value.button.bottom) / 2) <= .5, `${label}: toggle shares the heading row`);
         }
       } else {
+        if (width === 390) assert.equal(collapsed.pane.height, 440, `${label}: explicit 440px phone pane`);
         assert.equal(collapsed.bottomFade, true, `${label}: following content activates the pane fade`);
         assert.ok(collapsed.signal.bottom <= collapsed.pane.bottom - 44,
           `${label}: first signal clears 44px bottom fade: ${JSON.stringify(collapsed)}`);
@@ -1350,7 +1353,7 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
     const lines = row.text.height / row.line;
     assert.ok(Math.abs(lines - Math.round(lines)) < .03, `${label}: whole rendered lines`);
     assert.ok(lines >= 3 - .03 && lines <= 9 + .03, `${label}: three-to-nine rendered lines`);
-    if (row.height >= 900) assert.ok(Math.abs(lines - 9) < .03, `${label}: tall pane uses nine lines`);
+    if (row.height >= 1000) assert.ok(Math.abs(lines - 9) < .03, `${label}: tall pane uses nine lines`);
     assert.equal(row.expanded, 'false');
     assert.equal(row.scrollTop, 0, `${label}: entry remains unscrolled`);
     assert.ok(row.heading.top >= row.pane.top && row.heading.bottom <= row.pane.bottom, `${label}: heading fully inside pane`);

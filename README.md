@@ -518,14 +518,16 @@ pause, admission and spend limits still govern every call; recovery can incur
 provider costs when those gates admit it.
 
 The overview's existing `copy.summary` heading is now visible. Its shipped defaults
-are “What we understood so far” (EN) and “Unser Verständnis bisher” (DE); existing
+are “Understood so far” (EN) and “Bisher verstanden” (DE); existing
 host overrides still win. A summary is collapsed with a fade when it exceeds the
 measured line budget: nine rendered lines in a tall analysis pane, otherwise
-three to nine whole lines based on the pane, heading, toggle and first signal.
+three to nine whole lines based on the pane, heading row, first signal and the
+active 44 px bottom fade.
 Where even three lines cannot keep the first signal visible (such as 1024×640),
 the clamp stays at three and the signal remains reachable within the scrolling
 pane. The budget is remeasured on resize, font and locale changes. The native
-toggle uses the additive keys `copy.summaryMore` (“Read more” / “Mehr anzeigen”)
+toggle stays beside the heading in both states and uses the additive keys
+`copy.summaryMore` (“Read more” / “Mehr anzeigen”)
 and shared `copy.showLess` (“Show less” / “Weniger anzeigen”). Missing keys fall back to the active locale; explicit host overrides
 win. Expansion stays in memory through assessment rewrites and same-conversation
 copy changes, and resets on a different conversation, reset or erasure. The
