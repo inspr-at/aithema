@@ -10,7 +10,11 @@
   Late insertion or growth is outside the
   reserved-geometry contract. The header launcher remains reachable before input,
   during the sidebar reveal, when folded, below 60rem, or without pinned content;
-  while desktop pinned content is available it leaves Tab order but retains its 44 px reservation.
+  while desktop pinned content is available in windows at least 48rem tall it
+  leaves Tab order but retains its 44 px reservation. Short desktop windows keep
+  the launcher visible and compact sidebar chrome so the foot is not clipped.
+  The launcher fades and becomes inert during the About reveal, like Settings;
+  the phone contact row clears the fold chevron by 44 px.
 - **First-paint contract:** launcher hosts reserve 44 px more in
   `--aithema-header-actions-width` in render-blocking CSS on the placeholder and
   component (defaults 216 → 260 px desktop, 88 → 132 px below 600 px), with the
@@ -20,13 +24,16 @@
   through mount. `voice: false` still works; existing defaults and exports remain.
   Host CSS width overrides keep winning. The helper manages
   `--aithema-contact-launcher-width` (0 px by default, 44 px when declared);
-  custom totals still use `--aithema-header-actions-width`.
+  custom totals still use `--aithema-header-actions-width`. The contact rail default
+  has zero specificity so host `headerRailReservation` overrides win.
 - Contact content, click listeners, styling, accessible names, modal focus trap,
   Escape and focus return belong to the host. Besides the first-paint flag,
   there are no new configure options, event fields, contact events or exports.
   The library adds no contact form, handover request, AI processing or consent
   dependency. The mock demo keeps its CTA beside the neutral note in a compact
-  row; its local dialog sends nothing. New EN/DE demo keys:
+  row; its header launcher is a plain icon with an EN/DE accessible name and its
+  local dialog sends nothing. The dialog shares the Settings top anchor; README
+  documents the recommended responsive offsets for host-owned dialogs. New EN/DE demo keys:
   `copy.host.slots.contact`, `copy.host.slots.contactNote`; its close button reuses
   `copy.host.outbox.close`. Host slot content and copy overrides retain ownership.
 

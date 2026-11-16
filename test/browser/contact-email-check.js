@@ -90,12 +90,19 @@ export async function contactOfferCheck(t) {
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390,844],[1024,1000],[1440,1000],[390,620],[390,568]]) {
     const label = `${locale}-${theme}-${width}x${height}`;
     await page.setViewport({ width, height });
-    await shadow(page, c => {
+    await shadow(page, (c, locale) => {
       for (const n of c.querySelectorAll('[slot="sidebar-contact"], [slot="contact-launcher"]')) n.remove();
       for (const slot of ['sidebar-contact', 'contact-launcher']) {
-        const button = document.createElement('button'); button.slot = slot; button.textContent = 'Contact'; c.append(button);
+        const button = document.createElement('button'); button.slot = slot;
+        const label = locale === 'de' ? 'Kontakt' : 'Contact';
+        if (slot === 'contact-launcher') {
+          button.setAttribute('aria-label', label);
+          button.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor"><path d="M4 5h16v12H9l-5 3V5Z"/></svg>';
+          Object.assign(button.style, { display: 'grid', placeItems: 'center', padding: '0', border: '0', background: 'transparent' });
+        } else button.textContent = label;
+        c.append(button);
       }
-    });
+    }, locale);
     await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0 });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme); await settle(page);
     assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.email-offer'))), false, `${label}: no offer before visitor input`);

@@ -68,7 +68,7 @@ ${headerRailReservation()}
 /* An opt-in placeholder declares the same extra target before and after mount.
    The mounted marker also keeps the reservation if a host removes its skeleton. */
 .aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint) { --aithema-contact-launcher-width:44px; }
-${headerRailReservation({ selector: '.aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint)', actionsWidth: '260px' })}
+${headerRailReservation({ selector: ':where(.aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint))', actionsWidth: '260px' })}
 ${headerGeometry('.aithema-first-paint')}
 .aithema-shell > aithema-session:not([data-aithema-mounted]) { display:none; }
 .aithema-shell:has(> aithema-session[data-aithema-mounted]) > .aithema-first-paint { display:none; }

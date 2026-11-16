@@ -553,8 +553,18 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
      first; its 30% cap and independent scrolling still apply. Grid percentages
      exclude padding, hence 40% of both insets and a pixel for track rounding. */
   .workspace[data-contact] .understanding { grid-template-rows:auto auto minmax(calc(40% + .8 * var(--inset) + 1px),1fr) fit-content(30%) auto; }
+}
+/* A short desktop can spend the contact track on the reading floor. Keep its
+   reserved launcher visible; compact fixed chrome also keeps the foot inside
+   the 34rem workspace floor without reducing the reading allocation. */
+@media(min-width:60rem) and (min-height:48rem) {
   .workspace[data-contact][data-understanding="present"]:not([data-folded]):not([data-reveal]):not(:has(.understanding[hidden])) .contact-launcher { visibility:hidden; }
 }
+@media(min-width:60rem) and (max-height:47.99rem) {
+  .workspace[data-contact] .understanding { --inset:.75rem; }
+  .workspace[data-contact] .readiness { padding-bottom:.25rem; }
+}
+@media(max-width:599px) { .sidebar-contact { padding-inline-start:44px; } }
 @media(max-width:59.99rem) { .sidebar-contact { max-height:14rem; } }
 @media(max-width:44rem) { .contact-launcher { margin-inline-start:0; } }
 .understanding > .head { align-items:center; min-height:2.8rem; }

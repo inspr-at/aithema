@@ -479,7 +479,11 @@ The library keeps that content mounted through analysis updates; it does not clo
 it or attach a contact handler. The sidebar row scrolls independently, bounded by
 30% of the desktop sidebar and 14rem below 60rem. On desktop the reading pane
 retains at least 40% of the sidebar; the contact row shrinks and scrolls when
-the header or other reserved rows need more room. Host content must fit its
+the header or other reserved rows need more room. Below 48rem window height,
+the desktop launcher stays visible and sidebar chrome compacts to keep its foot
+inside the frame. Its 44 px header slot remains reserved when hidden. The launcher
+fades and becomes inert during About, like the other header controls; the phone
+contact row has a 44 px inset to clear the fold chevron. Host content must fit its
 reserved row; filling or growing it later can move the analysis and is outside
 the no-layout-shift contract. The host owns the CTA's styling, accessible name,
 44 px launcher target, overlay, privacy and delivery policy, modal focus trap,
@@ -497,7 +501,7 @@ set `--aithema-header-actions-width` in render-blocking host CSS to your existin
 width + 44 px (default 216 → 260 px; below 600 px, 88 → 132 px), on both the
 placeholder and component; use `headerRailReservation({ actionsWidth: '260px' })`
 when overriding the desktop width so both reserve the same rail row. Custom
-width overrides keep winning. The helper manages the reservation delta
+width overrides keep winning; the library contact rail default has zero specificity. The helper manages the reservation delta
 `--aithema-contact-launcher-width` (0 px by default, 44 px when declared);
 customize the total through `--aithema-header-actions-width`. The existing
 default markup and exports remain available; no new export or contact event is introduced.
@@ -509,7 +513,11 @@ default markup and exports remain available; no new export or contact event is i
 </aithema-session>
 ```
 
-Both host buttons can open the same host-owned dialog. The mock demo supplies a
+Both host buttons can open the same host-owned dialog. Top-anchor that dialog
+at the Settings frame's top edge: normally `max(.5rem, (100dvh - 47rem) / 2)`,
+at desktop widths ≥60rem and heights ≥850px `max(24px, (100dvh - 48rem) / 2)`,
+and below 40rem wide `.25rem`. Use CSS `calc()` around the subtraction/division;
+keep the host's own dialog height and scrolling within the viewport. The mock demo supplies a
 neutral CTA beside a short demo note, and a local dialog with no contact form or
 delivery. Its two new copy keys are `copy.host.slots.contact` and
 `copy.host.slots.contactNote` (EN/DE);
