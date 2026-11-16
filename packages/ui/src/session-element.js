@@ -2260,7 +2260,12 @@ export class AithemaSession extends HTMLElement {
           if (!row) { row = node('li', 'email-offer'); row.dataset.id = key; }
           this.#host.emailOffer.paintRow(row);
           if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
-          if (fresh) this.ownerDocument.defaultView.requestAnimationFrame(() => this.#revealPhoneOffer(row));
+          // Finish this render before exposing the offer to an immediate focus
+          // gesture. A later animation frame races the native focus scroll.
+          if (fresh) queueMicrotask(() => {
+            this.#syncRailFit(); this.#phoneViewport?.paint();
+            this.#revealPhoneOffer(row);
+          });
           continue;
         }
         if (lowLine) {
