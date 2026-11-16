@@ -56,7 +56,7 @@ to the candidate or published set.
 
 ## Twenty-fifth candidate (AIT-539)
 
-The reserved coordinate is `261116004750.0.0` (UTC reservation time 2026-11-16T00:47:50Z),
+The reserved coordinate is `261116143738.0.0` (UTC reservation time 2026-11-16T14:37:38Z),
 stable sequence 36 (previous: 35), status `reserved`, scheme `inspr-calver-3`.
 Marketing name: **Aithema 2026.10**, with the exact version below the notes title.
 Per RC20–RC24, the visible product name stays as documented in `docs/embedding.md`
@@ -70,6 +70,22 @@ LEAD approved the brief on 2026-11-15 at 20:4x with the limitation wording
 2026-11-16 at base `ab0444a8dc7e642dd3811725050e60efe29e2502` (L), annotated tag
 object `37aa3b6f6ff563059dcd5db7bd43f1aebfa342c1`; the remote reference was checked.
 
+**Re-preparation.** The first candidate (C `ea92ad0cf6f5febc7884c4740a5b4fabbb206d37`,
+version `261116004750.0.0`, marker `candidate/v261116004750.0.0`, manifest
+`sha256:f1b6f1b26371f6a473fda5a16cbdfc0b4242a5db0331502c8195adb864543d51`,
+normalized `sha256:42d80294270ebb0a89a5a619dd597939ef8755d95d986d695ee642d0439d57a5`)
+merged as #450 (`b3ebb3aa`) but was **never published**. The RC25 visual look
+(Opus Tick-lens, counting as the Tick step per Markus, Desk `7564f573`)
+returned six Medium changes, fixed by AIT-540 in #452. LEAD's 2026-11-16
+09:0x “fix before publish … then the usual path” ruling and 09:3x re-cut approval
+apply. The new coordinate supersedes the first. **Before the new cut, OPS must
+add `261116004750.0.0` to the no-bypass deny ruleset and MAC-OPS must verify it.**
+This is a cut precondition, not a claim that it is done. The old marker stays
+immutable. `release-lock/seq-36` stays at
+`ab0444a8dc7e642dd3811725050e60efe29e2502`; this re-preparation's base is
+L′ = `eff9c36ba16845a4c2f001735381efa8b3547715` (#452, second parent `4cf14bd0`).
+Sequence remains 36; `history.json` stays unchanged at published sequence 35.
+
 This is the **seventeenth release on the active fixed-candidate route (AIT-363 B)**.
 Order: lock tag (done), prep, coordinator gates, true merge preserving C,
 candidate marker, MAC-OPS cut, verification. There is **no merge freeze**: main
@@ -77,16 +93,18 @@ keeps moving; the final committed RC head C is the candidate. Builders prepare
 only and invoke no reviewer models, pushes, PRs, tags, tag pushes, GitHub releases
 or publication. The coordinator owns gates, push, PR, merge and the candidate
 marker; MAC-OPS owns the cut. This preparation changes release metadata and
-notes, plus the two requested host-document corrections. START pins separately;
+notes; the two requested host-document corrections remain applied. START pins separately;
 nothing waits on this release.
 
-Every requested Content item is on main at L. The complete first-parent range
-since `v261115062259.0.0` through L contains exactly seven PR merges, in order:
+Every requested Content item is on main at L′. The complete first-parent range
+`v261115062259.0.0`..L′ contains exactly nine PR merges, in order:
 #442 (AIT-525 RC24 preparation, `47ea03cd`),
 #446 (AIT-532 CI only, `51f8d315`), #443 (AIT-508, `c4d5d489`),
 #444 (AIT-524, `321e6208`), #445 (AIT-505, `512613bc`),
-#447 (AIT-507, `b170bfb2`) and #448 (AIT-506, `ab0444a8` = L).
-Stop and report any difference; do not extend L's content range.
+#447 (AIT-507, `b170bfb2`), #448 (AIT-506, `ab0444a8` = original lock L),
+#450 (first RC25 preparation, `b3ebb3aa`) and
+#452 (AIT-540 M1–M6 visual-look fixes, `eff9c36b` = L′).
+Stop and report any difference; do not extend L′'s content range.
 
 AIT-505 adds a once-only host opener, rendered before input in the combined
 entrance and after legacy Start. It persists at first `/turns`, first terminal
@@ -131,6 +149,47 @@ Downgrading keeps already-pinned untimed guards untimed. New calls use fresh
 admission and later calls use continuation presentation. Composed idle ends
 release the call; ElevenLabs retains its provider-owned silence timeout.
 
+**Visual and copy fixes (AIT-540 M1–M6, #452).**
+
+- Combined entrance: top-anchored control frame with intrinsic notice below
+  the field and feedback/status rows. The notice slot measures the actual
+  processing-choice strings per width; its visible frame grows downward without
+  moving those controls. Desktop layout reserves the fixed footer inside the
+  configured host height, keeping the full notice above it. Desktop notice height
+  follows its full content, including longer host copy, without fixed heights.
+  Phones show the first AI-disclosure
+  sentence and a native-dialog disclosure. New additive copy key
+  `copy.composerNoticeMore`: EN “More”, DE “Mehr”. Existing `aiNotice`,
+  `copy.aiNotice` and `copy.settings.processingDetails` precedence is retained.
+  Feedback and status reserve their longest real localized message per width.
+- One consent line and link in the composer. The ready card shows status only;
+  the voice bar asks nothing about consent before the mic gesture. A blocked
+  microphone is named once in the composer, using existing
+  `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` override precedence.
+  Other voice failures remain in the voice bar; the composer retains call-ended
+  status. German consent defaults use “Einwilligung”: `ready.missing`,
+  `ready.granted`, `clarify.consent`, `clarify.say.consent`,
+  `voiceReasonsNarrow.{consentWithdrawn,consentRevised}`,
+  `processingConsent.{intro,withdrawal}` and `host.consentPage.intro`.
+  The demo processing intro uses the same term while retaining its persistence
+  terms. `ready.consent` defaults to “Status” in EN and DE, avoiding a repeated
+  consent term. Compact voice labels keep their 22-character bound.
+  Existing host copy overrides keep winning.
+- While an opt-in `emailOffer` is visible, the overview lock keeps its title
+  and lead and hides its form; Settings remains governed by the existing
+  before-input/used-up policy. One confirmation action and credit statement
+  remain on screen. At ≤520 px the offer field and button are full-width
+  separate rows (button ≥44 px). Lead/privacy use intrinsic height, message
+  reservation uses the longest real state, dismiss uses the shared close icon.
+- AIT-524's separator is centred in its existing 18 px status-to-action gap;
+  control coordinates and native hit regions are retained.
+- No new host option, event field or package export.
+- The combined phone offer refreshes the sticky-band inset before scrolling the
+  conversation pane to reveal the whole new offer (AIT-540 M6). Only an accepted
+  `show` claim in the mounted page arms this one-use reveal; restored offers and
+  credit refreshes retain the latest-turn position. Page scroll and keyboard focus
+  are retained; no new host setting or event is needed.
+
 **Options and defaults (AIT-505–AIT-508).** All are opt-in and independent.
 
 | New option | Default / fallback |
@@ -164,6 +223,7 @@ an option explicitly enables the extra contract:
 
 | New copy key | Legacy fallback / shipped default |
 | --- | --- |
+| `composerNoticeMore` | No legacy fallback; “More” / “Mehr”; labels the phone notice dialog. |
 | `hostOpenerTitle` | No legacy fallback; “Welcome message” / “Begrüßung” |
 | `hostOpenerTextOnly` | No legacy fallback; “The full welcome message from the host.” / “Die vollständige Begrüßung des Hosts.” |
 | `voiceIdleEnded` | `voiceEnded`; “The call ended after a period of silence. Start a new call or continue typing.” / “Der Anruf wurde nach längerer Stille beendet. Starten Sie einen neuen Anruf oder schreiben Sie weiter.” |
@@ -224,195 +284,50 @@ removes no public export; changes no existing HTTP status or required host
 integration; retains `/turns`' exact response shape without an opener and legacy
 copy precedence; and restricts demo tier changes to `emailOffer`. Clarify status
 text moves outside the button, so hosts' CSS/selectors may notice that DOM change.
+AIT-540 adds only the optional `composerNoticeMore` copy key and changes the
+listed consent defaults; existing host overrides keep winning. No new host
+option, event field or package export is added by AIT-540.
 
 The final preparation lock's npm audit line is **0 vulnerabilities**:
 `npm audit --package-lock-only --omit=dev` reports **0 in the release closure**;
 `npm audit --package-lock-only` also reports **0**, leaving **0 dev-only**.
 Stop and report any release-closure finding.
 
-Carried notes: all entries at L are folded into `notes.md`, including the explicit
-known limitation and both host corrections; `next-notes.md` is reset to the stub
-`# Next release — unreleased`. At this lock there was one AIT-532 capacity heading
-and bullet, and no standalone AIT-524 entry; capacity is retained once and
-AIT-524 is covered from its actual diff. No duplicate capacity heading remains.
+Carried notes: AIT-540 M1–M6 at L′ are folded into `notes.md`, alongside the
+existing RC25 content, explicit known limitations and both host corrections.
+`next-notes.md` is reset to `# Next release — unreleased`. AIT-532 capacity
+remains covered once in the host notes; no duplicate heading remains.
 All manifests, lockfile entries and internal pins, including private source-only
 workspaces, mirror the reservation. Migration pins stay fixed.
 **presentation pin reviewed: unchanged at bd0a13816f728ad91c36d849f88168bcac4fdc6e**.
-Current inspr-at/inspr HEAD matches. `release/verify-upstream-presentation.mjs`
+The local inspr-at/inspr checkout HEAD matches; upstream verification is
+recorded with the re-cut evidence. `release/verify-upstream-presentation.mjs`
 and `release/presentation-pin.mjs` both verify the complete tracked payload;
 config SHA-256 `bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`,
 manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
 No presentation files change. `release/evidence.json` remains historical;
 retained final-head evidence is authoritative for this preparation.
 
-**B3 same-host browser evidence (coordinator / LEAD ruling, 2026-11-16).**
-All 35 browser files completed on **mbp2606**, against preparation checkpoint
-`a1263b6603d7aba96e2d700955d5704c7ad28422`. Retain B2 batch 1; B3 reran the
-17 former agm2 files and ran operator login separately, using `AGM2=0 MBP2607=0`,
-`FETCH_TRIES=300`, `EVIDENCE_OUT`, and the durable fetch-retry wrapper after the
-05:50 Vienna quiet hold. Every admitted suite completed; none was cancelled.
-The earlier interrupted attempt and agm2 batch are superseded for this proof.
-
-Baseline: AIT-506 final `bc504f61eeaa1d262041739b7867852f9f56788b`, same
-**mbp2606** host, main run `bc504f61ee-69381` and isolated operator run
-`bc504f61ee-72395`. Matching granularity is **exact per-file passing/failing
-counts and top-level failing test names**, including missing or extra names.
-The baseline does keep nested names for other files; AIT-400 is documented
-separately below, including the limits of its retained output. All 35 files
-match at the required granularity, totaling **1,196 passed / 14 failed / 1,210
-tests**, with zero skipped, cancelled or todo. These are **known mbp2606-only failures under AIT-531**,
-accepted by this ruling as matching baseline failures, never described as passing.
-**GitHub CI on the release PR is the authoritative browser proof**: all twelve
-Ubuntu browser shards must be fully green, with no exceptions. That check is
-owned by the coordinator and is not claimed by this preparation.
-
-Counts below are passed / failed / total. Every file is under `test/browser/`;
-baseline counts come from AIT-506's final `m3-final-browser-counts.tsv`.
-
-| File | Host | Run id | Actual P/F/T | Baseline P/F/T |
-| --- | --- | --- | --- | --- |
-| `admin-pages.test.js` | mbp2606 | `a1263b6603-35698` | 2/0/2 | 2/0/2 |
-| `audio-replay.test.js` | mbp2606 | `a1263b6603-35698` | 193/0/193 | 193/0/193 |
-| `clarify-now.test.js` | mbp2606 | `a1263b6603-35698` | 17/0/17 | 17/0/17 |
-| `composed-media.test.js` | mbp2606 | `a1263b6603-35698` | 7/1/8 | 7/1/8 |
-| `composed-qualification.test.js` | mbp2606 | `a1263b6603-35698` | 15/0/15 | 15/0/15 |
-| `confirmation-design.test.js` | mbp2606 | `a1263b6603-35698` | 1/0/1 | 1/0/1 |
-| `consent-lines.test.js` | mbp2606 | `a1263b6603-35698` | 34/0/34 | 34/0/34 |
-| `credit-hold.test.js` | mbp2606 | `a1263b6603-35698` | 1/0/1 | 1/0/1 |
-| `demo.test.js` | mbp2606 | `a1263b6603-35698` | 10/0/10 | 10/0/10 |
-| `email-ask.test.js` | mbp2606 | `a1263b6603-35698` | 25/0/25 | 25/0/25 |
-| `email-mail-space.test.js` | mbp2606 | `a1263b6603-35698` | 379/0/379 | 379/0/379 |
-| `email-unlock-reply.test.js` | mbp2606 | `a1263b6603-35698` | 6/0/6 | 6/0/6 |
-| `external-plugin.test.js` | mbp2606 | `a1263b6603-35698` | 1/0/1 | 1/0/1 |
-| `footer-width-sweep.test.js` | mbp2606 | `a1263b6603-35698` | 4/0/4 | 4/0/4 |
-| `host-surface.test.js` | mbp2606 | `a1263b6603-35698` | 20/1/21 | 20/1/21 |
-| `html-preview.test.js` | mbp2606 | `a1263b6603-35698` | 84/2/86 | 84/2/86 |
-| `identity-unlock.test.js` | mbp2606 | `a1263b6603-35698` | 17/0/17 | 17/0/17 |
-| `lane-race-kit.test.js` | mbp2606 | `a1263b6603-61265` | 4/0/4 | 4/0/4 |
-| `language-first-paint.test.js` | mbp2606 | `a1263b6603-61265` | 1/0/1 | 1/0/1 |
-| `operator-login.test.js` | mbp2606 | `a1263b6603-15834` | 26/0/26 | 26/0/26 |
-| `orb-reveal.test.js` | mbp2606 | `a1263b6603-61265` | 6/0/6 | 6/0/6 |
-| `pause-phone.test.js` | mbp2606 | `a1263b6603-61265` | 77/0/77 | 77/0/77 |
-| `question-card.test.js` | mbp2606 | `a1263b6603-61265` | 35/6/41 | 35/6/41 |
-| `safeguards.test.js` | mbp2606 | `a1263b6603-61265` | 13/0/13 | 13/0/13 |
-| `start-journey.test.js` | mbp2606 | `a1263b6603-61265` | 29/0/29 | 29/0/29 |
-| `start-look.test.js` | mbp2606 | `a1263b6603-61265` | 23/0/23 | 23/0/23 |
-| `start2-display-continuity.test.js` | mbp2606 | `a1263b6603-61265` | 15/0/15 | 15/0/15 |
-| `start2-display-geometry.test.js` | mbp2606 | `a1263b6603-61265` | 13/0/13 | 13/0/13 |
-| `start2-display-matrix.test.js` | mbp2606 | `a1263b6603-61265` | 1/0/1 | 1/0/1 |
-| `start2-display.test.js` | mbp2606 | `a1263b6603-61265` | 80/1/81 | 80/1/81 |
-| `tick-followups.test.js` | mbp2606 | `a1263b6603-61265` | 6/0/6 | 6/0/6 |
-| `understanding-failure.test.js` | mbp2606 | `a1263b6603-61265` | 29/3/32 | 29/3/32 |
-| `upload-capacity.test.js` | mbp2606 | `a1263b6603-61265` | 5/0/5 | 5/0/5 |
-| `visitor-credit-tiers.test.js` | mbp2606 | `a1263b6603-61265` | 10/0/10 | 10/0/10 |
-| `voice-presentation.test.js` | mbp2606 | `a1263b6603-61265` | 7/0/7 | 7/0/7 |
-
-Accepted top-level failure names (**known mbp2606-only failures under AIT-531**):
-
-- `composed-media.test.js` — “AIT-350: Settings provider switch viewports, focus and 0 px geometry”.
-- `host-surface.test.js` — “AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN”.
-- `html-preview.test.js` — “AIT-400: withdrawal preserves the top transcript row and reserved status slot”.
-- `question-card.test.js` — “AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement”.
-- `question-card.test.js` — “AIT-512: picks and sends keep the new turn visible without stealing reading position”.
-- `start2-display.test.js` — “AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390”.
-- `understanding-failure.test.js` — “AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px”.
-
-The seven top-level failures above account for the 14 failed tests including
-nested failures. For `html-preview.test.js`, the exact per-file count is
-**84 passed / 2 failed / 86 tests**, equal to the baseline, and the top-level
-failure “AIT-400: withdrawal preserves the top transcript row and reserved status
-slot” matches. RC25's failing nested case is **`1024/light/de`**. The original
-baseline spec stdout could not be recovered; its timing stream records only
-this parent failure. However, its retained `ait400/initial-1024-de.json` records
-composer `[40.953125, 670, 564.5, 150]`, identical to RC25 and different from the
-unchanged captured frame `[40.953125, 669.296875, 564.5, 150.703125]`. The other
-five initial viewport cases match their captured frames, and the baseline's
-completed first-row checks omit only `1024/light/de`. These artifacts reconstruct
-**the same nested case**, rather than the different case described in the B4
-brief. The reconstruction is retained in `.data/ait-539/b4-baseline-ait400.json`;
-it is not a claim to have recovered the baseline spec stdout.
-
-Both runs are the known AIT-400 1 px composer-geometry jitter class on mbp2606
-(AIT-531). LEAD's explicit ruling (2026-11-16 07:4x, **CONFIRM**) accepts this
-failure under item 2: file, top-level test name and exact per-file count. That
-ruling also accepts a different nested viewport case inside this same AIT-400
-test as AIT-531 jitter; nested names are kept for other baseline files. This is
-an accepted **known mbp2606-only failure under AIT-531**, not a passing test.
-
-Per-file counts, complete top-level names, error classes and
-comparison results are retained in `.data/ait-539/b3-browser-comparison.json`
-and `b3-browser-counts.tsv`. Evidence roots: `dist/ait539-b2-browser-1/`,
-`dist/ait539-b3-browser-2/` and `dist/ait539-b3-browser-3/`.
-
-**Tree identity and scope.** L = `ab0444a8dc7e642dd3811725050e60efe29e2502`
-is tree-identical to `bc504f61eeaa1d262041739b7867852f9f56788b`
-(`git diff bc504f61 ab0444a8` is empty). `bc504f61..C'` touches release
-files only: version mirrors and internal pins, release history/notes/metadata,
-and the two requested README host-document corrections; no executable source,
-style or test change. Its `git diff --stat bc504f61 C'` summary is:
-
-```text
- README.md                           |  11 +-
- package-lock.json                   |  78 +++----
- package.json                        |   2 +-
- packages/core/package.json          |   2 +-
- packages/server/package.json        |   6 +-
- packages/ui/package.json            |   4 +-
- plugins/claude-html/package.json    |   6 +-
- plugins/codex-imagegen/package.json |   4 +-
- plugins/device/package.json         |   4 +-
- plugins/elevenlabs/package.json     |   6 +-
- plugins/extract-ooxml/package.json  |   4 +-
- plugins/extract-pdf/package.json    |   4 +-
- plugins/extract-text/package.json   |   4 +-
- plugins/grok-voice/package.json     |   6 +-
- plugins/mail-smtp/package.json      |   4 +-
- plugins/mistral/package.json        |   4 +-
- plugins/openai-images/package.json  |   4 +-
- plugins/openrouter/package.json     |   4 +-
- plugins/voxtral/package.json        |   6 +-
- plugins/zitadel-oidc/package.json   |   2 +-
- release/README.md                   | 368 ++++++++++++++++++++++++++++++++
- release/history.json                |   9 +
- release/next-notes.md               | 185 ----------------
- release/notes.md                    | 411 +++++++++++++++++++++++++-----------
- release/version.json                |   6 +-
- 25 files changed, 755 insertions(+), 389 deletions(-)
-```
-
-The B3 evidence commit changes only this `release/README.md` text;
-`git diff --stat a1263b66 C'` is recorded in the handoff. Browser results remain
-applicable to final C' without another browser run under the B3 ruling.
-
-**B4 documentation corrections.** The B4 commit after C' (`457f7c4d`) restores
-RC14's upgrade warning while retaining the RC23 requirement, corrects the
-AIT-400 evidence wording above and applies the five host-document corrections:
-Grok opener speech is not included; opener projection helpers are internal UI
-helpers, not package exports; the `host:` clientEventId prefix is reserved for
-every host; pending uploads also reveal the overview; and CI notes use neutral
-wording. Only `README.md`, `release/README.md` and `release/notes.md` change;
-`git diff --stat 457f7c4d C''` is recorded in the handoff. The B3 browser proof
-remains applicable under the B4 ruling. After this signed-off commit, rerun the
-release set below and rebuild the candidate at final C'', record the new run
-and digests in the handoff, and make no evidence-only commit after that build.
-
-Release-test checkpoint `a1263b66`, mbp2606 run `a1263b6603-93882`:
-**176 passed / 2 failed / 178 tests**. The failures are the permitted macOS-only
-AIT-529 pair, “sibling marker bound failure escapes the outer rethrow guard”
-and “sibling marker bound failure escapes the fallback rethrow guard”. They
-are failures, not passes. After this evidence commit, rerun the exact release
-set below on final C', rebuild `dist/ait539-final/candidate/`, and bind that
-head and both digests in the handoff. Make no evidence-only commit afterward.
+**Re-cut same-host browser evidence.** L′ and AIT-540 final head
+`4cf14bd0743b09b57ad44a97916070a56b15f526` have the same tree
+`191b9774a59a13eb5bc7b9f87565fadc17f3e8f6` (verified by `git rev-parse`).
+AIT-540's whole-browser mbp2606 run `4cf14bd074-38135` is therefore the
+same-host baseline: **1,278 passed / 14 failed / 1,292 tests** across 35 files,
+zero skipped or cancelled. Compare every file's counts and complete top-level
+failing test names. The 14 known mbp2606 failures under AIT-531 are accepted
+under LEAD's item 2, and remain failures. Re-cut results and the per-file table
+will be recorded here before the final candidate rebuild. The release PR's
+browser CI must still be fully green; the coordinator owns that gate.
 
 Preparation order (remote execution only):
 
-1. Check Content and the unchanged coordinator-held lock at L. Commit reservation,
-   mirrors, internal pins, published history, notes and these host docs with
+1. Check Content and the unchanged coordinator-held lock at L and the range through L′. Commit reservation,
+   mirrors, internal pins and notes; retain published history and host corrections with
    `git commit -s`, ending the message with
    `Co-Authored-By: Codex <noreply@openai.com>`. Worktree:
    `/Users/markus/Code/aithema-worktrees/ait-539`; branch:
-   `release/ait-539-twenty-fifth-release`; recorded builder session:
-   `AIT-539-prep` (`3eb1205f-f8ad-4e30-a822-15a1121d46c9`, role builder).
+   `release/ait-539-rc25-recut`; recorded builder session:
+   `AIT-539-recut1` (`6ec1b663-b474-46a5-b93c-8440309b97c3`, role builder).
 2. Run the release test set on **final committed C**, using the durable fetch-retry
    wrapper for every `EVIDENCE_OUT` run. The candidate builds twice, verifies,
    smoke-tests the isolated sixteen-module consumer, reinstalls its lock,
@@ -424,12 +339,12 @@ Preparation order (remote execution only):
    Any failure means stop and report except the known macOS-only AIT-529
    release-candidate-gate sibling-marker pair, acceptable only on a macOS lane
    host and explicitly named. The **whole browser suite** must also complete
-   remotely because the UI manifest version changes; the B3 same-host baseline
-   exception and per-file evidence above govern browser preparation. The release
+   remotely because the UI manifest version changes; the AIT-540 same-host baseline
+   and per-file evidence above govern browser preparation. Use `AGM2=0 MBP2607=0`. The release
    PR's authoritative GitHub browser CI still requires fully green shards.
 
    ```sh
-   MBP2607=0 EVIDENCE_OUT="$PWD/dist/ait539-final" FETCH_TRIES=300 \
+   AGM2=0 MBP2607=0 EVIDENCE_OUT="$PWD/dist/ait539-final" FETCH_TRIES=300 \
      /Users/markus/.local/share/ait-qa/coordinator/rb-fetchretry.sh \
      "$PWD" unit --test-concurrency=2 \
      test/release-candidate.test.js test/release-workflow.test.js \
@@ -447,8 +362,8 @@ Preparation order (remote execution only):
    the final build**; any source or commit change requires another final-C build.
    Record the actual release-test count, lane platform, browser results and
    per-file counts in `.data/ait-539/handoff.txt`. Do not substitute older results.
-4. Commit locally only; do not push or open a PR. Hand off C and every commit
-   since L, sequence 36 (previous: 35), version, retained directory, manifest
+4. Commit locally only; do not push or open a PR. Hand off final C3 and every commit
+   since L′, sequence 36 (previous: 35), version, retained directory, manifest
    SHA-256, normalized digest, presentation result, Content range, breaking
    decision and reason, final-lock audit, release/browser results and anything
    unproved in `.data/ait-539/handoff.txt`. The coordinator owns gates, push,
