@@ -685,6 +685,15 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               globalThis.__ait511Trace.push({ ...state, scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight, boxes });
               if (globalThis.__ait511Trace.length > 64) globalThis.__ait511Trace.shift();
             };
+            const shell = document.querySelector('aithema-session').shadowRoot.querySelector('.transcript-shell');
+            const scrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+            Object.defineProperty(shell, 'scrollTop', { configurable: true,
+              get() { return scrollTop.get.call(this); },
+              set(value) { scrollTop.set.call(this, value); globalThis.__ait511ScrollTrace?.(document.querySelector('aithema-session'), { stage: 'setter', value, stack: new Error().stack }); },
+            });
+            const log = event => globalThis.__ait511ScrollTrace?.(document.querySelector('aithema-session'), { stage: event.type, deltaY: event.deltaY, key: event.key, trusted: event.isTrusted });
+            for (const type of ['wheel', 'scroll', 'keydown']) shell.addEventListener(type, log, { passive: true });
+            globalThis.__ait511TraceCleanup = () => { delete shell.scrollTop; for (const type of ['wheel', 'scroll', 'keydown']) shell.removeEventListener(type, log); };
             globalThis.__ait511ScrollTrace(document.querySelector('aithema-session'), { stage: 'before-show' });
             globalThis.showQuestion({ content: (globalThis.qcardReply.content + ' ').repeat(30) });
             globalThis.__ait511ScrollTrace(document.querySelector('aithema-session'), { stage: 'after-show' });
@@ -702,7 +711,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             await mkdir(laneEvidenceDirectory, { recursive: true });
             await writeFile(join(laneEvidenceDirectory, `ait-511-oversized-trace-${label}.json`), JSON.stringify({ oversized, debug }, null, 2));
           }
-          await page.evaluate(() => { delete globalThis.__ait511ScrollTrace; });
+          await page.evaluate(() => { delete globalThis.__ait511ScrollTrace; globalThis.__ait511TraceCleanup(); delete globalThis.__ait511TraceCleanup; });
           assert.ok(Math.abs(oversized.top - oversized.expectedTop) <= 1, `an oversized reply starts below the fade: ${JSON.stringify(oversized)}`);
           assert.equal(oversized.link, locale === 'de' ? 'Ganze Antwort lesen' : 'Read full reply');
           assert.equal(oversized.visible, true, 'the full-reply action stays visible while a long reply is top-aligned');
