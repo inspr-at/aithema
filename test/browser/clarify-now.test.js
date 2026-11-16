@@ -987,7 +987,7 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
     }, locale, theme, voiceManifest);
     await frames();
     let s = await state(); assert.equal(s.button, true); assert.equal(s.hidden, true);
-    assert.equal(s.heading, locale === 'de' ? 'Unser Verständnis bisher' : 'What we understood so far');
+    assert.equal(s.heading, locale === 'de' ? 'Bisher verstanden' : 'Understood so far');
     assert.ok(s.headingWidth > 1 && s.headingHeight > 1, 'heading is visibly rendered');
     await shot(`${locale}-${theme}-${width}-fit`);
     // Exact measured line-budget boundary, then one rendered line over (D514s a2).
@@ -1099,6 +1099,62 @@ test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidenc
   if (evidence) await writeFile(join(evidence, 'ait-514-rects.json'), JSON.stringify(rows, null, 2));
   t.diagnostic(`AIT-514 ${rows.length} positive geometry comparisons`);
 });
+
+// AIT-514 r10: both review findings are independent regressions.
+for (const check of ['stationary heading toggle', 'first signal clears the active pane fade']) {
+  test(`AIT-514 r10 ${check}`, { timeout: 120_000 }, async t => {
+    const page = await followupPage(t), records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+    if (evidence) await mkdir(evidence, { recursive: true });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluate(() => {
+      const NativeDate = Date;
+      window.Date = class extends NativeDate {
+        constructor(...args) { super(...(args.length ? args : [1_000_000])); }
+        static now() { return 1_000_000; }
+      };
+    });
+    t.after(async () => { if (evidence) await writeFile(join(evidence, `ait-514-r10-${check.startsWith('stationary') ? 'toggle' : 'fade'}.json`), JSON.stringify({ head: evidenceCommit, records }, null, 2)); });
+    const viewports = check.startsWith('stationary') ? [[1440, 1000], [1440, 900], [1024, 640], [390, 1000]]
+      : [[1440, 900], [1366, 768], [390, 1000]];
+    const measure = () => shadow(page, c => {
+      const r = c.shadowRoot, pane = r.querySelector('.analysis-content');
+      const box = s => r.querySelector(s).getBoundingClientRect().toJSON();
+      return { pane: box('.analysis-content'), heading: box('#summary-title'), button: box('.summary-toggle'),
+        text: box('.summary-text'), signal: box('.signals li'), bottomFade: pane.hasAttribute('data-bottom'),
+        line: parseFloat(getComputedStyle(r.querySelector('.summary-text')).lineHeight),
+        expanded: r.querySelector('.summary-toggle').getAttribute('aria-expanded'), viewport: { width: innerWidth, height: innerHeight } };
+    });
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of viewports) {
+      await page.setViewport({ width, height });
+      await setupOverviewFixture(page, locale, theme);
+      await shadow(page, (c, locale) => {
+        c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
+          summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35) } });
+        c.shadowRoot.querySelector('.analysis-content').scrollTop = 0;
+      }, locale);
+      await settle(page);
+      const collapsed = await measure(), label = `${locale}/${theme}/${width}x${height}`;
+      records.push({ label, collapsed });
+      const positive = value => { for (const name of ['pane', 'heading', 'button', 'text', 'signal']) assert.ok(value[name].width > 0 && value[name].height > 0, `${label}: positive ${name}`); };
+      positive(collapsed);
+      if (check.startsWith('stationary')) {
+        await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle(page);
+        const expanded = await measure(); records.at(-1).expanded = expanded; positive(expanded);
+        assert.equal(collapsed.expanded, 'false'); assert.equal(expanded.expanded, 'true');
+        for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(collapsed.button[key] - expanded.button[key]) <= .5,
+          `${label}: toggle.${key} stays put: ${collapsed.button[key]} -> ${expanded.button[key]}`);
+        for (const value of [collapsed, expanded]) {
+          assert.ok(value.button.top >= Math.max(0, value.pane.top) && value.button.bottom <= Math.min(height, value.pane.bottom), `${label}: toggle fully in view`);
+          assert.ok(value.heading.left < value.button.left && Math.abs((value.heading.top + value.heading.bottom) / 2 - (value.button.top + value.button.bottom) / 2) <= .5, `${label}: toggle shares the heading row`);
+        }
+      } else {
+        assert.equal(collapsed.bottomFade, true, `${label}: following content activates the pane fade`);
+        assert.ok(collapsed.signal.bottom <= collapsed.pane.bottom - 44,
+          `${label}: first signal clears 44px bottom fade: ${JSON.stringify(collapsed)}`);
+      }
+    }
+  });
+}
 
 // Keep the measured summary cases in this existing browser workload.
 test('AIT-514 height-aware clamp respects the pane budget and keeps controls stable', { timeout: 120_000 }, async t => {

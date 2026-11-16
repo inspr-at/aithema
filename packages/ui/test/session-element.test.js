@@ -1516,8 +1516,8 @@ for (const copy of [de, en]) test(`AIT-349: ${copy.display.locale} interruption 
 });
 
 test('AIT-514 summary heading defaults and additive native toggle preserve host copy', () => {
-  assert.equal(en.summary, 'What we understood so far');
-  assert.equal(de.summary, 'Unser Verständnis bisher');
+  assert.equal(en.summary, 'Understood so far');
+  assert.equal(de.summary, 'Bisher verstanden');
   assert.equal(en.summaryMore, 'Read more'); assert.equal(de.summaryMore, 'Mehr anzeigen');
   assert.equal(en.showLess, 'Show less'); assert.equal(de.showLess, 'Weniger anzeigen');
   const c = setup({ copy: { ...en, summary: 'Host heading', summaryMore: 'Host more', showLess: 'Host less' } });
