@@ -1330,6 +1330,17 @@ export class AithemaSession extends HTMLElement {
     const unread = [...content].some(([id, length]) => !this.#seenTranscript.has(id) || length > this.#seenTranscript.get(id));
     this.shadowRoot.querySelector('.transcript-latest').style.visibility = unread ? '' : 'hidden';
   }
+  #revealPhoneOffer(row) {
+    if (!this.#combined || !row.isConnected || !this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) return;
+    const shell = this.shadowRoot.querySelector('.transcript-shell'), before = shell.scrollTop;
+    this.#syncBandScroll();
+    const pane = shell.getBoundingClientRect(), box = row.getBoundingClientRect();
+    const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
+    // Scroll only this conversation pane, even when a previous gesture disabled
+    // ordinary bottom-follow. Never focus the capture field or scroll the page.
+    shell.scrollTop += box.top - pane.top - padding;
+    this.#recordTranscriptScroll(before);
+  }
   #scrollToLatest() {
     if (this.#fold?.folded || this.#longReply) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell');
@@ -2243,9 +2254,11 @@ export class AithemaSession extends HTMLElement {
       for (const { key, turn: t, upload, lowLine, emailOffer } of entries) {
         let row = rows.get(key); rows.delete(key);
         if (emailOffer) {
+          const fresh = !row;
           if (!row) { row = node('li', 'email-offer'); row.dataset.id = key; }
           this.#host.emailOffer.paintRow(row);
           if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
+          if (fresh) this.ownerDocument.defaultView.requestAnimationFrame(() => this.#revealPhoneOffer(row));
           continue;
         }
         if (lowLine) {
