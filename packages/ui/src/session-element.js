@@ -1335,6 +1335,18 @@ export class AithemaSession extends HTMLElement {
     this.#follow = true; this.#questionCard?.reserve();
     if (this.#longReply) return;
     shell.scrollTop = shell.scrollHeight;
+    // Native extents include rounded descendant overflow. Pin the physical
+    // end content to its clearance, rather than leaving a fractional blank row.
+    // Latest floats; notices, failures and inline offers still own real space.
+    const end = [...shell.children].filter(element => !element.classList.contains('transcript-latest'))
+      .map(element => ({ element, box: element.getBoundingClientRect() }))
+      .filter(({ box }) => box.width > 0 && box.height > 0).at(-1);
+    if (end) {
+      const css = this.ownerDocument.defaultView.getComputedStyle(shell);
+      const bottom = shell.getBoundingClientRect().bottom - parseFloat(css.borderBottomWidth) - parseFloat(css.paddingBottom);
+      const margin = parseFloat(this.ownerDocument.defaultView.getComputedStyle(end.element).marginBottom) || 0;
+      shell.scrollTop += end.box.bottom + margin - bottom;
+    }
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
     // leave them above the sticky header and make focus scroll the whole page.
