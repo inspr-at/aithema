@@ -359,6 +359,23 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
   browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
 
+// AIT-517: preserve measured main history and reserve contact/RC25 coverage.
+// Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
+// 264.361s file wall time; *1.25 = 330.452s, rounded conservatively to 340s.
+// Email: complete run 6f0a725418-45712 at 6f0a7254 measured 342.982s;
+// relocate its unchanged 73.381s inline-offer case: 269.601s *1.25 < 338s.
+// Host surface retains its 244.435s historical plan, plus all four moved/new
+// passing cases (120.273s *1.25): <395s, rounded to 400s. Its existing AIT-261
+// axe failure matches the permitted AIT-531 baseline; never use that truncated
+// test's file duration to lower the historical host-surface reservation.
+// These diagnostic floors do not overwrite trusted rolling-main samples.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 340);
+browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-ask.test.js'], 350);
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 400);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.

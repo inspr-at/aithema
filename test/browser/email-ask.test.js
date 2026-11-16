@@ -7,7 +7,7 @@ import { browserForFile } from './shared-browser.js';
 import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
-import { fixture, settle, stable } from './email-ask-fixture.js';
+import { fixture, settle, stable, click } from './email-ask-fixture.js';
 
 const gateReady = page => until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.emailAsk !== 'closed');
 const pointerClick = async (page, selector) => {
@@ -16,7 +16,6 @@ const pointerClick = async (page, selector) => {
   // Leave the ask so a hover does not interfere with folding or screenshots.
   await page.mouse.move(0, 0);
 };
-const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
 const openCredits = page => shadow(page, c => {
   const entry = c.shadowRoot.querySelector('.host-credits'), button = entry.querySelector('.host-credits__button');
   if (entry.hasAttribute('data-pinned')) button.click();
@@ -369,164 +368,7 @@ test('AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any rec
 });
 
 
-test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls', { timeout: 240_000 }, async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-inline-offer-'));
-  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
-  const browser = await browserForFile(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
-  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
-  if (evidence) await mkdir(evidence, { recursive: true });
-  const page = await browser.newPage();
-  // All host deadlines and browser Date reads use one injected clock.
-  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
-  const targets = ['.composer-shell', 'textarea', '.composer-mic', '.send', '.composer-feedback', '.composer-status', '.display-foot'];
-  const measured = async () => {
-    const result = await boxes(page, targets);
-    for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${targets[i]} must have positive geometry: ${box}`);
-    return result;
-  };
-  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
-    const label = `${locale}-${theme}-${width}`;
-    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-    let baseline = null, offerBaseline = null;
-    const shot = async state => {
-      await settle(page);
-      rects.push({ label, state, surface: 'combined-row', targets, boxes: await measured() });
-      const bounds = await shadow(page, c => {
-        const row = c.shadowRoot.querySelector('.email-offer');
-        return row ? { offer: row.getBoundingClientRect().toJSON(), shell: c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect().toJSON() } : null;
-      });
-      if (bounds) {
-        for (const box of Object.values(bounds)) assert.ok(box.width > 0 && box.height > 0, `${label}/${state}: positive offer geometry`);
-        assert.ok(bounds.offer.left >= bounds.shell.left - .5 && bounds.offer.right <= bounds.shell.right + .5, `${label}/${state}: offer fits the transcript`);
-        rects.push({ label, state, surface: 'offer-bounds', ...bounds });
-      }
-      if (baseline && bounds) {
-        const currentOffer = await boxes(page, ['.email-offer', '.email-offer__row', '.email-offer__send']);
-        for (const box of currentOffer) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${state}: positive offer control geometry`);
-        if (offerBaseline) {
-          const shift = Math.max(...offerBaseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - currentOffer[i][j]))));
-          assert.ok(shift <= .5, `${label}/${state}: offer control shift ${shift}`); rects.push({ label, state, targets: ['.email-offer', '.email-offer__row', '.email-offer__send'], before: offerBaseline, after: currentOffer, shift });
-        } else offerBaseline = currentOffer;
-      }
-      if (baseline) {
-        const current = await measured();
-        const shift = Math.max(...baseline.flatMap((box, i) => box.map((n, j) => Math.abs(n - current[i][j]))));
-        assert.ok(shift <= .5, `${label}/${state}: control shift ${shift}`); rects.push({ label, state, targets, before: baseline, after: current, shift });
-      }
-      if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-507-${label}-${state}.png`), fullPage: false }); };
-    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 0, lock: true });
-    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
-    const entrance = await shadow(page, c => {
-      const root = c.shadowRoot, opener = root.querySelector('[data-id="host:opener"]');
-      const box = opener.getBoundingClientRect();
-      return { combined: root.querySelector('.workspace').dataset.entrance,
-        openers: root.querySelectorAll('[data-id="host:opener"]').length,
-        openerBox: [box.x, box.y, box.width, box.height],
-        canonical: c.session.transcript.length, offer: Boolean(root.querySelector('.email-offer')),
-        captureHidden: root.querySelector('.host-verify').hidden,
-        creditsEmailHidden: root.querySelector('.credits-email').hidden,
-        deferred: root.querySelector('.credits-email').hasAttribute('data-capture-deferred') };
-    });
-    assert.equal(entrance.combined, 'combined', `${label}: combined entrance with emailOffer`);
-    assert.equal(entrance.openers, 1, `${label}: exactly one shared entrance opener`);
-    assert.ok(entrance.openerBox[2] > 0 && entrance.openerBox[3] > 0, `${label}: positive opener geometry`);
-    assert.equal(entrance.canonical, 0, `${label}: opener remains render-only before input`);
-    assert.equal(entrance.offer, false, `${label}: no inline email form before input`);
-    assert.equal(entrance.captureHidden, true, `${label}: Settings capture deferred`);
-    assert.equal(entrance.creditsEmailHidden, true, `${label}: credits email link hidden`);
-    assert.equal(entrance.deferred, true, `${label}: credits email action deferred`);
-    rects.push({ label, state: 'entrance', surface: 'opener', box: entrance.openerBox });
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent'); await shot('entrance');
-    await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), true);
-    await shot('before-input');
-    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
-    await page.evaluate(() => window.ait164.reply()); await settle(page);
-    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.email-offer'))), false);
-    const before = await measured(); await page.evaluate(() => window.ait164.reply());
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
-    const after = await measured();
-    const shift = Math.max(...before.flatMap((box, i) => box.map((n, j) => Math.abs(n - after[i][j]))));
-    assert.ok(shift <= .5, `${label}: control shift ${shift}`); rects.push({ label, targets, before, after, shift });
-    const state = await shadow(page, c => { const r = c.shadowRoot; return { notice: r.querySelector('.email-offer .m-notice-text').textContent, href: r.querySelector('.email-offer .m-pp').getAttribute('href'), inert: r.querySelector('form.composer').inert, count: c.session.transcript.length, active: r.activeElement?.id }; });
-    assert.match(state.notice, locale === 'en' ? /advertising/ : /Werbung/); assert.equal(state.href, '/privacy'); assert.equal(state.inert, false); assert.equal(state.count, 4); assert.notEqual(state.active, 'email-offer-input');
-    baseline = after; await shot('capture');
-    // Native focus must not move the inline offer inside the combined scrollers.
-    const focusTargets = ['.email-offer', '.email-offer__row', '.email-offer__send', ...targets];
-    const focusSample = () => shadow(page, (c, selectors) => {
-      const root = c.shadowRoot;
-      return { boxes: selectors.map(selector => { const b = root.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }),
-        scrolls: ['.workspace', '.conversation', '.conversation-scroll', '.concept-thread', '.transcript-shell'].map(selector => {
-          const n = root.querySelector(selector), b = n.getBoundingClientRect();
-          return { selector, top: n.scrollTop, height: n.clientHeight, content: n.scrollHeight, y: b.y, boxHeight: b.height };
-        }), documentScroll: scrollY };
-    }, focusTargets);
-    const beforeFocus = await focusSample();
-    await shadow(page, c => c.shadowRoot.querySelector('#email-offer-input').focus());
-    await settle(page);
-    const afterFocus = await focusSample();
-    for (const sample of [beforeFocus, afterFocus]) for (const box of sample.boxes) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive native-focus geometry`);
-    const focusShift = Math.max(...beforeFocus.boxes.flatMap((box, i) => box.map((n, j) => Math.abs(n - afterFocus.boxes[i][j]))));
-    rects.push({ label, state: 'native-focus', targets: focusTargets, before: beforeFocus.boxes, after: afterFocus.boxes, shift: focusShift, beforeFocus, afterFocus });
-    if (evidence) await writeFile(join(evidence, 'ait-507-rects.json'), JSON.stringify(rects, null, 2));
-    await shot('capture-focused');
-    assert.ok(focusShift <= .5, `${label}: native focus shifts the combined offer ${focusShift}px; ${JSON.stringify({ beforeFocus, afterFocus })}`);
-    await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'invalid'; row.querySelector('form').requestSubmit(); });
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').getAttribute('aria-invalid')), 'true'); await shot('invalid');
-    for (const status of [400, 503]) {
-      await page.evaluate(status => { window.ait164.saveStatus = status; }, status);
-      await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'false');
-      const failure = await shadow(page, async c => {
-        const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`), row = c.shadowRoot.querySelector('.email-offer');
-        return { text: row.querySelector('.email-offer__message').textContent, invalid: row.querySelector('input').getAttribute('aria-invalid'),
-          inputHidden: row.querySelector('input').hidden, invalidCopy: copy.hostSurface.verify.invalid, failedCopy: copy.hostSurface.email.failed };
-      });
-      assert.equal(failure.text, status === 400 ? failure.invalidCopy : failure.failedCopy);
-      assert.equal(failure.invalid, String(status === 400)); assert.equal(failure.inputHidden, false);
-      assert.equal(await page.evaluate(() => window.ait164.address), null);
-      assert.equal(await page.evaluate(() => window.ait164.requests.includes('link')), false);
-      await shot(status === 400 ? 'save-refused' : 'save-failed');
-    }
-    await page.evaluate(() => { window.ait164.saveStatus = null; });
-    await page.evaluate(() => { window.ait164.saving = true; window.ait164.linkFails = true; });
-    await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = 'visitor@example.test'; row.querySelector('form').requestSubmit(); });
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'true');
-    assert.equal(await shadow(page, async c => { const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`); return c.shadowRoot.querySelector('.email-offer__message').textContent === copy.hostSurface.email.saving; }), true);
-    await shot('saving');
-    await page.evaluate(() => { window.ait164.saving = false; });
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__send').getAttribute('aria-disabled') === 'false' && window.ait164.requests.includes('link'));
-    await shot('delivery-failed');
-    await page.evaluate(() => { window.ait164.linkFails = false; }); await click(page, '.email-offer__send');
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'sent');
-    assert.equal(await page.evaluate(() => window.ait164.noticeVersion), 'ait-135-v1'); await shot('sent');
-    await shadow(page, c => { window.ait164.confirmed = true; c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, status: 'verified', address: 'visitor@example.test', assessmentUnlocked: true, conceptsUnlocked: true } }); });
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'confirmed'); await shot('confirmed');
-    baseline = null;
-    for (const [variant, confirmedAllowance] of [['confirm', 24_000_000], ['lock-only', 12_000_000]]) {
-      await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, lock: true,
-        tierAllowances: { anonymous: 12_000_000, emailGiven: 12_000_000, emailConfirmed: confirmedAllowance } });
-      await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await shot(variant);
-    }
-    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0, address: 'saved@example.test', lock: true });
-    await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').hidden), false);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.m-delete-mail').inert), false); await shot('saved-settings');
-    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').close());
-    await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer input').hidden), true); await shot('resend');
-    await fixture(page, locale, { opener: true, delivery: true, emailOffer: { afterMessages: 2 }, initialMessages: 1, voice: true });
-    await page.evaluate(() => window.ait164.reply()); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.call), 'active');
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('form.composer').inert), false); await shot('during-call');
-    await click(page, '.email-offer__dismiss'); await page.evaluate(() => window.ait164.reply()); await settle(page);
-    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.email-offer'))), false); await shot('dismissed');
-    await click(page, '.voice-close');
-  }
-  if (evidence) await writeFile(join(evidence, 'ait-507-rects.json'), JSON.stringify(rects, null, 2));
-});
+
 
 
 

@@ -121,3 +121,5 @@ export async function fixture(page, locale, { delivery = false, confirmationEnab
   }
 }
 
+
+export const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
