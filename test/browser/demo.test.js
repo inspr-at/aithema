@@ -456,11 +456,11 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     assert.equal(await page.$eval('#consent-info', node => node.textContent), START_GERMAN_CONSENT.withdrawal);
     assert.equal(await page.$eval('#consent-title', node => node.textContent), de.host.processingTitle);
     for (const item of consent.items) {
-      const expected = item.id === 'drafts-anthropic' ? de.processingConsent.items[item.id] : START_GERMAN_CONSENT.items[item.id];
+      const expected = ['drafts-anthropic', 'image-input'].includes(item.id) ? de.processingConsent.items[item.id] : START_GERMAN_CONSENT.items[item.id];
       assert.equal(item.title, expected.title);
       assert.equal(item.text, `${expected.recipients} ${expected.text}`);
     }
-    assert.deepEqual(consent.items.map(item => [item.id, item.checked]), [['models-international', false], ['voice-elevenlabs', true], ['drafts-anthropic', false]]);
+    assert.deepEqual(consent.items.map(item => [item.id, item.checked]), [['models-international', false], ['image-input', false], ['voice-elevenlabs', true], ['drafts-anthropic', false]]);
     for (const english of [CONSENT_INTRO, CONSENT_WITHDRAWAL, ...CONSENT_ITEMS.flatMap(item => [item.title, item.recipients, item.text])]) {
       assert.equal(consent.visible.includes(english), false, english);
     }
@@ -1414,11 +1414,11 @@ test('document uploads: a text file and a PDF through the real file picker, pend
       return { label: a.querySelector('.attach__label').textContent, disabled: a.getAttribute('aria-disabled'), title: a.title,
         described: a.getAttribute('aria-describedby').split(' ').map(id => c.shadowRoot.getElementById(id).textContent) }; });
     // Its own description first, then the AI notice (AIT-119).
-    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads),
+    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'false', title: de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads),
       described: [de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads), `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
-    assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
+    assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.');
 
     await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
     await waitForShadow(page, 'aside .notice[data-current]'); await revealed(page);

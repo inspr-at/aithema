@@ -112,8 +112,13 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         .replaceAll('Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.', 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.')
         .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.");
       // Tick AIT-445 v1.1 supersedes the plain hyphen in DE catalog copy only.
-      const expectedHTML = locale === 'de' ? capturedHTML.replaceAll('E-Mail', 'E‑Mail') : capturedHTML;
-      assert.equal(mounted.html, expectedHTML, 'default composer DOM differs from captured main only by approved AIT-435 NBSP, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy');
+      const localizedHTML = locale === 'de' ? capturedHTML.replaceAll('E-Mail', 'E‑Mail') : capturedHTML;
+      // AIT-510 adds only the hidden image staging slot and picker extensions.
+      // The immutable capture and every independent geometry assertion stay.
+      const expectedHTML = localizedHTML
+        .replace('<form class="composer" aria-hidden="false">', '<form class="composer" aria-hidden="false"><div class="staged-images" hidden=""></div>')
+        .replace('accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml"', 'accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.png,.jpg,.jpeg,.webp,.gif"');
+      assert.equal(mounted.html, expectedHTML, 'default composer DOM differs from captured main only by approved AIT-435 NBSP, AIT-443 daily-cap, AIT-445 v1.1 E‑Mail copy and AIT-510 hidden image staging/picker extensions');
       assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
       assert.equal(mounted.scrollTop, 0, 'default mount ignores queued no-op viewport resize before fixture setup');
       // Keep main's explicit first-row setup and every existing assertion; the
