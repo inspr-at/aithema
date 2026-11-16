@@ -12,7 +12,7 @@ export function reserveCombinedComposer(root, copy, locale) {
   const key = JSON.stringify([copy.featureConsent, copy.failed, copy.failedShort, copy.shortcut, copy.shortcutKeys, copy.saved, statusMessages]);
   if (feedback.dataset.copy === key) return;
   feedback.dataset.copy = key;
-  const line = (words, className = '') => node('small', `composer-reserve-line ${className}`, words);
+  const line = (words, className = '') => node('small', `composer-reason composer-reserve-line ${className}`, words);
   const consent = (narrow) => {
     const row=line(`${copy.featureConsent[narrow ? 'textNarrow' : 'text']}${reasonSeparator}`, narrow ? 'composer-reserve-phone' : 'composer-reserve-wide');
     row.append(node('span', 'composer-reserve-action', copy.featureConsent[narrow ? 'actionNarrow' : 'action']));

@@ -28,3 +28,7 @@
 - AIT-524's separator is centred in its existing 18 px status-to-action gap;
   control coordinates and native hit regions are retained.
 - No new host option, event field or package export.
+
+- The combined phone offer refreshes the sticky-band inset before scrolling the
+  conversation pane to reveal the whole new offer (AIT-540 M6). Page scroll and
+  keyboard focus are retained; no new host setting or event is needed.

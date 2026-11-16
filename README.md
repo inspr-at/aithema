@@ -3941,6 +3941,9 @@ intrinsic height; only the message reserves its longest localized state.
 Dismiss uses the shared close icon. It remains usable during a live call and
 leaves the
 composer active on phones, without moving focus or opening the keyboard.
+The combined phone offer refreshes the sticky-band inset before scrolling the
+conversation pane to reveal the whole new offer (AIT-540 M6). Page scroll and
+keyboard focus are retained; no new host setting or event is needed.
 
 The existing `POST /api/sessions/:id/email-ask` route accepts
 `{ action: 'show' | 'dismiss', why: 'offer' }`. The server verifies the policy,

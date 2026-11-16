@@ -754,7 +754,7 @@ export class AithemaSession extends HTMLElement {
         <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer">${this.#combined ? combinedNoticeMarkup : ''}<label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
-            <span class="composer-feedback">${this.#combined ? '<span class="composer-feedback-reserve" aria-hidden="true" inert></span>' : ''}<span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span>${this.#combined ? '<span class="composer-status-slot"><small class="composer-status" id="composer-status" role="status"></small><span class="composer-status-reserve" aria-hidden="true"></span></span><button class="composer-mic" type="button" aria-describedby="composer-status composer-notice"></button>' : ''}<button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
+            <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small>${this.#combined ? '<span class="composer-feedback-reserve" aria-hidden="true" inert></span>' : ''}</span>${this.#combined ? '<span class="composer-status-slot"><small class="composer-status" id="composer-status" role="status"></small><span class="composer-status-reserve" aria-hidden="true"></span></span><button class="composer-mic" type="button" aria-describedby="composer-status composer-notice"></button>' : ''}<button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
@@ -1337,11 +1337,15 @@ export class AithemaSession extends HTMLElement {
     // Measure the visible card before finding the latest reply.
     this.#follow = true; this.#questionCard?.reserve();
     if (this.#longReply) return;
+    const offer = this.#combined && shell.querySelector('ol > .email-offer:last-child');
+    // A phone can return to page scroll zero before the voice band finishes
+    // fitting. Refresh its actual occlusion before revealing the whole offer;
+    // a stale inset otherwise wastes readable conversation space.
+    if (offer && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) this.#syncBandScroll();
     shell.scrollTop = shell.scrollHeight;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
     // leave them above the sticky header and make focus scroll the whole page.
-    const offer = this.#combined && shell.querySelector('ol > .email-offer:last-child');
     if (offer) {
       const pane = shell.getBoundingClientRect(), box = offer.getBoundingClientRect();
       const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
