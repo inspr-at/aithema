@@ -218,6 +218,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         await draft(page, 30); await settleEvidenceFrame(page);
         const capped = await capture(`${label}-capped`);
         assert.ok(capped.inputScroll > capped.inputClient, 'combined capped field scrolls internally');
+        assert.ok(capped.boxes['.composer'].height <= .4 * height + .5, 'combined composer respects visual viewport cap');
       }
     });
   }
@@ -282,6 +283,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         assert.equal(before.footerHidden, true); assert.equal(after.footerHidden, true, 'combined keyboard explicitly hides footer');
         assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'combined keyboard field grows');
         assert.ok(after.boxes.textarea.height <= 92.5, 'combined keyboard permits at most three lines');
+        assert.ok(after.boxes['.composer'].height <= .4 * 420 + .5, 'combined keyboard composer respects visual viewport cap');
         positive(after.boxes['.qcard'], 'combined keyboard card'); positive(after.boxes['.qopts'], 'combined keyboard options');
         assert.ok(after.boxes['.qopts'].height >= 44, 'combined keyboard keeps answer options reachable');
         assert.ok(after.boxes['.qcard'].bottom <= after.boxes['.composer'].top + .5, 'combined keyboard card clears input');
