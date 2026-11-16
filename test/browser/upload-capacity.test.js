@@ -490,6 +490,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
           return new Response(window.imageFixturePNG, { headers: { 'content-type': 'image/png' } }); }
         if (/\/turns$/u.test(String(url)) && options.method === 'POST') {
           const body = JSON.parse(options.body); window.imagePosts.push(body);
+          if (window.imageSendDelay) await window.imageSendDelay;
           return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments, at: new Date(0).toISOString() } });
         }
         return fetch(url, options);
@@ -520,6 +521,31 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       await page.waitForFunction(height => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace')
         .hasAttribute('data-phone-short') === (window.innerWidth <= 600 && height <= 620), {}, height);
     };
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+    const prefix = `${entrance === 'combined' ? 'combined-' : ''}${width}-${locale}-${theme}`;
+    if (evidence) await mkdir(evidence, { recursive: true });
+    const shot = async state => { if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `${prefix}-${state}.png`) }); };
+    const clearances = async state => {
+      if (entrance !== 'combined') return;
+      const layout = await inShadow(page, c => {
+        const selectors = ['textarea', '.composer-mic', '.send', '.composer-feedback', '.composer-notice', '.display-foot',
+          ...(c.shadowRoot.querySelector('.staged-image') ? ['.staged-images'] : []),
+          ...(c.shadowRoot.querySelector('.email-offer') ? ['.email-offer'] : [])];
+        return Object.fromEntries(selectors.map(selector => {
+          const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+          return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }];
+        }));
+      });
+      for (const [selector, r] of Object.entries(layout)) assert.ok(r.w > 0 && r.h > 0, `${state} ${selector} positive`);
+      const entries = Object.entries(layout);
+      for (let i = 0; i < entries.length; i++) for (let j = i + 1; j < entries.length; j++) {
+        const [a, ar] = entries[i], [b, br] = entries[j];
+        assert.ok(Math.min(ar.right, br.right) - Math.max(ar.x, br.x) <= .5 || Math.min(ar.bottom, br.bottom) - Math.max(ar.y, br.y) <= .5,
+          `${state}: ${a} and ${b} do not overlap`);
+      }
+      if (evidence) await writeFile(join(evidence, `${prefix}-${state}-clearance.json`), JSON.stringify(layout, null, 2));
+    };
+    await clearances('idle'); await shot('idle');
     const unstaged = await boxes();
     for (const r of Object.values(unstaged)) assert.ok(r.w > 0 && r.h > 0, 'positive frame before staging');
     await choose(); await waitForShadow(page, '.staged-image');
@@ -529,11 +555,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     for (const [selector, r] of Object.entries(before)) for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h'])
       assert.ok(Math.abs(r[edge] - unstaged[selector][edge]) <= .5, `${selector}.${edge} fixed while staging`);
     for (const [selector, r] of Object.entries(before)) assert.ok(r.w > 0 && r.h > 0, `${selector} positive before`);
-    const evidence = process.env.AITHEMA_EVIDENCE_DIR;
-    const prefix = `${entrance === 'combined' ? 'combined-' : ''}${width}-${locale}-${theme}`;
-    if (evidence) await mkdir(evidence, { recursive: true });
-    const shot = async state => { if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `${prefix}-${state}.png`) }); };
-    await shot('pending');
+    await clearances('pending'); await shot('pending');
     if (entrance === 'combined' && width === 390) for (const height of [620, 568]) {
       await resize(height);
       const shortBefore = await boxes();
@@ -556,7 +578,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
         const [a, ar] = list[i], [b, br] = list[j];
         assert.ok(Math.min(ar.right, br.right) - Math.max(ar.x, br.x) <= .5 || Math.min(ar.bottom, br.bottom) - Math.max(ar.y, br.y) <= .5, `${a} and ${b} do not overlap at ${height}`);
       }
-      changes.push({ reason: `short-${height}`, before: shortBefore, rects: shortAfter, controls }); await shot(`short-${height}`);
+      changes.push({ reason: `short-${height}`, before: shortBefore, rects: shortAfter, controls }); await clearances(`short-${height}`); await shot(`short-${height}`);
       await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
         c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-pending', reason: undefined } });
         c.shadowRoot.querySelector('.image-refusals button').click();
@@ -582,7 +604,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       c.shadowRoot.querySelector('.image-refusals button')?.click();
     });
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-image .image-thumbnail')?.naturalWidth === 1);
-    await shot('ready');
+    await clearances('ready'); await shot('ready');
     if (width === 390) {
       await resize(530);
       await inShadow(page, c => c.shadowRoot.querySelector('textarea').focus());
@@ -603,8 +625,20 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     }
     assert.deepEqual(await page.evaluate(() => window.imageAsks), [], 'both image purposes granted at start: no ask');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason .consent-action') === null), true, 'no consent line');
-    await inShadow(page, c => c.shadowRoot.querySelector('.send').click());
+    // A real document-type refusal must survive image send (AIT-280 / AIT-510).
+    await inShadow(page, c => {
+      const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.unknown', { type: 'application/octet-stream' }));
+      c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
+    });
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('fixture.unknown'));
+    const documentNotice = await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
+    await inShadow(page, c => {
+      window.imageSendDelay = new Promise(resolve => { window.releaseImageSend = resolve; });
+      c.shadowRoot.querySelector('.send').click();
+    });
     await page.waitForFunction(() => window.imagePosts.length === 1);
+    await clearances('sending'); await shot('sending');
+    await page.evaluate(() => { window.releaseImageSend(); window.imageSendDelay = null; });
     const post = await page.evaluate(() => window.imagePosts[0]); assert.equal(post.content, ''); assert.equal(post.attachments.length, 1);
     await inShadow(page, async c => {
       const { inputRevision } = await import('/packages/core/src/session.js');
@@ -613,6 +647,8 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     });
     await waitForShadow(page, '.turn .image-thumbnail');
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.turn .image-thumbnail')?.naturalWidth === 1);
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), documentNotice, 'document notice survives image send');
+    await clearances('sent-document-notice'); await shot('sent-document-notice');
     await shot('sent');
     const tileBefore = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
     assert.ok(tileBefore.w > 0 && tileBefore.h > 0);
@@ -641,6 +677,15 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - before[selector][edge]) <= .5, `${selector}.${edge} fixed while withheld`);
     }
     changes.push({ reason: 'withheld', rects: withheld });
+    await inShadow(page, c => {
+      const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.heic', { type: 'image/heic' }));
+      c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
+    });
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.image-refusals')?.textContent.includes('fixture.heic'));
+    assert.equal(await page.evaluate(() => window.imageSeq), 1, 'HEIC is refused before upload');
+    await clearances('heic'); await shot('heic');
+    await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals button').click());
+
     await inShadow(page, async c => {
       window.imageGranted = false; window.imageFixtureConsent = true; window.imageAsks = [];
       const session = c.session; session.featureMatrix.best.imageInput = { available: false, reason: 'current processing consent required' };
