@@ -211,3 +211,30 @@ for (const [reason, key, state] of [
   assert.notEqual(label(rail), en.voiceConnectionFailed);
   if (key === 'voiceAdmissionDenied') { assert.equal(rail.errorReason, reason); assert.equal(label(rail), en.reasons[reason]); }
 });
+
+for (const copy of [en, de]) test(`AIT-508: idle end keeps Start and text continuation usable (${copy === en ? 'EN' : 'DE'})`, async t => {
+  let starts = 0, resumed;
+  const f = fixture(t, { copy, start() { return !starts++ ? f.session
+    : { ...f.session, callId: 'next-call', providerSessionId: 'next-segment', events: resumed = voiceEvents() }; } });
+  t.after(() => resumed?.end());
+  const { rail, events } = f; await rail.start();
+  events.push({ type: 'ended', callId: 'call', reason: 'idle' }); await flush();
+  assert.equal(rail.errorKey, 'voiceIdleEnded'); assert.equal(rail.conversationTimeExpired, false);
+  assert.equal(rail.button('start').disabled, false); assert.equal(label(rail), copy.voiceIdleEnded);
+  assert.equal(copy.voiceIdleEnded, copy === en
+    ? 'The call ended after a period of silence. Start a new call or continue typing.'
+    : 'Der Anruf wurde nach längerer Stille beendet. Starten Sie einen neuen Anruf oder schreiben Sie weiter.');
+  await rail.start(); assert.equal(rail.state, 'listening');
+});
+
+for (const mode of ['legacy', 'missing', 'explicit']) test(`AIT-508: ${mode} host idle copy overrides keep precedence`, async t => {
+  const copy = structuredClone(en);
+  copy.voiceEnded = 'Host ended'; copy.voiceMessagesNarrow.voiceEnded = 'Host ended narrow';
+  if (mode === 'missing') { delete copy.voiceIdleEnded; delete copy.voiceMessagesNarrow.voiceIdleEnded; }
+  if (mode === 'explicit') { copy.voiceIdleEnded = 'Host idle'; copy.voiceMessagesNarrow.voiceIdleEnded = 'Host idle narrow'; }
+  const { rail, events } = fixture(t, { copy }); await rail.start();
+  events.push({ type: 'ended', callId: 'call', reason: 'idle' }); await flush();
+  assert.equal(label(rail), mode === 'explicit' ? 'Host idle' : 'Host ended');
+  assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, mode === 'explicit' ? 'Host idle narrow' : 'Host ended narrow');
+  assert.equal(rail.button('retry').disabled, false);
+});

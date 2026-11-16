@@ -66,14 +66,18 @@ export const hostStyles = `
 .verify-dialog .verify__primary > * { justify-self:start; }
 /* Pending has no Cancel action; its hidden reservation must not add a row above the message. */
 .verify-dialog .verify-form[data-mode=pending] .verify-cancel { display:none; }
+.verify-dialog[data-email-offer] .verify-cancel[inert] { display:none; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
-.verify-dialog .verify-form[data-mode=pending] { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
-.verify-dialog .verify-form[data-mode=pending] > .verify__lead { grid-area:lead; }
-.verify-dialog .verify-form[data-mode=pending] > .verify__field { grid-area:field; }
-.verify-dialog .verify-form[data-mode=pending] > .verify__actions { grid-area:actions; }
-.verify-dialog .verify-form[data-mode=pending] > .verify__message { grid-area:message; }
-.verify-dialog .verify-form[data-mode=pending] > .verify__note { grid-area:note; }
-.verify-dialog .verify-form[data-mode=pending] > .m-notice { grid-area:privacy; }
+/* Keep the localized hint slot when capture changes to pending. */
+.verify-dialog[data-email-offer] .verify__note { min-height:2lh; }
+/* Opted-in capture uses the pending layout before acknowledgement as well. */
+:is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
+:is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) > .verify__lead { grid-area:lead; }
+:is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) > .verify__field { grid-area:field; }
+:is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) > .verify__actions { grid-area:actions; }
+:is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) > .verify__message { grid-area:message; }
+:is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) > .verify__note { grid-area:note; }
+:is(.verify-dialog[data-email-offer] .verify-form, .verify-dialog .verify-form[data-mode=pending]) > .m-notice { grid-area:privacy; }
 .analysis-content .verify__message, .verify__message { margin:0; min-height:2.6em; font-size:.8rem; line-height:1.3; }
 .verify__message[data-error="true"] { color:var(--aithema-ink); }
 .analysis-content .verify__note, .verify__note { margin:0; min-height:1.3em; font-size:.75rem; line-height:1.3; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }
@@ -259,6 +263,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits[data-session-credits] .host-credits__equivalence { grid-area:6/1; }
 .credits-check { display:grid; flex:none; } .credits-check svg { width:14px; height:14px; }
 .credits-email { display:inline-flex; align-items:center; min-height:28px; position:relative; font-weight:600; color:var(--aithema-paper); text-decoration:underline; text-underline-offset:3px; }
+/* Keep the deferred email action in its existing popup slot. */
+.credits-email[data-capture-deferred] { display:inline-flex !important; visibility:hidden; pointer-events:none; }
 .credits-email::after { content:""; position:absolute; inset:-8px -4px; }
 .credits-email:focus-visible { outline-color:var(--aithema-paper); }
 .host-credits__equivalence { font-size:11.5px; opacity:.7; }

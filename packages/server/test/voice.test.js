@@ -3755,3 +3755,108 @@ test('AIT-502 v2.2: resumed waiting-call bound refusal carries additive reason a
 test('AIT-502 v2.2: start receipt identifies the optional bound', async t => {
   const h = voiceFixture(t); assert.equal((await h.start()).timeLimit, 'call');
 });
+
+
+test('AIT-508: a fresh call waits for the prior session call to reconcile despite spare credits and duration', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 }, slowClosure: true, cap: { capMilliseconds: 600_000 },
+    host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
+  t.mock.method(Date, 'now', h.now);
+  const first = await h.start(); h.advance(2000);
+  const closing = h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  await h.waitForClosure(first.providerSessionId);
+  const credentials = h.traffic.filter(url => url.includes('/token?')).length;
+  const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+  const denied = await h.route('/voice', { callId: 'next-call' });
+  assert.equal(denied.status, 403); assert.equal((await denied.json()).reason, 'budget reconciling');
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, credentials);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+  assert.equal((await h.runtime.matrix(h.storage.get(h.session.id))).best.voice.reason, 'budget reconciling');
+  h.endClient(first.providerSessionId); await closing; await h.handlers.idle();
+  const settled = h.storage.voiceCalls(h.session.id)[0].terminal;
+  assert.equal(settled.closureConfirmed, true); assert.equal(settled.usage.costEstimated, false);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+  const next = await h.start('settled-next'); assert.notEqual(next.callId, first.callId);
+});
+
+test('AIT-508: a fresh bounded call after an empty ended call uses continuation presentation', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const phrases = { de: { opening: 'Hallo, hier ist eine KI-Assistenz.', continuation: 'Ihre KI-Assistenz setzt das Gespräch fort.' },
+    en: { opening: 'Hello, this is an AI assistant.', continuation: 'Your AI assistant is ready to continue.' } };
+  const presentations = [], h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 },
+    host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }),
+    voiceOptions: { presentation(locale, options) {
+      presentations.push(options); return { agent: { language: locale, firstMessage: phrases[locale][options.hasPriorTurns ? 'continuation' : 'opening'] } };
+    } },
+  });
+  t.mock.method(Date, 'now', h.now);
+  const first = await h.start(); assert.equal(first.conversationLimit, 'credits');
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'idle' }); await h.handlers.idle();
+  assert.equal(h.storage.get(h.session.id).transcript.length, 0);
+  const next = await h.start('next-empty-call');
+  assert.notEqual(first.callId, next.callId); assert.equal(presentations[0].hasPriorTurns, false);
+  assert.equal(presentations.at(-1).hasPriorTurns, true); assert.equal(presentations.at(-1).hasPriorCalls, true);
+  assert.equal(next.presentation, 'continuation');
+  assert.equal(next.overrides.agent.firstMessage, next.overrides.agent.language === 'de' ? 'Ihre KI-Assistenz setzt das Gespräch fort.' : 'Your AI assistant is ready to continue.');
+});
+
+for (const conversationLimit of ['time', 'credits']) test(`AIT-508: host idle configuration reaches only ${conversationLimit} policy call options`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 }, host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit, voiceIdleSeconds: 60 }) });
+  t.mock.method(Date, 'now', h.now);
+  const start = h.plugin.start.bind(h.plugin); let admitted;
+  h.plugin.start = (request, options) => { admitted = options; return start(request, options); };
+  const call = await h.start();
+  if (conversationLimit === 'credits') {
+    assert.equal(admitted.conversationLimit, 'credits'); assert.equal(admitted.voiceIdleSeconds, 60);
+    assert.equal(call.conversationLimit, 'credits');
+  } else {
+    assert.equal(Object.hasOwn(admitted, 'conversationLimit'), false); assert.equal(Object.hasOwn(admitted, 'voiceIdleSeconds'), false);
+    assert.equal(Object.hasOwn(call, 'conversationLimit'), false);
+  }
+});
+
+for (const action of ['resume', 'takeover', 'replay']) test(`AIT-508 B5: current call snapshot permits ${action} without admitting a fresh call`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const h = voiceFixture(t, { durationBinding: { usdPerCredit: 0.000001 },
+    host: args => ({ ...createDemoHost({ ...args, ownerGuard: false }), conversationLimit: 'credits' }) });
+  t.mock.method(Date, 'now', h.now);
+  const response = await h.route('/voice', { callId: 'held-call', tabId: 'first-tab' });
+  assert.equal(response.status, 201); const first = await response.json();
+  const identity = { providerSessionId: first.providerSessionId, epoch: first.epoch, tabId: 'first-tab' };
+  if (action !== 'replay') {
+    h.storage.transitionVoiceLifecycle(h.session.id, first.callId, { type: 'lease-expired' });
+    assert.equal(h.storage.voiceLifecycle(h.session.id).state, 'waiting');
+  }
+  const verdict = (await h.runtime.matrix(h.storage.get(h.session.id))).best.voice;
+  const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+  const rail = new AudioRail({ root, copy: en, feature: () => verdict, context: () => ({}),
+    waitingCall: action === 'replay' ? undefined : h.storage.voiceLifecycle(h.session.id),
+    client: { tabId: action === 'takeover' ? 'second-tab' : 'first-tab' },
+    lastReply: () => ({ turnId: 'latest-reply', text: 'The latest answer.' }) });
+  t.after(async () => { rail.session = null; rail.destroy(); await window.happyDOM.close(); });
+  if (action === 'replay') {
+    rail.session = { callId: first.callId, replayLastReply: async () => ({ kind: 'text', text: 'The latest answer.' }) };
+    rail.state = 'listening'; rail.render();
+    assert.equal(verdict.available, true, `live voice verdict: ${verdict.reason}`);
+    assert.equal(rail.notices.audioAvailable(), true, 'a refreshed live verdict retains native last-reply audio');
+    assert.deepEqual(await rail.notices.replay(), { kind: 'text', text: 'The latest answer.' });
+  } else {
+    rail.render();
+    assert.equal(root.querySelector('.voice-pause').disabled, false, `held voice verdict: ${verdict.reason}`);
+    assert.notEqual(verdict.reason, 'budget reconciling');
+    let current = identity;
+    if (action === 'takeover') {
+      const takeover = await h.route(`/voice/${first.callId}/takeover`, { ...identity, tabId: 'second-tab', explicit: true });
+      assert.equal(takeover.status, 200); const held = await takeover.json();
+      current = { providerSessionId: held.providerSessionId, epoch: held.epoch, tabId: 'second-tab' };
+    }
+    const recovered = await h.route(`/voice/${first.callId}/recover`, { ...current, explicit: true });
+    assert.equal(recovered.status, 200); const next = await recovered.json();
+    assert.equal((await h.route(`/voice/${first.callId}/resume`, { ...current, providerSessionId: next.providerSessionId })).status, 200);
+    assert.equal(h.storage.voiceLifecycle(h.session.id).state, 'active');
+  }
+  const credentials = h.provisioned.length;
+  assert.equal((await h.route('/voice', { callId: 'different-call', tabId: 'second-tab' })).status, 409);
+  assert.equal(h.provisioned.length, credentials, 'snapshot permission cannot mint a fresh logical call');
+});

@@ -720,3 +720,33 @@ test('AIT-411 defaults: a saved low-credit ask still restores after the balance 
   await tick(12);
   assert.equal(root.querySelector('.email-ask').getAttribute('aria-hidden'), 'false', 'the default keeps the prior saved-ask restoration policy');
 });
+
+test('AIT-508 B5: a settled ledger receipt refreshes a voice-only reconciling verdict after call end', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(); let settled = false, closing = false, callId;
+  const matrix = () => ({ best: { text: { available: true }, analysis: { available: true },
+    voice: closing && !settled ? { available: false, reason: 'budget reconciling' } : { available: true } } });
+  const f = setup(t, { host: { credits: true }, session: { featureMatrix: matrix() }, voiceClient: {
+    async start(request) { callId = request.callId; return { callId, providerSessionId: 'settling-provider', events,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { closing = true; events.end(); return { closureConfirmed: false }; } }; },
+  }, routes: {
+    'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: closing && !settled, limitSlot: null }),
+    'GET ': () => Response.json({ ...f.c.session, featureMatrix: matrix() }),
+  } });
+  await tick(8); f.root.querySelector('.voice-start').click(); await tick(8);
+  assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
+  f.root.querySelector('.voice-close').click(); await tick(12);
+  f.c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'settling-provider', state: 'ended', reason: 'idle' } });
+  t.mock.timers.tick(301); await tick(12);
+  assert.equal(f.c.session.featureMatrix.best.voice.reason, 'budget reconciling');
+  assert.equal(f.root.querySelector('.voice-start').disabled, true);
+  const before = f.calls.filter(call => call.path === '').length;
+  settled = true;
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  t.mock.timers.tick(301); await tick(16);
+  assert.ok(f.calls.filter(call => call.path === '').length > before, 'confirmed settlement re-reads availability without a tier change');
+  assert.equal(f.c.session.featureMatrix.best.voice.available, true);
+  assert.equal(f.root.querySelector('.voice-start').disabled, false);
+});

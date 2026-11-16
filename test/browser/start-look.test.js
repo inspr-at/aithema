@@ -331,3 +331,6 @@ test('AIT-307: readiness reserves only the input slot without voice; no empty ca
     if (evidence) await writeFile(join(evidence, 'ait307-ready-checks.json'), JSON.stringify({ head: event?.pull_request?.head?.sha ?? evidenceCommit, testedCommit: evidenceCommit,
       capture: 'viewport', reducedMotion: true, blurredControls: true, pinnedFontStack: true, passLines, checks }, null, 2));
   });
+
+import { combinedOpenerCheck } from './combined-entrance-check.js';
+test('AIT-506: shared opener and short-phone states stay visible and stable', { timeout:180_000 }, combinedOpenerCheck);
