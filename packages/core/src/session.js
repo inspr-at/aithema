@@ -116,6 +116,9 @@ export function applyEvent(session, event) {
   } else if (event.type === 'session.locale-changed') {
     if (!['en', 'de'].includes(event.data.locale)) throw new TypeError('Unsupported locale');
     next.locale = event.data.locale;
+    if (Object.hasOwn(event.data, 'opener')) {
+      if (event.data.opener) next.opener = event.data.opener; else delete next.opener;
+    }
     next.sessionRevision += 1;
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
   } else if (event.type === 'session.paused') {
@@ -137,7 +140,7 @@ export function applyEvent(session, event) {
   } else if (event.type === 'library.state') {
     next.library = event.data.erased ? null : event.data;
   } else if (['verification.requested', 'identity.unlocked', 'identity.policy-changed', 'identity.resend-blocked', 'handover.limit-reached',
-    'credits.limit-reached', 'conversation.end-requested'].includes(event.type)) {
+    'credits.guard-migrated', 'credits.limit-reached', 'conversation.end-requested'].includes(event.type)) {
     // Notifications accompany their durable state projection.
   } else if (event.type === 'settings.changed') {
     // A processing choice is metadata: completed replies and understanding stay

@@ -1,3 +1,5 @@
+import { EmailOffer } from './email-offer.js';
+import { hasVisitorInput } from '../../core/src/document-context.js';
 import { de } from './i18n/de.js';
 import { en } from './i18n/en.js';
 import { ActorRole } from './actor-role.js';
@@ -6,7 +8,7 @@ import { reasonSeparator } from './consent-line.js';
 // credits, the host's account slot), the verification entry in Settings, the verification lock on the
 // understanding pane, the handover band and the host's legal and footer slots. Each part
 // appears only when the host enables it in configure({host}); all facts come from the server.
-import { inputRevision, activeTurns } from '../../core/src/session.js';
+import { inputRevision } from '../../core/src/session.js';
 import { postJson, sameOrigin } from './post-json.js';
 import { node, setText, fill } from './dom.js';
 import { Verification } from './verification.js';
@@ -24,7 +26,7 @@ export class HostSurface {
   #limitGeneration = 0;
   #credits = null; #creditsFailed = false; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
   #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
-  #emailAsk = null; #actorRole = null; #initialCreditScope;
+  #emailAsk = null; #emailOffer = null; #actorRole = null; #initialCreditScope;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
@@ -61,6 +63,10 @@ export class HostSurface {
     if (o.credits && this.#verification) this.#emailAsk = new EmailAsk({ root, copy, verification: this.#verification, lowCredits: o.emailAsk?.lowCredits !== false,
       request: (path, body) => this.#call(this.#sessionPath(path), body), session, streaming,
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
+    if (this.#session().emailOffer && this.#verification) this.#emailOffer = new EmailOffer({ root, copy, verification: this.#verification,
+      session, streaming, request: (path, body) => this.#call(this.#sessionPath(path), body), changed: () => this.#onCredits?.() });
+    root.querySelector('dialog.verify-dialog').toggleAttribute('data-email-offer', Boolean(this.#emailOffer));
+    this.#verification?.setCaptureDeferred(this.#captureDeferred());
     this.#mountHandover(); this.#mountFoot();
     if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole,
       session: () => this.#erased ? { ...session(), processingPreset: this.#erased.processingPreset } : session(),
@@ -76,7 +82,7 @@ export class HostSurface {
     root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
     this.#menu?.setCopy(copy);
     if (!this.#erased) this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
-    if (!this.#erased) this.#emailAsk?.setCopy(copy); this.#actorRole?.setCopy(copy);
+    if (!this.#erased) { this.#emailAsk?.setCopy(copy); this.#emailOffer?.setCopy(copy); } this.#actorRole?.setCopy(copy);
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
     root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));
@@ -87,6 +93,7 @@ export class HostSurface {
   get creditScope() { return this.#credits ? this.#credits.scope ?? null : this.#initialCreditScope; }
   get tiers() { return this.#credits?.tiers ?? null; }
   get low() { return !this.usedUp && lowCredit(this.#credits); }
+  get emailOffer() { return this.#emailOffer; }
   get emailAsk() { return this.#emailAsk; }
   get endReason() {
     if (this.#erased) return this.#erased.endReason;
@@ -156,11 +163,11 @@ export class HostSurface {
     this.#menu?.connect();
     if (this.#erased) return;
     this.#connected = true;
-    this.#emailAsk?.connect();
+    this.#emailAsk?.connect(); this.#emailOffer?.connect();
     void this.#actorRole?.load();
     void this.#verification?.load(); this.#verification?.connect();
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
-    if (this.#options.credits) {
+    if (this.#options.credits || this.#emailOffer) {
       void this.#loadCredits(); clearInterval(this.#creditsPoll);
       this.#creditsPoll = setInterval(() => {
         const rail = this.#root.querySelector('.audio-rail'), running = rail?.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state);
@@ -174,7 +181,7 @@ export class HostSurface {
     this.#erased = { id, usedUp: this.usedUp, endReason: this.endReason, processingPreset: this.#session().processingPreset };
     clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
     clearInterval(this.#creditsPoll); this.#creditsPoll = null; this.#creditsLoad++;
-    this.#verification?.disconnect(); this.#emailAsk?.disconnect();
+    this.#verification?.disconnect(); this.#emailAsk?.disconnect(); this.#emailOffer?.disconnect();
   }
   async newAfterErased() {
     const response = await this.#call('/api/library', { locale: this.#options.locale?.() ?? this.#session().locale ?? 'en' });
@@ -182,11 +189,11 @@ export class HostSurface {
   }
   disconnect() {
     this.#connected = false; this.#verification?.disconnect();
-    this.#emailAsk?.disconnect();
+    this.#emailAsk?.disconnect(); this.#emailOffer?.disconnect();
     this.#menu?.disconnect();
     clearTimeout(this.#creditsTimer); this.#creditsTimer = null; clearInterval(this.#creditsPoll); this.#creditsPoll = null;
   }
-  destroy() { this.#alive = false; this.disconnect(); this.#emailAsk?.destroy(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); this.#actorRole?.destroy(); }
+  destroy() { this.#alive = false; this.disconnect(); this.#emailAsk?.destroy(); this.#emailOffer?.destroy(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); this.#actorRole?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
   receive(event) {
     if (event.type === 'session.erased') { this.erased(this.#session().id); return; }
@@ -228,8 +235,9 @@ export class HostSurface {
     this.#refreshCredits(); this.update();
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
-  updateStreaming() { if (this.#erased) return; this.#verification?.update(); }
-  update() { if (this.#erased) return; this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
+  #captureDeferred() { return Boolean(this.#session().emailOffer && !this.usedUp && !hasVisitorInput(this.#session())); }
+  updateStreaming() { if (this.#erased) return; this.#verification?.setCaptureDeferred(this.#captureDeferred()); this.#verification?.update(); }
+  update() { if (this.#erased) return; this.updateStreaming(); this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); this.#emailOffer?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
   async #call(path, body, verb = 'POST') {
@@ -271,7 +279,7 @@ export class HostSurface {
   }
   #handoverState() {
     const h = this.#copy.hostSurface.handover, session = this.#session(), view = this.#handover, revision = inputRevision(session);
-    const hasInput = activeTurns(session).some(turn => turn.role === 'user') || (session.uploads ?? []).some(u => u.state === 'accepted');
+    const hasInput = hasVisitorInput(session);
     if (this.#requesting || view?.status === 'preparing') return { label: view?.status === 'failed' ? h.retry : h.request, text: h.preparing, disabled: true };
     if (this.#limit === revision) return { label: h.request, text: h.limit, disabled: true };
     if (view?.status === 'failed') return { label: h.retry, text: h.failed, disabled: false, retry: true };
@@ -306,7 +314,7 @@ export class HostSurface {
   }
   // Credits project the allowance selected by the host for this conversation. Reads never start a time slot.
   #refreshCredits() {
-    if (this.#erased || !this.#options.credits || !this.#connected) return;
+    if (this.#erased || (!this.#options.credits && !this.#emailOffer) || !this.#connected) return;
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
   }
   async #loadCredits() {
@@ -338,7 +346,7 @@ export class HostSurface {
       if (currentLimit && recovered && (this.#ended === 'host-limit' || this.#ended === 'session' && allowanceRaised && slot?.status === 'active')) this.#ended = null;
       if (currentLimit && ['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = this.#ended === 'session' && slot.endReason === 'host-limit' ? 'session' : slot.endReason ?? this.#ended ?? 'session';
       this.#verification?.setCredits(this.#credits); this.#paintCredits();
-      this.#emailAsk?.setCredits(this.#credits);
+      this.#emailAsk?.setCredits(this.#credits); this.#emailOffer?.setCredits(this.#credits);
       await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
     } catch {
       // Keep acknowledged tiers; only an unresolved lead needs a failure status.
@@ -349,6 +357,7 @@ export class HostSurface {
     finally { this.#creditsReads--; }
   }
   #paintCredits() {
+    this.#verification?.setCaptureDeferred(this.#captureDeferred());
     const line = this.#root.querySelector('.host-credits'); line.hidden = !this.#options.credits;
     if (!this.#options.credits) return;
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
@@ -424,7 +433,9 @@ export class HostSurface {
     const hasOfferCopy = Object.hasOwn(c, 'afterConfirm') && c !== de.hostSurface.credits && c !== en.hostSurface.credits;
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
     setText(nextLine, next ? tierText(fill(c[next === 'emailGiven' ? 'withEmail' : scoped && tiers.current === 'anonymous' && !hasOfferCopy ? 'withConfirmed' : Object.hasOwn(c, 'afterConfirm') ? 'afterConfirm' : 'withConfirmed'], { tier: format(tiers.allowancesMicro?.[next], locale), n: format(tiers.allowancesMicro?.[next], locale) })) : !capped && out && (scoped || this.limitCopy.footer !== false) ? c.noMore : '');
-    nextLine.hidden = capped || !next && (!out || !scoped && this.limitCopy.footer === false); link.hidden = !next;
+    const captureDeferred = this.#captureDeferred() && !this.#verification?.email.address;
+    nextLine.hidden = capped || !next && (!out || !scoped && this.limitCopy.footer === false); link.hidden = !next || captureDeferred;
+    link.toggleAttribute('data-capture-deferred', Boolean(next && captureDeferred));
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
     // Reserve the track without overriding narrow/legal-host display rules.
     track.hidden = false; track.style.visibility = owner ? '' : 'hidden';

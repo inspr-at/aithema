@@ -35,5 +35,21 @@
         ]
       }
     ]
+  },
+  "diagnostic": {
+    "seconds": 205,
+    "evidence": "AIT-506 visual workload redistribution after AIT-505 integration. Remote Linux wrapper run ait-8ad0d13e381d4f4caa5bb6e7, SHA cdb7b3cb626b085c78adfd396d9e1080a0115af2: complete start-journey passed 29/29, whole-file duration 163.865562696s. Apply ceil(file seconds * 1.25) = 205s. The short-phone matrix moved from start-journey into existing start-look with every assertion retained. Trusted rolling-main timing values and all capacity limits remain unchanged.",
+    "runId": "ait-8ad0d13e381d4f4caa5bb6e7",
+    "attempt": 1,
+    "sha": "cdb7b3cb626b085c78adfd396d9e1080a0115af2",
+    "workload": "a9b7a2050194c312a97dccab95c0a3fdd7d73cfa9d2f6d6cd12cc143d9aa059f",
+    "previousWorkload": {
+      "seconds": 245,
+      "evidence": "AIT-506/AIT-505 integrated entrance workload. Remote Linux wrapper run ait-565db5af12bc415f9e956e49 at c5ca38826a075fc82b110322ae76f30c211bb209, complete start-journey 50/50 tests and targeted set312/312 PASS. Whole file195.957015649s from unit-timings/timings.jsonl; ceil(file seconds *1.25) =245s. Retains the prior180s diagnostic floor. Remote timing is excluded from trusted rolling-main samples; existing timing history and seconds are unchanged.",
+      "runId": "ait-565db5af12bc415f9e956e49",
+      "attempt": 1,
+      "sha": "c5ca38826a075fc82b110322ae76f30c211bb209",
+      "workload": "a848c577132636229c343558b5c17ea8261ba8d9a033b19c27ff7fcb380dfd7a"
+    }
   }
 }

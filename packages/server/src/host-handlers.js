@@ -1,3 +1,4 @@
+import { emailOfferPolicy, emailOfferEligibility, visitorMessageCount } from '../../core/src/email-offer.js';
 import { ACTOR_ROLES, createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
   assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
   operationScope, untilCancelled, activeTurns } from '@inspr/aithema-core';
@@ -37,6 +38,7 @@ export class PrivacyDocumentRequiredError extends Error {
  * All asynchronous replies recheck ownership before publication. */
 export function createHostHandlers({ storage, host, ownership, readBody, publish, snapshot, createConversation,
   eraseConversation, unlocked, budget, conversationLimits, now = () => Date.now(), signal, deadlineMs = 30_000, log }) {
+  emailOfferPolicy(host?.emailOffer);
   if (host?.policy?.verificationRequired === true && (host.identity?.deliversVerification !== true ||
       typeof host.identity.requestVerification !== 'function' || typeof host.identity.verify !== 'function')) {
     throw new TypeError('Verification lock requires a delivering identity port');
@@ -204,9 +206,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const voiceRate = host.visitorMicroPerMinute?.(storage.get(id)) ?? 0;
     const largestTier = Math.max(balance.owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger));
     const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
+      ...(host.emailOffer ? { emailOffer: storage.hostState(id)?.emailOffer ?? {} } : {}),
       emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
       lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() };
-    const state = storage.creditState(id) ?? createCredits({ sessionId: id, ...host.credits });
+    const state = storage.creditState(id) ?? createCredits({ sessionId: id, ...host.credits, conversationLimit: host.conversationLimit });
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
@@ -382,14 +385,44 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
         const options = await body(request, ['action', 'why']);
         if (!['show', 'line', 'fold', 'dismiss', 'rearm'].includes(options.action) ||
-          options.action === 'show' && !['turn5', 'low'].includes(options.why)) throw new TypeError('Invalid email ask');
+          options.action === 'show' && !['turn5', 'low', 'offer'].includes(options.why)) throw new TypeError('Invalid email ask');
+        if (options.why === 'offer') {
+          if (!['show', 'dismiss'].includes(options.action)) throw new TypeError('Invalid email offer');
+          const result = storage.transitionHost(id, state => {
+            const offer = { ...state.emailOffer }, policy = emailOfferPolicy(host.emailOffer);
+            let accepted = false;
+            if (policy && options.action === 'dismiss' && offer.offered) {
+              Object.assign(offer, { open: false, dismissed: true }); accepted = true;
+            }
+            if (policy && options.action === 'show' && !offer.offered && typeof host.wallet === 'function' && host.identity?.deliversVerification === true) {
+              const session = storage.get(id), turns = activeTurns(session), credits = creditResult(id, ownerToken);
+              const identity = identityResult(id, {}, ownerToken).identity;
+              const lock = identity.verificationRequired === true && identity.assessmentUnlocked !== true;
+              const delivery = host.identity?.deliversVerification === true &&
+                (host.demo === true && identity.verificationRequired === true || credits.tiers?.canConfirm !== false);
+              const eligibility = emailOfferEligibility({ privacyCapability: host.demo === true || privacyDocumentConfigured(host),
+                delivery, lock, tiers: credits.tiers, scope: credits.scope, canConfirm: host.demo === true || credits.tiers?.canConfirm === true });
+              if (!credits.exhausted && !credits.dailyCapReached && eligibility.eligible &&
+                  visitorMessageCount(session) >= policy.afterMessages && turns.at(-1)?.role === 'assistant' &&
+                  host.claimEmailAsk?.(ownerToken) === true) {
+                Object.assign(offer, { offered: true, open: true, dismissed: false, at: turns.at(-1).id,
+                  nextTier: eligibility.nextTier, deltaMicro: eligibility.delta }); accepted = true;
+              }
+            }
+            if (accepted) offer.revision = (offer.revision ?? 0) + 1;
+            return { state: { ...state, ...(accepted ? { emailOffer: offer } : {}) }, accepted, emailOffer: offer };
+          }, { ownerToken });
+          return json({ accepted: result.accepted, emailOffer: result.emailOffer,
+            emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0, nowMs: now() });
+        }
         const result = storage.transitionHost(id, state => {
           const emailAsk = { ...state.emailAsk }, credits = creditResult(id, ownerToken), turns = activeTurns(storage.get(id));
           const count = turns.filter(turn => turn.role === 'user').length;
           const low = !credits.exhausted && credits.balance.owner.availableMicro > 0 && credits.balance.owner.availableMicro <= credits.lowAtMicro;
           const eligible = !(host.emailAsk?.lowCredits === false && low) && !credits.exhausted && credits.tiers?.next === 'emailGiven' && credits.tiers.delta > 0 &&
             (host.demo === true || privacyDocumentConfigured(host)) && !host.visitor?.(ownerToken)?.address;
-          const settled = turns.at(-1)?.role === 'assistant';
+          const settled = turns.at(-1)?.role === 'assistant' &&
+            turns.at(-1).id !== 'host:opener' && turns.at(-1).origin !== 'host';
           let accepted = false;
           // Read-only credit projections never change the latch. The client
           // acknowledges a rise here; request bodies cannot supply a balance.
@@ -397,7 +430,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             accepted = host.rearmLowEmailAsk?.(ownerToken) === true;
           }
           if (options.action === 'show' && eligible && settled && (!emailAsk.open || options.why === 'low') &&
-            (options.why === 'low' ? host.emailAsk?.lowCredits !== false && low && host.claimLowEmailAsk?.(ownerToken) : count >= 5 && host.claimEmailAsk?.(ownerToken))) {
+            (options.why === 'low' ? host.emailAsk?.lowCredits !== false && low && host.claimLowEmailAsk?.(ownerToken) : !host.emailOffer && count >= 5 && host.claimEmailAsk?.(ownerToken))) {
             Object.assign(emailAsk, { open: true, why: options.why, openedAt: count, folded: false,
               ...(options.why === 'turn5' ? { shown5: true } : {}) }); accepted = true;
           }
