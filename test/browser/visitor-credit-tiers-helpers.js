@@ -1184,7 +1184,16 @@ export async function replyRowsMatrix(t) {
       assert.ok(capture.rows.every(row => row.visible && row.height === 44), 'all three complete control rows clear the band, transcript clip and dock');
       captures.push({ name: '390-light-de-three-replies-mid-call', ...capture });
       await shot('390-light-de-three-replies-mid-call');
-      await shadow(page, (c, top) => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = top; }, scrollTop);
+      await shadow(page, async (c, top) => {
+        const shell = c.shadowRoot.querySelector('.transcript-shell');
+        if (shell.scrollTop === top) return;
+        // The scroll listener owns follow mode. Finish the native restoration
+        // event before a call-state change can render against its old value.
+        await new Promise(resolve => {
+          shell.addEventListener('scroll', resolve, { once: true });
+          shell.scrollTop = top;
+        });
+      }, scrollTop);
       await settle(page);
     }
     await click(page, '.voice-close');
