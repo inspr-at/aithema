@@ -328,14 +328,14 @@ export async function transcriptComposerCases(t) {
     }
   });
   await t.test('a late question preserves the next draft and its card/reply budget', async () => {
-    for (const [width, height] of [[1024, 640], [1440, 640], [390, 844]]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
-      await reset(width, height, locale, theme, { voice: true }); await draft(page, 12);
+    for (const entrance of ['choice', 'combined']) for (const [width, height] of [[1024, 640], [1440, 640], [390, 844]]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+      await reset(width, height, locale, theme, { voice: true, entrance }); await draft(page, 12);
       await shadow(page, c => { globalThis.composerPending = Promise.withResolvers(); c.shadowRoot.querySelector('form.composer').requestSubmit(); });
       await draft(page, 30); await settleEvidenceFrame(page);
       await page.evaluate(() => globalThis.composerPending.resolve());
       await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled);
       await settleEvidenceFrame(page);
-      const label = `ait-513-late-card-${locale}-${theme}-${width}x${height}`;
+      const label = `ait-513-late-card-${entrance}-${locale}-${theme}-${width}x${height}`;
       const before = await capture(`${label}-draft`);
       await shadow(page, async c => {
         const { inputRevision } = await import('/packages/core/src/session.js');
@@ -347,7 +347,14 @@ export async function transcriptComposerCases(t) {
       records.push({ label, before, after });
       assert.equal(after.value, before.value, 'a late reply preserves the separate next draft');
       assert.deepEqual(after.boxes['.composer'], before.boxes['.composer'], 'an asynchronous question never resizes the composer');
-      stable(before, after, 'late question');
+      if (entrance === 'choice') stable(before, after, 'late question');
+      else {
+        assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.attach')).display), 'none', 'combined Attach is explicitly hidden');
+        for (const selector of [...frame.filter(selector => selector !== '.composer-actions .attach'), '.composer-mic']) {
+          const a = before.boxes[selector], b = after.boxes[selector]; positive(a, selector); positive(b, selector);
+          for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(a[key] - b[key]) <= .5, `late combined question/${selector}/${key}: ${a[key]} -> ${b[key]}`);
+        }
+      }
       for (const state of [before, after]) positive(state.boxes['.audio-rail'], 'late question audio rail');
       assert.deepEqual(after.boxes['.audio-rail'], before.boxes['.audio-rail'], 'late question audio rail stays fixed');
       positive(after.boxes['.qcard'], 'late question card'); positive(after.boxes['.qopts'], 'late question options');
