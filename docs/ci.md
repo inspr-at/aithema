@@ -337,6 +337,16 @@ projection reserve AIT-506's additional 180 s for start-journey plus at least
 below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
 The projection never overwrites measured `.weight.json` history.
 
+AIT-515 keeps its 40-scene signal matrix in the existing understanding-failure
+file. Complete remote run `b86c217e10-4534` at `b86c217e10` measured
+106.018906167 s of file work, including 200 signal screenshots. Its 33 tests
+finished with 30 passing and the three authorized AIT-221 baseline failures;
+the new signal case and every exact settlement case pass. Reserve a temporary
+133 s floor (`ceil(106.018906167 × 1.25)`) outside trusted timing history.
+The sibling rolling-main samples, twelve bins, 405 s planning target, 420 s hard
+ceiling and required check names remain unchanged. Replace the diagnostic floor
+only when matching canonical-main measurements cover the changed workload.
+
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.

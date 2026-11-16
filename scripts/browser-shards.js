@@ -350,6 +350,14 @@ browserTestWeights['test/browser/start-journey.test.js'] = Math.max(
 browserTestWeights['test/browser/start-look.test.js'] = Math.max(
   browserTestWeights['test/browser/start-look.test.js'], 112);
 
+// AIT-515: complete understanding-failure remote run b86c217e10-4534:
+// 106.018906167s file work, including the 40-scene signals matrix and evidence.
+// ceil(*1.25)=133s. All new cases pass; the three AIT-221 failures match the
+// authorized baseline. This conservative diagnostic floor is not a trusted
+// timing sample; retain the sibling's rolling-main history unchanged.
+browserTestWeights['test/browser/understanding-failure.test.js'] = Math.max(
+  browserTestWeights['test/browser/understanding-failure.test.js'], 133);
+
 // AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
 // clarify-now 17/17 PASS before the later shard timeout. Top-level work:
 // 302.474510797s; ceil-to-ms, then 25% warmup = 378.094s. Source:
