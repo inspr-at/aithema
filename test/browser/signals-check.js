@@ -68,8 +68,13 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     for (const [selector, r] of Object.entries(result)) assert.ok(r.width > 0 && r.height > 0, `${selector} positive box`);
     const aside = result['.understanding'], composer = result['.composer-shell'], attach = result['.attach'], send = result['.send'];
     assert.ok(attach.x + attach.width <= send.x + .5, 'Attach and Send never overlap');
-    assert.ok(aside.x + aside.width <= composer.x + .5 || composer.x + composer.width <= aside.x + .5
-      || aside.bottom <= composer.y + .5 || composer.bottom <= aside.y + .5, 'sidebar and composer never overlap');
+    const separated = aside.x + aside.width <= composer.x + .5 || composer.x + composer.width <= aside.x + .5
+      || aside.bottom <= composer.y + .5 || composer.bottom <= aside.y + .5;
+    if (!separated && evidence) {
+      await writeFile(join(evidence, 'signals-overlap.json'), JSON.stringify({ viewport: page.viewport(), result }, null, 2));
+      await page.screenshot({ path: join(evidence, 'shots', 'signals-overlap.png') });
+    }
+    assert.ok(separated, `sidebar and composer never overlap: ${JSON.stringify({ aside, composer })}`);
     return result;
   };
   const stable = (before, after, name) => {
