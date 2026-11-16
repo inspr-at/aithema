@@ -1415,10 +1415,16 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
     }
     const ask = await shadow(page, c => {
       const line = c.shadowRoot.querySelector('.concept-activity-text'), r = line.getBoundingClientRect();
-      return { text: line.innerText, width: r.width, height: r.height, top: r.top, bottom: r.bottom };
+      return { text: line.innerText, x: r.x, right: r.right, width: r.width, height: r.height, top: r.top, bottom: r.bottom };
     });
     assert.equal(ask.text, locale === 'de' ? 'Zum Erstellen von Bildern ist eine Einwilligung nötig.\u00a0· Einwilligung geben' : 'Images need consent to be created.\u00a0· Give consent');
     assert.ok(ask.width > 0 && ask.height > 0 && ask.top >= 0 && ask.bottom <= height);
+    for (const selector of ['.band', '.audio-rail', '.composer']) {
+      const box = after[selector];
+      const overlapX = Math.min(ask.right, box.x + box.width) - Math.max(ask.x, box.x);
+      const overlapY = Math.min(ask.bottom, box.bottom) - Math.max(ask.top, box.y);
+      assert.ok(overlapX <= 0.5 || overlapY <= 0.5, `${selector}: consent ask never overlaps the frame controls`);
+    }
     if (width !== 1024) await record(t, page, `${label}-ask`, { before, after, ask });
     if (width === 390) {
       await page.locator('aithema-session >>> textarea').click();

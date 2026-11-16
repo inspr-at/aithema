@@ -532,7 +532,7 @@ emits `aithema-new-conversation` with `{processingPreset, settings, previousSess
 when the visitor starts a separate conversation (General tab, or crossing into or
 out of On my device once a conversation has started), and `aithema-consent` with
 `{sessionId, reason, features, intent, mode, required}` when a choice needs consent;
-the host decides how to present the consent interface. The reason values
+the host presents the consent interface outside the current modal dialog. The reason values
 include `chooser`, `ready`, `manage`, `settings` and `use`. Both `reason` and
 `intent` are open enums: treat unknown values as review. The additive `intent` is
 `start` for the ready card's Start action and combined Send/mic, `concept` for a just-in-time visual
