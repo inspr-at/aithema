@@ -1028,10 +1028,11 @@ export async function replyRowsMatrix(t) {
       window.ait410Actions = window.ait410First.querySelector('.reply-actions');
     });
     const original = await boxes(page, ['.turn:not(.user)']);
-    for (let i = 2; i <= 3; i++) await shadow(page, (c, { i, width }) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+    for (let i = 2; i <= 3; i++) await shadow(page, (c, i) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
       id: `ait410-reply-${i}`, role: 'assistant',
-      content: width === 390 ? `Reply ${i}` : `${(c.session.transcript.find(t => t.role === 'assistant').content + ' ').repeat(8)}${i}`,
-    } }), { i, width });
+      // AIT-511's full-height pane needs genuine overflow even on phones.
+      content: `${(c.session.transcript.find(t => t.role === 'assistant').content + ' ').repeat(40)}${i}`,
+    } }), i);
     await settle(page);
     // Compare size only: following the growing transcript legitimately scrolls it.
     const afterReplies = await boxes(page, ['.turn:not(.user)']);

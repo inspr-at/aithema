@@ -7,7 +7,10 @@
   binding reserves no empty notice row. Image visuals retain their 44 px bar;
   unbound visuals reserve none. Short transcripts align at the top without a
   visible question card, and beside their question when a card is present. Transcript
-  scrolling remains contained and suppresses native boundary rebound.
+  scrolling remains contained and suppresses native boundary rebound. A visible
+  header voice message uses free room above short top-aligned conversations;
+  the pane frame stays fixed. Notice growth clears obsolete retained space,
+  and a deliberate transcript wheel gesture releases retained notice space.
 - The composer grows upward with its draft, capped by 40% of the visual viewport
   and the reply/card budget; short phone viewports allow at most three lines.
   Short desktop viewports reduce outer spacing in both composer states; longer
@@ -21,8 +24,9 @@
   before and after input without treating an opener/draft as visitor input.
   Short desktop and keyboard layouts reserve compact scrollable disclosure/status
   slots; Send and mic stay pinned. The card margin is counted once outside the
-  combined reading pane. Combined desktop retains the fixed-footer clearance;
-  short desktop feedback shares the reserved disclosure row.
+  combined reading pane. Combined desktop retains the same fixed-footer clearance
+  before and after entrance; short desktop feedback shares the reserved disclosure
+  row.
 - Additive measured CSS outputs on the workspace:
   `--aithema-composer-height` and `--aithema-composer-growth`. Added visitor content
   counts as growth; responsive viewport/keyboard/stage modes reset the empty

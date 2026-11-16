@@ -374,6 +374,7 @@ export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
     resizeComposer = update => update(), onComposerResize = () => {}, questionPending = () => false } = {}) {
     this.onNoticesChange = onNoticesChange; this.followsTranscript = followsTranscript;
+    this.resizeContent = resizeComposer;
     this.composerSize = new ComposerSize(root, { following: followsTranscript, resize: resizeComposer, changed: onComposerResize, painted: () => this.paint(), questionPending });
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.paint = () => {
@@ -440,6 +441,7 @@ export class PhoneComposerViewport {
         if (key === '--phone-dock' && value === 0) continue;
         workspace.style.setProperty(key, `${value}px`);
       }
+      this.clearHeaderMessage(phone);
       // A breakpoint changes the notice reservation without changing its
       // children. The next transcript event must not reuse the desktop height
       // and scroll past a pointer anchor established in the phone viewport.
@@ -466,7 +468,10 @@ export class PhoneComposerViewport {
     this.observer?.disconnect();
     if (Observer) {
       this.observer = new Observer(this.paint);
-      for (const selector of ['.band', '.display-foot', '.composer-dock']) this.observer.observe(this.root.querySelector(selector));
+      for (const selector of ['.band', '.display-foot', '.composer-dock', '.audio-rail .voice-state']) {
+        const node = this.root.querySelector(selector);
+        if (node) this.observer.observe(node);
+      }
     }
     this.footerObserver?.disconnect();
     const FooterMutation = this.view?.MutationObserver;
@@ -511,7 +516,7 @@ export class PhoneComposerViewport {
         this.noticeUpload = null;
         if (this.uploadReservation) release();
       };
-      this.noticeWheel = () => { if (this.uploadReservation) release(); };
+      this.noticeWheel = release;
       this.noticeScroll ??= () => {
         const moved = shell.scrollTop !== this.noticeScrollTop;
         this.noticeScrollTop = shell.scrollTop;
@@ -541,7 +546,12 @@ export class PhoneComposerViewport {
         const height = endHeight();
         if (changed && height !== this.noticeHeight) {
           const holdUpload = this.noticeUpload && height < this.noticeHeight;
-          if (this.followsTranscript() && !holdUpload) reserve('');
+          if (height > this.noticeHeight || this.followsTranscript() && !holdUpload) {
+            // Growth already supplies the old room naturally. Keep readers at
+            // their offset without leaving an obsolete minimum behind.
+            reserve('');
+            if (!this.followsTranscript()) shell.scrollTop = this.noticeScrollTop;
+          }
           else {
             // Shrinking end content must not clamp a resting upload out from
             // under the pointer, even when already following the bottom.
@@ -559,6 +569,36 @@ export class PhoneComposerViewport {
       this.noticesObserver.observe(shell.querySelector('ol'), options);
     }
     this.paint();
+  }
+  clearHeaderMessage(phone) {
+    const shell = this.root.querySelector('.transcript-shell');
+    const message = this.root.querySelector('.audio-rail[data-message] .voice-state');
+    const card = this.root.querySelector('.qcard');
+    let inset = 0;
+    // Only short, top-aligned conversations can use the free room. A visible
+    // header message owns this temporary content inset, never the pane frame.
+    if (!phone && message && shell.querySelector('li.turn') && (!card || card.hidden)) {
+      const box = message.getBoundingClientRect(), pane = shell.getBoundingClientRect();
+      const css = this.view.getComputedStyle(shell);
+      const current = parseFloat(shell.style.getPropertyValue('--transcript-message-inset')) || 0;
+      const slackTop = parseFloat(css.getPropertyValue('--aithema-slack-top')) || 0;
+      const slackBottom = parseFloat(css.getPropertyValue('--aithema-slack-bottom')) || 0;
+      const top = (parseFloat(css.paddingTop) || 0) - current - slackTop;
+      const bottom = (parseFloat(css.paddingBottom) || 0) - slackBottom;
+      const needed = Math.max(0, box.bottom - pane.top - top);
+      const list = shell.querySelector('ol').getBoundingClientRect();
+      const notices = shell.querySelector('.voice-notices')?.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0 && pane.width > 0 && pane.height > 0 &&
+          this.view.getComputedStyle(message).visibility === 'visible' &&
+          list.height + (notices?.height ?? 0) + top + bottom + needed <= shell.clientHeight) inset = needed;
+    }
+    const value = inset ? `${inset}px` : '';
+    if (shell.style.getPropertyValue('--transcript-message-inset') === value) return;
+    this.resizeContent(() => {
+      if (value) shell.style.setProperty('--transcript-message-inset', value);
+      else shell.style.removeProperty('--transcript-message-inset');
+    });
+    this.onNoticesChange();
   }
   sizeComposer() { this.composerSize.fit(true); this.paint(); }
   recordTranscriptAnchor() {

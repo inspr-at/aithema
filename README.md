@@ -1444,7 +1444,11 @@ drafting beside a host opener does not reveal the overview. Short desktop and
 keyboard layouts reserve compact, scrollable disclosure/status slots and pin
 Send and mic while the field grows. The card margin stays outside the reading
 pane, counted once. Combined desktop layout retains the band layout’s fixed
-footer clearance; short desktop feedback shares the reserved disclosure row.
+footer clearance before and after entrance; short desktop feedback shares the
+reserved disclosure row.
+A visible header voice message uses free space above a short, top-aligned
+conversation without resizing the pane. Notice growth clears obsolete retained
+space; a deliberate transcript wheel gesture releases retained notice space.
 The sizing owner publishes two measured CSS outputs on the workspace:
 `--aithema-composer-height` (effective composer height) and
 `--aithema-composer-growth` (growth above the empty composer baseline for the

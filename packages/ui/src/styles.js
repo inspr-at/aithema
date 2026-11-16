@@ -376,8 +376,9 @@ svg { display:block; flex:none; }
   /* Fade only the real top edge; retain just enough inset for the first row. */
   mask-image:linear-gradient(to bottom,transparent 0,#000 8px);
   /* Pointer anchoring owns slack; layout.js notice logic owns ol end reservations.
-     The dock is in grid flow (phone subtracts --phone-dock), never padded twice. */
-  padding:calc(8px + var(--aithema-slack-top,0px)) .75rem calc(8px + var(--aithema-slack-bottom,0px)) .6rem;
+     layout.js owns temporary clearance for a visible header message over a
+     short conversation. The dock is in grid flow (phone subtracts --phone-dock). */
+  padding:calc(8px + var(--aithema-slack-top,0px) + var(--transcript-message-inset,0px)) .75rem calc(8px + var(--aithema-slack-bottom,0px)) .6rem;
   display:flex; flex-direction:column; }
 .transcript-shell > ol, .transcript-shell > .voice-notices { flex:none; }
 /* Latest floats above end content; it never reserves an empty transcript row. */
