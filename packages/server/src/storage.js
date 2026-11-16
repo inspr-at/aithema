@@ -792,7 +792,7 @@ export class SQLiteStorage {
   postTurn(id, clientId, bytes, content, guard = {}, beforeSave = () => {}) {
     return this.transaction(() => {
       let session = this.get(id);
-      if (typeof clientId !== 'string' || clientId.startsWith('host:')) throw new TypeError('Reserved host event namespace');
+      if (typeof clientId !== 'string' || clientId.startsWith('host:') || clientId.startsWith('voice:')) throw new TypeError('Reserved event namespace');
       this.#check(session, { ...guard, revision: undefined });
       if (session.pauseReason === 'purpose') throw new ConflictError('Purpose pause is locked');
       const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
@@ -910,8 +910,8 @@ export class SQLiteStorage {
       return { acknowledged: true, ...(paused === undefined ? {} : { paused }), event };
     });
   }
-  hasConnectedVoiceCall(id) {
-    return Boolean(this.db.prepare("SELECT 1 FROM voice_lifecycle_calls WHERE session_id=? AND json_extract(record,'$.providerGeneration')>0 LIMIT 1").get(id));
+  hasAudibleVoiceCall(id) {
+    return Boolean(this.db.prepare("SELECT 1 FROM receipts WHERE session_id=? AND client_id LIKE 'voice:%' LIMIT 1").get(id));
   }
   voiceLifecycle(id, callId) {
     const row = this.db.prepare('SELECT record FROM voice_lifecycle_calls WHERE session_id=? AND (? IS NULL OR call_id=?) ORDER BY rowid DESC LIMIT 1')
@@ -957,7 +957,7 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session, guard);
       if (session.paused || session.consentWithdrawn) throw new ConflictError('Voice publication blocked');
       const { type, turnId } = value;
-      if (!['final', 'heard', 'reply', 'interrupted'].includes(type) || typeof turnId !== 'string' || turnId.length > 256 ||
+      if (!['final', 'heard', 'reply', 'interrupted'].includes(type) || typeof turnId !== 'string' || turnId.startsWith('host:') || turnId.length > 256 ||
         !turnId.startsWith(providerId + ':') || value.callId !== callId ||
         (type === 'final' && (!['user', 'assistant'].includes(value.role) || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 16000)) ||
         (type === 'interrupted' && (value.heardLength !== 'unknown' || Object.hasOwn(value, 'heard') || Object.hasOwn(value, 'prefix'))) ||
@@ -976,8 +976,9 @@ export class SQLiteStorage {
       const mappedHost = greetingReceipt && JSON.parse(greetingReceipt.result).data.id === 'host:opener';
       const turn = session.transcript.find(t => t.id === (mappedHost ? 'host:opener' : turnId));
       let event, interruptionEvent, mappedOpener = false;
+      const normalize = text => text.trim().replace(/\s+/gu, ' ');
       const opener = session.transcript.find(t => t.id === 'host:opener' && t.origin === 'host' && !t.erased && !t.withdrawn);
-      if (type === 'final' && value.role === 'assistant' && guard.hostOpener === true && opener) {
+      if (type === 'final' && value.role === 'assistant' && guard.hostOpener === true && opener && normalize(value.text) === normalize(opener.content)) {
         event = this.read(id).find(e => e.type === 'turn.final' && e.data.id === 'host:opener');
         mappedOpener = true;
       } else if (mappedHost && ['heard', 'interrupted'].includes(type) && opener) {
@@ -1002,7 +1003,6 @@ export class SQLiteStorage {
         const consumed = value.role === 'user' ? new Set(this.db.prepare(
           "SELECT json_extract(result,'$.data.id') AS turn_id FROM receipts WHERE session_id=? AND client_id LIKE 'voice:%'"
         ).all(id).map(row => row.turn_id)) : null;
-        const normalize = text => text.trim().replace(/\s+/gu, ' ');
         const typed = value.role === 'user' && session.transcript.find(t => t.voiceCallId === callId && !t.erased && !t.withdrawn &&
           !consumed.has(t.id) && normalize(t.content) === normalize(value.text));
         event = typed ? this.read(id).find(e => e.type === 'turn.final' && e.data.id === typed.id)
