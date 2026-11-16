@@ -640,12 +640,16 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             // Keep the reply body short and constant so only card text changes capacity.
             await shadow(page, () => {
               visualViewport.height = 728; visualViewport.dispatchEvent(new Event('resize'));
-              globalThis.showQuestion({ content: 'Choose?', question_short: 'Choose?' });
+              // AIT-511 reclaims the empty voice row. Wrapped answer labels
+              // retain this fixed-height full/compact boundary in that space;
+              // the original short/long and stable-input assertions stay strict.
+              globalThis.qcardBoundaryOptions = globalThis.qcardReply.options.map((option, index) => ({ ...option, text: `${index + 1}${'W'.repeat(83)}` }));
+              globalThis.showQuestion({ content: 'Choose?', question_short: 'Choose?', options: globalThis.qcardBoundaryOptions });
             });
             await nextFrame(page); await nextFrame(page);
             const beforeModeChange = await boxes(page);
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false, '390×728: a short question fits the full card');
-            await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
+            await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: (globalThis.qcardReply.question_short + ' ').repeat(4), options: globalThis.qcardBoundaryOptions }));
             await nextFrame(page); await nextFrame(page);
             if (evidence) await writeFile(join(evidence, `ait-511-compact-${label}.json`), JSON.stringify(await shadow(page, c => {
               const r = c.shadowRoot, selectors = ['.band', '.display-foot', '.composer', 'textarea', '.concept-bar', '.transcript-shell', '.qcard', '.qtext', '.qopts', '.qhint'];
@@ -654,7 +658,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             }), null, 2));
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), true, '390×728: a longer question needs compact answers');
             still(beforeModeChange, await boxes(page), 'full-to-compact content change at the same viewport');
-            await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: 'Choose?' }));
+            await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: 'Choose?', options: globalThis.qcardBoundaryOptions }));
             await nextFrame(page); await nextFrame(page);
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false);
             still(beforeModeChange, await boxes(page), 'compact-to-full content change at the same viewport');
