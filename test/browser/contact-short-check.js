@@ -75,6 +75,13 @@ export async function contactShortCheck(t) {
           c.shadowRoot.querySelector('.workspace').removeAttribute('data-reveal');
         });
         await settle();
+        const language = await page.$eval('aithema-session', (c, locale) => ({
+          session: c.session.locale,
+          actual: c.shadowRoot.querySelector('.handover__label').textContent,
+          expected: window.contactInitialOptions.copyForLocale(locale).hostSurface.handover.request,
+        }), locale);
+        assert.equal(language.session, locale, `${label}: fixture session keeps its requested locale`);
+        assert.equal(language.actual, language.expected, `${label}: library copy follows the requested locale`);
         const before = await sample(); positive(before.frames); let phoneInset = null;
         if (width >= 960) {
           assert.ok(before.pinned || before.launched, `visible 44px contact control: ${JSON.stringify(before)}`);
