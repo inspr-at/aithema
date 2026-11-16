@@ -783,6 +783,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 :host([data-aithema-erased]) .intro__card > .erased-end { align-self:center; justify-self:center; }
 
 /* Image preparation changes content inside fixed tiles, never their footprint. */
+.composer[data-image-input] { align-content:end; }
 .staged-images { display:flex; grid-column:1/-1; gap:8px; height:88px; max-width:100%; overflow-x:auto; overflow-y:hidden; }
 .staged-images[hidden] { display:none; }
 .staged-image { position:relative; flex:0 0 112px; height:88px; display:grid; grid-template-rows:48px 40px; border-radius:8px;

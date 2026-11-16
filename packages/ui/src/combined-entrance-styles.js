@@ -32,6 +32,10 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-shell { display:grid; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;
   grid-template-areas:"notice notice notice" "message mic send" "feedback feedback feedback" "status status status"; gap:8px; }
+/* Staging grows above the controls, keeping their bottom reservation intact. */
+.workspace[data-entrance="combined"] .composer:has(.staged-images:not([hidden])) {
+  grid-template-areas:"images images images" "notice notice notice" "message mic send" "feedback feedback feedback" "status status status"; }
+.workspace[data-entrance="combined"] .staged-images { grid-area:images; }
 .workspace[data-entrance="combined"] textarea { grid-area:message; height:4.5rem; min-height:4.5rem; padding:.25rem 0; }
 .workspace[data-entrance="combined"] .composer-actions { display:contents; }
 .workspace[data-entrance="combined"] .attach { display:none; }
@@ -58,6 +62,9 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer-notice { height:5em; }
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
     grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer:has(.staged-images:not([hidden])) {
+    grid-template-areas:"images images images" "notice notice notice" "message mic send" "feedback status status"; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer[data-image-input] .composer-feedback { grid-area:auto; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-status { height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }

@@ -454,7 +454,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       const context = canvas.getContext('2d'); context.fillStyle = 'rgba(224,32,48,0.5)'; context.fillRect(0, 0, 1, 1);
       window.imageFixtureBase64 = canvas.toDataURL('image/png').split(',')[1];
       window.imageFixturePNG = Uint8Array.from(atob(window.imageFixtureBase64), c => c.charCodeAt(0));
-      c.addEventListener('aithema-consent', e => { window.imageAsks.push(e.detail); if (window.imageFixtureConsent) e.stopPropagation(); });
+      c.addEventListener('aithema-consent', e => { window.imageAsks.push(e.detail); if (window.imageFixtureConsent) e.stopImmediatePropagation(); }, { capture: true });
       const session = structuredClone(c.session);
       session.featureMatrix.best.imageInput = { available: true, reason: null };
       session.featureMatrix.best.images = { available: true, reason: null };
@@ -518,6 +518,8 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     for (const r of Object.values(unstaged)) assert.ok(r.w > 0 && r.h > 0, 'positive frame before staging');
     await choose(); await waitForShadow(page, '.staged-image');
     const before = await boxes(), changes = [];
+    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR,
+      `${entrance}-${width}-${locale}-${theme}-staging-probe.json`), JSON.stringify({ unstaged, before }, null, 2));
     for (const [selector, r] of Object.entries(before)) for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h'])
       assert.ok(Math.abs(r[edge] - unstaged[selector][edge]) <= .5, `${selector}.${edge} fixed while staging`);
     for (const [selector, r] of Object.entries(before)) assert.ok(r.w > 0 && r.h > 0, `${selector} positive before`);
