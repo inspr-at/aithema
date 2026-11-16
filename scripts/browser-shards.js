@@ -336,10 +336,33 @@ browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
 browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
   browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 200);
 
+// AIT-506: remote run ait-5f85e1b00b164b6186a07920, a79a3498:
+// complete start-journey file passed 16/16 cases, including the combined
+// entrance matrix. Observed file duration 143.622222626s; ceil(*1.25)=180s.
+// After moving the new short-phone visual matrix to existing start-look,
+// Linux run ait-8ad0d13e381d4f4caa5bb6e7 at cdb7b3cb passes both full files:
+// start-journey 29/29, 163.865562696s -> ceil(*1.25)=205s;
+// start-look 23/23, 88.847185774s -> ceil(*1.25)=112s.
+// This measured redistribution replaces the temporary integrated 245s floor;
+// prior observations remain in the diagnostic metadata, outside main history.
+browserTestWeights['test/browser/start-journey.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-journey.test.js'], 205);
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 112);
+
+// AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
+// clarify-now 17/17 PASS before the later shard timeout. Top-level work:
+// 302.474510797s; ceil-to-ms, then 25% warmup = 378.094s. Source:
+// browser-timings-8-of-9/batch-0.jsonl; full provenance is in the sibling
+// weight's diagnostic evidence. Keep PR observations outside trusted main
+// samples; reserve the expanded real-mouse matrix without changing capacity.
+browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
+  browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.
-export const browserShardCount = 9;
+export const browserShardCount = 12;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
 export const browserShardHeadroomTarget = 405;

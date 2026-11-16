@@ -1,6 +1,9 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
+import { createVoiceHandlers } from '../src/voice-handlers.js';
 import { start2PurposePolicy } from '../../../demo/safeguards.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { mockConsent, temporaryDb, readEvents, unzip } from '../../../test/helpers.js';
@@ -16,7 +19,7 @@ function fixture(t, options = {}) {
   const consent = options.clockedConsent ? { coverage: ({ consentRevision }) => ({ covered: true, ...MOCK_PROCESSING_SCOPE, consentRevision, expiresAt: time + 60_000 }) } : mockConsent;
   const runtime = createPluginRuntime({ storage, consent, presets: options.presets });
   const handlers = createHandlers({ storage, consent, pluginRuntime: runtime, host, ownership: options.ownership,
-    deadlineMs: options.deadlineMs ?? 30_000, log: options.log, purposePolicy: options.purposePolicy, sessionOptions: options.sessionOptions });
+    deadlineMs: options.deadlineMs ?? 30_000, log: options.log, purposePolicy: options.purposePolicy, sessionOptions: options.sessionOptions, opener: options.opener });
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await handlers.close(); storage.close(); };
   t.after(close);
@@ -1597,3 +1600,116 @@ for (const asynchronousDelivery of [false, true]) {
     });
   }
 }
+
+// AIT-507: every timestamp comes from the same pinned clock, including consent.
+async function offerFixture(t, afterMessages = 2, options = {}) {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
+  const f = fixture(t, { clockedConsent: true, emailOffer: { afterMessages }, ...options });
+  const s = await f.create(), base = `/api/sessions/${s.id}`;
+  const claim = (action = 'show') => f.call(`${base}/email-ask`, { action, why: 'offer' });
+  const send = async (id = crypto.randomUUID()) => {
+    await f.call(`${base}/turns`, { content: 'systems: API', clientEventId: id }); await f.handlers.idle();
+  };
+  return { ...f, s, base, claim, send };
+}
+// Exercise AIT-505's real composed/text-only connection persistence path.
+async function connectOfferOpener(f) {
+  const voice = createVoiceHandlers({ storage: f.storage, opener: { en: 'Welcome. Your AI assistant is ready.' },
+    ownership: { token: () => owner }, readBody: async r => new Uint8Array(await r.arrayBuffer()),
+    now: () => Date.now(), publish() {}, onTurn() {},
+    runtime: { conversationLimits: { policy: () => 'time', deadline: () => Infinity }, voiceServerAdapters: () => [], async checkVoice() {},
+      async admitVoice({ options }) { return { binding: { maxDurationSeconds: 120 }, options, finish() {},
+        plugin: { manifest: { liveVoice: { capabilities: { opener: false }, ownership: { turnTaking: 'provider' } } }, async start(request) {
+          return { callId: request.callId, providerSessionId: 'fixture-generation', signal: new AbortController().signal,
+            snapshot: () => ({}), close: async () => ({ closureConfirmed: true, outcome: 'cancelled' }) };
+        } } }; } } });
+  try {
+    const response = await voice.handle(new Request(`http://local/api/sessions/${f.s.id}/voice`, {
+      method: 'POST', body: JSON.stringify({ callId: 'fixture-opener' }) }));
+    assert.equal(response.status, 201);
+    assert.deepEqual(f.storage.get(f.s.id).transcript.map(turn => turn.id), ['host:opener']);
+  } finally { await voice.close(); }
+}
+for (const next of ['emailGiven', 'emailConfirmed']) test(`AIT-507 integration: persisted opener cannot claim low ${next} actions`, async t => {
+  const f = await offerFixture(t, 1);
+  await connectOfferOpener(f);
+  const wallet = f.host.wallet(owner);
+  t.mock.method(f.host, 'wallet', () => ({ ...wallet, balance: () => ({ limitMicro: 10000000, committedMicro: 9900000 }), displayBalance: () => null, canAdmit: () => true }));
+  const receipt = await (await f.call(`${f.base}/credits`)).json();
+  assert.ok(receipt.balance.owner.availableMicro > 0 && receipt.balance.owner.availableMicro <= receipt.lowAtMicro, 'fixture is funded and low');
+  t.mock.method(f.host, 'creditTiers', () => ({ current: next === 'emailGiven' ? 'anonymous' : 'emailGiven', next, delta: 5000000, canConfirm: true }));
+  const low = f.host.lowEmailAsk(owner);
+  for (const body of [{ action: 'line' }, { action: 'show', why: 'low' }]) {
+    const result = await (await f.call(`${f.base}/email-ask`, body)).json();
+    assert.equal(result.accepted, false, `${body.action}: opener alone is not a settled visitor reply`);
+    assert.equal(result.emailAsk.lowLine, undefined);
+    assert.equal(Boolean(result.emailAsk.open), false);
+    assert.deepEqual(f.host.lowEmailAsk(owner), low, 'opener cannot consume the low-credit claim');
+  }
+  assert.equal((await (await f.claim()).json()).accepted, false);
+  await f.send('first-visitor');
+  const line = await (await f.call(`${f.base}/email-ask`, { action: 'line' })).json();
+  assert.equal(line.accepted, true, 'a real visitor reply retains the independent low-credit line');
+  assert.notEqual(line.emailAsk.lowLine.at, 'host:opener');
+});
+test('AIT-507 publishes policy, waits for N accepted messages, latches independently of low claims', async t => {
+  const f = await offerFixture(t);
+  assert.deepEqual((await (await f.call(f.base)).json()).emailOffer, { afterMessages: 2 });
+  assert.equal((await (await f.claim()).json()).accepted, false);
+  await f.send('offer-first'); await f.send('offer-first');
+  assert.equal((await (await f.claim()).json()).accepted, false, 'duplicate acceptance cannot advance count');
+  await f.send('offer-second');
+  const low = f.host.lowEmailAsk(owner);
+  const response = await f.claim(); assert.equal(response.status, 200);
+  const shown = await response.json(); assert.equal(shown.accepted, true); assert.equal(shown.emailOffer.offered, true);
+  assert.equal(shown.emailOffer.at, f.storage.get(f.s.id).transcript.at(-1).id);
+  assert.deepEqual(f.host.lowEmailAsk(owner), low);
+  await f.claim('dismiss');
+  assert.equal((await (await f.claim()).json()).accepted, false);
+  t.mock.timers.setTime(86_401_001); f.at(Date.now());
+  assert.equal((await (await f.claim()).json()).accepted, false, 'durable conversation latch outlives the day');
+});
+test('AIT-507 claims once per rolling visitor day across conversations, including a lock-only saved address', async t => {
+  const f = await offerFixture(t, 1);
+  f.host.creditTiers = () => ({ current: 'emailGiven', next: null, delta: 0, canConfirm: true });
+  await f.call('/api/visitor/email', { address: 'saved@example.test', noticeVersion: 'ait-135-v1' }, owner, 'PUT');
+  await f.send(); assert.equal((await (await f.claim()).json()).accepted, true);
+  const next = await f.create(), base = `/api/sessions/${next.id}`;
+  await f.call(`${base}/turns`, { content: 'systems: API', clientEventId: 'second-session' }); await f.handlers.idle();
+  assert.equal((await (await f.call(`${base}/email-ask`, { action: 'show', why: 'offer' })).json()).accepted, false);
+});
+test('AIT-507 no policy preserves the legacy fifth-turn route', async t => {
+  const f = await offerFixture(t, 1); delete f.host.emailOffer; await f.send();
+  assert.equal((await (await f.claim()).json()).accepted, false);
+});
+
+// Keep remote evidence fetchable even when the targeted regression run is red.
+after(async () => {
+  const directory = process.env.AITHEMA_EVIDENCE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, 'ait-507-host-target.json'), JSON.stringify({ file: 'packages/server/test/host-routes.test.js', ticket: 'AIT-507' }));
+});
+
+for (const afterMessages of [0, 3, '2', null]) test(`AIT-507 invalid threshold fails at startup (${afterMessages})`, t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const host = createDemoHost({ storage, emailOffer: { afterMessages } });
+  assert.throws(() => createHandlers({ storage, host, consent: mockConsent }), /emailOffer/u);
+});
+test('AIT-507 opener, uploads and a failed reply cannot trigger the offer', async t => {
+  const f = await offerFixture(t, 1);
+  await connectOfferOpener(f);
+  f.storage.append(f.s.id, 'upload.state', { id: 'only-document', state: 'ready', at: new Date(Date.now()).toISOString() });
+  assert.equal((await (await f.claim()).json()).accepted, false);
+  f.storage.append(f.s.id, 'turn.final', { id: 'voice-final', role: 'user', source: 'voice', content: 'A requirement.' });
+  assert.equal((await (await f.claim()).json()).accepted, false, 'wait for a settled reply');
+  f.storage.append(f.s.id, 'turn.final', { id: 'next-reply', role: 'assistant', content: 'A reply.' });
+  const shown = await (await f.claim()).json(); assert.equal(shown.accepted, true); assert.equal(shown.emailOffer.at, 'next-reply');
+});
+
+test('AIT-507 policy without a threshold defaults to two messages', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
+  const f = fixture(t, { clockedConsent: true, emailOffer: {} }), s = await f.create();
+  assert.deepEqual(s.emailOffer, { afterMessages: 2 });
+});

@@ -69,9 +69,20 @@ npm run demo
 ```
 
 Open http://127.0.0.1:3000 and stop the server with Ctrl+C. PR CI runs
-`npm ci`, reproducible release packing and `npm test` once, plus nine browser
+`npm ci`, reproducible release packing and `npm test` once, plus twelve browser
 shards, with ten-minute job limits. Nightly units keep ten-minute limits.
 DCO checks run separately.
+AIT-532 adds a parallel aggregate named `browser`, which requires all twelve
+worker shards to succeed. Docs-only PRs keep explicit worker success steps.
+Both browser summaries preserve the verified first-attempt duplicate main push
+skip exception; PRs and merge groups require successful workers.
+The four existing required `browser (n/4)` aliases stay in place during the
+transition; the new aggregate is not initially required. After owner approval,
+DEVOPS can switch the required browser checks to `browser`; only after confirmation
+may a later change remove the aliases. No GitHub settings change here. The planner
+keeps its 405 s target and 420 s ceiling, and nightly/timing artifacts use `N-of-12`.
+CI creates the browser evidence directory before testing; evidence writers also
+create their destination so isolated tests do not depend on earlier shard work.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.
 The unit watchdog always reports the active/last subtest and uncaught-error stacks.
 On remote evidence runs, `AITHEMA_EVIDENCE_DIR` also collects per-file unit
@@ -131,7 +142,7 @@ a ZIP download, the dialog at a 400 × 800 viewport (inside the viewport, no
 horizontal overflow, hovering presets, selects and gauges moves no control, Escape
 returns focus) and the Advanced tab against a loopback OpenAI-compatible fixture
 (handshake, model choice and a streamed test chat). Console errors, page exceptions and failed
-same-origin requests fail the test. The separate PR CI `browser` jobs run nine shards on
+same-origin requests fail the test. The separate PR CI `browser` jobs run twelve shards on
 Ubuntu with Node 24 and ten-minute limits;
 `npm test` does not require a browser. To prove the missing JSON content-type
 regression is detected, run `AITHEMA_BROWSER_REGRESSION=1 npm run test:browser`:
@@ -258,7 +269,7 @@ does not redeem a token or spend a confirmation attempt.
 The existing `GET S/events` SSE stream carries durable `identity.state`,
 `verification.requested`, `identity.resend-blocked`, `identity.unlocked`, `identity.policy-changed`,
 `handover.state`, `handover.limit-reached`, `library.state`, `credits.state`,
-`credits.limit-reached` and `conversation.end-requested`, in the usual
+`credits.guard-migrated` (opt-in AIT-508), `credits.limit-reached` and `conversation.end-requested`, in the usual
 `{sessionId,seq,generation,type,at,data}` envelope. Snapshots project `identity`,
 `handover`, `library` and `credits`; host reducer state commits with its events.
 Identity and credits GETs are read-only, including their first read on an older
@@ -271,7 +282,8 @@ a preparing handover as retryable `failed` with `delivery-interrupted`.
 `balance` contains `sessionId` plus `owner`, `session` and `voiceVisitor`, each
 with `limitMicro`, `committedMicro`, `availableMicro`, `overrunMicro`.
 `limitSlot` contains `sessionId`, `status`, `balance`, `remainingMs`, `endReason`,
-`canStartPaidWork` and `topUpOwnedByHost`. The one-hour clock begins with the first
+`canStartPaidWork` and `topUpOwnedByHost`. Opted-in credit-only guards publish
+`remainingMs: null` (see AIT-508 below). By default the one-hour clock begins with the first
 accepted text turn; the owner guard retains its deadline, pause and terminal
 status across new/reset. This route projects the guard; live hosts own paid
 admission, settlement, top-up policy and execution of end requests.
@@ -523,8 +535,8 @@ out of On my device once a conversation has started), and `aithema-consent` with
 the host decides how to present the consent interface. The reason values
 include `chooser`, `ready`, `manage`, `settings` and `use`. Both `reason` and
 `intent` are open enums: treat unknown values as review. The additive `intent` is
-`start` for the ready card's Start action, `concept` for a just-in-time visual
-request (`reason: 'use'`), and `review` for a consent review. `mode` is
+`start` for the ready card's Start action and combined Send/mic, `concept` for a just-in-time visual
+request (`reason: 'use'`), and `review` for a consent review. In the default entrance, `mode` is
 `type` or `voice`; `required` lists the consent-blocked feature needed for that
 mode, while `features` retains the full requested feature list. Start keeps a
 one-use, tab-scoped intent for at most three minutes for typing or 60 seconds for
@@ -574,6 +586,49 @@ unspent cadence claim and drops the durable wish before provider admission or
 reference-byte loading. `consentRequest` is an additive status field, not a
 durable permission to generate: only a fresh explicit request can continue it.
 
+Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
+microphone and Send side by side from first paint, with the existing processing
+notice (selected processing details plus the AI/voice disclosure) directly above
+them. The default remains `entrance: 'choice'`, including
+its mode selection and Start button. Combined mode keeps the processing-preset
+chooser and omits the ready card's mode, microphone and speaker rows and Start.
+The combined transcript reserves the sticky-header inset inside its scrolling
+pane, so focusing an inline email offer keeps its controls in place. Saved
+addresses stay on one line beside Resend, with visual ellipsis when needed;
+the full address remains available to assistive technology and in Settings.
+The attachment button is hidden in combined mode. Text feedback and microphone
+status have separate space reserved from first paint; send failures, consent
+actions and Saved announcements remain exposed while a mic status is present.
+Configured host openers use the shared render-only `host:opener` row before input;
+canonical persistence takes over that same row. The welcome stays above the
+composer and footer, including short phone viewports. Processing details remain
+available on the entrance scroll surface.
+Typing, focus and rendering never acquire media or prepare voice.
+
+In combined mode, Send and the composer mic emit `aithema-consent` with
+`reason: 'ready'`, `intent: 'start'` and respectively `mode: 'text'` or `'voice'`;
+`required` identifies that mode's blocked feature, while `features` keeps the
+full requested list. A text grant does not replace the voice scopes. Send
+snapshots the draft and makes the field read-only until consent settles; an
+in-place covering grant sends that snapshot once. Voice follows consent,
+admission, microphone permission, then call startup through the selected client.
+The existing `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` copy and host
+overrides supply the blocked-microphone status beside the row.
+
+The combined draft lives inside the existing one-use intent, for either mode,
+with its 3-minute text / 60-second voice TTL, settings revision and `tabId`
+liveness proof. Navigation restores it only after the same-tab check, including
+a return without granting consent, and consumes the intent. A later grant never
+auto-sends or auto-starts a call. Text return focuses the field; voice return
+focuses the composer mic and requires a fresh click. Expiry, erasure, withdrawal
+and a new conversation clear the intent and its draft.
+An ordinary unsent follow-up survives a message withdrawal; only a pending
+combined snapshot is discarded. Changing processing settings cancels a pending
+intent for the old revision and keeps the editable
+field draft. During a call the same
+mic toggles capture through the rail; End call remains on the rail. Typing keeps
+capture running and Send delivers the typed turn through `rail.sendText` in the
+same session and context. No new copy keys or exports are introduced.
 A journal `session.erased`, or a snapshot 404 with exactly
 `{error: 'session-not-found'}`, enters the erased state. An exact refusal from
 another session route first shares one confirming snapshot read per conversation,
@@ -709,7 +764,7 @@ An empty understanding after invalidation has no origin metadata. Older generate
 records receive the origin label on read; unknown producers remain omitted.
 
 `transcript.json` carries these fields per assistant turn, `transcript.md` visibly
-marks each assistant turn `(AI-generated)`, and `understanding.json` carries the
+marks generated assistant turns `(AI-generated)` (opted-in [host openers](#optional-host-opener) are labeled `(host)`), and `understanding.json` carries the
 generated understanding's fields. Markdown message bodies are literal `text`
 code blocks whose backtick fence exceeds every backtick run in the message, so
 content cannot forge role headings or AI-origin labels. JSON retains the original
@@ -767,7 +822,7 @@ over the bundle. Each part that is missing, empty or only whitespace falls back,
 first to the bundle, then to the default for the session language. The defaults
 live in `packages/core/src/ai-notice.js` (`AI_NOTICE`, `aiNotice`, `aiNoticeText`).
 
-The spoken opener is separate from the visual notice (AIT-175). The neutral core
+The spoken opener is separate from the visual notice (AIT-175), except for opted-in [host openers](#optional-host-opener) without a custom voice presentation. The neutral core
 `aiNoticeText(locale)` default says "Hello, this is an AI assistant. How can I
 help you?" or "Hallo, hier ist die KI-Assistenz. Wie kann ich Ihnen helfen?".
 Hosts supply `aiNoticeText(locale, {opener})`; blank or missing openers fall back
@@ -1385,8 +1440,11 @@ keyboard. Up to 40rem wide it fills the viewport. Every changing value sits in a
 fixed box, so hover, saves and gauge updates never move a control. A conversation
 starts with START's entrance: the `promise` slot (or the default promise) and the
 orb above the four processing choices (START `LandingPresets`); Custom opens the
-dialog. Continue fires `aithema-consent` when the choice is not covered yet. Then
-readiness (START `ConversationReadiness`): model, consent, microphone and speaker
+dialog. In the default choice entrance, Continue fires `aithema-consent` when
+the choice is not covered yet. In combined mode, Continue confirms processing
+and focuses the field; explicit Send or mic requests any required consent. The
+default entrance then shows readiness (START `ConversationReadiness`): model,
+consent, microphone and speaker
 states, a reversible choice to speak or to type, and an explicit Start. Nothing
 asks for the microphone before a voice start. The call rail and the composer open
 with the conversation; the understanding column opens with the first input.
@@ -2608,12 +2666,13 @@ the complete fingerprint fields. It checks concurrent/serial admission
 idempotency, mismatches of every fingerprint field with unchanged holds,
 idempotent release and conflicts after release. Never run the kit on a live wallet.
 
-`createCredits({sessionId, durationMs?})`
+`createCredits({sessionId, durationMs?, conversationLimit?})`
 and `reduceCredits` accept `start`, `balance {balance}`, `pause {paused}`, `tick`,
 authoritative `limit {reason: 'session'|'voiceVisitor'|'host-limit'}` and `closed`, all
 with `now`. AIT-261 persists one guard per conversation in
 `conversation_credit_guards`. The first text turn or runtime admission starts
-its one-hour wall-clock deadline. New/reset get a fresh guard and retain the
+its one-hour wall-clock deadline under the default `conversationLimit: 'time'`
+policy. Opted-in credit-only conversations are described below. New/reset get a fresh guard and retain the
 same owner wallet and manual pause preference; pause, reconnect and recovery
 never extend a deadline.
 Startup re-arms active deadlines and immediately expires overdue guards, including
@@ -2632,6 +2691,79 @@ emits one `conversation.end-requested`; the host stops fresh work, closes transp
 settles outstanding claims and then records `closed`, preserving the transcript.
 `requestCreditTopUp(port, {sessionId}, options?)` invokes optional host `topUp`,
 returning `requested`/`unavailable`; it changes neither ledger totals nor the guard.
+
+### Credit-only conversations (AIT-508, opt-in)
+
+Set the server host option `conversationLimit: 'credits'` to keep funded
+conversations open across bounded voice calls. The library default remains
+`'time'`, with the existing one-hour conversation deadline and unchanged legacy
+wire shapes. The demo server explicitly opts in. `createCredits` also accepts
+`conversationLimit`; untimed guards persist `timed: false`, retain `endsAt: null`,
+and publish `remainingMs: null`. Paid work still requires an active, unpaused
+guard and all existing consent, wallet, ledger, session, visitor and deployment
+checks. Text continues in the same conversation while credits permit it.
+
+At startup, eligible `ready` and `active` timed guards migrate once, before
+checking elapsed time. `credits.guard-migrated` carries
+`{sessionId, conversationLimit: 'credits', timed: false}` and commits atomically
+with the guard and its `credits.state` projection. The reducer's trusted
+`guard-migrate` event accepts the same monotonic host `now` as other credit
+events. `ending` and `ended` guards remain export-only. Switching the host back
+to `'time'` retains already-pinned untimed guards; only fresh guards use time.
+`conversationLimits.policy(sessionId)` reads this pinned admission policy.
+The runtime’s synchronous `assertFreshVoice(sessionId)` checks fresh-call eligibility.
+
+Every fresh voice call still gets a new identity, full admission, reservation,
+and per-call duration bound. Opted-in browser receipts and trusted plugin start
+options add `conversationLimit: 'credits'`. Only those start options may also
+carry server host `voiceIdleSeconds` (integer 60–3600, default 120); the host
+value overrides standalone composed `config.voiceIdleSeconds`. The latter is
+also validated at factory creation. ElevenLabs retains its provider-owned
+120-second silence timeout: the server cannot directly stop provider spend
+between browser and provider. Mock qualification covers SDK `end_call`, native
+tool and normal close-code shapes. Silence ends classify as `idle` without
+paid transport recovery. Generic terminal signals allow a 10-second margin
+for final-transcript delivery lag against the provider's 120-second silence
+timeout; this qualifies an end signal and does not start a browser idle timer.
+Other transport failures retain existing recovery.
+
+Composed calls end server-side after the idle window without an accepted final
+speech or typed turn. Pending assistant output postpones idle only while the
+call is active. Natural assistant output completion starts a full idle window;
+paused/waiting or interrupted output keeps the existing idle deadline, so holds
+still release even if reasoning remains pending.
+Heartbeats and media noise do not reset idle. Opted-in terminal snapshots and
+stored calls retain the terminal `reason`, including `idle`; `voice.state`
+may carry that additive end reason. Idle and `timeLimit: 'call'` ends keep the
+conversation controls usable. Start/Retry starts another bounded call;
+no new Continue control is introduced.
+
+A fresh opted-in call waits with `budget reconciling` until the session's prior
+voice claim is finally reconciled, including unknown or estimated receipts,
+even when spare credit and duration remain. `SQLiteBudgetLedger.hasUnreconciledVoice`
+uses ledger finality (including reconciliation), not stale provider-record
+flags. Opted-in duration claims add trusted `voiceEstimate.callId`; ledger
+admission checks the pinned guard and excludes other unresolved call IDs inside
+its SQLite transaction, while allowing segments of the same logical call.
+Same-logical-call recovery retains its admission path and original
+spend bound. Snapshot verdicts exclude the session's current, not-ended logical
+call from the single-call reconciliation check, retaining Resume, Take back
+and native last-reply availability. Fresh starts still check all prior calls
+and pass full admission. A confirmed ledger settlement refreshes post-call
+availability even when text was already available and no allowance changed.
+No new call can release or replace an earlier liability.
+
+Fresh opted-in calls after a prior logical call have `presentation:
+'continuation'`, even with an empty transcript. `prepareCallback` and host
+`presentation(locale, context)` add `hasPriorCalls: true` for these calls and
+retain `hasPriorTurns: true`. A host's `spokenContinuations[locale]` wins;
+otherwise the default is a neutral AI-disclosing continuation. Legacy greeting
+fallback and silent automatic repair remain unchanged.
+
+Additive EN/DE copy keys are `voiceIdleEnded` and
+`voiceMessagesNarrow.voiceIdleEnded`. Their legacy fallback keys are `voiceEnded`
+and `voiceMessagesNarrow.voiceEnded`; explicit host overrides keep precedence.
+The existing `voiceTimeLimit` text and Start/Retry anchors remain in use.
 
 Part B wires the following owner-authenticated surface, with bounded input,
 safe copy and durable acknowledgements:
@@ -3788,3 +3920,90 @@ its wallet reports `creditScope: 'session'`. This is a display receipt, never
 an admission override. Host privacy links use the existing legal slot with
 `data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
 German, German digit grouping and a nonbreaking space before `Credits`.
+
+### In-chat email offer (AIT-507, opt-in)
+
+Set `host.emailOffer = { afterMessages: 2 }` on the server host to replace the
+fifth-message email prompt with an assistant-side offer after a settled reply.
+`{}` defaults to two accepted visitor messages; `afterMessages: 1` is also
+supported. Other thresholds are refused at startup. The session snapshot
+publishes the resolved `emailOffer: { afterMessages }` policy. Hosts enable the
+existing verification and credit surfaces in the UI and provide a delivering
+identity port, the privacy-document capability, and the visitor-wide
+`claimEmailAsk` / `emailAskAfter` ports. The demo helper also accepts
+`createDemoHost({ emailOffer: { afterMessages: 2 } })`.
+
+Before visitor input, the overview and Settings' empty capture form are absent.
+When a visitor is used up, capture stays available in Settings so the composer's
+upgrade action can recover credit even in a new conversation with no input.
+Deferral follows credit receipts and changes. The credits popover hides its email
+action only for an unsaved address while capture is deferred, reserving the
+action's space when a next tier exists so revealing it does not move the popover.
+Without a next tier, the action and its reserved slot are absent.
+A saved address keeps its Change and Delete controls in Settings. The host opener
+never counts as visitor input. Accepted or unreadable documents do count as
+visitor input through core `hasVisitorInput`, revealing the overview and Settings
+capture, but do not advance the offer’s accepted-message threshold. An opener
+alone cannot trigger a low-credit form, line or confirmation action.
+Confirmation still unlocks the assessment and
+concepts; starting a conversation does not require an email address.
+
+The offer counts accepted text and final speech messages, deduplicated by turn
+ID. Assistant turns, the opener, documents, uploads and partial speech do not
+advance the threshold. A failed reply defers the offer until the next settled
+assistant reply. The inline element is outside canonical transcript data, model
+context and exports. It remains usable during a live call and leaves the
+composer active on phones, without moving focus or opening the keyboard.
+
+The existing `POST /api/sessions/:id/email-ask` route accepts
+`{ action: 'show' | 'dismiss', why: 'offer' }`. The server verifies the policy,
+threshold, settled reply and shared eligibility rule: privacy capability and
+email delivery, plus either a confirmation lock with confirmation available or
+a positive next-tier delta. The existing rolling 24-hour visitor claim and a
+durable conversation latch bound frequency. Dismissal does not consume the
+separate low-credit claim. Under this policy, `why: 'turn5'` cannot open a prompt;
+`why: 'low'` retains its existing behavior.
+
+The credit receipt's `emailOffer` record and offer-claim responses carry
+`offered`, `open`, `dismissed`, `at` (the anchor reply ID), `nextTier`,
+`deltaMicro`, and `revision`. This is private host state, separate from the
+snapshot's policy and from transcript events. A saved, unconfirmed address uses
+resend; replacing or deleting it remains in Settings. New addresses use
+`Verification.saveAndConfirm`, including the rendered privacy notice's mandatory
+`noticeVersion`. `Verification.resend()` uses the existing identity route and
+cooldown, requesting a first link for a saved guest or resending a pending one,
+without saving or replacing the address.
+
+Copy comes from the existing `hostGive`, `hostConfirm`, `verify.lockLead`,
+`verify.send`, `verify.resend`, `verify.sent` and `verify.unlocked` keys, so host
+copy overrides apply. No new copy keys are required. The additive
+`@inspr/aithema-core/email-offer` subpath exports the shared `emailOfferPolicy`,
+`emailOfferEligibility` and `visitorMessageCount` helpers
+used by the server and UI, so packed consumers use the same policy and predicates.
+With `emailOffer` configured, the demo tier projection offers confirmation
+directly when saving adds no credit but confirmation has a positive delta.
+The demo forwards that option to `createVisitorCredits({ emailOffer })`.
+Without the policy, the demo keeps its existing tier projection.
+Save refusals use `verify.invalid` and mark the field invalid; other save
+failures use `email.failed`. Saving uses `email.saving`, and a confirmation-link
+failure after a successful save uses `verify.deliveryFailed`. During a save,
+`aria-disabled` keeps the capture input focused; a refused save retains the
+address and focus for correction. For opted-in hosts, the confirmation dialog
+reserves the pending form's row order, spacing and localized hint slot before
+saving so acknowledgement does not move the dialog or its field and action row.
+
+### Optional host opener
+
+`createHandlers({ opener: { en?: string, de?: string }, ... })` opts a host into a plain-text first assistant message. Each locale is limited to 1000 characters; blank or missing copy disables the opener for that locale, with no other-language fallback. The snapshot publishes only the current locale as `opener: { text, locale }`. Opted-in hosts' public `session.locale-changed` events also carry `data.opener` with that resolved value, or `null` when the new locale has no opener. The requesting tab and SSE peers update the render-only row from this server-owned field. It is not persisted in locale journal metadata. There is no browser-writable opener route.
+
+The UI shows the opener after the legacy Start action, and `configure({ entrance: 'combined', ... })` exposes the render-only opener before input. Missing locale copy reserves no entrance transcript space. It remains a render-only row until the first accepted text turn, the first completed document upload (accepted or unreadable), or an eligible successful voice connection (see provider rules below). Document completion claims the same once-only opener in its transaction, before the terminal upload event and any reply dispatch; pending, refused and withdrawn uploads do not claim it. Device processing inserts it locally before the first device turn. It never consumes a model invocation. The transcript region clamps the opener to six lines; the existing localized **Read full reply** control opens its complete text without moving the composer, including when no voice provider is configured. Its heading and explanatory note use the additive `hostOpenerTitle` and `hostOpenerTextOnly` EN/DE copy keys; host overrides keep winning. Full-reply copies are closed and cleared when input is withdrawn, consent is revoked, or the conversation is erased.
+
+Persistence uses one assistant turn with ID `host:opener`, `origin: 'host'`, and no model, provider or operation identity. Existing nonempty histories receive no inserted opener. Once persisted, it pins the locale like any transcript entry. Core exports `hasVisitorInput(session)` for active user turns or accepted/unreadable documents; host/AI assistant turns, pending documents and withdrawn/erased input do not satisfy it. `hasConversationInput` remains a compatibility alias. The UI preserves an already engaged workspace through withdrawn input, pending uploads and ordinary assistant greetings/streaming; those display states do not satisfy assessment or admission thresholds. A host-only opener does not reveal the overview. `conversationStarted` keeps its durable locale-locking meaning. UI integrations can use `hostOpenerTurn(session)` and `openerTranscript(session, { visible = true })` from `packages/ui/src/host-opener.js` for the entrance projection.
+
+The first `/turns` transaction persists opener then user input and broadcasts both journal events in order. For hosts with an opener configured, its JSON response preserves the legacy event-shaped fields and adds `event` (the user event) and `events` (ordered `[opener, turn]`, or `[turn]` when no opener was inserted). Replay returns that same ordered event list. Hosts without an opener retain the exact legacy event response and presentation context. Clients apply every event in `events`, falling back to `[event]` for an older server. The `host:` namespace is reserved and cannot be used in visitor `clientEventId` values.
+
+**Opted-in provenance/export change:** host-authored assistant turns retain `origin: 'host'` in JSON and are labeled `assistant (host)` in Markdown exports. Generated assistant text keeps `origin: 'ai-generated'` and its existing export label. The opener is included as the first assistant turn in model context, with guidance that the host already delivered it and the model should continue without repeating or contradicting it.
+
+**ElevenLabs and AIT-175:** for a host without its own `voice.presentation`, the configured locale opener also replaces the fresh-call spoken greeting. The server validates the existing locale-specific AI disclosure at startup and fails closed before any provider call if it is invalid. This deliberately reverses AIT-175's separation of visual host text and spoken greeting for these opted-in hosts. A supplied presentation keeps winning: its greeting is persisted normally, and connect does not persist the unspoken host opener. Native connect claims the opener only when the callback selects it as this call's first spoken message. A text-first conversation, an earlier connected call (including an empty call in a locale without an opener), any earlier logical call under the opted-in credits policy, or an automatic transport repair never speaks or newly persists the host opener at connect. Existing continuation presentation rules apply, and automatic repair stays silent. Refused admission and failed startup count as earlier logical credits calls even when no transcript was stored. Text and document claims retain their existing rules. Native greeting finals are linked structurally to the canonical opener only when this call was given that opener and no facade completion exists, including when an upload claims it between voice preparation and connection. Heard-prefix corrections retain the original host text and record interruption metadata only, with heard length bounded by the canonical text length.
+
+**Grok:** the opener is shown and included in canonical model context, but remains text-only (`opener: false`). A fresh first-contact connection still claims it once when the transcript is empty and no earlier connected call (or earlier logical credits call) exists; the provider speaks no separate greeting. Opener speech is a follow-up feature.

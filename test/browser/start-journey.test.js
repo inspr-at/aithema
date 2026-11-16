@@ -1,3 +1,4 @@
+import './host-opener-check.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -418,3 +419,7 @@ test('AIT-501 v2.2: the real host open/adopt/configure return resumes typing fro
     await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-501-host-return-boxes.json'), JSON.stringify(boxes, null, 2));
   }
 });
+
+import { combinedEntranceCheck } from './combined-entrance-check.js';
+test('AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440',
+  { timeout: 180_000 }, combinedEntranceCheck);

@@ -839,7 +839,12 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome') });
   t.after(() => browser.close());
   const page = await browser.newPage(), rectEvidence = [];
-  t.after(async () => { if (laneEvidenceDirectory) await writeFile(join(laneEvidenceDirectory, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2)); });
+  t.after(async () => {
+    if (laneEvidenceDirectory) {
+      await mkdir(laneEvidenceDirectory, { recursive: true });
+      await writeFile(join(laneEvidenceDirectory, 'ait-512-rects.json'), JSON.stringify(rectEvidence, null, 2));
+    }
+  });
   let requests = 0, refuse = false;
   await page.setRequestInterception(true);
   page.on('request', request => { void (async () => {

@@ -1,11 +1,13 @@
 export const DOCUMENT_CONTEXT_LIMITS = Object.freeze({ totalChars: 16_000, perDocumentChars: 12_000 });
 export const activeUploads = session => (session.uploads ?? []).filter(u => !u.erased && !u.withdrawn && u.state !== 'withdrawn');
 export const documentInputs = session => activeUploads(session).filter(u => ['accepted', 'unreadable'].includes(u.state));
-export const hasConversationInput = session => session.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn) || documentInputs(session).length > 0;
+export const hasVisitorInput = session => session.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn) || documentInputs(session).length > 0;
+// Compatibility alias for hosts using the existing input helper.
+export const hasConversationInput = hasVisitorInput;
 // Admission, reconnect recovery and Retry share the same assessment threshold.
 export function understandingDeferred(session) {
   const inputs = session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).length + documentInputs(session).length;
-  return !inputs || !session.demo && !session.identified && inputs < session.preset.anonymousTurns;
+  return !hasVisitorInput(session) || !session.demo && !session.identified && inputs < session.preset.anonymousTurns;
 }
 
 /** JSON escaping prevents a document or filename from closing its data boundary.
