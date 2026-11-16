@@ -1675,3 +1675,40 @@ test('AIT-509: a fresh wish after visual coverage loss uses the just-in-time con
   await f.grant();
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
 });
+
+for (const copy of [en, de]) test(`AIT-509 r10 ${copy.display.locale}: a wish waiting for readiness shows waiting text without consent`, t => {
+  const f = conceptConsentFixture(t, copy);
+  f.change({ conceptStatus: { phase: 'waiting' } });
+  const line = f.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, copy.conceptWaiting);
+  assert.equal(line.querySelector('.consent-action'), null);
+  assert.equal(line.dataset.consentFeature, undefined);
+  assert.equal(f.events.length, 0);
+});
+for (const outcome of ['grant', 'decline', 'input', 'source-removed']) test(`AIT-509 r10: delayed readiness ask binds the current input; ${outcome}`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
+  const f = conceptConsentFixture(t);
+  const transcript = [...f.c.session.transcript, { id: 'later', role: 'user', content: 'The dashboard needs filters.' }];
+  f.change({ transcript, inputRevision: f.c.session.inputRevision + 1 });
+  f.ask();
+  const action = f.root.querySelector('.concept-activity-text .consent-action');
+  assert.ok(action, 'the wish at first is shown when readiness arrives at later');
+  action.click();
+  assert.equal(f.events.at(-1).intent, 'concept');
+  if (outcome === 'decline') await f.grant(true, []);
+  if (outcome === 'input') f.change({ transcript: [...transcript, { id: 'superseding', role: 'user', content: 'Make it a table.' }], inputRevision: f.c.session.inputRevision + 2 });
+  if (outcome === 'source-removed') f.change({ transcript: transcript.map(turn => turn.id === 'first' ? { ...turn, withdrawn: true } : turn) });
+  await f.grant(); await f.grant();
+  const posts = f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body);
+  assert.equal(posts.length, outcome === 'grant' ? 1 : 0);
+  if (outcome === 'grant') assert.equal(JSON.parse(posts[0].options.body).sourceTurnId, 'later');
+});
+for (const copy of [en, de]) for (const override of ['default', 'explicit', 'legacy']) test(`AIT-509 r10 ${copy.display.locale}: impersonal HTML ask with ${override} copy`, t => {
+  const custom = override === 'explicit' ? { ...copy, conceptDraftConsent: 'Host draft permission' }
+    : override === 'legacy' ? { ...copy, featureConsent: { ...copy.featureConsent, html: 'Host draft permission' } } : copy;
+  const f = conceptConsentFixture(t, custom);
+  f.change({ conceptVisualKind: 'html', settings: { ...f.c.session.settings, visuals: 'html' } });
+  f.ask();
+  const label = f.root.querySelector('.concept-activity-text .consent-line-copy');
+  assert.equal(label.textContent, (override === 'default' ? copy === de ? 'Entwürfe: Einwilligung nötig.' : 'Drafts need consent to be created.' : 'Host draft permission') + '\u00a0· ');
+});

@@ -66,6 +66,7 @@ async function fixture(t, real = false, purpose = false, revision = false) {
     if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, consentRevision: page.state.consentRevision ?? page.state.snapshot.consentRevision, featureMatrix: page.state.matrix });
     // Requested-visual recovery scenes acknowledge only fixture work, never providers.
     if (page.state?.snapshot && request.method() === 'POST' && path.endsWith('/concepts')) {
+      (page.conceptPosts ??= []).push(JSON.parse(request.postData()));
       page.state.snapshot.conceptStatus = { phase: 'idle' };
       return json({ event: { seq: ++page.state.seq, type: 'concept.state', data: {
         intent: page.state.snapshot.conceptIntent, status: { phase: 'idle' } } } });
@@ -105,7 +106,7 @@ async function scene(page, locale, theme, width, missing) {
       consentRequest: { id: 'fixture-visual-wish', sourceTurnId: 'c1-user' } };
     session.transcript = [{ id: 'c1-user', role: 'user', content: locale === 'de' ? 'Wir verlieren Zeit beim Schreiben von Angeboten.' : 'We lose time writing quotes.' }];
     session.operations = { inputRevision: inputRevision(session), running: ['reaction', 'understanding'], lastFailure: null };
-    c.configure({ copy, session, host: { library: true }, voicePresentation: manifest.presentation, voiceClient: { manifest } });
+    c.configure({ copy: { ...copy, conceptDraftConsent: copy.featureConsent.html, conceptConsentAction: copy.featureConsent.action }, session, host: { library: true }, voicePresentation: manifest.presentation, voiceClient: { manifest } });
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     globalThis.c1Nodes = [...c.shadowRoot.querySelectorAll('.concept-activity-text, .voice-state, .notice, textarea')];
     globalThis.c1Document = globalThis.documentToken;
@@ -1415,6 +1416,22 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
     }
     if (width !== 1024) await record(t, page, `${label}-idle`, { boxes: before });
     await page.evaluate(() => {
+      ait509Session.conceptStatus = { phase: 'waiting' };
+      ait509Session.transcript.push({ id: 'later-details', role: 'user', content: 'The dashboard needs filters.' });
+      ait509Session.inputRevision++;
+      ait509View.update(ait509Session);
+    });
+    await frame(page);
+    const waiting = await measure();
+    for (const [selector, r] of Object.entries(waiting)) {
+      assert.ok(r.width > 0 && r.height > 0, selector + ': positive waiting box');
+      for (const key of Object.keys(r)) assert.ok(Math.abs(r[key] - before[selector][key]) <= 0.5, `${selector}.${key}: waiting no shift`);
+    }
+    assert.deepEqual(await shadow(page, c => ({ text: c.shadowRoot.querySelector('.concept-activity-text').textContent,
+      action: Boolean(c.shadowRoot.querySelector('.concept-activity-text .consent-action')) })),
+      { text: locale === 'de' ? de.conceptWaiting : en.conceptWaiting, action: false });
+    if (width !== 1024) await record(t, page, `${label}-waiting`, { before, waiting });
+    await page.evaluate(() => {
       ait509Session.conceptStatus = { phase: 'waiting', consentRequest: { id: 'validated-wish', sourceTurnId: 'c1-user' } };
       ait509View.update(ait509Session);
     });
@@ -1475,11 +1492,56 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
       return { hidden: request.hidden, disabled: request.disabled };
     }), { hidden: false, disabled: false }, 'the grant reaches the rendered Request control');
     if (width !== 1024) await record(t, page, `${label}-granted`, { beforeGrant, afterGrant });
-    results.push({ locale, theme, entrance, width, height, hostInset, before, after, beforeGrant, afterGrant });
+    results.push({ locale, theme, entrance, width, height, hostInset, before, waiting, after, beforeGrant, afterGrant });
   }
   assert.equal(results.length, entrance === 'combined' ? 14 : 6);
   if (process.env.AITHEMA_EVIDENCE_DIR) {
     const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-509'); await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `rects-${locale}-${entrance}.json`), JSON.stringify({ head: evidenceCommit, results }, null, 2));
+  }
+});
+
+for (const entrance of ['choice', 'combined']) test(`AIT-509 r10 ${entrance}: delayed readiness ask grants once or cancels on decline/new input`, async t => {
+  const page = await fixture(t);
+  await page.evaluate(async () => {
+    const { ConceptView } = await import('/packages/ui/src/concept-view.js');
+    const update = ConceptView.prototype.update;
+    ConceptView.prototype.update = function (...args) { globalThis.delayedView = this; return update.apply(this, args); };
+  });
+  for (const outcome of ['grant', 'decline', 'input']) {
+    await scene(page, 'en', 'light', 390, []); page.conceptPosts = [];
+    await shadow(page, (c, entrance) => {
+      const session = structuredClone(c.session);
+      session.settings.visuals = null; session.conceptVisualKind = 'image';
+      session.transcript.push({ id: 'later', role: 'user', content: 'The dashboard needs filters.' }); session.inputRevision++;
+      session.conceptStatus = { phase: 'waiting', consentRequest: { id: 'delayed-wish', sourceTurnId: 'c1-user' } };
+      session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
+      globalThis.delayedSession = session;
+      c.configure({ entrance, session, voiceClient: {} });
+      delayedView.feature = () => delayedSession.featureMatrix.best.images;
+      delayedView.update(delayedSession);
+      globalThis.delayedEvents = [];
+      c.addEventListener('aithema-consent', e => { e.preventDefault(); delayedEvents.push(e.detail); }, { once: true });
+    }, entrance);
+    page.state.snapshot = await shadow(page, () => structuredClone(delayedSession));
+    await frame(page);
+    assert.ok(await page.$('aithema-session >>> .concept-activity-text .consent-action'), 'ask survives the older wish source');
+    await page.locator('aithema-session >>> .concept-activity-text .consent-action').click();
+    assert.deepEqual(await page.evaluate(() => delayedEvents.map(e => ({ reason: e.reason, intent: e.intent, features: e.features }))),
+      [{ reason: 'use', intent: 'concept', features: ['images'] }]);
+    await shadow(page, async (c, outcome) => {
+      if (outcome === 'input') {
+        delayedSession.transcript.push({ id: 'superseding', role: 'user', content: 'Make it a chart.' }); delayedSession.inputRevision++;
+        delayedView.update(delayedSession);
+      }
+      for (const selected of outcome === 'decline' ? [[], ['images']] : [['images'], ['images']]) {
+        delayedSession.featureMatrix.best.images = { available: true }; delayedSession.consentRevision++;
+        delayedView.update(delayedSession, { consentRevision: delayedSession.consentRevision, selected, features: { images: ['images'] } }, true);
+      }
+    }, outcome);
+    await frame(page);
+    if (outcome === 'grant') await until(page, () => document.querySelector('aithema-session').session.conceptStatus?.phase === 'idle');
+    assert.equal(page.conceptPosts.length, outcome === 'grant' ? 1 : 0, outcome);
+    if (outcome === 'grant') assert.equal(page.conceptPosts[0].sourceTurnId, 'later');
   }
 });

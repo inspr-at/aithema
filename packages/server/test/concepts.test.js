@@ -548,3 +548,29 @@ test('AIT-509: the real scoped consent POST preserves replies and cannot replay 
   assert.equal((await h.request('approved-wish')).status, 200); await h.handlers.idle();
   assert.equal(h.records.length, 1, 'the continuation goes through the existing idempotency gate');
 });
+
+for (const outcome of ['grant', 'decline', 'input']) test(`AIT-509 r10: wish before readiness survives later turns; ${outcome}`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const h = await setup(t); await h.turn('wish', 'Please show a concept for the dashboard.'); h.readiness(15);
+  h.handlers.conceptLane.recordIntent(h.id, { intentId: 'early-wish', sourceTurnId: 'wish' });
+  const matrix = h.runtime.matrix.bind(h.runtime);
+  h.runtime.matrix = async session => { const m = await matrix(session); m.best.images = { available: false, reason: 'current processing consent required' }; return m; };
+  await h.handlers.conceptLane.run(h.id);
+  assert.equal(h.storage.get(h.id).conceptStatus.consentRequest, undefined);
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent.sourceTurnId, 'wish');
+  await h.turn('details', 'The dashboard needs filters.'); await h.turn('ready', 'Tables show the results.');
+  h.readiness(25); await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
+  assert.deepEqual(h.storage.get(h.id).conceptStatus.consentRequest, { id: 'early-wish', sourceTurnId: 'wish' });
+  assert.equal(h.records.length, 0);
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+  if (outcome === 'input') await h.turn('new-input', 'Make it a chart.');
+  h.runtime.matrix = matrix;
+  await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
+  assert.equal(h.records.length, 0, 'coverage alone never replays the earlier wish');
+  if (outcome === 'grant') {
+    assert.equal((await h.request('approved-delayed-wish')).status, 202); await h.handlers.idle();
+    assert.equal((await h.request('approved-delayed-wish')).status, 200); await h.handlers.idle();
+    assert.equal(h.records.length, 1, 'one explicit continuation dispatches through the existing dedupe gate');
+    assert.deepEqual(h.storage.get(h.id).concepts.at(-1).turnIds, ['wish', 'details', 'ready']);
+  }
+});
