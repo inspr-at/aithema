@@ -109,32 +109,11 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             optionsFloor: r.querySelector('.qcard').style.getPropertyValue('--question-options-floor'),
             limit: r.querySelector('.qcard').style.getPropertyValue('--question-card-limit'),
             notices: [r.querySelector('.voice-notices').getBoundingClientRect().height, r.querySelector('.voice-notices').style.minHeight],
-            endBoxes: [...shell.children].map(child => { const b = child.getBoundingClientRect(), css = getComputedStyle(child); return { className: child.className, top: b.top, bottom: b.bottom, height: b.height, margin: css.margin, padding: css.padding, minHeight: css.minHeight, position: css.position, scrollHeight: child.scrollHeight }; }),
-            paneStyle: { padding: getComputedStyle(shell).padding, slackTop: shell.style.getPropertyValue('--aithema-slack-top'), slackBottom: shell.style.getPropertyValue('--aithema-slack-bottom') },
             startVisible: bubble.top >= shell.getBoundingClientRect().top + parseFloat(getComputedStyle(shell).paddingTop) - 1 };
         });
         const assertRest = async state => {
           if (![390, 1440].includes(width)) return;
           const before = await rest();
-          if (laneEvidenceDirectory && width === 1440 && state === 'card') {
-            const diagnostic = await shadow(page, c => {
-              const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), list = shell.querySelector('ol'), jump = shell.querySelector('.transcript-latest');
-              const inspect = () => ({ scroll: shell.scrollTop, client: shell.clientHeight, extent: shell.scrollHeight,
-                shell: shell.getBoundingClientRect().toJSON(), shellCSS: { gap: getComputedStyle(shell).gap, minHeight: getComputedStyle(shell).minHeight, border: getComputedStyle(shell).border, zoom: getComputedStyle(shell).zoom }, list: list.getBoundingClientRect().toJSON(),
-                bubble: list.lastElementChild.getBoundingClientRect().toJSON(),
-                overflow: [...list.querySelectorAll('*')].map(n => ({ className: n.className, bottom: n.getBoundingClientRect().bottom, position: getComputedStyle(n).position })).filter(n => n.bottom > list.getBoundingClientRect().bottom) });
-              const original = inspect(), experiments = [];
-              for (const [target, property, value] of [[jump, 'display', 'none'], [shell.querySelector('.voice-notices'), 'display', 'none'], [jump, 'order', '0'], [jump, 'position', 'static'], [jump, 'marginTop', '-46px'], [list, 'overflow', 'hidden'], [list, 'contain', 'paint'], [shell, 'display', 'block']]) {
-                const style = target.getAttribute('style'); target.style[property] = value; shell.scrollTop = shell.scrollHeight;
-                experiments.push({ target: target.className, property, value, ...inspect() });
-                if (style === null) target.removeAttribute('style'); else target.setAttribute('style', style);
-              }
-              shell.scrollTop = original.scroll;
-              return { original, experiments };
-            });
-            await mkdir(laneEvidenceDirectory, { recursive: true });
-            await writeFile(join(laneEvidenceDirectory, `ait-511-end-${label}.json`), JSON.stringify(diagnostic, null, 2));
-          }
           assert.ok(before.startVisible, `${state}: latest reply starts below the fade: ${JSON.stringify(before)}`);
           assert.ok(Math.abs(before.gap - before.turnGap) <= 1.5, `${state}: latest reply/card gap equals the turn gap: ${JSON.stringify(before)}`);
           await shadow(page, c => {
@@ -670,11 +649,6 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false, '390×728: a short question fits the full card');
             await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: (globalThis.qcardReply.question_short + ' ').repeat(4), options: globalThis.qcardBoundaryOptions }));
             await nextFrame(page); await nextFrame(page);
-            if (evidence) await writeFile(join(evidence, `ait-511-compact-${label}.json`), JSON.stringify(await shadow(page, c => {
-              const r = c.shadowRoot, selectors = ['.band', '.display-foot', '.composer', 'textarea', '.concept-bar', '.transcript-shell', '.qcard', '.qtext', '.qopts', '.qhint'];
-              return { viewport: visualViewport.height, boxes: Object.fromEntries(selectors.map(selector => { const n = r.querySelector(selector); return [selector, { ...n.getBoundingClientRect().toJSON(), scrollHeight: n.scrollHeight, padding: getComputedStyle(n).padding }]; })),
-                rows: [...r.querySelectorAll('.qopt')].map(n => n.getBoundingClientRect().height), cardStyle: r.querySelector('.qcard').style.cssText };
-            }), null, 2));
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), true, '390×728: a longer question needs compact answers');
             still(beforeModeChange, await boxes(page), 'full-to-compact content change at the same viewport');
             await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: 'Choose?', options: globalThis.qcardBoundaryOptions }));

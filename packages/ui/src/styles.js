@@ -381,9 +381,10 @@ svg { display:block; flex:none; }
 .transcript-shell > ol, .transcript-shell > .voice-notices { flex:none; }
 /* Latest floats above end content; it never reserves an empty transcript row. */
 .transcript-shell > .transcript-latest { order:1; flex:none; align-self:flex-end; height:44px; margin:-44px 0 0 auto; }
-/* Keep descendant overflow inside the natural list height. Horizontal tails
-   remain visible; native bottom scroll then agrees with the last row's box. */
-.transcript-shell > ol { overflow-x:visible; overflow-y:clip; }
+/* An empty recovery region retains its accessible live text without its 1px
+   hidden span extending the native scroll end beyond the last visible row.
+   Pointer-held minimum-height reservations still keep their own space. */
+.transcript-shell > .voice-notices:not(:has(> .voice-notice:not([hidden]))) { overflow:clip; }
 /* Visibility keeps the floating Latest action stable in both states. */
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }

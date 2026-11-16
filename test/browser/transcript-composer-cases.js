@@ -178,7 +178,8 @@ export async function transcriptComposerCases(t) {
       await shadow(page, async c => {
         const { inputRevision } = await import('/packages/core/src/session.js');
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'growth-question', role: 'assistant', inputRevision: inputRevision(c.session),
-          content: 'Choose?', question_short: 'Which of these options would best describe the project and its intended audience? '.repeat(3),
+          content: c.session.locale === 'de' ? 'Welche Option passt?' : 'Choose?',
+          question_short: (c.session.locale === 'de' ? 'Welche dieser Optionen beschreibt Ihr Vorhaben und die vorgesehene Zielgruppe am besten? ' : 'Which of these options would best describe the project and its intended audience? ').repeat(3),
           options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
       });
       await settleEvidenceFrame(page); const before = await capture(`ait-513-${locale}-${theme}-390-card-expanded`);

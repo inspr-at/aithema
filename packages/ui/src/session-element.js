@@ -1081,6 +1081,8 @@ export class AithemaSession extends HTMLElement {
           : this.#session.paused || input.disabled ? root.querySelector('.pause, .composer-resume') : input)?.focus();
       } });
     this.#phoneViewport = new PhoneComposerViewport(root, {
+      questionPending: () => hasVisitorInput(this.#session) && (this.#sending || this.#partials.size > 0 ||
+        this.#session.operations?.running.includes('reaction') || activeTurns(this.#session).at(-1)?.role === 'user'),
       resizeComposer: update => this.#anchored(update),
       onComposerResize: ({ following }) => {
         this.#questionCard.reserve();

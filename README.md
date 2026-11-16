@@ -1436,6 +1436,8 @@ Attach, Send and the composer's bottom edge stay in place. Following readers sta
 latest turn; a resting transcript pointer keeps its row and gets Latest instead.
 Only an accepted typed/device send clears the matching draft and its height;
 failed sends, answer-chip sends and edits made during a pending send retain it.
+Typing the next draft while a reply is pending reserves room for its future
+question card, so that reply can arrive without resizing the draft.
 Combined entrance uses the same sizing owner before and after visitor input;
 drafting beside a host opener does not reveal the overview. Short desktop and
 keyboard layouts reserve compact, scrollable disclosure/status slots and pin

@@ -13,7 +13,9 @@
   used-up copy scrolls in its body, keyboard-focusable only while overflowing.
   Attach, Send and the bottom edge stay fixed. Failed sends and answer-chip
   sends retain a separate draft and its size; accepted typed/device sends reset
-  the matching draft. Follow mode re-pins; a resting transcript pointer wins
+  the matching draft. A next draft typed during a pending reply reserves its
+  future question-card budget without resizing when that reply arrives.
+  Follow mode re-pins; a resting transcript pointer wins
   and Latest exposes the occluded tail. Combined entrance shares this owner
   before and after input without treating an opener/draft as visitor input.
   Short desktop and keyboard layouts reserve compact scrollable disclosure/status

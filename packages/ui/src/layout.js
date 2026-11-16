@@ -252,8 +252,8 @@ export class FooterPopups {
 // Measure offscreen so the live field changes only inside the caller's pointer
 // anchor transaction; native field-sizing must not resize it before that snapshot.
 class ComposerSize {
-  constructor(root, { following, resize, changed, painted }) {
-    Object.assign(this, { root, following, resize, changed, painted });
+  constructor(root, { following, resize, changed, painted, questionPending }) {
+    Object.assign(this, { root, following, resize, changed, painted, questionPending });
     this.view = root.ownerDocument.defaultView;
     this.input = root.querySelector('.composer textarea');
     this.onInput = () => { this.fit(true); this.painted(); };
@@ -332,7 +332,12 @@ class ComposerSize {
         this.baselineContext = baselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
       }
     } finally { probe.remove(); }
-    let cap = Math.min(.4 * viewport, available - (card && !card.hidden && !short ? 150 : 0) - (short ? 0 : 128));
+    // A visitor can type the next draft before the preceding answer arrives.
+    // Reserve its future card on that edit, so an asynchronous question never
+    // has to shrink the draft or surrender the answer/reply floors.
+    const cardMinimum = !short && (card && !card.hidden || this.questionPending()) ? 150 : 0;
+    const cardGap = phone && cardMinimum ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) || 0 : 0;
+    let cap = Math.min(.4 * viewport, available - cardMinimum - cardGap - (short ? 0 : 128));
     cap = Math.max(minimum, cap - chrome);
     if (short) cap = Math.min(cap, 3 * line + padding);
     const height = Math.max(minimum, Math.min(natural, cap));
@@ -356,9 +361,9 @@ class ComposerSize {
  * only that viewport. Geometry comes from the existing band, footer and dock. */
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
-    resizeComposer = update => update(), onComposerResize = () => {} } = {}) {
+    resizeComposer = update => update(), onComposerResize = () => {}, questionPending = () => false } = {}) {
     this.onNoticesChange = onNoticesChange; this.followsTranscript = followsTranscript;
-    this.composerSize = new ComposerSize(root, { following: followsTranscript, resize: resizeComposer, changed: onComposerResize, painted: () => this.paint() });
+    this.composerSize = new ComposerSize(root, { following: followsTranscript, resize: resizeComposer, changed: onComposerResize, painted: () => this.paint(), questionPending });
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.paint = () => {
       const view = this.view, viewport = view?.visualViewport;

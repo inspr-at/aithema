@@ -100,7 +100,9 @@ export const questionCardStyles = `
      focus/accessibility target while the compact transcript uses that space. */
   .workspace[data-question-compact] .concept-bar { position:absolute; inset:0 0 auto; visibility:hidden; pointer-events:none; }
   .workspace[data-question-compact] .conversation { row-gap:0; grid-template-rows:minmax(0,1fr);
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 26px); }
+    /* Keep the same outer clearance as the expanded card; only its contents
+       compact. The trailing visitor-growth margin owns overview stability. */
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 32px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
   .workspace[data-question-compact] .transcript-shell > .voice-notices { margin-top:0; }
 }
