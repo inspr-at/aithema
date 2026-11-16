@@ -174,10 +174,11 @@ export async function ownerWalletConformance(port, request, { timeoutMs = 1000 }
   check(afterConflict?.committedMicro === before.committedMicro, 'owner released conflict changed hold');
   return kit.result();
 }
-export function createCredits({ sessionId, durationMs = CONVERSATION_LIMIT_MS } = {}) {
+export function createCredits({ sessionId, durationMs = CONVERSATION_LIMIT_MS, conversationLimit = 'time' } = {}) {
+  if (!['time', 'credits'].includes(conversationLimit)) throw new TypeError('Invalid conversation limit policy');
   if (!id(sessionId) || !integer(durationMs) || !durationMs) throw new TypeError('Invalid credit slot configuration');
   return { sessionId, status: 'ready', startedAt: null, endsAt: null, durationMs, lastNow: 0,
-    balance: null, endReason: null, paused: false };
+    balance: null, endReason: null, paused: false, ...(conversationLimit === 'credits' ? { timed: false } : {}) };
 }
 /** Legacy guard rebinding helper. Server deadlines are per conversation:
  * New/reset use createCredits; recovery keeps the original session and deadline. */
@@ -189,7 +190,7 @@ export function creditsView(state, now) {
   if (!integer(now)) throw new TypeError('Credits view requires host time');
   return { sessionId: state.sessionId, status: state.status, balance: structuredClone(state.balance),
     remainingMs: state.endsAt === null ? null : Math.max(0, state.endsAt - now), endReason: state.endReason,
-    canStartPaidWork: state.status === 'active' && !state.paused && now < state.endsAt,
+    canStartPaidWork: state.status === 'active' && !state.paused && (state.timed === false || now < state.endsAt),
     topUpOwnedByHost: true };
 }
 /** A full hold is a balance view, not a terminal denial. Only an authoritative
@@ -207,12 +208,18 @@ export function reduceCredits(state, event) {
         preserveTranscript: true, settleOutstanding: true } });
     }
   };
-  if (next.status === 'active' && event.now >= next.endsAt) end('one-hour');
+  // Migration is a trusted server event, applied before any elapsed-time check.
+  // Terminal guards are deliberately never reopened or rewritten.
+  if (event.type === 'guard-migrate' && next.timed !== false && ['ready', 'active'].includes(next.status)) {
+    next.timed = false; next.endsAt = null;
+    events.push({ type: 'credits.guard-migrated', data: { sessionId: next.sessionId, conversationLimit: 'credits', timed: false } });
+  }
+  if (next.timed !== false && next.status === 'active' && event.now >= next.endsAt) end('one-hour');
   switch (event.type) {
     case 'start':
       if (next.status === 'ready') {
-        next.startedAt = event.now; next.endsAt = event.now + next.durationMs;
-        if (!integer(next.endsAt)) throw new TypeError('Conversation deadline overflow');
+        next.startedAt = event.now; next.endsAt = next.timed === false ? null : event.now + next.durationMs;
+        if (next.timed !== false && !integer(next.endsAt)) throw new TypeError('Conversation deadline overflow');
         next.status = 'active';
       }
       break;
@@ -240,6 +247,7 @@ export function reduceCredits(state, event) {
       if (next.status !== 'ending' && next.status !== 'ended') throw new TypeError('No credit closure requested');
       next.status = 'ended';
       break;
+    case 'guard-migrate':
     case 'tick': break;
     default: throw new TypeError('Unknown credit event');
   }

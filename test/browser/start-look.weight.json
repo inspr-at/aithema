@@ -23,5 +23,13 @@
         ]
       }
     ]
+  },
+  "diagnostic": {
+    "seconds": 112,
+    "evidence": "AIT-506 visual workload redistribution after AIT-505 integration. Remote Linux wrapper run ait-8ad0d13e381d4f4caa5bb6e7, SHA cdb7b3cb626b085c78adfd396d9e1080a0115af2: complete start-look passed 23/23, whole-file duration 88.847185774s. Apply ceil(file seconds * 1.25) = 112s. The short-phone matrix moved from start-journey into existing start-look with every assertion retained. Trusted rolling-main timing values and all capacity limits remain unchanged.",
+    "runId": "ait-8ad0d13e381d4f4caa5bb6e7",
+    "attempt": 1,
+    "sha": "cdb7b3cb626b085c78adfd396d9e1080a0115af2",
+    "workload": "a67212253a49f8e5f87e69cc295efd03da584f3ffc12cc8610575845eccc636f"
   }
 }

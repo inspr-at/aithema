@@ -242,6 +242,7 @@ export class Verification {
     const mode = this.#mode();
     (mode === 'capture' ? entry.input : mode === 'pending' ? entry.resend : entry.root.closest('dialog')?.querySelector('.verify-dialog-close'))?.focus();
   }
+  setCaptureDeferred(value) { if (this.#email.captureDeferred === value) return; this.#email.set({ captureDeferred: value }); this.#paint(); }
   update() { if (this.changeBlocked !== this.#streamingBlocked) this.#paint(); }
   get changeBlocked() { return Boolean(this.#identity?.address && this.streaming()); }
   async #send(entry) {
@@ -273,6 +274,14 @@ export class Verification {
     await this.#post(`identity/${command}`, { address }, () => { this.#ui.editing = false; entry.input.value = ''; });
     if (this.#alive) this.#focusForm(entry);
   }
+  /** Send a link for an already saved address without saving or replacing it. */
+  async resend() {
+    if (this.#ui.busy || !this.canCollect || !this.#email.address) return { ok: false };
+    if (this.#cooldown() > 0) return { ok: false, status: 429 };
+    const pending = this.#identity?.status === 'verification-pending';
+    const response = await this.#post(pending ? 'identity/resend' : 'identity/request', pending ? {} : { address: this.#email.address });
+    return { ...(response ?? { ok: false }), sent: response?.ok === true && response.body?.identity?.delivery !== 'failed' };
+  }
   async #resend(entry) {
     if (this.#ui.busy || !this.canCollect) return;
     if (this.#cooldown() > 0) { this.#ui = { ...this.#ui, message: this.#v.rateLimited, error: true }; this.#paint(); return; }
@@ -290,6 +299,7 @@ export class Verification {
     this.#ui.error = !response?.ok;
     this.#ui.message = response?.ok ? '' : response?.status === 429 ? v.rateLimited : response?.status === 400 ? v.invalid : v.failed;
     this.#paint();
+    return response;
   }
   #stateText() {
     const v = this.#v, identity = this.#identity, mode = this.#mode();
@@ -305,11 +315,11 @@ export class Verification {
     this.#streamingBlocked = this.changeBlocked;
     const v = this.#v, identity = this.#identity, mode = this.#mode(), cooldown = this.#cooldown();
     // Settings owns the optional entry; the policy lock below remains in the understanding pane.
-    this.#entry.hidden = !this.enabled;
+    this.#entry.hidden = !this.enabled || this.#email.captureDeferred && !this.#email.address;
     this.#email.set({ identity: this.#identity });
     if (!this.enabled) { this.#entry.querySelector('.verify-entry').hidden = true; this.#entry.querySelector('.verify-done').hidden = true; }
     // Lock pane: shown exactly while host policy holds the assessment.
-    this.#lock.hidden = !this.locked || !this.canCollect;
+    this.#lock.hidden = !this.locked || !this.canCollect || this.#email.captureDeferred;
     if (!this.canCollect && this.#dialog.open) this.#dialog.close();
     setText(this.#lock.querySelector('.verify-lock__title'), v.lockTitle);
     setText(this.#lock.querySelector('.verify-lock__lead'), v.lockLead);

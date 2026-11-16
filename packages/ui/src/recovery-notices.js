@@ -81,7 +81,7 @@ export class RecoveryNotices {
         this.replyNotice.append(this.actions);
       } else this.actions.remove();
       this.replyNotice.hidden = true;
-      text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
+      text('#voice-reply-title', this.dialog.dataset.hostOpener ? c.hostOpenerTitle : c.voiceLastReply); text('.voice-reply-note', this.dialog.dataset.hostOpener ? c.hostOpenerTextOnly : c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
       if (!available && this.dialog.open) this.dialog.close();
       return;
     }
@@ -127,12 +127,13 @@ export class RecoveryNotices {
       if (duringCall) control.setAttribute('aria-description', c.voiceReplyDuringCall);
       else control.removeAttribute('aria-description');
     }
-    text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
+    text('#voice-reply-title', this.dialog.dataset.hostOpener ? c.hostOpenerTitle : c.voiceLastReply); text('.voice-reply-note', this.dialog.dataset.hostOpener ? c.hostOpenerTextOnly : c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
     if (!available && this.dialog.open) this.dialog.close();
   }
   showText() {
     const text = this.recovery?.lastReplyText ?? this.pageReply?.text;
     if (this.readText.hidden || this.readText.disabled || !this.available() || !this.replyVisible(text, this.recovery?.lastReplyTurnId ?? this.pageReply?.turnId)) return;
+    delete this.dialog.dataset.hostOpener; this.render();
     this.root.querySelector('.voice-reply-text').textContent = text;
     if (!this.dialog.open) this.dialog.showModal();
   }
