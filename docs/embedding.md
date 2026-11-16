@@ -2032,7 +2032,31 @@ or when the logical deadline is exhausted. A shorter reservation requires a
 provider-enforced credential duration bound before issuance; a host timer alone
 does not establish that bound.
 The returned host exposes `binding`, `runtime`, `disabledReason`, `transient`,
-`presentation`, `onAvailable`, `closeOrphan`, and `close`. Qualify the legacy
+`presentation`, `onAvailable`, `closeOrphan`, and `close`.
+The server's callback adapter invokes `presentation(locale, ctx)`. On eligible
+fresh first contact it offers additive `ctx.hostOpener` after checking that exact
+string with `voiceOverrides` for the locale. To select it, **return it verbatim**
+as `{ agent: { language: locale, firstMessage: ctx.hostOpener } }`.
+`createElevenLabsVoiceHost` does this automatically. The field is omitted on
+continuations, explicit Resume, missing opener copy and failed disclosure.
+A custom presentation may ignore it and retain its own valid disclosing greeting.
+A text or language change cannot claim canonical host-opener speech.
+
+With a presentation, invalid opener disclosure in one locale logs only
+`{ event: 'voice.host-opener-fallback', locale }` at startup and falls back to
+the presentation's own disclosing greeting. Speech never uses the undisclosed
+opener or becomes silent because the disclosure check failed. The exact offered
+string is checked again per call; diagnostics never contain opener text.
+Without a presentation, invalid disclosure still fails closed at startup.
+
+First contact uses durable voice receipts rather than credentials or lifecycle
+existence. Unheard fresh calls can repeat the opener without duplicating its
+canonical turn; explicit Resume retains RC25 continuation copy and automatic
+repair stays silent. Under credits, even hosts without an opener receive opening
+context again after a refused, failed or unheard first call with no active turns;
+`ctx.hasPriorCalls` is present only once a voice receipt exists. The no-opener
+time-policy path retains RC25 output. Admission and spend rules above are unchanged.
+ Qualify the legacy
 binding in the callback, then normalize it before creating a duration binding.
 `agentName` and `facadeSecretName` must be explicit host-specific identifiers;
 `costConfig` and `qualifyBinding` are required. Missing or invalid arguments reject

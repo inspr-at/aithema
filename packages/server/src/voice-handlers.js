@@ -1,5 +1,5 @@
 import { normalizeOpener } from './host-opener.js';
-import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd, activeTurns } from '@inspr/aithema-core';
+import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd, activeTurns, hasVisitorInput } from '@inspr/aithema-core';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
@@ -89,6 +89,16 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   opener = normalizeOpener(opener);
   const calls = new Map(), sessions = new Map(), settlements = new Set(), authorities = new Map(), reconciliations = new Map();
+  const undeclaredOpeners = new Set();
+  function speaksOpener(plugin) {
+    const declared = plugin.manifest.liveVoice?.capabilities?.opener;
+    if (declared === undefined && !undeclaredOpeners.has(plugin.manifest.id)) {
+      undeclaredOpeners.add(plugin.manifest.id);
+      try { (log ?? console.log)({ event: 'voice.opener-undeclared', plugin: plugin.manifest.id }); }
+      catch { /* Diagnostics cannot interrupt admission or speech. */ }
+    }
+    return declared === true;
+  }
   const tabAuthority = (sessionId, callId) => {
     const logical = storage.voiceLifecycle(sessionId, callId);
     return { epoch: logical?.epoch ?? 0, controllingTabId: logical?.controllingTabId ?? null };
@@ -268,9 +278,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
     const creditsPolicy = runtime.conversationLimits?.policy(sessionId) === 'credits';
     if (!continuation) runtime.assertFreshVoice?.(sessionId);
-    const hasPriorCalls = creditsPolicy && !continuation && Boolean(storage.voiceLifecycle(sessionId));
-    const firstContact = !continuation && !hasPriorCalls && Boolean(opener[session.locale]) &&
-      session.transcript.length === 0 && !storage.hasConnectedVoiceCall(sessionId);
+    // One authorized snapshot and one receipt read govern context, speech and claims.
+    // Credential minting and lifecycle/admission state do not establish audibility.
+    const heard = storage.hasAudibleVoiceCall(sessionId);
+    const firstContact = !continuation && Boolean(opener[session.locale]) && !heard &&
+      session.transcript.every(turn => turn.id === 'host:opener' && turn.origin === 'host') && !hasVisitorInput(session);
+    const hasPriorCalls = creditsPolicy && !continuation && heard;
     const authorityKey = `${sessionId}:${callId}`;
     if (!authorities.has(authorityKey)) authorities.set(authorityKey, { sessionId, callId, controller: new AbortController() });
     const authority = authorities.get(authorityKey).controller;
@@ -294,13 +307,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (end <= now()) throw Object.assign(new PluginError('deadline'),
         continuation ? { reason: 'time-limit', ...timeLimit(sessionId, end) } : {});
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
-      const current = storage.get(sessionId);
-      const hasPriorTurns = hasPriorCalls || activeTurns(session).some(turn =>
-        ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim()));
-      const canSpeakOpener = firstContact && !presentation && admitted.plugin.manifest.liveVoice?.capabilities.opener === true;
-      entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: current.locale,
+      const hasPriorTurns = hasPriorCalls || (!firstContact && activeTurns(session).some(turn =>
+        ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim())));
+      const providerSpeaksOpener = speaksOpener(admitted.plugin);
+      const canSpeakOpener = firstContact && providerSpeaksOpener;
+      entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale,
         continuation, explicitResume, hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}),
-        ...(canSpeakOpener ? { hostOpener: opener[current.locale] } : {}) });
+        ...(canSpeakOpener ? { hostOpener: opener[session.locale] } : {}) });
       await entry.callbackContext?.prepare();
       controller.signal.throwIfAborted();
       const callbackRequest = entry.callbackContext?.request ?? {}, { overrides, ...startRequest } = callbackRequest;
@@ -318,7 +331,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const openerEvent = storage.connectVoiceWithOpener(sessionId, callId, { type: 'connected', epoch: entry.epoch, providerSessionId: entry.call.providerSessionId,
         authorizationRevision: voiceAuthorizationRevision(fresh), spendDeadlineAt: end,
         browserLivenessDeadlineAt: entry.call.browserLivenessDeadlineAt }, firstContact &&
-          (entry.callbackContext?.hostOpener === true || admitted.plugin.manifest.liveVoice?.capabilities.opener === false) ? opener : undefined);
+          (entry.callbackContext?.hostOpener === true || !providerSpeaksOpener) ? opener : undefined);
       if (openerEvent) publish(sessionId, openerEvent);
       if (fresh.paused) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'pause' });
       const state = storage.voiceLifecycle(sessionId, callId);
@@ -332,12 +345,18 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state, ...timeLimit(sessionId, end) } });
       return receipt(entry.call);
     } catch (error) {
-      if (voiceConfigurationRefused(error)) {
-        void close(entry, error.reason, 'cancelled');
-        if (!entry.call) publish(sessionId, { type: 'voice.state', data: { callId, state: 'ended', reason: error.reason } });
-      }
+      if (voiceConfigurationRefused(error) && entry.call) void close(entry, error.reason, 'cancelled');
       revoke(entry); controller.abort(); if (!entry.call) entry.admission?.finish();
-      if (!continuation && !entry.call) endAuthority(sessionId, callId);
+      if (!continuation && !entry.call) {
+        const reason = voiceConfigurationRefused(error) ? error.reason : 'start-failed';
+        const logical = storage.transitionVoiceLifecycle(sessionId, callId, { type: 'end', epoch: entry.epoch, reason });
+        // A startup failure from an old tab must not end or publish over its successor.
+        if (logical.epoch === entry.epoch && logical.state === 'ended') {
+          endAuthority(sessionId, callId);
+          publish(sessionId, { type: 'voice.state', data: { callId, epoch: entry.epoch,
+            controllingTabId: logical.controllingTabId, state: 'ended', reason } });
+        }
+      }
       if (sessions.get(sessionId) === entry) sessions.delete(sessionId);
       if (calls.get(callId) === entry) calls.delete(callId);
       throw error;
