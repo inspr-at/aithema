@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession } from '../../core/src/session.js';
 import { en } from '../src/i18n/en.js';
-import { firstPaintMarkupFor, firstPaintMarkup } from '../src/first-paint.js';
+import { firstPaintMarkupFor, firstPaintMarkup, firstPaintStyles } from '../src/first-paint.js';
 
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
@@ -40,10 +40,20 @@ test('AIT-517: first-paint opt-in reserves one additional 44 px action at both h
   assert.equal(shell.querySelectorAll('.header-actions > span').length, 3);
 });
 
+test('AIT-517 r12: the contact launcher participates in the About reveal', () => {
+  const c = document.createElement('aithema-session');
+  c.configure({ session: createSession({ demo: true }), copy: en });
+  assert.ok(c.shadowRoot.querySelector('.contact-launcher[data-reveal]'), 'About reveal fades and disables the contact control');
+});
+
+test('AIT-517 r12: the contact rail default has zero specificity for host overrides', () => {
+  assert.ok(firstPaintStyles.includes(':where(.aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint)) { --aithema-header-rail-height'), 'host headerRailReservation actionsWidth wins over the library contact default');
+});
+
 // Remote unit runs reserve evidence too, including when the behaviour is red.
 after(async () => {
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (!evidence) return;
   await mkdir(evidence, { recursive: true });
-  await writeFile(join(evidence, 'contact-slot-unit.json'), JSON.stringify({ file: 'packages/ui/test/contact-slot.test.js', tests: 2 }) + '\n');
+  await writeFile(join(evidence, 'contact-slot-unit.json'), JSON.stringify({ file: 'packages/ui/test/contact-slot.test.js', tests: 4 }) + '\n');
 });

@@ -338,3 +338,7 @@ test('AIT-506: shared opener and short-phone states stay visible and stable', { 
 import { contactSlotCheck } from './contact-slot-check.js';
 test('AIT-517: combined entrance contact geometry with host opener and short phones',
   { timeout: 180_000 }, t => contactSlotCheck(t, { combined: true }));
+
+import { contactShortCheck } from './contact-short-check.js';
+test('AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal',
+  { timeout: 180_000 }, contactShortCheck);
