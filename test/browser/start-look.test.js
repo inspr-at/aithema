@@ -342,3 +342,7 @@ test('AIT-517: combined entrance contact geometry with host opener and short pho
 import { contactShortCheck } from './contact-short-check.js';
 test('AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal',
   { timeout: 180_000 }, contactShortCheck);
+
+import { contactRailCheck } from './contact-short-check.js';
+test('AIT-517 r12: contact rail defaults and host widths agree before upgrade',
+  { timeout: 60_000 }, contactRailCheck);

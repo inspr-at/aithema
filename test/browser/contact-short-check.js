@@ -102,3 +102,43 @@ export async function contactShortCheck(t) {
     });
   }
 }
+
+export async function contactRailCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-contact-rail-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'sessions.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), results = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/demo/host.js' && !new URL(request.url()).search) {
+      void request.respond({ status: 200, contentType: 'application/javascript', body: "window.releaseContactRail = () => import('/demo/host.js?contact-rail');" });
+    } else void request.continue();
+  });
+  const settle = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+  for (const [width, actionsWidth] of [[1280,260],[1400,350]]) await t.test(`${width}/${actionsWidth}`, async () => {
+    await page.setViewport({ width, height: 900 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    if (actionsWidth !== 260) await page.evaluate(async actionsWidth => {
+      const { headerRailReservation } = await import('/packages/ui/src/first-paint.js');
+      const style = document.createElement('style');
+      style.textContent = `.aithema-shell > :is(aithema-session,.aithema-first-paint) { --aithema-header-actions-width:${actionsWidth}px; }` + headerRailReservation({ actionsWidth: `${actionsWidth}px` });
+      document.head.append(style);
+    }, actionsWidth);
+    await settle();
+    const sample = () => page.evaluate(() => {
+      const c = document.querySelector('aithema-session'), mounted = c.shadowRoot?.querySelector('.band'), root = mounted ? c.shadowRoot : document;
+      return (mounted ? ['.band','.audio-rail'] : ['.aithema-first-paint','.aithema-first-paint .audio-rail']).map(s => root.querySelector(s).getBoundingClientRect().toJSON());
+    });
+    const before = await sample();
+    for (const b of before) assert.ok(b.width > 0 && b.height > 0, 'positive first-paint box');
+    assert.equal(before[0].height, 150, 'contact and host action widths reserve two rail rows before upgrade');
+    await page.evaluate(() => window.releaseContactRail());
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready')); await settle();
+    const after = await sample();
+    for (const b of after) assert.ok(b.width > 0 && b.height > 0, 'positive mounted box');
+    const shift = Math.max(...before.flatMap((b,i) => ['x','y','width','height'].map(k => Math.abs(b[k]-after[i][k]))));
+    assert.ok(shift <= .5, `${shift}px contact/host rail first-paint shift`);
+    results.push({ width, actionsWidth, before, after, shift });
+  });
+  if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR,'contact-rail-rects.json'), JSON.stringify(results,null,2));
+}

@@ -50,10 +50,14 @@ test('AIT-517 r12: the contact rail default has zero specificity for host overri
   assert.ok(firstPaintStyles.includes(':where(.aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint)) { --aithema-header-rail-height'), 'host headerRailReservation actionsWidth wins over the library contact default');
 });
 
+test('AIT-517 r12: ordinary library rail defaults cannot override the contact default', () => {
+  assert.ok(firstPaintStyles.includes(':where(.aithema-shell > :is(aithema-session,.aithema-first-paint)) { --aithema-header-rail-height'), 'both library defaults have equal zero specificity; the later contact declaration wins');
+});
+
 // Remote unit runs reserve evidence too, including when the behaviour is red.
 after(async () => {
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (!evidence) return;
   await mkdir(evidence, { recursive: true });
-  await writeFile(join(evidence, 'contact-slot-unit.json'), JSON.stringify({ file: 'packages/ui/test/contact-slot.test.js', tests: 4 }) + '\n');
+  await writeFile(join(evidence, 'contact-slot-unit.json'), JSON.stringify({ file: 'packages/ui/test/contact-slot.test.js', tests: 5 }) + '\n');
 });
