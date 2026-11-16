@@ -51,8 +51,8 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
       await inFlight;
     },
     // These ports exist while off so the server can keep its handlers alive.
-    presentation: (locale, { hasPriorTurns = false, hasPriorCalls = false } = {}) => Object.hasOwn(AI_NOTICE, locale)
-      ? { agent: { language: locale, firstMessage: hasPriorTurns ? spokenContinuations[locale] ?? (hasPriorCalls ? continuationFallback[locale] : spokenOpeners[locale]) : spokenOpeners[locale] } } : undefined,
+    presentation: (locale, { hasPriorTurns = false, hasPriorCalls = false, hostOpener } = {}) => Object.hasOwn(AI_NOTICE, locale)
+      ? { agent: { language: locale, firstMessage: hostOpener ?? (hasPriorTurns ? spokenContinuations[locale] ?? (hasPriorCalls ? continuationFallback[locale] : spokenOpeners[locale]) : spokenOpeners[locale]) } } : undefined,
     async closeOrphan(call, { signal }) {
       // The server sweep catches this, retains the durable pending call and retries.
       if (!host.binding) throw new AgentEnsureError(host.disabledReason);

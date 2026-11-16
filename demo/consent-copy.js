@@ -3,7 +3,7 @@
 // Neither describes the ledgers of embedding hosts.
 const processingCopy = {
   de: {
-    intro: 'Legen Sie einmal fest, welche Verarbeitung Sie freigeben. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange die gewählte Verarbeitung hier freigegeben ist, können Sie Einstellungen ändern, ohne erneut zuzustimmen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
+    intro: 'Legen Sie einmal fest, für welche Verarbeitung Sie Ihre Einwilligung erteilen. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange Ihre Einwilligung die gewählte Verarbeitung abdeckt, können Sie Einstellungen ändern, ohne erneut eine Einwilligung zu erteilen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.',
   },
   en: {
     intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',

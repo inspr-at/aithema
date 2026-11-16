@@ -14,11 +14,11 @@ export const de = {
   clarify: {
     action: 'Jetzt klären', asking: 'Wird gefragt …', chosen: 'Gewählt', asked: 'Gefragt', clarifies: 'Klärt:',
     failed: 'Antwort fehlgeschlagen', failedShort: 'Fehlgeschlagen', retry: 'Erneut versuchen',
-    paused: 'Gespräch pausiert', consent: 'Zustimmung nötig', review: 'Ansehen', deadline: 'Zeitlimit erreicht',
+    paused: 'Gespräch pausiert', consent: 'Einwilligung nötig', review: 'Ansehen', deadline: 'Zeitlimit erreicht',
     stale: 'Diese Frage ist nicht mehr offen; die Liste ist aktualisiert.',
     say: { requesting: 'Wird gefragt: {q}', selected: 'Gewählt. Die nächste Antwort klärt: {q}', asked: 'Gefragt: {q}',
       retry: 'Antwort fehlgeschlagen. Erneut versuchen ist möglich.', paused: 'Gespräch pausiert. Fortsetzen, dann erneut wählen.',
-      consent: 'Zustimmung nötig.', deadline: 'Zeitlimit erreicht.' },
+      consent: 'Einwilligung nötig.', deadline: 'Zeitlimit erreicht.' },
   },
   questionCard: {
     heading: 'Offene Frage', suggestion: 'Vorschlag', likely: 'Am wahrscheinlichsten, nach dem bisherigen Gespräch',
@@ -129,7 +129,7 @@ export const de = {
   voiceStatesNarrow: { microphone: 'Mikrofon freigeben', cleanup: 'Beendet vorigen …', low: 'Wenig Guthaben', idle: 'Bereit', connecting: 'Verbindet …', listening: 'Ich höre zu', speaking: 'Antwortet', paused: 'Pausiert', recovering: 'Verbindet erneut …', waiting: 'Pausiert', closing: 'Wird beendet …', failed: 'Anruf beendet', usedUp: 'Credits aufgebraucht', timeExpired: 'Zeit abgelaufen', creditEnding: 'Wird beendet …' },
   voiceMessagesNarrow: { voiceIdleEnded: 'Nach Stille beendet', voiceMicBusy: 'Mikrofon belegt', voiceMicUnavailable: 'Kein Mikrofonzugriff', voiceMicFailed: 'Mikrofon-Fehler', voiceNoReply: 'Keine Antwort', voiceMicDenied: 'Mikrofon gesperrt', voiceMicMissing: 'Kein Mikrofon', voiceAdmissionDenied: 'Nicht verfügbar', voiceConflict: 'Anruf in anderem Tab', voiceDeadline: 'Zeitlimit erreicht', voiceTimeLimit: 'Zeitlimit erreicht', voiceConnectFailed: 'Keine Verbindung', voiceConnectionFailed: 'Verbindung gestört', voiceRecoveryFailed: 'Verbindung gestört', voiceMoved: 'In anderem Tab', voiceClosureUncertain: 'Kostenabgleich …', voiceEnded: 'Anruf beendet', voicePauseFailed: 'Pause unbestätigt', voicePlaybackBlocked: 'Ton gesperrt' },
   voiceCreditStatus: { dailyCap: 'Tageslimit erreicht', session: 'Credits aufgebraucht', hostLimit: 'Sprache gerade nicht verfügbar' },
-  voiceReasonsNarrow: { unavailable: 'Nicht verfügbar', consent: 'Einwilligung nötig', paused: 'Pausiert', credits: 'Credits aufgebraucht', checking: 'Kostenabgleich …', off: 'Sprache aus', setup: 'Nicht eingerichtet', provider: 'Anbieter unerreichbar', ended: 'Anruf beendet', permission: 'Freigabe abgelaufen', verification: 'E‑Mail bestätigen', providerLimit: 'Anbieterlimit erreicht', voiceLimit: 'Sprachlimit erreicht', consentWithdrawn: 'Freigabe widerrufen', consentRevised: 'Freigabe geändert', sessionRevoked: 'Freigabe widerrufen', cancelled: 'Abgebrochen', disconnected: 'Verbindung getrennt', connectionExpired: 'Verbindung abgelaufen', notSaved: 'Nicht gespeichert', transcriptFull: 'Transkript voll', storageFull: 'Speicher voll', renderLimit: 'Limit erreicht', erased: 'Gespräch gelöscht' },
+  voiceReasonsNarrow: { unavailable: 'Nicht verfügbar', consent: 'Einwilligung nötig', paused: 'Pausiert', credits: 'Credits aufgebraucht', checking: 'Kostenabgleich …', off: 'Sprache aus', setup: 'Nicht eingerichtet', provider: 'Anbieter unerreichbar', ended: 'Anruf beendet', permission: 'Freigabe abgelaufen', verification: 'E‑Mail bestätigen', providerLimit: 'Anbieterlimit erreicht', voiceLimit: 'Sprachlimit erreicht', consentWithdrawn: 'Einwilligung entzogen', consentRevised: 'Einwilligung geändert', sessionRevoked: 'Freigabe widerrufen', cancelled: 'Abgebrochen', disconnected: 'Verbindung getrennt', connectionExpired: 'Verbindung abgelaufen', notSaved: 'Nicht gespeichert', transcriptFull: 'Transkript voll', storageFull: 'Speicher voll', renderLimit: 'Limit erreicht', erased: 'Gespräch gelöscht' },
   voiceCooldown: 'Neuer Versuch in {s} s', voiceCooldownNarrow: 'In {s} s',
   voiceMicBusy: 'Das Mikrofon ist belegt oder vom System gesperrt. Schließen Sie andere Apps, die es nutzen, oder prüfen Sie die Systemeinstellungen. Versuchen Sie es dann erneut.',
   voiceMicUnavailable: 'Dieser Browser erlaubt hier kein Mikrofon. Tippen Sie weiter oder öffnen Sie die Seite in einem anderen Browser.',
@@ -276,8 +276,8 @@ export const de = {
   entrance: { promise: ['Ihr Projekt.', 'Ihr Prozess.', 'Mit KI optimiert.'], lead: 'Klären Sie Ihr Vorhaben im Gespräch und erhalten Sie eine erste Einschätzung.' },
   // START src/content/conversation-readiness.ts und die Bereitschaftskarte (v2.inputModeLabel, voiceInput, entryTyping, consentStart).
   ready: {
-    title: 'Vor dem Gespräch', model: 'KI-Modell', consent: 'Datenfreigabe', microphone: 'Mikrofon', speaker: 'Sprachausgabe', visuals: 'Visuelle Entwürfe',
-    granted: 'Freigegeben', missing: 'Freigabe fehlt', notNeeded: 'Auf diesem Gerät nicht nötig', off: 'Aus', on: 'An',
+    title: 'Vor dem Gespräch', model: 'KI-Modell', consent: 'Status', microphone: 'Mikrofon', speaker: 'Sprachausgabe', visuals: 'Visuelle Entwürfe',
+    granted: 'Erteilt', missing: 'Einwilligung nötig', notNeeded: 'Auf diesem Gerät nicht nötig', off: 'Aus', on: 'An',
     checkOnStart: 'Beim Start prüfen', onOnStart: 'Beim Start aktiv', notConnected: 'Unter Einstellungen › Erweitert verbinden',
     micGranted: `Erlaubt${reasonSeparator}noch nicht aktiv`, micDenied: 'Im Browser blockiert', micPrompt: 'Beim Start erlauben',
     change: 'Einstellungen ändern', inputMode: 'Eingabemodus', textOnly: 'Eingabe: Text', voice: 'Spracheingabe', type: 'Texteingabe', start: 'Gespräch starten',
@@ -355,6 +355,7 @@ export const de = {
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
   paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
   controlFailed: 'Die Änderung konnte nicht gespeichert werden. Versuchen Sie es erneut.',
+  composerNoticeMore: 'Mehr',
   composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier Ihre nächste Nachricht\u00a0…', placeholderCompact: 'Ihre Nachricht …', placeholderVoice: 'Sprechen Sie einfach los – oder tippen Sie.', placeholderFullHold: 'Sprechen Sie einfach weiter.', send: 'Senden',
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Zusammenfassung', signals: 'Was konkret erkennbar war', questions: 'Was noch offen ist',
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
@@ -659,9 +660,9 @@ export const de = {
     action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
     // Host-neutral defaults; embedding hosts supply their actual consent terms.
-    intro: 'Wählen Sie, welche Verarbeitung Sie freigeben. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
+    intro: 'Wählen Sie, für welche Verarbeitung Sie Ihre Einwilligung erteilen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.',
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
-    withdrawal: 'Sie können Freigaben hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
+    withdrawal: 'Sie können Einwilligungen hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {
       'image-input': { version: 1, title: "Bildeingabe",
         recipients: "OpenRouter, Inc. und der ausgewählte Modellanbieter. Die Verarbeitung kann außerhalb Europas stattfinden, auch in den Vereinigten Staaten.",
@@ -718,7 +719,7 @@ export const de = {
     conversationFailed: 'Das Gespräch konnte nicht geöffnet werden. Laden Sie die Seite neu.',
     consentPage: {
       mockNotice: 'Dies ist eine Demo-Verarbeitung.',
-      intro: 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.',
+      intro: 'Wählen Sie, für welche Verarbeitung Sie Ihre Einwilligung für dieses Gespräch erteilen. Für nicht ausgewählte Punkte liegt keine Einwilligung vor.',
       selectAll: 'Alle auswählen', one: 'Eine Einwilligung erteilen', count: '{count} Einwilligungen erteilen', all: 'Alle Einwilligungen erteilen',
       none: 'Ohne Einwilligung weiter', back: 'Zurück', legend: 'Verarbeitung auswählen',
       loading: 'Aktuelle Einwilligungen werden geladen …', saving: 'Ihre Auswahl wird gespeichert …', retry: 'Erneut versuchen',
