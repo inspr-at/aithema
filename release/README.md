@@ -54,6 +54,247 @@ and retention evidence for that CI source commit. A tag build from the same C
 must have the same normalized member digest; exact archive hashes remain specific
 to the candidate or published set.
 
+## Twenty-fifth candidate (AIT-539)
+
+The reserved coordinate is `261116004750.0.0` (UTC reservation time 2026-11-16T00:47:50Z),
+stable sequence 36 (previous: 35), status `reserved`, scheme `inspr-calver-3`.
+Marketing name: **Aithema 2026.10**, with the exact version below the notes title.
+Per RC20–RC24, the visible product name stays as documented in `docs/embedding.md`
+and hard-coded in the UI; both still say Aithema 2026.10. Authority is Markus's
+standing release go, Desk **4d867165-4eb5-4b69-8980-88d43a7ec64b**, 2026-10-19,
+and MAC-LEAD's priority order relayed at 09:52 on 2026-11-15: RC25 = AIT-505,
+AIT-506, AIT-507, AIT-508 and AIT-524, coordinated by LEAD since 11:1x.
+LEAD approved the brief on 2026-11-15 at 20:4x with the limitation wording
+“planned (AIT-nnn)”; both host-doc corrections were added on 2026-11-16 at
+01:4x. All are applied. The coordinator holds `release-lock/seq-36`, pushed on
+2026-11-16 at base `ab0444a8dc7e642dd3811725050e60efe29e2502` (L), annotated tag
+object `37aa3b6f6ff563059dcd5db7bd43f1aebfa342c1`; the remote reference was checked.
+
+This is the **seventeenth release on the active fixed-candidate route (AIT-363 B)**.
+Order: lock tag (done), prep, coordinator gates, true merge preserving C,
+candidate marker, MAC-OPS cut, verification. There is **no merge freeze**: main
+keeps moving; the final committed RC head C is the candidate. Builders prepare
+only and invoke no reviewer models, pushes, PRs, tags, tag pushes, GitHub releases
+or publication. The coordinator owns gates, push, PR, merge and the candidate
+marker; MAC-OPS owns the cut. This preparation changes release metadata and
+notes, plus the two requested host-document corrections. START pins separately;
+nothing waits on this release.
+
+Every requested Content item is on main at L. The complete first-parent range
+since `v261115062259.0.0` through L contains exactly seven PR merges, in order:
+#442 (AIT-525 RC24 preparation, `47ea03cd`),
+#446 (AIT-532 CI only, `51f8d315`), #443 (AIT-508, `c4d5d489`),
+#444 (AIT-524, `321e6208`), #445 (AIT-505, `512613bc`),
+#447 (AIT-507, `b170bfb2`) and #448 (AIT-506, `ab0444a8` = L).
+Stop and report any difference; do not extend L's content range.
+
+AIT-505 adds a once-only host opener, rendered before input in the combined
+entrance and after legacy Start. It persists at first `/turns`, first terminal
+upload (accepted or unreadable), or eligible voice connect only when selected
+as the spoken opener. Grok retains its documented text-only claim. Custom
+voice presentation owns speech; pending/refused/withdrawn uploads do not claim
+an opener. Core adds `hasVisitorInput` and retains `hasConversationInput` as an
+alias. There is **no `hasOfferVisitorInput` export**. The additive
+`@inspr/aithema-core/email-offer` subpath exports `emailOfferPolicy`,
+`emailOfferEligibility` and `visitorMessageCount` only.
+
+For **every host with an opener**, including hosts without `emailOffer`, the
+opener is not a settled reply: it alone cannot trigger a low-credit form, line
+or confirmation action. Under `emailOffer`, overview visibility follows AIT-505
+workspace display, so accepted/unreadable uploads, partial speech and non-opener
+assistant greetings also reveal it. A host opener alone does not. Settings'
+empty capture form instead waits for active visitor input via `hasVisitorInput`,
+with the existing used-up recovery exception. README host lines are corrected
+to make both distinctions explicit.
+
+AIT-506 puts text and mic side by side under `entrance: 'combined'`, retaining
+consent → admission → permission → call ordering. One-use start intents keep
+180-second text / 60-second voice TTLs, settings revision and same-tab proof.
+Navigation returns restore the draft without sending or calling; voice focuses
+the mic for a fresh click. During a call the mic toggles capture mute/unmute,
+and typing keeps capture running in the same context. No copy key or export
+is added by AIT-506.
+
+AIT-507 offers email once after N accepted visitor text/final-speech messages,
+bounded by a rolling-day visitor claim and a per-conversation latch. Opener,
+assistant turns, documents, partials and duplicate messages do not advance N.
+Saved-address management and confirmation remain reachable; the verification
+lock stays until confirmation. Collection includes the privacy notice and
+`noticeVersion`; the offer stays outside transcript, model context and exports.
+Demo tier projection changes only with `emailOffer` enabled. No new copy key.
+
+AIT-508 keeps opted-in funded conversations untimed across bounded calls,
+with at most one unreconciled logical voice call per session. Same-call recovery
+keeps its original bound. Active/ready timed guards migrate once at startup
+before elapsed-time checking; ending/ended conversations stay export-only.
+Downgrading keeps already-pinned untimed guards untimed. New calls use fresh
+admission and later calls use continuation presentation. Composed idle ends
+release the call; ElevenLabs retains its provider-owned silence timeout.
+
+**Options and defaults (AIT-505–AIT-508).** All are opt-in and independent.
+
+| New option | Default / fallback |
+| --- | --- |
+| `createHandlers({ opener: { en?, de? } })` | Disabled; plain text, ≤1000 characters per locale. Blank/missing locale disables it with no language fallback. ElevenLabs without custom presentation validates disclosure at startup and fails closed. |
+| `configure({ entrance: 'combined' })` | `'choice'`; existing mode choice and Start remain the default. |
+| `host.emailOffer: { afterMessages: 1 \| 2 }` | Absent keeps existing policy; `{}` → 2; other thresholds fail at startup. Demo `createDemoHost({ emailOffer })` / `createVisitorCredits({ emailOffer })` forward this policy. |
+| `host.conversationLimit: 'time' \| 'credits'` / `createCredits({ conversationLimit })` | `'time'`, existing one-hour deadline. Demo explicitly opts into `'credits'`. |
+| `host.voiceIdleSeconds` / standalone composed `config.voiceIdleSeconds` | Integer 60–3600, default 120; composed transport only. Trusted server host value overrides standalone composed config. ElevenLabs uses its own 120-second provider timeout. |
+
+**Additive wire and event fields.** Defaults retain existing shapes except where
+an option explicitly enables the extra contract:
+
+| Surface | New contract / fallback |
+| --- | --- |
+| Session snapshot | `opener: { text, locale }` when locale copy exists; `emailOffer: { afterMessages }` when enabled; otherwise absent. |
+| Opted-in `session.locale-changed` | `data.opener: { text, locale }` or `null`; render-only, not host text in journal metadata. |
+| `/turns` with opener configured | Keeps legacy event-shaped fields, adds `event` and ordered `events: [opener, turn]` (or `[turn]`); replay and SSE preserve order. Without an opener the response is unchanged. |
+| Host turn and export | `id: 'host:opener'`, `origin: 'host'`, no producer/operation identity; Markdown `assistant (host)`. Visitor `clientEventId` cannot use the reserved `host:` namespace. |
+| Email-ask route / credit receipt | `why: 'offer'` for `show`/`dismiss`; private `emailOffer` record: `offered`, `open`, `dismissed`, `at`, `nextTier`, `deltaMicro`, `revision`. Absent without the policy. |
+| Email collection | Existing privacy notice and required `noticeVersion` still apply; verification lock remains until confirmation. |
+| Untimed credit guard / view | `timed: false`, `endsAt: null`, `remainingMs: null`; `'time'` keeps existing fields and deadline. |
+| `credits.guard-migrated` | Once-only journal event `{ sessionId, conversationLimit: 'credits', timed: false }`, atomic with guard and `credits.state`. |
+| Credit-policy voice start receipt / trusted plugin options | `conversationLimit: 'credits'`; trusted options may add `voiceIdleSeconds`. Legacy time-policy shapes stay unchanged. |
+| `voice.state`, stored call and terminal snapshot | Additive end `reason: 'idle'` on opted-in idle ends; existing other reasons remain. |
+| Fresh later-call presentation | `presentation: 'continuation'`; `prepareCallback` and host `presentation(locale, context)` add `hasPriorCalls: true` and retain `hasPriorTurns: true`. Host `spokenContinuations[locale]` wins, else neutral AI-disclosing continuation; automatic repair stays silent. |
+| Trusted duration admission | `voiceEstimate.callId`; one unreconciled logical call per session, otherwise existing refusal receipt adds `reason: 'budget reconciling'`. Same-call recovery retains its bound. |
+| Combined `aithema-consent` | Existing `reason: 'ready'`, `intent: 'start'`, `mode: 'text'` / `'voice'` (`'type'` for legacy text), `required` selected blocked feature, `features` complete list. No new event name or required host integration. |
+
+**Copy compatibility.** These are all new EN/DE copy keys in this range:
+
+| New copy key | Legacy fallback / shipped default |
+| --- | --- |
+| `hostOpenerTitle` | No legacy fallback; “Welcome message” / “Begrüßung” |
+| `hostOpenerTextOnly` | No legacy fallback; “The full welcome message from the host.” / “Die vollständige Begrüßung des Hosts.” |
+| `voiceIdleEnded` | `voiceEnded`; “The call ended after a period of silence. Start a new call or continue typing.” / “Der Anruf wurde nach längerer Stille beendet. Starten Sie einen neuen Anruf oder schreiben Sie weiter.” |
+| `voiceMessagesNarrow.voiceIdleEnded` | `voiceMessagesNarrow.voiceEnded`; “Ended after silence” / “Nach Stille beendet” |
+
+Shared resolver: `packages/ui/src/copy-resolve.js`. A host's new-key override
+that differs from the shipped default wins; otherwise a legacy override that
+differs from the shipped default wins; otherwise the shipped new-key default
+wins. Including the shipped new-key default in a customized older bundle does
+not mask its legacy override. Keys without legacy fallback use host text, then
+active-locale text, then English. AIT-506, AIT-507 and AIT-524 add no copy keys.
+
+**Clarify DOM (AIT-524, #444).** Only the action word is the button; status text
+is inert outside it, with a 44 px touch target. Hosts that style or select the
+Clarify button may notice the changed DOM. The clarify-now shard floor is CI
+metadata, with no host API change.
+
+**Known limitations (release copy describes the code that ships):**
+
+- **Refused admission or failed startup consumes first contact under credits
+  policy.** A refused/failed first call under `conversationLimit: 'credits'`
+  counts as a prior call. A voice-first visitor who continues hears the
+  continuation greeting instead of the host opener; text-first visitors get the
+  opener. A fix is planned (AIT-537). The carried next-notes line is explicitly
+  labeled as a known limitation in `notes.md`.
+- When a host passes `createElevenLabsVoiceHost`'s `presentation` to
+  `createHandlers`, that greeting wins; the host opener is stored at first text
+  message or terminal upload and is not spoken. A spoken opener together with
+  the host's own continuation copy is planned (AIT-538).
+
+**CI-only (AIT-532, #446):** twelve browser shards, with the four required
+`browser (n/4)` aliases kept byte-identical and the `DUPLICATE_PUSH` exception
+preserved. Browser evidence directories are created before writes; the parallel
+aggregate makes no ruleset change. AIT-524's clarify-now shard floor is also CI
+metadata. No product change comes from AIT-532, which is hidden from visitor
+notes. The sixteen-module release closure is unchanged. Voxtral (AIT-342)
+stays parked, private and outside the closure; provider-side live-call closure
+(AIT-446's second part) stays parked until ElevenLabs monitoring is enabled.
+Grok Voice is **not yet qualified in live use**. RC14's host requirements and
+RC23's asynchronous-delivery `identity.acceptsAddress` requirement still apply.
+
+The previous release `v261115062259.0.0`, stable sequence 35, AIT-525,
+is recorded in `history.json` at source `085525fb6f10a40471652b1d33480a09730ebc78`
+and [its forge release](https://github.com/inspr-at/aithema/releases/tag/v261115062259.0.0),
+using the same fields as earlier published entries. Its tag resolves to that
+source; sequence 36 is reserved, not added to published history.
+
+Notes lead with the welcome, typing or talking, the in-chat email offer, continuing
+across calls and clear action buttons. AIT-505–AIT-508 appear only where enabled
+by the host; AIT-524 applies to all hosts. EN/DE pills and benefits are copied
+exactly from the five tickets, checked read-only with the aeon CLI at
+preparation time. AIT-532's
+`hide_from_release_notes` is true. MAC-LEAD owns the notes look.
+
+**Breaking for hosts relative to RC24: none.** The actual diff adds opt-in
+configuration, optional snapshot/receipt/event fields and EN/DE copy keys;
+removes no public export; changes no existing HTTP status or required host
+integration; retains `/turns`' exact response shape without an opener and legacy
+copy precedence; and restricts demo tier changes to `emailOffer`. Clarify status
+text moves outside the button, so hosts' CSS/selectors may notice that DOM change.
+
+The final preparation lock's npm audit line is **0 vulnerabilities**:
+`npm audit --package-lock-only --omit=dev` reports **0 in the release closure**;
+`npm audit --package-lock-only` also reports **0**, leaving **0 dev-only**.
+Stop and report any release-closure finding.
+
+Carried notes: all entries at L are folded into `notes.md`, including the explicit
+known limitation and both host corrections; `next-notes.md` is reset to the stub
+`# Next release — unreleased`. At this lock there was one AIT-532 capacity heading
+and bullet, and no standalone AIT-524 entry; capacity is retained once and
+AIT-524 is covered from its actual diff. No duplicate capacity heading remains.
+All manifests, lockfile entries and internal pins, including private source-only
+workspaces, mirror the reservation. Migration pins stay fixed.
+**presentation pin reviewed: unchanged at bd0a13816f728ad91c36d849f88168bcac4fdc6e**.
+Current inspr-at/inspr HEAD matches. `release/verify-upstream-presentation.mjs`
+and `release/presentation-pin.mjs` both verify the complete tracked payload;
+config SHA-256 `bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`,
+manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
+No presentation files change. `release/evidence.json` remains historical;
+retained final-head evidence is authoritative for this preparation.
+
+Preparation order (remote execution only):
+
+1. Check Content and the unchanged coordinator-held lock at L. Commit reservation,
+   mirrors, internal pins, published history, notes and these host docs with
+   `git commit -s`, ending the message with
+   `Co-Authored-By: Codex <noreply@openai.com>`. Worktree:
+   `/Users/markus/Code/aithema-worktrees/ait-539`; branch:
+   `release/ait-539-twenty-fifth-release`; recorded builder session:
+   `AIT-539-prep` (`3eb1205f-f8ad-4e30-a822-15a1121d46c9`, role builder).
+2. Run the release test set on **final committed C**, using the durable fetch-retry
+   wrapper for every `EVIDENCE_OUT` run. The candidate builds twice, verifies,
+   smoke-tests the isolated sixteen-module consumer, reinstalls its lock,
+   replaces its dependency and proves exact rollback, with mocks only.
+   Tag/admission tests use synthetic fixtures, never operational tags.
+   WAIT/exit 3 or 7 means back off about five minutes and retry, up to 48
+   admissions; never run locally. Disable the wrapper's local fallback with
+   `MBP2607=0`. It holds reservations during the lane's 02:20–05:50 quiet window.
+   Any failure means stop and report except the known macOS-only AIT-529
+   release-candidate-gate sibling-marker pair, acceptable only on a macOS lane
+   host and explicitly named. Also run the **whole browser suite** remotely
+   because the UI manifest version changes; retain per-file counts.
+
+   ```sh
+   MBP2607=0 EVIDENCE_OUT="$PWD/dist/ait539-final" FETCH_TRIES=300 \
+     /Users/markus/.local/share/ait-qa/coordinator/rb-fetchretry.sh \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+3. Retain `/Users/markus/Code/aithema-worktrees/ait-539/dist/ait539-final/candidate/`,
+   including `first/`, `candidate-evidence.json`, isolated deployment and consumer
+   pins/locks. Confirm `source_commit` equals C and recompute `manifest_sha256`
+   and `normalized_digest` against `first/`. Make **no evidence-only commit after
+   the final build**; any source or commit change requires another final-C build.
+   Record the actual release-test count, lane platform, browser results and
+   per-file counts in `.data/ait-539/handoff.txt`. Do not substitute older results.
+4. Commit locally only; do not push or open a PR. Hand off C and every commit
+   since L, sequence 36 (previous: 35), version, retained directory, manifest
+   SHA-256, normalized digest, presentation result, Content range, breaking
+   decision and reason, final-lock audit, release/browser results and anything
+   unproved in `.data/ait-539/handoff.txt`. The coordinator owns gates, push,
+   PR, green CI and true merge, then the candidate marker. MAC-OPS owns the cut.
+   Retain evidence in durable owner storage before publication; CI retains
+   `reset-candidate-attempt-<N>` for 90 days. The builder never publishes.
+
 ## Twenty-fourth candidate (AIT-525)
 
 The reserved coordinate is `261115062259.0.0` (UTC reservation time 2026-11-15T06:22:59Z),

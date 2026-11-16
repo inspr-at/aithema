@@ -3892,7 +3892,10 @@ identity port, the privacy-document capability, and the visitor-wide
 `claimEmailAsk` / `emailAskAfter` ports. The demo helper also accepts
 `createDemoHost({ emailOffer: { afterMessages: 2 } })`.
 
-Before visitor input, the overview and Settings' empty capture form are absent.
+With `emailOffer`, the overview follows AIT-505's workspace visibility: accepted
+or unreadable uploads, partial speech, and non-opener assistant greetings also
+reveal it. A host opener alone does not. Settings' empty capture form instead
+waits for active visitor input through core `hasVisitorInput`.
 When a visitor is used up, capture stays available in Settings so the composer's
 upgrade action can recover credit even in a new conversation with no input.
 Deferral follows credit receipts and changes. The credits popover hides its email
@@ -3902,8 +3905,10 @@ Without a next tier, the action and its reserved slot are absent.
 A saved address keeps its Change and Delete controls in Settings. The host opener
 never counts as visitor input. Accepted or unreadable documents do count as
 visitor input through core `hasVisitorInput`, revealing the overview and Settings
-capture, but do not advance the offer’s accepted-message threshold. An opener
-alone cannot trigger a low-credit form, line or confirmation action.
+capture, but do not advance the offer’s accepted-message threshold. For every
+host with an opener, including hosts without `emailOffer`, the opener is not a
+settled reply: it alone cannot trigger a low-credit form, line or confirmation
+action.
 Confirmation still unlocks the assessment and
 concepts; starting a conversation does not require an email address.
 
