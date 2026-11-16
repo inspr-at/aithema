@@ -114,7 +114,7 @@ export async function combinedEntranceCheck(t) {
       await page.goto(`${server.url}/combined-fixture?locale=${locale}`); await page.waitForFunction(() => globalThis.ready);
       const shot = async state => {
         const measured = await boxes(page); positive(measured); await readableNotice(page); tables.push({ locale, theme, width, state, boxes: measured });
-        if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `ait-506-${locale}-${theme}-${width}-${state}.png`), fullPage: true });
+        if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `ait-506-${locale}-${theme}-${width}-${state}.png`), fullPage: false });
         return measured;
       };
       const initial = await shot('ready');
@@ -276,7 +276,7 @@ export async function combinedOpenerCheck(t) {
         positive({ footer:placement.footer, dock:placement.dock, scroll:placement.scroll });
         tables.push({locale,theme,width,height,state,boxes:measured,placement});
         if (evidence) await writeFile(join(evidence,'ait-506-opener-rects.json'),JSON.stringify(tables,null,2));
-        if (evidence && width!==1024) await page.screenshot({ path:join(evidence,'shots',`ait-506-${locale}-${theme}-${width}x${height}-opener-${state}.png`),fullPage:true });
+        if (evidence && width!==1024) await page.screenshot({ path:join(evidence,'shots',`ait-506-${locale}-${theme}-${width}x${height}-opener-${state}.png`),fullPage:false });
         assert.equal(placement.count,1,'one shared opener row');
         assert.equal(placement.short,height<=620,'short-phone matrix exercises the real layout flag');
         for (const target of placement.visible) {

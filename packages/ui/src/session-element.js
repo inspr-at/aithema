@@ -791,6 +791,18 @@ export class AithemaSession extends HTMLElement {
       ${this.#voiceBound ? '' : `<dialog class="voice-reply-dialog" aria-labelledby="voice-reply-title" aria-describedby="voice-reply-note">
         <h2 id="voice-reply-title" tabindex="-1" autofocus data-copy="voiceLastReply"></h2><p class="voice-reply-note" id="voice-reply-note" data-copy="voiceReplayTextOnly"></p><p class="voice-reply-text"></p>
         <button class="voice-reply-close" type="button" data-copy="voiceReplayClose"></button></dialog>`}`;
+    if (this.#combined) {
+      const dialog = node('dialog', 'composer-notice-dialog'); dialog.id = 'composer-notice-dialog';
+      dialog.setAttribute('aria-labelledby', 'composer-notice-title');
+      const title = node('h2'); title.id = 'composer-notice-title';
+      const close = node('button'); close.type = 'button'; close.innerHTML = icon('close');
+      close.addEventListener('click', () => dialog.close());
+      dialog.append(title, close, node('p')); root.append(dialog);
+      const disclosure = root.querySelector('.composer-notice__more');
+      disclosure.addEventListener('click', () => dialog.showModal());
+      dialog.addEventListener('close', () => disclosure.focus({ preventScroll:true }));
+      this.#watchMicrophone();
+    }
     const textReplyDialog = root.querySelector('.voice-reply-dialog');
     textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
@@ -908,18 +920,7 @@ export class AithemaSession extends HTMLElement {
       if (this.#rail?.session) this.#rail.button('input').click();
       else this.#startCombined('voice');
     });
-    if (this.#combined) {
-      const dialog = node('dialog', 'composer-notice-dialog'); dialog.id = 'composer-notice-dialog';
-      dialog.setAttribute('aria-labelledby', 'composer-notice-title');
-      const title = node('h2'); title.id = 'composer-notice-title';
-      const close = node('button'); close.type = 'button'; close.innerHTML = icon('close');
-      close.addEventListener('click', () => dialog.close());
-      dialog.append(title, close, node('p')); root.append(dialog);
-      const disclosure = root.querySelector('.composer-notice__more');
-      disclosure.addEventListener('click', () => dialog.showModal());
-      dialog.addEventListener('close', () => disclosure.focus({ preventScroll:true }));
-      this.#watchMicrophone();
-    }
+
     this.#mountUploads();
     root.querySelector('.expand').addEventListener('click', () => {
       const details = [...root.querySelectorAll('.cleared details')];
