@@ -1,7 +1,7 @@
 // AIT-225: bounded dock, real component, deterministic replies, keyboard and voice. Remote runner only.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
@@ -48,10 +48,19 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     if (evidence) await mkdir(evidence, { recursive: true });
     // Snapshots model approved reply data; local acknowledgements let us inspect the exact request bytes.
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    // Temporary fixture-only trace: preserve the existing oversized measurement timing.
+    let tracedSource = await readFile(new URL('../../packages/ui/src/session-element.js', import.meta.url), 'utf8');
+    const trace = stage => `globalThis.__ait511ScrollTrace?.(this, { stage: '${stage}', follow: this.#follow, navigation: this.#navigation, longReply: this.#longReply, longReplyTop: this.#longReplyTop, tailReply: this.#tailReply, latestScrollTop: this.#latestScrollTop, programmaticScroll: this.#programmaticScroll, onTranscript: this.#onTranscript, pointer: this.#pointer });`;
+    for (const method of ['scrollToLatest', 'restoreLongReply']) {
+      tracedSource = tracedSource.replace(`  #${method}() {`, `  #${method}() { ${trace(method + ':entry')}`);
+    }
+    tracedSource = tracedSource.replace('  #recordTranscriptScroll(before) {', `  #recordTranscriptScroll(before) { ${trace('record')}`);
+    tracedSource = tracedSource.replace('    this.#updateTranscriptJump();\n  }\n  #hovered()', `    this.#updateTranscriptJump(); ${trace('scrollToLatest:exit')}\n  }\n  #hovered()`);
     await page.setRequestInterception(true);
     page.on('request', request => {
       void (async () => {
         const path = new URL(request.url()).pathname;
+        if (path === '/packages/ui/src/session-element.js') { await request.respond({ status: 200, contentType: 'text/javascript', body: tracedSource }); return; }
         if (path.endsWith('/events')) { await request.respond({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' }); return; }
         // The finite SSE fixture reconnects and refreshes capabilities. Its
         // snapshot must share the fixture's state, rather than overwrite it with
@@ -665,15 +674,35 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           }
         }
         if ([390, 1440].includes(width)) {
-          await page.evaluate(() => globalThis.showQuestion({ content: (globalThis.qcardReply.content + ' ').repeat(30) }));
+          await page.evaluate(() => {
+            globalThis.__ait511Trace = [];
+            globalThis.__ait511ScrollTrace = (c, state) => {
+              const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+              const boxes = Object.fromEntries(['.band', '.composer', '.conversation', '.transcript-shell', '.transcript-shell ol', '.turn:last-child', '.qcard', '.voice-notices'].map(selector => {
+                const e = r.querySelector(selector), css = getComputedStyle(e);
+                return [selector, { ...e.getBoundingClientRect().toJSON(), paddingTop: css.paddingTop, paddingBottom: css.paddingBottom, marginTop: css.marginTop, marginBottom: css.marginBottom, gap: css.rowGap, style: e.getAttribute('style') }];
+              }));
+              globalThis.__ait511Trace.push({ ...state, scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight, boxes });
+              if (globalThis.__ait511Trace.length > 64) globalThis.__ait511Trace.shift();
+            };
+            globalThis.__ait511ScrollTrace(document.querySelector('aithema-session'), { stage: 'before-show' });
+            globalThis.showQuestion({ content: (globalThis.qcardReply.content + ' ').repeat(30) });
+            globalThis.__ait511ScrollTrace(document.querySelector('aithema-session'), { stage: 'after-show' });
+          });
           await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
           await nextFrame(page); await nextFrame(page);
-          const oversized = await shadow(page, c => {
+          const { debug, ...oversized } = await shadow(page, c => {
             const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), row = r.querySelector('.turn:last-child'), button = row.querySelector('.turn-read-full');
             const b = row.getBoundingClientRect(), s = shell.getBoundingClientRect(), a = button?.getBoundingClientRect();
-            return { top: b.top, expectedTop: s.top + parseFloat(getComputedStyle(shell).paddingTop),
+            globalThis.__ait511ScrollTrace(c, { stage: 'measurement' });
+            return { debug: globalThis.__ait511Trace, top: b.top, expectedTop: s.top + parseFloat(getComputedStyle(shell).paddingTop),
               link: button?.textContent, visible: button && !button.hidden && a.top >= s.top && a.bottom <= s.bottom + 1 };
           });
+          if (laneEvidenceDirectory) {
+            await mkdir(laneEvidenceDirectory, { recursive: true });
+            await writeFile(join(laneEvidenceDirectory, `ait-511-oversized-trace-${label}.json`), JSON.stringify({ oversized, debug }, null, 2));
+          }
+          await page.evaluate(() => { delete globalThis.__ait511ScrollTrace; });
           assert.ok(Math.abs(oversized.top - oversized.expectedTop) <= 1, `an oversized reply starts below the fade: ${JSON.stringify(oversized)}`);
           assert.equal(oversized.link, locale === 'de' ? 'Ganze Antwort lesen' : 'Read full reply');
           assert.equal(oversized.visible, true, 'the full-reply action stays visible while a long reply is top-aligned');
