@@ -31,8 +31,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
       AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
     });
     t.after(() => demo.kill());
+    // Geometry fixtures also disable native wheel easing, which can outlive
+    // CSS reduced motion and carry one scene's gesture into the next reply.
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-      env: { PATH: process.env.PATH, HOME: homedir() }, args: [...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []), ...(evidenceDirectory ? evidenceBrowserArgs : [])] });
+      env: { PATH: process.env.PATH, HOME: homedir() }, args: ['--disable-smooth-scrolling', ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []), ...(evidenceDirectory ? evidenceBrowserArgs : [])] });
     t.after(() => browser.close());
     const page = await browser.newPage(), evidence = evidenceDirectory, files = [], captures = {}, checks = [], keyboardChecks = [], stabilityChecks = [];
     const accessibility = await page.createCDPSession(), accessibilityChecks = [];
@@ -427,23 +429,12 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         const bottomBefore = await boxes(page, ['.turn:last-child']);
         await page.evaluate(() => globalThis.showQuestion({ options: [] })); await nextFrame(page);
         assert.deepEqual(await boxes(page, ['.turn:nth-last-child(2)']), bottomBefore, 'closing at the reading bottom preserves visible text');
-        // Finish this native gesture before the independent oversized-reply
-        // case below. On macOS the compositor can keep scrolling after the
-        // fixed frame checks even though all script assignments have finished.
-        await shadow(page, c => {
-          globalThis.qcardBottomScrollEnd = false;
-          const shell = c.shadowRoot.querySelector('.transcript-shell');
-          shell.addEventListener('wheel', () => {
-            shell.addEventListener('scrollend', () => { globalThis.qcardBottomScrollEnd = true; }, { once: true });
-          }, { once: true, passive: true });
-        });
         await page.mouse.wheel({ deltaY: 10_000 });
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height') === '0px');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'reaching the bottom releases the obsolete gap while the pointer stays in the transcript');
         await page.evaluate(async () => { for (let frame = 0; frame < 12; frame++) await new Promise(resolve => requestAnimationFrame(resolve)); });
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the bottom gap stays released without new content or pointer movement');
         await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
-        await page.waitForFunction(() => globalThis.qcardBottomScrollEnd);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
         if (width <= 600) {
           await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
