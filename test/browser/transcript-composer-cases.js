@@ -173,21 +173,26 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     records.push({ label: `card-${voice}`, before, after });
   });
   await t.test('combined opener permits draft growth before visitor input without revealing overview', async () => {
-    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
-      await reset(width, 900, locale, theme, { entrance: 'combined', turns: 0, opener: true });
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390, 900], [1440, 900], [1440, 640], [1024, 640]]) {
+      await reset(width, height, locale, theme, { entrance: 'combined', turns: 0, opener: true });
       assert.equal(await shadow(page, async c => {
         const { hasVisitorInput } = await import('/packages/core/src/document-context.js');
         return hasVisitorInput(c.session);
       }), false, 'render-only host opener is not visitor input');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent', 'opener does not reveal overview');
       const before = await geometry(page);
-      await draft(page, 12); await settleEvidenceFrame(page); const after = await capture(`ait-513-combined-${locale}-${theme}-${width}-opener-draft`);
+      assert.equal(before.growth, 0, 'empty combined entrance starts at its responsive baseline');
+      await draft(page, 12); await settleEvidenceFrame(page); const after = await capture(`ait-513-combined-${locale}-${theme}-${width}x${height}-opener-draft`);
+      for (const state of [before, after]) {
+        positive(state.boxes['.display-foot'], 'combined entrance footer');
+        assert.ok(state.boxes['.composer'].bottom <= state.boxes['.display-foot'].top + .5, 'combined entrance clears the fixed footer');
+      }
       assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'combined field grows before the first visitor message');
       positive(before.boxes['.send'], 'combined entrance Send before'); positive(after.boxes['.send'], 'combined entrance Send after');
       assert.ok(Math.abs(before.boxes['.send'].top - after.boxes['.send'].top) <= .5, 'combined entrance Send stays pinned');
       assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, 'combined entrance composer bottom stays pinned');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent', 'unsent drafting does not reveal overview');
-      records.push({ label: `combined-opener-${locale}-${theme}-${width}`, before, after });
+      records.push({ label: `combined-opener-${locale}-${theme}-${width}x${height}`, before, after });
     }
   });
   for (const [width, height] of [[1440, 900], [1440, 640], [1024, 640], [390, 844], [390, 620], [390, 568]]) {
