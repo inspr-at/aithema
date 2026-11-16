@@ -585,7 +585,9 @@ export class PhoneComposerViewport {
       const slackBottom = parseFloat(css.getPropertyValue('--aithema-slack-bottom')) || 0;
       const top = (parseFloat(css.paddingTop) || 0) - current - slackTop;
       const bottom = (parseFloat(css.paddingBottom) || 0) - slackBottom;
-      const needed = Math.max(0, box.bottom - pane.top - top);
+      // Round outward: independent fractional font/layout rounding must not
+      // paint the first bubble across the visible message boundary.
+      const needed = Math.ceil(Math.max(0, box.bottom - pane.top - top));
       const list = shell.querySelector('ol').getBoundingClientRect();
       const notices = shell.querySelector('.voice-notices')?.getBoundingClientRect();
       if (box.width > 0 && box.height > 0 && pane.width > 0 && pane.height > 0 &&
