@@ -209,7 +209,7 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
     const after = await boxes(page, railBoxes);
     for (const box of after) assert.ok(box[2] > 0 && box[3] > 0, `${label}: final rail/frame has a positive box`);
     assert.deepEqual(after, before, `${label}: 0 px shift`);
-    const values = { ...view, shiftPx: 0 }; await evidence('F5', page, label, values); t.diagnostic(`PASS F5 ${label}: ${JSON.stringify(values)}`);
+    const values = { ...view, frameSelectors: railBoxes, framesBefore: before, framesAfter: after, shiftPx: 0 }; await evidence('F5', page, label, values); t.diagnostic(`PASS F5 ${label}: ${JSON.stringify(values)}`);
   }
 });
 
