@@ -875,9 +875,16 @@ export class AithemaSession extends HTMLElement {
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
     root.querySelector('.transcript-latest').addEventListener('click', () => {
       const latest = [...root.querySelectorAll('.transcript-shell .turn')].at(-1)?.dataset.id;
-      this.#tailReply = this.#longReply === latest ? latest : null;
+      const tail = this.#longReply === latest ? latest : null;
+      // Latest is an explicit reading action. Beside a question, hold an
+      // oversized reply through the same settling frames as typed navigation.
+      // Without a card, retain the inline email-offer entry path.
+      const hasCard = !root.querySelector('.qcard').hidden;
+      if (hasCard) this.#beginNavigation();
+      this.#tailReply = tail;
       this.#longReply = null;
       this.#scrollToLatest();
+      if (hasCard) this.#finishNavigation();
     });
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);

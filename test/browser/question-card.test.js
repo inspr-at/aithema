@@ -665,26 +665,9 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           }
         }
         if ([390, 1440].includes(width)) {
-          const oversizedTrace = [], traceOversized = async stage => {
-            if (!laneEvidenceDirectory) return;
-            oversizedTrace.push({ stage, ...await shadow(page, c => {
-              const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
-              const box = selector => { const n = r.querySelector(selector), css = getComputedStyle(n); return { ...n.getBoundingClientRect().toJSON(), style: n.style.cssText, scrollTop: n.scrollTop, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight, padding: css.padding, margin: css.margin, position: css.position, display: css.display, overflow: css.overflow }; };
-              return { boxes: Object.fromEntries(['.transcript-shell', '.transcript-shell ol', '.turn:last-child', '.turn-read-full', '.qcard', '.composer', '.voice-notices'].filter(s => r.querySelector(s)).map(s => [s, box(s)])),
-                startOnly: r.querySelector('.turn:last-child').hasAttribute('data-start-only'), growth: r.querySelector('.workspace').style.getPropertyValue('--aithema-composer-growth'),
-                lastText: r.querySelector('.turn:last-child .turn-text').getBoundingClientRect().toJSON() };
-            }) });
-          };
           await page.evaluate(() => globalThis.showQuestion({ content: (globalThis.qcardReply.content + ' ').repeat(30) }));
-          await traceOversized('rendered');
           await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
-          await traceOversized('latest');
-          await nextFrame(page); await traceOversized('two frames');
-          await nextFrame(page); await traceOversized('four frames');
-          if (laneEvidenceDirectory) {
-            await mkdir(laneEvidenceDirectory, { recursive: true });
-            await writeFile(join(laneEvidenceDirectory, `ait-511-oversized-${label}.json`), JSON.stringify(oversizedTrace, null, 2));
-          }
+          await nextFrame(page); await nextFrame(page);
           const oversized = await shadow(page, c => {
             const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), row = r.querySelector('.turn:last-child'), button = row.querySelector('.turn-read-full');
             const b = row.getBoundingClientRect(), s = shell.getBoundingClientRect(), a = button?.getBoundingClientRect();
