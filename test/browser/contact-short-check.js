@@ -53,10 +53,12 @@ export async function contactShortCheck(t) {
   for (const entrance of ['choice','combined']) for (const locale of ['en','de']) for (const theme of ['light','dark']) {
     await page.goto(`${demo.url}?locale=${locale}&theme=${theme}&entrance=${entrance}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
-    await page.evaluate(() => {
-      window.contactInitialOptions = { ...window.contactConfiguredOptions };
+    await page.evaluate(locale => {
+      const options = window.contactConfiguredOptions;
+      window.contactInitialOptions = { ...options, copy: options.copyForLocale(locale) };
       window.contactInitialSession = structuredClone(document.querySelector('aithema-session').session);
-    });
+      window.contactInitialSession.locale = locale;
+    }, locale);
     for (const [width, height] of [[1280,600],[1024,600],[1280,544],[1024,568],[390,844],[390,568],[1440,900]]) {
       const label = `${width}x${height}-${locale}-${theme}-${entrance}`;
       // Capture every requested R12 state in EN/DE and both themes, including a
@@ -134,7 +136,7 @@ export async function contactShortCheck(t) {
         assert.equal(reveal.phase, 'open'); assert.equal(reveal.inert, true, 'contact is inert during About');
         positive([reveal.box]); assert.equal(Number(reveal.opacity), 0, 'contact fades during About');
         if (captures.includes('about')) await shot(`${label}-about`);
-        records.push({ label, captures, before, after, shiftPx, phoneInset, dialog, settingsTop, reveal });
+        records.push({ label, captures, language, before, after, shiftPx, phoneInset, dialog, settingsTop, reveal });
         if (evidence) await writeFile(join(evidence, 'contact-short-rects.json'), JSON.stringify(records, null, 2));
       });
     }
