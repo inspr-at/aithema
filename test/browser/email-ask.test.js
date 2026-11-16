@@ -863,12 +863,19 @@ for (const finding of ['M3', 'M4', 'M6']) test(`AIT-540 ${finding}: one readable
   for (const locale of ['en','de']) for (const theme of ['light','dark']) for (const width of (finding==='M4'?[390,520,521,1024,1440]:[390,1024,1440])) await t.test(`${locale}/${theme}/${width}`,async()=>{
     await page.setViewport({width,height:width===390?844:1000});
     await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'reduce'}]);
+    if (finding === 'M6') {
+      // Each active-call capture owns a fresh session; no previous call can still be ending.
+      await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await until(page, () => document.querySelector('aithema-session')?.session);
+    }
     await fixture(page,locale,{opener:true,delivery:true,emailOffer:{afterMessages:2},initialMessages:1,lock:true,voice:finding==='M6'});
     await shadow(page,(c,theme)=>c.setAttribute('theme',theme),theme);
     await page.evaluate(()=>window.scrollTo(0,0)); await settle(page);
     await shadow(page,c=>c.shadowRoot.querySelector('textarea').focus({preventScroll:true}));
     const before=await shadow(page,c=>({focus:c.shadowRoot.activeElement?.id,scroll:scrollY}));
     await page.evaluate(()=>window.ait164.reply()); await until(page,()=>document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
+    if (finding === 'M6') assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.call), 'active', 'M6 evidence requires an active call');
     const view=await shadow(page,c=>{
       const r=c.shadowRoot, offer=r.querySelector('.email-offer'), lock=r.querySelector('.verify-lock');
       const rect=n=>n.getBoundingClientRect().toJSON();

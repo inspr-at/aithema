@@ -244,3 +244,17 @@ for (const copy of [en, de]) test(`AIT-503 ${copy.display.locale}: visitor copy 
     : value && typeof value === 'object' ? Object.values(value).flatMap(leaves) : [];
   for (const text of leaves(copy)) assert.doesNotMatch(text, /\breasoning\b/iu);
 });
+
+
+test('AIT-540 LEAD b4: consent intros, status label and call authorization stay distinct', () => {
+  assert.equal(de.ready.consent, 'Status');
+  assert.equal(en.ready.consent, 'Status');
+  for (const intro of [de.processingConsent.intro, de.host.consentPage.intro, withDemoConsentCopy(de).processingConsent.intro]) {
+    assert.match(intro, /Einwilligung/u);
+    assert.doesNotMatch(intro, /freigeb|freigegeb|zustimm/iu);
+  }
+  assert.equal(de.voiceReasonsNarrow.permission, 'Freigabe abgelaufen');
+  assert.equal(de.voiceReasonsNarrow.sessionRevoked, 'Freigabe widerrufen');
+  assert.equal(de.reasons['call-authorization-lost'], 'Die Freigabe für dieses Sprachgespräch ist nicht mehr gültig');
+  assert.equal(de.reasons['session-revoked'], 'Die Freigabe für dieses Gespräch wurde widerrufen');
+});

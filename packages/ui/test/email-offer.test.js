@@ -158,3 +158,23 @@ test('AIT-507 b7 saving keeps capture focusable and blocks duplicate submits', a
 test('AIT-507 integration: temporary visitor-input bridge is not public API', () => {
   assert.equal('hasOfferVisitorInput' in offerExports, false);
 });
+
+
+test('AIT-540 M6: only an accepted current show claim permits one reveal', async t => {
+  const f = fixture(t);
+  f.offer.setCredits({ ...f.credits, emailOffer: { offered: true, open: true, at: 'a2', revision: 2 } });
+  assert.equal(f.offer.takeReveal('a2'), false, 'restored credits never request a reveal');
+  f.offer.request = async () => ({ ok: true, body: { accepted: false, emailOffer: f.offer.state } });
+  await f.offer.act('show', 2);
+  assert.equal(f.offer.takeReveal('a2'), false, 'a rejected claim never requests a reveal');
+  f.offer.request = async () => ({ ok: true, body: { accepted: true, emailOffer: { offered: true, open: true, at: 'a2', revision: 1 } } });
+  await f.offer.act('show', 2);
+  assert.equal(f.offer.takeReveal('a2'), false, 'a stale response never requests a reveal');
+  f.offer.request = async () => ({ ok: true, body: { accepted: true, emailOffer: { offered: true, open: true, at: 'a2', revision: 3 } } });
+  await f.offer.act('show', 2);
+  assert.equal(f.offer.takeReveal('a1'), false, 'only the claimed anchor can consume a reveal');
+  assert.equal(f.offer.takeReveal('a2'), true, 'a new accepted show requests a reveal');
+  assert.equal(f.offer.takeReveal('a2'), false, 'later re-renders cannot repeat it');
+  f.offer.setCredits({ ...f.credits, emailOffer: { offered: true, open: true, at: 'a2', revision: 3 } });
+  assert.equal(f.offer.takeReveal('a2'), false, 'credit refresh cannot re-arm it');
+});
