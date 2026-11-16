@@ -442,8 +442,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'reaching the bottom releases the obsolete gap while the pointer stays in the transcript');
         await page.evaluate(async () => { for (let frame = 0; frame < 12; frame++) await new Promise(resolve => requestAnimationFrame(resolve)); });
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the bottom gap stays released without new content or pointer movement');
-        await page.waitForFunction(() => globalThis.qcardBottomScrollEnd);
         await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
+        await page.waitForFunction(() => globalThis.qcardBottomScrollEnd);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
         if (width <= 600) {
           await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
