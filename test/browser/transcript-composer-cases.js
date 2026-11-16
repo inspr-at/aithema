@@ -59,17 +59,18 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   await shadow(page, c => { globalThis.composerSeed = structuredClone(c.session); });
   const records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR; let fittingChecks = 0;
   if (evidence) await mkdir(evidence, { recursive: true });
-  const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false, usedUp = false, entrance = 'choice' } = {}) => {
+  const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false, usedUp = false, entrance = 'choice', opener = false } = {}) => {
     await page.mouse.move(0, 0); await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await shadow(page, async (c, options) => {
-      const { locale, theme, voice, card, turns, visuals, usedUp, entrance } = options;
+      const { locale, theme, voice, card, turns, visuals, usedUp, entrance, opener } = options;
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
       const { inputRevision } = await import('/packages/core/src/session.js');
       const { paintUtilities } = await import('/demo/page-preferences.js');
       const s = structuredClone(globalThis.composerSeed); s.seq = 10; s.locale = locale; s.inputRevision = 1; s.settings.origin = 'chosen';
       s.settings.visuals = visuals ? 'fixture-image' : 'off';
+      if (opener) s.opener = { text: locale === 'de' ? 'Willkommen. Welches Vorhaben soll geklärt werden?' : 'Welcome. What project needs clarification?', locale };
       s.conceptVisualKind = 'image'; s.visualsBound = Boolean(visuals); s.conceptCost = visuals ? { maxMicro: 0 } : null;
       s.concepts = visuals === 'populated' ? [{ id: 'fixture-image', mediaType: 'image/png', turnIds: ['t0'], referenceIds: [], archived: false }] : [];
       s.conceptStatus = { phase: visuals === 'populated' ? 'ready' : 'idle' };
@@ -97,7 +98,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
         options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    }, { locale, theme, voice, card, turns, visuals, usedUp, entrance });
+    }, { locale, theme, voice, card, turns, visuals, usedUp, entrance, opener });
     await settleEvidenceFrame(page);
   };
   const capture = async label => {
@@ -170,6 +171,24 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     const gap = after.boxes['.qcard'].top - after.boxes['.turn:last-child'].bottom;
     assert.ok(gap >= -.5 && gap <= 24.5, `reply/card clearance stays between 0 and 24px: ${gap}`);
     records.push({ label: `card-${voice}`, before, after });
+  });
+  await t.test('combined opener permits draft growth before visitor input without revealing overview', async () => {
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+      await reset(width, 900, locale, theme, { entrance: 'combined', turns: 0, opener: true });
+      assert.equal(await shadow(page, async c => {
+        const { hasVisitorInput } = await import('/packages/core/src/document-context.js');
+        return hasVisitorInput(c.session);
+      }), false, 'render-only host opener is not visitor input');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent', 'opener does not reveal overview');
+      const before = await geometry(page);
+      await draft(page, 12); await settleEvidenceFrame(page); const after = await capture(`ait-513-combined-${locale}-${theme}-${width}-opener-draft`);
+      assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'combined field grows before the first visitor message');
+      positive(before.boxes['.send'], 'combined entrance Send before'); positive(after.boxes['.send'], 'combined entrance Send after');
+      assert.ok(Math.abs(before.boxes['.send'].top - after.boxes['.send'].top) <= .5, 'combined entrance Send stays pinned');
+      assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, 'combined entrance composer bottom stays pinned');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent', 'unsent drafting does not reveal overview');
+      records.push({ label: `combined-opener-${locale}-${theme}-${width}`, before, after });
+    }
   });
   for (const [width, height] of [[1440, 900], [1024, 640], [390, 844], [390, 620], [390, 568]]) {
     await t.test(`combined entrance grows upward without overlap ${width}x${height}`, async () => {
