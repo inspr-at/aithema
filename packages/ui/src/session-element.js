@@ -107,7 +107,7 @@ export class AithemaSession extends HTMLElement {
   #consentRefresh;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
-  #signals; #signalState; #signalLiveSeq = null;
+  #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
   #clarifyDiagnostics = new Map();
@@ -3501,7 +3501,7 @@ export class AithemaSession extends HTMLElement {
     } catch { if (current()) { this.#navigation = null; this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
-  receive(event) { this.#anchored(() => this.#receive(event)); }
+  receive(event) { this.#anchored(() => this.#receive(event, { live: !this.#signalReplay.has(event) })); }
   #receive(event, { live = true } = {}) {
     if (this.#erased) return;
     if (event.sessionId && event.sessionId !== this.#session.id) return;
@@ -3913,7 +3913,10 @@ export class AithemaSession extends HTMLElement {
         let replaying = true;
         for await (const event of serverEvents(reader)) {
           if (signal.aborted) break;
-          this.#anchored(() => this.#receive(event, { live: !replaying }));
+          // Preserve the public delivery path for hosts that observe or delay
+          // receive(). Replay provenance follows the event if delivery is held.
+          if (replaying) this.#signalReplay.add(event);
+          this.receive(event);
           // The reference server sends status after synchronous durable replay.
           if ((!event.sessionId || event.sessionId === this.#session.id) && event.type === 'lane.status' &&
             event.data.inputRevision === inputRevision(this.#session)) replaying = false;
