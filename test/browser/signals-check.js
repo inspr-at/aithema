@@ -192,6 +192,7 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
     for (const [state, geometry] of [['collapsed', collapsedToggle], ['expanded', expandedToggle]]) {
       assert.ok(geometry.box.width > 0 && geometry.box.height > 0, `${name} ${state} toggle positive box`);
       assert.ok(geometry.questions.width > 0 && geometry.questions.height > 0, `${name} ${state} questions heading positive box`);
+      assert.ok(geometry.content.width > 0 && geometry.content.height > 0, `${name} ${state} clipping pane positive box`);
       assert.ok(geometry.questions.top >= geometry.box.bottom, `${name} questions heading stays below the toggle click target`);
     }
     for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(collapsedToggle.box[key] - expandedToggle.box[key]) <= .5,
