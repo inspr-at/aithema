@@ -1,6 +1,7 @@
 // The opt-in entrance and live call share one bottom-anchored composer.
-// Desktop footer clearance remains owned by band-styles; phone uses its measured dock.
 export const combinedEntranceStyles = `
+/* Desktop footer clearance belongs to band-styles. This mode adds none;
+   phone clearance below uses the viewport owner’s measured dock/footer. */
 .workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; }
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; gap:8px; }
 /* The whole entrance/transcript surface scrolls above the reserved input row. */
