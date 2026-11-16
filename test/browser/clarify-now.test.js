@@ -1145,10 +1145,10 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
   };
   const update = text => shadow(page, (c, text) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated',
     data: { ...c.session.understanding, summary: text } }), text);
-  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+  for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
     await page.setViewport({ width: 1440, height: 900 });
     await page.mouse.move(-10, -10);
-    await shadow(page, async (c, locale, theme, manifest) => {
+    await shadow(page, async (c, locale, theme, manifest, entrance) => {
       const { createSession, inputRevision } = await import('/packages/core/src/session.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = createSession({ demo: true, locale });
@@ -1162,9 +1162,9 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
       window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
         init.signal?.addEventListener('abort', () => controller.close(), { once: true });
       } })) : Response.json(session);
-      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: { manifest } });
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy, entrance, voiceClient: { manifest } });
       c.shadowRoot.querySelector('.summary-text').style.whiteSpace = 'pre-line';
-    }, locale, theme, voiceManifest);
+    }, locale, theme, voiceManifest, entrance);
     // Baseline at each viewport before overflow, then resize the long summary
     // through the same viewports. The viewport itself may move controls; the
     // summary's changed clamp must add no movement at that viewport.
@@ -1176,11 +1176,11 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
     await update(Array(20).fill(locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.').join('\n'));
     for (const [width, height] of [[1440, 900], [1024, 640], [1024, 1000], [1440, 900]]) {
       await page.setViewport({ width, height }); await settle();
-      const row = { locale, theme, width, height, ...await measure() }; rows.push(row);
+      const row = { entrance, locale, theme, width, height, ...await measure() }; rows.push(row);
       for (const name of ['pane', 'heading', 'text', 'signal', 'button']) {
         assert.ok(row[name].width > 0 && row[name].height > 0, `${locale}/${theme}/${width}: positive ${name}`);
       }
-      const label = `${locale}/${theme}/${width}×${height}`;
+      const label = `${entrance}/${locale}/${theme}/${width}×${height}`;
       unchanged(baseline.get(`${width}/${height}`), await frames(), `${label} resize clamp`);
       const before = await frames();
       await update(Array(30).fill('A rewritten workflow.').join('\n')); await settle();
@@ -1202,9 +1202,24 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
         await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await settle();
       }
     }
+    if (entrance === 'combined') for (const height of [1000, 620, 568]) {
+      await page.setViewport({ width: 390, height }); await page.mouse.move(-10, -10);
+      await update('Short.'); await settle();
+      const before = await frames(), label = `${entrance}/${locale}/${theme}/390×${height}`;
+      await update(Array(30).fill('A clear workflow.').join('\n')); await settle();
+      unchanged(before, await frames(), `${label} rewrite`);
+      for (const action of ['Read more', 'Show less']) {
+        await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle();
+        unchanged(before, await frames(), `${label} ${action}`);
+      }
+      const rects = await frames(), get = selector => rects.find(box => box.selector === selector);
+      const separate = (a, b) => a.right <= b.left + .5 || b.right <= a.left + .5 || a.bottom <= b.top + .5 || b.bottom <= a.top + .5;
+      assert.ok(separate(get('.attach'), get('.send')), `${label}: Attach and Send do not overlap`);
+      assert.ok(separate(get('.understanding'), get('.composer')), `${label}: overview and composer do not overlap`);
+    }
   }
   for (const row of rows) {
-    const label = `${row.locale}/${row.theme}/${row.width}×${row.height}`;
+    const label = `${row.entrance}/${row.locale}/${row.theme}/${row.width}×${row.height}`;
     const lines = row.text.height / row.line;
     assert.ok(Math.abs(lines - Math.round(lines)) < .03, `${label}: whole rendered lines`);
     assert.ok(lines >= 3 - .03 && lines <= 9 + .03, `${label}: three-to-nine rendered lines`);
