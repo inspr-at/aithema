@@ -1162,4 +1162,5 @@ test('AIT-512: picks and sends keep the new turn visible without stealing readin
 });
 
 // Keep transcript/dock geometry cases in this measured browser shard.
-import './transcript-composer-cases.js';
+import { transcriptComposerCases } from './transcript-composer-cases.js';
+test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchoring and send lifecycle', { timeout: 240_000 }, transcriptComposerCases);

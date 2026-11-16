@@ -47,7 +47,7 @@ const draft = (page, lines) => shadow(page, (c, lines) => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }, lines);
 
-test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchoring and send lifecycle', { timeout: 240_000 }, async t => {
+export async function transcriptComposerCases(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-composer-'));
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -451,4 +451,11 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
   });
   assert.ok(fittingChecks >= 4, 'at least four measured size cases prove the fitting first-turn invariant');
   if (evidence) await writeFile(join(evidence, 'ait-511-513-rects.json'), JSON.stringify(records, null, 2));
-});
+
+}
+
+// Keep the manual remote profile entry; CI registers the parent in its measured
+// question-card file so top-level timing attribution matches the shard manifest.
+if (process.argv[1]?.endsWith('/transcript-composer-cases.js')) {
+  test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchoring and send lifecycle', { timeout: 240_000 }, transcriptComposerCases);
+}
