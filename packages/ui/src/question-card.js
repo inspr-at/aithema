@@ -63,7 +63,7 @@ export const questionCardStyles = `
   color:var(--aithema-accent); text-decoration:underline; }
 .turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
   font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
-/* Latest uses the shared zero-height sticky container with or without a card. */
+/* Latest uses the shared floating action rule with or without a card. */
 /* At short desktop heights retain two text lines and 44px actions while
    yielding outer spacing to the 128px reply floor and 150px question minimum.
    This depends on the viewport, never on an asynchronous card arrival. */

@@ -380,10 +380,12 @@ svg { display:block; flex:none; }
   display:flex; flex-direction:column; }
 .transcript-shell > ol, .transcript-shell > .voice-notices { flex:none; }
 /* Latest floats above end content; it never reserves an empty transcript row. */
-.transcript-jump { position:sticky; bottom:0; order:1; flex:none; align-self:stretch; height:0; min-height:0; z-index:1; }
-/* The sticky zero-height container owns no scroll extent. The real 44px action
-   stays clickable without negative flex margins or a hidden trailing row. */
-.transcript-latest { position:absolute; right:0; bottom:0; display:block; height:44px; max-width:100%; margin:0; font-size:.75rem; border-radius:999px;
+.transcript-shell > .transcript-latest { order:1; flex:none; align-self:flex-end; height:44px; margin:-44px 0 0 auto; }
+/* Keep descendant overflow inside the natural list height. Horizontal tails
+   remain visible; native bottom scroll then agrees with the last row's box. */
+.transcript-shell > ol { overflow-x:visible; overflow-y:clip; }
+/* Visibility keeps the floating Latest action stable in both states. */
+.transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
 .turn { --turn-max-width:78%; position:relative; max-width:var(--turn-max-width); align-self:flex-start; padding:.65rem .8rem; line-height:1.45; overflow-wrap:anywhere;
