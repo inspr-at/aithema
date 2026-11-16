@@ -24,6 +24,7 @@ addition to its kind's operations. These are the actual kind IDs:
 | `live-voice` | `LiveVoice.start` → `VoiceSession` | Voice agent with native or delegated reasoning; separate server and browser entrypoints. |
 | `ui-generation` | `UIGeneration.generate`, `edit` or `HTMLGeneration.generate`, `edit` | Visual choices select `images` or `html`; HTML declares `text/html`. |
 | `extractor` | `Extractor.extract` | Bounded document extraction, never an implicit reasoning route. |
+| `image-input` | `ImageInput.normalize` | Local, free raster normalization selected by the preset's `imageInput` configuration; image reasoning requires separate binding capability and consent. |
 | `exporter` | `Exporter.export` | Export bytes and media type; admission requires host integration. |
 
 “Model”, “image”, “HTML” and “concept” describe product roles, not extra manifest

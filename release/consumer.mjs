@@ -25,9 +25,14 @@ export function testConsumer(directory, { offline = true, bootOnly = false } = {
     const hostPackage = { name: 'aithema-scratch-host', version: '0.0.0', private: true, type: 'module',
       dependencies: { 'happy-dom': sourceLock.packages['node_modules/happy-dom'].version } };
     const locked = { name: hostPackage.name, version: hostPackage.version, lockfileVersion: 3, requires: true, packages: { '': hostPackage } };
+    const matches = (values, value) => !values?.length || !values.includes(`!${value}`) &&
+      (!values.some(entry => !entry.startsWith('!')) || values.includes('any') || values.includes(value));
+    const platformMatches = pkg => matches(pkg.os, process.platform) && matches(pkg.cpu, process.arch) &&
+      (!pkg.libc?.length || matches(pkg.libc, process.platform === 'linux' && process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl'));
+    const installedClosure = new Set();
     // Resolve the exact external closure from the source lock. npm ci caches the
     // tarballs, but does not necessarily cache registry metadata for npm install.
-    function external(name, from = '', optional = false) {
+    function external(name, from = '', optional = false, parentActive = true) {
       let ancestor = from, path;
       while (ancestor) {
         const candidate = `${ancestor}/node_modules/${name}`;
@@ -37,11 +42,13 @@ export function testConsumer(directory, { offline = true, bootOnly = false } = {
       path ??= `node_modules/${name}`;
       const pkg = sourceLock.packages[path];
       if (!pkg) { if (optional) return; throw new Error(`Missing locked dependency: ${name}`); }
-      if (locked.packages[path]) return;
+      const active = parentActive && (!optional || platformMatches(pkg));
+      if (locked.packages[path] && (!active || installedClosure.has(path))) return;
+      if (active) installedClosure.add(path);
       locked.packages[path] = { ...pkg }; delete locked.packages[path].dev;
-      for (const dependency of Object.keys(pkg.dependencies ?? {})) external(dependency, path);
-      for (const dependency of Object.keys(pkg.optionalDependencies ?? {})) external(dependency, path, true);
-      for (const dependency of Object.keys(pkg.peerDependencies ?? {})) external(dependency, path, pkg.peerDependenciesMeta?.[dependency]?.optional);
+      for (const dependency of Object.keys(pkg.dependencies ?? {})) external(dependency, path, false, active);
+      for (const dependency of Object.keys(pkg.optionalDependencies ?? {})) external(dependency, path, true, active);
+      for (const dependency of Object.keys(pkg.peerDependencies ?? {})) external(dependency, path, pkg.peerDependenciesMeta?.[dependency]?.optional, active);
     }
     const moduleNames = new Set(modules.map(artifact => artifact.name));
     for (const artifact of modules) {
@@ -89,14 +96,10 @@ export function testConsumer(directory, { offline = true, bootOnly = false } = {
       return { ...result, verified_packages: modules.length, verified_files: verifiedFiles, isolation: 'all module resolutions confined to temporary host' };
     };
     npm(['ci']); const installed = smoke();
-    const matches = (values, value) => !values?.length || !values.includes(`!${value}`) &&
-      (!values.some(entry => !entry.startsWith('!')) || values.includes('any') || values.includes(value));
-    const platformMatches = pkg => matches(pkg.os, process.platform) && matches(pkg.cpu, process.arch) &&
-      (!pkg.libc?.length || matches(pkg.libc, process.platform === 'linux' && process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl'));
     for (const [path, pkg] of Object.entries(locked.packages)) {
       // npm retains all optional architectures in the lock but installs the host's closure.
       if (path && pkg.optional && !existsSync(join(scratch, path, 'package.json'))) {
-        assert.equal(platformMatches(pkg), false, 'Only incompatible optional platform packages may be absent');
+        assert.equal(installedClosure.has(path), false, `Only inactive optional platform closure packages may be absent: ${path}`);
         continue;
       }
       if (path) assert.equal(JSON.parse(readFileSync(join(scratch, path, 'package.json'))).version, pkg.version);
