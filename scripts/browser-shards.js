@@ -453,7 +453,10 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
       if (--remainingNodes < 0) return false;
       if (index === sortedFiles.length) return true;
       const file = sortedFiles[index], seenLoads = new Set();
-      const bins = loads.map((_, bin) => bin).sort((a, b) => loads[a] - loads[b] || a - b);
+      // Try the fullest eligible bin first. Repeatedly trying empty bins fans
+      // out equivalent underfilled prefixes and can exhaust the node budget
+      // before finding a fit for the remaining small files (AIT-517).
+      const bins = loads.map((_, bin) => bin).sort((a, b) => loads[b] - loads[a] || a - b);
       for (const bin of bins) {
         if (seenLoads.has(loads[bin]) || loads[bin] + milliseconds(file) > browserShardHeadroomTarget * 1000) continue;
         seenLoads.add(loads[bin]);
