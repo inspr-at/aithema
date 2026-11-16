@@ -1,6 +1,7 @@
 // The opt-in entrance and live call share one bottom-anchored composer.
+// Desktop footer clearance remains owned by band-styles; phone uses its measured dock.
 export const combinedEntranceStyles = `
-.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:1rem; }
+.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; }
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; gap:8px; }
 /* The whole entrance/transcript surface scrolls above the reserved input row. */
 .workspace[data-entrance="combined"] .conversation-scroll { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:auto; scrollbar-gutter:stable; gap:.85rem; }
@@ -53,8 +54,9 @@ export const combinedEntranceStyles = `
    only the field grows. This is independent of asynchronous card/copy changes. */
 @media(min-width:601px) and (max-height:700px) {
   .workspace[data-entrance="combined"] .composer { padding-block:4px; row-gap:0;
-    grid-template-areas:"notice notice notice" "message mic send" "feedback status status"; }
-  .workspace[data-entrance="combined"] .composer-notice, .workspace[data-entrance="combined"] .composer-status { height:44px; }
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) 44px 44px;
+    grid-template-areas:"notice feedback status status" "message message mic send"; }
+  .workspace[data-entrance="combined"] :is(.composer-notice,.composer-feedback,.composer-status) { height:44px; min-width:0; overflow:auto; }
   .workspace[data-entrance="combined"] textarea { min-height:3.5rem; height:var(--composer-field-height,3.5rem); }
 }
 @media(max-width:600px) {

@@ -18,7 +18,8 @@
   before and after input without treating an opener/draft as visitor input.
   Short desktop and keyboard layouts reserve compact scrollable disclosure/status
   slots; Send and mic stay pinned. The card margin is counted once outside the
-  combined reading pane.
+  combined reading pane. Combined desktop retains the fixed-footer clearance;
+  short desktop feedback shares the reserved disclosure row.
 - Additive measured CSS outputs on the workspace:
   `--aithema-composer-height` and `--aithema-composer-growth`. Hosts keep their
   existing height/theme/copy overrides. No new options, copy keys, events or

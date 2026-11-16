@@ -1440,7 +1440,8 @@ Combined entrance uses the same sizing owner before and after visitor input;
 drafting beside a host opener does not reveal the overview. Short desktop and
 keyboard layouts reserve compact, scrollable disclosure/status slots and pin
 Send and mic while the field grows. The card margin stays outside the reading
-pane, counted once.
+pane, counted once. Combined desktop layout retains the band layout’s fixed
+footer clearance; short desktop feedback shares the reserved disclosure row.
 The sizing owner publishes two measured CSS outputs on the workspace:
 `--aithema-composer-height` (effective composer height) and
 `--aithema-composer-growth` (growth above the current minimum composer height).
