@@ -67,10 +67,12 @@ export async function contactShortCheck(t) {
         await page.$eval('.demo-contact', n => n.scrollIntoView({ block: 'center' })); await settle();
         const inset = await page.$eval('aithema-session', c => {
           const fold = c.shadowRoot.querySelector('.fold').getBoundingClientRect(), link = c.querySelector('.demo-contact').getBoundingClientRect();
-          return { fold: fold.toJSON(), link: link.toJSON() };
+          return { fold: fold.toJSON(), link: link.toJSON(), handover: c.shadowRoot.querySelector('.handover__label').getBoundingClientRect().toJSON() };
         });
         positive([inset.fold, inset.link]);
         assert.ok(inset.link.left >= inset.fold.right - .5, `contact clears fold chevron: ${JSON.stringify(inset)}`);
+        positive([inset.handover]);
+        assert.ok(inset.handover.left >= inset.fold.right - .5, `TICK L2: the personal-conversation link clears the fold chevron: ${JSON.stringify(inset)}`);
       }
       await shot(`${label}-contact`);
       await page.evaluate(() => scrollTo(0, 0)); await settle();
