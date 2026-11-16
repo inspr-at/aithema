@@ -15,6 +15,7 @@ const REFRESH_COALESCE_MS = 250;
 
 export class Verification {
   #visitorEmail = null;
+  #inlineOffer = false;
   #streamingBlocked = false;
   #email; #creditsChanged; #dialogDelivery = true; #identityGeneration = 0;
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
@@ -243,6 +244,10 @@ export class Verification {
     (mode === 'capture' ? entry.input : mode === 'pending' ? entry.resend : entry.root.closest('dialog')?.querySelector('.verify-dialog-close'))?.focus();
   }
   setCaptureDeferred(value) { if (this.#email.captureDeferred === value) return; this.#email.set({ captureDeferred: value }); this.#paint(); }
+  setInlineOffer(visible) {
+    if (this.#inlineOffer === visible) return;
+    this.#inlineOffer = visible; this.#paint();
+  }
   update() { if (this.changeBlocked !== this.#streamingBlocked) this.#paint(); }
   get changeBlocked() { return Boolean(this.#identity?.address && this.streaming()); }
   async #send(entry) {
@@ -323,6 +328,7 @@ export class Verification {
     if (!this.canCollect && this.#dialog.open) this.#dialog.close();
     setText(this.#lock.querySelector('.verify-lock__title'), v.lockTitle);
     setText(this.#lock.querySelector('.verify-lock__lead'), v.lockLead);
+    this.#lock.querySelector('form').hidden = this.#inlineOffer;
     const text = this.#stateText(), note = mode === 'pending' ? cooldown > 0 ? fill(v.cooldown, { seconds: cooldown }) : '' : mode === 'verified' ? '' : v.hint;
     for (const form of this.#forms) {
       form.root.dataset.mode = mode;

@@ -235,7 +235,10 @@ export class AudioRail {
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
     this.root.toggleAttribute('data-moved', Boolean(this.moved));
     this.root.toggleAttribute('data-time-bound', Boolean(this.timeBoundEnd || ['voiceTimeLimit', 'voiceIdleEnded'].includes(this.errorKey)));
-    this.root.toggleAttribute('data-message', !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded', 'voiceMoved'].includes(this.errorKey));
+    const combined = this.root.closest('.workspace')?.dataset.entrance === 'combined';
+    const composerOwnsBlockedMic = combined && this.errorKey === 'voiceMicDenied';
+    const composerOwnsConsent = combined && !active && !transitional && isConsentReason(available.rawReason ?? available.reason);
+    this.root.toggleAttribute('data-message', !composerOwnsBlockedMic && !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded', 'voiceMoved'].includes(this.errorKey));
     const dismiss = this.root.querySelector('.voice-message-close');
     dismiss.hidden = this.state !== 'failed' || !this.root.hasAttribute('data-message');
     dismiss.setAttribute('aria-label', resolveCopy(c, 'voiceMessageClose', undefined, this.locale?.()));
@@ -243,8 +246,8 @@ export class AudioRail {
     // The session's one exhaustion announcement describes both credits and the saved conversation.
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
     paintConsentLine(this.root.querySelector('.voice-state'), { copy: c, feature: 'voice',
-      verdict: active || transitional || usedUp || this.error ? { available: true } : available,
-      text: usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
+      verdict: composerOwnsConsent || active || transitional || usedUp || this.error ? { available: true } : available,
+      text: composerOwnsBlockedMic ? '' : composerOwnsConsent ? c.voiceStates.idle : usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
       this.startupPhase ? c.voiceStates[this.startupPhase] : this.timeBoundEnd && !active && !transitional ? c.voiceStates.failed : active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();

@@ -546,8 +546,16 @@ click on "Start call".
 
 Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
 microphone and Send side by side from first paint, with the existing processing
-notice (selected processing details plus the AI/voice disclosure) directly above
-them. The default remains `entrance: 'choice'`, including
+notice (selected processing details plus the AI/voice disclosure) below the
+controls in a top-anchored frame. At 600 px and wider the notice uses its
+intrinsic height (up to 8.7em); phones show the first AI-disclosure sentence
+and a **More** / **Mehr** button opening the full notice in a native dialog.
+`copy.composerNoticeMore` overrides that button label. The full text retains
+`aiNotice` then `copy.aiNotice` precedence, plus existing
+`copy.settings.processingDetails` overrides. Feedback and microphone status
+reserve the real longest localized state at the current width, keeping the
+field, mic, Send and both rows stationary through state changes. The default
+remains `entrance: 'choice'`, including
 its mode selection and Start button. Combined mode keeps the processing-preset
 chooser and omits the ready card's mode, microphone and speaker rows and Start.
 The combined transcript reserves the sticky-header inset inside its scrolling
@@ -557,6 +565,15 @@ the full address remains available to assistive technology and in Settings.
 The attachment button is hidden in combined mode. Text feedback and microphone
 status have separate space reserved from first paint; send failures, consent
 actions and Saved announcements remain exposed while a mic status is present.
+Consent has one line and link in the composer; the ready card shows status,
+and the idle voice bar does not ask for consent before a mic gesture. Blocked
+microphone wording appears once in the composer; other voice failures remain
+in the voice bar, and the composer retains its call-ended status. German
+default consent copy uses **Einwilligung**, including `copy.ready.consent`,
+`copy.ready.missing`, `copy.ready.granted`, `copy.clarify.consent`, `copy.clarify.say.consent`,
+`copy.voiceReasonsNarrow.{permission,consentWithdrawn,consentRevised,sessionRevoked}`,
+`copy.reasons.{call-authorization-lost,session-revoked}` and
+`copy.processingConsent.withdrawal`. Host copy still wins.
 Configured host openers use the shared render-only `host:opener` row before input;
 canonical persistence takes over that same row. The welcome stays above the
 composer and footer, including short phone viewports. Processing details remain
@@ -3916,7 +3933,13 @@ The offer counts accepted text and final speech messages, deduplicated by turn
 ID. Assistant turns, the opener, documents, uploads and partial speech do not
 advance the threshold. A failed reply defers the offer until the next settled
 assistant reply. The inline element is outside canonical transcript data, model
-context and exports. It remains usable during a live call and leaves the
+context and exports. While that offer is visible, the overview lock keeps its
+title and lead and hides its own form, leaving one email action and credit
+statement. At widths up to 520 px, the offer field and its 44 px minimum
+button occupy separate full-width rows. The lead and privacy notice use their
+intrinsic height; only the message reserves its longest localized state.
+Dismiss uses the shared close icon. It remains usable during a live call and
+leaves the
 composer active on phones, without moving focus or opening the keyboard.
 
 The existing `POST /api/sessions/:id/email-ask` route accepts

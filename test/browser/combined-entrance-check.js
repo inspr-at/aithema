@@ -34,7 +34,7 @@ c.addEventListener('aithema-consent',e=>{trace.push('consent');globalThis.consen
 globalThis.grant=()=>{granted=true;c.receive({seq:c.session.seq+1,type:'consent.revised',data:{granted:true,changed:['text','voice'],removed:[]}})};
 globalThis.ready=true;
 </script></body></html>`;
-const boxes = (page) => page.$eval('aithema-session', c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.composer-status', '.composer-notice', '.composer-feedback'].map(selector => {
+const boxes = (page) => page.$eval('aithema-session', c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.composer-status', '.composer-feedback'].map(selector => {
   const box = c.shadowRoot.querySelector(selector)?.getBoundingClientRect();
   return [selector, box ? [box.x, box.y, box.width, box.height] : null];
 })));
@@ -45,6 +45,19 @@ function unmoved(before, after) {
   positive(before); positive(after);
   for (const selector of Object.keys(before)) for (let i = 0; i < 4; i++) assert.ok(Math.abs(before[selector][i] - after[selector][i]) <= .5,
     `${selector}[${i}] moved: ${before[selector][i]} -> ${after[selector][i]}`);
+}
+async function readableNotice(page) {
+  const notice = await page.$eval('aithema-session', c => {
+    const n=c.shadowRoot.querySelector('.composer-notice'), r=n.getBoundingClientRect();
+    return { box:[r.x,r.y,r.width,r.height], scroll:n.scrollHeight, client:n.clientHeight,
+      overflow:getComputedStyle(n).overflowY, phone:innerWidth<=600,
+      sentence:n.querySelector('.composer-notice__first')?.textContent,
+      more:n.querySelector('.composer-notice__more')?.textContent };
+  });
+  positive({notice:notice.box});
+  assert.ok(notice.scroll<=notice.client+1,'AIT-540: every notice line is fully readable');
+  assert.notEqual(notice.overflow,'auto','AIT-540: the notice is not a hidden scroll box');
+  if(notice.phone) { assert.ok(notice.sentence?.trim()); assert.match(notice.more ?? '', /^(More|Mehr)$/u); }
 }
 async function entranceFits(page, selector) {
   const rects = await page.$eval('aithema-session', (c, selector) => Object.fromEntries(['.intro', selector].map(key => {
@@ -100,7 +113,7 @@ export async function combinedEntranceCheck(t) {
         ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
       await page.goto(`${server.url}/combined-fixture?locale=${locale}`); await page.waitForFunction(() => globalThis.ready);
       const shot = async state => {
-        const measured = await boxes(page); positive(measured); tables.push({ locale, theme, width, state, boxes: measured });
+        const measured = await boxes(page); positive(measured); await readableNotice(page); tables.push({ locale, theme, width, state, boxes: measured });
         if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `ait-506-${locale}-${theme}-${width}-${state}.png`), fullPage: true });
         return measured;
       };
@@ -151,6 +164,8 @@ export async function combinedEntranceCheck(t) {
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
       const deniedBox = await shot('microphone-blocked'); unmoved(before, deniedBox);
       assert.match(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-status').textContent), locale === 'de' ? /Mikrofon gesperrt/ : /Microphone blocked/);
+      assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-message')), false,
+        'AIT-540: a blocked microphone is named once in the composer');
       assert.equal(await page.$eval('aithema-session', c => getComputedStyle(c.shadowRoot.querySelector('.composer-feedback')).visibility), 'visible',
         'microphone status keeps text feedback exposed');
       assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('textarea').disabled), false);
@@ -242,7 +257,7 @@ export async function combinedOpenerCheck(t) {
       const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
       const shot = async state => {
         await settle();
-        const measured = await boxes(page);
+        const measured = await boxes(page); await readableNotice(page);
         const placement = await page.$eval('aithema-session', c => {
           const root = c.shadowRoot, row = root.querySelector('[data-id="host:opener"]');
           const rect = node => { const r=node.getBoundingClientRect();return [r.x,r.y,r.width,r.height]; };

@@ -855,10 +855,12 @@ for (const finding of ['M3', 'M4', 'M6']) test(`AIT-540 ${finding}: one readable
   const directory = await mkdtemp(join(tmpdir(), 'aithema-rc25-offer-'));
   const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE:'off', AITHEMA_IMAGE_MODE:'off', AITHEMA_HTML_MODE:'off' });
   const browser = await browserForFile(), page = await browser.newPage();
+  const evidence=process.env.AITHEMA_EVIDENCE_DIR, records=[];
+  if(evidence) await mkdir(join(evidence,'shots'),{recursive:true});
   t.after(async () => { await browser.close(); await demo.kill(); });
   await page.evaluateOnNewDocument(() => { const OriginalDate=Date; window.Date=class extends OriginalDate { constructor(...args){super(...(args.length?args:[100_000]));} static now(){return 100_000;} }; });
   await page.goto(demo.url, {waitUntil:'domcontentloaded'}); await until(page,()=>document.querySelector('aithema-session')?.session);
-  for (const locale of ['en','de']) for (const theme of ['light','dark']) for (const width of [390,1024,1440]) await t.test(`${locale}/${theme}/${width}`,async()=>{
+  for (const locale of ['en','de']) for (const theme of ['light','dark']) for (const width of (finding==='M4'?[390,520,521,1024,1440]:[390,1024,1440])) await t.test(`${locale}/${theme}/${width}`,async()=>{
     await page.setViewport({width,height:width===390?844:1000});
     await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'reduce'}]);
     await fixture(page,locale,{opener:true,delivery:true,emailOffer:{afterMessages:2},initialMessages:1,lock:true,voice:finding==='M6'});
@@ -875,6 +877,11 @@ for (const finding of ['M3', 'M4', 'M6']) test(`AIT-540 ${finding}: one readable
         focus:r.activeElement?.id,scroll:scrollY,lockHidden:lock.hidden,lockTitle:lock.querySelector('h3').textContent,lockLead:lock.querySelector('.verify-lock__lead').textContent,
         lockFormVisible:!![...lock.querySelectorAll('form')].find(n=>n.getBoundingClientRect().height>0),closeSvg:!!offer.querySelector('.email-offer__dismiss svg')};
     });
+    records.push({locale,theme,width,finding,before,view});
+    if(evidence) {
+      await writeFile(join(evidence,`ait-540-${finding}-rects.json`),JSON.stringify(records,null,2));
+      if(width!==1024) await page.screenshot({path:join(evidence,'shots',`ait-540-${finding}-${locale}-${theme}-${width}-during-call.png`),fullPage:false});
+    }
     for(const name of ['offer','pane','field','button','row','lead']) assert.ok(view[name].width>0&&view[name].height>0,`${name}: positive box`);
     if(finding==='M3') {
       assert.equal(view.lockHidden,false,'overview keeps title and lead'); assert.ok(view.lockTitle&&view.lockLead);
