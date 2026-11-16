@@ -2056,8 +2056,9 @@ repair stays silent. Under credits, even hosts without an opener receive opening
 context again after a refused, failed or unheard first call with no active turns;
 `ctx.hasPriorCalls` is present only once a voice receipt exists. The no-opener
 time-policy path retains RC25 output. Admission and spend rules above are unchanged.
- Qualify the legacy
-binding in the callback, then normalize it before creating a duration binding.
+
+Qualify the legacy binding in the callback, then normalize it before creating a
+duration binding.
 `agentName` and `facadeSecretName` must be explicit host-specific identifiers;
 `costConfig` and `qualifyBinding` are required. Missing or invalid arguments reject
 before any provider access; there is no fallback to Aithema's agent.

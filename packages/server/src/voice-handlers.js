@@ -310,10 +310,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const hasPriorTurns = hasPriorCalls || (!firstContact && activeTurns(session).some(turn =>
         ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim())));
       const providerSpeaksOpener = firstContact && speaksOpener(admitted.plugin);
-      const canSpeakOpener = firstContact && providerSpeaksOpener;
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale,
         continuation, explicitResume, hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}),
-        ...(canSpeakOpener ? { hostOpener: opener[session.locale] } : {}) });
+        ...(providerSpeaksOpener ? { hostOpener: opener[session.locale] } : {}) });
       await entry.callbackContext?.prepare();
       controller.signal.throwIfAborted();
       const callbackRequest = entry.callbackContext?.request ?? {}, { overrides, ...startRequest } = callbackRequest;
@@ -345,7 +344,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state, ...timeLimit(sessionId, end) } });
       return receipt(entry.call);
     } catch (error) {
-      if (voiceConfigurationRefused(error) && entry.call) void close(entry, error.reason, 'cancelled');
+      if (voiceConfigurationRefused(error) && (entry.call || continuation)) {
+        void close(entry, error.reason, 'cancelled');
+        if (!entry.call) publish(sessionId, { type: 'voice.state', data: { callId,
+          ...tabAuthority(sessionId, callId), state: 'ended', reason: error.reason } });
+      }
       revoke(entry); controller.abort(); if (!entry.call) entry.admission?.finish();
       if (!continuation && !entry.call) {
         const reason = voiceConfigurationRefused(error) ? error.reason : 'start-failed';
