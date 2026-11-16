@@ -1162,6 +1162,99 @@ for (const check of ['stationary heading toggle', 'first signal clears the activ
   });
 }
 
+// AIT-514 r12: scrolling must never feed back into the measured line budget.
+for (const check of ['scroll-end clamp stays stable', 'long host toggle preserves the heading']) {
+  test(`AIT-514 r12 ${check}`, { timeout: 120_000 }, async t => {
+    const page = await followupPage(t), records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluate(() => {
+      const NativeDate = Date;
+      window.Date = class extends NativeDate {
+        constructor(...args) { super(...(args.length ? args : [1_000_000])); }
+        static now() { return 1_000_000; }
+      };
+    });
+    t.after(async () => {
+      if (evidence) {
+        await mkdir(evidence, { recursive: true });
+        await writeFile(join(evidence, `ait-514-r12-${check.startsWith('scroll') ? 'scroll' : 'host-copy'}.json`), JSON.stringify({ head: evidenceCommit, records }, null, 2));
+      }
+    });
+    const viewports = check.startsWith('scroll') ? [[1440, 900], [1366, 768], [390, 1000]] : [[1440, 900], [1024, 640], [390, 1000]];
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of viewports) {
+      await t.test(`${locale}/${theme}/${width}x${height}`, async () => {
+        await page.setViewport({ width, height });
+        await setupOverviewFixture(page, locale, theme);
+        await page.mouse.move(-10, -10);
+        await shadow(page, (c, locale) => {
+          c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+          c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
+            summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35),
+            signals: [locale === 'de' ? 'Rund 400 Rechnungen pro Monat' : 'About 400 invoices monthly'],
+            openQuestions: locale === 'de' ? ['Welches System ist im Einsatz?', 'Wer gibt Rechnungen frei?'] : ['Which system do you use?', 'Who approves invoices?'] } });
+        }, locale);
+        await settle(page);
+        if (check.startsWith('scroll')) {
+          const result = await shadow(page, async c => {
+            const root = c.shadowRoot, pane = root.querySelector('.analysis-content'), text = root.querySelector('.summary-text');
+            const sample = () => ({ text: text.getBoundingClientRect().toJSON(), pane: pane.getBoundingClientRect().toJSON(),
+              lines: text.style.getPropertyValue('--summary-lines'), bottomFade: pane.hasAttribute('data-bottom'),
+              scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight });
+            const rest = sample();
+            pane.scrollTop = pane.scrollHeight;
+            const samples = [];
+            // Give scroll/resize observers ten complete frames without a pointer
+            // or focus anchor masking their geometry changes.
+            for (let frame = 0; frame < 12; frame++) {
+              await new Promise(resolve => requestAnimationFrame(resolve)); samples.push(sample());
+            }
+            return { rest, samples, focused: Boolean(root.activeElement), hovered: Boolean(root.querySelector('.analysis-content :hover')) };
+          });
+          records.push({ locale, theme, width, height, ...result });
+          assert.equal(result.focused, false, 'no focused anchor'); assert.equal(result.hovered, false, 'no pointer anchor');
+          if (width === 390) assert.equal(result.rest.pane.height, 440, 'explicit 440px phone pane');
+          assert.ok(result.samples[0].scrollTop > 0, 'pane really scrolled');
+          for (const sample of [result.rest, ...result.samples]) {
+            for (const name of ['text', 'pane']) assert.ok(sample[name].width > 0 && sample[name].height > 0, `positive ${name}`);
+            assert.equal(sample.lines, result.rest.lines, `scroll cannot change the line budget: ${JSON.stringify(result)}`);
+            assert.equal(sample.text.height, result.rest.text.height, 'scroll cannot change text height');
+          }
+          assert.deepEqual(result.samples.map(s => s.bottomFade), Array(result.samples.length).fill(false), `bottom fade stays off at the scroll end: ${JSON.stringify(result)}`);
+        } else {
+          const more = (locale === 'de' ? 'Ausführliche Zusammenfassung vollständig anzeigen ' : 'Read the complete detailed summary ').repeat(12);
+          const less = (locale === 'de' ? 'Ausführliche Zusammenfassung wieder einklappen ' : 'Collapse the complete detailed summary ').repeat(10);
+          await shadow(page, async (c, locale, more, less) => {
+            const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+            c.configure({ session: c.session, copy: { ...copy, summaryMore: more, showLess: less } });
+          }, locale, more, less);
+          await settle(page);
+          const samples = [];
+          for (const expanded of [false, true]) {
+            if (expanded) { await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle(page); }
+            samples.push(await shadow(page, c => {
+              const r = c.shadowRoot, box = s => r.querySelector(s).getBoundingClientRect().toJSON();
+              const button = r.querySelector('.summary-toggle');
+              return { row: box('.summary-heading'), heading: box('#summary-title'), button: box('.summary-toggle'),
+                text: button.textContent, expanded: button.getAttribute('aria-expanded') };
+            }));
+          }
+          records.push({ locale, theme, width, height, samples });
+          for (const [index, sample] of samples.entries()) {
+            for (const name of ['row', 'heading', 'button']) assert.ok(sample[name].width > 0 && sample[name].height > 0, `positive ${name}`);
+            assert.equal(sample.text, index ? less : more, 'complete host override remains the accessible name');
+            assert.equal(sample.expanded, String(Boolean(index)));
+            assert.ok(sample.heading.width >= sample.row.width * .4, `heading keeps at least 40% of the row: ${JSON.stringify(sample)}`);
+            assert.ok(sample.button.width <= sample.row.width * .5, 'long toggle is capped at half the row');
+            assert.ok(sample.heading.right <= sample.button.left && sample.button.right <= sample.row.right + .5, 'heading and capped toggle do not overlap');
+            assert.ok(sample.row.height <= 60, 'host copy does not create a tall heading row');
+            for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(sample.button[key] - samples[0].button[key]) <= .5, `host toggle.${key} stays put`);
+          }
+        }
+      });
+    }
+  });
+}
+
 // Keep the measured summary cases in this existing browser workload.
 test('AIT-514 height-aware clamp respects the pane budget and keeps controls stable', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-summary-height-'));
@@ -1366,6 +1459,7 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
       assert.ok(row.scrolled.signal.top >= row.scrolled.pane.top && row.scrolled.signal.bottom <= row.scrolled.pane.bottom, `${label}: first signal reachable inside pane`);
     } else {
       assert.ok(row.signal.top >= row.pane.top && row.signal.bottom <= row.pane.bottom, `${label}: first signal fully inside pane: ${JSON.stringify(row)}`);
+      assert.ok(row.signal.bottom <= row.pane.bottom - 44, `${label}: first signal clears 44px with following content: ${JSON.stringify(row)}`);
     }
   }
 });
