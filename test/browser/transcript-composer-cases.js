@@ -159,6 +159,11 @@ export async function transcriptComposerCases(t) {
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-out').checkVisibility({ visibilityProperty: true })), true, 'the compact used-up peer is genuinely visible');
         await capture(`ait-513-${locale}-${theme}-${width}-short-desktop-used-up`);
       }
+      for (const entrance of ['choice', 'combined']) {
+        await reset(width, width === 390 ? 844 : 900, locale, theme, { usedUp: true, entrance });
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-out').checkVisibility({ visibilityProperty: true })), true, 'used-up copy is visible in each entrance');
+        await capture(`ait-513-${entrance}-${locale}-${theme}-${width}-used-up`);
+      }
     });
   }
   for (const voice of [false, true]) await t.test(`1024x640 question card stays reachable voice=${voice}`, async () => {
@@ -277,22 +282,25 @@ export async function transcriptComposerCases(t) {
     records.push({ label: `combined-card-${voice}`, before, after });
   });
   await t.test('short phone keyboard grows at most three lines with stable Send', async () => {
-    await reset(390, 844, 'de', 'dark', { card: true });
-    await page.evaluate(() => {
-      globalThis.originalComposerViewport = visualViewport; globalThis.originalComposerTouch = Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints');
-      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
-      const viewport = new EventTarget(); Object.assign(viewport, { height: 420, offsetTop: 0, scale: 1 });
-      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
-      document.querySelector('aithema-session').shadowRoot.querySelector('textarea').focus({ preventScroll: true });
-      window.dispatchEvent(new Event('resize'));
-    });
-    try {
-      await settleHeld(page); const before = await geometry(page);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard')), true, 'the visual keyboard is open with composer focus');
-      await draft(page, 30); await settleHeld(page); const after = await capture('ait-513-de-dark-390-keyboard');
-      stable(before, after, 'keyboard'); assert.ok(after.boxes.textarea.height <= 92.5, 'three 24px lines plus 20px padding');
-      assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'short input can grow');
-    } finally { await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.originalComposerViewport }); if (globalThis.originalComposerTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.originalComposerTouch); else delete navigator.maxTouchPoints; window.dispatchEvent(new Event('resize')); }); }
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+      await reset(390, 844, locale, theme, { card: true });
+      await page.evaluate(() => {
+        globalThis.originalComposerViewport = visualViewport; globalThis.originalComposerTouch = Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints');
+        Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
+        const viewport = new EventTarget(); Object.assign(viewport, { height: 420, offsetTop: 0, scale: 1 });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+        document.querySelector('aithema-session').shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+        window.dispatchEvent(new Event('resize'));
+      });
+      try {
+        await settleHeld(page); const before = await geometry(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard')), true, 'the visual keyboard is open with composer focus');
+        await draft(page, 30); await settleHeld(page); const after = await capture(`ait-513-${locale}-${theme}-390-keyboard`);
+        stable(before, after, 'keyboard'); assert.ok(after.boxes.textarea.height <= 92.5, 'three 24px lines plus 20px padding');
+        assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'short input can grow');
+        records.push({ label: `choice-keyboard-${locale}-${theme}`, before, after });
+      } finally { await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.originalComposerViewport }); if (globalThis.originalComposerTouch) Object.defineProperty(navigator, 'maxTouchPoints', globalThis.originalComposerTouch); else delete navigator.maxTouchPoints; window.dispatchEvent(new Event('resize')); }); }
+    }
   });
   await t.test('combined keyboard keeps its answer strip and pinned actions while the field grows', async () => {
     for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
