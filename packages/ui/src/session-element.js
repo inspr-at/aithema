@@ -3501,8 +3501,9 @@ export class AithemaSession extends HTMLElement {
     } catch { if (current()) { this.#navigation = null; this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
-  receive(event) { this.#anchored(() => this.#receive(event, { live: !this.#signalReplay.has(event) })); }
-  #receive(event, { live = true } = {}) {
+  receive(event) { this.#anchored(() => this.#receive(event)); }
+  #receive(event) {
+    const live = !this.#signalReplay.has(event);
     if (this.#erased) return;
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.type === 'session.not-found') { void this.#observeResponse(event.data.url, event.data.response); return; }
