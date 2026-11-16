@@ -312,7 +312,10 @@ class ComposerSize {
       const measured = probeInput.getBoundingClientRect().height;
       natural = native ? measured : probeInput.scrollHeight;
       chrome = probe.getBoundingClientRect().height - measured;
-      if (this.baselineContext !== baselineContext) {
+      // Viewport classes can change reserved chrome after the first fit (for
+      // example keyboard disclosure rows). Growth uses that same current floor.
+      const measuredBaselineContext = `${baselineContext}/${chrome.toFixed(3)}`;
+      if (this.baselineContext !== measuredBaselineContext) {
         let peerFloor = 0;
         const peer = this.root.querySelector('.composer-out'), style = peer && this.view.getComputedStyle(peer);
         if (peer && style.display !== 'none' && !['absolute', 'fixed'].includes(style.position)) {
@@ -326,7 +329,7 @@ class ComposerSize {
           }
           finally { peerProbe.remove(); }
         }
-        this.baselineContext = baselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
+        this.baselineContext = measuredBaselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
       }
     } finally { probe.remove(); }
     let cap = Math.min(.4 * viewport, available - (card && !card.hidden && !short ? 150 : 0) - (short ? 0 : 128));
