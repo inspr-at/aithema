@@ -200,6 +200,7 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
             hiddenAttach: getComputedStyle(r.querySelector('.attach')).display === 'none' };
         });
         const before = await measure();
+        await capture(`ait-513-combined-${locale}-${theme}-${width}x${height}-short`);
         assert.equal(before.hiddenAttach, true, 'combined entrance keeps Attach hidden');
         await draft(page, 12); await settleEvidenceFrame(page);
         const after = await measure();
@@ -215,10 +216,31 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
         const label = `ait-513-combined-${locale}-${theme}-${width}x${height}`;
         await capture(label); records.push({ label: `${label}-frame`, before, after });
         await draft(page, 30); await settleEvidenceFrame(page);
-        assert.ok((await geometry(page)).inputScroll > (await geometry(page)).inputClient, 'combined capped field scrolls internally');
+        const capped = await capture(`${label}-capped`);
+        assert.ok(capped.inputScroll > capped.inputClient, 'combined capped field scrolls internally');
       }
     });
   }
+  for (const voice of [false, true]) await t.test(`combined 1024x640 retains reply and question budget voice=${voice}`, async () => {
+    await reset(1024, 640, 'de', 'dark', { entrance: 'combined', card: true, voice });
+    const before = await geometry(page);
+    await draft(page, 30); await settleEvidenceFrame(page);
+    const after = await capture(`ait-513-combined-de-dark-1024-card-${voice}`);
+    positive(after.boxes['.qcard'], 'combined card'); positive(after.boxes['.qopts'], 'combined options');
+    assert.ok(after.boxes['.qcard'].height >= 150, 'combined card retains 150px minimum');
+    assert.ok(after.boxes['.transcript-shell'].height >= 128, 'combined reply retains 128px floor');
+    assert.ok(after.boxes['.qopts'].height >= 44, 'combined card options remain reachable');
+    assert.ok(after.boxes.textarea.height > before.boxes.textarea.height, 'combined card budget permits draft growth');
+    assert.ok(after.inputScroll > after.inputClient, 'combined card caps long draft internally');
+    const gap = after.boxes['.qcard'].top - after.boxes['.turn:last-child'].bottom;
+    assert.ok(gap >= -.5 && gap <= 24.5, `combined reply/card clearance stays between 0 and 24px: ${gap}`);
+    for (const selector of frame.filter(selector => selector !== '.composer-actions .attach')) {
+      const a = before.boxes[selector], b = after.boxes[selector]; positive(a, selector); positive(b, selector);
+      for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(a[key] - b[key]) <= .5, `combined card/${selector}/${key}: ${a[key]} -> ${b[key]}`);
+    }
+    assert.ok(Math.abs(before.boxes['.composer'].bottom - after.boxes['.composer'].bottom) <= .5, 'combined card composer bottom stays pinned');
+    records.push({ label: `combined-card-${voice}`, before, after });
+  });
   await t.test('short phone keyboard grows at most three lines with stable Send', async () => {
     await reset(390, 844, 'de', 'dark', { card: true });
     await page.evaluate(() => {
