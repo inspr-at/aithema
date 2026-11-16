@@ -309,7 +309,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
       const hasPriorTurns = hasPriorCalls || (!firstContact && activeTurns(session).some(turn =>
         ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim())));
-      const providerSpeaksOpener = speaksOpener(admitted.plugin);
+      const providerSpeaksOpener = firstContact && speaksOpener(admitted.plugin);
       const canSpeakOpener = firstContact && providerSpeaksOpener;
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale,
         continuation, explicitResume, hasPriorTurns, ...(hasPriorCalls ? { hasPriorCalls: true } : {}),
