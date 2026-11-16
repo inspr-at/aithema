@@ -5,7 +5,9 @@
 - AIT-517 adds optional `sidebar-contact` and `contact-launcher` slots. Fill them
   before mount/configure. The pinned row is outside scrolling analysis and the
   E‑Mail ask pane; empty consumes zero height. It scrolls independently with a
-  30% desktop cap / 14rem stacked cap. Late insertion or growth is outside the
+  30% desktop cap / 14rem stacked cap. The desktop reading pane retains at least
+  40% of the sidebar; contact scrolls within the remaining reserved space.
+  Late insertion or growth is outside the
   reserved-geometry contract. The header launcher remains reachable before input,
   during the sidebar reveal, when folded, below 60rem, or without pinned content;
   while desktop pinned content is available it leaves Tab order but retains its 44 px reservation.

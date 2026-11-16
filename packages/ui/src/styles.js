@@ -548,6 +548,11 @@ slot[name="sidebar-contact"]::slotted(*) { margin:0; max-width:100%; box-sizing:
 .contact-launcher[hidden] { display:none; }
 slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; height:44px; }
 @media(min-width:60rem) {
+  /* Keep 40% of the padded sidebar for reading, including when the declared
+     launcher reserves a second header row. The contact row gives up space
+     first; its 30% cap and independent scrolling still apply. Grid percentages
+     exclude padding, hence 40% of both insets and a pixel for track rounding. */
+  .workspace[data-contact] .understanding { grid-template-rows:auto auto minmax(calc(40% + .8 * var(--inset) + 1px),1fr) fit-content(30%) auto; }
   .workspace[data-contact][data-understanding="present"]:not([data-folded]):not([data-reveal]):not(:has(.understanding[hidden])) .contact-launcher { visibility:hidden; }
 }
 @media(max-width:59.99rem) { .sidebar-contact { max-height:14rem; } }

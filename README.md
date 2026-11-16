@@ -477,7 +477,9 @@ while its demo host is active; a live provider host shows none of the demo copy)
 Fill both contact slots **before mount/configure**, with host light-DOM content.
 The library keeps that content mounted through analysis updates; it does not clone
 it or attach a contact handler. The sidebar row scrolls independently, bounded by
-30% of the desktop sidebar and 14rem below 60rem. Host content must fit its
+30% of the desktop sidebar and 14rem below 60rem. On desktop the reading pane
+retains at least 40% of the sidebar; the contact row shrinks and scrolls when
+the header or other reserved rows need more room. Host content must fit its
 reserved row; filling or growing it later can move the analysis and is outside
 the no-layout-shift contract. The host owns the CTA's styling, accessible name,
 44 px launcher target, overlay, privacy and delivery policy, modal focus trap,
