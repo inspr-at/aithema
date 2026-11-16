@@ -386,3 +386,17 @@ test('AIT-537 / AIT-538: reference wiring after an audible idle call continues w
   assert.equal(f.starts[1].overrides.agent.firstMessage, 'The AI assistant continues.');
   assert.deepEqual(f.storage.get(f.session.id).transcript.map(t => t.id), ['host:opener']);
 });
+
+test('AIT-537: takeover during successful startup rejects the old tab and leaves fresh first contact available', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers();
+  let attempts = 0;
+  const f = await fixture(t, { beforeConnect: async () => { if (++attempts === 1) { entered.resolve(); await release.promise; } } });
+  const starting = f.start('fixture-call', { tabId: 'tab-one' }); await entered.promise;
+  assert.equal((await f.post('/fixture-call/takeover', { explicit: true, tabId: 'tab-two', epoch: 0 })).status, 200);
+  release.resolve(); assert.equal((await starting).status, 409);
+  assert.equal(f.storage.voiceLifecycle(f.session.id, 'fixture-call').state, 'waiting');
+  assert.deepEqual(f.storage.get(f.session.id).transcript, []);
+  assert.equal((await f.start('new-first-contact', { tabId: 'tab-two' })).status, 201);
+  assert.equal(f.starts.at(-1).overrides.agent.firstMessage, opener.en);
+  assert.deepEqual(f.storage.get(f.session.id).transcript.map(t => t.id), ['host:opener']);
+});
