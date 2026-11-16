@@ -172,6 +172,25 @@ test('AIT-511/AIT-513: transcript height, upward composer growth, caps, anchorin
     assert.ok(gap >= -.5 && gap <= 24.5, `reply/card clearance stays between 0 and 24px: ${gap}`);
     records.push({ label: `card-${voice}`, before, after });
   });
+  await t.test('phone card mode changes keep the overview frame fixed during draft growth', async () => {
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+      await reset(390, 728, locale, theme, { voice: true, card: true });
+      await shadow(page, async c => {
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'growth-question', role: 'assistant', inputRevision: inputRevision(c.session),
+          content: 'Choose?', question_short: 'Which of these options would best describe the project and its intended audience? '.repeat(3),
+          options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
+      });
+      await settleEvidenceFrame(page); const before = await capture(`ait-513-${locale}-${theme}-390-card-expanded`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false, 'empty composer leaves room for an expanded card');
+      await draft(page, 30); await settleEvidenceFrame(page); const after = await capture(`ait-513-${locale}-${theme}-390-card-compact`);
+      records.push({ label: `phone-card-mode-${locale}-${theme}`, before, after });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), true, 'visitor growth switches the constrained card to its horizontal row');
+      positive(after.boxes['.qopts'], 'compact answer row'); assert.ok(after.boxes['.qopts'].height >= 44, 'compact card preserves answer targets');
+      assert.ok(after.inputScroll > after.inputClient, 'the long draft scrolls internally');
+      stable(before, after, 'phone card mode change');
+    }
+  });
   await t.test('combined opener permits draft growth before visitor input without revealing overview', async () => {
     for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390, 900], [1440, 900], [1440, 640], [1024, 640]]) {
       await reset(width, height, locale, theme, { entrance: 'combined', turns: 0, opener: true });
