@@ -1,6 +1,6 @@
 // The opt-in entrance and live call share one bottom-anchored composer.
 export const combinedEntranceStyles = `
-.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:68px; }
+.workspace[data-entrance="combined"] { height:var(--aithema-height); min-height:40rem; grid-template-rows:auto minmax(0,1fr) auto; padding-bottom:max(1rem,calc(var(--aithema-height) - 100dvh + 68px)); }
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; gap:8px; }
 /* The whole entrance/transcript surface scrolls above the reserved input row. */
 .workspace[data-entrance="combined"] .conversation-scroll { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:auto; scrollbar-gutter:stable; gap:.85rem; }
