@@ -1,6 +1,6 @@
 # Aithema 2026.10
 
-Version **261116004750.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261116143738.0.0**. Licensed under **AGPL-3.0-only**.
 
 A warmer welcome, typing and talking side by side, an email offer in the chat,
 and conversations that continue across bounded calls are available where a host
@@ -15,6 +15,8 @@ apply to every host. These options are independent; the defaults remain unchange
 - **Continue after time limit (AIT-508, #443).** When a call reaches its time limit or you were away, one click continues the same conversation with everything so far, as long as credits remain.
 - **Clear action buttons (AIT-524, #444).** Only the action is clickable; status text stays plain
 
+- **Clearer notices and phone offers (AIT-540, #452).** In the combined entrance, the notice grows downward without moving the controls; phones show the first AI-disclosure sentence plus “More”. There is one consent line and link, and one email form per screen. Phone offers use one column with a close icon. A new phone offer scrolls into view; an offer restored on reload keeps your reading position. The action separator dot is centred. German consent wording uses “Einwilligung” throughout, including the consent page.
+
 AIT-505–AIT-508 require the matching host option. Voice openers depend on the
 provider and presentation described below; fresh calls wait for prior costs to
 reconcile. The known limitations below apply.
@@ -27,12 +29,55 @@ reconcile. The known limitations below apply.
 - **Nach Zeitlimit weiter (AIT-508, #443).** Erreicht ein Anruf sein Zeitlimit oder waren Sie abwesend, setzt ein Klick dasselbe Gespräch mit allem Bisherigen fort, solange Guthaben vorhanden ist.
 - **Klare Aktionsknöpfe (AIT-524, #444).** Nur die Aktion ist klickbar; Statustext bleibt schlichter Text
 
+- **Klarere Hinweise und Angebote am Handy (AIT-540, #452).** Im kombinierten Einstieg wächst der Hinweis nach unten, ohne die Bedienelemente zu verschieben; am Handy erscheint der erste KI-Hinweissatz mit „Mehr“. Es gibt eine Einwilligungszeile mit Link und ein E-Mail-Formular pro Bildschirm. Angebote am Handy stehen in einer Spalte mit Schließen-Symbol. Ein neues Angebot wird ins Sichtfeld gescrollt; nach dem Neuladen bleibt die Leseposition erhalten. Der Trennpunkt ist zentriert. Auch auf der Einwilligungsseite heißt es durchgehend „Einwilligung“.
+
 AIT-505–AIT-508 erscheinen nur, wenn der Host die jeweilige Option aktiviert.
 Gesprochene Begrüßungen hängen vom Anbieter und der unten beschriebenen
 Sprachpräsentation ab; neue Anrufe warten auf den Kostenabgleich. Die unten
 beschriebenen bekannten Einschränkungen gelten.
 
 ## For hosts
+
+### Visual and copy fixes (AIT-540 M1–M6)
+
+- Combined entrance: top-anchored control frame with intrinsic notice below
+  the field and feedback/status rows. The notice slot measures the actual
+  processing-choice strings per width; its visible frame grows downward without
+  moving those controls. Desktop layout reserves the fixed footer inside the
+  configured host height, keeping the full notice above it. Desktop notice height
+  follows its full content, including longer host copy, without fixed heights.
+  Phones show the first AI-disclosure
+  sentence and a native-dialog disclosure. New additive copy key
+  `copy.composerNoticeMore`: EN “More”, DE “Mehr”. Existing `aiNotice`,
+  `copy.aiNotice` and `copy.settings.processingDetails` precedence is retained.
+  Feedback and status reserve their longest real localized message per width.
+- One consent line and link in the composer. The ready card shows status only;
+  the voice bar asks nothing about consent before the mic gesture. A blocked
+  microphone is named once in the composer, using existing
+  `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` override precedence.
+  Other voice failures remain in the voice bar; the composer retains call-ended
+  status. German consent defaults use “Einwilligung”: `ready.missing`,
+  `ready.granted`, `clarify.consent`, `clarify.say.consent`,
+  `voiceReasonsNarrow.{consentWithdrawn,consentRevised}`,
+  `processingConsent.{intro,withdrawal}` and `host.consentPage.intro`.
+  The demo processing intro uses the same term while retaining its persistence
+  terms. `ready.consent` defaults to “Status” in EN and DE, avoiding a repeated
+  consent term. Compact voice labels keep their 22-character bound.
+  Existing host copy overrides keep winning.
+- While an opt-in `emailOffer` is visible, the overview lock keeps its title
+  and lead and hides its form; Settings remains governed by the existing
+  before-input/used-up policy. One confirmation action and credit statement
+  remain on screen. At ≤520 px the offer field and button are full-width
+  separate rows (button ≥44 px). Lead/privacy use intrinsic height, message
+  reservation uses the longest real state, dismiss uses the shared close icon.
+- AIT-524's separator is centred in its existing 18 px status-to-action gap;
+  control coordinates and native hit regions are retained.
+- No new host option, event field or package export.
+- The combined phone offer refreshes the sticky-band inset before scrolling the
+  conversation pane to reveal the whole new offer (AIT-540 M6). Only an accepted
+  `show` claim in the mounted page arms this one-use reveal; restored offers and
+  credit refreshes retain the latest-turn position. Page scroll and keyboard focus
+  are retained; no new host setting or event is needed.
 
 **Options and defaults (AIT-505–AIT-508).** All are opt-in and independent.
 
@@ -70,6 +115,7 @@ without an opener; visitor `clientEventId` values cannot use it.
 
 | New copy key | Legacy fallback / shipped default |
 | --- | --- |
+| `composerNoticeMore` | No legacy fallback; “More” / “Mehr”; labels the phone notice dialog. |
 | `hostOpenerTitle` | No legacy fallback; “Welcome message” / “Begrüßung” |
 | `hostOpenerTextOnly` | No legacy fallback; “The full welcome message from the host.” / “Die vollständige Begrüßung des Hosts.” |
 | `voiceIdleEnded` | `voiceEnded`; “The call ended after a period of silence. Start a new call or continue typing.” / “Der Anruf wurde nach längerer Stille beendet. Starten Sie einen neuen Anruf oder schreiben Sie weiter.” |
@@ -320,7 +366,7 @@ Release assets include module tarballs, the workspace archive, dependency locks,
 an SPDX SBOM and `release-set.json`. Verify the published attestations and
 `SHA256SUMS` before installation, following
 [RC14's verification and installation instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261116004750.0.0` in every download and installation URL. Retain the
+with tag `v261116143738.0.0` in every download and installation URL. Retain the
 verified assets, manifest and deployment pin for rollback to those exact bytes.
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261116004750.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261116143738.0.0/docs/embedding.md)
 for host integration.
