@@ -17,6 +17,7 @@
     "./reply": "./src/reply.js",
     "./prompts": "./src/prompts.js",
     "./document-context": "./src/document-context.js",
+    "./email-offer": "./src/email-offer.js",
     "./text-origin": "./src/text-origin.js",
     "./presets": "./src/presets.js",
     "./settings": "./src/settings.js",

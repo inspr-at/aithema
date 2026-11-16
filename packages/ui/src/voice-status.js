@@ -27,7 +27,7 @@ export function classifyVoiceEnd({ error, reason, timeLimit, key, phase = 'start
     return classifyVoiceEnd({ reason: 'spend-deadline', timeLimit: error.timeLimit });
   }
   let state = 'failed', timeExpired = false, errorReason = null;
-  const neutral = reason === 'one-hour' || reason === 'spend-deadline';
+  const neutral = reason === 'idle' || reason === 'one-hour' || reason === 'spend-deadline';
   if (!key && error) {
     const connection = phase === 'start' ? 'voiceConnectFailed' : 'voiceConnectionFailed';
     key = error.status === 429 ? connection
@@ -49,6 +49,7 @@ export function classifyVoiceEnd({ error, reason, timeLimit, key, phase = 'start
       key = timeLimit === 'call' ? 'voiceTimeLimit' : null;
       if (!key) state = 'idle';
     }
+    else if (reason === 'idle') key = 'voiceIdleEnded';
     else if (reason === 'start-failed') key = 'voiceConnectFailed';
     else if (['budget-limit', 'host-limit', 'session', 'voiceVisitor', 'call-authorization-lost', 'voice-host-unavailable', 'transcript-persistence-failed', 'transcript-limit'].includes(reason)) {
       key = 'voiceAdmissionDenied'; errorReason = reason === 'budget-limit' ? 'budget denied' : reason;
@@ -62,8 +63,8 @@ export function classifyVoiceEnd({ error, reason, timeLimit, key, phase = 'start
     else key = 'voiceConnectionFailed';
   }
   return { key, state, timeExpired, errorReason, neutral,
-    retryAnchor: ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict'].includes(key),
-    fallback: key === 'voiceTimeLimit' ? 'voiceDeadline' : key === 'voiceConnectFailed' ? 'voiceConnectionFailed' : key,
+    retryAnchor: ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceIdleEnded', 'voiceDeadline', 'voiceConflict'].includes(key),
+    fallback: key === 'voiceIdleEnded' ? 'voiceEnded' : key === 'voiceTimeLimit' ? 'voiceDeadline' : key === 'voiceConnectFailed' ? 'voiceConnectionFailed' : key,
   };
 }
 
@@ -90,16 +91,16 @@ export function narrowVoiceStatus(copy, sentence, { reason: rawReason, creditRea
   const suppliedReason = !messageKey && rawReason && sentence === copy.reasons?.[rawReason] ? rawReason : null;
   // Explicit reason metadata outranks a reverse lookup of identical legacy text.
   const message = suppliedReason ? null
-    : messageKey && (copy[messageKey] === sentence || ['voiceTimeLimit', 'voiceConnectFailed'].includes(messageKey) && sentence === resolveCopy(copy, messageKey, classifyVoiceEnd({ key: messageKey }).fallback, locale))
+    : messageKey && (copy[messageKey] === sentence || ['voiceTimeLimit', 'voiceIdleEnded', 'voiceConnectFailed'].includes(messageKey) && sentence === resolveCopy(copy, messageKey, classifyVoiceEnd({ key: messageKey }).fallback, locale))
     ? messageKey : Object.keys(copy.voiceMessagesNarrow).find(key => copy[key] === sentence);
   if (message) {
     const classified = classifyVoiceEnd({ key: message });
-    return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`, undefined, locale) ?? sentence : copy.voiceStatesNarrow.failed;
+    return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`, classified.key === 'voiceIdleEnded' ? 'voiceMessagesNarrow.voiceEnded' : undefined, locale) ?? sentence : copy.voiceStatesNarrow.failed;
   }
   const reason = suppliedReason ?? Object.keys(copy.reasons).find(key => copy.reasons[key] === sentence);
   if (['recovery-failed', 'start-failed', 'closure-uncertain', 'spend-deadline'].includes(reason)) {
     const classified = classifyVoiceEnd({ reason });
-    return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`, undefined, locale) ?? sentence : copy.voiceStatesNarrow.failed;
+    return classified.key ? resolveCopy(copy, `voiceMessagesNarrow.${classified.key}`, classified.key === 'voiceIdleEnded' ? 'voiceMessagesNarrow.voiceEnded' : undefined, locale) ?? sentence : copy.voiceStatesNarrow.failed;
   }
   const group = isConsentReason(reason) ? 'consent'
     : Object.keys(reasonGroups).find(key => reasonGroups[key].includes(reason)) ?? 'unavailable';

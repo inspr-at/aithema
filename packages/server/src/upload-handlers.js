@@ -58,7 +58,7 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
   if (TEXT_MEDIA_TYPES.includes(detected.mediaType) && TEXT_MEDIA_TYPES.includes(expected)) return { mediaType: expected };
   return extension && expected !== detected.mediaType ? { mediaType: detected.mediaType, reason: 'unsupported' } : detected;
 }
-export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured, now = () => storage.now() }) {
+export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured, opener, now = () => storage.now() }) {
   const limits = normalizeUploadLimits(configured), jobs = new Map(), expiryTimers = new Map();
   function expire(id) {
     for (const event of storage.expireStagedUploads(id, now())) { jobs.get(event.data.id)?.controller.abort(); publish(id, event); }
@@ -103,8 +103,12 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       if (signal.aborted) return; // shutdown keeps durable pending work for restart
       const current = storage.get(id);
       if (current.tombstone || !current.uploads.some(u => u.id === uploadId && ['pending', 'staged-pending'].includes(u.state))) return;
-      const event = storage.completeUpload(id, uploadId, result);
-      if (event) { publish(id, event); if (!stagedImage(event.data)) onInput(id); }
+      const before = current.seq;
+      const event = storage.completeUpload(id, uploadId, result, { opener });
+      if (event) {
+        for (const saved of storage.read(id, before)) publish(id, saved);
+        if (!stagedImage(event.data)) onInput(id);
+      }
     }).finally(() => jobs.delete(uploadId));
     job.promise.catch(() => {});
     return job.promise;

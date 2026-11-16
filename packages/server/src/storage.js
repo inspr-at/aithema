@@ -669,7 +669,8 @@ export class SQLiteStorage {
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date(this.now()).toISOString();
     // Reply choices and the engine label are content: erase them with the reply, never retain them in metadata.
-    const origin = aiTextOrigin({ model: data.model, plugin: data.provider });
+    const origin = data.role === 'assistant' && data.origin === 'host' ? { origin: 'host' }
+      : aiTextOrigin({ model: data.model, plugin: data.provider });
     const { scope, ...visibleData } = data;
     data = visibleData;
     const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type)
@@ -765,17 +766,27 @@ export class SQLiteStorage {
     const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
     if (!receipt) return null;
     if (Buffer.from(receipt.bytes).toString() !== hash(bytes)) throw new ConflictError('Client event id has different bytes');
-    return this.#hydrateEvent(JSON.parse(receipt.result));
+    const { events, ...stored } = JSON.parse(receipt.result);
+    return { ...this.#hydrateEvent(stored), ...(events ? { events: events.map(saved => this.#hydrateEvent(saved)) } : {}) };
+  }
+  #appendOpener(session, opener = {}) {
+    const text = opener[session.locale];
+    if (session.transcript.length || session.tombstone || session.consentWithdrawn || !text) return null;
+    return this.#append(session, 'turn.final', { id: 'host:opener', role: 'assistant', origin: 'host', content: text,
+      at: new Date(this.now()).toISOString() });
   }
   postTurn(id, clientId, bytes, content, guard = {}, beforeSave = () => {}) {
     return this.transaction(() => {
-      const session = this.get(id);
+      let session = this.get(id);
+      if (typeof clientId !== 'string' || clientId.startsWith('host:')) throw new TypeError('Reserved host event namespace');
       this.#check(session, { ...guard, revision: undefined });
       if (session.pauseReason === 'purpose') throw new ConflictError('Purpose pause is locked');
       const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
       if (receipt) {
         if (Buffer.from(receipt.bytes).toString() !== hash(bytes)) throw new ConflictError('Client event id has different bytes');
-        return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
+        const { events: savedEvents, ...stored } = JSON.parse(receipt.result), event = this.#hydrateEvent(stored);
+        const events = (savedEvents ?? [stored]).map(saved => this.#hydrateEvent(saved));
+        return { event, events, replayed: true };
       }
       // A first message whose body arrived across an empty conversation's locale change still
       // belongs here. Only locale events may relax the server's earlier revision, never consent,
@@ -791,12 +802,16 @@ export class SQLiteStorage {
       if (attachments.length && this.voiceCalls(id).some(call => !call.terminal)) throw new ConflictError('Images require text mode');
       // Synchronous host preflight follows replay/revision checks and precedes persistence.
       beforeSave();
+      const openerEvent = this.#appendOpener(session, guard.opener);
+      if (openerEvent) session = this.get(id);
       const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content, ...(attachments.length ? { attachments } : {}),
         ...(guard.voiceCallId ? { voiceCallId: guard.voiceCallId, voiceProviderId: guard.voiceProviderId } : {}),
         at: new Date(this.now()).toISOString() });
-      const metadata = { ...event, data: this.#metadata(id, 'turn.final', event.data) };
+      const events = [...(openerEvent ? [openerEvent] : []), event];
+      const metadata = { ...event, data: this.#metadata(id, 'turn.final', event.data),
+        events: events.map(saved => ({ ...saved, data: this.#metadata(id, 'turn.final', saved.data) })) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, hash(bytes), JSON.stringify(metadata));
-      return { event, replayed: false };
+      return { event, events, replayed: false };
     });
   }
   #hydrateUpload(id, metadata, historical = false) {
@@ -853,7 +868,8 @@ export class SQLiteStorage {
       if (image && result.status === 'staged-ready' && (!(result.bytes instanceof Uint8Array) || !result.bytes.length || result.bytes.length > 8 * 1024 * 1024 ||
         !['image/png', 'image/jpeg'].includes(result.mediaType) || ![result.w, result.h].every(n => Number.isSafeInteger(n) && n > 0 && n <= 1568) ||
         result.w * result.h > 1150000)) throw new TypeError('Invalid normalized image');
-      const event = this.#append(session, 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
+      if (!image && ['accepted', 'unreadable'].includes(result.status)) this.#appendOpener(session, guard.opener);
+      const event = this.#append(this.get(id), 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
         state: result.status, reason: result.reason, text: result.status === 'accepted' ? result.text : undefined,
         truncated: result.truncated, extractor: result.extractor,
         ...(image && result.status === 'staged-ready' ? { digest: hash(result.bytes), w: result.w, h: result.h, mediaType: result.mediaType } : {}) });
@@ -904,18 +920,28 @@ export class SQLiteStorage {
       return { acknowledged: true, ...(paused === undefined ? {} : { paused }), event };
     });
   }
+  hasConnectedVoiceCall(id) {
+    return Boolean(this.db.prepare("SELECT 1 FROM voice_lifecycle_calls WHERE session_id=? AND json_extract(record,'$.providerGeneration')>0 LIMIT 1").get(id));
+  }
   voiceLifecycle(id, callId) {
     const row = this.db.prepare('SELECT record FROM voice_lifecycle_calls WHERE session_id=? AND (? IS NULL OR call_id=?) ORDER BY rowid DESC LIMIT 1')
       .get(id, callId ?? null, callId ?? null);
     return row ? JSON.parse(row.record) : null;
   }
+  #transitionVoiceLifecycle(id, callId, event) {
+    const prior = this.voiceLifecycle(id, callId) ?? createVoiceLifecycle(callId);
+    const next = reduceVoiceLifecycle(prior, event);
+    this.db.prepare('INSERT INTO voice_lifecycle_calls VALUES (?,?,?) ON CONFLICT(session_id,call_id) DO UPDATE SET record=excluded.record')
+      .run(id, callId, JSON.stringify(next));
+    return next;
+  }
   transitionVoiceLifecycle(id, callId, event) {
+    return this.transaction(() => this.#transitionVoiceLifecycle(id, callId, event));
+  }
+  connectVoiceWithOpener(id, callId, event, opener) {
     return this.transaction(() => {
-      const prior = this.voiceLifecycle(id, callId) ?? createVoiceLifecycle(callId);
-      const next = reduceVoiceLifecycle(prior, event);
-      this.db.prepare('INSERT INTO voice_lifecycle_calls VALUES (?,?,?) ON CONFLICT(session_id,call_id) DO UPDATE SET record=excluded.record')
-        .run(id, callId, JSON.stringify(next));
-      return next;
+      this.#transitionVoiceLifecycle(id, callId, event);
+      return this.#appendOpener(this.get(id), opener);
     });
   }
   takeOverVoiceCall(id, callId, { tabId, epoch }) {
@@ -954,9 +980,20 @@ export class SQLiteStorage {
         if (receipt.bytes !== bytes) throw new ConflictError('Voice event id has different bytes');
         return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
       }
-      const turn = session.transcript.find(t => t.id === turnId);
-      let event, interruptionEvent;
-      if (type === 'interrupted') {
+      // A durable final receipt links provider greeting identity to canonical host text.
+      const greetingReceipt = this.db.prepare('SELECT result FROM receipts WHERE session_id=? AND client_id=?').get(id,
+        'voice:' + hash(JSON.stringify({ callId, turnId, type: 'final' })));
+      const mappedHost = greetingReceipt && JSON.parse(greetingReceipt.result).data.id === 'host:opener';
+      const turn = session.transcript.find(t => t.id === (mappedHost ? 'host:opener' : turnId));
+      let event, interruptionEvent, mappedOpener = false;
+      const opener = session.transcript.find(t => t.id === 'host:opener' && t.origin === 'host' && !t.erased && !t.withdrawn);
+      if (type === 'final' && value.role === 'assistant' && guard.hostOpener === true && opener) {
+        event = this.read(id).find(e => e.type === 'turn.final' && e.data.id === 'host:opener');
+        mappedOpener = true;
+      } else if (mappedHost && ['heard', 'interrupted'].includes(type) && opener) {
+        event = this.#append(session, 'voice.interrupted', { id: 'host:opener', callId, providerSessionId: providerId,
+          interruption: { heardLength: type === 'heard' ? Math.min(value.prefix.length, opener.content.length) : 'unknown' } });
+      } else if (type === 'interrupted') {
         if (turn && (turn.role !== 'assistant' || turn.erased || turn.withdrawn)) throw new ConflictError('Reply transcript unavailable');
         event = this.#append(session, 'voice.interrupted', { id: turnId, callId, providerSessionId: providerId,
           interruption: { heardLength: 'unknown' } });
@@ -1013,7 +1050,7 @@ export class SQLiteStorage {
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
-      return { event, replayed: false, ...(interruptionEvent ? { interruptionEvent } : {}) };
+      return { event, replayed: mappedOpener, ...(interruptionEvent ? { interruptionEvent } : {}) };
     });
   }
   #invalidate(id, turnId, all = false, concepts = true) {

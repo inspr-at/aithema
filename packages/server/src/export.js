@@ -58,7 +58,7 @@ export function exportSession(session, artifacts = [], withheld = [], {
   const files = {
     'transcript.json': json({ sessionId: session.id, processing: { preset: session.processingPreset ?? 'best', model, effort, voice, visuals },
       turns: activeTurns(session).map(withAITextOrigin) }),
-    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}${t.role === 'assistant' ? ' (AI-generated)' : ''}\n\n${messageText(t.content)}`).join('\n'),
+    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}${t.role === 'assistant' ? t.origin === 'host' ? ' (host)' : ' (AI-generated)' : ''}\n\n${messageText(t.content)}`).join('\n'),
     'understanding.json': json(session.understanding.inputRevision === null ? session.understanding : withAITextOrigin(session.understanding)),
     ...((session.uploads ?? []).length ? { 'uploads.json': json(session.uploads.map(u => u.state === 'withdrawn' || u.erased || u.withdrawn
       ? { id: u.id } : Object.fromEntries(['id', 'state', 'filename', 'mediaType', 'bytes', 'at', 'text', 'reason', 'truncated', 'extractor', 'kind', 'digest', 'w', 'h', 'turnId']

@@ -348,7 +348,8 @@ test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab a
   await page.keyboard.press('Space'); await wait(250); assert.equal(await page.$eval('#band',n=>n.dataset.aithemaRevealState),'open');
   await page.evaluate(()=>document.getElementById('outside').focus()); await wait(250); assert.equal(await page.$eval('#band',n=>n.dataset.aithemaRevealState),'closed');
   const existing=await page.evaluate(()=>{const root=window.component.shadowRoot,orb=root.querySelector('.band-orb .orb'),intro=root.querySelector('.intro__orb .orb');return{slabs:orb.querySelectorAll('.orb__slab').length,canvas:!!orb.querySelector('canvas'),width:orb.getBoundingClientRect().width,visual:orb.querySelector('.orb__body').getBoundingClientRect().width,introWidth:intro.getBoundingClientRect().width,reveal:!!root.querySelector('.band > .aithema-reveal__row')};}); assert.equal(existing.slabs,6);assert.equal(existing.canvas,false);assert.equal(existing.width,44);assert.equal(existing.visual,40);assert.ok(existing.introWidth>=64&&existing.introWidth<=100);assert.equal(existing.reveal,true);
-  const evidence=process.env.AITHEMA_EVIDENCE_DIR;if(evidence)await page.screenshot({path:join(evidence,'existing-component-glass-orb.png')});
+  const evidence=process.env.AITHEMA_EVIDENCE_DIR;
+  if(evidence) { await mkdir(evidence,{recursive:true}); await page.screenshot({path:join(evidence,'existing-component-glass-orb.png')}); }
   await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'no-preference'}]); await page.evaluate(()=>{window.fixture.orb.setMotion(true);window.fixture.reveal.setMotion(true);});
   const other=await browser.newPage();await other.goto('about:blank');await other.bringToFront();await wait(100);
   // Headless Chrome may keep background pages visible; when it does, exercise its lifecycle via CDP.
@@ -359,6 +360,7 @@ test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab a
 
 test('AIT-140: early leave holds the circle; live exit colour samples every 50ms', {timeout:60_000}, async t=>{
   const url=await server(t), evidence=process.env.AITHEMA_EVIDENCE_DIR;
+  if(evidence) await mkdir(evidence,{recursive:true});
   const browser=await orbBrowser();
   const page=await pageForFile(browser), records=[];
   for(const theme of ['light','dark']) for(const width of [1440,390]) {
