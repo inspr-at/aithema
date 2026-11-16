@@ -1384,6 +1384,9 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
     await shadow(page, async (c, { locale, entrance }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = c.session; session.conceptVisualKind = 'image';
+      // The no-provider seed turns visuals off. This scene instead exercises
+      // the bound default image renderer, with availability supplied below.
+      session.settings.visuals = null;
       session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
       c.configure({ entrance, session, copy, voiceClient: {} });
       globalThis.ait509Session = session;
