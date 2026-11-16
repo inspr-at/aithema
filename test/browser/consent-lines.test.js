@@ -1377,8 +1377,13 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
     ConceptView.prototype.update = function (...args) { globalThis.ait509View = this; return update.apply(this, args); };
   });
   const viewports = [390, 1024, 1440].map(width => ({ width, height: width === 390 ? 844 : 900 }));
-  if (entrance === 'combined') viewports.push({ width: 390, height: 620 }, { width: 390, height: 568 });
-  for (const theme of ['light', 'dark']) for (const { width, height } of viewports) {
+  if (entrance === 'combined') viewports.push({ width: 390, height: 620 }, { width: 390, height: 568 },
+    { width: 1024, height: 900, hostInset: 100 }, { width: 1440, height: 900, hostInset: 100 });
+  for (const theme of ['light', 'dark']) for (const { width, height, hostInset = 0 } of viewports) {
+    await shadow(page, (c, inset) => {
+      c.style.marginTop = `${inset}px`;
+      c.style.setProperty('--aithema-height', inset ? `calc(100dvh - ${inset}px)` : '100dvh');
+    }, hostInset);
     await scene(page, locale, theme, width, []);
     await page.setViewport({ width, height });
     await shadow(page, async (c, { locale, entrance }) => {
@@ -1394,7 +1399,7 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
       // same evolving snapshot for availability as for consent/status updates.
       globalThis.ait509View.feature = () => globalThis.ait509Session.featureMatrix.best.images;
     }, { locale, entrance });
-    const label = `ait509-${locale}-${theme}-${width}${entrance === 'combined' ? `-combined-${height}` : ''}`;
+    const label = `ait509-${locale}-${theme}-${width}${entrance === 'combined' ? `-combined-${height}` : ''}${hostInset ? `-host-inset-${hostInset}` : ''}`;
     const measure = () => shadow(page, (c, entrance) => {
       const selectors = ['.band', '.audio-rail', '.concept-access', '.composer', '.display-foot', ...(entrance === 'combined' ? ['.composer-mic', '.composer-notice', '.composer-feedback', '.composer-status'] : ['.attach']), '.send', '.turn', ...(innerWidth >= 960 ? ['.understanding', '.understanding .foot'] : [])];
       return Object.fromEntries(selectors.map(selector => { const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
@@ -1470,9 +1475,9 @@ for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']
       return { hidden: request.hidden, disabled: request.disabled };
     }), { hidden: false, disabled: false }, 'the grant reaches the rendered Request control');
     if (width !== 1024) await record(t, page, `${label}-granted`, { beforeGrant, afterGrant });
-    results.push({ locale, theme, entrance, width, height, before, after, beforeGrant, afterGrant });
+    results.push({ locale, theme, entrance, width, height, hostInset, before, after, beforeGrant, afterGrant });
   }
-  assert.equal(results.length, entrance === 'combined' ? 10 : 6);
+  assert.equal(results.length, entrance === 'combined' ? 14 : 6);
   if (process.env.AITHEMA_EVIDENCE_DIR) {
     const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-509'); await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `rects-${locale}-${entrance}.json`), JSON.stringify({ head: evidenceCommit, results }, null, 2));
