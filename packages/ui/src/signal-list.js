@@ -52,7 +52,7 @@ export class SignalList {
     // Source/reset assessments must redact immediately; empty finals may defer. They do not reset the
     // conversation's seen identities or its expanded preference.
     if (!u.readinessAssessed || pruned) { this.#pending = null; this.#clearMark(); this.#items = items; this.#paint(); return; }
-    const changed = JSON.stringify(items) !== JSON.stringify(this.#items);
+    const changed = JSON.stringify(items) !== JSON.stringify(this.#pending?.items ?? this.#items);
     if (changed && this.#busy()) {
       const pendingMarks = this.#pending?.fresh ?? [];
       this.#pending = { items, fresh: [...new Set([...pendingMarks, ...fresh])].filter(key => items.some(i => i.key === key)) };
@@ -78,15 +78,19 @@ export class SignalList {
       setText(row.querySelector('.signal-text'), item.text);
       let provenance = row.querySelector('.signal-provenance');
       if (item.basis === 'assistant') {
-        if (!provenance) { provenance = node('span', 'signal-provenance'); provenance.append(' ', node('span', 'signal-basis')); row.append(provenance); }
+        if (!provenance) { provenance = node('span', 'signal-provenance'); provenance.append(' · ', node('span', 'signal-basis')); row.append(provenance); }
         setText(provenance.querySelector('.signal-basis'), resolveCopy(this.#copy, 'signalUnconfirmed', null, this.#locale));
       } else provenance?.remove();
       row.toggleAttribute('data-signal-new', this.#marked.has(item.key));
     });
     this.#button.hidden = this.#items.length <= 5;
     this.#button.setAttribute('aria-expanded', String(this.state.expanded));
-    setText(this.#button, this.state.expanded ? resolveCopy(this.#copy, 'showLess', null, this.#locale)
-      : resolveCopy(this.#copy, 'signalsAll', null, this.#locale).replaceAll('{n}', String(this.#items.length)));
+    const all = resolveCopy(this.#copy, 'signalsAll', null, this.#locale).replaceAll('{n}', String(this.#items.length));
+    const less = resolveCopy(this.#copy, 'showLess', null, this.#locale);
+    // Invisible grid sizing labels reserve both translations, including host
+    // overrides, without adding duplicate accessible or DOM text.
+    this.#button.dataset.allLabel = all; this.#button.dataset.lessLabel = less;
+    setText(this.#button.querySelector('span'), this.state.expanded ? less : all);
   }
   #clearMark() { clearTimeout(this.#timer); this.#timer = null; this.#marked.clear(); }
   clear() {

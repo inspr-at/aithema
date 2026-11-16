@@ -771,7 +771,13 @@ its additive signal metadata, not the historical ledger.
 
 The overview shows five signals initially. A native Show all button names the
 total count and has `aria-expanded` / `aria-controls`; no toggle appears for five
-or fewer. Expanded preference is kept in tab memory for the conversation,
+or fewer. The toggle stays right-aligned in the heading row, reserving both
+labels so expansion leaves its click target fixed. The existing `signals`
+heading key now means “Signals” / “Signale” in EN/DE (German previously read
+“Was konkret erkennbar war”); host overrides still win. Assistant attribution
+reads “ · unconfirmed” / “ · unbestätigt” in muted ink. New rows use a tint
+without an edge stripe; the toggle focus ring stays inside its button. Expanded
+preference is kept in tab memory for the conversation,
 including temporary short lists and assessment resets, and cleared on erasure
 or conversation change. While pointer or focus is in the signals, unsolicited
 list changes are deferred until it leaves; source removal redacts immediately.

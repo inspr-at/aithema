@@ -769,7 +769,7 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
-          <section class="signals-section"><h3 id="signals-title" data-copy="signals"></h3><ul class="signals" id="signals-list" aria-labelledby="signals-title"></ul><button class="signals-toggle" type="button" aria-controls="signals-list" aria-expanded="false" hidden></button></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
+          <section class="signals-section"><div class="signals-heading"><h3 id="signals-title" data-copy="signals"></h3><button class="signals-toggle" type="button" aria-controls="signals-list" aria-expanded="false" hidden><span></span></button></div><ul class="signals" id="signals-list" aria-labelledby="signals-title"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
@@ -1499,8 +1499,6 @@ export class AithemaSession extends HTMLElement {
     if (id !== this.#session.id || this.#erased) return;
     this.#clearStartIntent();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
-    const signals = root.querySelector('.signals-section');
-    signals.style.minHeight = `${signals.getBoundingClientRect().height}px`;
     this.#signals.clear();
     const remembered = this.#erasedIds.get(id);
     this.#erased = { id, via, stage: workspace.dataset.stage, understanding: workspace.dataset.understanding,

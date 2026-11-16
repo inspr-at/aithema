@@ -22,7 +22,12 @@
   Legacy snapshots seed identities from their current final. The historical
   ledger is not exported; current signalItems and ordered strings are.
 - The signal overview starts at five, with a native total-count toggle and
-  conversation-local expansion. Pointer/focus defer asynchronous list changes;
+  conversation-local expansion. The toggle stays right-aligned in the heading
+  row with a stable box for both labels and an inset focus ring. The existing
+  `signals` copy key uses “Signals” / “Signale” (DE previously “Was konkret
+  erkennbar war”); host overrides still win. Assistant basis uses a muted
+  “ · unconfirmed” / “ · unbestätigt” suffix; arrival marks use tint alone.
+  Pointer/focus defer asynchronous list changes;
   source removal redacts immediately. One to three new keys get a two-second
   highlight (static with reduced motion); first/whole lists and reconnects stay
   quiet. New host-overridable EN/DE keys: `signalsAll` = `Show all ({n})` /
