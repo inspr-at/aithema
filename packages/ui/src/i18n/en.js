@@ -70,6 +70,7 @@ export const en = {
   conceptRequest: 'Request concept', conceptRegenerate: 'Regenerate', conceptRetry: 'Retry', conceptUp: 'Like', conceptDown: 'Dislike',
   conceptReject: 'Reject and archive', conceptImageAlt: 'Visual interface concept from this conversation',
   conceptConsent: 'Images need consent to be created.',
+  conceptDraftConsent: 'Drafts need consent to be created.',
   conceptConsentAction: 'Give consent',
   conceptIntro: 'Request a visual concept once we understand your needs.', conceptNeedsInput: 'Describe your needs first.',
   conceptWaiting: 'Visual wish recorded. Waiting for enough understanding.', conceptRendering: 'Creating your visual concept…',

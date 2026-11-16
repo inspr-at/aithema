@@ -576,9 +576,13 @@ opening the editor; component-emitted review events already discard it. A
 navigating host still works for Start (including the voice gesture rule above); concept continuation needs a fresh request on return.
 The navigating browser test host is retained for Start coverage.
 
-New copy keys `conceptConsent` and `conceptConsentAction` supply the impersonal
-EN/DE image ask and its action. Explicit host overrides win; existing overrides
-of `featureConsent.images` and `featureConsent.action` remain fallbacks.
+New copy keys `conceptConsent`, `conceptDraftConsent` and `conceptConsentAction`
+supply the impersonal EN/DE image or HTML-draft ask and its action. Explicit host
+overrides win; existing overrides of `featureConsent.images`, `featureConsent.html`
+and `featureConsent.action` remain fallbacks. A wish can precede readiness by
+several visitor turns: its bounded continuation binds to the latest active visitor
+turn and input revision when the ask appears. Waiting for readiness shows only
+waiting text, without a consent action.
 
 `ConceptLane` accepts an optional `consentRequired(session, visualKind)` preflight
 port. A consent-only refusal publishes `concept.state` with
@@ -632,6 +636,7 @@ field draft. During a call the same
 mic toggles capture through the rail; End call remains on the rail. Typing keeps
 capture running and Send delivers the typed turn through `rail.sendText` in the
 same session and context. No new copy keys or exports are introduced.
+
 A journal `session.erased`, or a snapshot 404 with exactly
 `{error: 'session-not-found'}`, enters the erased state. An exact refusal from
 another session route first shares one confirming snapshot read per conversation,

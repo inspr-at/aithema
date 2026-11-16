@@ -71,6 +71,7 @@ export const de = {
   conceptRequest: 'Entwurf anfordern', conceptRegenerate: 'Neu erstellen', conceptRetry: 'Erneut versuchen', conceptUp: 'Gefällt mir', conceptDown: 'Gefällt mir nicht',
   conceptReject: 'Ablehnen und ausblenden', conceptImageAlt: 'Visueller Entwurf einer Oberfläche aus diesem Gespräch',
   conceptConsent: 'Zum Erstellen von Bildern ist eine Einwilligung nötig.',
+  conceptDraftConsent: 'Entwürfe: Einwilligung nötig.',
   conceptConsentAction: 'Einwilligung geben',
   conceptIntro: 'Sobald genügend Angaben vorliegen, können Sie einen ersten Entwurf anfordern.', conceptNeedsInput: 'Beschreiben Sie zuerst Ihr Anliegen.',
   conceptWaiting: 'Wunsch nach einem Entwurf vorgemerkt. Es fehlen noch Angaben.', conceptRendering: 'Ihr Entwurf entsteht …',

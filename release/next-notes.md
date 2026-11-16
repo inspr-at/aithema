@@ -19,8 +19,12 @@
 - New component methods `openConsent(feature, opener?)` and `cancelConsent()` let
   hosts use the existing in-page editor or dismiss a pending concept. The demo
   uses the in-page editor; the navigating Start test host remains.
-- Copy adds `conceptConsent` and `conceptConsentAction` in EN/DE. Host overrides
-  win, including legacy `featureConsent.images` / `featureConsent.action` overrides.
+- Copy adds `conceptConsent`, `conceptDraftConsent` and `conceptConsentAction`
+  in EN/DE. Image and HTML-draft asks are impersonal. Host overrides win, including
+  legacy `featureConsent.images` / `featureConsent.html` / `featureConsent.action`.
+- Wishes made before readiness keep their just-in-time ask when readiness arrives
+  on a later turn. The continuation binds to the latest visitor turn and input
+  revision when shown; waiting for readiness carries no consent action.
 - `ConceptLane` adds optional `consentRequired(session, visualKind)` preflight.
   `concept.state.status.consentRequest: {id, sourceTurnId}` is additive metadata
   on `phase: 'waiting'`; it carries no durable grant or automatic retry.
