@@ -3779,7 +3779,7 @@ test('AIT-508: a fresh call waits for the prior session call to reconcile despit
   const next = await h.start('settled-next'); assert.notEqual(next.callId, first.callId);
 });
 
-test('AIT-508: a fresh bounded call after an empty ended call uses continuation presentation', async t => {
+test('AIT-508: a fresh bounded call after an audible ended call uses continuation presentation', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const phrases = { de: { opening: 'Hallo, hier ist eine KI-Assistenz.', continuation: 'Ihre KI-Assistenz setzt das Gespräch fort.' },
     en: { opening: 'Hello, this is an AI assistant.', continuation: 'Your AI assistant is ready to continue.' } };
@@ -3791,8 +3791,11 @@ test('AIT-508: a fresh bounded call after an empty ended call uses continuation 
   });
   t.mock.method(Date, 'now', h.now);
   const first = await h.start(); assert.equal(first.conversationLimit, 'credits');
+  await h.route(`/voice/${first.callId}/events`, { providerSessionId: first.providerSessionId, event: {
+    callId: first.callId, turnId: `${first.providerSessionId}:assistant:0`, type: 'final', role: 'assistant',
+    text: first.overrides.agent.firstMessage } });
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'idle' }); await h.handlers.idle();
-  assert.equal(h.storage.get(h.session.id).transcript.length, 0);
+  assert.equal(h.storage.get(h.session.id).transcript.length, 1);
   const next = await h.start('next-empty-call');
   assert.notEqual(first.callId, next.callId); assert.equal(presentations[0].hasPriorTurns, false);
   assert.equal(presentations.at(-1).hasPriorTurns, true); assert.equal(presentations.at(-1).hasPriorCalls, true);
