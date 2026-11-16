@@ -1251,6 +1251,22 @@ test('AIT-514 height-aware clamp respects the pane budget and keeps controls sta
         for (let index = 0; index < controls.count; index++) {
           await shadow(page, (c, index) => window.summaryPhoneControls[index].scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }), index);
           await settle();
+          // Sticky-band compensation can settle after the native scroll.
+          // Scroll both existing surfaces until the full control clears their
+          // clipping edges; a centre hit alone cannot prove full visibility.
+          for (let pass = 0; pass < 3; pass++) {
+            await shadow(page, (c, index) => {
+              const root = c.shadowRoot, n = window.summaryPhoneControls[index];
+              const pane = root.querySelector('.analysis-content'), p = pane.getBoundingClientRect();
+              let r = n.getBoundingClientRect();
+              pane.scrollTop += Math.min(0, r.top - p.top - 1) + Math.max(0, r.bottom - p.bottom + 1);
+              r = n.getBoundingClientRect();
+              const top = root.querySelector('.band').getBoundingClientRect().bottom + 1;
+              const bottom = root.querySelector('.composer').getBoundingClientRect().top - 1;
+              window.scrollBy(0, Math.min(0, r.top - top) + Math.max(0, r.bottom - bottom));
+            }, index);
+            await settle();
+          }
           const reached = await shadow(page, (c, index) => {
             const root = c.shadowRoot, n = window.summaryPhoneControls[index], r = n.getBoundingClientRect();
             const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
