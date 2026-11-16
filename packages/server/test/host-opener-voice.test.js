@@ -15,7 +15,7 @@ async function fixture(t, { native = true, presentation, history = false, refuse
   let complete, admissions = 0;
   const adapter = { ...elevenLabsCallbackPort, bindCallbacks(operations) { complete = operations.onCompletion; return elevenLabsCallbackPort.bindCallbacks(operations); } };
   const textOnlyAdapter = { bindCallbacks: () => ({ prepareCallback: () => ({ request: {}, prepare() {}, revoke() {} }) }) };
-  const handlers = createVoiceHandlers({ storage, secrets: native ? secrets : undefined, opener: configuredOpener, presentation, log,
+  const handlers = createVoiceHandlers({ storage, secrets: native ? secrets : undefined, opener: configuredOpener, presentation, log, callbackAdapter: native ? adapter : textOnlyAdapter,
     ownership: { token: () => 'fixture-owner' }, readBody: async r => new Uint8Array(await r.arrayBuffer()),
     now: () => instant, publish: (id, event) => published.push(event), onTurn: (...args) => turnNotifications.push(args),
     runtime: { conversationLimits: { policy: () => conversationLimit, deadline: () => Infinity }, voiceServerAdapters: () => [native ? adapter : textOnlyAdapter], async checkVoice() {},
@@ -274,14 +274,18 @@ for (const boundary of ['accepted', 'unreadable', 'withdrawn-text', 'withdrawn-u
     if (boundary === 'withdrawn-upload') f.storage.withdrawUpload(f.session.id, id);
   }
   assert.equal((await f.start()).status, 201);
-  // Withdrawn documents leave only the canonical opener and no current visitor input.
-  if (boundary === 'withdrawn-upload') {
-    assert.equal(contexts[0].hostOpener, opener.en);
-    assert.equal(f.starts[0].overrides.agent.firstMessage, opener.en);
-  } else {
-    assert.equal(Object.hasOwn(contexts[0], 'hostOpener'), false);
-    assert.equal(contexts[0].hasPriorTurns, true);
-    assert.equal(f.starts[0].overrides.agent.firstMessage, 'The AI assistant continues.');
+  // RC25 erases assistant origin and content on either withdrawal. The erased
+  // host turn is not canonical host-only history; retain RC25 active-turn context.
+  const withdrawn = boundary.startsWith('withdrawn-');
+  assert.equal(Object.hasOwn(contexts[0], 'hostOpener'), false);
+  assert.equal(contexts[0].hasPriorTurns, !withdrawn);
+  assert.equal(f.starts[0].overrides.agent.firstMessage, withdrawn ? 'The reference AI assistant is ready.' : 'The AI assistant continues.');
+  if (withdrawn) {
+    const host = f.storage.get(f.session.id).transcript.find(turn => turn.id === 'host:opener');
+    assert.equal(host.erased, true);
+    assert.equal(Object.hasOwn(host, 'origin'), false);
+    assert.equal(Object.hasOwn(host, 'content'), false);
+    assert.notEqual(f.starts[0].overrides.agent.firstMessage, opener.en);
   }
 });
 test('AIT-538: explicit Resume retains continuation copy after an unheard segment; repair stays silent', async t => {
