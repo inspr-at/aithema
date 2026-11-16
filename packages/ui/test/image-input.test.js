@@ -9,8 +9,8 @@ const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'FormData']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture(t, copy = en, available = true) {
-  const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
+function fixture(t, copy = en, available = true, options = {}) {
+  const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
     { available: key === 'imageInput' ? available : true, reason: key === 'imageInput' && !available ? 'current processing consent required' : null }])) };
   const calls = [], asks = []; let imageGranted = available;
@@ -28,7 +28,7 @@ function fixture(t, copy = en, available = true) {
     return Response.json(snapshot);
   });
   c.addEventListener('aithema-consent', event => asks.push(event.detail));
-  c.configure({ copy, session, sessionToken: 'fixture' }); document.body.append(c); t.after(() => c.remove());
+  c.configure({ copy, session, sessionToken: 'fixture', ...options }); document.body.append(c); t.after(() => c.remove());
   return { c, root: c.shadowRoot, calls, asks, grantImages() { imageGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); } };
 }
 async function choose(root, files) {
@@ -99,4 +99,23 @@ test('AIT-510: attach asks once after selection, retains files in memory, and re
   f.grantImages(); for (let i = 0; i < 8; i++) await tick();
   assert.equal(f.calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST').length, 1);
   assert.equal(f.asks.length, 1); assert.equal(f.root.querySelector('.composer-reason .consent-line-copy'), null);
+});
+
+for (const entrance of ['choice', 'combined']) test(`AIT-510: ${entrance} host opener and staged images are not visitor input`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  const { hasVisitorInput } = await import('@inspr/aithema-core');
+  const source = createSession({ demo: true });
+  source.opener = { text: 'Welcome from a host.', locale: 'en' };
+  source.settings.origin = 'chosen'; source.emailOffer = { afterMessages: 2 };
+  source.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key, { available: true }])) };
+  const f = fixture(t, en, true, { entrance, session: source });
+  if (entrance === 'choice') f.root.querySelector('.ready__start').click();
+  assert.ok(f.root.querySelector('[data-id="host:opener"]'));
+  assert.equal(hasVisitorInput(f.c.session), false);
+  assert.equal(f.root.querySelector('.workspace').dataset.understanding, 'absent');
+  await choose(f.root, [new window.File(['fixture'], 'fixture.png', { type: 'image/png' })]);
+  assert.equal(hasVisitorInput(f.c.session), false);
+  assert.equal(f.root.querySelector('.workspace').dataset.understanding, 'absent');
+  assert.equal(f.root.querySelector('.email-offer'), null);
+  assert.equal(f.c.session.transcript.length, 0, 'staging does not persist the render-only opener');
 });

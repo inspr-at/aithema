@@ -437,8 +437,8 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
 
 // AIT-510 image attachment lifecycle and refusal evidence.
 // The page uses only injected intake/model fixtures; no provider is contacted.
-for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
-  test(`AIT-510: ${width} ${locale} ${theme} fixed image tiles, refusal reasons, consent and image-only send`, { timeout: 120000 }, async t => {
+for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+  test(`AIT-510: ${entrance} ${width} ${locale} ${theme} fixed image tiles, refusal reasons, consent and image-only send`, { timeout: 120000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-image-input-'));
     const demo = await startDemo(directory), browser = await browserForFile();
     t.after(async () => { await browser.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
@@ -447,7 +447,8 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await startTyping(page);
-    await inShadow(page, async c => {
+    await inShadow(page, async (c, entrance) => {
+      window.imageEntrance = entrance;
       window.imageAsks = []; window.imagePosts = []; window.imageSeq = 0; window.imageGranted = true;
       const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
       const context = canvas.getContext('2d'); context.fillStyle = 'rgba(224,32,48,0.5)'; context.fillRect(0, 0, 1, 1);
@@ -494,11 +495,12 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
         return fetch(url, options);
       };
       const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ session, copy, sessionToken: 'fixture', voiceClient: {} });
-    });
+      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {} });
+    }, entrance);
     await startTyping(page);
+    if (entrance === 'combined') assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.attach')).display), 'none');
     const choose = async () => {
-      if (width === 390) {
+      if (width === 390 && entrance === 'choice') {
         const path = join(directory, 'fixture.png');
         await writeFile(path, Buffer.from(await page.evaluate(() => window.imageFixtureBase64), 'base64'));
         const chooser = await uploadChooser(page); await chooser.accept([path]); return;
@@ -509,7 +511,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       else c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
       }, width);
     };
-    const boxes = () => inShadow(page, c => Object.fromEntries(['.band', '.audio-rail', '.attach', '.send', '.composer', ...(window.innerWidth >= 1024 ? ['.understanding', '.understanding .foot'] : [])].map(selector => {
+    const boxes = () => inShadow(page, c => Object.fromEntries(['.band', '.audio-rail', ...(window.imageEntrance === 'combined' ? ['.composer-mic'] : ['.attach']), '.send', '.composer', ...(window.innerWidth >= 1024 ? ['.understanding', '.understanding .foot'] : [])].map(selector => {
       const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, bottom: r.bottom }];
     })));
     const unstaged = await boxes();
@@ -520,10 +522,38 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       assert.ok(Math.abs(r[edge] - unstaged[selector][edge]) <= .5, `${selector}.${edge} fixed while staging`);
     for (const [selector, r] of Object.entries(before)) assert.ok(r.w > 0 && r.h > 0, `${selector} positive before`);
     const evidence = process.env.AITHEMA_EVIDENCE_DIR;
-    const prefix = `${width}-${locale}-${theme}`;
+    const prefix = `${entrance === 'combined' ? 'combined-' : ''}${width}-${locale}-${theme}`;
     if (evidence) await mkdir(evidence, { recursive: true });
     const shot = async state => { if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `${prefix}-${state}.png`) }); };
     await shot('pending');
+    if (entrance === 'combined' && width === 390) for (const height of [620, 568]) {
+      await page.setViewport({ width, height });
+      const shortBefore = await boxes();
+      for (const r of Object.values(shortBefore)) assert.ok(r.w > 0 && r.h > 0, 'positive short-phone baseline');
+      await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
+        c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason: 'malformed' } });
+      });
+      const shortAfter = await boxes();
+      for (const [selector, r] of Object.entries(shortAfter)) {
+        assert.ok(r.w > 0 && r.h > 0, `${selector} positive at ${height}`);
+        for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - shortBefore[selector][edge]) <= .5, `${height} ${selector}.${edge}`);
+      }
+      const controls = await inShadow(page, c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.image-refusals'].map(selector => {
+        const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }];
+      })));
+      for (const [selector, r] of Object.entries(controls)) assert.ok(r.w > 0 && r.h > 0 && r.x >= 0 && r.right <= width && r.y >= 0 && r.bottom <= height, `${selector} visible at ${height}`);
+      const list = Object.entries(controls);
+      for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+        const [a, ar] = list[i], [b, br] = list[j];
+        assert.ok(Math.min(ar.right, br.right) - Math.max(ar.x, br.x) <= .5 || Math.min(ar.bottom, br.bottom) - Math.max(ar.y, br.y) <= .5, `${a} and ${b} do not overlap at ${height}`);
+      }
+      changes.push({ reason: `short-${height}`, before: shortBefore, rects: shortAfter, controls }); await shot(`short-${height}`);
+      await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image');
+        c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-pending', reason: undefined } });
+        c.shadowRoot.querySelector('.image-refusals button').click();
+      });
+    }
+    if (entrance === 'combined' && width === 390) await page.setViewport({ width, height: 900 });
     for (const reason of ['unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'batch']) {
       await inShadow(page, (c, reason) => { const image = c.session.uploads.find(u => u.kind === 'image');
         c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason } });
@@ -558,7 +588,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       }
       const visible = await inShadow(page, c => { const el = c.shadowRoot.querySelector('.image-refusals'), r = el.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, bottom: r.bottom, clip: getComputedStyle(el.parentElement).clipPath }; });
       assert.ok(visible.w > 0 && visible.h > 0 && visible.top >= 0 && visible.bottom <= 530); assert.equal(visible.clip, 'none');
-      changes.push({ reason: 'keyboard-malformed', before: keyboardBefore, rects: after }); await shot('keyboard');
+      changes.push({ reason: 'keyboard-malformed', before: compact, rects: after }); await shot('keyboard');
       await inShadow(page, c => { const image = c.session.uploads.find(u => u.kind === 'image'); c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined } }); c.shadowRoot.querySelector('.image-refusals button').click(); });
       await page.setViewport({ width, height: 900 });
     }
@@ -581,7 +611,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       window.imageDelay = new Promise(resolve => { window.releaseImageDelay = resolve; });
       window.imageRevocations = 0; const revoke = URL.revokeObjectURL.bind(URL); URL.revokeObjectURL = url => { window.imageRevocations++; revoke(url); };
       const session = c.session, { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ session, copy, sessionToken: 'fixture', voiceClient: {} });
+      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {} });
     });
     const tileReload = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
     assert.ok(tileReload.w > 0 && tileReload.h > 0); assert.deepEqual(tileReload, tileBefore, 'reload reserves the image box before authenticated pixels arrive');
@@ -606,7 +636,7 @@ for (const width of [390, 1024, 1440]) for (const locale of ['en', 'de']) for (c
       window.imageGranted = false; window.imageFixtureConsent = true; window.imageAsks = [];
       const session = c.session; session.featureMatrix.best.imageInput = { available: false, reason: 'current processing consent required' };
       const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ session, copy, sessionToken: 'fixture', voiceClient: {} });
+      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {} });
     });
     await startTyping(page);
     const consentBefore = await boxes(), attachedBefore = await page.evaluate(() => window.imageSeq);

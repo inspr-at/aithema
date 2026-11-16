@@ -171,3 +171,18 @@ test('AIT-510: normalized bytes and send receipts survive a storage restart', as
   assert.equal(storage.get(session.id).transcript.length, 1);
   assert.equal(storage.get(session.id).uploads[0].state, 'sent');
 });
+
+test('AIT-510: staged normalization leaves the host opener unclaimed; image-only send and replay retain ordered hydrated events', t => {
+  const f = fixture(t), upload = stage(f), opener = { en: 'Welcome from a host.' };
+  f.storage.completeUpload(f.session.id, upload.id, { status: 'staged-ready', bytes: Buffer.from('normalized'), mediaType: 'image/png', w: 2, h: 1 }, { opener });
+  assert.equal(f.storage.get(f.session.id).transcript.length, 0);
+  const bytes = Buffer.from('image-only-with-opener');
+  const args = [f.session.id, 'image-turn', bytes, '', { opener, attachments: [upload.id] }];
+  const first = f.storage.postTurn(...args), replay = f.storage.postTurn(...args);
+  assert.deepEqual(first.events.map(event => event.data.id), ['host:opener', 'image-turn']);
+  assert.equal(replay.replayed, true);
+  assert.deepEqual(replay.events, first.events);
+  assert.deepEqual(f.storage.turnReceipt(f.session.id, 'image-turn', bytes).events, first.events);
+  assert.deepEqual(first.event.data.attachments, [upload.id]);
+  assert.equal(f.storage.get(f.session.id).transcript.length, 2);
+});
