@@ -461,6 +461,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       session.featureMatrix.best.uploads = { available: true, reason: null };
       session.settings.voice = 'off'; session.settings.origin = 'chosen';
       session.featureMatrix.best.voice = { available: false, reason: 'voice off' };
+      if (entrance === 'combined') session.emailOffer = { afterMessages: 1 };
       session.inputRevision = 1;
       session.transcript = [{ id: 'existing-input', role: 'user', content: 'A screenshot for the project', at: new Date(0).toISOString() },
         { id: 'existing-reply', role: 'assistant', content: 'Which part should be clarified?', at: new Date(1).toISOString() }];
@@ -468,6 +469,14 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       session.understanding = { ...session.understanding, summary: 'A project screenshot', inputRevision: inputRevision(session), readinessAssessed: true };
       const fetch = window.fetch.bind(window);
       window.fetch = async (url, options = {}) => {
+        if (entrance === 'combined' && String(url).endsWith('/credits')) return Response.json({
+          tiers: { current: 'anonymous', next: 'emailGiven', delta: 6_000_000, canConfirm: true },
+          exhausted: false, balance: { owner: { limitMicro: 12_000_000, availableMicro: 12_000_000, committedMicro: 0, reservedMicro: 0 } },
+          emailOffer: { offered: true, open: true, at: 'existing-reply', nextTier: 'emailGiven', deltaMicro: 6_000_000, revision: 1 } });
+        if (entrance === 'combined' && String(url).endsWith('/identity')) return Response.json({ identity: c.session.identity,
+          delivery: true, privacyDocumentConfigured: true, visitorEmail: { canSave: true, canDelete: true } });
+        if (entrance === 'combined' && String(url).endsWith('/visitor/email')) return Response.json({ visitor: { address: null, tier: 'anonymous', limitMicro: 12_000_000 },
+          notice: { version: 'fixture-notice', deliveryEnabled: true }, privacyDocumentConfigured: true });
         if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
         if (String(url).endsWith(`/api/sessions/${session.id}`)) {
           const snapshot = c.session; snapshot.featureMatrix.best.imageInput = { available: window.imageGranted, reason: window.imageGranted ? null : 'current processing consent required' };
@@ -496,7 +505,8 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
         return fetch(url, options);
       };
       const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {} });
+      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {},
+        ...(window.imageEntrance === 'combined' ? { host: { credits: true, verification: { delivery: true, privacyDocumentConfigured: true } } } : {}) });
     }, entrance);
     await startTyping(page);
     if (entrance === 'combined') assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.attach')).display), 'none');
@@ -545,6 +555,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       }
       if (evidence) await writeFile(join(evidence, `${prefix}-${state}-clearance.json`), JSON.stringify(layout, null, 2));
     };
+    if (entrance === 'combined') await waitForShadow(page, '.email-offer');
     await clearances('idle'); await shot('idle');
     const unstaged = await boxes();
     for (const r of Object.values(unstaged)) assert.ok(r.w > 0 && r.h > 0, 'positive frame before staging');
@@ -662,7 +673,8 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       window.imageDelay = new Promise(resolve => { window.releaseImageDelay = resolve; });
       window.imageRevocations = 0; const revoke = URL.revokeObjectURL.bind(URL); URL.revokeObjectURL = url => { window.imageRevocations++; revoke(url); };
       const session = c.session, { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {} });
+      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {},
+        ...(window.imageEntrance === 'combined' ? { host: { credits: true, verification: { delivery: true, privacyDocumentConfigured: true } } } : {}) });
     });
     const tileReload = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
     assert.ok(tileReload.w > 0 && tileReload.h > 0); assert.deepEqual(tileReload, tileBefore, 'reload reserves the image box before authenticated pixels arrive');
@@ -696,7 +708,8 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       window.imageGranted = false; window.imageFixtureConsent = true; window.imageAsks = [];
       const session = c.session; session.featureMatrix.best.imageInput = { available: false, reason: 'current processing consent required' };
       const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {} });
+      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {},
+        ...(window.imageEntrance === 'combined' ? { host: { credits: true, verification: { delivery: true, privacyDocumentConfigured: true } } } : {}) });
     });
     await startTyping(page);
     const consentBefore = await boxes(), attachedBefore = await page.evaluate(() => window.imageSeq);
