@@ -61,13 +61,15 @@ test('AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/
       : Response.json(c.session);
   });
   const frame = async () => {
-    const result = await shadow(page, c => Object.fromEntries(['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer-shell', '.attach', '.send', '.voice-state'].map(selector => {
+    const result = await shadow(page, c => Object.fromEntries(['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer-shell',
+      c.shadowRoot.querySelector('.workspace').dataset.entrance === 'combined' ? '.composer-mic' : '.attach', '.send', '.voice-state'].map(selector => {
       const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
       return [selector, { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom }];
     })));
     for (const [selector, r] of Object.entries(result)) assert.ok(r.width > 0 && r.height > 0, `${selector} positive box`);
-    const aside = result['.understanding'], composer = result['.composer-shell'], attach = result['.attach'], send = result['.send'];
-    assert.ok(attach.x + attach.width <= send.x + .5, 'Attach and Send never overlap');
+    const aside = result['.understanding'], composer = result['.composer-shell'], attach = result['.attach'], mic = result['.composer-mic'], send = result['.send'];
+    if (attach) assert.ok(attach.x + attach.width <= send.x + .5, 'Attach and Send never overlap');
+    else assert.ok(mic.x + mic.width <= send.x + .5, 'Mic and Send never overlap');
     const separated = aside.x + aside.width <= composer.x + .5 || composer.x + composer.width <= aside.x + .5
       || aside.bottom <= composer.y + .5 || composer.bottom <= aside.y + .5;
     if (!separated && evidence && page.viewport().width > 600) {
