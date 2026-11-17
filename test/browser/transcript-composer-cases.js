@@ -189,7 +189,7 @@ export async function transcriptComposerCases(t) {
     if (evidence) await page.screenshot({ path: join(evidence, `${label}.png`), captureBeyondViewport: false });
     return state;
   };
-  for (const [width, height] of [[1440, 900], [1280, 800], [1024, 640], [900, 700], [768, 1024], [390, 844]]) {
+  for (const [width, height] of [[1440, 900], [1280, 800], [1024, 640], [1024, 900], [900, 700], [768, 1024], [390, 844]]) {
     await t.test(`growth and reclaimed notice space ${width}x${height}`, async () => {
       await reset(width, height, 'en', 'light', { voice: true });
       const before = await geometry(page);
@@ -259,7 +259,21 @@ export async function transcriptComposerCases(t) {
       };
       for (const entrance of ['choice', 'combined']) {
         await reset(width, height, 'en', 'light', { turns: 80, entrance });
+        records.push({ label: `contact-restored-${entrance}-${width}x${height}`, ...await geometry(page) });
+        // This clone is a restored conversation. Establish follow mode through
+        // a visible Latest action instead of assuming that restore discarded
+        // its reader position; subsequent typing must preserve native latest.
+        await shadow(page, c => {
+          const shell = c.shadowRoot.querySelector('.transcript-shell');
+          shell.scrollTop = 0; shell.dispatchEvent(new Event('scroll'));
+        });
+        await settleEvidenceFrame(page);
+        assert.equal((await geometry(page)).jump, 'visible', 'contact reader can enter Latest before follow-mode growth');
+        await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
+        await settleEvidenceFrame(page);
         const before = await geometry(page), beforeContact = await contact();
+        records.push({ label: `contact-latest-start-${entrance}-${width}x${height}`, beforeContact, ...before });
+        noCardLatestClearance(before, `${entrance}/contact/explicit Latest precondition`);
         for (const [label, lines] of [['empty', 0], ['grown', 12], ['capped', 30]]) {
           await draft(page, lines); await settleEvidenceFrame(page);
           const followed = await geometry(page), followedContact = await contact();
