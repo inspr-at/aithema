@@ -14,13 +14,20 @@ const frame = ['.band', '.understanding', '.understanding > .foot', '.display-fo
 const geometry = async page => { const state = await shadow(page, c => {
   const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
   const input = r.querySelector('textarea'), shell = r.querySelector('.transcript-shell');
-  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.composer-mic', '.audio-rail', '.concept-bar', '.concept-access', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
+  const list = shell.querySelector('ol'), latest = shell.querySelector('.transcript-latest');
+  const shellCSS = getComputedStyle(shell), latestCSS = getComputedStyle(latest);
+  const paddingTop = parseFloat(shellCSS.paddingTop), paddingBottom = parseFloat(shellCSS.paddingBottom);
+  const latestSlot = latest.getBoundingClientRect().height + (parseFloat(latestCSS.marginTop) || 0) + (parseFloat(latestCSS.marginBottom) || 0);
+  const noticeHeight = r.querySelector('.voice-notices')?.getBoundingClientRect().height ?? 0;
+  return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.transcript-shell > ol', '.transcript-latest', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.composer-mic', '.audio-rail', '.concept-bar', '.concept-access', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
     .filter(selector => r.querySelector(selector)).map(selector => [selector, box(selector)])),
   inputScroll: input.scrollHeight, inputClient: input.clientHeight, value: input.value,
   scroll: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight,
   growth: parseFloat(getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-composer-growth')),
   noticeParent: r.querySelector('.voice-notices')?.parentElement.className ?? '',
-  noticeHeight: r.querySelector('.voice-notices')?.getBoundingClientRect().height ?? 0,
+  noticeHeight,
+  noCardClearance: { paddingBottom, latestSlot,
+    unused: Math.max(0, shell.clientHeight - paddingTop - paddingBottom - list.getBoundingClientRect().height - noticeHeight - latestSlot) },
   listPadding: parseFloat(getComputedStyle(shell.querySelector('ol')).paddingBottom),
   jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
   cardHidden: r.querySelector('.qcard').hidden,
@@ -35,6 +42,21 @@ const geometry = async page => { const state = await shadow(page, c => {
 });
   for (const selector of ['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child']) positive(state.boxes[selector], selector);
   return state;
+};
+// D511a keeps short transcripts top-aligned; AIT-400 retains Latest's own
+// end slot. Bound additional clearance independently of those two owners.
+const noCardClearance = (state, label) => {
+  assert.equal(state.cardHidden, true, `${label}: no-card clearance case`);
+  for (const selector of ['.composer', '.transcript-shell', '.transcript-shell > ol', '.transcript-latest', '.turn:last-child']) positive(state.boxes[selector], selector);
+  const composer = state.boxes['.composer'], pane = state.boxes['.transcript-shell'], last = state.boxes['.turn:last-child'];
+  const { paddingBottom, latestSlot, unused } = state.noCardClearance;
+  const gap = composer.top - pane.bottom + paddingBottom;
+  const rawGap = composer.top - last.bottom;
+  const extraGap = rawGap - unused - latestSlot - state.noticeHeight;
+  assert.ok(last.bottom <= composer.top - gap + .5, `${label}: last fitting turn clears the composer: ${JSON.stringify({ rawGap, gap })}`);
+  assert.ok(gap >= -.5 && gap <= 24.5, `${label}: pane/composer clearance is between 0 and 24px: ${gap}`);
+  assert.ok(extraGap >= -.5 && extraGap <= 24.5, `${label}: no duplicated end clearance: ${JSON.stringify({ rawGap, unused, latestSlot, extraGap })}`);
+  Object.assign(state.noCardClearance, { gap, rawGap, extraGap });
 };
 const stable = (before, after, label) => {
   assert.equal(after.footerHidden, before.footerHidden, `${label}: footer visibility stays unchanged`);
@@ -159,6 +181,7 @@ export async function transcriptComposerCases(t) {
       await draft(page, 30); await settleEvidenceFrame(page); const capped = await geometry(page);
       assert.ok(capped.inputScroll > capped.inputClient, '30 lines scroll inside the textarea');
       assert.ok(capped.boxes['.composer'].height <= .4 * height + .5, 'whole composer respects visual viewport cap'); stable(before, capped, 'cap');
+      for (const [label, state] of [['empty', before], ['grown', grown], ['capped', capped]]) noCardClearance(state, `${width}x${height}/${label}`);
       records.push({ label: `${width}x${height}`, before, grown, capped });
     });
   }
