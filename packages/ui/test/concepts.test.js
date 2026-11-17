@@ -1624,6 +1624,7 @@ for (const copy of [en, de]) test(`AIT-542 ${copy.display.locale}: host dismissa
   assert.equal(typeof request.requestId, 'string');
   assert.equal(typeof request.cancel, 'function');
   request.cancel(); request.cancel();
+  assert.ok(line.querySelector('.consent-action'), 'host dismissal keeps the concept consent action visible');
   assert.equal(line.querySelector('.consent-action'), action, 'host dismissal keeps the concept consent action');
   assert.equal(line.textContent, words, 'host dismissal keeps the concept consent wording');
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
