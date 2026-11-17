@@ -82,8 +82,10 @@ test('AIT-515 r13: both overview heading toggles, stable actions and scroll reac
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const session = createSession({ demo: true, locale });
         session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
-        session.transcript = [{ id: 'host:opener', role: 'assistant', origin: 'host', content: 'Welcome.' },
-          { id: 'visitor', role: 'user', content: 'We use orders.' }];
+        session.transcript = [{ id: 'host:opener', role: 'assistant', origin: 'host', content: locale === 'de' ? 'Willkommen.' : 'Welcome.' },
+          { id: 'visitor', role: 'user', content: locale === 'de' ? 'Wir bearbeiten Aufträge.' : 'We process orders.' },
+          { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Welcher Ablauf folgt?' : 'Which workflow comes next?' }];
+        session.transcript.at(-1).inputRevision = inputRevision(session);
         const summary = (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(20);
         session.understanding = reduceUnderstanding(session.understanding, { summary,
           signals: Array.from({ length: 7 }, (_, i) => ({ text: locale === 'de' ? `Sie nutzen den Ablauf ${i + 1}.` : `You use workflow ${i + 1}.`, basis: i === 0 ? 'assistant' : 'visitor' })),
