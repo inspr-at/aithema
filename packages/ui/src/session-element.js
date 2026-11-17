@@ -1407,7 +1407,8 @@ export class AithemaSession extends HTMLElement {
       const target = fits ? box : offer.querySelector('.email-offer__row').getBoundingClientRect();
       // Keep a fitting offer whole even when its height leaves less room than
       // the usual top padding. Taller offers retain the complete entry row.
-      const inset = fits ? Math.min(padding, pane.height - box.height) : Math.max(padding, (pane.height - target.height) / 2);
+      const room = Math.max(0, pane.height - target.height);
+      const inset = Math.min(room, fits ? padding : Math.max(padding, room / 2));
       shell.scrollTop += target.top - pane.top - inset;
     }
     if (this.#combined && this.#imageLayout) {
