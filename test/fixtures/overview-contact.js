@@ -55,11 +55,11 @@ test('AIT-515 r14: overview toggles coexist with pinned and launcher contact slo
       rowHeight: row.clientHeight, rowScrollHeight: row.scrollHeight,
       summary: box('.summary-toggle'), signals: box('.signals-toggle'), summaryHeading: box('#summary-title'),
       signalsHeading: box('#signals-title'), summaryRow: box('.summary-heading'), signalsRow: box('.signals-heading'),
-      pane: box('.analysis-content'), questions: box('.questions-heading'), composer: box('.composer-shell'),
+      pane: box('.analysis-content'), signal: box('.signals li'), questions: box('.questions-heading'), composer: box('.composer-shell'),
       foot: box('.understanding > .foot'), band: box('.band'),
       summaryExpanded: root.querySelector('.summary-toggle').getAttribute('aria-expanded'),
       signalsExpanded: root.querySelector('.signals-toggle').getAttribute('aria-expanded'),
-      count: root.querySelectorAll('.signals li').length, fade: getComputedStyle(root.querySelector('.summary-text')).maskImage };
+      count: root.querySelectorAll('.signals li').length, lines: root.querySelector('.summary-text').style.getPropertyValue('--summary-lines'), fade: getComputedStyle(root.querySelector('.summary-text')).maskImage };
   });
   const reach = async selector => {
     await shadow(page, (c, selector) => {
@@ -86,7 +86,7 @@ test('AIT-515 r14: overview toggles coexist with pinned and launcher contact slo
     return result;
   };
   for (const entrance of ['separate', 'combined']) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark'])
-    for (const slots of ['row-only', 'both-slots']) for (const [width, height] of [[1440, 900], [1024, 600]]) {
+    for (const slots of ['row-only', 'both-slots']) for (const [width, height] of [[1440, 900], [1366, 768], [1024, 600]]) {
       await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
       await shadow(page, async (c, locale, theme, entrance, manifest, slots) => {
         const { createSession, inputRevision, reduceUnderstanding } = await import('/packages/core/src/index.js');
@@ -138,7 +138,7 @@ test('AIT-515 r14: overview toggles coexist with pinned and launcher contact slo
           records.push({ name, event: `${kind}:${expanded}`, before, after });
         }
         const state = await measure();
-        for (const key of ['summary', 'signals', 'summaryHeading', 'signalsHeading', 'summaryRow', 'signalsRow', 'questions']) positive(state[key], `${name}:${key}`);
+        for (const key of ['summary', 'signals', 'summaryHeading', 'signalsHeading', 'summaryRow', 'signalsRow', 'signal', 'questions']) positive(state[key], `${name}:${key}`);
         assert.equal(state.summaryExpanded, String(summaryExpanded)); assert.equal(state.signalsExpanded, String(signalsExpanded));
         assert.equal(state.count, signalsExpanded ? 7 : 5);
         assert.equal(state.rowVisible, slots === 'row-only' || height >= 768, `${name}: row follows the available contact slots`);
