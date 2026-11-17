@@ -204,7 +204,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false, 'pending reply keeps its disabled button');
     await capture('disabled');
     await page.evaluate(() => { window.replayRail.notices.recovery.lastReplyText = window.replayText; window.replayRail.render(); });
-    if (width !== 390) {
+    {
       await page.evaluate(() => { window.replayUnavailable = false; });
       await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').click());
       await until(page, () => window.replayRail.notices.playing && !window.replayRail.notices.pending && !window.replayAudio.paused);
