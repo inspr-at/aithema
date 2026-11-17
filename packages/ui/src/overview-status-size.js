@@ -1,5 +1,5 @@
 import { paintConsentLine } from './consent-line.js';
-import { resolveCopy } from './copy-resolve.js';
+import { overviewStatusCandidates } from './overview-status-copy.js';
 
 // Reserve the longest reachable status before a state changes. The probe uses
 // the real status/action styles at the current pane width and inherited font.
@@ -39,16 +39,10 @@ export class OverviewStatusSize {
     const textStyle = this.view.getComputedStyle(this.slot.querySelector('.notice-text'));
     const signature = [box.width, style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight, style.letterSpacing, style.columnGap,
       textStyle.fontFamily, textStyle.fontSize, textStyle.fontWeight, textStyle.lineHeight, textStyle.letterSpacing].join('|');
-    if (this.signature === signature) return;
+    if (this.signature === signature) { this.growToRendered(); return; }
     this.signature = signature;
     const copy = this.copy, locale = this.locale;
-    const variants = [copy.empty, copy.stale, copy.preparingOverview,
-      `${copy.understandingFailed}.`, resolveCopy(copy, 'reasoningFailed', null, locale),
-      copy.overviewPendingReply, copy.noProjectDetails, copy.draft,
-      resolveCopy(copy, 'overviewCurrent', 'final', locale), copy.paused, copy.notConfigured,
-      copy.reasons?.['admission deadline']].filter(Boolean).map(text => ({ text }));
-    variants.push({ text: copy.understandingFailed, retry: true },
-      { text: resolveCopy(copy, 'staleIdle', null, locale), retry: true }, { consent: true });
+    const variants = overviewStatusCandidates(copy, locale);
     const probe = this.slot.cloneNode(false), text = this.root.ownerDocument.createElement('span');
     text.className = 'notice-text'; probe.removeAttribute('role'); probe.removeAttribute('aria-label');
     probe.setAttribute('aria-hidden', 'true'); probe.inert = true;
@@ -70,6 +64,15 @@ export class OverviewStatusSize {
       }
     } finally { probe.remove(); }
     if (height > 0) this.pane.style.setProperty('--overview-status-height', `${height}px`);
+    this.growToRendered();
+  }
+  // Unknown provider copy must remain readable even if it was not catalogued.
+  // This cheap visible-DOM guard never shrinks the reserve on a state change.
+  growToRendered() {
+    const children = [...this.slot.children].filter(node => !node.hidden);
+    const height = Math.max(0, ...children.map(node => Math.max(node.scrollHeight, node.getBoundingClientRect().height)));
+    const reserved = parseFloat(this.pane.style.getPropertyValue('--overview-status-height')) || 0;
+    if (height > reserved + .5) this.pane.style.setProperty('--overview-status-height', `${height}px`);
   }
   disconnect() {
     this.connected = false; this.observer?.disconnect();

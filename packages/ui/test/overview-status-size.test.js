@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { OverviewStatusSize } from '../src/overview-status-size.js';
+import { overviewStatusCatalog, overviewStatusCandidates, overviewStatusText } from '../src/overview-status-copy.js';
 import { reasonText } from '../src/settings-dialog.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -54,4 +55,32 @@ test('AIT-547: unexpected rendered copy grows the reserve without changing the c
   assert.ok(parseFloat(h.pane.style.getPropertyValue('--overview-status-height')) > before);
   h.text.textContent = 'Current'; h.size.render(en, 'en');
   assert.ok(parseFloat(h.pane.style.getPropertyValue('--overview-status-height')) >= 'An unforeseen provider explanation '.repeat(20).length, 'state changes cannot shrink the reserve');
+});
+
+for (const copy of [en, de]) test(`AIT-547 ${copy.display.locale}: every render path is generated into the candidate catalog`, () => {
+  const locale = copy.display.locale, candidates = overviewStatusCandidates(copy, locale);
+  const base = { hasPersonTurn: true, readinessAssessed: true, analysis: { available: true } };
+  const paths = [
+    { hasPersonTurn: false }, { updatingOverview: true }, { preparing: true },
+    { failedOverview: true }, { failedOverview: true, replyFailed: true }, { failure: true },
+    { analysis: { available: false, reason: 'An arbitrary resolved reason' } },
+    { readinessAssessed: false, replyFailed: true, missingReply: true },
+    { readinessAssessed: false }, { stale: true }, { draft: true }, {},
+  ];
+  const visited = new Set();
+  for (const fields of paths) {
+    const context = { ...base, ...fields }, state = overviewStatusCatalog.find(state => state.when(context));
+    visited.add(state.id);
+    const variants = state.variants(copy, locale);
+    assert.ok(variants.length > 0, `${state.id} has candidates`);
+    for (const variant of variants) assert.ok(candidates.some(candidate => candidate.state === state.id && candidate.text === variant.text && candidate.retry === variant.retry), `${state.id} variant included`);
+    if (!state.render) assert.ok(candidates.some(candidate => candidate.text === overviewStatusText(copy, locale, context)), `${state.id} rendered text included`);
+  }
+  assert.deepEqual([...visited].sort(), overviewStatusCatalog.map(state => state.id).sort(), 'every render path is exercised');
+  for (const rawReason of Object.keys(copy.reasons).filter(reason => reason !== 'delegated')) {
+    for (const reason of [rawReason, `delegated reasoning: ${rawReason}`]) {
+      const resolved = reasonText(copy, reason, 'analysis');
+      assert.ok(candidates.some(candidate => candidate.rawReason === reason && candidate.text === resolved), `${reason} resolved candidate`);
+    }
+  }
 });

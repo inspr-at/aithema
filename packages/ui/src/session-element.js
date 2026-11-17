@@ -49,6 +49,7 @@ import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { SummaryView } from './summary-view.js';
 import { OverviewStatusSize } from './overview-status-size.js';
+import { overviewStatusText, featureReasonText } from './overview-status-copy.js';
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
@@ -1741,25 +1742,25 @@ export class AithemaSession extends HTMLElement {
   }
   #hasLiveCall() { return Boolean(this.#rail?.session || this.#rail?.waitingCall || this.#rail?.state === 'connecting'); }
   #feature(feature, visitor = false, { ignorePause = false } = {}) {
-    if (this.#erased) return { available: false, reason: this.#copy.conversationUnavailable, rawReason: 'session-erased' };
+    if (this.#erased) return { available: false, reason: featureReasonText(this.#copy, 'erased'), rawReason: 'session-erased' };
     const preset = this.#session.processingPreset ?? 'best';
     if (this.#host?.usedUp && preset !== 'device') return { available: false,
-      reason: this.#copy.voiceStates[this.#host.endReason === 'one-hour' ? 'timeExpired' : 'usedUp'], rawReason: 'host-limit' };
+      reason: featureReasonText(this.#copy, this.#host.endReason === 'one-hour' ? 'timeExpired' : 'usedUp'), rawReason: 'host-limit' };
     // Held voice commands need the server verdict too: a local pause must not hide
     // a budget or consent refusal behind the explicit take-back exception.
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
-    if (!ignorePause && this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.paused };
-    if (!ignorePause && this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
+    if (!ignorePause && this.#session.pauseReason === 'purpose') return { available: false, reason: featureReasonText(this.#copy, 'paused') };
+    if (!ignorePause && this.#session.paused && !continuation) return { available: false, reason: featureReasonText(this.#copy, 'paused') };
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false,
-      reason: visitor ? reasonText(this.#copy, CONSENT_REASON, feature) : this.#copy.consentRequired };
+      reason: visitor ? reasonText(this.#copy, CONSENT_REASON, feature) : featureReasonText(this.#copy, 'consent') };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
-    let value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
+    let value = matrix[feature] ?? { available: false, reason: featureReasonText(this.#copy, 'notConfigured') };
     if (ignorePause && value.reason === 'session paused' && value.unpaused) value = value.unpaused;
     if (!this.#hasLiveCall() && this.#postCallMatrix === this.#session.featureMatrix && value.reason === 'budget denied') {
       value = { ...value, reason: 'budget reconciling' };
     }
     // Shown verdicts speak the page language; decisions keep the server's machine reasons.
-    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason, feature);
+    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? featureReasonText(this.#copy, 'voiceBudgetDenied') : reasonText(this.#copy, value.reason, feature);
     return visitor ? { ...value, rawReason: value.reason, reason } : value;
   }
   // The visitor's consent position for the acknowledged choice, from the server verdicts.
@@ -2568,16 +2569,11 @@ export class AithemaSession extends HTMLElement {
       (stale || !u.draft);
     const idleOverview = hasPersonTurn && u.readinessAssessed && stale &&
       !consentMissing && (analysis.available || cached) && !updatingOverview && !failedOverview && !this.#failure;
-    const overviewText = !hasPersonTurn ? copy.empty
-      : updatingOverview && u.readinessAssessed ? copy.stale
-      : preparing ? copy.preparingOverview
-      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ''}`
-      : this.#failure && !replyFailed && !reconciling ? resolveCopy(copy, 'reasoningFailed', null, this.#session.locale)
-      : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
-      : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
-      : !u.readinessAssessed ? copy.noProjectDetails
-      : stale && this.#session.pauseReason !== 'purpose' ? resolveCopy(copy, 'staleIdle', null, this.#session.locale)
-      : u.draft ? copy.draft : resolveCopy(copy, 'overviewCurrent', 'final', this.#session.locale);
+    const overviewText = overviewStatusText(copy, this.#session.locale, {
+      hasPersonTurn, updatingOverview, readinessAssessed: u.readinessAssessed, preparing, failedOverview,
+      replyFailed, failure: this.#failure, reconciling, analysis, cached,
+      purposePaused: this.#session.pauseReason === 'purpose', missingReply, stale, draft: u.draft,
+    });
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
     notice.setAttribute('aria-label', resolveCopy(copy, 'overviewStatusLabel', null, this.#session.locale));
     // One named status slot keeps every overview state in the same place.
