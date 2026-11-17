@@ -301,8 +301,9 @@ for (const boundary of ['call state', 'card visibility']) test(`AIT-511: CSS-onl
   assert.equal(viewport.noticeHeight, 108);
   if (boundary === 'call state') rail.dataset.call = 'idle';
   else card.hidden = false;
-  viewport.paint();
-  assert.equal(viewport.noticeHeight, 44, 'paint records the current CSS region without waiting for notice DOM changes');
+  if (boundary === 'call state') viewport.paint();
+  else await new Promise(resolve => setImmediate(resolve));
+  assert.equal(viewport.noticeHeight, 44, 'CSS region changes refresh the stored height without notice DOM changes');
   contentHeight = 24; notices.firstElementChild.textContent = 'Short notice';
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(parseFloat(notices.style.minHeight), 44, 'later shrink holds the real previous region, never a stale 108px region');

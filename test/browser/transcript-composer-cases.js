@@ -413,8 +413,8 @@ export async function transcriptComposerCases(t) {
     positive(row, 'pointer row after notice'); assert.ok(Math.abs(row.top - after.top) <= .5, 'notice preserves pointer row');
     records.push({ label: 'pointer', target, after, row, beforeNotice, afterNotice });
   });
-  await t.test('a resting pointer at the followed tail wins when a notice arrives', async () => {
-    await reset(1440, 900, 'en', 'light', { voice: true, turns: 22 });
+  for (const width of [390, 1024, 1440]) await t.test(`a resting pointer at the followed tail wins when a notice arrives at ${width}`, async () => {
+    await reset(width, width === 390 ? 844 : 900, 'en', 'light', { voice: true, turns: 22 });
     const before = await geometry(page); assert.match(before.noticeParent, /transcript-shell/);
     const target = await shadow(page, c => {
       const r = c.shadowRoot, bounds = r.querySelector('.transcript-shell').getBoundingClientRect();
@@ -427,7 +427,7 @@ export async function transcriptComposerCases(t) {
     await settleHeld(page); const after = await geometry(page); stable(before, after, 'followed notice');
     const row = await shadow(page, (c, id) => c.shadowRoot.querySelector(`[data-id="${id}"]`).getBoundingClientRect().toJSON(), target.id);
     positive(row, 'followed pointer row after notice'); assert.ok(Math.abs(row.top - target.box.top) <= .5, 'a notice cannot move a row even when follow was active before pointer entry');
-    records.push({ label: 'pointer-at-followed-tail', before, after, target, row });
+    records.push({ label: `pointer-at-followed-tail-${width}`, before, after, target, row });
   });
   await t.test('added composer content contributes to measured growth and keeps the overview fixed', async () => {
     await reset(390, 844, 'en', 'light', { turns: 22 }); const before = await geometry(page);
