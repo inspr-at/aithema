@@ -185,7 +185,8 @@ svg { display:block; flex:none; }
    retires. Keep its wrapping and baseline unchanged, with no focus or AX
    targets. This adds no transcript padding or composer measurement owner. */
 .voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] { display:flex !important; visibility:hidden; }
-.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] > button[hidden] { display:inline-grid !important; }
+.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] > .voice-repeat[hidden] { display:inline-grid !important; }
+.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] > .voice-read-text[hidden] { display:inline-block !important; }
 .voice-reply-actions .voice-repeat { display:inline-grid; align-items:center; flex:none; width:auto; height:auto; min-height:44px; padding:8px 14px; border:1px solid var(--aithema-line); border-radius:10px;
   background:var(--aithema-surface); color:var(--aithema-ink); font-size:.8rem; }
 .voice-repeat-label, .voice-repeat::before, .voice-repeat::after { grid-area:1/1; white-space:nowrap; }
