@@ -929,7 +929,8 @@ total count and has `aria-expanded` / `aria-controls`; no toggle appears for fiv
 or fewer. The toggle stays right-aligned in the heading row, reserving both
 labels so expansion leaves its click target fixed. Its 32 px action extends
 evenly around the natural heading height, preserving the summary fade budget
-when a sixth signal reveals the toggle. The existing `signals`
+when a sixth signal reveals the toggle. Compact spacing above the first row
+also preserves that clearance beside the combined composer footer. The existing `signals`
 heading key now means “Signals” / “Signale” in EN/DE (German previously read
 “Was konkret erkennbar war”); host overrides still win. Assistant attribution
 reads “ · unconfirmed” / “ · unbestätigt” in muted ink, using the shared

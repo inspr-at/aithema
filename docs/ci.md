@@ -403,6 +403,25 @@ inherited floors and trusted main weights remain, along with the additional
 aggregate growth workload becomes **4820.039 s**; the unchanged unit headroom
 guard verifies its actual placement.
 
+AIT-515 R14 keeps the earlier 133/134/224 s observations above as history and
+redistributes the unchanged signals matrix into start-look. The unchanged
+combined-opener check moves from start-look into demo; every body, assertion,
+scene and timeout is retained. Complete run `18525f2d4c-80378` at `18525f2d`
+measured start-look **141/141**, **111.282635542 s**, and demo **31/31**,
+**51.061707292 s**. Their ceilings are `ceil(111.282635542 × 1.25) = 140 s`
+and `ceil(51.061707292 × 1.25) = 64 s`, covered by the inherited **162/80 s**
+floors. Only AIT-515's temporary **224 s** source-file addition is removed;
+understanding-failure retains its complete inherited **113.138 s** rolling-main
+plan. Its three known AIT-221 failures are not timing evidence for lowering
+that inherited reservation. Before and after runs each execute **204 tests**,
+with **201 passing** and only those same three baseline failures. Before run
+`7a853d4676-59520` measured the signal matrix at **31.442748250 s**; after it
+remains complete at **31.020854583 s**, including all forty scenes and 200
+original signal captures. No sample or assertion is removed. The merged growth
+projection is `4930.901 - (224 - 113.138) = 4820.039 s`, fitting twelve bins
+at the unchanged **405 s** target and **420 s** ceiling. The actual placement
+is verified by the unchanged AIT-532 guard; trusted timing history stays intact.
+
 Explicit remote QA can add `test/browser/evidence-reporter.js` beside the spec
 reporter. It retains every nested failure and complete file summaries in
 `browser-complete.jsonl` under `AITHEMA_EVIDENCE_DIR`, even when the lane prints

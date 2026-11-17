@@ -119,7 +119,9 @@
   conversation-local expansion. The toggle stays right-aligned in the heading
   row with a stable box for both labels and an inset focus ring. The 32 px
   action extends evenly around the natural heading row, including when a sixth
-  signal reveals it, keeping the first signal clear of the summary pane fade. The existing
+  signal reveals it; compact list spacing also preserves clearance beside the
+  combined composer footer. The first signal stays clear of the summary pane
+  fade. The existing
   `signals` copy key uses “Signals” / “Signale” (DE previously “Was konkret
   erkennbar war”); host overrides still win. Assistant basis uses a muted
   “ · unconfirmed” / “ · unbestätigt” suffix with the shared nonbreaking
