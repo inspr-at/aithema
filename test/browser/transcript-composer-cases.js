@@ -266,6 +266,8 @@ export async function transcriptComposerCases(t) {
         await shadow(page, c => {
           const shell = c.shadowRoot.querySelector('.transcript-shell');
           shell.scrollTop = 0; shell.dispatchEvent(new Event('scroll'));
+          c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+            id: `contact-follow-start-${c.session.seq}`, role: 'assistant', content: 'A new fixture reply.' } });
         });
         await settleEvidenceFrame(page);
         assert.equal((await geometry(page)).jump, 'visible', 'contact reader can enter Latest before follow-mode growth');
