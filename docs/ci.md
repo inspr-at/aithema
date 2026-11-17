@@ -933,3 +933,18 @@ at 320/390/1440, and checks hidden Retry, no overlap, strict 0 px slot growth,
 and Retry restoration when leaving the editor state. The existing eight-state
 DE/EN stale-notice matrix retains its normal font, geometry, focus, live-status,
 and single-POST assertions and refreshes the viewport evidence.
+
+
+AIT-511 gate3 adds eight deterministic reply-failure follow cases and direct
+sentence-box checks for all six replay states. Passing remote run
+`ait-637551601f06402fb64580b1` at `7ffcf2ae` retained **58/58** composer
+cases in **99.462152878 s**, **285/285** replay tests in **26.965136774 s**
+and **41/41** question-card unit tests. The inherited question allocation plus
+25% of the expanded parent is `76.696 + 99.462152878 × 1.25 = 201.023691098 s`;
+reserve **205 s**, retaining the older 175 s floor. Replay reserves
+`ceil(26.965136774 × 1.25) = 34 s`, retaining its older 23 s floor.
+These remote diagnostic floors remain outside trusted rolling-main history.
+The added **41 s** changes current total work from **4738.858 s** to
+**4779.858 s**, and projected growth from **4918.858 s** to **4959.858 s**.
+The 13-shard packer, every other weight and floor, the **405 s** target,
+**420 s** ceiling and aggregate required `browser` check remain unchanged.

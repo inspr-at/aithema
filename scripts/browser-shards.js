@@ -428,6 +428,17 @@ browserTestWeights['test/browser/question-card.test.js'] = Math.max(
 browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
   browserTestWeights['test/browser/audio-replay.test.js'], 23);
 
+// AIT-511 gate3 follow-up: passing remote run ait-637551601f06402fb64580b1
+// at 7ffcf2ae measured the expanded 58-case composer parent in 99.462152878s.
+// Retain 76.696s of inherited question work plus 25% of that parent:
+// 201.023691098s, rounded up to a 205s diagnostic floor. Its complete 285-test
+// replay matrix took 26.965136774s; ceil(1.25 * observed) = 34s. Keep both
+// older floors and trusted timing history; no weight or limit is lowered.
+browserTestWeights['test/browser/question-card.test.js'] = Math.max(
+  browserTestWeights['test/browser/question-card.test.js'], 205);
+browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
+  browserTestWeights['test/browser/audio-replay.test.js'], 34);
+
 // AIT-511: measured RC26 growth exceeds twelve bins; preserve both limits.
 export const browserShardCount = 13;
 export const browserShardBudget = 420;
