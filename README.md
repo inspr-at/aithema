@@ -4125,7 +4125,9 @@ Attach control describes selection even before consent, and asks only after a
 file is chosen. Unknown file refusals include the supported-format help line;
 retained-file retry messages preserve their refusal facts and retry action order.
 A successful document in a mixed pick keeps that pick's image refusal visible,
-including when the document waits for consent before uploading.
+including when the document waits for consent before uploading. Failures from
+the current selection also stay visible across upload acknowledgements; a later
+successful attachment clears older feedback.
 The reserved image-feedback width stays stable when consent becomes a shortcut.
 
 The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,

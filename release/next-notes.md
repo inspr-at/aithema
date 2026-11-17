@@ -143,3 +143,5 @@
   shortcut states, including 320/340 px, preserving the composer after a grant.
   The same mixed selection retains its image refusal across document consent;
   only eligible document handles and bounded refusal metadata continue.
+  Successful intake clears only feedback from earlier selections. Decoder
+  failures from the current selection survive event/receipt ordering and batches.

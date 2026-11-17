@@ -3483,22 +3483,24 @@ export class AithemaSession extends HTMLElement {
     this.#limitsLoad = load;
     return load;
   }
-  async #attach(files, retry = false, currentImageRefusals = []) {
+  async #attach(files, retry = false, refusalVersion) {
     if (!files.length || !this.isConnected) return;
+    // A successful receipt clears older feedback, including across consent.
+    // Decoder events from this selection may already have arrived.
+    refusalVersion ??= this.#images.refusalVersion;
     let needsImages = files.some(isImageFile);
     const image = this.#feature('imageInput', true), documents = this.#feature('uploads', true);
     if (needsImages && !image.available && !isConsentReason(image.rawReason ?? image.reason)) {
       const rawReason = image.rawReason ?? image.reason;
       const reason = this.#session.paused || this.#session.pauseReason === 'purpose' || rawReason === 'session paused' || rawReason === 'paused' ? 'paused'
         : rawReason === 'image input not supported' ? 'model' : 'unavailable';
-      currentImageRefusals = files.filter(isImageFile).map(file => ({ name: file.name, reason }));
-      this.#images.refuse(currentImageRefusals);
+      this.#images.refuse(files.filter(isImageFile).map(file => ({ name: file.name, reason })));
       files = files.filter(file => !isImageFile(file)); needsImages = false;
       this.#render('composer');
       if (!files.length) return;
     }
     if (needsImages && !image.available && isConsentReason(image.rawReason ?? image.reason) || files.some(file => !isImageFile(file)) && !documents.available && isConsentReason(documents.rawReason ?? documents.reason)) {
-      this.#imageIntent = { files, id: this.#session.id, refusals: currentImageRefusals.slice(-8) }; clearTimeout(this.#imageIntentTimer);
+      this.#imageIntent = { files, id: this.#session.id, refusalVersion }; clearTimeout(this.#imageIntentTimer);
       this.#imageIntentTimer = setTimeout(() => { this.#imageIntent = null; this.#uploadNotice = plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), files.length); this.#render('composer'); }, 180000);
       this.#requestConsent('use', [...new Set([...(needsImages ? ['imageInput'] : []), ...(!documents.available ? ['uploads', 'text'] : [])])], 'attach');
       this.#render('composer'); return;
@@ -3526,7 +3528,7 @@ export class AithemaSession extends HTMLElement {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0;
         for (const batch of plan.batches) {
-          const failure = await this.#postUploads(batch, controller.signal, currentImageRefusals);
+          const failure = await this.#postUploads(batch, controller.signal, refusalVersion);
           if (!current()) return;
           if (failure) {
             // Earlier batches are already attached; keep only the refused and unattempted files.
@@ -3565,7 +3567,7 @@ export class AithemaSession extends HTMLElement {
     if (!pending || pending.id !== this.#session.id || !this.isConnected) return;
     if (pending.files.some(isImageFile) && !this.#feature('imageInput').available || pending.files.some(file => !isImageFile(file)) && !this.#feature('uploads').available) return;
     this.#imageIntent = null; clearTimeout(this.#imageIntentTimer);
-    void this.#attach(pending.files, false, pending.refusals);
+    void this.#attach(pending.files, false, pending.refusalVersion);
   }
   #cancelUploads() {
     clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
@@ -3588,7 +3590,7 @@ export class AithemaSession extends HTMLElement {
     });
   }
   /** One multipart request, with at most three attempts for busy; keep the same receipt ID on retries. */
-  async #postUploads(files, signal, currentImageRefusals = []) {
+  async #postUploads(files, signal, refusalVersion) {
     const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
     const current = () => !signal.aborted && sessionId === this.#session.id && this.isConnected;
     form.append('clientEventId', crypto.randomUUID());
@@ -3609,9 +3611,9 @@ export class AithemaSession extends HTMLElement {
     } catch { return current() ? copy.uploads.failed : ''; }
     if (!current()) return '';
     if (response.ok && body) {
-      this.#images?.clear();
-      // Success clears older feedback, while this pick's refused images remain readable.
-      this.#images?.refuse(currentImageRefusals);
+      // Keep failures from this selection, including SSE before the receipt
+      // and decoder events between batches. Later picks clear earlier feedback.
+      this.#images?.clear(refusalVersion);
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);
       return '';

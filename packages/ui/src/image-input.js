@@ -5,7 +5,7 @@ import { stagedImage } from '../../core/src/image-input.js';
 
 /** Owns erasable previews and bounded refusal records; never changes conversation input. */
 export class ImageInputView {
-  #ports; #copy; #tiles; #records = []; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver;
+  #ports; #copy; #tiles; #records = []; #refusalVersion = 0; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver;
   constructor(ports) {
     this.#ports = ports; this.#copy = ports.copy;
     this.#tiles = node('div', 'staged-images'); this.#tiles.hidden = true;
@@ -21,6 +21,7 @@ export class ImageInputView {
     if (Observer) { this.#reserveObserver = new Observer(fit); this.#reserveObserver.observe(this.#reserve); }
     for (const upload of ports.session().uploads) this.receive(upload);
   }
+  get refusalVersion() { return this.#refusalVersion; }
   get hasRefusals() { return this.#records.length > 0; }
   get pending() { return this.#ports.session().uploads.some(u => stagedImage(u) && !u.erased && u.state === 'staged-pending'); }
   get attachments() { return this.#ports.session().uploads.filter(u => u.kind === 'image' && !u.erased && u.state === 'staged-ready').map(u => u.id); }
@@ -28,11 +29,11 @@ export class ImageInputView {
     for (const record of records) {
       const key = `${record.id ?? record.name}:${record.reason}`;
       this.#records = this.#records.filter(prior => prior.key !== key);
-      this.#records.push({ ...record, key });
+      this.#records.push({ ...record, key, version: ++this.#refusalVersion });
     }
     this.#records = this.#records.slice(-8);
   }
-  clear() { this.#records = []; }
+  clear(through = this.#refusalVersion) { this.#records = this.#records.filter(record => record.version > through); }
   receive(upload) { if (upload.kind === 'image' && upload.state === 'staged-refused' && !upload.erased) this.refuse([{ id: upload.id, name: upload.filename, reason: upload.reason }]); }
   #text(key, legacy) { return resolveCopy(this.#copy, key, legacy, this.#ports.session().locale); }
   refusalText(reason) { return this.#text(`imageRefusals.${reason}`, reason === 'model' ? 'imageUnsupportedModel' : reason === 'live-call' ? 'imageLiveCall' : undefined) ?? this.#text('imageRefusals.unavailable'); }
