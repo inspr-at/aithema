@@ -402,6 +402,12 @@ browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
 // import participates in the workload hash. Trusted main history is intact.
 browserTestWeights['test/browser/question-card.test.js'] = Math.max(
   browserTestWeights['test/browser/question-card.test.js'], 175);
+// AIT-511 replay completion: remote run 79085e5f4f-70434 at 79085e5f
+// passed the complete 225-test replay matrix, including phone completion,
+// in 18.299866083s. ceil(observed * 1.25) = 23s. Keep this diagnostic floor
+// outside trusted main timing history; no inherited weight or limit is lowered.
+browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
+  browserTestWeights['test/browser/audio-replay.test.js'], 23);
 
 export const browserShardCount = 12;
 export const browserShardBudget = 420;

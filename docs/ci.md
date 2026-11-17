@@ -404,15 +404,27 @@ serial test execution; the operator file retains its existing isolated force-exi
 run. This reporter does not change CI selection or reporting.
 
 The AIT-511/AIT-513 merge with AIT-517 retains both diagnostic allocations.
-The current twelve-bin plan is **4738.343 s** total, with bins
+At merge `c665e5fe`, the twelve-bin plan was **4738.343 s** total, with bins
 `395.000 / 392.483 / 397.822 / 395.290 / 391.561 / 401.443 / 392.797 / 392.504 / 390.784 / 393.546 / 396.130 / 398.983` s.
-Its maximum is **401.443 s**, within both unchanged limits. With the unchanged
-AIT-532 growth projection, the total is **4918.343 s**, exceeding the
-**4860 s** aggregate capacity by **58.343 s**. Its projected bins are
+Its maximum was **401.443 s**, within both unchanged limits. With the unchanged
+AIT-532 growth projection, the total was **4918.343 s**, exceeding the
+**4860 s** aggregate capacity by **58.343 s**. Its projected bins were
 `403.423 / 407.485 / 414.187 / 420.504 / 404.163 / 414.210 / 409.822 / 412.533 / 403.452 / 405.279 / 411.247 / 412.038` s.
 No whole-file placement can fit that aggregate into twelve 405 s bins.
 The growth guard therefore remains blocking pending a coordinator decision on
 measured workload or capacity; no floor, assertion, target or ceiling is lowered.
+
+AIT-511's completed-replay matrix now includes the retained recovery sentence
+at 390/1024/1440, EN/DE and both themes. Remote run `79085e5f4f-70434` at
+`79085e5f` passed the complete replay file **225/225** in **18.299866083 s**;
+the recovery file also passed **77/77**. Its 25% planning margin requires
+`ceil(18.299866083 × 1.25) = 23 s`, retained as a diagnostic floor outside
+trusted main history. All inherited allocations remain intact. The resulting
+current twelve-bin plan totals **4738.858 s**, maximum **401.755 s**; the
+unchanged growth projection totals **4918.858 s**, maximum **420.504 s**.
+The growth workload exceeds **12 × 405 = 4860 s** by **58.858 s**. Rebalancing
+whole files cannot remove that aggregate deficit; the capacity ruling remains
+pending, with twelve shards and both 405/420 s limits unchanged.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
