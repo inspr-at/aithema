@@ -20,7 +20,9 @@
   the matching draft. A next draft typed during a pending reply reserves its
   future question-card budget without resizing when that reply arrives.
   Follow mode re-pins; a resting transcript pointer wins
-  and Latest exposes the occluded tail. Combined entrance shares this owner
+  and Latest exposes the occluded tail. Latest keeps its existing end-control
+  slot without a question card and floats beside a visible card. Combined entrance
+  shares this owner
   before and after input without treating an opener/draft as visitor input.
   Short desktop and keyboard layouts reserve compact scrollable disclosure/status
   slots; Send and mic stay pinned. The card margin is counted once outside the

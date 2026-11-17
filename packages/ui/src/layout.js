@@ -590,9 +590,14 @@ export class PhoneComposerViewport {
       const needed = Math.ceil(Math.max(0, box.bottom - pane.top - top));
       const list = shell.querySelector('ol').getBoundingClientRect();
       const notices = shell.querySelector('.voice-notices')?.getBoundingClientRect();
+      const latest = shell.querySelector('.transcript-latest');
+      const latestCSS = latest && this.view.getComputedStyle(latest);
+      const endRoom = latest && latestCSS.display !== 'none' && !['absolute', 'fixed'].includes(latestCSS.position)
+        ? Math.max(0, latest.getBoundingClientRect().height + (parseFloat(latestCSS.marginTop) || 0)
+          + (parseFloat(latestCSS.marginBottom) || 0)) : 0;
       if (box.width > 0 && box.height > 0 && pane.width > 0 && pane.height > 0 &&
           this.view.getComputedStyle(message).visibility === 'visible' &&
-          list.height + (notices?.height ?? 0) + top + bottom + needed <= shell.clientHeight) inset = needed;
+          list.height + (notices?.height ?? 0) + endRoom + top + bottom + needed <= shell.clientHeight) inset = needed;
     }
     const value = inset ? `${inset}px` : '';
     if (shell.style.getPropertyValue('--transcript-message-inset') === value) return;

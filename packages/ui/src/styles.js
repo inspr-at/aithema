@@ -381,13 +381,14 @@ svg { display:block; flex:none; }
   padding:calc(8px + var(--aithema-slack-top,0px) + var(--transcript-message-inset,0px)) .75rem calc(8px + var(--aithema-slack-bottom,0px)) .6rem;
   display:flex; flex-direction:column; }
 .transcript-shell > ol, .transcript-shell > .voice-notices { flex:none; }
-/* Latest floats above end content; it never reserves an empty transcript row. */
-.transcript-shell > .transcript-latest { order:1; flex:none; align-self:flex-end; height:44px; margin:-44px 0 0 auto; }
+/* Latest owns its original end-control slot when no question is shown.
+   The card-specific rule cancels only that slot to keep reply/card clearance. */
+.transcript-shell > .transcript-latest { order:1; flex:none; align-self:center; height:44px; margin:.6rem auto 0; }
 /* An empty recovery region retains its accessible live text without its 1px
    hidden span extending the native scroll end beyond the last visible row.
    Pointer-held minimum-height reservations still keep their own space. */
 .transcript-shell > .voice-notices:not(:has(> .voice-notice:not([hidden]):not(:empty))) { position:relative; overflow:clip; }
-/* Visibility keeps the floating Latest action stable in both states. */
+/* Visibility keeps Latest’s control geometry stable in both states. */
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }

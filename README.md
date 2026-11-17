@@ -1435,6 +1435,8 @@ desktop viewports reduce outer spacing in both composer states; longer used-up
 copy scrolls in its body, which becomes keyboard-focusable only while overflowing.
 Attach, Send and the composer's bottom edge stay in place. Following readers stay at the
 latest turn; a resting transcript pointer keeps its row and gets Latest instead.
+Latest retains its existing end-control slot without a question card; beside a
+visible card it floats to keep the reply/card gap bounded.
 Only an accepted typed/device send clears the matching draft and its height;
 failed sends, answer-chip sends and edits made during a pending send retain it.
 Typing the next draft while a reply is pending reserves room for its future
