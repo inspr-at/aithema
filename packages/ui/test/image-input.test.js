@@ -209,3 +209,31 @@ for (const copy of [en, de]) test(`AIT-510 G-M3 JIT: ${copy.display.locale} docu
   assert.equal(f.root.querySelector('.staged-image'), null);
   assert.equal(f.asks.length, 1, 'document consent never requests unavailable image processing');
 });
+
+for (const copy of [en, de]) test(`AIT-510 feedback race: ${copy.display.locale} a decoder refusal before the receipt survives that selection's success`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  const f = fixture(t, copy);
+  await choose(f.root, [new window.File(['pixels'], 'old.heic', { type: 'image/heic' })]);
+  assert.ok(f.root.querySelector('.image-refusals').textContent.includes('old.heic'));
+  const originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    const response = await originalFetch(url, options);
+    if (url.endsWith('/uploads') && options.method === 'POST') {
+      const body = await response.clone().json();
+      for (const event of body.events) f.c.receive(event);
+      const pending = body.events.find(event => event.data.kind === 'image');
+      // The event stream can deliver normalization before the POST receipt.
+      f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: {
+        ...pending.data, state: 'staged-refused', reason: 'malformed', at: new Date().toISOString() } });
+    }
+    return response;
+  });
+  await choose(f.root, [new window.File(['pixels'], 'fresh.png', { type: 'image/png' })]);
+  assert.equal(f.c.session.uploads[0].state, 'staged-refused');
+  const refusal = f.root.querySelector('.image-refusals');
+  assert.ok(refusal, 'successful intake keeps a refusal produced during that selection');
+  assert.ok(refusal.textContent.includes('fresh.png'));
+  assert.ok(refusal.textContent.includes(copy.imageRefusals.malformed));
+  assert.equal(refusal.textContent.includes('old.heic'), false, 'the new selection clears older feedback');
+  assert.equal(f.root.querySelector('.staged-image__status').textContent, 'fresh.png', 'the reason is shown once in the refusal list');
+});
