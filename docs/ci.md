@@ -344,6 +344,11 @@ document-notice persistence and short-phone image states in both entrances.
 Its measured file duration, including hooks and teardown, was 63.774576042 s;
 `ceil(63.774576042 × 1.25) = 80` raises the prior 71 s diagnostic floor.
 Remote evidence does not enter trusted rolling-main `.weight.json` history.
+AIT-510 r13's expanded refusal, mixed-selection and whole-item visibility matrix
+passed 29/29 in remote run `de881507d5-19436` at head `de881507d5`.
+The complete file took 68.097062459 s, so `ceil(68.097062459 × 1.25) = 86`
+raises the diagnostic floor from 80 to 86 s. Twelve shards, the 405 s target,
+the 420 s ceiling and trusted rolling-main weights remain unchanged.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`

@@ -363,8 +363,11 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // head 86de69650a, 29/29 PASS including disclosure/email/short-phone states.
 // File duration (including hooks/teardown) 63.774576042s; ceil(*1.25)=80s.
 // Raises the prior 71s diagnostic floor; trusted rolling-main samples unchanged.
+// AIT-510 r13: de881507d5-19436 passed 29/29 at de881507d5, with the
+// expanded refusal/mixed-pick/whole-item matrix in 68.097062459s.
+// ceil(*1.25)=86s raises the r10 floor, retaining twelve shards and all targets.
 browserTestWeights['test/browser/upload-capacity.test.js'] = Math.max(
-  browserTestWeights['test/browser/upload-capacity.test.js'], 80);
+  browserTestWeights['test/browser/upload-capacity.test.js'], 86);
 
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
