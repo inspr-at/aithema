@@ -1542,8 +1542,8 @@ test('AIT-386: image APIs reject HTML items, bytes and URLs not minted for that 
 for (const copy of [de, en]) test(`AIT-386: explicit HTML consent wording survives Off (${copy.display.locale})`, t => {
   const { root } = setup(t, { copy, concepts: [], session: { settings: { visuals: 'off' }, conceptVisualKind: 'html', visualsBound: true,
     featureMatrix: { best: { html: { available: false, reason: 'current processing consent required' } } } } });
-  assert.equal(root.querySelector('.concept-activity-text .consent-line-copy').textContent, `${copy.featureConsent.html}\u00a0· `);
-  assert.equal(root.querySelector('.concept-activity-text').dataset.consentFeature, 'html');
+  assert.equal(root.querySelector('.concept-activity-text').textContent, '', 'AIT-509: Off at idle carries no consent text');
+  assert.equal(root.querySelector('.concept-activity-text').dataset.consentFeature, undefined);
 });
 
 // Tick's binding carry-in from AIT-386: layout follows kept images, never HTML bytes.
@@ -1574,4 +1574,143 @@ for (const target of ['preview', 'viewer', 'composer']) for (const moved of [fal
   if (moved) composer.focus();
   timers.mock.calls.find(call => call.arguments[1] === 4000).arguments[0]();
   assert.equal(root.activeElement, moved || target === 'composer' ? composer : root.querySelector('.concept-activity-text .consent-action'));
+});
+
+// AIT-509: the producer publishes only a validated, dispatch-ready consent ask.
+function conceptConsentFixture(t, copy = en, concepts = []) {
+  let view;
+  const update = ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype, 'update', function () { view = this; return update.apply(this, arguments); });
+  const f = setup(t, { copy, concepts, session: { visualsBound: true } });
+  let allowed = false;
+  view.feature = () => allowed ? { available: true } : { available: false, rawReason: 'current processing consent required', reason: 'current processing consent required' };
+  const events = []; f.c.addEventListener('aithema-consent', e => events.push(e.detail));
+  let session = f.c.session;
+  view.update(session);
+  return { ...f, view, events,
+    ask() { session = { ...session, conceptStatus: { phase: 'waiting', consentRequest: { id: 'validated-wish', sourceTurnId: 'first' } } }; view.update(session); },
+    async grant(verified = true, selected = ['images']) {
+      allowed = true; session = { ...session, consentRevision: session.consentRevision + 1 };
+      view.update(session, { consentRevision: session.consentRevision, selected, features: { images: ['images'] } }, verified); await tick();
+    },
+    change(data) { session = { ...session, ...data }; view.update(session); },
+  };
+}
+for (const copy of [en, de]) test(`AIT-509 ${copy.display.locale}: idle consent is silent; validated ask grants exactly once`, async t => {
+  const f = conceptConsentFixture(t, copy), line = f.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, '', 'no permanent visual consent text');
+  assert.ok(f.root.querySelector('.drafts-reason-reserve').children.length > 0, 'sizers remain mounted');
+  f.ask();
+  assert.equal(line.textContent, copy.display.locale === 'de'
+    ? 'Zum Erstellen von Bildern ist eine Einwilligung nötig.\u00a0· Einwilligung geben'
+    : 'Images need consent to be created.\u00a0· Give consent');
+  line.querySelector('.consent-action').click();
+  assert.equal(f.events.at(-1).reason, 'use'); assert.equal(f.events.at(-1).intent, 'concept');
+  assert.deepEqual(f.events.at(-1).features, ['images']);
+  assert.equal(f.calls.filter(c => c.options.body).length, 0, 'no dispatch before authoritative grant');
+  await f.grant(false); assert.equal(f.calls.filter(c => c.options.body).length, 0, 'unverified coverage cannot consume');
+  await f.grant(); await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
+  assert.equal(line.querySelector('.consent-action'), null);
+});
+for (const action of ['review', 'cancel', 'expiry', 'withdrawal', 'erasure', 'session', 'input', 'settings', 'decline', 'hidden']) test(`AIT-509: ${action} cannot resume a concept`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
+  const f = conceptConsentFixture(t); f.ask(); f.root.querySelector('.concept-activity-text .consent-action').click();
+  if (action === 'expiry') t.mock.timers.tick(180_001);
+  else if (action === 'hidden') t.mock.getter(document, 'hidden', () => true);
+  else if (action === 'withdrawal') f.change({ consentWithdrawn: true });
+  else if (action === 'erasure') f.change({ tombstone: true });
+  else if (action === 'session') f.change({ id: 'another-session' });
+  else if (action === 'input') f.change({ inputRevision: f.c.session.inputRevision + 1 });
+  else if (action === 'settings') f.change({ settings: { ...f.c.session.settings, revision: f.c.session.settings.revision + 1 } });
+  else if (action === 'review') {
+    f.root.querySelector('.footer-consent').click();
+    assert.equal(f.events.at(-1).intent, 'review');
+  }
+  else f.c.cancelConsent();
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
+});
+test('AIT-509: images granted in start consent never show an ask', async t => {
+  const f = conceptConsentFixture(t); await f.grant(); f.ask();
+  assert.equal(f.root.querySelector('.concept-activity-text .consent-action'), null);
+  assert.equal(f.events.length, 0);
+});
+test('AIT-509: an in-page host can open the consent editor and cancel the pending concept', async t => {
+  const f = conceptConsentFixture(t); f.ask();
+  f.root.querySelector('.concept-activity-text .consent-action').click();
+  f.c.openConsent('images'); await tick();
+  assert.equal(f.root.querySelector('dialog.settings').open, true);
+  f.root.querySelector('dialog.settings').dispatchEvent(new window.Event('cancel', { cancelable: true }));
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
+});
+
+test('AIT-509: a settled partial grant declines the concept; a later grant cannot revive it', async t => {
+  const f = conceptConsentFixture(t); f.ask(); f.root.querySelector('.concept-activity-text .consent-action').click();
+  await f.grant(true, []); await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
+});
+
+test('AIT-509: a prior refusal button uses the current concept continuation callback', async t => {
+  const f = conceptConsentFixture(t);
+  f.change({ conceptStatus: { phase: 'failed', reason: 'current processing consent required' } });
+  const action = f.root.querySelector('.concept-activity-text .consent-action'); assert.ok(action);
+  f.ask();
+  assert.equal(f.root.querySelector('.concept-activity-text .consent-action'), action, 'keep the existing focus target');
+  action.click(); assert.equal(f.events.at(-1).intent, 'concept');
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
+});
+
+test('AIT-509: a fresh wish after visual coverage loss uses the just-in-time continuation', async t => {
+  const f = conceptConsentFixture(t, en, [item('prior')]);
+  f.change({ featureMatrix: { best: { ...f.c.session.featureMatrix.best,
+    images: { available: false, reason: 'current processing consent required' } } } });
+  f.ask();
+  const line = f.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, 'Images need consent to be created.\u00a0· Give consent');
+  line.querySelector('.consent-action').click();
+  assert.equal(f.events.at(-1).intent, 'concept');
+  await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
+});
+
+for (const copy of [en, de]) test(`AIT-509 r10 ${copy.display.locale}: a wish waiting for readiness shows waiting text without consent`, t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
+  const f = conceptConsentFixture(t, copy);
+  f.change({ conceptStatus: { phase: 'waiting' } });
+  const line = f.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, copy.conceptWaiting);
+  assert.equal(line.querySelector('.consent-action'), null);
+  assert.equal(line.dataset.consentFeature, undefined);
+  assert.equal(f.events.length, 0);
+});
+for (const outcome of ['grant', 'decline', 'input', 'source-removed']) test(`AIT-509 r10: delayed readiness ask binds the current input; ${outcome}`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
+  const f = conceptConsentFixture(t);
+  const transcript = [...f.c.session.transcript, { id: 'later', role: 'user', content: 'The dashboard needs filters.' }];
+  f.change({ transcript, inputRevision: f.c.session.inputRevision + 1 });
+  f.ask();
+  const action = f.root.querySelector('.concept-activity-text .consent-action');
+  assert.ok(action, 'the wish at first is shown when readiness arrives at later');
+  action.click();
+  assert.equal(f.events.at(-1).intent, 'concept');
+  if (outcome === 'decline') await f.grant(true, []);
+  if (outcome === 'input') f.change({ transcript: [...transcript, { id: 'superseding', role: 'user', content: 'Make it a table.' }], inputRevision: f.c.session.inputRevision + 2 });
+  if (outcome === 'source-removed') f.change({ transcript: transcript.map(turn => turn.id === 'first' ? { ...turn, withdrawn: true } : turn) });
+  await f.grant(); await f.grant();
+  const posts = f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body);
+  assert.equal(posts.length, outcome === 'grant' ? 1 : 0);
+  if (outcome === 'grant') assert.equal(JSON.parse(posts[0].options.body).sourceTurnId, 'later');
+});
+for (const copy of [en, de]) for (const override of ['default', 'explicit', 'legacy']) test(`AIT-509 r10 ${copy.display.locale}: impersonal HTML ask with ${override} copy`, t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
+  const custom = override === 'explicit' ? { ...copy, conceptDraftConsent: 'Host draft permission' }
+    : override === 'legacy' ? { ...copy, featureConsent: { ...copy.featureConsent, html: 'Host draft permission' } } : copy;
+  const f = conceptConsentFixture(t, custom);
+  f.change({ conceptVisualKind: 'html', settings: { ...f.c.session.settings, visuals: 'html' } });
+  f.ask();
+  const label = f.root.querySelector('.concept-activity-text .consent-line-copy');
+  assert.equal(label.textContent, (override === 'default' ? copy === de ? 'Entwürfe: Einwilligung nötig.' : 'Drafts need consent to be created.' : 'Host draft permission') + '\u00a0· ');
 });

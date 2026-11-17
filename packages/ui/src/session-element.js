@@ -46,6 +46,7 @@ import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, Fo
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
+import { SummaryView } from './summary-view.js';
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
@@ -131,6 +132,7 @@ export class AithemaSession extends HTMLElement {
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
   #savedTimer; #saved = false; #savedAnnouncement = false; #savedAnnouncedAt = -Infinity; #sendFailed = false;
+  #summaryView; #summaryExpanded = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
@@ -179,6 +181,8 @@ export class AithemaSession extends HTMLElement {
     }
     this.#signalState = this.#session?.id === session.id ? this.#signals?.state : undefined;
     this.#signals?.destroy(); this.#signalLiveSeq = null;
+    if (session.id !== this.#session?.id) this.#summaryExpanded = false;
+    this.#summaryView?.disconnect();
     const returningStart = this.#session ? null : this.#readStartIntent(session.id, options.entrance === 'combined');
     if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
@@ -264,13 +268,14 @@ export class AithemaSession extends HTMLElement {
     this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
-    this.#questionCard?.connect();
+    this.#questionCard?.connect(); this.#summaryView?.connect();
     this.#observePanes(); this.#syncReconciling();
     if (this.#laneStatusPending !== null) this.#awaitLaneStatus();
     this.#render('composer');
   }
   disconnectedCallback() {
     this.#signals?.suspend();
+    this.#summaryView?.disconnect();
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
@@ -728,9 +733,16 @@ export class AithemaSession extends HTMLElement {
   // Host binding, independent of the selected preset, consent, pause or transient provider verdict.
   // voiceClients contains allowed catalog option IDs; an off-only/unconfigured host supplies none.
   get #voiceBound() { return Boolean(this.#voiceClient || Object.entries(this.#voiceClients ?? {}).some(([id, client]) => id !== SETTINGS_OFF && client)); }
+  /** Open the existing in-page consent editor for a host's consent event. */
+  openConsent(feature = 'text', opener = this.shadowRoot.activeElement) {
+    this.#dialog.openConsent(FEATURES.includes(feature) ? feature : 'text', opener);
+  }
+  /** Cancel a memory-only concept continuation when the host dismisses consent. */
+  cancelConsent() { this.#concept?.cancelConsent(); }
   /** Opens the settings dialog; `preset` preselects a preset (the chooser's Custom path). */
   openSettings(opener = this.shadowRoot.querySelector('.settings-open'), { tab = 'model', continueLabel = false, preset, anchor } = {}) {
     if (this.#erased) return;
+    this.#concept?.cancelConsent();
     if (anchor) { this.#dialog.openAt(tab, anchor, opener); if (anchor === '#email') this.#host?.verification?.focusEntry(); }
     else this.#dialog.open(opener, { tab, continueLabel, preset });
   }
@@ -769,7 +781,7 @@ export class AithemaSession extends HTMLElement {
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
-        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
+        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><div class="summary-heading"><h3 id="summary-title" data-copy="summary"></h3><span class="summary-toggle-slot"><span class="summary-toggle-more" aria-hidden="true"></span><span class="summary-toggle-less" aria-hidden="true"></span><button class="summary-toggle" type="button" aria-expanded="false" aria-controls="summary-text" hidden></button></span></div><p class="summary-text" id="summary-text"></p></section>
           <section class="signals-section" hidden><div class="signals-heading"><h3 id="signals-title" data-copy="signals"></h3><button class="signals-toggle" type="button" aria-controls="signals-list" aria-expanded="false" hidden><span></span></button></div><ul class="signals" id="signals-list" aria-labelledby="signals-title"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
@@ -811,6 +823,9 @@ export class AithemaSession extends HTMLElement {
     const textReplyDialog = root.querySelector('.voice-reply-dialog');
     textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
     this.#signals = new SignalList(root.querySelector('.signals-section'), { state: this.#signalState, anchor: update => this.#anchored(update) });
+    this.#summaryView = new SummaryView({ root, expanded: this.#summaryExpanded,
+      onChange: expanded => { this.#summaryExpanded = expanded; }, anchor: update => this.#anchored(update) });
+    this.#summaryView.connect();
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#followsTranscript(),
       onResize: ({ following }) => { if (following && this.#followsTranscript()) this.#scrollToLatest(); } });
@@ -871,17 +886,28 @@ export class AithemaSession extends HTMLElement {
       },
       saveConsent: body => this.#saveConsent(body),
       generalShown: () => this.#host?.verification?.email.beginSettings?.(),
-      closed: () => this.#host?.verification?.email.endSettings?.(),
+      closed: () => { this.#host?.verification?.email.endSettings?.(); this.#concept?.cancelConsent(); },
       catalog: () => this.#loadCatalog(), save: body => this.#saveSettings(body),
       endCall: () => this.#rail?.close(), connector: this.#connector,
       newConversation: detail => this.#newConversation(detail), consent: (reason, features) => this.#requestConsent(reason, features),
       // The re-rendered twin of a replaced opener, else the settings button, which is never replaced.
-      focusFallback: opener => [...root.querySelectorAll('[data-focus-key]')].find(node => opener?.dataset?.focusKey && node.dataset.focusKey === opener.dataset.focusKey &&
-        !node.closest('[hidden]')) ?? root.querySelector('.settings-open'),
+      focusFallback: opener => {
+        // Start may finish while this host's in-page consent modal still owns focus.
+        // Its removed opener hands focus to the resulting live control on close.
+        if (opener?.matches('.ready__start') && this.#started) {
+          if (this.#mode() !== 'voice') return root.querySelector('textarea');
+          const start = root.querySelector('.voice-start');
+          return !start?.disabled && this.#rail?.root.dataset.call !== 'active' ? start : root.querySelector('.audio-rail');
+        }
+        return [...root.querySelectorAll('[data-focus-key]')].find(node => opener?.dataset?.focusKey && node.dataset.focusKey === opener.dataset.focusKey &&
+          !node.closest('[hidden]')) ?? root.querySelector('.settings-open');
+      },
     } });
-    this.#concept = new ConceptView({ transport: (...args) => this.#api(...args), root, previewURL: this.#options.concepts?.previewURL, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
+    this.#concept = new ConceptView({ intentTTL: startIntentTTL, transport: (...args) => this.#api(...args), root, previewURL: this.#options.concepts?.previewURL, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
-      consent: (opener, kind) => this.#dialog.openConsent((kind ?? this.#session.conceptVisualKind) === 'html' ? 'html' : 'images', opener),
+      consent: (opener, kind, intent) => intent === 'concept'
+        ? this.#requestConsent('use', [(kind ?? this.#session.conceptVisualKind) === 'html' ? 'html' : 'images'], 'concept')
+        : this.#dialog.openConsent((kind ?? this.#session.conceptVisualKind) === 'html' ? 'html' : 'images', opener),
       retry: () => this.#refreshFeatures(),
       settings: opener => this.#dialog.openAt('model', this.#session.processingPreset === 'device'
         ? '.presets' : '[data-select="visuals"]', opener),
@@ -1439,7 +1465,15 @@ export class AithemaSession extends HTMLElement {
     finally { if (--this.#anchorDepth === 0 && this.#erased) this.#paintErased(); }
   }
   #anchoredUpdate(update) {
-    const hit = this.#hovered();
+    const focused = this.shadowRoot.activeElement, pointer = this.#hovered();
+    const focusPane = focused?.closest?.('.analysis-content');
+    const focusBox = focused?.getBoundingClientRect(), paneBox = focusPane?.getBoundingClientRect();
+    // Preserve visible keyboard reading. An offscreen action focused with preventScroll
+    // must not add overview slack when transcript navigation moves the page.
+    const readingFocus = paneBox && focusBox.width > 0 && focusBox.height > 0 &&
+      focusBox.bottom > Math.max(paneBox.top, 0) &&
+      focusBox.top < Math.min(paneBox.bottom, this.ownerDocument.defaultView.innerHeight);
+    const hit = pointer?.closest?.(PANES) ? pointer : readingFocus ? focused : pointer;
     // Status actions have real padding outside their reserved line. Anchor the
     // line, not a button/label whose box changes when the status clears.
     const hovered = hit?.closest?.('.question-state') ?? hit;
@@ -1528,6 +1562,7 @@ export class AithemaSession extends HTMLElement {
   #enterErased(id, via) {
     if (id !== this.#session.id || this.#erased) return;
     this.#clearStartIntent();
+    this.#summaryExpanded = false; this.#summaryView?.freeze();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
     this.#signals.clear();
     const remembered = this.#erasedIds.get(id);
@@ -1827,6 +1862,7 @@ export class AithemaSession extends HTMLElement {
   }
   #requestConsent(reason, features = FEATURES.filter(f => isConsentReason(this.#feature(f).reason)), intent = 'review') {
     if (intent !== 'start') this.#clearStartIntent();
+    if (intent !== 'concept') this.#concept?.cancelConsent();
     const mode = intent === 'start' && this.#combined ? this.#startIntent?.mode ?? this.#mode() : this.#mode(), required = features.filter(f => f === (mode === 'voice' ? 'voice' : 'text'));
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
@@ -2554,8 +2590,9 @@ export class AithemaSession extends HTMLElement {
     } else if (overviewRetry.parentNode === notice) notice.after(overviewRetry);
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
-    root.querySelector('.summary-text').textContent = summary ? u.summary : '';
+    setText(root.querySelector('.summary-text'), summary ? u.summary : '');
     this.#signals.update(this.#session, copy, { live: this.#signalLiveSeq === this.#session.seq, available: !locked && (analysis.available || cached) && u.readinessAssessed });
+    this.#summaryView.render(copy, this.#session.locale);
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);
@@ -3620,7 +3657,7 @@ export class AithemaSession extends HTMLElement {
         this.#renderMode(); this.#dialog?.sync();
         if (this.isConnected) void this.#refreshFeatures();
       }
-      if ((invalidation || consentRevised || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
+      if ((invalidation || consentRevised || event.type === 'concept.state' && event.data.status?.consentRequest || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
         this.#updateVoiceTranscript(event);
         void deliverFocusedReply(this.#rail, event.data).catch(() => {});

@@ -568,8 +568,17 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 /* Readiness already draws the entry divider; keep the section's box stable. */
 .analysis-content > section:nth-child(1 of section:not([hidden])) { border-top-color:transparent; }
-.analysis-content section.summary { padding-top:0; border-top:0; } .analysis-content section.summary h3 { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.analysis-content section.summary { padding-top:0; border-top:0; gap:.5rem; }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
+.summary-text[data-collapsed] { max-height:calc(var(--summary-lines,9) * 1lh); overflow:hidden;
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 1.55em),transparent); }
+.summary-heading { display:grid; grid-template-columns:minmax(0,1fr) fit-content(50%); align-items:stretch; gap:.75rem; min-height:44px; }
+.summary-heading > h3 { display:flex; align-items:center; }
+.summary-toggle-slot { display:grid; min-width:0; font-size:.8125rem; font-weight:600; }
+.summary-toggle-slot > * { grid-area:1 / 1; min-width:0; min-height:44px; padding:.35rem 0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+/* Reserve both localized labels, including while the native button is hidden. */
+.summary-toggle-slot > span { visibility:hidden; pointer-events:none; }
+.summary-toggle { justify-self:stretch; font:inherit; color:var(--aithema-accent); }
 .analysis-content h3 { font-size:.86rem; font-weight:700; color:var(--aithema-ink); }
 .analysis-content ul { display:grid; gap:.45rem; margin:0; padding:0; list-style:none; }
 .analysis-content li { position:relative; padding-inline-start:1rem; font-size:.8125rem; line-height:1.45; color:var(--aithema-muted); }
