@@ -215,6 +215,9 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       await until(page, () => !window.replayRail.notices.playing && window.replayRail.notices.button.hidden);
       await settle();
       const completedSentence = await sentenceGeometry();
+      const frameSelectors = selectors.filter(selector => !['.voice-repeat', '.voice-read-text'].includes(selector));
+      const frameBefore = before.filter((_, i) => frameSelectors.includes(selectors[i]));
+      const frameAfter = await layoutBoxes(page, frameSelectors);
       await t.test(`${locale}/${theme}/${width}/completed: recovery sentence stays put`, async () => {
         for (const state of [initialSentence, playingSentence, completedSentence]) for (const name of ['row', 'sentence']) {
           const box = state[name]; assert.ok(box.width > 0 && box.height > 0, `${name}: positive completed-state box`);
@@ -223,6 +226,10 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
           assert.ok(Math.abs(state[name][key] - completedSentence[name][key]) <= .5,
             `${name}/${key}: completed replay retains sentence geometry: ${JSON.stringify({ initialSentence, playingSentence, completedSentence })}`);
         }
+        for (const boxes of [frameBefore, frameAfter]) for (const [i, box] of boxes.entries()) {
+          assert.ok(box[2] > 0 && box[3] > 0, `${frameSelectors[i]}: positive completed-state frame box`);
+        }
+        assert.deepEqual(frameAfter, frameBefore, 'completed replay: 0 px frame shift; retired controls excluded');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').hidden), true, 'completed offer retires both controls');
         assert.equal(await shadow(page, c => {
           const button = c.shadowRoot.querySelector('.voice-repeat'); button.focus({ preventScroll: true });
@@ -232,7 +239,8 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       const file = `audio-replay-completed-${width}-${theme}-${locale}.png`;
       if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
       files.push({ file, state: 'completed', width, theme, locale, viewport: true });
-      passLines.push({ file, initialSentence, playingSentence, completedSentence });
+      passLines.push({ file, initialSentence, playingSentence, completedSentence,
+        frame: { selectors: frameSelectors, before: frameBefore, after: frameAfter } });
       t.diagnostic(`COMPLETED ${locale}/${theme}/${width}: ${JSON.stringify({ initialSentence, playingSentence, completedSentence })}`);
       // The following existing identity checks exercise an active offer.
       await page.evaluate(() => { window.replayRail.notices.completedReply = null; window.replayRail.render(); });
