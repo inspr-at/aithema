@@ -1,5 +1,4 @@
 import { mockConsent } from './consent-helpers.js';
-import { noUploadsFeedbackCheck } from './contact-email-check.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,8 +12,6 @@ import {
   content, waitForShadow, shadowFocus, startDemo, stopDemo, preparePage,
   inShadow, box, until, uploadChooser, startTyping, sendTurn, revealed,
 } from './demo-helpers.js';
-
-test('AIT-510 r16: combined without uploads keeps main feedback geometry', { timeout: 120_000 }, noUploadsFeedbackCheck);
 
 // Delay arithmetic, Retry-After, cancellation, and the no-early-POST contract
 // run with controlled clocks in packages/ui/test/uploads.test.js. Keep every

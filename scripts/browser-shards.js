@@ -396,13 +396,11 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // 125 pause-phone tests in 177.878909750s, including 32 new refusal/cap checks.
 // ceil(observed *1.25)=223s raises only the PR diagnostic floor from 220s.
 // Keep twelve shards, 405/420s targets and all trusted timing history.
-// AIT-510 r16: the unchanged no-upload regression moves from host-surface to
-// upload-capacity, preserving the host's 395s reservation. The initial additive
-// 57.093s projection exceeded growth-plan headroom. Complete remote run
-// edca77de21-96753 at edca77de passes all 6 tests in 32.980476125s;
-// ceil(file *1.25)=42s replaces only this round's provisional addition.
-browserTestWeights['test/browser/upload-capacity.test.js'] = Math.max(
-  browserTestWeights['test/browser/upload-capacity.test.js'], 42);
+// AIT-510 r16: preserve all inherited floors by placing the unchanged new
+// no-upload first-paint regression in language-first-paint. Its 108.958s plan
+// covers the prior complete 52.212726083s file plus the 16.159237637s red case:
+// ceil((52.212726083 +16.159237637) *1.25)=86s. Remove only this round's
+// temporary upload addition now that the case leaves that file.
 browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
   browserTestWeights['test/browser/pause-phone.test.js'], 223);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
