@@ -36,3 +36,24 @@ test('AIT-510: a text-only binding refuses image input before bytes or network a
   const plugin = createOpenRouterReasoning({ binding: textOnly, prices: openRouterPrices, resolveSecret: () => 'fixture', fetchImpl: async () => assert.fail('No dispatch') });
   assert.throws(() => plugin.estimateCost(request, 'stream'), /image/iu);
 });
+
+for (const operation of ['stream', 'structured']) for (const content of ['', '  \n']) {
+  test(`AIT-510 G-M1: ${operation} image-only dispatch omits blank text parts (${JSON.stringify(content)})`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+    let dispatched = false;
+    const plugin = createOpenRouterReasoning({ binding, prices: openRouterPrices, resolveSecret: () => 'fixture', fetchImpl: async (url, init) => {
+      dispatched = true;
+      const parts = JSON.parse(init.body).messages.at(-1).content;
+      assert.equal(parts.some(part => part.type === 'text' && !part.text.trim()), false, 'no empty text content block reaches the provider');
+      assert.deepEqual(parts.map(part => part.type), ['image_url']);
+      return operation === 'stream' ? new Response('data: {"choices":[{"delta":{"content":"Pixels"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1600,"completion_tokens":5,"cost":0}}\n\ndata: [DONE]\n\n')
+        : Response.json({ choices: [{ message: { content: '{"summary":"Pixels"}' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1600, completion_tokens: 5, cost: 0 } });
+    } });
+    const options = { deadlineAt: Date.now() + 25000, signal: new AbortController().signal,
+      attempt: { attemptId: 'fixture', claimId: 'fixture', consume() {} }, report() {}, resolveImage: () => Buffer.from('pixels') };
+    const input = { ...request, messages: [{ role: 'user', content, images: [image] }] };
+    if (operation === 'stream') { for await (const delta of plugin.stream(input, options)) assert.equal(delta, 'Pixels'); }
+    else assert.deepEqual(await plugin.structured(input, options), { summary: 'Pixels' });
+    assert.equal(dispatched, true);
+  });
+}

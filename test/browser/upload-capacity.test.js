@@ -620,6 +620,15 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
         for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - before[selector][edge]) <= .5, `${selector}.${edge} fixed after ${reason}`);
       }
       changes.push({ reason, rects: after });
+      const refusalPaint = await inShadow(page, c => {
+        const region = c.shadowRoot.querySelector('.image-refusals'), list = region.querySelector('.image-refusals__list');
+        const box = node => { const r = node.getBoundingClientRect(); return { width: r.width, height: r.height, top: r.top, bottom: r.bottom }; };
+        return { region: box(region), list: box(list), scrollHeight: region.scrollHeight, clientHeight: region.clientHeight,
+          duplicates: [...c.shadowRoot.querySelectorAll('.staged-image__status')].some(status => status.textContent === list.querySelector('.image-refusal').textContent.split(': ').slice(1).join(': ')) };
+      });
+      assert.ok(refusalPaint.region.width > 0 && refusalPaint.region.height > 0 && refusalPaint.list.width > 0 && refusalPaint.list.height > 0);
+      assert.ok(refusalPaint.list.bottom <= refusalPaint.region.bottom + .5, `${reason}: the entire refusal is readable without scrolling`);
+      assert.equal(refusalPaint.duplicates, false, `${reason}: refusal is shown once`);
       await shot(reason);
       await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals button').click());
     }
@@ -628,6 +637,14 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       c.shadowRoot.querySelector('.image-refusals button')?.click();
     });
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-image .image-thumbnail')?.naturalWidth === 1);
+    const thumbnailControls = await inShadow(page, c => {
+      const row = c.shadowRoot.querySelector('.staged-image'), box = node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom }; };
+      return { preview: box(row.querySelector('.staged-image__preview')), remove: box(row.querySelector('button')), name: row.querySelector('button').getAttribute('aria-label') };
+    });
+    for (const r of [thumbnailControls.preview, thumbnailControls.remove]) assert.ok(r.width > 0 && r.height > 0);
+    assert.ok(thumbnailControls.remove.width >= 44 && thumbnailControls.remove.height >= 44);
+    assert.ok(thumbnailControls.remove.x >= thumbnailControls.preview.right || thumbnailControls.remove.y >= thumbnailControls.preview.bottom, 'remove target stays outside the preview');
+    assert.ok(thumbnailControls.name.includes('fixture.png'));
     await clearances('ready'); await shot('ready');
     const shortState = async state => {
       if (entrance !== 'combined' || width !== 390) return;
@@ -700,6 +717,8 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'withheld', withdrawn: true } });
     });
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.turn .image-thumbnail')), null, 'withheld pixels are removed');
+    const withheldLabel = await inShadow(page, c => c.shadowRoot.querySelector('.turn-image').textContent);
+    assert.equal(withheldLabel, locale === 'de' ? 'Bild nicht gesendet' : 'Image not sent');
     await shot('withheld');
     const withheld = await boxes();
     for (const [selector, r] of Object.entries(withheld)) {

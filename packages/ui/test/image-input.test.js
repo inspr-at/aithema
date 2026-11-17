@@ -12,7 +12,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, copy = en, available = true, options = {}) {
   const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
-    { available: key === 'imageInput' ? available : true, reason: key === 'imageInput' && !available ? 'current processing consent required' : null }])) };
+    { available: key === 'imageInput' ? available : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : null }])) };
   const calls = [], asks = []; let imageGranted = available;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
@@ -140,4 +140,33 @@ for (const entrance of ['choice', 'combined']) test(`AIT-510: ${entrance} host o
   assert.equal(f.root.querySelector('.workspace').dataset.understanding, 'absent');
   assert.equal(f.root.querySelector('.email-offer'), null);
   assert.equal(f.c.session.transcript.length, 0, 'staging does not persist the render-only opener');
+});
+
+for (const copy of [en, de]) for (const [reason, key] of [
+  ['image normalizer not configured', 'unavailable'], ['image normalizer unavailable', 'unavailable'],
+  ['session paused', 'paused'], ['image input not supported', 'model'],
+]) test(`AIT-510 G-M3: ${copy.display.locale} mixed selection retains documents when images are refused (${reason})`, async t => {
+  const f = fixture(t, copy, false, { imageReason: reason });
+  await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' }), new window.File(['document'], 'notes.pdf', { type: 'application/pdf' })]);
+  const posts = f.calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST');
+  assert.equal(posts.length, 1, 'documents still upload');
+  assert.deepEqual(posts[0].options.body.getAll('files').map(file => file.name), ['notes.pdf']);
+  assert.match(f.root.querySelector('.image-refusals').textContent, new RegExp(copy.imageRefusals[key], 'u'));
+  assert.equal(f.asks.length, 0);
+});
+for (const copy of [en, de]) test(`AIT-510 T-M3: ${copy.display.locale} withheld images use a sentence and release thumbnail dimensions`, async t => {
+  const f = fixture(t, copy);
+  await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' })]);
+  const image = f.c.session.uploads[0];
+  f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', w: 2, h: 1, digest: 'fixture' } });
+  f.root.querySelector('.send').click(); await tick(); await tick();
+  f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: { ...f.c.session.uploads[0], state: 'withheld', withdrawn: true } });
+  const tile = f.root.querySelector('.turn-image');
+  assert.equal(tile.textContent, copy === de ? 'Bild nicht gesendet' : 'Image not sent');
+  assert.equal(tile.style.width, ''); assert.equal(tile.style.height, '');
+});
+for (const copy of [en, de]) test(`AIT-510 L6: ${copy.display.locale} enabled Attach describes selection before consent`, t => {
+  const f = fixture(t, copy, false);
+  assert.equal(f.root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
+  assert.equal(f.root.querySelector('.attach').title.includes(copy.uploads.unavailable.split('{reason}')[0]), false);
 });
