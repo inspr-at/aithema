@@ -17,6 +17,13 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(), files = [], passLines = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  await page.evaluateOnNewDocument(() => {
+    const OriginalDate = Date, now = Date.now();
+    window.Date = class extends OriginalDate {
+      constructor(...args) { super(...(args.length ? args : [now])); }
+      static now() { return now; }
+    };
+  });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
@@ -83,6 +90,11 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     }, locale);
     await until(page, () => window.replayRail.notices.recovery && !window.replayRail.notices.button.disabled);
     await settle(); await page.mouse.move(0, 500);
+    await t.test(`${locale}/${theme}/${width}: capture footer follows the page language`, async () => {
+      const labels = await page.$$eval('#demo-license, #demo-legal-source', links => links.map(link => link.getAttribute('aria-label')));
+      assert.deepEqual(labels, locale === 'en' ? ['Licence: AGPL-3.0-only', 'Source and notices']
+        : ['Lizenz: AGPL-3.0-only', 'Quellcode und Hinweise']);
+    });
     const selectors = ['.audio-rail', '.voice-repeat', '.voice-read-text', '.transcript-shell', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
     const before = await layoutBoxes(page, selectors);
     const sentenceGeometry = () => shadow(page, c => {
