@@ -362,10 +362,10 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // 178.881001943s for all 33/33 cases, including every baseline retry path.
 // Reserve ceil(*1.25)=224s for that full passing workload. Trusted samples stay unchanged.
 // R14: the unchanged signal matrix now runs in start-look; combined-opener
-// runs in demo. Complete run 18525f2d4c-80378: start-look141/141 in111.283s
-// (*1.25 ->140s), demo31/31 in51.062s (*1.25 ->64s), already covered by the
-// inherited162s/80s floors. Remove only this ticket's224s addition from the
-// source file; its complete inherited rolling-main113.138s plan stays intact.
+// runs in demo. Complete run 18525f2d4c-80378: start-look 141/141 in 111.283s
+// (*1.25 -> 140s), demo 31/31 in 51.062s (*1.25 -> 64s), already covered by the
+// inherited 162s/80s floors. Remove only this ticket's 224s addition from the
+// source file; its complete inherited rolling-main 113.138s plan stays intact.
 // Its three known AIT-221 failures are not used to derive a lower reservation.
 // Keep every historical observation above and all trusted samples unchanged.
 

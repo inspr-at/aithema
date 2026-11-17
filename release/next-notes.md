@@ -121,8 +121,7 @@
   action extends evenly around the natural heading row, including when a sixth
   signal reveals it; compact list spacing also preserves clearance beside the
   combined composer footer. The first signal stays clear of the summary pane
-  fade. The existing
-  `signals` copy key uses “Signals” / “Signale” (DE previously “Was konkret
+  fade. The existing `signals` copy key uses “Signals” / “Signale” (DE previously “Was konkret
   erkennbar war”); host overrides still win. Assistant basis uses a muted
   “ · unconfirmed” / “ · unbestätigt” suffix with the shared nonbreaking
   separator; arrival marks use tint alone.

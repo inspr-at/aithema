@@ -116,7 +116,11 @@ test('AIT-515 same-conversation configure and five-item interval retain expansio
 test('AIT-515 SSE backlog and reconnect are quiet, then live signals highlight after lane status', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_800_000_000_000 });
   const c = setup(), controllers = [], original = globalThis.fetch, encoder = new TextEncoder();
-  const settle = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
+  // AIT-495 may yield after a render consumes its work slice. Drain its
+  // zero-delay task on the same paused clock without spending highlight time.
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) { t.mock.timers.tick(0); await new Promise(resolve => setImmediate(resolve)); }
+  };
   final(c, seven);
   globalThis.fetch = async (url, init = {}) => String(url).endsWith('/events')
     ? new Response(new ReadableStream({ start(controller) {
