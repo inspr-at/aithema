@@ -385,8 +385,15 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // AIT-510 r13: de881507d5-19436 passed 29/29 at de881507d5, with the
 // expanded refusal/mixed-pick/whole-item matrix in 68.097062459s.
 // ceil(*1.25)=86s raises the r10 floor, retaining twelve shards and all targets.
+// AIT-510 r14: unchanged matrix bodies are now split by viewport. Complete
+// run 11ef9fc891-90483 passes upload 13/13 in 39.959277667s and start-look
+// 157/157 in 142.167312875s, the same 170 tests as before redistribution.
+// ceil(*1.25)=50s/178s. Remove only our former 86s source-file addition;
+// retain all rolling-main samples and the inherited destination floor.
 browserTestWeights['test/browser/upload-capacity.test.js'] = Math.max(
-  browserTestWeights['test/browser/upload-capacity.test.js'], 86);
+  browserTestWeights['test/browser/upload-capacity.test.js'], 50);
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 178);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
 // Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
 // 264.361s file wall time minus unchanged combined contact case 39.781s:

@@ -459,6 +459,16 @@ in **63.136940125 s**, start-look **149/149** in **117.521293250 s**. Its
 over capacity. Therefore the unchanged eight 1440 scenes move to start-look
 too; upload keeps all eight phone scenes, and start-look all sixteen tablet/
 desktop scenes. Keep all floors pending the complete second measurement.
+The complete second run `11ef9fc891-90483` at `11ef9fc8` passes upload
+**13/13** in **39.959277667 s** and start-look **157/157** in
+**142.167312875 s**: the same **170/170** combined tests. Reserve
+`ceil(39.959277667 × 1.25) = 50 s` and
+`ceil(142.167312875 × 1.25) = 178 s`. Only AIT-510's temporary 86 s
+source-file addition is replaced; every trusted sample remains, and the
+inherited destination floor can only increase. The final growth projection
+is `4820.039 + (50 - 36.093) + (178 - 162) = 4849.946 s`, leaving
+10.054 s below aggregate capacity. Actual whole-file placement still must
+pass the unchanged twelve-shard 405 s headroom and 420 s hard guards.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
