@@ -448,9 +448,13 @@ export class PhoneComposerViewport {
       // children. The next transcript event must not reuse the desktop height
       // and scroll past a pointer anchor established in the phone viewport.
       if (compactChanged) onCompactChange();
-      if (movedNotices && this.endHeight) {
+      // Call state and card visibility change the CSS recovery region without
+      // changing notice text. Refresh its baseline before the next shrink.
+      const noticeRegion = `${phone}/${root.querySelector('.audio-rail')?.dataset.call}/${root.querySelector('.qcard')?.hidden}`;
+      if ((movedNotices || noticeRegion !== this.noticeRegion) && this.endHeight) {
         this.noticeHeight = this.endHeight();
         this.noticeScrollTop = root.querySelector('.transcript-shell').scrollTop;
+        this.noticeRegion = noticeRegion;
       }
     };
     // focusout fires before activeElement changes; settle it in this frame.
@@ -569,6 +573,10 @@ export class PhoneComposerViewport {
       const options = { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] };
       if (notices) this.noticesObserver.observe(notices, options);
       this.noticesObserver.observe(shell.querySelector('ol'), options);
+      // A card can appear without a transcript/notice mutation (for example
+      // restored question state); its CSS rule also releases the call region.
+      const card = this.root.querySelector('.qcard');
+      if (card) this.noticesObserver.observe(card, { attributes:true, attributeFilter:['hidden'], attributeOldValue:true });
     }
     this.paint();
   }

@@ -13,7 +13,7 @@ export const bandStyles = `
 .consent-action::after { content:''; position:absolute; top:50%; left:-9px; width:calc(100% + 9px); height:max(100%,24px); transform:translateY(-50%); }
 .consent-action[hidden] { display:none; }
 .voice-state:has(.consent-action:not([hidden])) { max-width:100%; text-wrap:initial; }
-.workspace { --workspace-footer-clearance:68px; position:relative; max-width:none; padding-bottom:var(--workspace-footer-clearance); }
+.workspace { position:relative; max-width:none; padding-bottom:68px; }
 .band { grid-area:top; position:sticky; top:0; z-index:10; display:grid; grid-template-columns:44px minmax(0,1fr) auto;
   align-items:center; gap:12px 24px; margin-inline:calc(-1 * var(--aithema-gutter));
   padding:12px var(--aithema-gutter) 18px 54px; min-height:90px;
