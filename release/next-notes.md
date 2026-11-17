@@ -2,6 +2,13 @@
 
 ## Host notes
 
+- AIT-547: short desktop overviews with pinned contact content reserve the
+  natural height of the longest resolved status for the current width, font
+  and language. This keeps status text and actions readable without moving
+  the summary between states, and recovers room for the first collapsed signal.
+  Scrolling fades clear heading rows and their controls. Separate verification
+  entrances retain their natural height.
+
 - AIT-542: additive `aithema-consent` detail fields `requestId` (unique per
   request) and idempotent `cancel()` let a host settle a dismissed `start`
   consent request. For other intents `cancel()` is a no-op for intent state;
