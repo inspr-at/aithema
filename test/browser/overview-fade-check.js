@@ -336,6 +336,13 @@ export async function compactStatusCheck(t) {
             assert.ok(live.scrollHeight <= live.clientHeight, `${name}/${next}: live text is complete`);
             records.push({ name: `${name}-live-${next}`, ...live });
           }
+          await shadow(page, c => c.shadowRoot.querySelector('.analysis-content').style.setProperty('--aithema-slack-top', '5px'));
+          await settle(page);
+          const slack = await shadow(page, c => c.shadowRoot.querySelector('.overview-status').getBoundingClientRect().toJSON());
+          positive(slack, `${name}: anchoring slack slot`);
+          assert.ok(Math.abs(slack.y - geometry.slot.y - 5) <= .5, `${name}: all 5px of anchoring slack remains effective with a tall status`);
+          await shadow(page, c => c.shadowRoot.querySelector('.analysis-content').style.removeProperty('--aithema-slack-top'));
+          await settle(page);
           const insertions = await shadow(page, () => { window.statusProbeObserver.disconnect(); return window.statusProbeInsertions; });
           assert.equal(insertions, 0, `${name}: state changes never remeasure the reservation`);
           // Resize and an actual font lifecycle notification do recompute it.
