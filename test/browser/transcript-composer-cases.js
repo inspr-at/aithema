@@ -100,6 +100,9 @@ export async function transcriptComposerCases(t) {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }, { locale, theme, voice, card, turns, visuals, usedUp, entrance, opener });
     await settleEvidenceFrame(page);
+    const legal = await page.$$eval('#demo-license, #demo-legal-source', links => links.map(link => link.textContent));
+    assert.deepEqual(legal, locale === 'en' ? ['Licence: AGPL-3.0-only', 'Source and notices']
+      : ['Lizenz: AGPL-3.0-only', 'Quellcode und Hinweise'], 'capture fixture legal labels follow the page language');
   };
   const capture = async label => {
     const state = await geometry(page); records.push({ label, ...state });
