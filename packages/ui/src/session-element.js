@@ -2686,8 +2686,19 @@ export class AithemaSession extends HTMLElement {
       if (more) more.hidden = text.scrollHeight <= text.clientHeight;
     }
     for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
-      pane.toggleAttribute('data-top', pane.scrollTop > 4);
-      pane.toggleAttribute('data-bottom', pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4);
+      let top = pane.scrollTop > 4, bottom = pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4;
+      // A pinned contact can put a heading at the reading boundary. Fade body
+      // content only: a partly visible heading or action must retain its ink.
+      if (pane.matches('.analysis-content') && pane.closest('.workspace').hasAttribute('data-contact') && (top || bottom)) {
+        const bounds = pane.getBoundingClientRect();
+        const headings = [...pane.querySelectorAll('.summary-heading, .signals-heading, .signals-toggle, .questions-heading, section > h3')]
+          .map(node => node.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0);
+        const intersects = (start, end) => headings.some(box => box.top < end && box.bottom > start);
+        if (top && intersects(bounds.top, bounds.top + 26)) top = false;
+        if (bottom && intersects(bounds.bottom - 44, bounds.bottom)) bottom = false;
+      }
+      pane.toggleAttribute('data-top', top);
+      pane.toggleAttribute('data-bottom', bottom);
     }
   }
   // Measure the actual brand and reserved actions, so host copy/account changes

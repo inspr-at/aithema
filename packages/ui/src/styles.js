@@ -621,6 +621,21 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 .overview-status .notice-text[data-consent-feature] { display:block; }
 .overview-status .consent-line-copy { -webkit-line-clamp:2; }
 .overview-status .overview-retry, .overview-status .consent-action { display:block; width:max-content; max-width:100%; margin-inline-start:0; }
+/* The contact track can leave a short reading pane even on a tall desktop.
+   Keep two status lines in every state, with Retry alongside the copy. Bottom
+   alignment spends spare status room above the line instead of below it.
+   The summary heading supplies its own separation; do not add a grid gap. */
+@media(min-width:60rem) {
+  .workspace[data-contact] .analysis-stack { container:analysis-pane / size; }
+  @container analysis-pane (max-height:500px) {
+    .workspace[data-contact] .analysis-content { padding-top:calc(14px + var(--aithema-slack-top,0px)); }
+    .workspace[data-contact] .overview-status { display:flex; align-items:flex-end; gap:.5rem; height:2.9em; min-height:2.9em; margin-bottom:-1.15rem; }
+    .workspace[data-contact] .overview-status .notice-text { flex:1; min-width:0; -webkit-line-clamp:2; }
+    .workspace[data-contact] .overview-status .notice-text[data-consent-feature] { display:flex; align-items:flex-end; gap:.5rem; }
+    .workspace[data-contact] .overview-status .consent-line-copy { flex:1; min-width:0; }
+    .workspace[data-contact] .overview-status :is(.overview-retry,.consent-action) { flex:none; max-width:45%; }
+  }
+}
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 /* Readiness already draws the entry divider; keep the section's box stable. */
 .analysis-content > section:nth-child(1 of section:not([hidden])) { border-top-color:transparent; }
