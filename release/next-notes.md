@@ -7,6 +7,8 @@
   uses the lock form's request/change rule and never PUTs visitor email. EN/DE
   copy promises additional credit only at confirmation, with identity send,
   failure, resend and 429 behavior. Hosts with a store retain save-before-confirm.
+  The fallback is scoped to in-chat offers; low-credit and turn-5 asks keep their
+  existing save behavior.
 
 - AIT-517 adds optional `sidebar-contact` and `contact-launcher` slots. Fill them
   before mount/configure. The pinned row is outside scrolling analysis and the

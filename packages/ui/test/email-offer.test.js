@@ -301,10 +301,10 @@ test('AIT-543: no-store sending copy, pending resend, local cooldown and server 
 
 test('AIT-543: no-store confirmation uses the lock-form request/change rule', async t => {
   const f = await capabilityOffer(t, { identity: { status: 'verification-pending', address: 'first@example.test' } });
-  assert.equal((await f.verification.saveAndConfirm('changed@example.test')).sent, true);
+  assert.equal((await f.verification.sendIdentityLink('changed@example.test')).sent, true);
   assert.equal(f.calls.at(-1).path, 'identity/change');
   f.verification.set({ status: 'guest', address: 'saved@example.test', pollVerification: false });
-  assert.equal((await f.verification.saveAndConfirm('changed@example.test')).sent, true);
+  assert.equal((await f.verification.sendIdentityLink('changed@example.test')).sent, true);
   assert.equal(f.calls.at(-1).path, 'identity/request');
   assert.equal(f.calls.filter(call => call.path === '/api/visitor/email').length, 0);
 });

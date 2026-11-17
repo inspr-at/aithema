@@ -4110,7 +4110,9 @@ without saving or replacing the address.
 Hosts without a visitor email store (`visitorEmail.canSave === false`) now use
 the lock form's identity command for in-chat offers: `identity/request` for a
 guest or an identity without an address, otherwise `identity/change`. No visitor
-email PUT is attempted. This is a bug fix with no additional opt-in flag: the
+email PUT is attempted. The offer alone selects `Verification.sendIdentityLink`;
+`Verification.saveAndConfirm` and the low-credit / turn-5 email ask retain their
+existing store-backed save behavior. This is a bug fix with no additional opt-in flag: the
 previous save path always failed on these hosts. Sending the link grants no
 credit; the host's confirmed tier applies only after confirmation. The offer
 uses `hostConfirm` for a confirmed-tier increase, or `verify.entry` if the host

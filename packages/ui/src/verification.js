@@ -91,15 +91,16 @@ export class Verification {
   /** Undefined until the host capability loads; legacy hosts retain saving. */
   get canSave() { return this.#visitorEmail === null ? undefined : this.#visitorEmail.canSave !== false; }
   get #confirmationPath() { return `identity/${this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change'}`; }
-  /** Store-backed A2 save acknowledgement precedes C1/C2; a failed link keeps that tier. */
+  /** Offer-only link delivery: identity hosts grant credit at confirmation. */
+  async sendIdentityLink(address) {
+    if (!this.#alive || this.#ui.busy || !this.canCollect || this.changeBlocked) return { ok: false };
+    const response = await this.#post(this.#confirmationPath, { address });
+    return { ...(response ?? { ok: false }), sent: response?.ok === true && response.body?.identity?.delivery !== 'failed' };
+  }
+  /** A2 save acknowledgement precedes C1/C2. A failed link keeps the saved tier. */
   async saveAndConfirm(address, { delivery } = {}) {
-    if (this.#visitorEmail === null || this.canSave !== false && !this.#email.notice?.version) await this.load();
-    if (!this.#alive || !this.canCollect || this.changeBlocked) return { ok: false };
-    // Identity-only hosts have no visitor store or save-time credit to acknowledge.
-    if (this.canSave === false) {
-      const response = await this.#post(this.#confirmationPath, { address });
-      return { ...(response ?? { ok: false }), sent: response?.ok === true && response.body?.identity?.delivery !== 'failed' };
-    }
+    if (!this.#email.notice?.version) await this.load();
+    if (!this.#alive || this.changeBlocked) return { ok: false };
     this.#identityGeneration++;
     const saved = await this.#email.persist(address);
     if (!this.#alive || !saved?.ok) return saved;
@@ -107,8 +108,9 @@ export class Verification {
     await this.#creditsChanged?.();
     this.#onChange?.({ saved: true });
     if (!this.#alive || !(delivery ?? this.delivery)) return { ...saved, sent: false };
+    const command = this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change';
     let link;
-    try { link = await this.#request(this.#confirmationPath, { address }); } catch { /* Saved credit is retained. */ }
+    try { link = await this.#request(`identity/${command}`, { address }); } catch { /* Saved credit is retained. */ }
     if (!this.#alive) return { ok: false };
     if (link?.body?.identity) this.set(link.body.identity);
     await this.#creditsChanged?.();

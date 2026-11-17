@@ -125,9 +125,17 @@ export class EmailOffer {
       this.invalid = true; this.message = this.copy.hostSurface.verify.invalid; this.paint(); return;
     }
     const resending = Boolean(this.email.address);
-    this.invalid = false; this.saving = true; this.message = resending || this.verification.canSave !== true ? this.copy.hostSurface.verify.sending : this.copy.hostSurface.email.saving; this.paint();
+    this.invalid = false; this.saving = true; this.message = '';
     let response;
-    try { response = this.email.address ? await this.verification.resend() : await this.verification.saveAndConfirm(address); }
+    try {
+      if (!resending && this.verification.canSave === undefined && this.verification.load) {
+        this.paint(); await this.verification.load();
+        if (!this.alive) return;
+      }
+      this.message = resending || this.verification.canSave === false ? this.copy.hostSurface.verify.sending : this.copy.hostSurface.email.saving; this.paint();
+      response = resending ? await this.verification.resend() : this.verification.canSave === false
+        ? await this.verification.sendIdentityLink(address) : await this.verification.saveAndConfirm(address);
+    }
     catch { response = { ok: false }; }
     if (!this.alive) return;
     this.saving = false;
