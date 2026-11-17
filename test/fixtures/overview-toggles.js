@@ -109,6 +109,7 @@ test('AIT-515 r13: both overview heading toggles, stable actions and scroll reac
           const after = await measure();
           stable(before[kind], after[kind], `${name}: ${kind} toggle`);
           for (const target of ['foot', 'band']) stable(before[target], after[target], `${name}: ${target}`);
+          positive(before.composer, 'composer before'); positive(after.composer, 'composer after');
           assert.ok(Math.abs(before.composer.bottom - after.composer.bottom) <= .5, 'composer bottom stays fixed');
           records.push({ name, event: `${kind}:${expanded}`, before, after });
         }
