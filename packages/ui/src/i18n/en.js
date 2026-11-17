@@ -676,7 +676,8 @@ export const en = {
     consentFailed: 'Could not save consent. Try again.', restoreFailed: 'Could not restore the demo. Reload to retry.',
     visualsOff: 'No visual concepts',
     // Demo fills for the component's host slots and the fake mail outbox (AIT-104 B2); a real host supplies its own.
-    slots: { account: 'Account (demo)', accountNote: 'Demo only: there is no real sign-in. Your conversations belong to this browser.',
+    slots: { contact: 'Contact', contactNote: 'Demo only: this overlay sends no data. No contact request is created.',
+      account: 'Account (demo)', accountNote: 'Demo only: there is no real sign-in. Your conversations belong to this browser.',
       source: 'Source code', handoverOffer: 'Demo only: the request goes to a local test recipient. Nobody contacts you.',
       creditsLimit: 'Demo only: there is no top-up here. The limit applies to all your conversations in this browser, so a new conversation does not lift it.',
       legal: 'Legal (demo)', license: 'Licence: AGPL-3.0-only', legalSource: 'Source and notices',

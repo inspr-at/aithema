@@ -260,7 +260,9 @@ async function handle(request, context) {
     const raw = await readFile(file);
     const source = file.endsWith('.html') ? raw.toString().replace("frame-src 'none'; child-src 'none'", previewHostPolicy) : raw;
     const bytes = path === '/demo/host.css' ? source.toString() + firstPaintStyles
-      : path === '/demo/index.html' ? source.toString().replace('<!--aithema-first-paint-->', firstPaintMarkupFor({ voice: voiceMode === 'fake' || Boolean(readVoiceState().binding) || Boolean(grokBinding) })) : source;
+      : path === '/demo/index.html' ? source.toString().replace('<!--aithema-first-paint-->', firstPaintMarkupFor({ voice: voiceMode === 'fake' || Boolean(readVoiceState().binding) || Boolean(grokBinding), contactLauncher: host.demo }))
+        .replace('<!--aithema-contact-slots-->', host.demo ? '<section slot="sidebar-contact" class="demo-contact"><p class="demo-contact-note"></p><button class="demo-contact-open" type="button" aria-haspopup="dialog" aria-controls="demo-contact-dialog"></button></section><button slot="contact-launcher" class="demo-contact-launcher demo-contact-open" type="button" aria-haspopup="dialog" aria-controls="demo-contact-dialog"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v12H9l-5 3V5Z"/><path d="M8 9h8M8 13h5"/></svg></button>' : '')
+        .replace('<!--aithema-contact-dialog-->', host.demo ? '<dialog id="demo-contact-dialog" aria-labelledby="demo-contact-title"><h2 id="demo-contact-title"></h2><p class="demo-contact-note"></p><form method="dialog"><button id="demo-contact-close" type="submit" autofocus></button></form></dialog>' : '') : source;
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
       'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',

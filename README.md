@@ -467,10 +467,69 @@ while its demo host is active; a live provider host shows none of the demo copy)
 | --- | --- |
 | `promise` | Entrance headline above the processing choice; without it the component shows START's three lines (`copy.entrance.promise`) and lead |
 | `account` | Right end of the host bar (account menu) |
+| `sidebar-contact` | Optional bounded row above the sidebar footer, outside the scrolling analysis and its E‑Mail ask overlay; empty consumes zero height |
+| `contact-launcher` | Optional 44 × 44 px host button in the header actions; available before input, during the sidebar reveal, when folded, with an empty sidebar contact, and below 60rem; hidden from pointer and Tab order while the pinned contact is available on desktop |
 | `credits-limit` | After the credits line once the limit is reached (top-up or next step) |
 | `handover-offer` | Offer copy in the handover band (default: a generic sentence) |
 | `legal` | Right of the footer at 600 px and above; below 600 px, links open in a popover through the **Rechtliches** / **Legal** control in the single 44 px footer row |
 | `footer` | Footer row, right (status or imprint); the row shows only when a slot is filled |
+
+Fill any contact slots **before mount/configure**, with host light-DOM content.
+The library keeps that content mounted through analysis updates; it does not clone
+it or attach a contact handler. The sidebar row scrolls independently, bounded by
+30% of the desktop sidebar and 14rem below 60rem. On desktop the reading pane
+retains at least 40% of the sidebar; the contact row shrinks and scrolls when
+the header or other reserved rows need more room. For hosts filling both slots,
+below 48rem window height the desktop pinned row is absent from layout and Tab
+order, and the reserved header launcher becomes the contact action. One condition
+switches both controls; short-window spacing and sidebar chrome compact to keep
+the foot inside the frame.
+A host filling only `sidebar-contact` keeps that row through short desktop windows
+and the sidebar entrance; the row is never hidden in favor of an empty launcher.
+The launcher’s 44 px header slot remains reserved when hidden. The launcher
+fades and becomes inert during About, like the other header controls; the phone
+contact row and the personal-conversation action in the analysis pane have a
+44 px left inset to clear the fold chevron. Host content must fit its
+reserved row; filling or growing it later can move the analysis and is outside
+the no-layout-shift contract. The host owns the CTA's styling, accessible name,
+44 px launcher target, overlay, privacy and delivery policy, modal focus trap,
+Escape dismissal and focus return to the opener. Opening contact does not send
+a conversation turn, request handover, require AI consent or start model work.
+
+**First-paint host contract (AIT-517):** a host using `contact-launcher` must
+reserve **44 px more** in its header actions before the component mounts.
+When serving `firstPaintStyles` from `@inspr/aithema-ui/first-paint`, use
+`firstPaintMarkupFor({ contactLauncher: true })` (also compatible with
+`voice: false`). This opt-in adds a decorative placeholder and reserves 260 px
+on desktop / 132 px on phones, including the matching header-rail row threshold.
+Keep the placeholder sibling in the `.aithema-shell` until mount. Alternatively,
+set `--aithema-header-actions-width` in render-blocking host CSS to your existing
+width + 44 px (default 216 → 260 px; below 600 px, 88 → 132 px), on both the
+placeholder and component; use `headerRailReservation({ actionsWidth: '260px' })`
+when overriding the desktop width so both reserve the same rail row. Custom
+width overrides keep winning; both library rail defaults have zero specificity.
+The helper manages the reservation delta
+`--aithema-contact-launcher-width` (0 px by default, 44 px when declared);
+customize the total through `--aithema-header-actions-width`. The existing
+default markup and exports remain available; no new export or contact event is introduced.
+
+```html
+<aithema-session>
+  <section slot="sidebar-contact"><button type="button" class="contact">Contact</button></section>
+  <button slot="contact-launcher" type="button" class="contact" aria-label="Contact">…</button>
+</aithema-session>
+```
+
+Both host buttons can open the same host-owned dialog. Top-anchor that dialog
+at the Settings frame's top edge: normally `max(.5rem, (100dvh - 47rem) / 2)`,
+at desktop widths ≥60rem and heights ≥850px `max(24px, (100dvh - 48rem) / 2)`,
+and below 40rem wide `.25rem`. Use CSS `calc()` around the subtraction/division;
+keep the host's own dialog height and scrolling within the viewport. The mock demo supplies a
+neutral CTA beside a short demo note, and a local dialog with no contact form or
+delivery. Its two new copy keys are `copy.host.slots.contact` and
+`copy.host.slots.contactNote` (EN/DE);
+the close action reuses `copy.host.outbox.close`. These are demo content, not
+library slot fallbacks; host slot content and copy overrides retain ownership.
 
 New interaction controls that start AI processing (Send confirmation link,
 Send link again, library open/New/Reset, the Reset confirmation) list `ai-notice`
