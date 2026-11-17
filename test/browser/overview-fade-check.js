@@ -229,7 +229,7 @@ export async function compactStatusCheck(t) {
             if (!n.hasAttribute('data-consent-feature')) n.style.display = 'block';
           }
           slot.after(probe);
-          const naturalTexts = [...probe.querySelectorAll('.notice-text, .consent-line-copy')].map(n => n.getBoundingClientRect().height);
+          const naturalTexts = [...probe.querySelectorAll('.notice-text, .consent-line-copy')].map(n => n.getBoundingClientRect().toJSON());
           probe.remove();
           const measureText = n => { const b = n.getBoundingClientRect(), style = getComputedStyle(n); return { box: b.toJSON(),
             scrollHeight: n.scrollHeight, clientHeight: n.clientHeight, scrollWidth: n.scrollWidth, clientWidth: n.clientWidth,
@@ -248,9 +248,9 @@ export async function compactStatusCheck(t) {
         if (Math.abs(geometry.slot.height - geometry.expectedHeight) > .5) problems.push('incorrect exact slot height');
         for (const axis of ['x', 'y', 'width', 'height']) if (Math.abs(geometry.slot[axis] - baseline[axis]) > .5) problems.push(`status ${axis} shifted`);
         for (const [i, text] of geometry.textBoxes.entries()) {
-          positive(text.box, `${name}: text ${i}`);
+          positive(text.box, `${name}: text ${i}`); positive(geometry.naturalTexts[i], `${name}: unclamped text ${i}`);
           if (geometry.compact && (text.box.top < geometry.slot.top - .5 || text.box.bottom > geometry.slot.bottom + .5 || text.box.left < geometry.slot.left - .5 || text.box.right > geometry.slot.right + .5)) problems.push(`text ${i} outside slot`);
-          if (geometry.compact && (text.scrollHeight > text.clientHeight || text.scrollWidth > text.clientWidth || text.ellipsis || geometry.naturalTexts[i] > text.box.height + .5 || text.box.height > text.lineHeight * 2 + .5)) problems.push(`text ${i} clipped or ellipsized`);
+          if (geometry.compact && (text.scrollHeight > text.clientHeight || text.scrollWidth > text.clientWidth || text.ellipsis || geometry.naturalTexts[i].height > text.box.height + .5 || text.box.height > text.lineHeight * 2 + .5)) problems.push(`text ${i} clipped or ellipsized`);
         }
         if (font) assert.equal(geometry.textBoxes[0].font, font, `${name}: stress font is applied`);
         if (state === 'reasoning-failed') assert.equal(geometry.text, (locale === 'de' ? de : en).reasoningFailed);
