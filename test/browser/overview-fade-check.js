@@ -21,7 +21,8 @@ const settle = page => shadow(page, async () => {
 export async function compactStatusMaximum(page) {
   return shadow(page, async c => {
     const r = c.shadowRoot, slot = r.querySelector('.overview-status');
-    const pane = r.querySelector('.analysis-stack').getBoundingClientRect();
+    const pane = r.querySelector('.analysis-stack').getBoundingClientRect(), bounds = slot.getBoundingClientRect();
+    if (!(pane.width > 0 && pane.height > 0 && bounds.width > 0 && bounds.height > 0)) throw new Error('positive status oracle pane and slot');
     const compact = r.querySelector('.workspace').hasAttribute('data-contact') &&
       innerWidth >= 60 * parseFloat(getComputedStyle(document.documentElement).fontSize) && pane.height <= 500;
     if (!compact) return null;
@@ -30,7 +31,7 @@ export async function compactStatusMaximum(page) {
       'noProjectDetails', 'draft', 'overviewCurrent', 'paused', 'notConfigured'].map(key => ({ text: copy[key] }));
     variants.push({ text: copy.understandingFailed + '.' }, { text: copy.reasons['admission deadline'] },
       { text: copy.understandingFailed, retry: true }, { text: copy.staleIdle, retry: true }, { consent: true });
-    const probe = slot.cloneNode(false), width = slot.getBoundingClientRect().width;
+    const probe = slot.cloneNode(false), width = bounds.width;
     Object.assign(probe.style, { position: 'fixed', left: '-10000px', top: '0', width: `${width}px`,
       height: 'auto', minHeight: '0', overflow: 'visible', visibility: 'hidden', margin: '0' });
     probe.removeAttribute('role'); probe.setAttribute('aria-hidden', 'true'); probe.inert = true; slot.after(probe);
