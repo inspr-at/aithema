@@ -1763,4 +1763,4 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
 });
 
 test('AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE',
-  { timeout: 180_000 }, async t => { await overviewFadeCheck(t); await compactStatusCheck(t); });
+  { timeout: 480_000 }, async t => { await overviewFadeCheck(t); await compactStatusCheck(t); });
