@@ -44,7 +44,7 @@ test('AIT-515 r13: both overview heading toggles, stable actions and scroll reac
     const root = c.shadowRoot, box = selector => root.querySelector(selector).getBoundingClientRect().toJSON();
     return { summary: box('.summary-toggle'), signals: box('.signals-toggle'), summaryHeading: box('#summary-title'),
       signalsHeading: box('#signals-title'), summaryRow: box('.summary-heading'), signalsRow: box('.signals-heading'),
-      pane: box('.analysis-content'), questions: box('.questions-heading'), composer: box('.composer-shell'),
+      pane: box('.analysis-content'), signal: box('.signals li'), questions: box('.questions-heading'), composer: box('.composer-shell'),
       foot: box('.understanding > .foot'), band: box('.band'),
       summaryExpanded: root.querySelector('.summary-toggle').getAttribute('aria-expanded'),
       signalsExpanded: root.querySelector('.signals-toggle').getAttribute('aria-expanded'),
@@ -75,7 +75,7 @@ test('AIT-515 r13: both overview heading toggles, stable actions and scroll reac
     return result;
   };
   for (const entrance of ['separate', 'combined']) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark'])
-    for (const [width, height] of [[390, 1000], [1024, 640], [1440, 900], [390, 620], [390, 568]]) {
+    for (const [width, height] of [[390, 1000], [1024, 640], [1366, 768], [1440, 900], [390, 620], [390, 568]]) {
       await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
       await shadow(page, async (c, locale, theme, entrance, manifest) => {
         const { createSession, inputRevision, reduceUnderstanding } = await import('/packages/core/src/index.js');
@@ -100,6 +100,11 @@ test('AIT-515 r13: both overview heading toggles, stable actions and scroll reac
       }, locale, theme, entrance, manifest);
       await settle(page);
       const name = `${entrance}-${locale}-${theme}-${width}x${height}`;
+      if (width === 1366) {
+        const mature = await measure(); positive(mature.signal, 'mature first signal'); positive(mature.pane, 'mature pane');
+        assert.ok(mature.signal.bottom <= mature.pane.bottom - 44, `${name}: mature first signal clears 44px bottom fade`);
+        records.push({ name, state: 'mature-fade', geometry: mature });
+      }
       for (const [summaryExpanded, signalsExpanded] of [[false, false], [false, true], [true, true], [true, false], [false, false]]) {
         const desired = { summary: summaryExpanded, signals: signalsExpanded };
         for (const [kind, expanded] of Object.entries(desired)) {
