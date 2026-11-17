@@ -99,7 +99,11 @@ export async function auditMainSurfaces(t, evidence) {
       }
       if (state === 'paused') session.paused = true;
       if (state === 'no-text') session.featureMatrix.best.text = { available: false, reason: 'not configured' };
-      session.concepts = []; session.conceptStatus = { phase: 'idle' };
+      session.concepts = [];
+      // AIT-509: this recovery audit represents an explicitly refused request.
+      // Idle suppression and new asks have their own viewport evidence matrix.
+      session.conceptStatus = state === 'consent'
+        ? { phase: 'failed', reason: 'current processing consent required' } : { phase: 'idle' };
       session.transcript = ['entrance', 'ready', 'ready-voice'].includes(state) ? [] : [
         { id: 'person', role: 'user', content: locale === 'de' ? 'Wir gleichen 400 Rechnungen von Hand ab.' : 'We reconcile 400 invoices by hand.' },
         { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Wer gibt die Rechnungen heute frei?' : 'Who approves invoices today?', inputRevision: 1 },

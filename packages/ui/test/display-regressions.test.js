@@ -309,10 +309,11 @@ for (const copy of [de, en]) for (const [name, reason, cost] of [
   assert.notEqual(notice.textContent, copy.layout.canvasEmpty, 'empty canvas explains the restriction');
   if (name === 'quote-missing' || name === 'admission-timeout') assert.equal(notice.querySelector('button').textContent, copy.display.draftsRetry);
   if (name === 'consent-needed') {
-    assert.equal(notice.querySelector('button').textContent, copy.featureConsent.action);
-    assert.notEqual(notice.querySelector('[id]').id, root.querySelector('.concept-activity-text [id]').id, 'unique accessible labels');
-    notice.querySelector('button').click();
-    assert.equal(root.querySelector('dialog.settings').open, true, 'canvas action opens consent settings');
+    assert.equal(notice.textContent, '', 'AIT-509: an empty folded canvas does not show idle consent text');
+    assert.equal(notice.querySelector('button'), null);
+    assert.equal(root.querySelector('.concept-activity-text').textContent, '');
+    c.openConsent('images');
+    assert.equal(root.querySelector('dialog.settings').open, true, 'Settings retains explicit consent access');
   }
   // The same restriction permits a fresh fold attempt on a capable host.
   root.querySelector('.fold-strip').click(); root.querySelector('.fold').click();

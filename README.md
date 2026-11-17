@@ -572,6 +572,27 @@ Work triggered by visitors is independent of this boot limit. Existing consent,
 pause, admission and spend limits still govern every call; recovery can incur
 provider costs when those gates admit it.
 
+The overview's existing `copy.summary` heading is now visible. Its shipped defaults
+are “Understood so far” (EN) and “Bisher verstanden” (DE); existing
+host overrides still win. A summary is collapsed with a fade when it exceeds the
+measured line budget: nine rendered lines in a tall analysis pane, otherwise
+three to nine whole lines based on the pane, heading row, first signal and the
+44 px bottom fade reserved whenever rendered content follows the first signal,
+independently of scroll position.
+Where even three lines cannot keep the first signal visible (such as 1024×640),
+the clamp stays at three and the signal remains reachable within the scrolling
+pane. The budget is remeasured on resize, font and locale changes. The native
+toggle stays beside the heading in both states. Long host toggle labels are
+capped at half the heading row and visually ellipsized; their full accessible
+names are retained. The toggle uses the additive keys
+`copy.summaryMore` (“Read more” / “Mehr anzeigen”)
+and shared `copy.showLess` (“Show less” / “Weniger anzeigen”). Missing keys fall back to the active locale; explicit host overrides
+win. Expansion stays in memory through assessment rewrites and same-conversation
+copy changes, and resets on a different conversation, reset or erasure. The
+understanding prompt addresses the visitor in summaries and signals with “you” /
+formal “Sie”, preserving quoted evidence verbatim; rendered model text is never
+rewritten by the UI.
+
 Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
 (the token is optional) and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
@@ -587,9 +608,11 @@ emits `aithema-new-conversation` with `{processingPreset, settings, previousSess
 when the visitor starts a separate conversation (General tab, or crossing into or
 out of On my device once a conversation has started), and `aithema-consent` with
 `{sessionId, reason, features, intent, mode, required}` when a choice needs consent;
-the host's consent interface answers it outside the modal dialog. The reason values
-are `chooser`, `ready`, `manage` and `settings`. The additive `intent` is `start`
-for the ready card's Start action and combined Send/mic; other requests use `review`. In the default entrance, `mode` is
+the host presents the consent interface outside the current modal dialog. The reason values
+include `chooser`, `ready`, `manage`, `settings` and `use`. Both `reason` and
+`intent` are open enums: treat unknown values as review. The additive `intent` is
+`start` for the ready card's Start action and combined Send/mic, `concept` for a just-in-time visual
+request (`reason: 'use'`), and `review` for a consent review. In the default entrance, `mode` is
 `type` or `voice`; `required` lists the consent-blocked feature needed for that
 mode, while `features` retains the full requested feature list. Start keeps a
 one-use, tab-scoped intent for at most three minutes for typing or 60 seconds for
@@ -598,6 +621,51 @@ written before the consent event is dispatched and deleted on use or cancellatio
 A covering consent snapshot or refresh resumes typing. Voice resumes only while
 user activation is active; after a navigation to a consent page, voice needs one
 click on "Start call".
+
+Visual consent text is suppressed at idle for every host; the bound visual rail
+keeps its sizing reservation. Settings retains feature status and withdrawal.
+When only consent blocks a validated, dispatch-ready visual wish, the rail offers
+consent in its reserved reason slot. A concept continuation stays in memory for
+at most three minutes, bound to the session, settings, input/source and original
+consent revision. It shares Start's existing TTL helper without changing Start's
+intent implementation. A newer authoritative covering grant consumes it once
+through the existing cadence/deduplication gate. Review, dismissal, decline, expiry,
+withdrawal, erasure, navigation, superseding input and a session/settings change
+never resume it. This concept continuation stores no file bytes, text or concept
+intent in tab storage.
+
+The event's `features` is an array of requested feature names. The document from
+`GET /api/sessions/:id/consent` instead maps feature names to item-ID arrays in
+its `features` object. A host can disclose and include that document's
+`features.images` items in its own Start consent alongside the reasoning/voice
+items, granting them together through the existing consent POST. Grant every
+mapped item; base reasoning permission alone does not cover image processing. If images are covered at Start,
+no visual consent line or later concept ask appears. Image-input consent belongs
+to the separate image-input feature when offered; this change adds no such item.
+
+The demo answers consent events in the existing in-page Settings consent dialog.
+Hosts can do the same with `component.openConsent(feature, opener?)`; unknown
+features open the text item. An external host dialog should call
+`component.cancelConsent()` when dismissed or declined to discard the pending
+concept continuation. For a host-initiated review, call `cancelConsent()` before
+opening the editor; component-emitted review events already discard it. A
+navigating host still works for Start (including the voice gesture rule above); concept continuation needs a fresh request on return.
+The navigating browser test host is retained for Start coverage.
+
+New copy keys `conceptConsent`, `conceptDraftConsent` and `conceptConsentAction`
+supply the impersonal EN/DE image or HTML-draft ask and its action. Explicit host
+overrides win; existing overrides of `featureConsent.images`, `featureConsent.html`
+and `featureConsent.action` remain fallbacks. A wish can precede readiness by
+several visitor turns: its bounded continuation binds to the latest active visitor
+turn and input revision when the ask appears. Waiting for readiness shows only
+waiting text, without a consent action.
+
+`ConceptLane` accepts an optional `consentRequired(session, visualKind)` preflight
+port. A consent-only refusal publishes `concept.state` with
+`status: {phase: 'waiting', consentRequest: {id, sourceTurnId}}`, releases the
+unspent cadence claim and drops the durable wish before provider admission or
+reference-byte loading. `consentRequest` is an additive status field, not a
+durable permission to generate: only a fresh explicit request can continue it.
 
 Optional `configure({ entrance: 'combined' })` (AIT-506) offers a text field,
 microphone and Send side by side from first paint, with the existing processing

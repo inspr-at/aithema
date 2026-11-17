@@ -48,3 +48,48 @@
 - AIT-537: every first-party manifest now declares optional `liveVoice.capabilities.opener`. ElevenLabs and dev-local/fake-voice declare `true`; Grok, Voxtral and both composed providers declare `false`, so the latter persist the text-only opener at first-contact connect. Undeclared third-party providers are text-only with `{ event: 'voice.opener-undeclared', plugin: <id> }` once per ID per handler instance when selected for first contact; speaking providers must declare `true`. No public schema requirement is added.
 - AIT-537 lifecycle: configuration-refused recovery or explicit Resume before a provider starts retains RC25's terminal close, aborts logical authority and publishes `voice.state` with `state: 'ended'` to peer tabs, allowing a fresh start from another tab. A fresh start refused by configuration before a provider call exists publishes `ended` directly: it skips `onClose` (and its concept `conversation-ended` event), `stopReplyReplay`, and the `closing` publication.
 - AIT-537 hardening: failed fresh startup before a call exists ends and publishes its lifecycle (`voice.state`, `state: 'ended'`, `reason: 'start-failed'`, or the existing configuration-refusal reason), with starting `epoch` and `controllingTabId`, guarded by that epoch so takeover survives. Storage adds `hasAudibleVoiceCall(sessionId)` and removes unused `hasConnectedVoiceCall`; reserved `voice:` typed event IDs and `host:` voice turn IDs are rejected. No new copy keys or UI surfaces.
+
+- AIT-509: visual consent text is now silent at idle for all hosts. The bound
+  rail keeps its sizers; Settings keeps per-feature status and withdrawal.
+- Combined desktop composers and overview panes retain the fixed footer inset,
+  accounting for the configured component height and position, keeping controls above
+  the footer throughout consent transitions.
+- Validated visual requests blocked only by consent offer a just-in-time ask in
+  the reserved rail slot. Its memory-only continuation expires within three
+  minutes and needs a newer authoritative covering grant; cancellation, review,
+  decline, navigation, superseding input and source/session/settings changes do
+  not dispatch. Start's intent implementation and voice gesture rules stay as-is.
+- `aithema-consent` adds `reason: 'use', intent: 'concept'`. Both fields are open
+  enums; unknown values mean review. A host may grant the items mapped by
+  the consent document's `features.images` in its own combined Start consent to avoid a later ask.
+  No image-input consent item is added by this change.
+- New component methods `openConsent(feature, opener?)` and `cancelConsent()` let
+  hosts use the existing in-page editor or dismiss a pending concept. The demo
+  uses the in-page editor; the navigating Start test host remains.
+- Copy adds `conceptConsent`, `conceptDraftConsent` and `conceptConsentAction`
+  in EN/DE. Image and HTML-draft asks are impersonal. Host overrides win, including
+  legacy `featureConsent.images` / `featureConsent.html` / `featureConsent.action`.
+- Wishes made before readiness keep their just-in-time ask when readiness arrives
+  on a later turn. The continuation binds to the latest visitor turn and input
+  revision when shown; waiting for readiness carries no consent action.
+- `ConceptLane` adds optional `consentRequired(session, visualKind)` preflight.
+  `concept.state.status.consentRequest: {id, sourceTurnId}` is additive metadata
+  on `phase: 'waiting'`; it carries no durable grant or automatic retry.
+
+- AIT-514: the existing `copy.summary` heading is visible with new EN/DE defaults,
+  “Understood so far” / “Bisher verstanden”. Host overrides win.
+- Additive `copy.summaryMore`: “Read more” / “Mehr anzeigen”; shared
+  `copy.showLess`: “Show less” / “Weniger anzeigen”. Missing keys use locale
+  fallbacks. Long summaries use a measured height-aware clamp and fade: nine
+  lines in tall panes, otherwise three to nine whole lines based on the pane,
+  heading row, first signal and 44 px bottom fade space whenever rendered content
+  follows the first signal. The budget is independent of scrolling and is
+  remeasured on resize, font and locale changes.
+  If three lines still leave the first signal below the fold (1024×640), the
+  clamp stays at three and the signal remains reachable by scrolling the pane.
+  The accessible native expand/collapse button stays beside the heading in both
+  states. Long host toggle labels are visually ellipsized within half the row;
+  their complete accessible names remain available. Expansion survives rewrites within
+  the mounted conversation and resets on a different conversation or erasure.
+- Summary and signal prompt guidance now addresses the visitor with “you” / “Sie”
+  while preserving quoted evidence. No schema, event, option or export change.
