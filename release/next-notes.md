@@ -139,3 +139,5 @@
   the combined short-phone transcript reserves eight pixels below its content.
   Successful document uploads preserve image refusals from the same selection.
   Retained-file retry messages keep their existing facts and action order.
+  Image-feedback measurement keeps the same width across text-consent and
+  shortcut states, including 320/340 px, preserving the composer after a grant.

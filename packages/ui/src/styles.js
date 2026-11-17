@@ -492,6 +492,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
   .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
   .composer-actions:has(.composer-reason[data-send-failed]) { gap:0; }
+  /* Image feedback keeps its measured width when consent becomes a shortcut. */
+  .composer[data-image-input] .composer-actions { gap:0; }
   .composer-reason[data-send-failed] { letter-spacing:-.03em; }
   .composer-reason[data-send-failed] .consent-action { letter-spacing:inherit; }
   /* Keep the 12px DE label on one line with the wider Linux baseline font. */
@@ -810,7 +812,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .turn-image[data-withheld] { background:none; border-radius:0; overflow:visible; overflow-wrap:normal; word-break:normal; }
 /* Measure every real localized reason at the live width before any decoder result.
    The name has one line; the reason below it is never truncated. */
-.composer[data-image-input] .composer-feedback { position:relative; flex:1; }
+.composer[data-image-input] .composer-feedback,
+.composer[data-image-input] .composer-feedback:has(.composer-reason[data-shortcut]) { position:relative; flex:1; }
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
 .composer[data-image-input] .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
