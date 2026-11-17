@@ -46,8 +46,10 @@ export class ImageInputView {
     // Hosts without image input have no feedback slot to measure. Build its
     // localized candidates only once that layout is active.
     if (!this.#ports.form.hasAttribute('data-image-input')) {
-      this.#reserve.remove();
-      this.#ports.form.style.removeProperty('--image-feedback-height');
+      if (this.#reserve.parentElement) {
+        this.#reserve.remove();
+        this.#ports.form.style.removeProperty('--image-feedback-height');
+      }
       return;
     }
     if (!this.#reserve.parentElement) this.#ports.form.querySelector('.composer-feedback').append(this.#reserve);

@@ -147,3 +147,4 @@
   failures from the current selection survive event/receipt ordering and batches.
   The hidden feedback measurement node is mounted only for active image input;
   hosts without it retain their existing composer DOM and geometry.
+  Repeated inactive paints skip feedback DOM writes.

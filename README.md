@@ -4131,6 +4131,7 @@ successful attachment clears older feedback.
 The reserved image-feedback width stays stable when consent becomes a shortcut.
 Its hidden measurement node is mounted only while image input is active, so
 hosts without image input retain the existing composer DOM and geometry.
+Repeated inactive paints skip feedback DOM writes.
 
 The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,
 `imageUpload` (normalized bytes in `imageBytes`), and `expireStagedUploads`;
