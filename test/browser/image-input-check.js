@@ -299,6 +299,33 @@ export function imageInputCheck(widths) {
       }
       changes.push({ reason: 'document-notice', before: beforeDocumentNotice, rects: afterDocumentNotice, paint: documentNoticePaint });
       assert.equal(documentNotice.includes('·'), false, 'the refused item ends with its sentence, without a dangling separator');
+      const beforeMultipleNotices = await boxes();
+      await inShadow(page, c => {
+        const transfer = new DataTransfer();
+        for (const name of ['first-', 'second-']) transfer.items.add(new File(['fixture'], `${name}${'long-'.repeat(20)}.unknown`, { type: 'application/octet-stream' }));
+        c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+      });
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('second-long-'));
+      const multipleNoticePaint = await inShadow(page, c => {
+        const reason = c.shadowRoot.querySelector('.composer-reason'), r = reason.getBoundingClientRect();
+        return { width: r.width, height: r.height, scrollHeight: reason.scrollHeight, clientHeight: reason.clientHeight };
+      });
+      assert.ok(multipleNoticePaint.width > 0 && multipleNoticePaint.height > 0);
+      assert.ok(multipleNoticePaint.scrollHeight <= multipleNoticePaint.clientHeight, 'accepted formats fit for multiple refused documents');
+      const afterMultipleNotices = await boxes();
+      for (const [selector, r] of Object.entries(afterMultipleNotices)) {
+        const previous = beforeMultipleNotices[selector];
+        assert.ok(previous.w > 0 && previous.h > 0 && r.w > 0 && r.h > 0, `${selector}: positive before/after multiple refusals`);
+        for (const edge of selector === '.composer' ? ['y', 'h', 'bottom'] : ['x', 'y', 'w', 'h'])
+          assert.ok(Math.abs(r[edge] - previous[edge]) <= .5, `${selector}.${edge}: multiple document refusals cannot move the frame`);
+      }
+      changes.push({ reason: 'multiple-document-notice', before: beforeMultipleNotices, rects: afterMultipleNotices, paint: multipleNoticePaint });
+      await shot('multiple-document-notice');
+      await inShadow(page, c => {
+        const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.unknown', { type: 'application/octet-stream' }));
+        c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+      });
+      await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === text, {}, documentNotice);
       await inShadow(page, c => {
         window.imageSendDelay = new Promise(resolve => { window.releaseImageSend = resolve; });
         c.shadowRoot.querySelector('.send').click();
