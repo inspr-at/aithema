@@ -1,7 +1,7 @@
 // Explicit remote evidence check; kept outside the recurring browser shards.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
@@ -40,6 +40,8 @@ test('AIT-515 r14: overview toggles coexist with pinned and launcher contact slo
   });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  // The fixture serves core/UI modules only; inject the shipped stylesheet bytes.
+  await page.addStyleTag({ content: await readFile(new URL('../../demo/host.css', import.meta.url), 'utf8') });
   const measure = () => shadow(page, c => {
     const root = c.shadowRoot, box = selector => root.querySelector(selector).getBoundingClientRect().toJSON();
     const row = root.querySelector('.sidebar-contact'), launcher = root.querySelector('.contact-launcher');
@@ -107,11 +109,6 @@ test('AIT-515 r14: overview toggles coexist with pinned and launcher contact slo
         document.documentElement.lang = locale;
         document.documentElement.dataset.theme = theme;
         // Fill both host slots before configuration; use the shipped demo's styling.
-        if (!document.querySelector('link[data-contact-look]')) {
-          const style = document.createElement('link'); style.rel = 'stylesheet'; style.href = '/demo/host.css';
-          style.dataset.contactLook = ''; document.head.append(style);
-          await new Promise((resolve, reject) => { style.onload = resolve; style.onerror = reject; });
-        }
         c.querySelectorAll('[slot="sidebar-contact"], [slot="contact-launcher"]').forEach(n => n.remove());
         const contact = document.createElement('section'); contact.slot = 'sidebar-contact'; contact.className = 'demo-contact';
         contact.innerHTML = `<p class="demo-contact-note">${locale === 'de' ? 'Kontakt aufnehmen' : 'Get in touch'}</p><button class="demo-contact-open" type="button">${locale === 'de' ? 'Kontakt' : 'Contact'}</button>`;
