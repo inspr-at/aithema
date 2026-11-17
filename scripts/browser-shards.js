@@ -350,6 +350,25 @@ browserTestWeights['test/browser/start-journey.test.js'] = Math.max(
 browserTestWeights['test/browser/start-look.test.js'] = Math.max(
   browserTestWeights['test/browser/start-look.test.js'], 112);
 
+// AIT-515: complete understanding-failure remote run b86c217e10-4534:
+// 106.018906167s file work, including the 40-scene signals matrix and evidence.
+// ceil(*1.25)=133s. All new cases pass; the three AIT-221 failures match the
+// authorized baseline. This conservative diagnostic floor is not a trusted
+// timing sample; retain the sibling's rolling-main history unchanged.
+// R10: complete run 28583d1290-34712 at 28583d12 measured 107.054550459s,
+// including the new toggle geometry/focus/hit checks and 200 signal captures.
+// ceil(*1.25)=134s; all new cases pass, with the same three AIT-221 baseline failures.
+// Complete passing run ait-0c2e0381e26e47bb8d80ee17 at 1a202b3b measured
+// 178.881001943s for all 33/33 cases, including every baseline retry path.
+// Reserve ceil(*1.25)=224s for that full passing workload. Trusted samples stay unchanged.
+// R14: the unchanged signal matrix now runs in start-look; combined-opener
+// runs in demo. Complete run 18525f2d4c-80378: start-look 141/141 in 111.283s
+// (*1.25 -> 140s), demo 31/31 in 51.062s (*1.25 -> 64s), already covered by the
+// inherited 162s/80s floors. Remove only this ticket's 224s addition from the
+// source file; its complete inherited rolling-main 113.138s plan stays intact.
+// Its three known AIT-221 failures are not used to derive a lower reservation.
+// Keep every historical observation above and all trusted samples unchanged.
+
 // AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
 // clarify-now 17/17 PASS before the later shard timeout. Top-level work:
 // 302.474510797s; ceil-to-ms, then 25% warmup = 378.094s. Source:

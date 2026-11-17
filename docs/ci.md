@@ -339,6 +339,24 @@ projection reserve AIT-506's additional 180 s for start-journey plus at least
 below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
 The projection never overwrites measured `.weight.json` history.
 
+AIT-515 keeps its 40-scene signal matrix in the existing understanding-failure
+file. Complete remote run `b86c217e10-4534` at `b86c217e10` measured
+106.018906167 s of file work, including 200 signal screenshots. Its 33 tests
+finished with 30 passing and the three authorized AIT-221 baseline failures;
+the new signal case and every exact settlement case pass. Reserve a temporary
+133 s floor (`ceil(106.018906167 × 1.25)`) outside trusted timing history.
+R10 run `28583d1290-34712` at `28583d12` measured 107.054550459 s for the
+complete file, including the added toggle geometry, focus and hit checks and
+200 signal captures. All new cases pass with the same three AIT-221 failures;
+raise the diagnostic reserve to 134 s (`ceil(107.054550459 × 1.25)`).
+The later complete passing run `ait-0c2e0381e26e47bb8d80ee17` at `1a202b3b`
+measured 178.881001943 s for all 33/33 cases, including every retry path that
+failed early in the baseline run. Reserve the full passing workload at 224 s
+(`ceil(178.881001943 × 1.25)`). This supersedes the 134 s diagnostic reserve.
+The sibling rolling-main samples, twelve bins, 405 s planning target, 420 s hard
+ceiling and required check names remain unchanged. Replace the diagnostic floor
+only when matching canonical-main measurements cover the changed workload.
+
 AIT-517 distributes combined email integration into host-surface and the new
 combined contact matrix into start-look, which already owns short-phone entrance
 coverage. All relocated bodies, assertions and timeouts remain unchanged.
@@ -384,6 +402,25 @@ inherited floors and trusted main weights remain, along with the additional
 180 s growth reserve, twelve shards and unchanged 405/420 s limits. The
 aggregate growth workload becomes **4820.039 s**; the unchanged unit headroom
 guard verifies its actual placement.
+
+AIT-515 R14 keeps the earlier 133/134/224 s observations above as history and
+redistributes the unchanged signals matrix into start-look. The unchanged
+combined-opener check moves from start-look into demo; every body, assertion,
+scene and timeout is retained. Complete run `18525f2d4c-80378` at `18525f2d`
+measured start-look **141/141**, **111.282635542 s**, and demo **31/31**,
+**51.061707292 s**. Their ceilings are `ceil(111.282635542 × 1.25) = 140 s`
+and `ceil(51.061707292 × 1.25) = 64 s`, covered by the inherited **162/80 s**
+floors. Only AIT-515's temporary **224 s** source-file addition is removed;
+understanding-failure retains its complete inherited **113.138 s** rolling-main
+plan. Its three known AIT-221 failures are not timing evidence for lowering
+that inherited reservation. Before and after runs each execute **204 tests**,
+with **201 passing** and only those same three baseline failures. Before run
+`7a853d4676-59520` measured the signal matrix at **31.442748250 s**; after it
+remains complete at **31.020854583 s**, including all forty scenes and 200
+original signal captures. No sample or assertion is removed. The merged growth
+projection is `4930.901 - (224 - 113.138) = 4820.039 s`, fitting twelve bins
+at the unchanged **405 s** target and **420 s** ceiling. The actual placement
+is verified by the unchanged AIT-532 guard; trusted timing history stays intact.
 
 Explicit remote QA can add `test/browser/evidence-reporter.js` beside the spec
 reporter. It retains every nested failure and complete file summaries in
