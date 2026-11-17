@@ -6,6 +6,7 @@ import { EmailOffer } from '../src/email-offer.js';
 import * as offerExports from '../../core/src/email-offer.js';
 import { emailOfferEligibility, visitorMessageCount } from '../../core/src/email-offer.js';
 import { en } from '../src/i18n/en.js';
+import { confirmationHost } from '../../../test/fixtures/confirmation-host.js';
 
 const tiers = { current: 'anonymous', next: 'emailGiven', delta: 3_000_000, canConfirm: true,
   allowancesMicro: { anonymous: 1_000_000, emailGiven: 4_000_000, emailConfirmed: 6_000_000 } };
@@ -177,4 +178,31 @@ test('AIT-540 M6: only an accepted current show claim permits one reveal', async
   assert.equal(f.offer.takeReveal('a2'), false, 'later re-renders cannot repeat it');
   f.offer.setCredits({ ...f.credits, emailOffer: { offered: true, open: true, at: 'a2', revision: 3 } });
   assert.equal(f.offer.takeReveal('a2'), false, 'credit refresh cannot re-arm it');
+});
+
+
+test('AIT-543: a host without a visitor store sends the offer through identity and grants credit only on confirmation', async t => {
+  const f = await confirmationHost(t), window = new Window({ url: 'http://local/' });
+  globalThis.document = window.document;
+  const host = window.document.createElement('div'); window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' });
+  const entry = window.document.createElement('section'), lock = window.document.createElement('section'), dialog = window.document.createElement('dialog');
+  root.append(entry, lock, dialog);
+  const verification = new Verification({ root, entry, lock, dialog, copy: en, request: f.call, identity: f.session.identity, demo: true });
+  const offer = new EmailOffer({ root, copy: en, verification, request: f.call, session: () => f.session, streaming: () => false });
+  t.after(async () => { offer.destroy(); verification.destroy(); delete globalThis.document; await window.happyDOM.close(); });
+  await verification.load(); verification.setCredits({ tiers: f.tiers() });
+  const row = window.document.createElement('li'); root.append(row); offer.paintRow(row);
+  const address = 'visitor@example.test'; row.querySelector('input').value = address;
+  await offer.save();
+  assert.deepEqual(f.calls.filter(call => call.path.startsWith('identity/')), [{ path: 'identity/request', body: { address } }]);
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email' && call.body).length, 0, 'never attempt a refused visitor PUT');
+  assert.equal(f.deliveries.at(-1)?.address, address, 'the host sent the link');
+  assert.equal(row.dataset.step, 'sent');
+  assert.equal(row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.sent);
+  assert.equal(f.tiers().current, 'anonymous', 'sending a link does not grant credit');
+  const confirmed = await f.call('identity/confirm', { token: 'fixture-confirmation' });
+  assert.equal(confirmed.ok, true); verification.set(confirmed.body.identity); offer.paint();
+  assert.equal(row.dataset.step, 'confirmed');
+  assert.equal(f.tiers().current, 'emailConfirmed');
 });
