@@ -4249,8 +4249,13 @@ Document-only continuations use the existing upload-consent wording and editor.
 Paused conversations and unavailable normalizers have their own refusal copy;
 only a missing model capability uses the unsupported-model wording. An enabled
 Attach control describes selection even before consent, and asks only after a
-file is chosen. Unknown file refusals include the supported-format help line;
-retained-file retry messages preserve their refusal facts and retry action order.
+file is chosen. Unknown file refusals include the supported-format help sentence
+without a trailing separator.
+Image-capable composers reserve that full localized notice and show it without
+the two-line cap. Malformed image copy (`imageRefusals.malformed`) follows the
+file name: “is not a readable image.” / “ist kein lesbares Bild.”; host overrides
+still win.
+Retained-file retry messages preserve their refusal facts and retry action order.
 A successful document in a mixed pick keeps that pick's image refusal visible,
 including when the document waits for consent before uploading. Failures from
 the current selection also stay visible across upload acknowledgements; a later

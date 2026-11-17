@@ -528,7 +528,7 @@ export const en = {
     "size": "Image too large for this upload.",
     "limit": "No more images fit in this conversation.",
     "empty": "The image is empty.",
-    "malformed": "The image is damaged or not in the expected format.",
+    "malformed": "is not a readable image.",
     "dimensions": "The image dimensions are too large.",
     "deadline": "Preparing the image took too long.",
     "cancelled": "Preparing the image was cancelled.",

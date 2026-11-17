@@ -1489,7 +1489,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const refusal = await uploadChooser(page);
     await refusal.accept([paths.refused]);
-    await waitForShadow(page, '.composer-reason', { text: `Nicht angehängt: skript.sh (Dateityp wird nicht angenommen).\u00a0· ${de.uploadsSupported}` });
+    await waitForShadow(page, '.composer-reason', { text: `Nicht angehängt: skript.sh (Dateityp wird nicht angenommen). ${de.uploadsSupported}` });
     assert.equal(posts(), requestsBefore, 'nothing sent for a refused file');
     await shot(page, 'de-light-1440-refused');
 

@@ -188,6 +188,10 @@
   The hidden feedback measurement node is mounted only for active image input;
   hosts without it retain their existing composer DOM and geometry.
   Repeated inactive paints skip feedback DOM writes.
+  Full document-type notices and accepted formats share the measured image
+  feedback reserve and wrap without the two-line cap or a trailing separator.
+  `imageRefusals.malformed` now follows the filename with “is not a readable
+  image.” / “ist kein lesbares Bild.”; host overrides keep precedence.
 - AIT-515: `understanding.signals` remains `string[]` and is now newest-first by
   first-seen server sequence, with stable provider-order ties. Current finals
   hide omitted texts; rewordings are new keys, without replacement IDs or an

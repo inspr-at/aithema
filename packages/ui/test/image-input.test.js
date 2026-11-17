@@ -88,7 +88,7 @@ for (const copy of [en, de]) for (const documentRefusal of [false, true]) {
     assert.equal(reason.textContent.includes('photo.heic'), false, 'no duplicate image refusal remains after send');
     if (documentRefusal) {
       assert.equal(reason.textContent, (copy === en ? 'Not attached: blocked.exe (file type not accepted).'
-        : 'Nicht angehängt: blocked.exe (Dateityp wird nicht angenommen).') + '\u00a0· ' + copy.uploadsSupported);
+        : 'Nicht angehängt: blocked.exe (Dateityp wird nicht angenommen).') + ' ' + copy.uploadsSupported);
       assert.equal(f.root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     } else assert.equal(reason.hasAttribute('data-shortcut'), true);
     assert.equal(f.root.querySelector('.composer-saved-announcement').textContent, copy.saved);

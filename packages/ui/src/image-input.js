@@ -38,7 +38,7 @@ export class ImageInputView {
   refusalText(reason) { return this.#text(`imageRefusals.${reason}`, reason === 'model' ? 'imageUnsupportedModel' : reason === 'live-call' ? 'imageLiveCall' : undefined) ?? this.#text('imageRefusals.unavailable'); }
   #refusal(record) {
     const row = node('span', 'image-refusal');
-    const name = node('span', 'image-refusal__name', record.name ? `${record.name}: ` : ''); name.title = record.name ?? '';
+    const name = node('span', 'image-refusal__name', record.name ? `${record.name}${record.reason === 'malformed' ? ' ' : ': '}` : ''); name.title = record.name ?? '';
     row.append(name, node('span', 'image-refusal__reason', this.refusalText(record.reason)));
     return row;
   }
@@ -54,10 +54,14 @@ export class ImageInputView {
     }
     if (!this.#reserve.parentElement) this.#ports.form.querySelector('.composer-feedback').append(this.#reserve);
     const reasons = ['batch', 'unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'paused'];
-    const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard]);
+    // A type refusal shares this slot with decoder feedback. Reserve its full
+    // localized sentence and accepted formats before intake can settle.
+    const documentNotice = [this.#copy.uploads.refused.replace('{list}', this.#copy.uploads.type.replace('{name}', 'filename.unknown')),
+      this.#text('uploadsSupported')].filter(Boolean).join(' ');
+    const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard, documentNotice]);
     if (this.#reserve.dataset.copy !== key) {
       this.#reserve.dataset.copy = key;
-      this.#reserve.replaceChildren(...reasons.map(reason => {
+      this.#reserve.replaceChildren(node('span', 'image-feedback-document-reserve', documentNotice), ...reasons.map(reason => {
         const row = node('span', 'image-refusals-reserve__row');
         const icon = node('span', 'image-refusals__icon');
         const list = node('span', 'image-refusals__list'); list.append(this.#refusal({ name: 'file', reason }));

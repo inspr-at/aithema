@@ -528,7 +528,7 @@ export const de = {
     "size": "Das Bild ist für diesen Upload zu groß.",
     "limit": "In diesem Gespräch können keine weiteren Bilder hinzugefügt werden.",
     "empty": "Das Bild ist leer.",
-    "malformed": "Das Bild ist beschädigt oder hat nicht das erwartete Format.",
+    "malformed": "ist kein lesbares Bild.",
     "dimensions": "Die Bildabmessungen sind zu groß.",
     "deadline": "Die Bildvorbereitung hat zu lange gedauert.",
     "cancelled": "Die Bildvorbereitung wurde abgebrochen.",

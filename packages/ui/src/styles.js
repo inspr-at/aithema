@@ -889,6 +889,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
 .composer[data-image-input] .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
+.image-feedback-document-reserve { overflow-wrap:anywhere; }
+.composer[data-image-input] .composer-reason:not(:has(.upload-discard)) { max-height:none; }
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
 .image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }
 .image-refusals__icon { flex:none; width:14px; height:14px; margin-top:2px; }
