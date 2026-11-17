@@ -292,6 +292,17 @@ function navigationScene(t) {
   return { c, root, shell, move, partial, acknowledge, bottom: () => shell.scrollHeight - shell.clientHeight };
 }
 
+test('AIT-511: Latest follows the native end when a nonempty list is unmeasured', t => {
+  const { root, shell, bottom } = navigationScene(t);
+  const list = shell.querySelector('ol');
+  assert.ok(list.children.length > 0, 'the transcript contains items');
+  list.getBoundingClientRect = () => ({ top: 0, bottom: 0, width: 0, height: 0 });
+  root.querySelector('.qcard').hidden = true;
+  assert.ok(shell.scrollHeight > shell.clientHeight, 'the native scroll box overflows');
+  root.querySelector('.transcript-latest').click();
+  assert.equal(shell.scrollTop, bottom(), 'an unmeasured list cannot prove that visible content fits');
+});
+
 test('AIT-512: persisted user row exists before the card hides, in the same task', t => {
   const { c, root } = navigationScene(t), card = root.querySelector('.qcard');
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'hidden');
