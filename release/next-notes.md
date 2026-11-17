@@ -74,7 +74,9 @@
   used-up copy scrolls in its body, keyboard-focusable only while overflowing.
   Attach, Send and the bottom edge stay fixed. Failed sends and answer-chip
   sends retain a separate draft and its size; accepted typed/device sends reset
-  the matching draft. A next draft typed during a pending reply reserves its
+  the matching draft. Discarded pending combined drafts refit immediately; CSS-only
+  call/card transitions refresh the stored notice height before later changes.
+  A next draft typed during a pending reply reserves its
   future question-card budget without resizing when that reply arrives.
   Follow mode re-pins; a resting transcript pointer wins
   and Latest exposes the occluded tail. Latest keeps its existing end-control

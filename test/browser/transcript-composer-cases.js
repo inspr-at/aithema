@@ -24,7 +24,15 @@ const geometry = async page => { const state = await shadow(page, c => {
   listPadding: parseFloat(getComputedStyle(shell.querySelector('ol')).paddingBottom),
   jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
   cardHidden: r.querySelector('.qcard').hidden,
-  footerHidden: getComputedStyle(r.querySelector('.display-foot')).display === 'none' };
+  footerHidden: getComputedStyle(r.querySelector('.display-foot')).display === 'none',
+  pageLanguage: document.documentElement.lang,
+  legalLabels: [...c.querySelectorAll('#demo-license, #demo-legal-source')].map(link => link.textContent),
+  combinedReservations: Object.fromEntries(['.composer-feedback', '.composer-status-slot', '.composer-notice-slot']
+    .filter(selector => r.querySelector(selector)).map(selector => {
+      const node = r.querySelector(selector), css = getComputedStyle(node);
+      return [selector, { box: node.getBoundingClientRect().toJSON(), rowGap: css.rowGap, text: node.innerText }];
+    })) };
+
 });
   for (const selector of ['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child']) positive(state.boxes[selector], selector);
   return state;
