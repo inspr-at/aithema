@@ -12,7 +12,6 @@ export class ImageInputView {
     ports.form.prepend(this.#tiles);
     this.#reserve = node('span', 'image-feedback-reserve');
     this.#reserve.setAttribute('aria-hidden', 'true'); this.#reserve.inert = true;
-    ports.form.querySelector('.composer-feedback').append(this.#reserve);
     const fit = () => {
       const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
       if (height > 0) ports.form.style.setProperty('--image-feedback-height', `${height}px`);
@@ -46,7 +45,12 @@ export class ImageInputView {
   #reserveFeedback() {
     // Hosts without image input have no feedback slot to measure. Build its
     // localized candidates only once that layout is active.
-    if (!this.#ports.form.hasAttribute('data-image-input')) return;
+    if (!this.#ports.form.hasAttribute('data-image-input')) {
+      this.#reserve.remove();
+      this.#ports.form.style.removeProperty('--image-feedback-height');
+      return;
+    }
+    if (!this.#reserve.parentElement) this.#ports.form.querySelector('.composer-feedback').append(this.#reserve);
     const reasons = ['batch', 'unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'paused'];
     const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard]);
     if (this.#reserve.dataset.copy !== key) {

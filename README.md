@@ -4129,6 +4129,8 @@ including when the document waits for consent before uploading. Failures from
 the current selection also stay visible across upload acknowledgements; a later
 successful attachment clears older feedback.
 The reserved image-feedback width stays stable when consent becomes a shortcut.
+Its hidden measurement node is mounted only while image input is active, so
+hosts without image input retain the existing composer DOM and geometry.
 
 The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,
 `imageUpload` (normalized bytes in `imageBytes`), and `expireStagedUploads`;
