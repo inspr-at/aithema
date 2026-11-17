@@ -502,11 +502,13 @@ assertion remain unchanged. Remote shard guards qualify the actual placement.
 
 AIT-510 r16 places the unchanged no-upload feedback regression in
 `upload-capacity.test.js` instead of expanding the 395 s host-surface plan.
-Remote red run `ait-dbb1325f89ae45a8b9b8da52` at `9d07e6da` measured the
-new case at **16.159237637 s**. Its temporary diagnostic reservation adds
-`ceil(16.159237637 × 1.25) = 21 s` to the inherited **36.093 s** upload plan,
-for **57.093 s**. Existing assertions, trusted timing history, twelve shards
-and the **405/420 s** limits remain unchanged.
+Its initial additive **57.093 s** projection exceeded growth-plan headroom.
+Complete remote run `edca77de21-96753` at `edca77de` passes all **6/6** upload
+tests in **32.980476125 s**, including the new sixteen-scene regression.
+`ceil(32.980476125 × 1.25) = 42 s` replaces only this round's provisional
+addition, retaining the inherited **36.093 s** minimum and every other floor.
+Existing assertions, trusted timing history, twelve shards and the
+**405/420 s** limits remain unchanged.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
