@@ -61,8 +61,9 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
       if (!typedRestored && event.type === 'turn.final' && event.data.content === 'Typed during voice') {
         typedTurn ??= event; return;
       }
-      if (typedTurn && !typedRestored && event.seq > typedTurn.seq) {
-        typedOvertaking ??= event; typedBacklog.push(event); return;
+      if (typedTurn && !typedRestored && (!event.seq || event.seq > typedTurn.seq)) {
+        if (event.seq > typedTurn.seq) typedOvertaking ??= event;
+        typedBacklog.push(event); return;
       }
       if (!reordered && event.type === 'turn.final' && event.data.role === 'user' && event.data.content.includes('public API')) {
         delayedTurn ??= event;
