@@ -4238,11 +4238,26 @@ The credit receipt's `emailOffer` record and offer-claim responses carry
 `offered`, `open`, `dismissed`, `at` (the anchor reply ID), `nextTier`,
 `deltaMicro`, and `revision`. This is private host state, separate from the
 snapshot's policy and from transcript events. A saved, unconfirmed address uses
-resend; replacing or deleting it remains in Settings. New addresses use
-`Verification.saveAndConfirm`, including the rendered privacy notice's mandatory
-`noticeVersion`. `Verification.resend()` uses the existing identity route and
+resend; replacing or deleting it remains in Settings. On visitor-store hosts,
+new addresses use `Verification.saveAndConfirm`, including the rendered privacy
+notice's mandatory `noticeVersion`. `Verification.resend()` uses the existing identity route and
 cooldown, requesting a first link for a saved guest or resending a pending one,
 without saving or replacing the address.
+
+Hosts without a visitor email store (`visitorEmail.canSave === false`) now use
+the lock form's identity command for in-chat offers: `identity/request` for a
+guest or an identity without an address, otherwise `identity/change`. No visitor
+email PUT is attempted. The offer alone selects `Verification.sendIdentityLink`;
+`Verification.saveAndConfirm` and the low-credit / turn-5 email ask retain their
+existing store-backed save behavior. This is a bug fix with no additional opt-in flag: the
+previous save path always failed on these hosts. Sending the link grants no
+credit; the host's confirmed tier applies only after confirmation. The offer
+uses `hostConfirm` for a confirmed-tier increase, or `verify.entry` if the host
+advertises only a save-tier increase that this path cannot grant. Initial send
+and resend failures use `verify.invalid`, `verify.rateLimited` or `verify.failed`,
+without claiming the address was saved; resend keeps the identity cooldown.
+Store-backed hosts retain save-before-confirm and their saved-tier credit even
+if link delivery fails.
 
 Copy comes from the existing `hostGive`, `hostConfirm`, `verify.lockLead`,
 `verify.send`, `verify.resend`, `verify.sent` and `verify.unlocked` keys, so host
