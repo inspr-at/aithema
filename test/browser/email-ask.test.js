@@ -621,3 +621,74 @@ test('AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and
       `AIT-540 M6: reload keeps the latest turn in view: ${JSON.stringify(after)}`);
   }
 });
+
+test('AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-identity-offer-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, records = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  if (evidence) await mkdir(join(evidence, 'ait-543'), { recursive: true });
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) await t.test(`${locale}/${theme}/${width}`, async () => {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+    // Each matrix case starts at first contact; a desktop overview must not
+    // carry its revealed state into the next phone's evidence viewport.
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+    await fixture(page, locale, { visitorStore: false, opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0 });
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+    await page.evaluate(() => window.ait164.reply());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
+    const { [locale]: copy } = await import(`../../packages/ui/src/i18n/${locale}.js`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer__lead').textContent), copy.hostSurface.usedUp.hostConfirm.replace('{delta}', new Intl.NumberFormat(locale).format(1200)));
+    const targets = ['.email-offer', '.email-offer__row', '.email-offer__send', '.email-offer__message-slot', '.composer-shell', '.display-foot', '.transcript-shell'];
+    const sample = async () => {
+      const result = await boxes(page, targets);
+      for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${targets[i]}: positive box ${box}`);
+      const [offer, pane] = [result[0], result.at(-1)];
+      if (width === 390) assert.ok(offer[1] >= pane[1] - .5 && offer[1] + offer[3] <= pane[1] + pane[3] + .5, `${label}: complete offer fits the visible transcript pane; ${JSON.stringify({ offer, pane })}`);
+      return result;
+    };
+    const baseline = await sample();
+    const capture = async state => {
+      await settle(page);
+      const after = await sample(), shift = stable(baseline, after, `${label}/${state}`);
+      records.push({ head: evidenceCommit, locale, theme, width, state, targets, before: baseline, after, shift });
+      if (evidence) {
+        await page.screenshot({ path: join(evidence, 'ait-543', `${label}-${state}.png`) });
+        await writeFile(join(evidence, 'ait-543', 'geometry.json'), JSON.stringify(records, null, 2));
+      }
+    };
+    const submit = () => shadow(page, c => { const input = c.shadowRoot.querySelector('#email-offer-input'); input.value = 'visitor@example.test'; input.focus({ preventScroll: true }); input.form.requestSubmit(); });
+    for (const [state, status, key] of [['failure', 503, 'failed'], ['rate-limited', 429, 'rateLimited']]) {
+      await page.evaluate(status => { window.ait164.linkStatus = status; }, status);
+      const previous = await page.evaluate(() => window.ait164.identityCommands?.length ?? 0);
+      await submit();
+      await until(page, previous => (window.ait164.identityCommands?.length ?? 0) > previous, previous);
+      await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__message').textContent === text, copy.hostSurface.verify[key]);
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.id), 'email-offer-input');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email-offer-input').value), 'visitor@example.test');
+      await capture(state);
+    }
+    await page.evaluate(() => { window.ait164.linkStatus = 200; window.ait164.linking = true; });
+    await submit();
+    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer__message').textContent === text, copy.hostSurface.verify.sending);
+    await capture('sending');
+    await page.evaluate(() => { window.ait164.linking = false; });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer').dataset.step === 'sent');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer__message').textContent), copy.hostSurface.verify.sent);
+    const address = await boxes(page, ['.email-offer__address']);
+    assert.ok(address[0][2] > 0 && address[0][3] > 0, 'sent address has positive geometry');
+    assert.equal(await page.evaluate(() => window.ait164.credits().tiers.current), 'anonymous', 'credit remains unchanged until confirmation');
+    await capture('sent');
+    await click(page, '.email-offer__send');
+    await until(page, () => window.ait164.identityCommands.at(-1).command === 'resend');
+    assert.deepEqual(await page.evaluate(() => window.ait164.identityCommands.map(call => call.command)), ['request', 'request', 'request', 'resend']);
+    assert.deepEqual(await page.evaluate(() => window.ait164.identityCommands.at(-1).body), {});
+    assert.equal(await page.evaluate(() => window.ait164.requests.includes('save') || window.ait164.requests.includes('refused-save')), false, 'no visitor PUT, refused or successful');
+    assert.equal(await page.evaluate(() => window.ait164.visitorReads), 0, 'explicit capability also avoids the unavailable read');
+  });
+});

@@ -95,7 +95,7 @@ export class EmailOffer {
     row.dataset.step = this.step;
     const next = this.state.nextTier === undefined ? this.variant?.nextTier ?? this.eligibility.nextTier : this.state.nextTier;
     const delta = this.state.deltaMicro ?? this.variant?.delta ?? this.eligibility.delta;
-    setText(row.querySelector('.email-offer__lead'), next && delta > 0
+    setText(row.querySelector('.email-offer__lead'), this.verification.canSave === false && next === 'emailGiven' ? v.entry : next && delta > 0
       ? fill(this.copy.hostSurface.usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: formatCredits(delta, this.session().locale ?? 'en') }) : v.lockLead);
     const input = row.querySelector('input'), saved = Boolean(email.address);
     input.hidden = saved; input.disabled = confirmed; input.setAttribute('aria-disabled', String(Boolean(this.saving || confirmed))); input.placeholder = v.placeholder;
@@ -125,15 +125,26 @@ export class EmailOffer {
       this.invalid = true; this.message = this.copy.hostSurface.verify.invalid; this.paint(); return;
     }
     const resending = Boolean(this.email.address);
-    this.invalid = false; this.saving = true; this.message = resending ? this.copy.hostSurface.verify.sending : this.copy.hostSurface.email.saving; this.paint();
+    this.invalid = false; this.saving = true; this.message = '';
     let response;
-    try { response = this.email.address ? await this.verification.resend() : await this.verification.saveAndConfirm(address); }
+    try {
+      if (!resending && this.verification.canSave === undefined && this.verification.load) {
+        this.paint(); await this.verification.load();
+        if (!this.alive) return;
+      }
+      this.message = resending || this.verification.canSave === false ? this.copy.hostSurface.verify.sending : this.copy.hostSurface.email.saving; this.paint();
+      response = resending ? await this.verification.resend() : this.verification.canSave === false
+        ? await this.verification.sendIdentityLink(address) : await this.verification.saveAndConfirm(address);
+    }
     catch { response = { ok: false }; }
     if (!this.alive) return;
     this.saving = false;
     if (response?.ok && response.sent) { this.step = 'sent'; this.message = ''; this.row.querySelector('input').value = ''; }
-    else if (response?.ok) this.message = this.copy.hostSurface.verify.deliveryFailed;
-    else if (!resending) {
+    else if (response?.ok) this.message = this.verification.canSave === false ? this.copy.hostSurface.verify.failed : this.copy.hostSurface.verify.deliveryFailed;
+    else if (this.verification.canSave === false) {
+      this.invalid = response?.status === 400;
+      this.message = this.invalid ? this.copy.hostSurface.verify.invalid : response?.status === 429 ? this.copy.hostSurface.verify.rateLimited : this.copy.hostSurface.verify.failed;
+    } else if (!resending) {
       this.invalid = response?.status === 400;
       this.message = this.invalid ? this.copy.hostSurface.verify.invalid : this.copy.hostSurface.email.failed;
     } else this.message = response?.status === 429 ? this.copy.hostSurface.verify.rateLimited : this.copy.hostSurface.verify.failed;

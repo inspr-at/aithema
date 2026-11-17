@@ -6,6 +6,8 @@ import { EmailOffer } from '../src/email-offer.js';
 import * as offerExports from '../../core/src/email-offer.js';
 import { emailOfferEligibility, visitorMessageCount } from '../../core/src/email-offer.js';
 import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
+import { confirmationHost } from '../../../test/fixtures/confirmation-host.js';
 
 const tiers = { current: 'anonymous', next: 'emailGiven', delta: 3_000_000, canConfirm: true,
   allowancesMicro: { anonymous: 1_000_000, emailGiven: 4_000_000, emailConfirmed: 6_000_000 } };
@@ -177,4 +179,155 @@ test('AIT-540 M6: only an accepted current show claim permits one reveal', async
   assert.equal(f.offer.takeReveal('a2'), false, 'later re-renders cannot repeat it');
   f.offer.setCredits({ ...f.credits, emailOffer: { offered: true, open: true, at: 'a2', revision: 3 } });
   assert.equal(f.offer.takeReveal('a2'), false, 'credit refresh cannot re-arm it');
+});
+
+
+test('AIT-543: a host without a visitor store sends the offer through identity and grants credit only on confirmation', async t => {
+  const f = await confirmationHost(t), window = new Window({ url: 'http://local/' });
+  globalThis.document = window.document;
+  const host = window.document.createElement('div'); window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' });
+  const entry = window.document.createElement('section'), lock = window.document.createElement('section'), dialog = window.document.createElement('dialog');
+  root.append(entry, lock, dialog);
+  const verification = new Verification({ root, entry, lock, dialog, copy: en, request: f.call, identity: f.session.identity, demo: true });
+  const offer = new EmailOffer({ root, copy: en, verification, request: f.call, session: () => f.session, streaming: () => false });
+  t.after(async () => { offer.destroy(); verification.destroy(); delete globalThis.document; await window.happyDOM.close(); });
+  await verification.load(); verification.setCredits({ tiers: f.tiers() });
+  const row = window.document.createElement('li'); root.append(row); offer.paintRow(row);
+  const address = 'visitor@example.test'; row.querySelector('input').value = address;
+  await offer.save();
+  assert.deepEqual(f.calls.filter(call => call.path.startsWith('identity/')), [{ path: 'identity/request', body: { address } }]);
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email' && call.body).length, 0, 'never attempt a refused visitor PUT');
+  assert.equal(f.deliveries.at(-1)?.address, address, 'the host sent the link');
+  assert.equal(row.dataset.step, 'sent');
+  assert.equal(row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.sent);
+  assert.equal(f.tiers().current, 'anonymous', 'sending a link does not grant credit');
+  const confirmed = await f.call('identity/confirm', { token: 'fixture-confirmation' });
+  assert.equal(confirmed.ok, true); verification.set(confirmed.body.identity); offer.paint();
+  assert.equal(row.dataset.step, 'confirmed');
+  assert.equal(f.tiers().current, 'emailConfirmed');
+});
+
+async function capabilityOffer(t, { canSave = false, identity = {}, reply, copy = en, loaded = true } = {}) {
+  t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+  const window = new Window({ url: 'http://local/' }); globalThis.document = window.document;
+  const host = window.document.createElement('div'); window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' });
+  const entry = window.document.createElement('section'), lock = window.document.createElement('section'), dialog = window.document.createElement('dialog');
+  root.append(entry, lock, dialog);
+  let current = { status: 'guest', address: null, assessmentUnlocked: true, pollVerification: false, resendAfterMs: 0, ...identity };
+  const calls = [], address = 'visitor@example.test';
+  const request = async (path, body, method) => {
+    calls.push({ path, body, method });
+    if (path === 'identity') return { ok: true, body: { identity: current, visitorEmail: { canSave, canDelete: canSave } } };
+    if (path === '/api/visitor/email') return canSave ? { ok: true, body: { visitor: { address: body?.address ?? null }, notice: { version: 'fixture-notice' } } }
+      : { ok: false, status: 404, body: { error: 'visitor-unavailable' } };
+    const response = reply ? await reply(path, body) : { ok: true, body: { identity: { ...current, status: 'verification-pending', address: body?.address ?? current.address, delivery: 'sent' } } };
+    if (response.body?.identity) current = response.body.identity;
+    return response;
+  };
+  const verification = new Verification({ root, entry, lock, dialog, copy, request, identity: current, demo: true });
+  const offer = new EmailOffer({ root, copy, verification, request, session: () => ({ locale: copy.display.locale }), streaming: () => false });
+  t.after(async () => { offer.destroy(); verification.destroy(); delete globalThis.document; await window.happyDOM.close(); });
+  if (loaded) await verification.load();
+  const row = window.document.createElement('li'); root.append(row); offer.paintRow(row); row.querySelector('input').value = address;
+  return { offer, row, calls, address, verification };
+}
+
+test('AIT-543: explicit store capability keeps save-before-confirm and the saved-tier failure copy', async t => {
+  const f = await capabilityOffer(t, { canSave: true, reply: () => ({ ok: false, status: 503 }) });
+  await f.offer.save();
+  assert.deepEqual(f.calls.filter(call => call.body).map(call => [call.path, call.body, call.method]), [
+    ['/api/visitor/email', { address: f.address, noticeVersion: 'fixture-notice' }, 'PUT'],
+    ['identity/request', { address: f.address }, undefined],
+  ]);
+  assert.equal(f.verification.email.address, f.address, 'save succeeds even if delivery fails');
+  assert.equal(f.row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.deliveryFailed);
+});
+
+test('AIT-543: a store-backed offer acknowledges saving before sending its link', async t => {
+  const f = await capabilityOffer(t, { canSave: true });
+  await f.offer.save();
+  assert.deepEqual(f.calls.filter(call => call.body).map(call => call.path), ['/api/visitor/email', 'identity/request']);
+  assert.equal(f.calls.find(call => call.method === 'PUT').body.noticeVersion, 'fixture-notice');
+  assert.equal(f.row.dataset.step, 'sent');
+  assert.equal(f.row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.sent);
+});
+
+test('AIT-543: an offer resolves an unloaded capability before choosing persistence', async t => {
+  const f = await capabilityOffer(t, { loaded: false });
+  await f.offer.save();
+  assert.deepEqual(f.calls.map(call => call.path), ['identity', 'identity/request']);
+  assert.equal(f.row.dataset.step, 'sent');
+});
+
+for (const status of [400, 429, 503, 'delivery-failed', 'network']) test(`AIT-543: no-store initial ${status} uses identity failure copy and retains focus`, async t => {
+  const f = await capabilityOffer(t, { reply: () => {
+    if (status === 'network') throw new Error('fixture network failure');
+    return status === 'delivery-failed' ? { ok: true, body: { identity: { status: 'verification-pending', address: 'visitor@example.test', delivery: 'failed', pollVerification: false } } }
+      : { ok: false, status };
+  } });
+  const input = f.row.querySelector('input'); input.focus();
+  await f.offer.save();
+  const key = status === 400 ? 'invalid' : status === 429 ? 'rateLimited' : 'failed';
+  assert.equal(f.row.querySelector('.email-offer__message').textContent, en.hostSurface.verify[key]);
+  assert.equal(input.getAttribute('aria-invalid'), String(status === 400));
+  if (status !== 'delivery-failed') {
+    assert.equal(input.hidden, false); assert.equal(input.value, f.address); assert.equal(f.row.getRootNode().activeElement, input);
+  }
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email').length, 0);
+});
+
+test('AIT-543: no-store sending copy, pending resend, local cooldown and server 429 match identity', async t => {
+  let finish, count = 0;
+  const pending = { status: 'verification-pending', address: 'visitor@example.test', delivery: 'sent', pollVerification: false, resendAfterMs: 10_000 };
+  const f = await capabilityOffer(t, { reply: () => {
+    count++;
+    if (count === 1) return new Promise(resolve => { finish = resolve; });
+    return { ok: false, status: 429, body: { identity: { ...pending, resendAfterMs: 20_000 } } };
+  } });
+  const sending = f.offer.save();
+  assert.equal(f.row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.sending);
+  await f.offer.save(); assert.equal(count, 1, 'duplicate submits do not dispatch');
+  finish({ ok: true, body: { identity: pending } }); await sending;
+  await f.offer.save(); assert.equal(count, 1, 'local cooldown makes no request');
+  assert.equal(f.row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.rateLimited);
+  t.mock.timers.tick(10_000); await f.offer.save();
+  assert.equal(count, 2); assert.equal(f.calls.at(-1).path, 'identity/resend'); assert.deepEqual(f.calls.at(-1).body, {});
+  assert.equal(f.row.querySelector('.email-offer__message').textContent, en.hostSurface.verify.rateLimited);
+  await f.offer.save(); assert.equal(count, 2, 'server 429 anchors the new cooldown');
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email').length, 0);
+});
+
+test('AIT-543: no-store confirmation uses the lock-form request/change rule', async t => {
+  const f = await capabilityOffer(t, { identity: { status: 'verification-pending', address: 'first@example.test' } });
+  assert.equal((await f.verification.sendIdentityLink('changed@example.test')).sent, true);
+  assert.equal(f.calls.at(-1).path, 'identity/change');
+  f.verification.set({ status: 'guest', address: 'saved@example.test', pollVerification: false });
+  assert.equal((await f.verification.sendIdentityLink('changed@example.test')).sent, true);
+  assert.equal(f.calls.at(-1).path, 'identity/request');
+  assert.equal(f.calls.filter(call => call.path === '/api/visitor/email').length, 0);
+});
+
+for (const locale of ['en', 'de']) test(`AIT-543: ${locale} identity offer promises credit at confirmation and never promises saving`, async t => {
+  const copy = { en, de }[locale];
+  const f = await capabilityOffer(t, { copy });
+  f.offer.state = { nextTier: 'emailConfirmed', deltaMicro: 3_000_000 }; f.offer.paint();
+  assert.equal(f.row.querySelector('.email-offer__lead').textContent, copy.hostSurface.usedUp.hostConfirm.replace('{delta}', '300'));
+  f.offer.state = { nextTier: 'emailGiven', deltaMicro: 3_000_000 }; f.offer.paint();
+  assert.equal(f.row.querySelector('.email-offer__lead').textContent, copy.hostSurface.verify.entry, 'an unsupported saved-tier promise is omitted');
+});
+
+test('AIT-543 r3: an unloaded store capability resolves before showing confirmation sending', async t => {
+  let finish;
+  const f = await capabilityOffer(t, { canSave: true, loaded: false, reply: () => new Promise(resolve => { finish = resolve; }) });
+  const saving = f.offer.save();
+  const unresolvedMessage = f.row.querySelector('.email-offer__message').textContent;
+  for (let i = 0; i < 20 && !finish; i++) await new Promise(resolve => setImmediate(resolve));
+  const storeMessage = f.row.querySelector('.email-offer__message').textContent;
+  finish({ ok: true, body: { identity: { status: 'verification-pending', address: f.address, delivery: 'sent', pollVerification: false } } });
+  await saving;
+  assert.equal(unresolvedMessage, '', 'the loading state makes no delivery claim');
+  assert.equal(storeMessage, en.hostSurface.email.saving);
+  assert.equal(f.row.dataset.step, 'sent');
 });
