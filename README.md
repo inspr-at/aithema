@@ -1557,7 +1557,8 @@ conversation without resizing the pane. Notice growth clears obsolete retained
 space; a deliberate transcript wheel gesture releases retained notice space.
 Discarding a pending combined draft refits the empty field immediately. Call-state
 and question-card visibility changes refresh the notice reservation baseline even
-when the notice text stays the same.
+when the notice text stays the same. Wrapped recovery notices align their final
+text line with the replay controls.
 The sizing owner publishes two measured CSS outputs on the workspace:
 `--aithema-composer-height` (effective composer height) and
 `--aithema-composer-growth` (growth above the empty composer baseline for the

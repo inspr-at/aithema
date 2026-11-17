@@ -76,6 +76,7 @@
   sends retain a separate draft and its size; accepted typed/device sends reset
   the matching draft. Discarded pending combined drafts refit immediately; CSS-only
   call/card transitions refresh the stored notice height before later changes.
+  Wrapped recovery notices align their final text baseline with replay controls.
   A next draft typed during a pending reply reserves its
   future question-card budget without resizing when that reply arrives.
   Follow mode re-pins; a resting transcript pointer wins

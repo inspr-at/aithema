@@ -175,7 +175,9 @@ svg { display:block; flex:none; }
 }
 .voice-notice { flex:none; display:flex; align-items:center; gap:12px; min-width:0; min-height:24px; overflow-wrap:anywhere; color:var(--aithema-muted); }
 .voice-notice--user { min-height:36px; }
-.voice-notice--reply { min-height:48px; color:var(--aithema-ink); }
+/* Wrapped notice text shares its final baseline with the replay controls.
+   The stacked phone rule below continues to own phone alignment. */
+.voice-notice--reply { min-height:48px; align-items:last baseline; color:var(--aithema-ink); }
 .voice-notice:empty, .voice-notice--reply:has(> span:empty):has(.voice-repeat[hidden]) { display:none; }
 .voice-reply-actions { display:flex; align-items:center; gap:12px; flex:none; }
 .voice-reply-actions .voice-repeat { display:inline-grid; align-items:center; flex:none; width:auto; height:auto; min-height:44px; padding:8px 14px; border:1px solid var(--aithema-line); border-radius:10px;
