@@ -436,5 +436,5 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
     assert.deepEqual(problems, []);
   });
 
-// Keep the phone/desktop image scenes here; tablet scenes share start-look.
-imageInputCheck([390, 1440]);
+// Keep phone image scenes here; tablet/desktop scenes share start-look.
+imageInputCheck([390]);

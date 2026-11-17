@@ -453,6 +453,12 @@ The unchanged eight 1024-width image scenes move into start-look through
 combined workload remains 170 tests, with every assertion and capture.
 The temporary source-file floor stays 86 s until a complete after-run
 qualifies both files and the unchanged twelve-bin 405/420 s guards.
+The first split passes **170/170** in `d2bcff8bea-80681`: upload **21/21**
+in **63.136940125 s**, start-look **149/149** in **117.521293250 s**. Its
+79 s source ceiling removes only 7 s, leaving the growth projection 2.946 s
+over capacity. Therefore the unchanged eight 1440 scenes move to start-look
+too; upload keeps all eight phone scenes, and start-look all sixteen tablet/
+desktop scenes. Keep all floors pending the complete second measurement.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
