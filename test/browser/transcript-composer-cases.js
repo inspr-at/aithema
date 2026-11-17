@@ -27,6 +27,8 @@ const geometry = async page => { const state = await shadow(page, c => {
   noticeParent: r.querySelector('.voice-notices')?.parentElement.className ?? '',
   noticeHeight,
   noCardClearance: { paddingBottom, latestSlot,
+    latestSlotTop: latest.getBoundingClientRect().top - (parseFloat(latestCSS.marginTop) || 0),
+    contentOverflows: list.getBoundingClientRect().height + noticeHeight + paddingTop + paddingBottom > shell.clientHeight + .5,
     unused: Math.max(0, shell.clientHeight - paddingTop - paddingBottom - list.getBoundingClientRect().height - noticeHeight - latestSlot) },
   listPadding: parseFloat(getComputedStyle(shell.querySelector('ol')).paddingBottom),
   jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
@@ -57,6 +59,23 @@ const noCardClearance = (state, label) => {
   assert.ok(gap >= -.5 && gap <= 24.5, `${label}: pane/composer clearance is between 0 and 24px: ${gap}`);
   assert.ok(extraGap >= -.5 && extraGap <= 24.5, `${label}: no duplicated end clearance: ${JSON.stringify({ rawGap, unused, latestSlot, extraGap })}`);
   Object.assign(state.noCardClearance, { gap, rawGap, extraGap });
+};
+// Coordinator r15: D511a keeps short conversations top-anchored; no latest-gap
+// assertion applies there. Keep their independent extra-clearance checks above.
+// LEAD r16 option (a): only overflowing, at-latest, no-card content has a <=24px
+// gap, measured to the TOP of AIT-400's reserved Latest slot (including its
+// leading margin). Retain that slot so toggling Latest never moves controls.
+const noCardLatestClearance = (state, label) => {
+  assert.equal(state.cardHidden, true, `${label}: no question card`);
+  for (const selector of ['.composer', '.transcript-shell', '.transcript-latest', '.turn:last-child']) positive(state.boxes[selector], selector);
+  assert.ok(state.extent > state.client + .5, `${label}: transcript genuinely overflows`);
+  assert.equal(state.noCardClearance.contentOverflows, true, `${label}: content exceeds the pane independently of Latest's slot`);
+  assert.ok(state.scroll > 0, `${label}: overflowing transcript has scrolled`);
+  assert.equal(state.jump, 'hidden', `${label}: latest content is read`);
+  assert.ok(Math.abs(state.extent - state.client - state.scroll) <= 1, `${label}: transcript is at the native latest position`);
+  const gap = state.noCardClearance.latestSlotTop - state.boxes['.turn:last-child'].bottom;
+  assert.ok(gap >= -.5 && gap <= 24.5, `${label}: latest turn/reserved-slot gap is between 0 and 24px: ${gap}`);
+  Object.assign(state.noCardClearance, { latestGap: gap });
 };
 const stable = (before, after, label) => {
   assert.equal(after.footerHidden, before.footerHidden, `${label}: footer visibility stays unchanged`);
@@ -181,8 +200,37 @@ export async function transcriptComposerCases(t) {
       await draft(page, 30); await settleEvidenceFrame(page); const capped = await geometry(page);
       assert.ok(capped.inputScroll > capped.inputClient, '30 lines scroll inside the textarea');
       assert.ok(capped.boxes['.composer'].height <= .4 * height + .5, 'whole composer respects visual viewport cap'); stable(before, capped, 'cap');
-      for (const [label, state] of [['empty', before], ['grown', grown], ['capped', capped]]) noCardClearance(state, `${width}x${height}/${label}`);
+      for (const [label, state] of [['empty', before], ['grown', grown], ['capped', capped]]) {
+        noCardClearance(state, `${width}x${height}/${label}`);
+        if (state.noCardClearance.contentOverflows) noCardLatestClearance(state, `${width}x${height}/${label}`);
+      }
       records.push({ label: `${width}x${height}`, before, grown, capped });
+    });
+  }
+  for (const [width, height] of [[1440, 900], [1280, 800], [1024, 640], [900, 700], [768, 1024], [390, 844]]) {
+    await t.test(`overflowing latest clearance at every growth size ${width}x${height}`, async () => {
+      for (const entrance of ['choice', 'combined']) {
+        await reset(width, height, 'en', 'light', { voice: true, turns: 40, entrance });
+        for (const [label, lines] of [['empty', 0], ['grown', 12], ['capped', 30]]) {
+          await draft(page, lines); await settleEvidenceFrame(page);
+          const followed = await geometry(page);
+          records.push({ label: `latest-follow-${entrance}-${width}x${height}-${label}`, ...followed });
+          noCardLatestClearance(followed, `${entrance}/${width}x${height}/${label}/follow`);
+          await shadow(page, c => {
+            const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+            shell.scrollTop = 0; shell.dispatchEvent(new Event('scroll'));
+            c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+              id: `latest-${c.session.seq}`, role: 'assistant', content: 'A new fixture reply.' } });
+          });
+          await settleEvidenceFrame(page);
+          assert.equal((await geometry(page)).jump, 'visible', 'an earlier reader is offered Latest');
+          await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
+          await settleEvidenceFrame(page);
+          const latest = await geometry(page);
+          records.push({ label: `latest-click-${entrance}-${width}x${height}-${label}`, ...latest });
+          noCardLatestClearance(latest, `${entrance}/${width}x${height}/${label}/Latest`);
+        }
+      }
     });
   }
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
