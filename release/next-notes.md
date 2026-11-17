@@ -10,6 +10,22 @@
   The fallback is scoped to in-chat offers; low-credit and turn-5 asks keep their
   existing save behavior.
 
+- AIT-542: additive `aithema-consent` detail fields `requestId` (unique per
+  request) and idempotent `cancel()` let a host settle a dismissed `start`
+  consent request. For other intents `cancel()` is a no-op for intent state;
+  concepts keep their existing TTL and later grant continuation. In the
+  combined entrance, cancellation returns the field, Send
+  and mic to idle within one animation frame and keeps the visitor's draft.
+  It does nothing after a grant, TTL expiry, a superseding request or a prior
+  cancellation. Never call it after granting: the component's fence is receipt
+  of `consent.revised`, which can follow the host's grant action. Hosts ignoring
+  the new fields retain the existing TTL behavior.
+  Returning from a separate consent page without a grant consumes the intent
+  as cancellation and restores the draft without sending or starting voice;
+  cached-page returns now use the restore check even if the feature read fails.
+  This clarifies RC25's “deleted on use or cancellation”: explicit host dismissal
+  is settled by `detail.cancel()`; expiry still discards the pending draft.
+
 - AIT-517 adds optional `sidebar-contact` and `contact-launcher` slots. Fill them
   before mount/configure. The pinned row is outside scrolling analysis and the
   E‑Mail ask pane; empty consumes zero height. It scrolls independently with a

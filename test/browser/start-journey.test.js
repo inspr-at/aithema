@@ -420,8 +420,11 @@ test('AIT-501 v2.2: the real host open/adopt/configure return resumes typing fro
   }
 });
 
-import { combinedEntranceCheck } from './combined-entrance-check.js';
+import { combinedEntranceCheck, consentCancelCheck } from './combined-entrance-check.js';
 test('AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440',
   { timeout: 180_000 }, combinedEntranceCheck);
 
 import './rc25-look-check.js';
+
+test('AIT-542: host cancellation settles within one frame with pinned controls and a retained draft',
+  { timeout: 180_000 }, consentCancelCheck);

@@ -41,7 +41,9 @@ for (const mode of ['type', 'voice']) test(`AIT-501: ${mode} Start resumes exact
   const f = fixture(t, mode, true), events = [];
   f.c.addEventListener('aithema-consent', e => events.push(e.detail));
   f.start();
-  assert.deepEqual(events, [{ sessionId: f.c.session.id, reason: 'ready', features: ['text', 'analysis', 'voice'], intent: 'start', mode, required: [mode === 'voice' ? 'voice' : 'text'] }]);
+  assert.deepEqual(events, [{ sessionId: f.c.session.id, reason: 'ready', features: ['text', 'analysis', 'voice'], intent: 'start', mode, required: [mode === 'voice' ? 'voice' : 'text'], requestId: events[0].requestId, cancel: events[0].cancel }]);
+  assert.equal(typeof events[0].requestId, 'string'); assert.ok(events[0].requestId.length > 0);
+  assert.equal(typeof events[0].cancel, 'function');
   await f.grant();
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, true);
   assert.equal(f.starts.length, mode === 'voice' ? 1 : 0);
