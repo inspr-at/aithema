@@ -102,3 +102,14 @@ Address the visitor directly in visitor-facing question text: use "you" in Engli
     assert.doesNotMatch(system, /Never open formulaically/u);
   });
 }
+
+for (const locale of ['en', 'de']) for (const draft of [false, true]) {
+  test(`AIT-514 ${locale} ${draft ? 'draft' : 'final'} summary and signals address the visitor without editing evidence`, () => {
+    const session = core.createSession({ locale });
+    session.transcript = [{ id: 'quote', role: 'user', content: 'The quote says "the person".' }];
+    const request = core.reasoningRequest(session, 'understanding', draft);
+    assert.match(request.system, /Address the visitor directly in summary and signals: use "you" in English and "Sie" in German, never "the person" or "the visitor"/u);
+    assert.match(request.system, /Keep quoted evidence verbatim; do not rewrite quotations to change their form of address/u);
+    assert.equal(request.messages.find(m => m.content === session.transcript[0].content)?.content, session.transcript[0].content);
+  });
+}

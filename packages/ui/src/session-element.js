@@ -45,6 +45,7 @@ import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, Fo
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
+import { SummaryView } from './summary-view.js';
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
@@ -129,6 +130,7 @@ export class AithemaSession extends HTMLElement {
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
   #savedTimer; #saved = false; #savedAnnouncement = false; #savedAnnouncedAt = -Infinity; #sendFailed = false;
+  #summaryView; #summaryExpanded = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
@@ -175,6 +177,8 @@ export class AithemaSession extends HTMLElement {
       if (this.#concept) this.#concept.sessionToken = sessionToken;
       this.#repaintLocale(copy); return;
     }
+    if (session.id !== this.#session?.id) this.#summaryExpanded = false;
+    this.#summaryView?.disconnect();
     const returningStart = this.#session ? null : this.#readStartIntent(session.id, options.entrance === 'combined');
     if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
@@ -260,12 +264,13 @@ export class AithemaSession extends HTMLElement {
     this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
-    this.#questionCard?.connect();
+    this.#questionCard?.connect(); this.#summaryView?.connect();
     this.#observePanes(); this.#syncReconciling();
     if (this.#laneStatusPending !== null) this.#awaitLaneStatus();
     this.#render('composer');
   }
   disconnectedCallback() {
+    this.#summaryView?.disconnect();
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
@@ -771,7 +776,7 @@ export class AithemaSession extends HTMLElement {
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
-        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
+        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><div class="summary-heading"><h3 id="summary-title" data-copy="summary"></h3><span class="summary-toggle-slot"><span class="summary-toggle-more" aria-hidden="true"></span><span class="summary-toggle-less" aria-hidden="true"></span><button class="summary-toggle" type="button" aria-expanded="false" aria-controls="summary-text" hidden></button></span></div><p class="summary-text" id="summary-text"></p></section>
           <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
@@ -812,6 +817,9 @@ export class AithemaSession extends HTMLElement {
     }
     const textReplyDialog = root.querySelector('.voice-reply-dialog');
     textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
+    this.#summaryView = new SummaryView({ root, expanded: this.#summaryExpanded,
+      onChange: expanded => { this.#summaryExpanded = expanded; }, anchor: update => this.#anchored(update) });
+    this.#summaryView.connect();
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#followsTranscript(),
       onResize: ({ following }) => { if (following && this.#followsTranscript()) this.#scrollToLatest(); } });
@@ -1451,7 +1459,15 @@ export class AithemaSession extends HTMLElement {
     finally { if (--this.#anchorDepth === 0 && this.#erased) this.#paintErased(); }
   }
   #anchoredUpdate(update) {
-    const hit = this.#hovered();
+    const focused = this.shadowRoot.activeElement, pointer = this.#hovered();
+    const focusPane = focused?.closest?.('.analysis-content');
+    const focusBox = focused?.getBoundingClientRect(), paneBox = focusPane?.getBoundingClientRect();
+    // Preserve visible keyboard reading. An offscreen action focused with preventScroll
+    // must not add overview slack when transcript navigation moves the page.
+    const readingFocus = paneBox && focusBox.width > 0 && focusBox.height > 0 &&
+      focusBox.bottom > Math.max(paneBox.top, 0) &&
+      focusBox.top < Math.min(paneBox.bottom, this.ownerDocument.defaultView.innerHeight);
+    const hit = pointer?.closest?.(PANES) ? pointer : readingFocus ? focused : pointer;
     // Status actions have real padding outside their reserved line. Anchor the
     // line, not a button/label whose box changes when the status clears.
     const hovered = hit?.closest?.('.question-state') ?? hit;
@@ -1540,6 +1556,7 @@ export class AithemaSession extends HTMLElement {
   #enterErased(id, via) {
     if (id !== this.#session.id || this.#erased) return;
     this.#clearStartIntent();
+    this.#summaryExpanded = false; this.#summaryView?.freeze();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
     const remembered = this.#erasedIds.get(id);
     this.#erased = { id, via, stage: workspace.dataset.stage, understanding: workspace.dataset.understanding,
@@ -2567,9 +2584,10 @@ export class AithemaSession extends HTMLElement {
     } else if (overviewRetry.parentNode === notice) notice.after(overviewRetry);
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
-    root.querySelector('.summary-text').textContent = summary ? u.summary : '';
+    setText(root.querySelector('.summary-text'), summary ? u.summary : '');
     reconcile(root.querySelector('.signals'), textKeys(u.signals),
       () => element('li'), (row, value) => setText(row, value));
+    this.#summaryView.render(copy, this.#session.locale);
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);

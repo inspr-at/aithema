@@ -916,6 +916,554 @@ test('AIT-504 follow-up: capture every overview state for the release design che
   await writeFile(join(evidence, 'overview-screenshots.json'), JSON.stringify(records, null, 2));
 });
 
+// AIT-514 owns real typography/overflow and geometry here; no provider dispatch.
+test('AIT-514 summary measured clamp, expansion, rewrites and responsive evidence', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-summary-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), rows = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.evaluateOnNewDocument(() => {
+    const RealDate = Date, now = 1_000_000;
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [now])); }
+      static now() { return now; }
+    };
+  });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  if (evidence) await writeFile(join(evidence, 'ait-514-start.json'), JSON.stringify({ head: evidenceCommit, phase: 'started' }));
+  const update = text => shadow(page, (c, text) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated',
+    data: { ...c.session.understanding, summary: text } }), text);
+  const state = () => shadow(page, c => {
+    const r = c.shadowRoot, p = r.querySelector('.summary-text'), b = r.querySelector('.summary-toggle'), h = r.querySelector('#summary-title');
+    const rect = p.getBoundingClientRect(), heading = h.getBoundingClientRect(), line = parseFloat(getComputedStyle(p).lineHeight);
+    return { button: !!b, hidden: b?.hidden, expanded: b?.getAttribute('aria-expanded'), name: b?.textContent,
+      lines: Number(getComputedStyle(p).getPropertyValue('--summary-lines')) || 9, controls: b?.getAttribute('aria-controls') === p.id, height: rect.height, width: rect.width, line,
+      heading: h.textContent, headingWidth: heading.width, headingHeight: heading.height,
+      fade: getComputedStyle(p).maskImage, html: p.innerHTML, text: p.textContent };
+  }).then(value => {
+    assert.ok(value.width > 0 && value.height > 0, 'summary has a positive measured box');
+    assert.ok(value.headingWidth > 0 && value.headingHeight > 0, 'heading has a positive measured box');
+    assert.ok(value.line > 0, 'summary has a resolved line height');
+    return value;
+  });
+  const frames = async () => { await settle(page); };
+  const shot = async name => { if (evidence) await page.screenshot({ path: join(evidence, `ait-514-${name}.png`), fullPage: true }); };
+  const frameBoxes = async () => {
+    const rects = await shadow(page, c => ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer', '.attach', '.send'].map(selector => {
+      const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return { selector, x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom };
+    }));
+    for (const r of rects) assert.ok(r.width > 0 && r.height > 0, `positive ${r.selector}`);
+    return rects;
+  };
+  const compare = (before, after, label) => {
+    before.forEach((r, i) => { for (const key of r.selector === '.composer' ? ['x', 'width', 'bottom'] : ['x', 'y', 'width', 'height']) {
+      assert.ok(Math.abs(r[key] - after[i][key]) <= .5, `${label} ${r.selector}.${key}: ${r[key]} → ${after[i][key]}`);
+    } }); rows.push({ label, before, after });
+  };
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 1024 ? 640 : 1000 });
+    await page.mouse.move(-10, -10);
+    await shadow(page, async (c, locale, theme, manifest) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/session.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
+      session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' },
+        { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.', inputRevision: inputRevision(session) }];
+      Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
+        summary: locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.',
+        signals: [locale === 'de' ? 'Ein klarer Ablauf' : 'A stable signal'], openQuestions: [] });
+      // Every request stays in this browser; no fixture/provider operation is admitted.
+      window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
+        init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } })) : Response.json(session);
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: { manifest } });
+      window.summarySession = session; window.summaryCopy = copy;
+      window.summaryLong = (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35);
+    }, locale, theme, voiceManifest);
+    await frames();
+    let s = await state(); assert.equal(s.button, true); assert.equal(s.hidden, true);
+    assert.equal(s.heading, locale === 'de' ? 'Bisher verstanden' : 'Understood so far');
+    assert.ok(s.headingWidth > 1 && s.headingHeight > 1, 'heading is visibly rendered');
+    await shot(`${locale}-${theme}-${width}-fit`);
+    // Exact measured line-budget boundary, then one rendered line over (D514s a2).
+    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = 'pre-line'; });
+    const budget = (await state()).lines;
+    await update(Array(budget).fill('Line').join('\n')); await frames();
+    assert.equal((await state()).hidden, true, 'exact measured line budget fits');
+    await update(Array(budget + 1).fill('Line').join('\n')); await frames();
+    s = await state(); assert.equal(s.hidden, false); assert.equal(s.expanded, 'false'); assert.equal(s.controls, true);
+    assert.ok(s.width > 0 && s.height > 0); assert.ok(s.height <= 9 * s.line + .5, 'collapsed summary is at most nine lines');
+    assert.notEqual(s.fade, 'none');
+    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = '20px'; }); await frames();
+    s = await state(); assert.equal(s.hidden, false);
+    assert.ok(s.lines >= 3 && s.lines <= 9);
+    assert.ok(Math.abs(s.height - s.lines * s.line) <= .5, 'font size change while clamped preserves whole rendered lines within the measured budget');
+    await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = ''; c.shadowRoot.querySelector('.summary-text').style.whiteSpace = ''; });
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
+    await frames(); await shot(`${locale}-${theme}-${width}-collapsed`);
+    const readMoreName = locale === 'de' ? 'Mehr anzeigen' : 'Read more';
+    const namedToggle = (tree, name, expanded) => tree && (tree.role === 'button' && tree.name === name && tree.expanded === expanded || tree.children?.some(child => namedToggle(child, name, expanded)));
+    assert.ok(namedToggle(await page.accessibility.snapshot({ interestingOnly: false }), readMoreName, false), 'screen reader finds the named collapsed native control');
+    if (width === 1024) {
+      const visible = await shadow(page, c => {
+        const p = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(), r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect();
+        return { pane: p.toJSON(), signal: r.toJSON(), positive: p.width > 0 && p.height > 0 && r.width > 0 && r.height > 0,
+          visible: r.top >= p.top && r.bottom <= p.bottom };
+      });
+      assert.equal(visible.positive, true, 'first signal and pane have positive boxes');
+      if (evidence) await writeFile(join(evidence, `ait-514-${locale}-${theme}-1024-first-signal.json`), JSON.stringify(visible, null, 2));
+      assert.equal((await state()).lines, 3, '1024×640 keeps the approved three-line minimum');
+      await shadow(page, c => {
+        const pane = c.shadowRoot.querySelector('.analysis-content'), signal = c.shadowRoot.querySelector('.signals li');
+        pane.scrollTop += signal.getBoundingClientRect().bottom - pane.getBoundingClientRect().bottom + 1;
+      }); await frames();
+      const reached = await shadow(page, c => {
+        const pane = c.shadowRoot.querySelector('.analysis-content').getBoundingClientRect(), signal = c.shadowRoot.querySelector('.signals li').getBoundingClientRect();
+        return { pane: pane.toJSON(), signal: signal.toJSON() };
+      });
+      assert.ok(reached.pane.width > 0 && reached.pane.height > 0 && reached.signal.width > 0 && reached.signal.height > 0);
+      assert.ok(reached.signal.top >= reached.pane.top && reached.signal.bottom <= reached.pane.bottom, 'first signal reachable by scrolling at 1024×640 (D514s a2)');
+      await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await frames();
+    }
+    const before = await frameBoxes();
+    await shadow(page, c => { const b = c.shadowRoot.querySelector('.summary-toggle'); b.focus({ preventScroll: true }); });
+    await page.keyboard.press('Enter'); await frames();
+    s = await state(); assert.equal(s.expanded, 'true'); assert.equal(s.name, locale === 'de' ? 'Weniger anzeigen' : 'Show less'); assert.equal(s.fade, 'none');
+    assert.ok(namedToggle(await page.accessibility.snapshot({ interestingOnly: false }), s.name, true), 'screen reader finds the named expanded native control');
+    compare(before, await frameBoxes(), `${locale}/${theme}/${width} expand`);
+    await shot(`${locale}-${theme}-${width}-expanded`);
+    await update('A rewrite. '.repeat(150)); await frames(); assert.equal((await state()).expanded, 'true');
+    await update('Short again.'); await frames(); assert.equal((await state()).hidden, true);
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } }));
+    await frames(); assert.equal((await state()).expanded, 'true', 'short rewrite keeps expansion preference');
+    await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await frames();
+    assert.equal((await state()).expanded, 'false');
+    // Rewrites above a resting pointer preserve the signal's positive box.
+    await shadow(page, c => c.shadowRoot.querySelector('.signals li').scrollIntoView({ block: 'center' })); await frames();
+    const signal = await shadow(page, c => { const r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    assert.ok(signal.width > 0 && signal.height > 0); await page.mouse.move(signal.x + signal.width / 2, signal.y + signal.height / 2);
+    await update('Short rewrite.'); await frames();
+    const afterSignal = await shadow(page, c => { const r = c.shadowRoot.querySelector('.signals li').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    assert.ok(afterSignal.width > 0 && afterSignal.height > 0); assert.ok(Math.abs(signal.y - afterSignal.y) <= .5, 'signal stays under pointer');
+    rows.push({ label: `${locale}/${theme}/${width} rewrite anchor`, before: signal, after: afterSignal });
+    await page.mouse.move(-10, -10); await frames();
+    const focusBefore = await shadow(page, c => {
+      const n = c.shadowRoot.querySelector('.signals li'); n.tabIndex = 0; n.focus({ preventScroll: true }); window.summaryFocusedSignal = n;
+      return n.getBoundingClientRect().toJSON();
+    });
+    assert.ok(focusBefore.width > 0 && focusBefore.height > 0, 'focused signal has a positive box');
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: window.summaryLong } })); await frames();
+    const focusAfter = await shadow(page, c => ({ ...window.summaryFocusedSignal.getBoundingClientRect().toJSON(), focused: c.shadowRoot.activeElement === window.summaryFocusedSignal }));
+    assert.ok(focusAfter.width > 0 && focusAfter.height > 0, 'focused signal keeps a positive box');
+    assert.equal(focusAfter.focused, true); assert.ok(Math.abs(focusAfter.y - focusBefore.y) <= .5, 'signal stays at keyboard reading position');
+    rows.push({ label: `${locale}/${theme}/${width} focus anchor`, before: focusBefore, after: focusAfter });
+    if (evidence) await writeFile(join(evidence, 'ait-514-rects.json'), JSON.stringify(rows, null, 2));
+    await update('<img src=x onerror=alert(1)> the person'); await frames();
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.summary-text img') === null), true);
+    assert.equal((await state()).text, '<img src=x onerror=alert(1)> the person');
+  }
+  // Width and font changes trigger real overflow measurement without a new assessment.
+  await page.setViewport({ width: 1440, height: 1000 });
+  await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.whiteSpace = 'pre-line'; });
+  await update(Array(9).fill('A clear booking and approval workflow for teams.').join('\n')); await frames();
+  assert.equal((await state()).hidden, true, 'nine lines fit at the wide width');
+  await page.setViewport({ width: 390, height: 1000 }); await frames();
+  assert.equal((await state()).hidden, false, 'width change alone exposes measured overflow');
+  await page.setViewport({ width: 1440, height: 1000 }); await frames();
+  assert.equal((await state()).hidden, true, 'widening hides the unneeded toggle');
+  await shadow(page, c => { c.shadowRoot.querySelector('.summary-text').style.fontSize = '32px'; }); await frames();
+  assert.equal((await state()).hidden, false);
+  await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
+  await shadow(page, c => {
+    const session = structuredClone(c.session); session.understanding.summary = window.summaryLong;
+    c.configure({ session, copy: { ...window.summaryCopy, summary: 'Host heading', summaryMore: 'Host more', showLess: 'Host less' } });
+  });
+  await frames();
+  assert.equal((await state()).heading, 'Host heading'); assert.equal((await state()).name, 'Host less');
+  assert.equal((await state()).expanded, 'true', 'same conversation configuration keeps expansion');
+  await shadow(page, async c => {
+    const { en } = await import('/packages/ui/src/i18n/en.js');
+    c.configure({ session: { ...c.session, locale: 'en' }, copy: en });
+  });
+  await frames(); assert.equal((await state()).name, 'Show less', 'locale changes keep expansion and repaint the native button');
+  await shadow(page, c => { const session = structuredClone(window.summarySession); session.id += '-different'; session.understanding.summary = window.summaryLong; c.configure({ session, copy: { ...window.summaryCopy } }); });
+  await frames(); assert.equal((await state()).expanded, 'false', 'different conversation resets expansion');
+  await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
+  await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.erased', data: {} }));
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').hidden), true, 'erasure removes the toggle');
+  if (evidence) await writeFile(join(evidence, 'ait-514-rects.json'), JSON.stringify(rows, null, 2));
+  t.diagnostic(`AIT-514 ${rows.length} positive geometry comparisons`);
+});
+
+// AIT-514 r10: both review findings are independent regressions.
+for (const check of ['stationary heading toggle', 'first signal clears the active pane fade']) {
+  test(`AIT-514 r10 ${check}`, { timeout: 120_000 }, async t => {
+    const page = await followupPage(t), records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+    if (evidence) await mkdir(evidence, { recursive: true });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluate(() => {
+      const NativeDate = Date;
+      window.Date = class extends NativeDate {
+        constructor(...args) { super(...(args.length ? args : [1_000_000])); }
+        static now() { return 1_000_000; }
+      };
+    });
+    t.after(async () => { if (evidence) await writeFile(join(evidence, `ait-514-r10-${check.startsWith('stationary') ? 'toggle' : 'fade'}.json`), JSON.stringify({ head: evidenceCommit, records }, null, 2)); });
+    const viewports = check.startsWith('stationary') ? [[1440, 1000], [1440, 900], [1024, 640], [390, 1000]]
+      : [[1440, 900], [1366, 768], [390, 1000]];
+    const measure = () => shadow(page, c => {
+      const r = c.shadowRoot, pane = r.querySelector('.analysis-content');
+      const box = s => r.querySelector(s).getBoundingClientRect().toJSON();
+      return { pane: box('.analysis-content'), heading: box('#summary-title'), button: box('.summary-toggle'),
+        text: box('.summary-text'), signal: box('.signals li'), bottomFade: pane.hasAttribute('data-bottom'),
+        line: parseFloat(getComputedStyle(r.querySelector('.summary-text')).lineHeight),
+        expanded: r.querySelector('.summary-toggle').getAttribute('aria-expanded'), viewport: { width: innerWidth, height: innerHeight } };
+    });
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of viewports) {
+      await page.setViewport({ width, height });
+      await setupOverviewFixture(page, locale, theme);
+      await shadow(page, (c, locale) => {
+        c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
+          summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35),
+          signals: [locale === 'de' ? 'Rund 400 Rechnungen pro Monat' : 'About 400 invoices monthly'],
+          openQuestions: locale === 'de' ? ['Welches System ist im Einsatz?', 'Wer gibt Rechnungen frei?'] : ['Which system do you use?', 'Who approves invoices?'] } });
+        c.shadowRoot.querySelector('.analysis-content').scrollTop = 0;
+      }, locale);
+      await settle(page);
+      const collapsed = await measure(), label = `${locale}/${theme}/${width}x${height}`;
+      records.push({ label, collapsed });
+      const positive = value => { for (const name of ['pane', 'heading', 'button', 'text', 'signal']) assert.ok(value[name].width > 0 && value[name].height > 0, `${label}: positive ${name}`); };
+      positive(collapsed);
+      if (check.startsWith('stationary')) {
+        if (evidence) await page.screenshot({ path: join(evidence, `ait-514-r10-${locale}-${theme}-${width}x${height}-collapsed.png`) });
+        await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle(page);
+        const expanded = await measure(); records.at(-1).expanded = expanded; positive(expanded);
+        if (evidence) await page.screenshot({ path: join(evidence, `ait-514-r10-${locale}-${theme}-${width}x${height}-expanded.png`) });
+        assert.equal(collapsed.expanded, 'false'); assert.equal(expanded.expanded, 'true');
+        for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(collapsed.button[key] - expanded.button[key]) <= .5,
+          `${label}: toggle.${key} stays put: ${collapsed.button[key]} -> ${expanded.button[key]}`);
+        for (const value of [collapsed, expanded]) {
+          assert.ok(value.button.left >= Math.max(0, value.pane.left) && value.button.right <= Math.min(width, value.pane.right), `${label}: toggle horizontally in view`);
+          assert.ok(value.button.top >= Math.max(0, value.pane.top) && value.button.bottom <= Math.min(height, value.pane.bottom), `${label}: toggle fully in view`);
+          assert.ok(value.heading.left < value.button.left && Math.abs((value.heading.top + value.heading.bottom) / 2 - (value.button.top + value.button.bottom) / 2) <= .5, `${label}: toggle shares the heading row`);
+        }
+      } else {
+        if (width === 390) assert.equal(collapsed.pane.height, 440, `${label}: explicit 440px phone pane`);
+        assert.equal(collapsed.bottomFade, true, `${label}: following content activates the pane fade`);
+        assert.ok(collapsed.signal.bottom <= collapsed.pane.bottom - 44,
+          `${label}: first signal clears 44px bottom fade: ${JSON.stringify(collapsed)}`);
+      }
+    }
+  });
+}
+
+// AIT-514 r12: scrolling must never feed back into the measured line budget.
+for (const check of ['scroll-end clamp stays stable', 'long host toggle preserves the heading']) {
+  test(`AIT-514 r12 ${check}`, { timeout: 120_000 }, async t => {
+    const page = await followupPage(t), records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluate(() => {
+      const NativeDate = Date;
+      window.Date = class extends NativeDate {
+        constructor(...args) { super(...(args.length ? args : [1_000_000])); }
+        static now() { return 1_000_000; }
+      };
+    });
+    t.after(async () => {
+      if (evidence) {
+        await mkdir(evidence, { recursive: true });
+        await writeFile(join(evidence, `ait-514-r12-${check.startsWith('scroll') ? 'scroll' : 'host-copy'}.json`), JSON.stringify({ head: evidenceCommit, records }, null, 2));
+      }
+    });
+    const viewports = check.startsWith('scroll') ? [[1440, 900], [1366, 768], [390, 1000]] : [[1440, 900], [1024, 640], [390, 1000]];
+    for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of viewports) {
+      await t.test(`${locale}/${theme}/${width}x${height}`, async () => {
+        await page.setViewport({ width, height });
+        await setupOverviewFixture(page, locale, theme);
+        await page.mouse.move(-10, -10);
+        await shadow(page, (c, locale) => {
+          c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+          c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
+            summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35),
+            signals: [locale === 'de' ? 'Rund 400 Rechnungen pro Monat' : 'About 400 invoices monthly'],
+            openQuestions: locale === 'de' ? ['Welches System ist im Einsatz?', 'Wer gibt Rechnungen frei?'] : ['Which system do you use?', 'Who approves invoices?'] } });
+        }, locale);
+        await settle(page);
+        if (check.startsWith('scroll')) {
+          const result = await shadow(page, async c => {
+            const root = c.shadowRoot, pane = root.querySelector('.analysis-content'), text = root.querySelector('.summary-text');
+            const sample = () => ({ text: text.getBoundingClientRect().toJSON(), pane: pane.getBoundingClientRect().toJSON(),
+              lines: text.style.getPropertyValue('--summary-lines'), bottomFade: pane.hasAttribute('data-bottom'),
+              scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight });
+            const rest = sample();
+            pane.scrollTop = pane.scrollHeight;
+            const samples = [];
+            // Give scroll/resize observers ten complete frames without a pointer
+            // or focus anchor masking their geometry changes.
+            for (let frame = 0; frame < 12; frame++) {
+              await new Promise(resolve => requestAnimationFrame(resolve)); samples.push(sample());
+            }
+            return { rest, samples, focused: Boolean(root.activeElement), hovered: Boolean(root.querySelector('.analysis-content :hover')) };
+          });
+          records.push({ locale, theme, width, height, ...result });
+          assert.equal(result.focused, false, 'no focused anchor'); assert.equal(result.hovered, false, 'no pointer anchor');
+          if (width === 390) assert.equal(result.rest.pane.height, 440, 'explicit 440px phone pane');
+          assert.ok(result.samples[0].scrollTop > 0, 'pane really scrolled');
+          for (const sample of [result.rest, ...result.samples]) {
+            for (const name of ['text', 'pane']) assert.ok(sample[name].width > 0 && sample[name].height > 0, `positive ${name}`);
+            assert.equal(sample.lines, result.rest.lines, `scroll cannot change the line budget: ${JSON.stringify(result)}`);
+            assert.equal(sample.text.height, result.rest.text.height, 'scroll cannot change text height');
+          }
+          assert.deepEqual(result.samples.map(s => s.bottomFade), Array(result.samples.length).fill(false), `bottom fade stays off at the scroll end: ${JSON.stringify(result)}`);
+        } else {
+          const more = (locale === 'de' ? 'Ausführliche Zusammenfassung vollständig anzeigen ' : 'Read the complete detailed summary ').repeat(12);
+          const less = (locale === 'de' ? 'Ausführliche Zusammenfassung wieder einklappen ' : 'Collapse the complete detailed summary ').repeat(10);
+          await shadow(page, async (c, locale, more, less) => {
+            const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+            c.configure({ session: c.session, copy: { ...copy, summaryMore: more, showLess: less } });
+          }, locale, more, less);
+          await settle(page);
+          const samples = [];
+          for (const expanded of [false, true]) {
+            if (expanded) { await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle(page); }
+            samples.push(await shadow(page, c => {
+              const r = c.shadowRoot, box = s => r.querySelector(s).getBoundingClientRect().toJSON();
+              const button = r.querySelector('.summary-toggle');
+              return { row: box('.summary-heading'), heading: box('#summary-title'), button: box('.summary-toggle'),
+                text: button.textContent, expanded: button.getAttribute('aria-expanded') };
+            }));
+          }
+          records.push({ locale, theme, width, height, samples });
+          for (const [index, sample] of samples.entries()) {
+            for (const name of ['row', 'heading', 'button']) assert.ok(sample[name].width > 0 && sample[name].height > 0, `positive ${name}`);
+            assert.equal(sample.text, index ? less : more, 'complete host override remains the accessible name');
+            assert.equal(sample.expanded, String(Boolean(index)));
+            assert.ok(sample.heading.width >= sample.row.width * .4, `heading keeps at least 40% of the row: ${JSON.stringify(sample)}`);
+            assert.ok(sample.button.width <= sample.row.width * .5, 'long toggle is capped at half the row');
+            assert.ok(sample.heading.right <= sample.button.left && sample.button.right <= sample.row.right + .5, 'heading and capped toggle do not overlap');
+            assert.ok(sample.row.height <= 60, 'host copy does not create a tall heading row');
+            for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(sample.button[key] - samples[0].button[key]) <= .5, `host toggle.${key} stays put`);
+          }
+        }
+      });
+    }
+  });
+}
+
+// Keep the measured summary cases in this existing browser workload.
+test('AIT-514 height-aware clamp respects the pane budget and keeps controls stable', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-summary-height-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), rows = [], guards = [], reachability = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  t.after(async () => { if (evidence) await writeFile(join(evidence, 'ait-514-height-budget.json'), JSON.stringify({ head: evidenceCommit, rows, guards, reachability }, null, 2)); });
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.evaluateOnNewDocument(() => {
+    const RealDate = Date, now = 1_000_000;
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [now])); }
+      static now() { return now; }
+    };
+  });
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  const settle = () => shadow(page, async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  const measure = () => shadow(page, c => {
+    const root = c.shadowRoot, text = root.querySelector('.summary-text');
+    const box = selector => root.querySelector(selector).getBoundingClientRect().toJSON();
+    return { pane: box('.analysis-content'), heading: box('#summary-title'), text: box('.summary-text'),
+      signal: box('.signals li'), button: box('.summary-toggle'),
+      line: parseFloat(getComputedStyle(text).lineHeight), expanded: root.querySelector('.summary-toggle').getAttribute('aria-expanded'),
+      scrollTop: root.querySelector('.analysis-content').scrollTop };
+  });
+  const frames = async () => {
+    const boxes = await shadow(page, c => {
+      const inputControl = c.shadowRoot.querySelector('.workspace').dataset.entrance === 'combined' ? '.composer-mic' : '.attach';
+      return ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.composer', inputControl, '.send'].map(selector =>
+        ({ selector, ...c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON() }));
+    });
+    for (const box of boxes) assert.ok(box.width > 0 && box.height > 0, `positive frame ${box.selector}`);
+    return boxes;
+  };
+  const unchanged = (before, after, label) => {
+    guards.push({ label, before, after });
+    for (let i = 0; i < before.length; i++) for (const key of before[i].selector === '.composer' ? ['x', 'width', 'bottom'] : ['x', 'y', 'width', 'height']) {
+      assert.ok(Math.abs(before[i][key] - after[i][key]) <= .5, `${label}: ${before[i].selector}.${key} stays put`);
+    }
+  };
+  const update = text => shadow(page, (c, text) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated',
+    data: { ...c.session.understanding, summary: text } }), text);
+  for (const entrance of ['choice', 'combined']) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    await page.setViewport({ width: 1440, height: 900 });
+    await page.mouse.move(-10, -10);
+    await shadow(page, async (c, locale, theme, manifest, entrance) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/session.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
+      session.transcript = [{ id: 'person', role: 'user', content: 'A booking workflow.' },
+        { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.', inputRevision: inputRevision(session) }];
+      Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
+        summary: 'Short.',
+        signals: [locale === 'de' ? 'Ein klarer Ablauf' : 'A clear workflow'], openQuestions: [] });
+      session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
+      window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
+        init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } })) : Response.json(session);
+      c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy, entrance, voiceClient: { manifest } });
+      c.shadowRoot.querySelector('.summary-text').style.whiteSpace = 'pre-line';
+    }, locale, theme, voiceManifest, entrance);
+    // Baseline at each viewport before overflow, then resize the long summary
+    // through the same viewports. The viewport itself may move controls; the
+    // summary's changed clamp must add no movement at that viewport.
+    const baseline = new Map();
+    for (const [width, height] of [[1440, 900], [1024, 640], [1024, 1000]]) {
+      await page.setViewport({ width, height }); await settle();
+      baseline.set(`${width}/${height}`, await frames());
+    }
+    await update(Array(20).fill(locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.').join('\n'));
+    for (const [width, height] of [[1440, 900], [1024, 640], [1024, 1000], [1440, 900]]) {
+      await page.setViewport({ width, height }); await settle();
+      const row = { entrance, locale, theme, width, height, ...await measure() }; rows.push(row);
+      for (const name of ['pane', 'heading', 'text', 'signal', 'button']) {
+        assert.ok(row[name].width > 0 && row[name].height > 0, `${locale}/${theme}/${width}: positive ${name}`);
+      }
+      const label = `${entrance}/${locale}/${theme}/${width}×${height}`;
+      unchanged(baseline.get(`${width}/${height}`), await frames(), `${label} resize clamp`);
+      const before = await frames();
+      await update(Array(30).fill('A rewritten workflow.').join('\n')); await settle();
+      unchanged(before, await frames(), `${label} rewrite`);
+      await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle();
+      unchanged(before, await frames(), `${label} Read more`);
+      await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle();
+      unchanged(before, await frames(), `${label} Show less`);
+      if (height === 640) {
+        // Exactly the scroll needed for the first signal, inside the existing
+        // pane: no page movement or surrounding layout workaround.
+        await shadow(page, c => {
+          const pane = c.shadowRoot.querySelector('.analysis-content'), signal = c.shadowRoot.querySelector('.signals li');
+          pane.scrollTop += Math.max(0, signal.getBoundingClientRect().bottom - pane.getBoundingClientRect().bottom + 1);
+        }); await settle();
+        row.scrolled = await measure();
+        for (const name of ['pane', 'signal']) assert.ok(row.scrolled[name].width > 0 && row.scrolled[name].height > 0, `${label}: positive scrolled ${name}`);
+        unchanged(before, await frames(), `${label} pane scroll`);
+        await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await settle();
+      }
+    }
+    if (entrance === 'combined') for (const height of [1000, 620, 568]) {
+      await page.setViewport({ width: 390, height }); await page.mouse.move(-10, -10);
+      await update('Short.'); await settle();
+      const before = await frames(), label = `${entrance}/${locale}/${theme}/390×${height}`;
+      await update(Array(30).fill('A clear workflow.').join('\n')); await settle();
+      unchanged(before, await frames(), `${label} rewrite`);
+      for (const action of ['Read more', 'Show less']) {
+        await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle();
+        unchanged(before, await frames(), `${label} ${action}`);
+      }
+      const rects = await frames(), get = selector => rects.find(box => box.selector === selector);
+      const separate = (a, b) => a.right <= b.left + .5 || b.right <= a.left + .5 || a.bottom <= b.top + .5 || b.bottom <= a.top + .5;
+      assert.ok(separate(get('.composer-mic'), get('.send')), `${label}: microphone and Send do not overlap`);
+      // AIT-514 r3: the combined phone reading surface extends behind the
+      // anchored composer. Check its real controls through native scrolling.
+      await shadow(page, (c, locale) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated',
+        data: { ...c.session.understanding, openQuestions: [locale === 'de' ? 'Wer gibt die Buchung frei?' : 'Who approves the booking?'] } }), locale);
+      for (const state of ['fit', 'collapsed', 'expanded']) {
+        await page.mouse.move(-10, -10);
+        await update(state === 'fit' ? (locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.')
+          : Array(30).fill(locale === 'de' ? 'Ein klarer Ablauf.' : 'A clear workflow.').join('\n'));
+        if (state === 'expanded') await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click());
+        await settle();
+        const controls = await shadow(page, c => {
+          const root = c.shadowRoot, workspace = root.querySelector('.workspace');
+          const selectors = 'button,a[href],input,textarea,select,[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+          window.summaryPhoneControls = [...root.querySelectorAll(`.analysis-content :is(${selectors})`)].filter(n => {
+            const r = n.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && !n.closest('[hidden],[inert]') && !n.disabled;
+          });
+          return { count: window.summaryPhoneControls.length,
+            summary: window.summaryPhoneControls.some(n => n.matches('.summary-toggle')),
+            action: window.summaryPhoneControls.some(n => n.closest('.open-question')),
+            inset: parseFloat(getComputedStyle(workspace).paddingBottom),
+            workspace: workspace.getBoundingClientRect().toJSON(),
+            composer: root.querySelector('.composer').getBoundingClientRect().toJSON() };
+        });
+        assert.ok(controls.workspace.width > 0 && controls.workspace.height > 0 && controls.composer.width > 0 && controls.composer.height > 0, `${label}/${state}: positive scroll surface and composer`);
+        assert.ok(controls.inset >= controls.composer.height, `${label}/${state}: page scroll surface bottom inset clears the composer: ${JSON.stringify(controls)}`);
+        assert.equal(controls.summary, state !== 'fit', `${label}/${state}: expected summary control`);
+        if (state !== 'fit') assert.equal((await measure()).expanded, String(state === 'expanded'), `${label}/${state}: expected summary state`);
+        assert.equal(controls.action, true, `${label}/${state}: action word is included`);
+        assert.ok(controls.count > 0, `${label}/${state}: overview has interactive controls`);
+        for (let index = 0; index < controls.count; index++) {
+          await shadow(page, (c, index) => window.summaryPhoneControls[index].scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }), index);
+          await settle();
+          // Sticky-band compensation can settle after the native scroll.
+          // Scroll both existing surfaces until the full control clears their
+          // clipping edges; a centre hit alone cannot prove full visibility.
+          for (let pass = 0; pass < 3; pass++) {
+            await shadow(page, (c, index) => {
+              const root = c.shadowRoot, n = window.summaryPhoneControls[index];
+              const pane = root.querySelector('.analysis-content'), p = pane.getBoundingClientRect();
+              let r = n.getBoundingClientRect();
+              pane.scrollTop += Math.min(0, r.top - p.top - 1) + Math.max(0, r.bottom - p.bottom + 1);
+              r = n.getBoundingClientRect();
+              const top = root.querySelector('.band').getBoundingClientRect().bottom + 1;
+              const bottom = root.querySelector('.composer').getBoundingClientRect().top - 1;
+              window.scrollBy(0, Math.min(0, r.top - top) + Math.max(0, r.bottom - bottom));
+            }, index);
+            await settle();
+          }
+          const reached = await shadow(page, (c, index) => {
+            const root = c.shadowRoot, n = window.summaryPhoneControls[index], r = n.getBoundingClientRect();
+            const hit = root.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+            return { control: r.toJSON(), name: n.textContent.trim(), className: n.className,
+              pane: root.querySelector('.analysis-content').getBoundingClientRect().toJSON(),
+              composer: root.querySelector('.composer').getBoundingClientRect().toJSON(),
+              band: root.querySelector('.band').getBoundingClientRect().toJSON(),
+              hit: hit?.tagName, hitControl: hit === n || n.contains(hit),
+              pageScroll: window.scrollY, paneScroll: root.querySelector('.analysis-content').scrollTop };
+          }, index);
+          reachability.push({ label, state, index, inset: controls.inset, ...reached });
+          for (const name of ['control', 'pane', 'composer', 'band']) assert.ok(reached[name].width > 0 && reached[name].height > 0, `${label}/${state}/${index}: positive ${name}`);
+          assert.ok(reached.control.top >= Math.max(0, reached.band.bottom, reached.pane.top) && reached.control.bottom <= Math.min(reached.composer.top, reached.pane.bottom), `${label}/${state}/${index}: entire control reachable above composer: ${JSON.stringify(reached)}`);
+          assert.equal(reached.hitControl, true, `${label}/${state}/${index}: centre hit resolves to the control itself: ${JSON.stringify(reached)}`);
+          if (evidence) await page.screenshot({ path: join(evidence, `ait-514-combined-${locale}-${theme}-390x${height}-${state}-control-${index}.png`) });
+        }
+        if (evidence) await page.screenshot({ path: join(evidence, `ait-514-combined-${locale}-${theme}-390x${height}-${state}.png`), fullPage: true });
+        if (state === 'expanded') { await shadow(page, c => c.shadowRoot.querySelector('.summary-toggle').click()); await settle(); }
+      }
+      await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; window.scrollTo(0, 0); }); await settle();
+    }
+  }
+  for (const row of rows) {
+    const label = `${row.entrance}/${row.locale}/${row.theme}/${row.width}×${row.height}`;
+    const lines = row.text.height / row.line;
+    assert.ok(Math.abs(lines - Math.round(lines)) < .03, `${label}: whole rendered lines`);
+    assert.ok(lines >= 3 - .03 && lines <= 9 + .03, `${label}: three-to-nine rendered lines`);
+    if (row.height >= 1000) assert.ok(Math.abs(lines - 9) < .03, `${label}: tall pane uses nine lines`);
+    assert.equal(row.expanded, 'false');
+    assert.equal(row.scrollTop, 0, `${label}: entry remains unscrolled`);
+    assert.ok(row.heading.top >= row.pane.top && row.heading.bottom <= row.pane.bottom, `${label}: heading fully inside pane`);
+    if (row.height === 640) {
+      assert.ok(Math.abs(lines - 3) < .03, `${label}: short pane uses the three-line floor`);
+      assert.ok(row.scrolled.scrollTop > 0 && row.scrolled.scrollTop <= row.pane.height, `${label}: signal is one short pane scroll away`);
+      assert.ok(row.scrolled.signal.top >= row.scrolled.pane.top && row.scrolled.signal.bottom <= row.scrolled.pane.bottom, `${label}: first signal reachable inside pane`);
+    } else {
+      assert.ok(row.signal.top >= row.pane.top && row.signal.bottom <= row.pane.bottom, `${label}: first signal fully inside pane: ${JSON.stringify(row)}`);
+      assert.ok(row.signal.bottom <= row.pane.bottom - 44, `${label}: first signal clears 44px with following content: ${JSON.stringify(row)}`);
+    }
+  }
+});
+
 // AIT-524 / D524(a2): every visible status is inert; only its native action acts.
 test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440', { timeout: 480_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-retry-box-'));
