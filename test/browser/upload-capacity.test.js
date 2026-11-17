@@ -434,4 +434,3 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
     assert.ok((await page.evaluate(() => window.uploadBackoffDelays)).includes(10000), 'production second retry reached the controlled clock');
     assert.deepEqual(problems, []);
   });
-

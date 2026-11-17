@@ -479,6 +479,15 @@ unchanged. Move the same sixteen 390/1440 scenes into pause-phone, which
 already covers both widths and reserves 220 s; leave eight 1024 scenes in
 start-look and the five document/retry cases in upload. Complete measurement
 of all three files must qualify this placement before removing additions.
+The complete three-file run `36ac30f0d1-40209` at `36ac30f0` passes
+**247/247**: upload **5/5**, **21.832980542 s**; start-look **149/149**,
+**116.812526542 s**; pause-phone **93/93**, **174.989791333 s**. The
+ceilings with 25% margin are **28 / 147 / 219 s**, already covered by main's
+unchanged **36.093 / 162 / 220 s** reservations. Remove only AIT-510's
+temporary source/destination additions, retaining every inherited floor,
+trusted sample, all 24 image scenes and all 247 combined tests. Growth work
+returns to **4820.039 s**; no assertion, budget, node limit or packer changes.
+The original 86 s observation remains above as historical workload evidence.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
