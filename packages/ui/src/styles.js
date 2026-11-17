@@ -552,25 +552,27 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
      launcher reserves a second header row. The contact row gives up space
      first; its 30% cap and independent scrolling still apply. Grid percentages
      exclude padding, hence 40% of both insets and a pixel for track rounding. */
-  .workspace[data-contact] .understanding { grid-template-rows:auto auto minmax(calc(40% + .8 * var(--inset) + 1px),1fr) fit-content(30%) auto; }
-  .workspace[data-contact] .sidebar-contact { display:none; visibility:var(--_contact-row-visibility,hidden); grid-row:4; }
+  .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .understanding { grid-template-rows:auto auto minmax(calc(40% + .8 * var(--inset) + 1px),1fr) fit-content(30%) auto; }
+  .workspace[data-contact] .sidebar-contact { grid-row:4; }
+  .workspace[data-contact]:has(.contact-launcher:not([hidden])) .sidebar-contact { display:none; visibility:var(--_contact-row-visibility,hidden); }
   .workspace[data-contact] .understanding > .foot { grid-row:5; }
   .workspace[data-contact] .contact-launcher { visibility:var(--_contact-launcher-visibility,visible); }
 }
 /* Tall desktops reserve the contact track throughout the sidebar entrance.
    One condition switches row/launcher visibility without moving that track.
-   Short desktops remove the row from layout and Tab order; compact chrome
-   preserves the foot inside the 34rem floor and the reading allocation. */
+   With a launcher, short desktops remove the row from layout and Tab order.
+   Compact chrome preserves the foot and reading allocation; a row-only host
+   keeps its sole action through entrance and short desktop windows. */
 @media(min-width:60rem) and (min-height:48rem) {
-  .workspace[data-contact] .sidebar-contact { display:block; }
-  .workspace[data-contact][data-understanding="present"]:not([data-folded]):not([data-reveal]):not(:has(.understanding[hidden])) {
+  .workspace[data-contact]:has(.contact-launcher:not([hidden])) .sidebar-contact { display:block; }
+  .workspace[data-contact][data-understanding="present"]:has(.contact-launcher:not([hidden])):not([data-folded]):not([data-reveal]):not(:has(.understanding[hidden])) {
     --_contact-row-visibility:visible;
     --_contact-launcher-visibility:hidden;
   }
 }
 @media(min-width:60rem) and (max-height:47.99rem) {
-  .workspace[data-contact] .understanding { --inset:.75rem; }
-  .workspace[data-contact] .readiness { padding-bottom:.25rem; }
+  .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .understanding { --inset:.75rem; }
+  .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .readiness { padding-bottom:.25rem; }
 }
 @media(max-width:599px) {
   .sidebar-contact { padding-inline-start:44px; }

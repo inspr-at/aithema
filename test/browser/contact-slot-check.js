@@ -151,6 +151,14 @@ export async function contactSlotCheck(t, { combined = false } = {}) {
       // Long fixture content exercises the scroll owner without model work.
       root.querySelector('.summary').hidden = false;
       root.querySelector('.summary-text').textContent = (document.documentElement.lang === 'de' ? 'Eine Zusammenfassung. ' : 'A summary. ').repeat(1000);
+      // AIT-514 clamps the summary. Independent fixture signals guarantee real
+      // analysis overflow at every viewport without depending on that clamp.
+      const signals = root.querySelector('.signals');
+      for (let i = 0; i < 40; i++) {
+        const signal = document.createElement('li');
+        signal.textContent = `${i + 1}. ${document.documentElement.lang === 'de' ? 'Eine weitere Anforderung für die Analyse.' : 'Another requirement for the analysis.'}`;
+        signals.append(signal);
+      }
     });
     await settle();
     assert.equal(await visible('#contact-open'), true, `${name}: mounted pinned host content`);
@@ -171,6 +179,10 @@ export async function contactSlotCheck(t, { combined = false } = {}) {
     await page.evaluate(() => { document.querySelector('aithema-session').shadowRoot.querySelector('.analysis-content').scrollTop = 600; });
     await settle();
     assert.ok(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.analysis-content').scrollTop > 0));
+    const analysisScroll = await page.$eval('aithema-session', c => {
+      const root = c.shadowRoot, pane = root.querySelector('.analysis-content');
+      return { top: pane.scrollTop, height: pane.clientHeight, contentHeight: pane.scrollHeight, summaryClamped: root.querySelector('.summary-text').hasAttribute('data-collapsed') };
+    });
     const scrolled = await rects(frames); const analysisShift = stable(pinned, scrolled, `${name}: analysis scroll`);
     await capture(`${name}-scrolled`);
     // The email ask uses the same analysis-stack cell and must leave contact exposed.
@@ -221,7 +233,7 @@ export async function contactSlotCheck(t, { combined = false } = {}) {
     assert.ok(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.sidebar-contact').scrollTop > 0), 'long host contact scrolls independently');
     stable(long, await rects(['.sidebar-contact', '.understanding']), `${name}: contact scroll`);
     await capture(`${name}-long`);
-    checks.push({ name, frameSelectors: frames, before, mounted, pinned, scrolled, empty, long, shiftPx: Math.max(firstPaintShift, analysisShift, emailShift, foldShift) });
+    checks.push({ name, frameSelectors: frames, before, mounted, pinned, scrolled, analysisScroll, empty, long, shiftPx: Math.max(firstPaintShift, analysisShift, emailShift, foldShift) });
     if (evidence) await writeFile(join(evidence, combined ? 'contact-combined-rects.json' : 'contact-rects.json'), JSON.stringify(checks, null, 2) + '\n');
   }
   assert.equal(checks.length, combined ? 20 : 12);

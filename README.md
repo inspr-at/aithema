@@ -474,15 +474,18 @@ while its demo host is active; a live provider host shows none of the demo copy)
 | `legal` | Right of the footer at 600 px and above; below 600 px, links open in a popover through the **Rechtliches** / **Legal** control in the single 44 px footer row |
 | `footer` | Footer row, right (status or imprint); the row shows only when a slot is filled |
 
-Fill both contact slots **before mount/configure**, with host light-DOM content.
+Fill any contact slots **before mount/configure**, with host light-DOM content.
 The library keeps that content mounted through analysis updates; it does not clone
 it or attach a contact handler. The sidebar row scrolls independently, bounded by
 30% of the desktop sidebar and 14rem below 60rem. On desktop the reading pane
 retains at least 40% of the sidebar; the contact row shrinks and scrolls when
-the header or other reserved rows need more room. Below 48rem window height,
-the desktop pinned row is absent from layout and Tab order, and the reserved
-header launcher becomes the contact action. One condition switches both controls;
-sidebar chrome compacts to keep its foot inside the frame. Its 44 px header slot remains reserved when hidden. The launcher
+the header or other reserved rows need more room. For hosts filling both slots,
+below 48rem window height the desktop pinned row is absent from layout and Tab
+order, and the reserved header launcher becomes the contact action. One condition
+switches both controls; sidebar chrome compacts to keep its foot inside the frame.
+A host filling only `sidebar-contact` keeps that row through short desktop windows
+and the sidebar entrance; the row is never hidden in favor of an empty launcher.
+The launcher’s 44 px header slot remains reserved when hidden. The launcher
 fades and becomes inert during About, like the other header controls; the phone
 contact row and the personal-conversation action in the analysis pane have a
 44 px left inset to clear the fold chevron. Host content must fit its

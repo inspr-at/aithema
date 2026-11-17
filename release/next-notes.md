@@ -12,9 +12,10 @@
   during the sidebar reveal, when folded, below 60rem, or without pinned content;
   while desktop pinned content is available in windows at least 48rem tall it
   leaves Tab order but retains its 44 px reservation. Short desktop windows keep
-  the launcher visible and remove the pinned row from layout and Tab order;
-  one condition switches both controls. Compact sidebar chrome keeps the foot
-  inside the frame.
+  the launcher visible and remove the pinned row from layout and Tab order
+  only when the launcher slot is filled; one condition switches both controls.
+  Row-only hosts retain the pinned contact through short desktop windows and
+  the sidebar entrance. Compact sidebar chrome keeps the foot inside the frame.
   The launcher fades and becomes inert during the About reveal, like Settings;
   the phone contact row and personal-conversation action clear the fold chevron
   with a 44 px left inset.
