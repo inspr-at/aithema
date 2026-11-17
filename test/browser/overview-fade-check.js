@@ -83,7 +83,13 @@ test('AIT-547 pinned contact: opaque heading and first signal above the fade, st
         await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await settle(page);
         const name = `${width}x${height}-${slots}-${locale}-${theme}-${entrance}`, initial = await measure();
         records.push({ name, initial });
-        if (evidence && width >= 1366) await page.screenshot({ path: join(evidence, `${name}.png`) });
+        if (evidence && width >= 1366) {
+          await page.screenshot({ path: join(evidence, `${name}.png`) });
+          await page.screenshot({ path: join(evidence, `${name}-status-band.png`), clip: {
+            x: initial.status.x, y: initial.status.y, width: initial.status.width,
+            height: initial.summary.top + 44 - initial.status.y,
+          } });
+        }
         for (const key of ['pane', 'status', 'statusText', 'summary', 'summaryText', 'heading', 'toggle', 'signal', 'foot']) positive(initial[key], `${name}: ${key}`);
         assert.equal(initial.summaryExpanded, 'false'); assert.equal(initial.signalsExpanded, 'false');
         if (width >= 1366) {
@@ -99,7 +105,7 @@ test('AIT-547 pinned contact: opaque heading and first signal above the fade, st
           await shadow(page, async (c, state, locale) => {
             const copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale], r = c.shadowRoot;
             r.querySelector('.notice-text').textContent = copy[state];
-            const retry = r.querySelector('.overview-retry'); retry.textContent = copy.understandingRetry; retry.hidden = !['staleIdle', 'understandingFailed'].includes(state);
+            const retry = r.querySelector('.overview-retry'); r.querySelector('.overview-status').append(retry); retry.textContent = copy.understandingRetry; retry.hidden = !['staleIdle', 'understandingFailed'].includes(state);
           }, state, locale);
           await settle(page); const after = await measure(); records.push({ name, state, geometry: after });
           for (const key of ['status', 'summary', 'heading', 'toggle', 'signal', 'foot']) {
