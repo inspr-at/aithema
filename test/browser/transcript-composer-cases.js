@@ -19,6 +19,12 @@ const geometry = async page => { const state = await shadow(page, c => {
   const paddingTop = parseFloat(shellCSS.paddingTop), paddingBottom = parseFloat(shellCSS.paddingBottom);
   const latestSlot = latest.getBoundingClientRect().height + (parseFloat(latestCSS.marginTop) || 0) + (parseFloat(latestCSS.marginBottom) || 0);
   const noticeHeight = r.querySelector('.voice-notices')?.getBoundingClientRect().height ?? 0;
+  const contentHeight = list.getBoundingClientRect().height + noticeHeight + paddingTop + paddingBottom;
+  const contentOverflows = contentHeight > shell.clientHeight + .5;
+  // R19 / D511a: short content follows to zero even if the hidden end slot
+  // overflows. Account only the part of that slot fitting in the free room;
+  // real overflow retains the complete AIT-400 / LEAD r16 reservation.
+  const latestSlotUsed = contentOverflows ? latestSlot : Math.min(latestSlot, Math.max(0, shell.clientHeight - contentHeight));
   return { boxes: Object.fromEntries(['.composer', 'textarea', '.transcript-shell', '.transcript-shell > ol', '.transcript-latest', '.turn:first-child', '.turn:last-child', '.qcard', '.qopts', '.composer-mic', '.audio-rail', '.concept-bar', '.concept-access', ...['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer-actions .attach', '.send']]
     .filter(selector => r.querySelector(selector)).map(selector => [selector, box(selector)])),
   inputScroll: input.scrollHeight, inputClient: input.clientHeight, value: input.value,
@@ -26,9 +32,9 @@ const geometry = async page => { const state = await shadow(page, c => {
   growth: parseFloat(getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-composer-growth')),
   noticeParent: r.querySelector('.voice-notices')?.parentElement.className ?? '',
   noticeHeight,
-  noCardClearance: { paddingBottom, latestSlot,
+  noCardClearance: { paddingBottom, latestSlot, latestSlotUsed,
     latestSlotTop: latest.getBoundingClientRect().top - (parseFloat(latestCSS.marginTop) || 0),
-    contentOverflows: list.getBoundingClientRect().height + noticeHeight + paddingTop + paddingBottom > shell.clientHeight + .5,
+    contentOverflows,
     unused: Math.max(0, shell.clientHeight - paddingTop - paddingBottom - list.getBoundingClientRect().height - noticeHeight - latestSlot) },
   listPadding: parseFloat(getComputedStyle(shell.querySelector('ol')).paddingBottom),
   jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
@@ -52,10 +58,10 @@ const noCardClearance = (state, label) => {
   assert.equal(state.cardHidden, true, `${label}: no-card clearance case`);
   for (const selector of ['.composer', '.transcript-shell', '.transcript-shell > ol', '.transcript-latest', '.turn:last-child']) positive(state.boxes[selector], selector);
   const composer = state.boxes['.composer'], pane = state.boxes['.transcript-shell'], last = state.boxes['.turn:last-child'];
-  const { paddingBottom, latestSlot, unused } = state.noCardClearance;
+  const { paddingBottom, latestSlotUsed, unused } = state.noCardClearance;
   const gap = composer.top - pane.bottom + paddingBottom;
   const rawGap = composer.top - last.bottom;
-  const extraGap = rawGap - unused - latestSlot - state.noticeHeight;
+  const extraGap = rawGap - unused - latestSlotUsed - state.noticeHeight;
   assert.ok(last.bottom <= composer.top - gap + .5, `${label}: last fitting turn clears the composer: ${JSON.stringify({ rawGap, gap })}`);
   assert.ok(gap >= -.5 && gap <= 24.5, `${label}: pane/composer clearance is between 0 and 24px: ${gap}`);
   assert.ok(extraGap >= -.5 && extraGap <= 24.5, `${label}: no duplicated end clearance: ${JSON.stringify({ rawGap, unused, latestSlot, extraGap })}`);
@@ -196,7 +202,11 @@ export async function transcriptComposerCases(t) {
       assert.match(before.noticeParent, /transcript-shell/, 'voice notices belong to transcript end at every width');
       assert.equal(before.noticeHeight, 0, 'no empty voice reservation'); assert.equal(before.listPadding, 0);
       positive(before.boxes['.transcript-shell'], 'transcript'); positive(before.boxes['.turn:first-child'], 'first turn');
-      if (before.extent <= before.client + .5) {
+      // R19: hidden reservations alone do not make visible content overflow.
+      // Rule 7 / D511a keeps that short content at zero; r16's latest-gap
+      // assertion still applies only to genuine content overflow.
+      if (!before.noCardClearance.contentOverflows) {
+        assert.equal(before.scroll, 0, 'fitting visible content remains top-anchored despite hidden end reservations');
         assert.ok(before.boxes['.turn:first-child'].top >= before.boxes['.transcript-shell'].top, 'fitting first turn unclipped');
         fittingChecks++;
       } else assert.ok(before.scroll > 0, 'overflow is handled by transcript scrolling');
