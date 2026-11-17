@@ -231,7 +231,7 @@ export async function compactStatusCheck(t) {
     for (const slots of ['row-only', 'both-slots']) for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
       await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
       let baseline, expectedMaximum; const group = [];
-      for (const state of ['current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reasoning-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'paused', 'reconciling', 'empty']) {
+      for (const state of ['current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reasoning-failed', 'reply-pending', 'no-details', 'unavailable', 'longest-reason', 'consent', 'paused', 'reconciling', 'empty']) {
         await shadow(page, async (c, locale, theme, slots, state, manifest, font) => {
           const { createSession, inputRevision, applyEvent } = await import('/packages/core/src/session.js');
           const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -254,6 +254,7 @@ export async function compactStatusCheck(t) {
           if (state === 'reasoning-failed') fail(['other']);
           if (state === 'reply-pending') { u.readinessAssessed = false; session.transcript.pop(); fail(['reaction']); }
           if (state === 'no-details') u.readinessAssessed = false;
+          if (state === 'longest-reason') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: window.longestStatusReason ?? 'document text not covered by reasoning scope' }; }
           if (state === 'unavailable') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: 'admission deadline' }; }
           if (state === 'consent') session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
           if (state === 'paused') session.paused = true;
@@ -342,6 +343,8 @@ export async function compactStatusCheck(t) {
             }
             return results;
           });
+          const longestReason = transitions.filter(value => value.reason).sort((a, b) => b.textBox.height - a.textBox.height || b.text.length - a.text.length)[0];
+          await shadow(page, (c, reason) => { window.longestStatusReason = reason; }, longestReason.reason);
           const seenControls = { ...geometry.controls };
           for (const transition of transitions) {
             const label = `${name}/${transition.state}/${transition.reason ?? ''}`;
