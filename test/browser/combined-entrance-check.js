@@ -334,3 +334,78 @@ export async function combinedOpenerCheck(t) {
   });
   assert.equal(tables.length,140);
 }
+
+export async function consentCancelCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-consent-cancel-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, measurements = [];
+  if (evidence) await mkdir(join(evidence, 'ait-542-look'), { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390,1000], [1440,1000], [390,568]]) {
+    await t.test(`${locale}/${theme}/${width}x${height}`, async () => {
+      const page = await browser.newPage(), problems = [];
+      try {
+        page.on('pageerror', error => problems.push(error.message));
+        await page.setViewport({ width, height });
+        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+        await page.setRequestInterception(true);
+        page.on('request', request => { void (new URL(request.url()).pathname === '/combined-fixture' && !new URL(request.url()).searchParams.has('consentPage')
+          ? request.respond({ status: 200, contentType: 'text/html', body: fixture.replace('--aithema-height:900px', '--aithema-height:100dvh') }) : new URL(request.url()).searchParams.has('consentPage')
+            ? request.respond({ status:200, contentType:'text/html', body:'<!doctype html><title>Host consent</title><p>Consent cancelled</p>' }) : request.continue()); });
+        const visit = async () => { await page.goto(`${server.url}/combined-fixture?locale=${locale}`); await page.waitForFunction(() => globalThis.ready); };
+        const shot = async state => {
+          if (evidence) await page.screenshot({ path: join(evidence, 'ait-542-look', `${locale}-${theme}-${width}x${height}-${state}.png`) });
+        };
+        const idle = () => page.$eval('aithema-session', c => {
+          const r=c.shadowRoot; return { readOnly:r.querySelector('textarea').readOnly, send:r.querySelector('.send').disabled,
+            mic:r.querySelector('.composer-mic').disabled, draft:r.querySelector('textarea').value };
+        });
+        await visit();
+        const draft = locale === 'de' ? 'Mein Entwurf bleibt erhalten.' : 'Keep my draft.';
+        await page.type('aithema-session >>> textarea', draft);
+        const before = await boxes(page); positive(before);
+        await page.click('aithema-session >>> .send');
+        assert.equal((await idle()).readOnly, true);
+        const held = await boxes(page); unmoved(before, held); await shot('held');
+        // Inspect inside the first animation frame after the host settles its dialog.
+        const settled = await page.evaluate(() => new Promise(resolve => {
+          consent.cancel();
+          requestAnimationFrame(() => {
+            const r=c.shadowRoot;
+            resolve({ readOnly:r.querySelector('textarea').readOnly, send:r.querySelector('.send').disabled,
+              mic:r.querySelector('.composer-mic').disabled, draft:r.querySelector('textarea').value });
+          });
+        }));
+        assert.deepEqual(settled, { readOnly:false, send:false, mic:false, draft });
+        const after = await boxes(page); unmoved(held, after); await shot('idle');
+        measurements.push({ locale, theme, width, height, before:held, after, settled });
+        await page.evaluate(() => { consent.cancel(); grant(); });
+        await page.waitForFunction(() => c.session.featureMatrix.best.text.available);
+        assert.equal(await page.evaluate(() => sent.length), 0, 'cancelled intent cannot submit after a later grant');
+        assert.equal((await idle()).draft, draft);
+        // A real navigation to a separate host page and back without any grant.
+        for (const mode of ['text', 'voice']) {
+          await visit(); await page.type('aithema-session >>> textarea', draft);
+          await page.click(`aithema-session >>> ${mode === 'text' ? '.send' : '.composer-mic'}`);
+          assert.equal((await idle()).readOnly, true, `${mode} start holds the field before navigating to consent`);
+          await page.evaluate(() => sessionStorage.setItem('combined-fixture-session', JSON.stringify(c.session)));
+          await page.goto(`${server.url}/combined-fixture?consentPage`);
+          await page.goBack(); await page.waitForFunction(() => globalThis.ready);
+          await page.waitForFunction(() => !c.shadowRoot.querySelector('textarea').readOnly);
+          assert.deepEqual(await idle(), { readOnly:false, send:false, mic:false, draft });
+          assert.equal(await page.evaluate(() => c.session.consentRevision), 0);
+          assert.deepEqual(await page.evaluate(() => sent), []);
+          assert.equal(await page.evaluate(() => trace.includes('permission')), false);
+          assert.equal(await page.evaluate(() => sessionStorage.getItem('aithema-start-intent')), null);
+        }
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-542-look', 'measurements.json'), JSON.stringify(measurements, null, 2));
+}
