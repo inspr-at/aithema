@@ -1,0 +1,18 @@
+AIT-542 r4 merge conflict record
+Ours: 4411f2ea34abc03c35bd979c25319c9af409253a
+Theirs: origin/main 5f735dcc57176ec44937697fafcc7cb1e477072d
+
+One conflicted hunk: packages/ui/src/session-element.js, disconnectedCallback().
+Ours:
+    this.#consentRequestId = null;
+Theirs:
+    this.#signals?.suspend();
+Resolution:
+    this.#signals?.suspend();
+    this.#consentRequestId = null;
+Why: keep main's signal suspension verbatim, then retire the host request on
+component disconnection. Both independent lifecycle actions are required.
+
+Other changes merged without conflict. Main's signal and contact-slot code is
+retained, together with AIT-542 requestId/cancel/pageshow additions. The release
+notes are main's exact file with only the existing AIT-542 entry inserted.

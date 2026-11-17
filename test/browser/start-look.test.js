@@ -1,3 +1,4 @@
+import './signals-check.js';
 // AIT-128: START's look in a real browser, on the reference host (AIT-129): the page's theme choice, a new
 // conversation, the entrance, the host's consent page and back, readiness with its explicit start, the
 // conversation with the understanding and the voice rail. Each step is checked and photographed at
@@ -334,8 +335,6 @@ test('AIT-307: readiness reserves only the input slot without voice; no empty ca
       capture: 'viewport', reducedMotion: true, blurredControls: true, pinnedFontStack: true, passLines, checks }, null, 2));
   });
 
-import { combinedOpenerCheck } from './combined-entrance-check.js';
-test('AIT-506: shared opener and short-phone states stay visible and stable', { timeout:180_000 }, combinedOpenerCheck);
 
 import { contactSlotCheck } from './contact-slot-check.js';
 test('AIT-517: combined entrance contact geometry with host opener and short phones',
