@@ -40,7 +40,7 @@ export function reasoningRequest(session, lane, draft = false, hostPrompt = '', 
     ? '\nThe first assistant message was written by the host and has already been delivered to the visitor; continue from it, do not repeat or contradict it.' : '';
   const uploads = uploadContextMessage(session);
   const turns = promptTurns(session), recent = turns.filter(turn => turn.role === 'user').slice(-2);
-  const eligible = new Set((draft ? [] : recent.flatMap(turn => turn.attachments ?? [])).slice(-4));
+  const eligible = new Set((draft || session.processingPreset === 'device' ? [] : recent.flatMap(turn => turn.attachments ?? [])).slice(-4));
   const inputTurns = turns.map(turn => {
     const images = [], notices = [];
     for (const id of turn.attachments ?? []) {

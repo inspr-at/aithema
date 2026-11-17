@@ -1177,8 +1177,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (lane !== 'concept') {
         const capability = selectedBinding(session, session.processingPreset ?? 'best', lane).raw?.imageInput;
         const images = imageReferences(request);
-        if (capability && images.length > capability.maxImages) {
-          const kept = new Set(images.slice(-capability.maxImages));
+        // A new text-only selection keeps earlier image turns as text context.
+        // Do this before availability estimates, reservation and dispatch.
+        const maxImages = capability?.maxImages ?? 0;
+        if (images.length > maxImages) {
+          const kept = new Set(maxImages ? images.slice(-maxImages) : []);
           request.messages = request.messages.map(message => {
             if (!message.images?.length) return message;
             const images = message.images.filter(image => kept.has(image));
