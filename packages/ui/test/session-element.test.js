@@ -360,6 +360,21 @@ test('AIT-109 L5: dropped SSE resumes its cursor, ignores replay, and restores a
   let snapshots = 0;
   const frame = event => encoder.encode(`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
   t.mock.timers.enable({ apis: ['setTimeout'] });
+  let reconnectScheduled = false;
+  const schedule = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    const timer = schedule(callback, delay, ...args);
+    if (delay === 1000) reconnectScheduled = true;
+    return timer;
+  });
+  // Advance task yields without advancing the virtual reconnect deadline.
+  const advanceTasksUntil = async ready => {
+    while (!ready()) {
+      t.signal.throwIfAborted();
+      t.mock.timers.tick(0);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  };
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (!url.endsWith('/events')) { snapshots++; return Response.json(restored); }
     cursors.push(options.headers['Last-Event-ID']);
@@ -376,15 +391,15 @@ test('AIT-109 L5: dropped SSE resumes its cursor, ignores replay, and restores a
     } }));
   });
   try {
-    document.body.append(c); await new Promise(resolve => setImmediate(resolve));
+    document.body.append(c); await advanceTasksUntil(() => reconnectScheduled);
     assert.deepEqual(cursors, ['0']); assert.equal(c.session.transcript[0].content, 'über');
     t.mock.timers.tick(999); await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(cursors, ['0']);
-    t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve));
+    t.mock.timers.tick(1); await advanceTasksUntil(() => cursors.length === 3);
     assert.deepEqual(cursors, ['0', '1', '4']); assert.ok(snapshots >= 1);
     assert.equal(c.session.seq, 4);
     assert.deepEqual(c.session.transcript.map(turn => turn.id), ['first', 'second', 'missing', 'reply']);
     assert.match(c.shadowRoot.querySelector('ol').textContent, /restored reply/u);
-  } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); }
+  } finally { c.remove(); t.mock.timers.tick(0); await new Promise(resolve => setImmediate(resolve)); }
 });
 test('pause state changes only after server acknowledgement; a failed resume preserves pause', async () => {
   const c = setup({ voiceClient: {} }), original = globalThis.fetch; let release;
