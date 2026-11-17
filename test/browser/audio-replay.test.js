@@ -85,6 +85,22 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     await settle(); await page.mouse.move(0, 500);
     const selectors = ['.audio-rail', '.voice-repeat', '.voice-read-text', '.transcript-shell', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
     const before = await layoutBoxes(page, selectors);
+    const sentenceGeometry = () => shadow(page, c => {
+      const row = c.shadowRoot.querySelector('.voice-notice--reply');
+      return Object.fromEntries([['row', row], ['sentence', row.querySelector(':scope > span')],
+        ['actions', row.querySelector('.voice-reply-actions')]].map(([key, node]) => [key, node.getBoundingClientRect().toJSON()]));
+    });
+    const initialSentence = await sentenceGeometry();
+    if (width !== 390) await t.test(`${locale}/${theme}/${width}: single-line recovery keeps main's centred position`, () => {
+      for (const box of Object.values(initialSentence)) assert.ok(box.width > 0 && box.height > 0, 'positive recovery box');
+      const { row, sentence, actions } = initialSentence;
+      // Main centres the 44px actions in a 48px row. Preserve that position
+      // for single-line text while allowing the German final baseline to wrap.
+      if (sentence.height < 24) {
+        for (const box of [sentence, actions]) assert.ok(Math.abs((box.top + box.bottom - row.top - row.bottom) / 2) <= .5,
+          `single-line recovery stays centred within ±0.5px: ${JSON.stringify(initialSentence)}`);
+      }
+    });
     const capture = async state => {
       await settle();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.turn:not(.user) .turn-text')?.textContent), await page.evaluate(() => window.replayText), `${state}: assistant bubble remains in the thread`);
@@ -173,6 +189,39 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false, 'pending reply keeps its disabled button');
     await capture('disabled');
     await page.evaluate(() => { window.replayRail.notices.recovery.lastReplyText = window.replayText; window.replayRail.render(); });
+    if (width !== 390) {
+      await page.evaluate(() => { window.replayUnavailable = false; });
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').click());
+      await until(page, () => window.replayRail.notices.playing && !window.replayAudio.paused);
+      const playingSentence = await sentenceGeometry();
+      // Drive the fixture audio sink's real completion callback, rather than
+      // setting the notice's state directly. No provider or wall-clock wait.
+      await page.evaluate(() => window.replayAudio.dispatchEvent(new Event('ended')));
+      await until(page, () => !window.replayRail.notices.playing && window.replayRail.notices.button.hidden);
+      await settle();
+      const completedSentence = await sentenceGeometry();
+      await t.test(`${locale}/${theme}/${width}/completed: recovery sentence stays put`, async () => {
+        for (const state of [initialSentence, playingSentence, completedSentence]) for (const name of ['row', 'sentence']) {
+          const box = state[name]; assert.ok(box.width > 0 && box.height > 0, `${name}: positive completed-state box`);
+        }
+        for (const state of [initialSentence, playingSentence]) for (const name of ['row', 'sentence']) for (const key of ['x', 'y', 'width', 'height']) {
+          assert.ok(Math.abs(state[name][key] - completedSentence[name][key]) <= .5,
+            `${name}/${key}: completed replay retains sentence geometry: ${JSON.stringify({ initialSentence, playingSentence, completedSentence })}`);
+        }
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').hidden), true, 'completed offer retires both controls');
+        assert.equal(await shadow(page, c => {
+          const button = c.shadowRoot.querySelector('.voice-repeat'); button.focus({ preventScroll: true });
+          return c.shadowRoot.activeElement === button;
+        }), false, 'retired replay is not a keyboard target');
+      });
+      const file = `audio-replay-completed-${width}-${theme}-${locale}.png`;
+      if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+      files.push({ file, state: 'completed', width, theme, locale, viewport: true });
+      passLines.push({ file, initialSentence, playingSentence, completedSentence });
+      t.diagnostic(`COMPLETED ${locale}/${theme}/${width}: ${JSON.stringify({ initialSentence, playingSentence, completedSentence })}`);
+      // The following existing identity checks exercise an active offer.
+      await page.evaluate(() => { window.replayRail.notices.completedReply = null; window.replayRail.render(); });
+    }
     // Establish absence in the acknowledged session, so a queued repaint cannot
     // restore a row removed only from the DOM. c.session is a snapshot clone.
     await shadow(page, c => {
