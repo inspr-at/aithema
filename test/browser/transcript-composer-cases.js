@@ -18,8 +18,21 @@ const geometry = async page => { const state = await shadow(page, c => {
   const shellCSS = getComputedStyle(shell), latestCSS = getComputedStyle(latest);
   const paddingTop = parseFloat(shellCSS.paddingTop), paddingBottom = parseFloat(shellCSS.paddingBottom);
   const latestSlot = latest.getBoundingClientRect().height + (parseFloat(latestCSS.marginTop) || 0) + (parseFloat(latestCSS.marginBottom) || 0);
-  const noticeHeight = r.querySelector('.voice-notices')?.getBoundingClientRect().height ?? 0;
-  const contentHeight = list.getBoundingClientRect().height + noticeHeight + paddingTop + paddingBottom;
+  // Match follow's content boundary: all visible in-flow shell children,
+  // with voice rows measured separately from their empty reservation.
+  const inFlow = child => {
+    const css = getComputedStyle(child);
+    return !child.hidden && !['absolute', 'fixed'].includes(css.position)
+      && !['hidden', 'collapse'].includes(css.visibility) && css.display !== 'none';
+  };
+  const contentBoxes = [...shell.children].filter(child => child !== latest && inFlow(child)).flatMap(child =>
+    child.classList.contains('voice-notices')
+      ? [...child.children].filter(row => row.classList.contains('voice-notice') && row.textContent.trim() && inFlow(row)) : [child]
+  ).map(child => child.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0);
+  const listBox = list.getBoundingClientRect(), shellBox = shell.getBoundingClientRect();
+  const contentEnd = Math.max(listBox.bottom, ...contentBoxes.map(box => box.bottom));
+  const noticeHeight = Math.max(0, contentEnd - listBox.bottom);
+  const contentHeight = contentEnd + shell.scrollTop - shellBox.top + paddingBottom;
   const contentOverflows = contentHeight > shell.clientHeight + .5;
   // R19 / D511a: short content follows to zero even if the hidden end slot
   // overflows. Account only the part of that slot fitting in the free room;

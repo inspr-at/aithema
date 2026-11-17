@@ -161,6 +161,16 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
         assert.equal(alignment.disabled, state === 'disabled');
         assert.equal(alignment.buttonHeight, 44);
       });
+      const sentence = await sentenceGeometry();
+      await t.test(`${locale}/${theme}/${width}/${state}: recovery sentence stays put`, () => {
+        for (const geometry of [initialSentence, sentence]) for (const name of ['row', 'sentence']) {
+          const box = geometry[name]; assert.ok(box.width > 0 && box.height > 0, `${state}/${name}: positive sentence box`);
+        }
+        for (const name of ['row', 'sentence']) for (const key of ['x', 'y', 'width', 'height']) {
+          assert.ok(Math.abs(initialSentence[name][key] - sentence[name][key]) <= .5,
+            `${state}/${name}/${key}: sentence retains idle geometry: ${JSON.stringify({ initialSentence, sentence })}`);
+        }
+      });
       const after = await layoutBoxes(page, selectors);
       for (const [phase, boxes] of [['before', before], ['after', after]]) for (const [i, box] of boxes.entries()) {
         assert.ok(box[2] > 0 && box[3] > 0, `${locale}/${theme}/${width}/${state}/${phase}/${selectors[i]}: positive layout box`);
@@ -171,7 +181,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       files.push({ file, state, width, theme, locale, viewport: true });
       const aligned = Math.abs(alignment.centreOffsetPx) <= 1 && Math.abs(alignment.linkBaselineOffsetPx) <= 1 &&
         (!alignment.sameRow || Math.abs(alignment.noticeBaselineOffsetPx) <= 1);
-      passLines.push({ file, shiftPx: 0, ...alignment, pass: aligned }); t.diagnostic(`${aligned ? 'PASS' : 'FAIL'} ${file}: 0 px shift; alignment ${JSON.stringify(alignment)}`);
+      passLines.push({ file, shiftPx: 0, sentence, ...alignment, pass: aligned }); t.diagnostic(`${aligned ? 'PASS' : 'FAIL'} ${file}: 0 px shift; alignment ${JSON.stringify(alignment)}`);
     };
     await capture('idle');
     await t.test(`${locale}/${theme}/${width}: text link`, async () => {

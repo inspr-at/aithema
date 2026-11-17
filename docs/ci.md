@@ -440,16 +440,17 @@ only a log tail. Bounded whole-suite batches keep the same committed head and
 serial test execution; the operator file retains its existing isolated force-exit
 run. This reporter does not change CI selection or reporting.
 
-The AIT-511/AIT-513 merge with AIT-517 retains both diagnostic allocations.
+The AIT-511/AIT-513 merge with AIT-517 retained both diagnostic allocations.
 At merge `c665e5fe`, the twelve-bin plan was **4738.343 s** total, with bins
 `395.000 / 392.483 / 397.822 / 395.290 / 391.561 / 401.443 / 392.797 / 392.504 / 390.784 / 393.546 / 396.130 / 398.983` s.
 Its maximum was **401.443 s**, within both unchanged limits. With the unchanged
 AIT-532 growth projection, the total was **4918.343 s**, exceeding the
 **4860 s** aggregate capacity by **58.343 s**. Its projected bins were
 `403.423 / 407.485 / 414.187 / 420.504 / 404.163 / 414.210 / 409.822 / 412.533 / 403.452 / 405.279 / 411.247 / 412.038` s.
-No whole-file placement can fit that aggregate into twelve 405 s bins.
-The growth guard therefore remains blocking pending a coordinator decision on
-measured workload or capacity; no floor, assertion, target or ceiling is lowered.
+No whole-file placement could fit that aggregate into twelve 405 s bins.
+The growth guard therefore remained blocking until the thirteenth-shard
+capacity decision below superseded that plan; no floor, assertion, target or
+ceiling was lowered.
 
 AIT-511's completed-replay matrix now includes the retained recovery sentence
 at 390/1024/1440, EN/DE and both themes. Remote run `79085e5f4f-70434` at
