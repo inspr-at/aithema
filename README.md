@@ -4266,7 +4266,9 @@ Attach control describes selection even before consent, and asks only after a
 file is chosen. Image-capable composers append the supported-format help sentence
 with its final full stop and without a trailing separator, reserve that full
 localized notice, and show it without the two-line cap. Composers without image
-input keep the existing document refusal without image-format help. The expanded
+input keep the existing document refusal without image-format help. Combined
+composers reserve the existing two-line feedback capacity before intake, so a
+wrapped document-only refusal keeps the controls fixed. The expanded
 notice cap applies only to upload notices; long host-overridden image-consent
 copy remains scrollable inside its 44 px cap. Malformed image copy
 (`imageRefusals.malformed`) follows the file name: “is not a readable image.” / “ist kein lesbares Bild.”; host overrides
