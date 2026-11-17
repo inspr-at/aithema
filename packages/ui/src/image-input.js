@@ -43,6 +43,9 @@ export class ImageInputView {
     return row;
   }
   #reserveFeedback() {
+    // Hosts without image input have no feedback slot to measure. Build its
+    // localized candidates only once that layout is active.
+    if (!this.#ports.form.hasAttribute('data-image-input')) return;
     const reasons = ['batch', 'unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'paused'];
     const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard]);
     if (this.#reserve.dataset.copy !== key) {
