@@ -1613,6 +1613,25 @@ for (const copy of [en, de]) test(`AIT-509 ${copy.display.locale}: idle consent 
   assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1);
   assert.equal(line.querySelector('.consent-action'), null);
 });
+for (const copy of [en, de]) test(`AIT-542 ${copy.display.locale}: host dismissal preserves the concept ask and later grant`, async t => {
+  const f = conceptConsentFixture(t, copy); f.ask();
+  const line = f.root.querySelector('.concept-activity-text'), action = line.querySelector('.consent-action');
+  assert.ok(action);
+  const words = line.textContent;
+  action.click();
+  const request = f.events.at(-1);
+  assert.equal(request.intent, 'concept');
+  assert.equal(typeof request.requestId, 'string');
+  assert.equal(typeof request.cancel, 'function');
+  request.cancel(); request.cancel();
+  assert.ok(line.querySelector('.consent-action'), 'host dismissal keeps the concept consent action visible');
+  assert.equal(line.querySelector('.consent-action'), action, 'host dismissal keeps the concept consent action');
+  assert.equal(line.textContent, words, 'host dismissal keeps the concept consent wording');
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 0);
+  await f.grant(); await f.grant();
+  assert.equal(f.calls.filter(c => c.url.endsWith('/concepts') && c.options.body).length, 1, 'a later grant continues the concept exactly once');
+  assert.equal(line.querySelector('.consent-action'), null);
+});
 for (const action of ['review', 'cancel', 'expiry', 'withdrawal', 'erasure', 'session', 'input', 'settings', 'decline', 'hidden']) test(`AIT-509: ${action} cannot resume a concept`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
   const f = conceptConsentFixture(t); f.ask(); f.root.querySelector('.concept-activity-text .consent-action').click();

@@ -611,7 +611,7 @@ passes those through without changing the displayed strings. The component
 emits `aithema-new-conversation` with `{processingPreset, settings, previousSessionId}`
 when the visitor starts a separate conversation (General tab, or crossing into or
 out of On my device once a conversation has started), and `aithema-consent` with
-`{sessionId, reason, features, intent, mode, required}` when a choice needs consent;
+`{sessionId, reason, features, intent, mode, required, requestId, cancel}` when a choice needs consent;
 the host presents the consent interface outside the current modal dialog. The reason values
 include `chooser`, `ready`, `manage`, `settings` and `use`. Both `reason` and
 `intent` are open enums: treat unknown values as review. The additive `intent` is
@@ -621,7 +621,17 @@ request (`reason: 'use'`), and `review` for a consent review. In the default ent
 mode, while `features` retains the full requested feature list. Start keeps a
 one-use, tab-scoped intent for at most three minutes for typing or 60 seconds for
 voice, bound to the conversation, mode and settings revision. Its stored copy is
-written before the consent event is dispatched and deleted on use or cancellation.
+written before the consent event is dispatched and removed when consumed, explicitly
+cancelled, expired or invalidated. The additive `requestId` is unique per event;
+additive `cancel()` lets the host settle a `start` request when its consent
+interface is dismissed without a grant. For other intents it is a no-op for
+the intent state; a concept keeps its existing TTL and later grant continuation.
+It is idempotent and does nothing after a grant, TTL expiry or a superseding
+request. Existing hosts can ignore both fields and retain the existing TTL
+behavior. A host can retain `event.detail.cancel` and call it when its own dialog
+closes without granting consent. Never call `cancel()` after granting: the
+callback is fenced when the component receives the `consent.revised` receipt,
+which can arrive after the host's grant action.
 A covering consent snapshot or refresh resumes typing. Voice resumes only while
 user activation is active; after a navigation to a consent page, voice needs one
 click on "Start call".
@@ -723,7 +733,10 @@ In combined mode, Send and the composer mic emit `aithema-consent` with
 `required` identifies that mode's blocked feature, while `features` keeps the
 full requested list. A text grant does not replace the voice scopes. Send
 snapshots the draft and makes the field read-only until consent settles; an
-in-place covering grant sends that snapshot once. Voice follows consent,
+in-place covering grant sends that snapshot once. Calling that event's `cancel()`
+returns the field, Send and mic to idle within one animation frame, keeping the
+draft and removing the pending intent. It grants no consent and never sends or
+starts voice; a later grant cannot resume the cancelled request. Voice follows consent,
 admission, microphone permission, then call startup through the selected client.
 The existing `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` copy and host
 overrides supply the blocked-microphone status beside the row.
@@ -731,8 +744,9 @@ overrides supply the blocked-microphone status beside the row.
 The combined draft lives inside the existing one-use intent, for either mode,
 with its 3-minute text / 60-second voice TTL, settings revision and `tabId`
 liveness proof. Navigation restores it only after the same-tab check, including
-a return without granting consent, and consumes the intent. A later grant never
-auto-sends or auto-starts a call. Text return focuses the field; voice return
+a return without granting consent, and consumes the intent as cancellation.
+Cached-page returns use the same restore check even when the feature read fails.
+A later grant never auto-sends or auto-starts a call. Text return focuses the field; voice return
 focuses the composer mic and requires a fresh click. Expiry, erasure, withdrawal
 and a new conversation clear the intent and its draft.
 An ordinary unsent follow-up survives a message withdrawal; only a pending
@@ -886,6 +900,74 @@ message text, and the manifest hashes the resulting fenced Markdown bytes.
 Robust text watermarking depends on upstream
 providers and what is "technically feasible"; these provenance labels do not
 implement a text watermark.
+
+Signal read-back (AIT-515) keeps the existing `understanding.signals: string[]`
+in newest-first order. New exact-text identities move to the front; unchanged
+signals retain their first-seen order even when a provider shuffles its output.
+Signals first seen in the same final keep provider order as the tie-break.
+A final selects the displayed list: omitted text disappears from that list, and
+reworded text is a new key. This is exact text reconciliation, without semantic
+replacement IDs or an updated mark. The current list remains capped at 24.
+Consumers taking the first entries, including the first 50 facts in the import
+payload, now receive the newest signals first.
+
+Additive `understanding.signalItems` in final `understanding.updated` events,
+API snapshots and `understanding.json` exports contains
+`{key, text, firstSeen, basis?}` in the same order. `key` is NFKC-normalized,
+lowercase text with collapsed whitespace; `firstSeen` is the server journal
+sequence of the first final containing that key, independent of wall time.
+The additive `signalKey(text)` helper is exported from the core root and
+`@inspr/aithema-core/understanding` for consumers needing that exact normalization.
+Draft/reset `signalItems` may contain only text and basis before a final assigns
+identity metadata. The model signal schema accepts `{text, basis}` with required
+`basis: 'visitor' | 'assistant' | 'document'`. Plain strings remain accepted for
+older/mock/device bindings and carry no basis tag. Only `assistant` signals show
+“unconfirmed” / “unbestätigt”; document observations and plain strings get no tag.
+Basis is model attribution, not a corroborated confirmation of a constraint.
+Existing visitor-only constraint evidence rules continue to apply.
+
+The separate server-owned snapshot `signalLedger` retains these identities plus
+`turnIds` and `uploadIds`, including identities omitted from the current final.
+Upload, correction, locale and grant-only consent resets of `understanding` do
+not discard this ledger. Older snapshots without a ledger are seeded from their
+current final without guessing earlier chronology. It uses erasable content
+references in persisted snapshots; raw text is absent from journal metadata.
+Source withdrawal, erasure and withdrawal of text/analysis/upload consent prune
+affected entries. Dependencies conservatively include every active input at the
+final because the model does not supply exact source IDs. Unrelated optional
+visual-scope changes preserve it. Exports contain the current understanding and
+its additive signal metadata, not the historical ledger.
+
+The overview shows five signals initially. A native Show all button names the
+total count and has `aria-expanded` / `aria-controls`; no toggle appears for five
+or fewer. The toggle stays right-aligned in the heading row, reserving both
+labels so expansion leaves its click target fixed. Its 32 px action extends
+evenly around the natural heading height, preserving the summary fade budget
+when a sixth signal reveals the toggle. Compact spacing above the first row
+also preserves that clearance beside the combined composer footer.
+The existing `signals` heading key now means “Signals” / “Signale” in EN/DE (German previously read
+“Was konkret erkennbar war”); host overrides still win. Assistant attribution
+reads “ · unconfirmed” / “ · unbestätigt” in muted ink, using the shared
+nonbreaking `reasonSeparator`. New rows use a tint
+without an edge stripe; the toggle focus ring stays inside its button. Expanded
+preference is kept in tab memory for the conversation,
+including temporary short lists and assessment resets, and cleared on erasure
+or conversation change. While pointer or focus is in the signals, unsolicited
+list changes are deferred until it leaves; source removal redacts immediately.
+Only one to three newly arriving keys receive a two-second highlight. Initial
+lists, larger batches, reconnects, remounts and unchanged finals stay quiet;
+reduced motion uses a static mark. New overridable copy keys are:
+
+| Key | English | German |
+| --- | --- | --- |
+| `signalsAll` | `Show all ({n})` | `Alle anzeigen ({n})` |
+| `showLess` (shared with summary expansion) | `Show less` | `Weniger anzeigen` |
+| `signalUnconfirmed` | `unconfirmed` | `unbestätigt` |
+
+Host copy overrides win; missing new keys use the active locale bundle.
+Summary and signal generation prompts address the visitor directly with English
+“you” and formal German “Sie”, keep attribution in `basis` rather than provenance
+prose, and leave quoted evidence untouched.
 
 Every ZIP export includes `manifest.json` with `version: 1`, `generator:
 {name: "aithema", version, commit?}`, an ISO-8601 `exportedAt`, and `files:

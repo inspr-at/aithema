@@ -2,6 +2,22 @@
 
 ## Host notes
 
+- AIT-542: additive `aithema-consent` detail fields `requestId` (unique per
+  request) and idempotent `cancel()` let a host settle a dismissed `start`
+  consent request. For other intents `cancel()` is a no-op for intent state;
+  concepts keep their existing TTL and later grant continuation. In the
+  combined entrance, cancellation returns the field, Send
+  and mic to idle within one animation frame and keeps the visitor's draft.
+  It does nothing after a grant, TTL expiry, a superseding request or a prior
+  cancellation. Never call it after granting: the component's fence is receipt
+  of `consent.revised`, which can follow the host's grant action. Hosts ignoring
+  the new fields retain the existing TTL behavior.
+  Returning from a separate consent page without a grant consumes the intent
+  as cancellation and restores the draft without sending or starting voice;
+  cached-page returns now use the restore check even if the feature read fails.
+  This clarifies RC25's “deleted on use or cancellation”: explicit host dismissal
+  is settled by `detail.cancel()`; expiry still discards the pending draft.
+
 - AIT-517 adds optional `sidebar-contact` and `contact-launcher` slots. Fill them
   before mount/configure. The pinned row is outside scrolling analysis and the
   E‑Mail ask pane; empty consumes zero height. It scrolls independently with a
@@ -95,6 +111,44 @@
   the mounted conversation and resets on a different conversation or erasure.
 - Summary and signal prompt guidance now addresses the visitor with “you” / “Sie”
   while preserving quoted evidence. No schema, event, option or export change.
+
+- AIT-515: `understanding.signals` remains `string[]` and is now newest-first by
+  first-seen server sequence, with stable provider-order ties. Current finals
+  hide omitted texts; rewordings are new keys, without replacement IDs or an
+  updated mark. Current lists retain the 24-item cap. First-N consumers and the
+  import payload now receive newest signals first.
+- Additive final-event/snapshot/export `understanding.signalItems` contains
+  `{key,text,firstSeen,basis?}`; draft/reset items may contain only text/basis
+  before final identity assignment. Model signals accept strict `{text,basis}` objects
+  (`visitor | assistant | document`) and compatible untagged plain strings.
+  Only assistant attribution shows an unconfirmed tag; it never confirms slots.
+  `signalKey(text)` is an additive core root/understanding export for exact NFKC,
+  lowercase, whitespace-collapsed identity.
+- The server-owned snapshot `signalLedger` lives outside `understanding`, includes
+  conservative `turnIds` / `uploadIds` dependencies and retains omitted identities.
+  It survives upload, correction, locale and grant-only resets; source erasure,
+  withdrawal and relevant consent withdrawal prune it. It uses erasable content
+  references in storage; raw ledger text is excluded from journal metadata.
+  Legacy snapshots seed identities from their current final. The historical
+  ledger is not exported; current signalItems and ordered strings are.
+- The signal overview starts at five, with a native total-count toggle and
+  conversation-local expansion. The toggle stays right-aligned in the heading
+  row with a stable box for both labels and an inset focus ring. The 32 px
+  action extends evenly around the natural heading row, including when a sixth
+  signal reveals it; compact list spacing also preserves clearance beside the
+  combined composer footer. The first signal stays clear of the summary pane
+  fade. The existing `signals` copy key uses “Signals” / “Signale” (DE previously “Was konkret
+  erkennbar war”); host overrides still win. Assistant basis uses a muted
+  “ · unconfirmed” / “ · unbestätigt” suffix with the shared nonbreaking
+  separator; arrival marks use tint alone.
+  Pointer/focus defer asynchronous list changes;
+  source removal redacts immediately. One to three new keys get a two-second
+  highlight (static with reduced motion); first/whole lists and reconnects stay
+  quiet. New host-overridable EN/DE keys: `signalsAll` = `Show all ({n})` /
+  `Alle anzeigen ({n})`, shared `showLess` = `Show less` / `Weniger anzeigen`,
+  `signalUnconfirmed` = `unconfirmed` / `unbestätigt`. Missing keys fall back to
+  the active locale. Summary/signal prompts use direct “you” / formal “Sie”,
+  avoid provenance prose and preserve quoted evidence.
 
 - AIT-511/AIT-513: the transcript uses the remaining height and voice recovery
   notices appear as interactive transcript end content at every width. A voice

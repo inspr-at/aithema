@@ -12,7 +12,7 @@ for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent', '
 await import('../src/session-element.js');
 const blocked = { available: false, reason: 'current processing consent required' }, allowed = { available: true, reason: null };
 const tick = () => new Promise(resolve => setTimeout(resolve, 450));
-function fixture(t, { granted = false, entrance = 'combined', active = true, client } = {}) {
+function fixture(t, { granted = false, entrance = 'combined', active = true, client, refreshGranted = true } = {}) {
   let now = 1_800_000_000_000;
   t.mock.method(Date, 'now', () => now);
   const timers = new Map(), nativeSet = globalThis.setTimeout, nativeClear = globalThis.clearTimeout;
@@ -42,7 +42,7 @@ function fixture(t, { granted = false, entrance = 'combined', active = true, cli
     if (url.endsWith('/withdraw')) return Response.json({ event: { seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: JSON.parse(options.body).turnId, reason: 'withdrawal', at: new Date(Date.now()).toISOString() } } });
     if (url.endsWith('/consent')) return Response.json({ consentRevision: c.session.consentRevision, selected: [], features: {} });
     const snapshot = c.session;
-    snapshot.featureMatrix.best = { text: allowed, voice: allowed, analysis: allowed };
+    if (refreshGranted) snapshot.featureMatrix.best = { text: allowed, voice: allowed, analysis: allowed };
     return Response.json(snapshot);
   });
   configure();
@@ -235,4 +235,84 @@ for (const boundary of ['expiry', 'withdrawal', 'erasure']) test(`AIT-513: ${bou
   if (boundary === 'erasure') f.c.receive({ seq: f.c.session.seq + 1, type: 'session.erased', data: { at: new Date(Date.now()).toISOString() } });
   assert.equal(f.c.shadowRoot.querySelector('textarea').value, '');
   assert.ok(cleared.includes(''), 'the sizing owner sees the empty field in the discard transaction');
+});
+
+// Consent settlement is request-scoped: a host may retain callbacks after its UI closes.
+for (const mode of ['text', 'voice']) test(`AIT-542: cancelling ${mode} immediately unlocks controls and retains the draft`, async t => {
+  const f = fixture(t); f.input('Keep the visitor draft'); mode === 'text' ? f.send() : f.mic();
+  const root = f.c.shadowRoot, request = f.events.at(-1);
+  assert.equal(typeof request.requestId, 'string'); assert.ok(request.requestId.length > 0);
+  assert.equal(typeof request.cancel, 'function');
+  assert.equal(root.querySelector('textarea').readOnly, true);
+  assert.equal(root.querySelector('.send').disabled, true);
+  assert.equal(root.querySelector('.composer-mic').disabled, true);
+  request.cancel();
+  assert.equal(root.querySelector('textarea').readOnly, false);
+  assert.equal(root.querySelector('textarea').value, 'Keep the visitor draft');
+  assert.equal(root.querySelector('.send').disabled, false);
+  assert.equal(root.querySelector('.composer-mic').disabled, false);
+  assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
+  request.cancel();
+  assert.equal(root.querySelector('textarea').value, 'Keep the visitor draft');
+  await f.grant(); assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
+});
+test('AIT-542: duplicate and stale cancellation cannot cancel the next unique request', t => {
+  const f = fixture(t); f.input('First draft'); f.send(); const first = f.events.at(-1);
+  first.cancel(); f.input('Next draft'); f.send(); const second = f.events.at(-1);
+  assert.notEqual(second.requestId, first.requestId);
+  first.cancel();
+  assert.equal(f.c.shadowRoot.querySelector('textarea').readOnly, true);
+  assert.equal(JSON.parse(sessionStorage.getItem('aithema-start-intent')).draft, 'Next draft');
+  second.cancel(); second.cancel();
+  assert.equal(f.c.shadowRoot.querySelector('textarea').readOnly, false);
+  assert.equal(f.c.shadowRoot.querySelector('textarea').value, 'Next draft');
+});
+test('AIT-542: cancel after a grant event cannot interrupt its pending feature refresh', async t => {
+  const f = fixture(t); f.input('Granted snapshot'); f.send(); const request = f.events.at(-1);
+  const granting = f.grant(); request.cancel(); await granting;
+  assert.deepEqual(f.sends.map(s => s.content), ['Granted snapshot']);
+  f.input('A newer draft'); request.cancel();
+  assert.equal(f.c.shadowRoot.querySelector('textarea').value, 'A newer draft');
+  assert.equal(f.sends.length, 1);
+});
+for (const [mode, ttl] of [['text', 180_000], ['voice', 60_000]]) {
+  test(`AIT-542: an ignored ${mode} request retains its TTL and late cancel is inert`, t => {
+    const f = fixture(t); f.input('TTL draft'); mode === 'text' ? f.send() : f.mic();
+    const request = f.events.at(-1); f.advance(ttl - 1);
+    assert.equal(f.c.shadowRoot.querySelector('textarea').readOnly, true);
+    assert.equal(f.c.shadowRoot.querySelector('textarea').value, 'TTL draft');
+    f.advance(1);
+    assert.equal(f.c.shadowRoot.querySelector('textarea').readOnly, false);
+    assert.equal(f.c.shadowRoot.querySelector('textarea').value, '');
+    f.input('Written after expiry'); f.send(); request.cancel();
+    assert.equal(f.c.shadowRoot.querySelector('textarea').readOnly, true);
+    assert.equal(JSON.parse(sessionStorage.getItem('aithema-start-intent')).draft, 'Written after expiry');
+  });
+  test(`AIT-542: returning from a consent page without a ${mode} grant settles to idle`, async t => {
+    const f = fixture(t, { refreshGranted: false }); f.input('Returned draft'); mode === 'text' ? f.send() : f.mic();
+    const request = f.events.at(-1), snapshot = f.returnSnapshot(false);
+    f.configure(document.createElement('aithema-session'), snapshot); await tick();
+    const root = f.c.shadowRoot;
+    assert.equal(root.querySelector('textarea').readOnly, false);
+    assert.equal(root.querySelector('textarea').value, 'Returned draft');
+    assert.equal(root.querySelector('.send').disabled, false);
+    assert.equal(root.querySelector('.composer-mic').disabled, false);
+    assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
+    assert.equal(f.c.session.consentRevision, snapshot.consentRevision);
+    request.cancel(); await f.grant();
+    assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
+  });
+}
+for (const mode of ['text', 'voice']) test(`AIT-542: cached-page ${mode} return cancels even when the feature read fails`, async t => {
+  const f = fixture(t, { refreshGranted: false }); f.input('Cached draft'); mode === 'text' ? f.send() : f.mic();
+  window.dispatchEvent(new window.Event('pagehide'));
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('Fixture offline'); });
+  window.dispatchEvent(new window.Event('pageshow')); await tick();
+  const root = f.c.shadowRoot;
+  assert.equal(root.querySelector('textarea').readOnly, false);
+  assert.equal(root.querySelector('textarea').value, 'Cached draft');
+  assert.equal(root.querySelector('.send').disabled, false);
+  assert.equal(root.querySelector('.composer-mic').disabled, false);
+  assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
+  assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
 });
