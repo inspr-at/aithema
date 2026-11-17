@@ -8,7 +8,6 @@ import { browserForFile } from './shared-browser.js';
 import { shadow, until, evidenceCommit } from './start2-display-helpers.js';
 import { startChild } from '../helpers.js';
 import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
-import { installClarifyTrace } from './clarify-trace.js';
 
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
@@ -929,7 +928,6 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
-  await shadow(page, installClarifyTrace);
   const measure = () => shadow(page, c => {
     const root = c.shadowRoot, row = root.querySelectorAll('.open-question')[1];
     const box = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom }; };
@@ -965,9 +963,6 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     const context = `${locale}-${theme}-${width}-${failure}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    await page.evaluate(({ active, context }) => {
-      Object.assign(window.ait515Trace, { active, context, stage: 'configure', events: [] });
-    }, { active: locale === 'de' && theme === 'light' && width === 1024, context });
     await shadow(page, async (c, locale, theme, failure) => {
       const { createSession, inputRevision } = await import('/packages/core/src/session.js');
       const { [locale]: defaults } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -1079,7 +1074,7 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
     if (width !== 1024) await shot(`${context}-focus`);
     if (failure.startsWith('refused-')) {
       for (const activation of ['centre', 'Enter', 'Space']) {
-        await page.evaluate(activation => { window.ait515Trace.stage = activation; return window.retry524Reset(); }, activation); await settle(page);
+        await page.evaluate(() => window.retry524Reset()); await settle(page);
         if (activation === 'centre') await page.mouse.click(...centre(b));
         else { await shadow(page, () => window.retry524Button.focus({ preventScroll: true })); await page.keyboard.press(activation); }
         await settle(page);
@@ -1103,7 +1098,7 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
     }
     const points = { centre: centre(b), top: [b.x + b.width / 2, b.y + 1], bottom: [b.x + b.width / 2, b.bottom - 1], left: [b.x + 1, b.y + b.height / 2], right: [b.right - 1, b.y + b.height / 2] };
     for (const activation of [...Object.keys(points), 'Enter', 'Space']) {
-      await page.evaluate(activation => { window.ait515Trace.stage = activation; return window.retry524Reset(); }, activation); await page.mouse.move(0, 0); await settle(page);
+      await page.evaluate(() => window.retry524Reset()); await page.mouse.move(0, 0); await settle(page);
       if (activation in points) await page.mouse.click(...points[activation]);
       else { await shadow(page, () => window.retry524Button.focus({ preventScroll: true })); await page.keyboard.press(activation); }
       await settle(page);
@@ -1136,7 +1131,6 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
   } catch (error) {
     if (evidence) {
       await writeFile(join(evidence, `ait524-${failure}-failure.txt`), error.stack);
-      await writeFile(join(evidence, `ait524-${failure}-trace.json`), JSON.stringify(await page.evaluate(() => window.ait515Trace), null, 2));
       const diagnostic = await shadow(page, c => {
         const row = c.shadowRoot.querySelectorAll('.open-question')[1], button = row.querySelector('button'), b = button.getBoundingClientRect();
         const hits = Object.fromEntries(Object.entries({ centre: [b.x + b.width / 2, b.y + b.height / 2], top: [b.x + b.width / 2, b.y + 1], bottom: [b.x + b.width / 2, b.bottom - 1] }).map(([name, point]) => {
