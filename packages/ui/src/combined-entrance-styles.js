@@ -44,7 +44,7 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .attach { display:none; }
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:center; }
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
-/* Image refusals use a bounded 40px list; reserve its action row before intake. */
+/* Image refusals reserve the longest real localized reason before intake. */
 .workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:44px; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
@@ -99,7 +99,7 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer[data-image-input] .composer-feedback { grid-area:auto; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }
-  .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:2px; }
+  .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell > .voice-notices { margin-top:0; }
   .workspace[data-entrance="combined"][data-phone-short] .turn.user { padding-block:0; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }

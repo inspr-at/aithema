@@ -517,10 +517,11 @@ export const de = {
   imageRemove: "{name} entfernen",
   imageLiveCall: "Bilder lassen sich im Textmodus senden.",
   imageUnsupportedModel: "Bilder werden von diesem Assistenten nicht gelesen.",
-  imageWithheld: "[Bild zurückgehalten]",
+  imageWithheld: "Bild nicht gesendet",
   uploadsSupported: "Unterstützt: PDF, Word, Excel, PowerPoint, Text sowie Bilder als PNG, JPEG, WebP oder GIF",
   uploadsReselect: {"one": "Datei bitte erneut auswählen.", "other": "Dateien bitte erneut auswählen."},
   imageRefusals: {
+    "paused": "Während der Gesprächspause können keine Bilder angehängt werden.",
     "batch": "Bis zu vier Bilder lassen sich zusammen senden.",
     "unsupported": "Dateityp wird nicht angenommen. PNG, JPEG, WebP oder GIF verwenden.",
     "size": "Das Bild ist für diesen Upload zu groß.",

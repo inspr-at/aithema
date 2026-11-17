@@ -121,3 +121,19 @@
 
 - Staged image states are excluded from the append-only voice callback fence;
   attaching, preparing, refusing or discarding an image cannot reject that reply.
+
+- AIT-510 follow-up: image-only OpenRouter input omits blank text blocks. A switch
+  to a text-only model or preset replaces earlier image references with text
+  markers before estimation, reservation and dispatch, preserving text replies
+  and understanding. Device mode refuses unsent staged images without dropping
+  their files or caption. Mixed selections continue eligible document uploads when
+  image input is unavailable, with distinct model/normalizer/pause refusals and
+  existing upload-consent wording for document-only continuations.
+- Image refusal feedback reserves the longest localized reason and shows it
+  once. Remove targets stay outside thumbnails with filename-aware EN/DE names;
+  short phones use one compact staging row around 44 px controls. Withheld-image copy `imageWithheld`
+  reads “Image not sent” / “Bild nicht gesendet”; `imageRefusals.paused` is additive.
+  Enabled Attach describes selection before consent. Unknown file refusals list
+  accepted formats; image-limit copy resolves host overrides and locale fallbacks.
+  Composer growth retains transcript follow and whole-item reading alignment;
+  the combined short-phone transcript reserves eight pixels below its content.

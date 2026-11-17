@@ -5,11 +5,20 @@ import { stagedImage } from '../../core/src/image-input.js';
 
 /** Owns erasable previews and bounded refusal records; never changes conversation input. */
 export class ImageInputView {
-  #ports; #copy; #tiles; #records = []; #urls = new Map(); #loads = new Map(); #epoch = 0;
+  #ports; #copy; #tiles; #records = []; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver;
   constructor(ports) {
     this.#ports = ports; this.#copy = ports.copy;
     this.#tiles = node('div', 'staged-images'); this.#tiles.hidden = true;
     ports.form.prepend(this.#tiles);
+    this.#reserve = node('span', 'image-feedback-reserve');
+    this.#reserve.setAttribute('aria-hidden', 'true'); this.#reserve.inert = true;
+    ports.form.querySelector('.composer-feedback').append(this.#reserve);
+    const fit = () => {
+      const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
+      if (height > 0) ports.form.style.setProperty('--image-feedback-height', `${height}px`);
+    };
+    const Observer = ports.form.ownerDocument.defaultView?.ResizeObserver;
+    if (Observer) { this.#reserveObserver = new Observer(fit); this.#reserveObserver.observe(this.#reserve); }
     for (const upload of ports.session().uploads) this.receive(upload);
   }
   get hasRefusals() { return this.#records.length > 0; }
@@ -27,27 +36,48 @@ export class ImageInputView {
   receive(upload) { if (upload.kind === 'image' && upload.state === 'staged-refused' && !upload.erased) this.refuse([{ id: upload.id, name: upload.filename, reason: upload.reason }]); }
   #text(key, legacy) { return resolveCopy(this.#copy, key, legacy, this.#ports.session().locale); }
   refusalText(reason) { return this.#text(`imageRefusals.${reason}`, reason === 'model' ? 'imageUnsupportedModel' : reason === 'live-call' ? 'imageLiveCall' : undefined) ?? this.#text('imageRefusals.unavailable'); }
+  #refusal(record) {
+    const row = node('span', 'image-refusal');
+    const name = node('span', 'image-refusal__name', record.name ? `${record.name}: ` : ''); name.title = record.name ?? '';
+    row.append(name, node('span', 'image-refusal__reason', this.refusalText(record.reason)));
+    return row;
+  }
+  #reserveFeedback() {
+    const reasons = ['batch', 'unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'paused'];
+    const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard]);
+    if (this.#reserve.dataset.copy !== key) {
+      this.#reserve.dataset.copy = key;
+      this.#reserve.replaceChildren(...reasons.map(reason => {
+        const row = node('span', 'image-refusals-reserve__row');
+        const icon = node('span', 'image-refusals__icon');
+        const list = node('span', 'image-refusals__list'); list.append(this.#refusal({ name: 'file', reason }));
+        row.append(icon, list, node('span', 'image-refusals__dismiss', this.#copy.uploads.discard));
+        return row;
+      }));
+    }
+    const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
+    if (height > 0) this.#ports.form.style.setProperty('--image-feedback-height', `${height}px`);
+  }
   paintRefusals(line) {
     let region = line.querySelector('.image-refusals');
     if (!region) {
       region = node('span', 'image-refusals'); region.tabIndex = 0;
       const glyph = node('span', 'image-refusals__icon'); glyph.innerHTML = WARNING_ICON;
       const list = node('span', 'image-refusals__list');
-      const dismiss = node('button', 'consent-action'); dismiss.type = 'button';
+      const dismiss = node('button', 'consent-action image-refusals__dismiss'); dismiss.type = 'button';
       dismiss.addEventListener('click', () => { this.clear(); this.#ports.changed(); });
       region.append(glyph, list, dismiss); line.replaceChildren(region);
     }
     const list = region.querySelector('.image-refusals__list');
     const signature = JSON.stringify([this.#records, this.#copy.display?.locale, this.#records.map(record => this.refusalText(record.reason))]);
     if (list.dataset.records !== signature) {
-      list.replaceChildren(...this.#records.map(record => node('span', 'image-refusal', `${record.name ? record.name + ': ' : ''}${this.refusalText(record.reason)}`)),
-        ...(this.#records.some(record => record.reason === 'unsupported') ? [node('span', 'image-supported', this.#text('uploadsSupported'))] : []));
+      list.replaceChildren(...this.#records.map(record => this.#refusal(record)));
       list.dataset.records = signature;
     }
     setText(region.querySelector('button'), this.#copy.uploads.discard); delete line.dataset.consentFeature;
   }
   update(copy = this.#copy) {
-    this.#copy = copy;
+    this.#copy = copy; this.#reserveFeedback();
     const session = this.#ports.session(), images = session.uploads.filter(u => stagedImage(u) && !u.erased && u.state !== 'staged-discarded');
     this.#tiles.hidden = !images.length;
     const active = new Set((this.#ports.canRead() ? session.uploads : []).filter(u => u.kind === 'image' && !u.erased && ['staged-ready', 'sent'].includes(u.state)).map(u => `${u.id}:${u.digest}`));
@@ -66,7 +96,7 @@ export class ImageInputView {
       row.querySelector('button').setAttribute('aria-label', this.#text('imageRemove').replace('{name}', image.filename ?? ''));
       row.querySelector('button').title = this.#text('imageRemove').replace('{name}', image.filename ?? '');
       setText(row.querySelector('.staged-image__status'), image.state === 'staged-pending' ? this.#text('imagePreparing')
-        : image.state === 'staged-refused' ? this.refusalText(image.reason) : image.filename ?? '');
+        : image.filename ?? '');
       if (image.state === 'staged-ready') this.#paintImage(row.querySelector('.staged-image__preview'), image);
       else row.querySelector('.staged-image__preview').replaceChildren();
     }
@@ -83,7 +113,11 @@ export class ImageInputView {
       let tile = [...strip.children].find(tile => tile.dataset.id === id);
       if (!tile) { tile = node('span', 'turn-image'); tile.dataset.id = id; strip.append(tile); }
       const image = this.#ports.session().uploads.find(u => u.id === id);
-      if (!this.#ports.canRead() || !image || image.state !== 'sent' || image.erased || image.withdrawn) { tile.replaceChildren(node('span', '', this.#text('imageWithheld'))); continue; }
+      if (!this.#ports.canRead() || !image || image.state !== 'sent' || image.erased || image.withdrawn) {
+        tile.dataset.withheld = ''; tile.style.width = ''; tile.style.height = '';
+        tile.replaceChildren(node('span', '', this.#text('imageWithheld'))); continue;
+      }
+      delete tile.dataset.withheld;
       tile.style.width = `${Math.max(24, Math.round(72 * image.w / Math.max(image.w, image.h)))}px`;
       tile.style.height = `${Math.max(24, Math.round(72 * image.h / Math.max(image.w, image.h)))}px`;
       this.#paintImage(tile, image);
@@ -108,5 +142,5 @@ export class ImageInputView {
     }).catch(() => {}).finally(() => this.#loads.delete(key));
     this.#loads.set(key, pending);
   }
-  destroy() { this.#epoch++; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#records = []; }
+  destroy() { this.#reserveObserver?.disconnect(); this.#epoch++; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#records = []; }
 }

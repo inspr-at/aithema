@@ -517,10 +517,11 @@ export const en = {
   imageRemove: "Remove {name}",
   imageLiveCall: "Images can be sent in text mode.",
   imageUnsupportedModel: "This assistant can't read images.",
-  imageWithheld: "[image withheld]",
+  imageWithheld: "Image not sent",
   uploadsSupported: "Supported: PDF, Word, Excel, PowerPoint, text, and PNG, JPEG, WebP or GIF images",
   uploadsReselect: {"one": "Please choose the file again.", "other": "Please choose the files again."},
   imageRefusals: {
+    "paused": "Images cannot be attached while the conversation is paused.",
     "batch": "Up to four images can be sent together.",
     "unsupported": "File type not accepted. Use PNG, JPEG, WebP or GIF.",
     "size": "Image too large for this upload.",

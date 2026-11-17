@@ -4067,7 +4067,12 @@ Hosts can lower it through upload limits or `AITHEMA_UPLOAD_MAX_IMAGES`.
 Owner-authenticated `GET /api/sessions/:id/uploads/:uploadId/image` returns only
 normalized ready/sent pixels, with `Cache-Control: no-store` and a current
 image-consent check. Clients fetch with the owner header into revocable blob
-URLs. Fixed staging tiles hold preparing/failure states; sent thumbnails are
+URLs. Fixed staging tiles hold previews, filenames and preparing states; refusals
+appear once in the reason slot, with space measured from every localized
+refusal sentence. Remove controls sit beside the preview with a 44 px target
+and a filename in their accessible name. Withheld images display the sentence
+“Image not sent” / “Bild nicht gesendet” without a thumbnail-sized text box.
+Sent thumbnails are
 inside their user turn, with boxes reserved from stored `w` and `h`. Upload
 staging grows above the bottom-anchored controls in both entrance modes;
 combined image-capable composers reserve the bounded refusal feedback row while
@@ -4087,6 +4092,12 @@ and `ImageInput` are additive types in `@inspr/aithema-core/plugin-contract`.
 Image-capable messages carry `images` references
 `{ uploadId, digest, w, h, mediaType }` through admission. Only the dispatched
 OpenRouter adapter converts resolved owner-bound bytes to `image_url` data URLs.
+Image-only requests omit blank text content blocks. After a model or preset
+switch to a binding without image input, earlier images become
+`[image: "filename", sent earlier]` text markers before cost admission; text
+replies and final understanding can continue without resending their pixels.
+Device mode refuses unsent staged images while retaining the files and caption;
+remove them or switch back to a model that accepts images before sending.
 At most four images from the last two user turns are resent; draft understanding
 stays text-only, and older images have text markers. Third-party text-only
 plugins never receive wire content-part arrays. `@inspr/aithema-core/image-input`
@@ -4099,13 +4110,19 @@ New copy keys are `imageConsentJit`, `imageInputFeature`, `imagePreparing`,
 `imageRemove`, `imageLiveCall`, `imageUnsupportedModel`, `imageWithheld`,
 `uploadsSupported`, plural `uploadsReselect`, `imageRefusals` (unsupported, size,
 limit, empty, malformed, dimensions, deadline, cancelled, unavailable, session,
-model, live-call and batch), `features.imageInput`, `featureConsent.imageInput`, and
+model, live-call, batch and paused), `features.imageInput`, `featureConsent.imageInput`, and
 `processingConsent.items.image-input`. Upload limits now describe the accepted
 image formats and normalized-image retention. Refusals are bounded structured
 records, retained through typing until dismissed, a successful attach, or a
 successful send. The reason slot ranks pause/unavailability, send failure,
 attach-time consent, refusals, upload notices, then the shortcut hint. German UI
-copy is impersonal; host overrides remain authoritative.
+copy is impersonal; host overrides remain authoritative. Mixed image/document
+selections refuse unavailable images while continuing with eligible documents.
+Document-only continuations use the existing upload-consent wording and editor.
+Paused conversations and unavailable normalizers have their own refusal copy;
+only a missing model capability uses the unsupported-model wording. An enabled
+Attach control describes selection even before consent, and asks only after a
+file is chosen. Unknown file refusals include the supported-format help line.
 
 The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,
 `imageUpload` (normalized bytes in `imageBytes`), and `expireStagedUploads`;
