@@ -1403,9 +1403,18 @@ export class AithemaSession extends HTMLElement {
       // A hidden, detached or not-yet-measured nonempty list cannot prove fit.
       // Preserve native-end following until both list dimensions are positive.
       const measured = list.width > 0 && list.height > 0;
-      const visibleEnds = [...shell.querySelectorAll(':scope > .voice-notices > .voice-notice')]
-        .filter(row => !row.hidden)
-        .map(row => row.getBoundingClientRect())
+      // Every visible in-flow child contributes, including reply-failure
+      // recovery. Only Latest and empty voice reservations are end slots.
+      const inFlow = child => {
+        const css = this.ownerDocument.defaultView.getComputedStyle(child);
+        return !child.hidden && !['absolute', 'fixed'].includes(css.position)
+          && !['hidden', 'collapse'].includes(css.visibility) && css.display !== 'none';
+      };
+      const visibleEnds = [...shell.children]
+        .filter(child => !child.classList.contains('transcript-latest') && inFlow(child))
+        .flatMap(child => child.classList.contains('voice-notices')
+          ? [...child.children].filter(row => row.classList.contains('voice-notice') && row.textContent.trim() && inFlow(row)) : [child])
+        .map(child => child.getBoundingClientRect())
         .filter(box => box.width > 0 && box.height > 0).map(box => box.bottom);
       const contentEnd = Math.max(list.bottom, ...visibleEnds) + shell.scrollTop - pane.top;
       const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingBottom) || 0;
