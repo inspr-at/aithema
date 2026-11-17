@@ -649,6 +649,8 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 .question-notice svg { width:13px; height:13px; margin-top:.2em; }
 .question-notice:not([data-on]) { visibility:hidden; }
 .questions-heading:has(.question-notice[data-on]) h3 { visibility:hidden; }
+/* Preserve first-signal fade clearance with the combined footer too. */
+.analysis-content .signals-section { gap:.4rem; }
 .signals-heading { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,max-content); align-items:center; gap:.5rem; }
 /* The natural heading owns row height; the 32px action overflows symmetrically. */
 .signals-toggle-slot { display:grid; align-content:center; height:0; min-width:0; }
