@@ -1,3 +1,4 @@
+import { serverEvents } from './session-events.js';
 import { emailOfferStyles } from './email-offer.js';
 import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
@@ -57,21 +58,6 @@ function spareSpace(pane) {
   const last = pane.lastElementChild; if (!last) return 0;
   const end = last.getBoundingClientRect().bottom + parseFloat(getComputedStyle(last).marginBottom) + parseFloat(getComputedStyle(pane).paddingBottom);
   return Math.max(0, pane.getBoundingClientRect().top + pane.clientTop + pane.clientHeight - end);
-}
-// Server-sent events from a fetch body, one parsed event at a time.
-async function* serverEvents(reader) {
-  let buffer = ''; const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read(); if (done) return;
-    buffer += decoder.decode(value, { stream: true });
-    if (buffer.length > 2_000_000) throw new Error('Event stream too large');
-    let boundary;
-    while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-      const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
-      const data = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5)).join('\n');
-      if (data) yield JSON.parse(data);
-    }
-  }
 }
 // Tick's approved 16 px state glyphs (the action itself retains a 44 px target).
 const CLARIFY_ICONS = Object.fromEntries(Object.entries({
