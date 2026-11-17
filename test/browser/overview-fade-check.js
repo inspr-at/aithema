@@ -1,5 +1,4 @@
 // AIT-547: a pinned host contact must leave a readable collapsed overview.
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,7 +14,7 @@ const settle = page => shadow(page, async () => {
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 });
 
-test('AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE', { timeout: 180_000 }, async t => {
+export async function overviewFadeCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-overview-fade-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage(), records = [], errors = [];
@@ -127,4 +126,4 @@ test('AIT-547 pinned contact: opaque heading and first signal above the fade, st
           assert.equal(crossing.bottomFade, false, `${name}: bottom fade cannot cover the heading row`);
       }
   assert.deepEqual(errors, []);
-});
+}
