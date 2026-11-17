@@ -37,7 +37,7 @@ function fixture(t, { address = '', next = 'emailGiven', lock = false } = {}) {
   const calls = [], session = { locale: 'en', emailOffer: { afterMessages: 2 }, transcript: [
     { id: 'u1', role: 'user' }, { id: 'a1', role: 'assistant' }, { id: 'u2', role: 'user' }, { id: 'a2', role: 'assistant' },
   ] };
-  const verification = { email, canSave: true, locked: lock, async saveAndConfirm(value) { calls.push(['save', value]); email.address = value; return { ok: true, sent: true }; },
+  const verification = { email, locked: lock, async saveAndConfirm(value) { calls.push(['save', value]); email.address = value; return { ok: true, sent: true }; },
     async resend() { calls.push(['resend']); return { ok: true, sent: true }; } };
   const offer = new EmailOffer({ root, copy: en, verification, session: () => session, streaming: () => false,
     changed() {}, request: async (_, body) => { calls.push(body); return { ok: true, body: { accepted: true,
@@ -316,4 +316,18 @@ for (const locale of ['en', 'de']) test(`AIT-543: ${locale} identity offer promi
   assert.equal(f.row.querySelector('.email-offer__lead').textContent, copy.hostSurface.usedUp.hostConfirm.replace('{delta}', '300'));
   f.offer.state = { nextTier: 'emailGiven', deltaMicro: 3_000_000 }; f.offer.paint();
   assert.equal(f.row.querySelector('.email-offer__lead').textContent, copy.hostSurface.verify.entry, 'an unsupported saved-tier promise is omitted');
+});
+
+test('AIT-543 r3: an unloaded store capability resolves before showing confirmation sending', async t => {
+  let finish;
+  const f = await capabilityOffer(t, { canSave: true, loaded: false, reply: () => new Promise(resolve => { finish = resolve; }) });
+  const saving = f.offer.save();
+  const unresolvedMessage = f.row.querySelector('.email-offer__message').textContent;
+  for (let i = 0; i < 20 && !finish; i++) await new Promise(resolve => setImmediate(resolve));
+  const storeMessage = f.row.querySelector('.email-offer__message').textContent;
+  finish({ ok: true, body: { identity: { status: 'verification-pending', address: f.address, delivery: 'sent', pollVerification: false } } });
+  await saving;
+  assert.equal(unresolvedMessage, '', 'the loading state makes no delivery claim');
+  assert.equal(storeMessage, en.hostSurface.email.saving);
+  assert.equal(f.row.dataset.step, 'sent');
 });

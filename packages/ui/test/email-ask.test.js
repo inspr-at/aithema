@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import { Verification } from '../src/verification.js';
+import { confirmationHost } from '../../../test/fixtures/confirmation-host.js';
 import { EmailAsk, emailAskIntent, lowCredit, EMAIL_ASK_IDLE_MS } from '../src/email-ask.js';
 import { emailAskStyles } from '../src/email-ask-styles.js';
 import { en } from '../src/i18n/en.js';
@@ -125,4 +127,25 @@ test('AIT-507 integration: disabled low-credit surface reserves no opener action
   f.ask.lowCredits = false;
   f.ask.credits = { ...credits, tiers: { ...credits.tiers, next: 'emailConfirmed' }, balance: { owner: { availableMicro: 500_000 } } };
   assert.equal(f.ask.reservedLowLine, null);
+});
+
+for (const why of ['turn5', 'low']) test(`AIT-543 r3: no-store ${why} ask keeps the original failed-save behavior without an identity fallback`, async t => {
+  const host = await confirmationHost(t), f = fixture(t), document = f.root.ownerDocument;
+  globalThis.document = document;
+  const entry = document.createElement('section'), lock = document.createElement('section'), dialog = document.createElement('dialog');
+  f.root.append(entry, lock, dialog);
+  const verification = new Verification({ root: f.root, entry, lock, dialog, copy: en, request: host.call, identity: host.session.identity, demo: true });
+  t.after(() => { verification.destroy(); delete globalThis.document; });
+  await verification.load(); verification.setCredits({ tiers: host.tiers() });
+  f.ask.verification = verification;
+  f.ask.credits = credits; f.ask.state = { open: true, why, openedAt: 5 }; f.ask.open = true;
+  f.ask.input.value = 'visitor@example.test'; f.ask.paint();
+  await f.ask.save();
+  assert.deepEqual(host.calls.filter(call => /^identity\/(request|change|resend)$/u.test(call.path)), [], 'EmailAsk must not gain the offer-only identity fallback');
+  assert.equal(f.ask.step, 'idle', 'an unavailable save cannot reach the saved tier');
+  assert.equal(f.ask.q('#email-ask-message').textContent, en.hostSurface.email.failed);
+  assert.equal(f.ask.q('.email-ask__done').inert, true, 'saved and delivery-failure claims remain hidden');
+  assert.equal(verification.email.address, '');
+  assert.deepEqual(host.deliveries, []);
+  assert.equal(host.tiers().current, 'anonymous');
 });
