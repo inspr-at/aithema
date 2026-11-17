@@ -627,7 +627,7 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
    Offset the extra status line above the copy to retain its resting baseline.
    The summary heading supplies its own separation; do not add a grid gap. */
 @media(min-width:60rem) {
-  .workspace[data-contact] .analysis-stack { container:analysis-pane / size; }
+  .workspace[data-contact]:is([data-stage="live"],[data-entrance="combined"]) .analysis-stack { container:analysis-pane / size; }
   @container analysis-pane (max-height:500px) {
     .workspace[data-contact] .analysis-content { padding-top:calc(28px - 1.16rem + var(--aithema-slack-top,0px)); }
     .workspace[data-contact] .overview-status { display:flex; align-items:flex-end; gap:.5rem; height:2.9em; min-height:2.9em; margin-bottom:-1.15rem; }

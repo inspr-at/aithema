@@ -246,9 +246,10 @@ export async function compactStatusCheck(t) {
         baseline ??= geometry.slot;
         const problems = [];
         if (Math.abs(geometry.slot.height - geometry.expectedHeight) > .5) problems.push('incorrect exact slot height');
-        if (Math.abs(geometry.slot.height - baseline.height) > .5) problems.push('status height shifted');
+        for (const axis of ['x', 'y', 'width', 'height']) if (Math.abs(geometry.slot[axis] - baseline[axis]) > .5) problems.push(`status ${axis} shifted`);
         for (const [i, text] of geometry.textBoxes.entries()) {
           positive(text.box, `${name}: text ${i}`);
+          if (geometry.compact && (text.box.top < geometry.slot.top - .5 || text.box.bottom > geometry.slot.bottom + .5 || text.box.left < geometry.slot.left - .5 || text.box.right > geometry.slot.right + .5)) problems.push(`text ${i} outside slot`);
           if (geometry.compact && (text.scrollHeight > text.clientHeight || text.scrollWidth > text.clientWidth || text.ellipsis || geometry.naturalTexts[i] > text.box.height + .5 || text.box.height > text.lineHeight * 2 + .5)) problems.push(`text ${i} clipped or ellipsized`);
         }
         if (font) assert.equal(geometry.textBoxes[0].font, font, `${name}: stress font is applied`);
