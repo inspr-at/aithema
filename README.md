@@ -611,7 +611,7 @@ passes those through without changing the displayed strings. The component
 emits `aithema-new-conversation` with `{processingPreset, settings, previousSessionId}`
 when the visitor starts a separate conversation (General tab, or crossing into or
 out of On my device once a conversation has started), and `aithema-consent` with
-`{sessionId, reason, features, intent, mode, required}` when a choice needs consent;
+`{sessionId, reason, features, intent, mode, required, requestId, cancel}` when a choice needs consent;
 the host presents the consent interface outside the current modal dialog. The reason values
 include `chooser`, `ready`, `manage`, `settings` and `use`. Both `reason` and
 `intent` are open enums: treat unknown values as review. The additive `intent` is
@@ -621,7 +621,17 @@ request (`reason: 'use'`), and `review` for a consent review. In the default ent
 mode, while `features` retains the full requested feature list. Start keeps a
 one-use, tab-scoped intent for at most three minutes for typing or 60 seconds for
 voice, bound to the conversation, mode and settings revision. Its stored copy is
-written before the consent event is dispatched and deleted on use or cancellation.
+written before the consent event is dispatched and removed when consumed, explicitly
+cancelled, expired or invalidated. The additive `requestId` is unique per event;
+additive `cancel()` lets the host settle a `start` request when its consent
+interface is dismissed without a grant. For other intents it is a no-op for
+the intent state; a concept keeps its existing TTL and later grant continuation.
+It is idempotent and does nothing after a grant, TTL expiry or a superseding
+request. Existing hosts can ignore both fields and retain the existing TTL
+behavior. A host can retain `event.detail.cancel` and call it when its own dialog
+closes without granting consent. Never call `cancel()` after granting: the
+callback is fenced when the component receives the `consent.revised` receipt,
+which can arrive after the host's grant action.
 A covering consent snapshot or refresh resumes typing. Voice resumes only while
 user activation is active; after a navigation to a consent page, voice needs one
 click on "Start call".
@@ -723,7 +733,10 @@ In combined mode, Send and the composer mic emit `aithema-consent` with
 `required` identifies that mode's blocked feature, while `features` keeps the
 full requested list. A text grant does not replace the voice scopes. Send
 snapshots the draft and makes the field read-only until consent settles; an
-in-place covering grant sends that snapshot once. Voice follows consent,
+in-place covering grant sends that snapshot once. Calling that event's `cancel()`
+returns the field, Send and mic to idle within one animation frame, keeping the
+draft and removing the pending intent. It grants no consent and never sends or
+starts voice; a later grant cannot resume the cancelled request. Voice follows consent,
 admission, microphone permission, then call startup through the selected client.
 The existing `voiceMessagesNarrow.voiceMicDenied` / `voiceMicDenied` copy and host
 overrides supply the blocked-microphone status beside the row.
@@ -731,8 +744,9 @@ overrides supply the blocked-microphone status beside the row.
 The combined draft lives inside the existing one-use intent, for either mode,
 with its 3-minute text / 60-second voice TTL, settings revision and `tabId`
 liveness proof. Navigation restores it only after the same-tab check, including
-a return without granting consent, and consumes the intent. A later grant never
-auto-sends or auto-starts a call. Text return focuses the field; voice return
+a return without granting consent, and consumes the intent as cancellation.
+Cached-page returns use the same restore check even when the feature read fails.
+A later grant never auto-sends or auto-starts a call. Text return focuses the field; voice return
 focuses the composer mic and requires a fresh click. Expiry, erasure, withdrawal
 and a new conversation clear the intent and its draft.
 An ordinary unsent follow-up survives a message withdrawal; only a pending
