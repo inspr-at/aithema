@@ -71,7 +71,8 @@ test('AIT-515 summary and signal prompt uses direct address, formal German and s
   assert.match(prompt, /summary and signals[\s\S]*"you"[\s\S]*"Sie"/u);
   assert.match(prompt, /never "the person" or "the visitor"/u);
   assert.match(prompt, /provenance prose/u);
-  assert.match(prompt, /Quoted evidence is untouched/u);
+  assert.match(prompt, /Keep quoted evidence verbatim; do not rewrite quotations to change their form of address/u);
+  assert.doesNotMatch(prompt, /Quoted evidence is untouched/u, 'quotation guidance is stated once');
 });
 
 test('AIT-515 scope-specific consent removal prunes affected signals; unrelated visual removal preserves the ledger', () => {
