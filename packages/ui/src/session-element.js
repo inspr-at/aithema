@@ -1393,7 +1393,21 @@ export class AithemaSession extends HTMLElement {
     // fitting. Refresh its actual occlusion before revealing the whole offer;
     // a stale inset otherwise wastes readable conversation space.
     if (offer && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) this.#syncBandScroll();
-    shell.scrollTop = shell.scrollHeight;
+    let end = shell.scrollHeight;
+    // D511a: end reservations cannot turn fitting short content into a
+    // scrolled conversation. Keep the notice minimum and AIT-400 Latest slot
+    // intact; only genuinely overflowing content follows their native end.
+    if (this.shadowRoot.querySelector('.qcard').hidden && end > shell.clientHeight) {
+      const pane = shell.getBoundingClientRect(), list = shell.querySelector('ol').getBoundingClientRect();
+      const visibleEnds = [...shell.querySelectorAll(':scope > .voice-notices > .voice-notice')]
+        .filter(row => !row.hidden)
+        .map(row => row.getBoundingClientRect())
+        .filter(box => box.width > 0 && box.height > 0).map(box => box.bottom);
+      const contentEnd = Math.max(list.bottom, ...visibleEnds) + shell.scrollTop - pane.top;
+      const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingBottom) || 0;
+      if (pane.width > 0 && pane.height > 0 && contentEnd + padding <= shell.clientHeight + .5) end = 0;
+    }
+    shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
     // leave them above the sticky header and make focus scroll the whole page.

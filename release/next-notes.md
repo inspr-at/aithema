@@ -157,7 +157,9 @@
   transcript. Beside a card, only visible recovery content takes room; call
   start leaves the reply and its controls in place. Image visuals retain their 44 px bar;
   unbound visuals reserve none. Short transcripts align at the top without a
-  visible question card, and beside their question when a card is present. Transcript
+  visible question card, and beside their question when a card is present. Explicit
+  follow keeps otherwise-fitting short content at scroll zero even when hidden end
+  reservations overflow; overflowing content retains the original Latest slot. Transcript
   scrolling remains contained and suppresses native boundary rebound. A visible
   header voice message uses free room above short top-aligned conversations;
   the pane frame stays fixed. Notice growth clears obsolete retained space,
