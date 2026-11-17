@@ -1,4 +1,4 @@
-// AIT-515: overview geometry shares the understanding-failure browser shard.
+// AIT-515: overview geometry shares the start-look browser workload.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';

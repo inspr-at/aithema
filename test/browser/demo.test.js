@@ -2047,3 +2047,6 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     await page.close();
   }
 });
+
+import { combinedOpenerCheck } from './combined-entrance-check.js';
+test('AIT-506: shared opener and short-phone states stay visible and stable', { timeout:180_000 }, combinedOpenerCheck);
