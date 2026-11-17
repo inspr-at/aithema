@@ -634,16 +634,22 @@ test('AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+    // Each matrix case starts at first contact; a desktop overview must not
+    // carry its revealed state into the next phone's evidence viewport.
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
     await fixture(page, locale, { visitorStore: false, opener: true, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0 });
     await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
     await page.evaluate(() => window.ait164.reply());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer')); await settle(page);
     const { [locale]: copy } = await import(`../../packages/ui/src/i18n/${locale}.js`);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-offer__lead').textContent), copy.hostSurface.usedUp.hostConfirm.replace('{delta}', new Intl.NumberFormat(locale).format(1200)));
-    const targets = ['.email-offer', '.email-offer__row', '.email-offer__send', '.email-offer__message-slot', '.composer-shell', '.display-foot'];
+    const targets = ['.email-offer', '.email-offer__row', '.email-offer__send', '.email-offer__message-slot', '.composer-shell', '.display-foot', '.transcript-shell'];
     const sample = async () => {
       const result = await boxes(page, targets);
       for (const [i, box] of result.entries()) assert.ok(box[2] > 0 && box[3] > 0, `${label}/${targets[i]}: positive box ${box}`);
+      const [offer, pane] = [result[0], result.at(-1)];
+      if (width === 390) assert.ok(offer[1] >= pane[1] - .5 && offer[1] + offer[3] <= pane[1] + pane[3] + .5, `${label}: complete offer fits the visible transcript pane; ${JSON.stringify({ offer, pane })}`);
       return result;
     };
     const baseline = await sample();
