@@ -86,7 +86,10 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       window.replayCallbacks.onMessage({ role: 'agent', message: window.replayText, event_id: 2 });
       await finalAcknowledged.promise;
       window.replayCallbacks.onDisconnect();
-      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy); scrollTo(0, 0);
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
+      // Direct configure bypasses the demo's locale path. Reuse its real host
+      // painter so legal/contact slots in the capture share the page language.
+      c.dispatchEvent(new Event('aithema-locale')); scrollTo(0, 0);
     }, locale);
     await until(page, () => window.replayRail.notices.recovery && !window.replayRail.notices.button.disabled);
     await settle(); await page.mouse.move(0, 500);

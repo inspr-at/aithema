@@ -233,6 +233,49 @@ export async function transcriptComposerCases(t) {
       }
     });
   }
+  for (const [width, height] of [[1440, 900], [1024, 600], [390, 844]]) {
+    await t.test(`AIT-517 contact slots stay pinned through growth and Latest ${width}x${height}`, async () => {
+      const contact = () => shadow(page, c => Object.fromEntries(['.sidebar-contact', '.contact-launcher'].map(selector => {
+        const node = c.shadowRoot.querySelector(selector);
+        return [selector, node.checkVisibility({ checkVisibilityCSS: true }) ? node.getBoundingClientRect().toJSON() : null];
+      })));
+      const pinned = (before, after, label) => {
+        assert.ok(Object.values(before).some(Boolean), `${label}: a contact control is visible`);
+        for (const selector of Object.keys(before)) {
+          assert.equal(Boolean(after[selector]), Boolean(before[selector]), `${label}: contact route stays unchanged`);
+          if (!before[selector]) continue;
+          positive(before[selector], selector); positive(after[selector], selector);
+          for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(before[selector][key] - after[selector][key]) <= .5,
+            `${label}/${selector}/${key}: ${before[selector][key]} -> ${after[selector][key]}`);
+        }
+      };
+      for (const entrance of ['choice', 'combined']) {
+        await reset(width, height, 'en', 'light', { turns: 80, entrance });
+        const before = await geometry(page), beforeContact = await contact();
+        for (const [label, lines] of [['empty', 0], ['grown', 12], ['capped', 30]]) {
+          await draft(page, lines); await settleEvidenceFrame(page);
+          const followed = await geometry(page), followedContact = await contact();
+          stable(before, followed, `${entrance}/contact/${label}`);
+          pinned(beforeContact, followedContact, `${entrance}/growth/${label}`);
+          noCardLatestClearance(followed, `${entrance}/contact/${label}/follow`);
+          await shadow(page, c => {
+            const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+            shell.scrollTop = 0; shell.dispatchEvent(new Event('scroll'));
+            c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+              id: `contact-latest-${c.session.seq}`, role: 'assistant', content: 'A new fixture reply.' } });
+          });
+          await settleEvidenceFrame(page);
+          assert.equal((await geometry(page)).jump, 'visible', 'contact reader is offered Latest');
+          await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
+          await settleEvidenceFrame(page);
+          const latest = await geometry(page), latestContact = await contact();
+          noCardLatestClearance(latest, `${entrance}/contact/${label}/Latest`);
+          pinned(beforeContact, latestContact, `${entrance}/Latest/${label}`);
+          records.push({ label: `contact-${entrance}-${width}x${height}-${label}`, beforeContact, followedContact, latestContact, ...latest });
+        }
+      }
+    });
+  }
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     await t.test(`${locale}/${theme}/${width} screenshot states`, async () => {
       await reset(width, width === 390 ? 844 : 900, locale, theme);

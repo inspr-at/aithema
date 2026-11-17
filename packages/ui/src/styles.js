@@ -175,11 +175,17 @@ svg { display:block; flex:none; }
 }
 .voice-notice { flex:none; display:flex; align-items:center; gap:12px; min-width:0; min-height:24px; overflow-wrap:anywhere; color:var(--aithema-muted); }
 .voice-notice--user { min-height:36px; }
-/* Wrapped notice text shares its final baseline with the replay controls.
+/* Centre the intrinsic baseline group inside the recovery row. A grid track
+   shares the final text baseline without flex's bottom placement at 48px.
    The stacked phone rule below continues to own phone alignment. */
-.voice-notice--reply { min-height:48px; align-items:last baseline; color:var(--aithema-ink); }
+.voice-notice--reply { min-height:48px; display:grid; grid-template-columns:minmax(0,max-content) max-content; justify-content:start; align-items:last baseline; align-content:center; color:var(--aithema-ink); }
 .voice-notice:empty, .voice-notice--reply:has(> span:empty):has(.voice-repeat[hidden]) { display:none; }
 .voice-reply-actions { display:flex; align-items:center; gap:12px; flex:none; }
+/* A remaining recovery sentence owns this intrinsic reservation after replay
+   retires. Keep its wrapping and baseline unchanged, with no focus or AX
+   targets. This adds no transcript padding or composer measurement owner. */
+.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] { display:flex !important; visibility:hidden; }
+.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] > button[hidden] { display:inline-grid !important; }
 .voice-reply-actions .voice-repeat { display:inline-grid; align-items:center; flex:none; width:auto; height:auto; min-height:44px; padding:8px 14px; border:1px solid var(--aithema-line); border-radius:10px;
   background:var(--aithema-surface); color:var(--aithema-ink); font-size:.8rem; }
 .voice-repeat-label, .voice-repeat::before, .voice-repeat::after { grid-area:1/1; white-space:nowrap; }
@@ -240,7 +246,7 @@ svg { display:block; flex:none; }
 @media(max-width:600px) {
   .voice-notices { height:156px; }
   .voice-notice--user { min-height:44px; }
-  .voice-notice--reply { min-height:88px; flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; }
+  .voice-notice--reply { min-height:88px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; }
 }
 
 /* Concepts: one quiet line under the rail (START keeps concepts out of the conversation's way). */
