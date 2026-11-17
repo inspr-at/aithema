@@ -927,7 +927,9 @@ its additive signal metadata, not the historical ledger.
 The overview shows five signals initially. A native Show all button names the
 total count and has `aria-expanded` / `aria-controls`; no toggle appears for five
 or fewer. The toggle stays right-aligned in the heading row, reserving both
-labels so expansion leaves its click target fixed. The existing `signals`
+labels so expansion leaves its click target fixed. Its 32 px action extends
+evenly around the natural heading height, preserving the summary fade budget
+when a sixth signal reveals the toggle. The existing `signals`
 heading key now means “Signals” / “Signale” in EN/DE (German previously read
 “Was konkret erkennbar war”); host overrides still win. Assistant attribution
 reads “ · unconfirmed” / “ · unbestätigt” in muted ink, using the shared

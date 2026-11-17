@@ -649,9 +649,9 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 .question-notice svg { width:13px; height:13px; margin-top:.2em; }
 .question-notice:not([data-on]) { visibility:hidden; }
 .questions-heading:has(.question-notice[data-on]) h3 { visibility:hidden; }
-.signals-heading { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,max-content); align-items:center; gap:.5rem; min-height:32px; }
-/* A short list has no action; retain its natural heading height for the summary budget. */
-.signals-heading:has(> .signals-toggle[hidden]) { min-height:0; }
+.signals-heading { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,max-content); align-items:center; gap:.5rem; }
+/* The natural heading owns row height; the 32px action overflows symmetrically. */
+.signals-toggle-slot { display:grid; align-content:center; height:0; min-width:0; }
 .signals-toggle { display:grid; justify-self:end; min-width:0; max-width:100%; min-height:32px; padding:.25rem .3rem; font-size:.8125rem; color:var(--aithema-accent); font-weight:600; text-align:right; }
 .signals-toggle > span, .signals-toggle::before, .signals-toggle::after { grid-area:1/1; }
 .signals-toggle::before { content:attr(data-all-label); visibility:hidden; }
