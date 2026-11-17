@@ -13,7 +13,7 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage'];
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   let cookie = '', failRecovery = false; const paths = [], failures = [];
-  let releaseDelayedTurn = () => {};
+  let releaseDelayedTurn = () => {}, releaseTypedGap = () => {};
   const notifications = eventProbe(), render = AudioRail.prototype.render, consume = AudioRail.prototype.consume;
   t.mock.method(AudioRail.prototype, 'render', function () {
     render.call(this);
@@ -24,7 +24,9 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     releaseDelayedTurn();
   });
   t.mock.method(AudioRail.prototype, 'consume', function (session, generation) {
-    session.events = observedVoiceEvents(session.events, event => notifications.record({ source: 'voice', event }));
+    session.events = observedVoiceEvents(session.events, event => {
+      notifications.record({ source: 'voice', event }); releaseTypedGap(event);
+    });
     return consume.call(this, session, generation);
   });
   try {
@@ -50,7 +52,18 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     // adopts the server snapshot before the delayed turn is replayed.
     const receive = c.receive;
     let delayedTurn, overtakingSeq, reordered = false;
+    let typedTurn, typedOvertaking, typedGapStarted = false, typedRestored = false;
+    const typedBacklog = [];
+    // Delay both copies of the typed turn (HTTP and SSE), then let the media
+    // reply complete before a later journal event triggers snapshot recovery.
+    // No arbitrary sleep: this orders independent transports by their receipts.
     t.mock.method(c, 'receive', function (event) {
+      if (!typedRestored && event.type === 'turn.final' && event.data.content === 'Typed during voice') {
+        typedTurn ??= event; return;
+      }
+      if (typedTurn && !typedRestored && event.seq > typedTurn.seq) {
+        typedOvertaking ??= event; typedBacklog.push(event); return;
+      }
       if (!reordered && event.type === 'turn.final' && event.data.role === 'user' && event.data.content.includes('public API')) {
         delayedTurn ??= event;
         return;
@@ -64,6 +77,16 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
       queueMicrotask(() => {
         receive.call(c, event);
         t.diagnostic(`AIT-390 forced snapshot adoption before delayed turn ${event.seq}`);
+      });
+    };
+    releaseTypedGap = event => {
+      if (typedGapStarted || !typedOvertaking || event.type !== 'final' || event.role !== 'assistant') return;
+      typedGapStarted = true;
+      assert.equal(c.session.transcript.some(t => t.content === 'Typed during voice'), false,
+        'typed journal delivery remains delayed until the media reply completes');
+      queueMicrotask(() => {
+        receive.call(c, typedOvertaking);
+        t.diagnostic('AIT-495 forced typed snapshot recovery after the consumed media reply');
       });
     };
     let step = 0;
@@ -106,6 +129,9 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     await act(() => root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })),
       rendered(n => n.transcript.some(t => t.content === 'Typed during voice')), voice('final', e => e.role === 'assistant'));
     assert.ok(c.session.transcript.some(t => t.content === 'Typed during voice'));
+    assert.equal(typedGapStarted, true, 'the typed turn was restored after its media reply');
+    typedRestored = true;
+    for (const event of [typedTurn, ...typedBacklog]) receive.call(c, event);
     await act(() => root.querySelector('.voice-input').click(), rendered(n => !n.input && !n.busy));
     await act(() => root.querySelector('.voice-pause').click(), rendered(n => n.paused === true && n.state === 'paused' && !n.busy));
     assert.equal(c.session.paused, true);
