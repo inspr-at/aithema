@@ -36,7 +36,18 @@ export async function contactShortCheck(t) {
     const r = c.shadowRoot, box = n => n.getBoundingClientRect().toJSON();
     const launcher = r.querySelector('.contact-launcher'), contact = r.querySelector('.sidebar-contact'), button = c.querySelector('.demo-contact:not([slot="contact-launcher"]) button');
     const cb = box(contact), bb = box(button), lb = box(launcher);
+    const rowVisible = contact.checkVisibility({ checkVisibilityCSS: true }) && cb.height > 0;
+    const content = box(c.querySelector('.demo-contact:not([slot="contact-launcher"])'));
+    let absentUnfocusable = false;
+    if (!rowVisible) {
+      const previous = document.activeElement;
+      button.focus({ preventScroll: true });
+      absentUnfocusable = document.activeElement !== button;
+      previous?.focus({ preventScroll: true });
+    }
     return { sidebar: box(r.querySelector('.understanding')), sidebarHeight: r.querySelector('.understanding').clientHeight, reading: box(r.querySelector('.analysis-content')), foot: box(r.querySelector('.understanding > .foot')), contact: cb, button: bb, launcher: lb,
+      rowVisible, absentUnfocusable, content,
+      complete: rowVisible && bb.height >= 44 && content.top >= cb.top - .5 && content.bottom <= cb.bottom + .5 && contact.scrollHeight <= contact.clientHeight + .5,
       pinned: button.checkVisibility({ checkVisibilityCSS: true }) && bb.height >= 44 && bb.top >= cb.top - .5 && bb.bottom <= cb.bottom + .5,
       launched: launcher.checkVisibility({ checkVisibilityCSS: true }) && !launcher.inert && lb.height >= 44,
       frames: ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.display-foot'].map(s => box(r.querySelector(s))) };
@@ -59,7 +70,7 @@ export async function contactShortCheck(t) {
       window.contactInitialSession = structuredClone(document.querySelector('aithema-session').session);
       window.contactInitialSession.locale = locale;
     }, locale);
-    for (const [width, height] of [[1280,600],[1024,600],[1280,544],[1024,568],[390,844],[390,568],[1440,900]]) {
+    for (const [width, height] of [[1280,600],[1024,600],[1280,544],[1024,568],[1024,768],[960,768],[390,844],[390,568],[1440,900]]) {
       const label = `${width}x${height}-${locale}-${theme}-${entrance}`;
       // Capture every requested R12 state in EN/DE and both themes, including a
       // combined short phone. Other matrix rows retain their full rect evidence.
@@ -87,6 +98,12 @@ export async function contactShortCheck(t) {
         const before = await sample(); positive(before.frames); let phoneInset = null;
         if (width >= 960) {
           assert.ok(before.pinned || before.launched, `visible 44px contact control: ${JSON.stringify(before)}`);
+          assert.ok(before.complete || (!before.rowVisible && before.absentUnfocusable), `pinned contact is complete or absent and unfocusable: ${JSON.stringify(before)}`);
+          assert.equal(Number(before.rowVisible) + Number(before.launched), 1, `exactly one contact action: ${label}`);
+          if (height >= 768) {
+            assert.equal(before.complete, true, `pinned contact fits above the threshold: ${label}`);
+            assert.equal(before.launched, false, `launcher hidden above the threshold: ${label}`);
+          }
           positive([before.reading]);
           assert.ok(before.reading.height / before.sidebarHeight >= .4, `reading retains 40%: ${JSON.stringify(before)}`);
           assert.ok(before.foot.bottom <= before.sidebar.bottom + .5, `footer not clipped: ${JSON.stringify(before)}`);
