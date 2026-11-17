@@ -4263,11 +4263,13 @@ Document-only continuations use the existing upload-consent wording and editor.
 Paused conversations and unavailable normalizers have their own refusal copy;
 only a missing model capability uses the unsupported-model wording. An enabled
 Attach control describes selection even before consent, and asks only after a
-file is chosen. Unknown file refusals include the supported-format help sentence
-without a trailing separator.
-Image-capable composers reserve that full localized notice and show it without
-the two-line cap. Malformed image copy (`imageRefusals.malformed`) follows the
-file name: “is not a readable image.” / “ist kein lesbares Bild.”; host overrides
+file is chosen. Image-capable composers append the supported-format help sentence
+with its final full stop and without a trailing separator, reserve that full
+localized notice, and show it without the two-line cap. Composers without image
+input keep the existing document refusal without image-format help. The expanded
+notice cap applies only to upload notices; long host-overridden image-consent
+copy remains scrollable inside its 44 px cap. Malformed image copy
+(`imageRefusals.malformed`) follows the file name: “is not a readable image.” / “ist kein lesbares Bild.”; host overrides
 still win. Supported extensions with unrecognized bytes reuse this sentence;
 the native refusal code remains unchanged. Multiple refused filenames retain
 their existing two-line scroll area with keyboard focus; accepted formats wrap

@@ -204,8 +204,12 @@
   The hidden feedback measurement node is mounted only for active image input;
   hosts without it retain their existing composer DOM and geometry.
   Repeated inactive paints skip feedback DOM writes.
-  Full document-type notices and accepted formats share the measured image
-  feedback reserve and wrap without the two-line cap or a trailing separator.
+  In image-capable composers, full document-type notices and accepted formats
+  share the measured image feedback reserve and wrap without the two-line cap
+  or a trailing separator. The format sentence ends with a full stop in EN/DE.
+  Composers without image input keep the existing document refusal, without
+  image-format help. Only upload notices lift the reason cap; long host image-
+  consent overrides still scroll inside their 44 px cap.
   `imageRefusals.malformed` now follows the filename with “is not a readable
   image.” / “ist kein lesbares Bild.”; host overrides keep precedence.
   This also covers native `unsupported` bytes behind an accepted extension;

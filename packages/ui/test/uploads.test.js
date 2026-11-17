@@ -241,7 +241,7 @@ test('attaching sends one multipart request with the owner header, announces it 
 test('client-side refusals in plain words before sending, with the host limits; only fitting files are sent', async t => {
   const { root, calls } = setup(t, { copy: de, limits: { ...UPLOAD_LIMITS, maxBytes: 100 } });
   await choose(root, [file('angebot.pdf', 120), file('skript.sh'), file('liste.csv', 40)]);
-  assert.equal(root.querySelector('.composer-reason').textContent, 'Nicht angehängt: angebot.pdf (zu groß, höchstens 100 B pro Datei), skript.sh (Dateityp wird nicht angenommen). ' + de.uploadsSupported);
+  assert.equal(root.querySelector('.composer-reason').textContent, 'Nicht angehängt: angebot.pdf (zu groß, höchstens 100 B pro Datei), skript.sh (Dateityp wird nicht angenommen).');
   const posts = calls.filter(call => call.options.method === 'POST');
   assert.equal(posts.length, 1); assert.deepEqual(posts[0].options.body.getAll('files').map(f => f.name), ['liste.csv']);
   assert.equal(root.querySelector('.attach').title, 'Bis zu 8 Dateien, je höchstens 100 B: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.');

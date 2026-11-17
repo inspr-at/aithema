@@ -3571,7 +3571,7 @@ export class AithemaSession extends HTMLElement {
       if (imageRefusals.length || plan.blocked && needsImages) this.#images.refuse([...imageRefusals.map(record => ({ ...record, reason: record.reason === 'type' ? 'unsupported' : record.reason })),
         ...(plan.blocked && needsImages ? [{ reason: plan.blocked === 'images' || plan.blocked === 'count' ? 'limit' : 'session' }] : [])]);
       // Retained-file retry facts keep their established copy and action order.
-      const supported = !this.#retryFiles.length && documentPlan.refused.some(record => record.reason === 'type')
+      const supported = this.#imageLayout && !this.#retryFiles.length && documentPlan.refused.some(record => record.reason === 'type')
         ? resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale) : '';
       this.#uploadNotice = [notices.filter(Boolean).join(reasonSeparator), supported].filter(Boolean).join(' ');
     } finally {

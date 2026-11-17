@@ -519,7 +519,7 @@ export const en = {
   imageLiveCall: "Images can be sent in text mode.",
   imageUnsupportedModel: "This assistant can't read images.",
   imageWithheld: "Image not sent",
-  uploadsSupported: "Supported: PDF, Word, Excel, PowerPoint, text, and PNG, JPEG, WebP or GIF images",
+  uploadsSupported: "Supported: PDF, Word, Excel, PowerPoint, text, and PNG, JPEG, WebP or GIF images.",
   uploadsReselect: {"one": "Please choose the file again.", "other": "Please choose the files again."},
   imageRefusals: {
     "paused": "Images cannot be attached while the conversation is paused.",
