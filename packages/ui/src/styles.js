@@ -632,7 +632,8 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
     .workspace[data-contact] .analysis-content { padding-top:calc(28px - 1.16rem + var(--aithema-slack-top,0px)); }
     .workspace[data-contact] .overview-status { display:flex; align-items:flex-end; gap:.5rem; height:2.9em; min-height:2.9em; margin-bottom:-1.15rem; }
     .workspace[data-contact] .overview-status .notice-text { flex:1; min-width:0; -webkit-line-clamp:2; }
-    .workspace[data-contact] .overview-status .notice-text[data-consent-feature] { display:flex; align-items:flex-end; gap:.5rem; }
+    /* Include the consent action’s 24px pointer target in its flex line. */
+    .workspace[data-contact] .overview-status .notice-text[data-consent-feature] { display:flex; align-items:center; min-height:24px; gap:.5rem; }
     .workspace[data-contact] .overview-status .consent-line-copy { flex:1; min-width:0; }
     .workspace[data-contact] .overview-status :is(.overview-retry,.consent-action) { flex:none; max-width:45%; }
   }
