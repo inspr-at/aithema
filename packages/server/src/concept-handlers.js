@@ -1,4 +1,4 @@
-import { ConceptLane, syncConceptIntent, corroborateConceptIntent, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES, HTML_MEDIA_TYPE, HTML_PREVIEW_PATH } from '@inspr/aithema-core';
+import { ConceptLane, syncConceptIntent, corroborateConceptIntent, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES, HTML_MEDIA_TYPE, HTML_PREVIEW_PATH, isConsentReason } from '@inspr/aithema-core';
 import { NotFoundError, ConflictError } from './storage.js';
 import { createHTMLPreviewCapabilities } from './html-preview-capabilities.js';
 import { previewConfiguration, previewArtifact, previewResponse, previewDenied } from './html-preview.js';
@@ -44,6 +44,13 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
       feedback };
   };
   const lane = new ConceptLane({ getSession: id => storage.get(id), prepare, policy, deadlineMs, estimateMs, now,
+    consentRequired: async (session, visualKind) => {
+      // Older runtime adapters may expose admission without an availability
+      // matrix. Their existing admission port remains the authoritative gate.
+      const matrix = await runtime.matrix?.(session);
+      const feature = matrix?.[session.processingPreset ?? 'best']?.[visualKind];
+      return feature?.available === false && isConsentReason(feature.reason);
+    },
     admit: args => runtime.admit(args), processingAllowed: (session, scope, options) => runtime.processingAllowed(session, scope, options),
     publicationAllowed: (session, options) => runtime.publicationAllowed(session, options),
     persist(id, data) { const event = storage.append(id, 'concept.state', data); if (event) publish(id, event); return event; },
