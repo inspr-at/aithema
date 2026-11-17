@@ -13,7 +13,7 @@ function fixture(t, copy = en, available = true, options = {}) {
   const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
     { available: key === 'imageInput' ? available : key === 'uploads' ? options.documentsAvailable ?? true : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : key === 'uploads' && options.documentsAvailable === false ? 'current processing consent required' : null }])) };
-  const calls = [], asks = []; let imageGranted = available;
+  const calls = [], asks = []; let imageGranted = available, documentsGranted = options.documentsAvailable ?? true;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
@@ -29,12 +29,13 @@ function fixture(t, copy = en, available = true, options = {}) {
       return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments } }); }
     const snapshot = c.session;
     snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : 'current processing consent required' };
+    snapshot.featureMatrix.best.uploads = { available: documentsGranted, reason: documentsGranted ? null : 'current processing consent required' };
     if (url.endsWith('/consent')) return Response.json({ consentRevision: snapshot.consentRevision, selected: imageGranted ? ['images', 'image-input'] : ['images'], features: { images: ['images'], imageInput: ['image-input'] } });
     return Response.json(snapshot);
   });
   c.addEventListener('aithema-consent', event => asks.push(event.detail));
   c.configure({ copy, session, sessionToken: 'fixture', ...options }); document.body.append(c); t.after(() => c.remove());
-  return { c, root: c.shadowRoot, calls, asks, grantImages() { imageGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); } };
+  return { c, root: c.shadowRoot, calls, asks, grantDocuments() { documentsGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['uploads'], removed: [] } }); }, grantImages() { imageGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); } };
 }
 async function choose(root, files) {
   const input = root.querySelector('.attach-input'), transfer = new window.DataTransfer();
@@ -187,4 +188,24 @@ for (const copy of [en, de]) test(`AIT-510 L5: ${copy.display.locale} image-limi
   const legacy = { ...copy }; delete legacy.imageRefusals;
   assert.equal(refusalText(legacy, plan, copy.display.locale), copy.imageRefusals.limit);
   assert.equal(refusalText({ ...copy, imageRefusals: { limit: 'Host image limit' } }, plan, copy.display.locale), 'Host image limit');
+});
+
+for (const copy of [en, de]) test(`AIT-510 G-M3 JIT: ${copy.display.locale} document consent retains the same mixed pick's image refusal`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  const f = fixture(t, copy, false, { imageReason: 'image normalizer not configured', documentsAvailable: false });
+  await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' }), new window.File(['document'], 'notes.pdf', { type: 'application/pdf' })]);
+  assert.equal(f.calls.some(call => call.url.endsWith('/uploads') && call.options.method === 'POST'), false, 'no document bytes before consent');
+  assert.equal(f.asks.length, 1);
+  assert.deepEqual(f.asks[0].features, ['uploads', 'text'], 'only the eligible documents request consent');
+  f.grantDocuments(); for (let i = 0; i < 8; i++) await tick();
+  const posts = f.calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST');
+  assert.equal(posts.length, 1, 'the consent continuation uploads exactly once');
+  assert.deepEqual(posts[0].options.body.getAll('files').map(file => file.name), ['notes.pdf']);
+  assert.equal(f.root.querySelector('.upload__name').textContent, 'notes.pdf');
+  const refusal = f.root.querySelector('.image-refusals');
+  assert.ok(refusal, 'the same pick retains its image refusal after document consent');
+  assert.ok(refusal.textContent.includes('photo.png'));
+  assert.ok(refusal.textContent.includes(copy.imageRefusals.unavailable));
+  assert.equal(f.root.querySelector('.staged-image'), null);
+  assert.equal(f.asks.length, 1, 'document consent never requests unavailable image processing');
 });
