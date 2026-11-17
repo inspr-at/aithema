@@ -153,6 +153,7 @@ export async function contactSlotCheck(t, { combined = false } = {}) {
       root.querySelector('.summary-text').textContent = (document.documentElement.lang === 'de' ? 'Eine Zusammenfassung. ' : 'A summary. ').repeat(1000);
       // AIT-514 clamps the summary. Independent fixture signals guarantee real
       // analysis overflow at every viewport without depending on that clamp.
+      root.querySelector('.signals-section').hidden = false;
       const signals = root.querySelector('.signals');
       for (let i = 0; i < 40; i++) {
         const signal = document.createElement('li');

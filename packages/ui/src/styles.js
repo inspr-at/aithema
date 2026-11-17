@@ -573,6 +573,12 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 @media(min-width:60rem) and (max-height:47.99rem) {
   .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .understanding { --inset:.75rem; }
   .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .readiness { padding-bottom:.25rem; }
+  /* A row-only host has no fallback action. Compact decorative scale spacing
+     and foot padding so a complete contact target fits beside the 40% pane. */
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .readiness { padding:0; }
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .scale { margin:.1rem 0; }
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .scale-labels { height:auto; line-height:1.2; }
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .understanding > .foot { padding-top:0; }
 }
 @media(max-width:599px) {
   .sidebar-contact { padding-inline-start:44px; }
