@@ -336,3 +336,19 @@ test('AIT-307: readiness reserves only the input slot without voice; no empty ca
 
 import { combinedOpenerCheck } from './combined-entrance-check.js';
 test('AIT-506: shared opener and short-phone states stay visible and stable', { timeout:180_000 }, combinedOpenerCheck);
+
+import { contactSlotCheck } from './contact-slot-check.js';
+test('AIT-517: combined entrance contact geometry with host opener and short phones',
+  { timeout: 180_000 }, t => contactSlotCheck(t, { combined: true }));
+
+import { contactShortCheck } from './contact-short-check.js';
+test('AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal',
+  { timeout: 180_000 }, contactShortCheck);
+
+import { contactRailCheck } from './contact-short-check.js';
+test('AIT-517 r12: contact rail defaults and host widths agree before upgrade',
+  { timeout: 60_000 }, contactRailCheck);
+
+import { contactSlotVariantsCheck } from './contact-short-check.js';
+test('AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance',
+  { timeout: 120_000 }, contactSlotVariantsCheck);
