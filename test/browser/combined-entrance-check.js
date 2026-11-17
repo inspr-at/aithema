@@ -392,6 +392,7 @@ export async function consentCancelCheck(t) {
         for (const mode of ['text', 'voice']) {
           await visit(); await page.type('aithema-session >>> textarea', draft);
           await page.click(`aithema-session >>> ${mode === 'text' ? '.send' : '.composer-mic'}`);
+          assert.equal((await idle()).readOnly, true, `${mode} start holds the field before navigating to consent`);
           await page.evaluate(() => sessionStorage.setItem('combined-fixture-session', JSON.stringify(c.session)));
           await page.goto(`${server.url}/combined-fixture?consentPage`);
           await page.goBack(); await page.waitForFunction(() => globalThis.ready);
