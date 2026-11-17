@@ -36,17 +36,24 @@ export async function overviewFadeCheck(t) {
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
   await page.addStyleTag({ content: await readFile(new URL('../../demo/host.css', import.meta.url), 'utf8') });
-  const measure = () => shadow(page, c => {
+  const measure = async () => {
+    const result = await shadow(page, c => {
     const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
     const pane = r.querySelector('.analysis-content'), status = r.querySelector('.overview-status');
+    const contact = r.querySelector('.sidebar-contact').checkVisibility({ checkVisibilityCSS: true })
+      ? c.querySelector('[slot="sidebar-contact"] button') : c.querySelector('[slot="contact-launcher"]');
+    const retry = r.querySelector('.overview-retry');
     const range = document.createRange(); range.selectNodeContents(status.querySelector('.notice-text'));
     return { pane: box('.analysis-content'), status: box('.overview-status'), statusText: range.getBoundingClientRect().toJSON(),
       summary: box('.summary'), summaryText: box('.summary-text'), heading: box('.signals-heading'), toggle: box('.signals-toggle'),
-      signal: box('.signals li'), contact: c.querySelector('[slot="sidebar-contact"] button').getBoundingClientRect().toJSON(),
+      signal: box('.signals li'), contact: contact.getBoundingClientRect().toJSON(), retry: retry.hidden ? null : retry.getBoundingClientRect().toJSON(),
       foot: box('.understanding > .foot'), bottomFade: pane.hasAttribute('data-bottom'), mask: getComputedStyle(pane).maskImage,
       scrollTop: pane.scrollTop, lines: r.querySelector('.summary-text').style.getPropertyValue('--summary-lines'),
       summaryExpanded: r.querySelector('.summary-toggle').getAttribute('aria-expanded'), signalsExpanded: r.querySelector('.signals-toggle').getAttribute('aria-expanded') };
-  });
+    });
+    for (const [key, value] of Object.entries(result)) if (value && typeof value === 'object' && 'width' in value) positive(value, key);
+    return result;
+  };
   for (const [width, height] of [[1366, 768], [1440, 900], [1024, 600], [390, 844]])
     for (const slots of ['row-only', 'both-slots']) for (const [locale, theme] of [['en', 'light'], ['de', 'dark']])
       for (const entrance of ['separate', 'combined']) {
@@ -111,7 +118,10 @@ export async function overviewFadeCheck(t) {
             positive(after[key], `${name}/${state}: ${key}`);
             for (const axis of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(initial[key][axis] - after[key][axis]) <= .5, `${name}/${state}: stable ${key}.${axis}`);
           }
-          if (width >= 1366) assert.ok(after.statusText.bottom <= after.status.bottom + .5, `${name}/${state}: complete status text`);
+          if (width >= 1366) {
+            assert.ok(after.statusText.bottom <= after.status.bottom + .5, `${name}/${state}: complete status text`);
+            if (after.retry) assert.ok(after.retry.bottom <= after.status.bottom + .5, `${name}/${state}: complete Retry action`);
+          }
         }
         // A heading passing through the bottom band must never be faded.
         await shadow(page, c => {
