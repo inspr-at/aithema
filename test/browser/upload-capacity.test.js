@@ -697,6 +697,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     assert.deepEqual(await page.evaluate(() => window.imageAsks), [], 'both image purposes granted at start: no ask');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason .consent-action') === null), true, 'no consent line');
     // A real document-type refusal must survive image send (AIT-280 / AIT-510).
+    const beforeDocumentNotice = await boxes();
     await inShadow(page, c => {
       const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'fixture.unknown', { type: 'application/octet-stream' }));
       c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
@@ -704,6 +705,21 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('fixture.unknown'));
     const documentNotice = await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
     assert.match(documentNotice, /PNG, JPEG, WebP/u, 'unknown file type names the accepted image formats');
+    const documentNoticePaint = await inShadow(page, c => {
+      const reason = c.shadowRoot.querySelector('.composer-reason'), r = reason.getBoundingClientRect();
+      return { width: r.width, height: r.height, scrollHeight: reason.scrollHeight, clientHeight: reason.clientHeight };
+    });
+    assert.ok(documentNoticePaint.width > 0 && documentNoticePaint.height > 0, 'document notice has a positive box');
+    assert.ok(documentNoticePaint.scrollHeight <= documentNoticePaint.clientHeight, `the entire document notice fits: ${JSON.stringify(documentNoticePaint)}`);
+    const afterDocumentNotice = await boxes();
+    for (const [selector, r] of Object.entries(afterDocumentNotice)) {
+      const previous = beforeDocumentNotice[selector];
+      assert.ok(previous.w > 0 && previous.h > 0 && r.w > 0 && r.h > 0, `${selector}: positive before/after document notice`);
+      for (const edge of selector === '.composer' ? ['y', 'h', 'bottom'] : ['x', 'y', 'w', 'h'])
+        assert.ok(Math.abs(r[edge] - previous[edge]) <= .5, `${selector}.${edge}: document notice cannot move the frame`);
+    }
+    changes.push({ reason: 'document-notice', before: beforeDocumentNotice, rects: afterDocumentNotice, paint: documentNoticePaint });
+    assert.equal(documentNotice.includes('·'), false, 'the refused item ends with its sentence, without a dangling separator');
     await inShadow(page, c => {
       window.imageSendDelay = new Promise(resolve => { window.releaseImageSend = resolve; });
       c.shadowRoot.querySelector('.send').click();
