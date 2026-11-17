@@ -6,6 +6,7 @@ import { EmailOffer } from '../src/email-offer.js';
 import * as offerExports from '../../core/src/email-offer.js';
 import { emailOfferEligibility, visitorMessageCount } from '../../core/src/email-offer.js';
 import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
 import { confirmationHost } from '../../../test/fixtures/confirmation-host.js';
 
 const tiers = { current: 'anonymous', next: 'emailGiven', delta: 3_000_000, canConfirm: true,
@@ -309,7 +310,7 @@ test('AIT-543: no-store confirmation uses the lock-form request/change rule', as
 });
 
 for (const locale of ['en', 'de']) test(`AIT-543: ${locale} identity offer promises credit at confirmation and never promises saving`, async t => {
-  const { [locale]: copy } = await import(`../src/i18n/${locale}.js`);
+  const copy = { en, de }[locale];
   const f = await capabilityOffer(t, { copy });
   f.offer.state = { nextTier: 'emailConfirmed', deltaMicro: 3_000_000 }; f.offer.paint();
   assert.equal(f.row.querySelector('.email-offer__lead').textContent, copy.hostSurface.usedUp.hostConfirm.replace('{delta}', '300'));
