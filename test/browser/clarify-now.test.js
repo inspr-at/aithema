@@ -1162,6 +1162,70 @@ for (const check of ['stationary heading toggle', 'first signal clears the activ
   });
 }
 
+// AIT-515 gate3: a mature list and a deferred 5↔6 flip share the same
+// natural heading footprint, including at the summary's three-line floor.
+test('AIT-515 mature signals clear the active pane fade across deferred toggle visibility', { timeout: 120_000 }, async t => {
+  const page = await followupPage(t), records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.evaluate(() => {
+    const NativeDate = Date;
+    window.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : [1_000_000])); }
+      static now() { return 1_000_000; }
+    };
+  });
+  t.after(async () => {
+    if (evidence) {
+      await mkdir(evidence, { recursive: true });
+      await writeFile(join(evidence, 'ait-515-mature-fade.json'), JSON.stringify({ head: evidenceCommit, records }, null, 2));
+    }
+  });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[1366, 768], [390, 1000]]) {
+    await t.test(`${locale}/${theme}/${width}x${height}`, async () => {
+      await page.setViewport({ width, height }); await setupOverviewFixture(page, locale, theme);
+      const update = count => shadow(page, (c, locale, count) => {
+        c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding,
+          summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(35),
+          signals: Array.from({ length: count }, (_, i) => locale === 'de' ? `Sie nutzen Ablauf ${i + 1}.` : `You use workflow ${i + 1}.`),
+          openQuestions: locale === 'de' ? ['Welches System ist im Einsatz?', 'Wer gibt Rechnungen frei?'] : ['Which system do you use?', 'Who approves invoices?'] } });
+      }, locale, count);
+      const measure = () => shadow(page, c => {
+        const r = c.shadowRoot, box = s => r.querySelector(s).getBoundingClientRect().toJSON();
+        return { pane: box('.analysis-content'), row: box('.signals-heading'), heading: box('#signals-title'),
+          button: box('.signals-toggle'), signal: box('.signals li'), text: box('.summary-text'),
+          hidden: r.querySelector('.signals-toggle').hidden, lines: r.querySelector('.summary-text').style.getPropertyValue('--summary-lines'),
+          bottomFade: r.querySelector('.analysis-content').hasAttribute('data-bottom') };
+      });
+      await update(5); await settle(page);
+      const initial = await measure(), samples = [];
+      for (const count of [6, 5, 6, 24]) {
+        // Hold the list so the new toggle appears only on the private flush,
+        // without a subsequent component render to repair the line budget.
+        await shadow(page, c => c.shadowRoot.querySelector('.signals').dispatchEvent(new PointerEvent('pointerenter')));
+        await update(count); await settle(page);
+        const held = await measure(); assert.equal(held.hidden, samples.length ? samples.at(-1).hidden : true, 'held toggle visibility');
+        await shadow(page, c => c.shadowRoot.querySelector('.signals').dispatchEvent(new PointerEvent('pointerleave')));
+        await settle(page);
+        samples.push({ count, ...await measure() });
+      }
+      records.push({ locale, theme, width, height, initial, samples });
+      for (const sample of [initial, ...samples]) {
+        for (const name of ['pane', 'row', 'heading', 'signal', 'text']) assert.ok(sample[name].width > 0 && sample[name].height > 0, `positive ${name}`);
+        if (!sample.hidden) {
+          assert.ok(sample.button.width > 0 && sample.button.height >= 32, 'positive 32px signal action');
+          assert.ok(Math.abs((sample.button.top + sample.button.bottom) / 2 - (sample.row.top + sample.row.bottom) / 2) <= .5, 'action overflows symmetrically');
+        }
+        assert.ok(Math.abs(sample.row.height - initial.row.height) <= .5, '5↔6 signals retain natural heading height');
+        assert.equal(sample.lines, initial.lines, 'deferred toggle visibility cannot stale the line budget');
+        assert.equal(sample.bottomFade, true, 'following content activates the pane fade');
+        assert.ok(sample.signal.bottom <= sample.pane.bottom - 44,
+          `first signal clears 44px bottom fade: ${JSON.stringify(sample)}`);
+      }
+      for (const sample of samples) assert.equal(sample.hidden, sample.count <= 5);
+    });
+  }
+});
+
 // AIT-514 r12: scrolling must never feed back into the measured line budget.
 for (const check of ['scroll-end clamp stays stable', 'long host toggle preserves the heading']) {
   test(`AIT-514 r12 ${check}`, { timeout: 120_000 }, async t => {
