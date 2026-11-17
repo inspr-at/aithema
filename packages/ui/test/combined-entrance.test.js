@@ -287,3 +287,16 @@ for (const [mode, ttl] of [['text', 180_000], ['voice', 60_000]]) {
     assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
   });
 }
+for (const mode of ['text', 'voice']) test(`AIT-542: cached-page ${mode} return cancels even when the feature read fails`, async t => {
+  const f = fixture(t, { refreshGranted: false }); f.input('Cached draft'); mode === 'text' ? f.send() : f.mic();
+  window.dispatchEvent(new window.Event('pagehide'));
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('Fixture offline'); });
+  window.dispatchEvent(new window.Event('pageshow')); await tick();
+  const root = f.c.shadowRoot;
+  assert.equal(root.querySelector('textarea').readOnly, false);
+  assert.equal(root.querySelector('textarea').value, 'Cached draft');
+  assert.equal(root.querySelector('.send').disabled, false);
+  assert.equal(root.querySelector('.composer-mic').disabled, false);
+  assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
+  assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
+});
