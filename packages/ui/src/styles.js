@@ -553,17 +553,18 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
      first; its 30% cap and independent scrolling still apply. Grid percentages
      exclude padding, hence 40% of both insets and a pixel for track rounding. */
   .workspace[data-contact] .understanding { grid-template-rows:auto auto minmax(calc(40% + .8 * var(--inset) + 1px),1fr) fit-content(30%) auto; }
-  .workspace[data-contact] .sidebar-contact { display:var(--_contact-row-display,none); grid-row:4; }
+  .workspace[data-contact] .sidebar-contact { display:none; visibility:var(--_contact-row-visibility,hidden); grid-row:4; }
   .workspace[data-contact] .understanding > .foot { grid-row:5; }
   .workspace[data-contact] .contact-launcher { visibility:var(--_contact-launcher-visibility,visible); }
 }
-/* One condition selects the complete pinned row and hides its launcher.
-   Otherwise the row is absent from layout and Tab order, while the launcher
-   keeps its reserved slot. Compact short-window chrome preserves the foot
-   inside the 34rem workspace floor without reducing the reading allocation. */
+/* Tall desktops reserve the contact track throughout the sidebar entrance.
+   One condition switches row/launcher visibility without moving that track.
+   Short desktops remove the row from layout and Tab order; compact chrome
+   preserves the foot inside the 34rem floor and the reading allocation. */
 @media(min-width:60rem) and (min-height:48rem) {
+  .workspace[data-contact] .sidebar-contact { display:block; }
   .workspace[data-contact][data-understanding="present"]:not([data-folded]):not([data-reveal]):not(:has(.understanding[hidden])) {
-    --_contact-row-display:block;
+    --_contact-row-visibility:visible;
     --_contact-launcher-visibility:hidden;
   }
 }
