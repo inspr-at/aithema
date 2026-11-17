@@ -489,6 +489,17 @@ trusted sample, all 24 image scenes and all 247 combined tests. Growth work
 returns to **4820.039 s**; no assertion, budget, node limit or packer changes.
 The original 86 s observation remains above as historical workload evidence.
 
+AIT-510 r15 adds document-only refusal and host-overridden image-consent cap
+checks to the existing image matrix without removing any lifecycle assertion.
+Complete remote run `e0bd97b085-82450` at `e0bd97b0` passes pause-phone
+**125/125** in **177.878909750 s**. Its 25% margin requires
+`ceil(177.878909750 × 1.25) = 223 s`, raising only that PR diagnostic
+reservation from **220 s to 223 s**. The same complete run passes start-look
+**165/165** in **118.062741042 s**; `ceil(118.062741042 × 1.25) = 148 s`
+remains within its inherited **162 s** floor. Trusted rolling-main samples,
+twelve shards, the **405 s** target, **420 s** ceiling and every existing
+assertion remain unchanged. Remote shard guards qualify the actual placement.
+
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.

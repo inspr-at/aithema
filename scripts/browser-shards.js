@@ -392,6 +392,12 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // covered by the inherited 36.093/162/220s plans. Remove only this ticket's
 // temporary source/destination additions; keep every trusted sample and floor.
 // Main's full growth plan 4820.039s and unchanged bounded packing now apply.
+// AIT-510 r15: complete final-product run e0bd97b085-82450 passes all
+// 125 pause-phone tests in 177.878909750s, including 32 new refusal/cap checks.
+// ceil(observed *1.25)=223s raises only the PR diagnostic floor from 220s.
+// Keep twelve shards, 405/420s targets and all trusted timing history.
+browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
+  browserTestWeights['test/browser/pause-phone.test.js'], 223);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
 // Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
 // 264.361s file wall time minus unchanged combined contact case 39.781s:
