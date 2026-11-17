@@ -4,7 +4,7 @@ import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-import { planUploads } from '../src/uploads.js';
+import { planUploads, isImageFile } from '../src/uploads.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'FormData']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -17,8 +17,13 @@ function fixture(t, copy = en, available = true, options = {}) {
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
-    if (url.endsWith('/uploads') && options.method === 'POST') return Response.json({ events: [{ sessionId: session.id, seq: c.session.seq + 1, type: 'upload.state',
-      data: { id: 'fixture-image', filename: 'fixture.png', kind: 'image', state: 'staged-pending', mediaType: 'image/png', bytes: 70, at: new Date(0).toISOString() } }] }, { status: 202 });
+    if (url.endsWith('/uploads') && options.method === 'POST') {
+      const files = options.body.getAll('files');
+      return Response.json({ events: files.map((file, index) => ({ sessionId: session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
+        id: `${isImageFile(file) ? 'fixture-image' : 'fixture-document'}${files.length > 1 ? '-' + index : ''}`, filename: file.name,
+        kind: isImageFile(file) ? 'image' : 'document', state: isImageFile(file) ? 'staged-pending' : 'accepted',
+        mediaType: file.type, bytes: file.size, at: new Date(0).toISOString() } })) }, { status: 202 });
+    }
     if (url.endsWith('/uploads')) return Response.json({ uploads: [] });
     if (url.endsWith('/turns') && options.method === 'POST') { const body = JSON.parse(options.body);
       return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments } }); }
@@ -153,6 +158,8 @@ for (const copy of [en, de]) for (const [reason, key] of [
   const posts = f.calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST');
   assert.equal(posts.length, 1, 'documents still upload');
   assert.deepEqual(posts[0].options.body.getAll('files').map(file => file.name), ['notes.pdf']);
+  assert.equal(f.root.querySelector('.upload__name').textContent, 'notes.pdf');
+  assert.equal(f.root.querySelector('.staged-image'), null, 'the refused image was never staged');
   assert.match(f.root.querySelector('.image-refusals').textContent, new RegExp(copy.imageRefusals[key], 'u'));
   assert.equal(f.asks.length, 0);
 });

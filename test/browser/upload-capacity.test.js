@@ -588,6 +588,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
         assert.ok(scene.last.entry.w > 0 && scene.last.entry.h > 0);
         assert.ok(scene.last.entry.y >= scene.pane.top - .5 && scene.last.entry.bottom <= scene.pane.bottom + .5, `${state}: a tall offer retains its complete entry row`);
       }
+      if (scene.first) assert.ok(scene.first.box.w > 0 && scene.first.box.h > 0, `${state}: positive first visible item`);
       if (scene.first?.kind.includes('email-offer') && scene.first.box.h <= room)
         assert.ok(scene.first.box.y >= scene.pane.top - .5, `${state}: the email offer starts below the header band`);
     };
