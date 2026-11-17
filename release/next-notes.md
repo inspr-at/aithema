@@ -192,6 +192,8 @@
   feedback reserve and wrap without the two-line cap or a trailing separator.
   `imageRefusals.malformed` now follows the filename with “is not a readable
   image.” / “ist kein lesbares Bild.”; host overrides keep precedence.
+  This also covers native `unsupported` bytes behind an accepted extension;
+  only UI wording changes, and native refusal codes remain unchanged.
 - AIT-515: `understanding.signals` remains `string[]` and is now newest-first by
   first-seen server sequence, with stable provider-order ties. Current finals
   hide omitted texts; rewordings are new keys, without replacement IDs or an

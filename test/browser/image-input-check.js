@@ -211,7 +211,11 @@ export function imageInputCheck(widths) {
       if (entrance === 'combined' && width === 390) await resize(900);
       for (const reason of ['unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'batch', 'paused']) {
         await inShadow(page, (c, reason) => { const image = c.session.uploads.find(u => u.kind === 'image');
-          c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason } });
+          // Native magic rejection is 'unsupported' even behind an accepted PNG
+          // name. HEIC remains an actual unsupported-extension refusal.
+          c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image,
+            filename: reason === 'unsupported' ? 'fixture.heic' : 'fixture.png', state: 'staged-refused',
+            reason: reason === 'malformed' ? 'unsupported' : reason } });
         }, reason);
         await waitForShadow(page, '.image-refusals');
         const after = await boxes();
@@ -224,7 +228,7 @@ export function imageInputCheck(widths) {
           const region = c.shadowRoot.querySelector('.image-refusals'), list = region.querySelector('.image-refusals__list');
           const box = node => { const r = node.getBoundingClientRect(); return { width: r.width, height: r.height, top: r.top, bottom: r.bottom }; };
           return { region: box(region), list: box(list), scrollHeight: region.scrollHeight, clientHeight: region.clientHeight,
-            duplicates: [...c.shadowRoot.querySelectorAll('.staged-image__status')].some(status => status.textContent === list.querySelector('.image-refusal').textContent.split(': ').slice(1).join(': ')) };
+            duplicates: [...c.shadowRoot.querySelectorAll('.staged-image__status')].some(status => status.textContent === list.querySelector('.image-refusal__reason').textContent) };
         });
         assert.ok(refusalPaint.region.width > 0 && refusalPaint.region.height > 0 && refusalPaint.list.width > 0 && refusalPaint.list.height > 0);
         assert.ok(refusalPaint.list.bottom <= refusalPaint.region.bottom + .5, `${reason}: the entire refusal is readable without scrolling`);

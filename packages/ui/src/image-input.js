@@ -2,6 +2,7 @@ import { resolveCopy } from './copy-resolve.js';
 import { node, setText } from './dom.js';
 import { WARNING_ICON } from './concept-view.js';
 import { stagedImage } from '../../core/src/image-input.js';
+import { isImageFile } from './uploads.js';
 
 /** Owns erasable previews and bounded refusal records; never changes conversation input. */
 export class ImageInputView {
@@ -33,7 +34,14 @@ export class ImageInputView {
     this.#records = this.#records.slice(-8);
   }
   clear(through = this.#refusalVersion) { this.#records = this.#records.filter(record => record.version > through); }
-  receive(upload) { if (upload.kind === 'image' && upload.state === 'staged-refused' && !upload.erased) this.refuse([{ id: upload.id, name: upload.filename, reason: upload.reason }]); }
+  receive(upload) {
+    if (upload.kind !== 'image' || upload.state !== 'staged-refused' || upload.erased) return;
+    // An accepted extension with unrecognized bytes needs a readable-image
+    // sentence, not instructions to choose the same accepted type again.
+    const reason = upload.reason === 'unsupported' && isImageFile({ name: upload.filename ?? '', type: upload.mediaType ?? '' })
+      ? 'malformed' : upload.reason;
+    this.refuse([{ id: upload.id, name: upload.filename, reason }]);
+  }
   #text(key, legacy) { return resolveCopy(this.#copy, key, legacy, this.#ports.session().locale); }
   refusalText(reason) { return this.#text(`imageRefusals.${reason}`, reason === 'model' ? 'imageUnsupportedModel' : reason === 'live-call' ? 'imageLiveCall' : undefined) ?? this.#text('imageRefusals.unavailable'); }
   #refusal(record) {

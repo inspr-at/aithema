@@ -4254,7 +4254,8 @@ without a trailing separator.
 Image-capable composers reserve that full localized notice and show it without
 the two-line cap. Malformed image copy (`imageRefusals.malformed`) follows the
 file name: “is not a readable image.” / “ist kein lesbares Bild.”; host overrides
-still win.
+still win. Supported extensions with unrecognized bytes reuse this sentence;
+the native refusal code remains unchanged.
 Retained-file retry messages preserve their refusal facts and retry action order.
 A successful document in a mixed pick keeps that pick's image refusal visible,
 including when the document waits for consent before uploading. Failures from
