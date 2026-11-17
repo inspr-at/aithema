@@ -48,7 +48,7 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
         const { images, ...plain } = message;
         if (!images?.length) { messages.push(plain); continue; }
         if (!binding.imageInput || typeof options.resolveImage !== 'function') throw new PluginError('not-admitted', 'image input reference resolver required');
-        const content = [{ type: 'text', text: plain.content }];
+        const content = plain.content?.trim() ? [{ type: 'text', text: plain.content }] : [];
         for (const image of images) {
           const bytes = await options.resolveImage(image);
           options.signal?.throwIfAborted();
