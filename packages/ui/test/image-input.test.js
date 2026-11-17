@@ -238,11 +238,11 @@ for (const copy of [en, de]) test(`AIT-510 feedback race: ${copy.display.locale}
   assert.equal(f.root.querySelector('.staged-image__status').textContent, 'fresh.png', 'the reason is shown once in the refusal list');
 });
 
-for (const copy of [en, de]) test(`AIT-510 r14: ${copy.display.locale} accepted extension with unreadable content gives a sentence without a type list`, async t => {
+for (const copy of [en, de]) for (const reason of ['malformed', 'unsupported']) test(`AIT-510 r14: ${copy.display.locale}/${reason} accepted extension with unreadable content gives a sentence without a type list`, async t => {
   const f = fixture(t, copy);
   await choose(f.root, [new window.File(['not image bytes'], 'broken.png', { type: 'image/png' })]);
   f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: {
-    ...f.c.session.uploads[0], state: 'staged-refused', reason: 'malformed' } });
+    ...f.c.session.uploads[0], state: 'staged-refused', reason } });
   const sentence = f.root.querySelector('.image-refusal').textContent;
   assert.equal(sentence, copy === de ? 'broken.png ist kein lesbares Bild.' : 'broken.png is not a readable image.');
   assert.equal(sentence.includes('JPEG'), false);
