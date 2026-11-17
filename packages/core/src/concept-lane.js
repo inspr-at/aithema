@@ -51,8 +51,8 @@ export function conceptHTMLSpec(session) {
 /** A separate single-flight lane: ordinary input advance keeps paid history. */
 export class ConceptLane {
   #flights = new Map();
-  constructor({ getSession, prepare, admit, processingAllowed, publicationAllowed, persist, complete, policy, deadlineMs = 120_000, estimateMs = 45_000, now = Date.now }) {
-    Object.assign(this, { getSession, prepare, admit, processingAllowed, publicationAllowed, persist, complete, policy, deadlineMs, estimateMs, now });
+  constructor({ getSession, prepare, admit, processingAllowed, publicationAllowed, consentRequired, persist, complete, policy, deadlineMs = 120_000, estimateMs = 45_000, now = Date.now }) {
+    Object.assign(this, { getSession, prepare, admit, processingAllowed, publicationAllowed, consentRequired, persist, complete, policy, deadlineMs, estimateMs, now });
   }
   recordIntent(id, { intentId, sourceTurnId }) {
     const session = this.getSession(id), prepared = this.prepare(session);
@@ -72,6 +72,7 @@ export class ConceptLane {
       if ((intent.visualIntent || intent.lastAttempt) && JSON.stringify(intent) !== JSON.stringify(session.conceptIntent)) this.persist(id, { intent, status: session.conceptStatus ?? { phase: 'idle' } });
       return Promise.resolve('skipped');
     }
+    const beforeRequest = intent;
     intent = next; const job = intent.pending;
     const controller = new AbortController(), abort = () => controller.abort(signal.reason);
     if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
@@ -84,6 +85,25 @@ export class ConceptLane {
     const work = async () => {
       let admitted, failed = false;
       try {
+        scope.signal.throwIfAborted();
+        // A missing optional producer grant is permission to ask, never a paid
+        // attempt. Drop the durable wish: only a bounded in-page continuation
+        // may submit it again after an authoritative grant.
+        if (await this.consentRequired?.(session, visualKind)) {
+          scope.signal.throwIfAborted();
+          const current = this.getSession(id);
+          if (current.conceptIntent?.pending?.id !== requestId || inputRevision(current) !== inputRevision(session) ||
+            current.settings?.revision !== session.settings?.revision || current.consentRevision !== session.consentRevision) {
+            if (current.conceptIntent?.pending?.id === requestId) this.persist(id, {
+              intent: { ...current.conceptIntent, pending: null, visualIntent:
+                current.conceptIntent.visualIntent?.id === beforeRequest.visualIntent?.id ? null : current.conceptIntent.visualIntent },
+              status: { phase: 'idle' } });
+            return 'skipped';
+          }
+          this.persist(id, { intent: { ...beforeRequest, visualIntent: null, modelIntentTurnId: null },
+            status: { phase: 'waiting', consentRequest: { ...beforeRequest.visualIntent } } });
+          return 'consent';
+        }
         scope.signal.throwIfAborted();
         // Planning and invalidation use identities only. Read/validate private
         // artifact bytes once a generation has actually been selected.

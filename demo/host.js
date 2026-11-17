@@ -203,8 +203,8 @@ component.addEventListener('aithema-new-conversation', event => {
 // The settings dialog defers consent to this host interface.
 // The library opened, created or reset a conversation: this host owns its voice clients, so it switches.
 component.addEventListener('aithema-open-conversation', event => { event.preventDefault(); void adopt(event.detail.session); });
-component.addEventListener('aithema-consent', () => {
-  if (component.session?.id) globalThis.location.assign(`/consent/?session=${encodeURIComponent(component.session.id)}&return=/`);
+component.addEventListener('aithema-consent', event => {
+  if (component.session?.id) component.openConsent(event.detail.features?.[0] ?? 'text');
 });
 component.addEventListener('aithema-features', paintVisuals);
 component.addEventListener('aithema-locale', () => { copy = bundles[component.session.locale] ?? en; paintPage(); });

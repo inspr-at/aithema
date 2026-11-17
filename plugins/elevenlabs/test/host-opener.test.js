@@ -35,3 +35,40 @@ test('AIT-505: SDK greeting received while paused is dropped before persistence'
   const finals=local.persisted.filter(event=>event.type==='final');
   assert.equal(finals.length,1);assert.equal(finals[0].text,'A real reply.');
 });
+
+for (const locale of ['en', 'de']) test(`AIT-538: ${locale} presentation receives and returns the exact host opener`, () => {
+  const contexts = [], callback = bind({ opener, presentation(language, ctx) {
+    contexts.push(ctx); return { agent: { language, firstMessage: ctx.hostOpener } };
+  } });
+  const prepare = options => callback.prepareCallback({ callId: 'fixture', binding: { publicFacadeBaseUrl: 'https://host.example.test' }, locale, ...options });
+  const result = prepare({ hostOpener: opener[locale] });
+  assert.deepEqual(contexts[0], { hasPriorTurns: false, hostOpener: opener[locale] });
+  assert.equal(result.request.overrides.agent.firstMessage, opener[locale]);
+  assert.equal(result.hostOpener, true);
+  prepare({ continuation: true, explicitResume: true, hasPriorTurns: true, hostOpener: opener[locale] });
+  assert.deepEqual(contexts.at(-1), { hasPriorTurns: true });
+});
+for (const transform of ['trim', 'wrap', 'language']) test(`AIT-538: ${transform} cannot claim verbatim host speech`, () => {
+  const text = ` ${opener.en} `;
+  const callback = bind({ opener: { en: text }, presentation(locale, ctx) {
+    return { agent: { language: transform === 'language' ? 'de' : locale,
+      firstMessage: transform === 'trim' ? ctx.hostOpener?.trim() : transform === 'wrap' ? `Hello. ${ctx.hostOpener}` : ctx.hostOpener } };
+  } });
+  const result = callback.prepareCallback({ callId: 'fixture', binding: { publicFacadeBaseUrl: 'https://host.example.test' }, locale: 'en', hostOpener: text });
+  assert.equal(result.hostOpener, false);
+});
+test('AIT-538: disclosure is checked per locale at startup and per exact forwarded string', () => {
+  const logs = [], contexts = [];
+  const callback = bind({ opener: { en: opener.en, de: 'Willkommen.' }, log: value => logs.push(value),
+    presentation(locale, ctx) { contexts.push(ctx); return { agent: { language: locale, firstMessage: ctx.hostOpener ?? opener[locale] } }; } });
+  assert.deepEqual(logs, [{ event: 'voice.host-opener-fallback', locale: 'de' }]);
+  const prepare = (locale, text) => callback.prepareCallback({ callId: 'fixture', binding: { publicFacadeBaseUrl: 'https://host.example.test' }, locale, hostOpener: text });
+  const passing = prepare('en', opener.en); assert.equal(passing.hostOpener, true);
+  const failing = prepare('de', 'Willkommen.');
+  assert.equal(failing.request.overrides.agent.firstMessage, opener.de);
+  assert.equal(failing.hostOpener, false); assert.deepEqual(contexts.at(-1), { hasPriorTurns: false });
+  const changed = prepare('en', 'A human is ready.');
+  assert.equal(changed.request.overrides.agent.firstMessage, opener.en);
+  assert.equal(changed.hostOpener, false);
+  assert.equal(JSON.stringify(logs).includes('Willkommen'), false);
+});

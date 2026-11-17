@@ -800,6 +800,11 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     const refresh = (reason, cost) => shadow(page, async (c, reason, cost) => {
       // A separate server snapshot makes this exercise the accepted refresh,
       // rather than mutating the live client's feature matrix before the GET.
+      // D509a keeps idle hosts silent; this recovery scene has a validated wish.
+      const previous = c.session;
+      const status = reason === 'current processing consent required'
+        ? { phase: 'waiting', consentRequest: { id: `fold-consent-${previous.seq}`, sourceTurnId: 'source' } } : { phase: 'idle' };
+      c.receive({ seq: previous.seq + 1, type: 'concept.state', data: { intent: previous.conceptIntent, status } });
       const session = structuredClone(c.session);
       session.featureMatrix.best.html = reason ? { available: false, reason } : { available: true };
       session.conceptCost = cost; session.seq = c.session.seq + 1; session.paused = false;
@@ -815,7 +820,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
         return { folded: r.querySelector('.workspace').hasAttribute('data-folded'), canvas: r.querySelector('.drafts-canvas').checkVisibility(),
           blocked: r.querySelector('.concept-request').disabled && r.querySelector('.concept-request').hidden,
           text: text.textContent, action: text.querySelector('button')?.textContent, promise: globalThis.noDraftsCopy.layout.canvasEmpty,
-          expectedAction: c.session.conceptCost ? globalThis.noDraftsCopy.featureConsent.action : globalThis.noDraftsCopy.display.draftsRetry };
+          expectedAction: c.session.conceptCost ? globalThis.noDraftsCopy.conceptConsentAction : globalThis.noDraftsCopy.display.draftsRetry };
       });
       assert.equal(stateCheck.folded, true, `${label}/${state}: transient refusal keeps fold`);
       assert.equal(stateCheck.canvas, true); assert.equal(stateCheck.blocked, true);
