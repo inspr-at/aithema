@@ -482,7 +482,8 @@ retains at least 40% of the sidebar; the contact row shrinks and scrolls when
 the header or other reserved rows need more room. For hosts filling both slots,
 below 48rem window height the desktop pinned row is absent from layout and Tab
 order, and the reserved header launcher becomes the contact action. One condition
-switches both controls; sidebar chrome compacts to keep its foot inside the frame.
+switches both controls; short-window spacing and sidebar chrome compact to keep
+the foot inside the frame.
 A host filling only `sidebar-contact` keeps that row through short desktop windows
 and the sidebar entrance; the row is never hidden in favor of an empty launcher.
 The launcher’s 44 px header slot remains reserved when hidden. The launcher

@@ -15,7 +15,8 @@
   the launcher visible and remove the pinned row from layout and Tab order
   only when the launcher slot is filled; one condition switches both controls.
   Row-only hosts retain the pinned contact through short desktop windows and
-  the sidebar entrance. Compact sidebar chrome keeps the foot inside the frame.
+  the sidebar entrance. Compact short-window spacing and sidebar chrome keep
+  the foot inside the frame.
   The launcher fades and becomes inert during the About reveal, like Settings;
   the phone contact row and personal-conversation action clear the fold chevron
   with a 44 px left inset.
