@@ -1,5 +1,6 @@
 // Evidence-only reporter: retain complete spec output and nested assertions.
 import { spec } from 'node:test/reporters';
+import { Readable } from 'node:stream';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { join, relative, isAbsolute } from 'node:path';
 
@@ -22,7 +23,7 @@ export default async function* report(source) {
       yield event;
     }
   }
-  for await (const chunk of spec(capture())) {
+  for await (const chunk of Readable.from(capture()).pipe(spec())) {
     appendFileSync(join(directory, 'r4-spec.log'), chunk);
     yield chunk;
   }
