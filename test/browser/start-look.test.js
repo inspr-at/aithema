@@ -348,3 +348,7 @@ test('AIT-517 r12: short desktops retain contact and the footer; localized host 
 import { contactRailCheck } from './contact-short-check.js';
 test('AIT-517 r12: contact rail defaults and host widths agree before upgrade',
   { timeout: 60_000 }, contactRailCheck);
+
+import { contactSlotVariantsCheck } from './contact-short-check.js';
+test('AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance',
+  { timeout: 120_000 }, contactSlotVariantsCheck);

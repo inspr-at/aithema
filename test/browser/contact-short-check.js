@@ -203,3 +203,96 @@ export async function contactRailCheck(t) {
   });
   if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR,'contact-rail-rects.json'), JSON.stringify(results,null,2));
 }
+
+export async function contactSlotVariantsCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-contact-variants-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'sessions.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), records = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.evaluateOnNewDocument(() => {
+    const OriginalDate = Date;
+    window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } };
+    const q = new URLSearchParams(location.search);
+    localStorage.setItem('aithema-demo-locale', q.get('locale'));
+    localStorage.setItem('aithema-theme', q.get('theme'));
+  });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => void (new URL(request.url()).origin === demo.url ? request.continue() : request.abort()));
+  const settle = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+  const sample = () => page.$eval('aithema-session', c => {
+    const r = c.shadowRoot, box = n => n.getBoundingClientRect().toJSON();
+    const row = r.querySelector('.sidebar-contact'), launcher = r.querySelector('.contact-launcher');
+    const content = c.querySelector('[slot="sidebar-contact"]'), button = content?.querySelector('button');
+    const visible = n => !!n && n.checkVisibility({ checkVisibilityCSS: true }) && !n.closest('[inert]') && n.getBoundingClientRect().height > 0;
+    return { rowVisible: visible(row), launched: visible(launcher), row: box(row), launcher: box(launcher),
+      content: content && box(content), button: button && box(button), rowHeight: row.clientHeight, rowContentHeight: row.scrollHeight,
+      sidebar: box(r.querySelector('.understanding')), sidebarHeight: r.querySelector('.understanding').clientHeight,
+      reading: box(r.querySelector('.analysis-content')), foot: box(r.querySelector('.understanding > .foot')),
+      frames: ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.display-foot'].map(s => box(r.querySelector(s))) };
+  });
+  const positive = boxes => boxes.forEach(b => assert.ok(b.width > 0 && b.height > 0, `positive variant box: ${JSON.stringify(b)}`));
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    await page.goto(`${demo.url}?locale=${locale}&theme=${theme}`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
+    await page.$eval('aithema-session', c => {
+      window.contactVariantOptions = c.session;
+      window.contactVariantRow = c.querySelector('[slot="sidebar-contact"]').cloneNode(true);
+      window.contactVariantLauncher = c.querySelector('[slot="contact-launcher"]').cloneNode(true);
+    });
+    for (const slots of ['row-only', 'launcher-only', 'both']) for (const [width, height] of [[1366,650],[1280,690],[1536,730],[1024,600],[1024,768]]) {
+      const label = `${width}x${height}-${locale}-${theme}-${slots}`;
+      await t.test(label, async () => {
+        await page.setViewport({ width, height });
+        await page.$eval('aithema-session', async (c, { slots, locale }) => {
+          c.querySelectorAll('[slot="sidebar-contact"], [slot="contact-launcher"]').forEach(n => n.remove());
+          if (slots !== 'launcher-only') c.append(window.contactVariantRow.cloneNode(true));
+          if (slots !== 'row-only') c.append(window.contactVariantLauncher.cloneNode(true));
+          const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          c.configure({ copy, session: structuredClone(window.contactVariantOptions), voiceClient: {}, host: { library: true } });
+          c.setAttribute('motion', 'off');
+          c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'contact-variant-u1', role: 'user', content: 'Requirements' } });
+          // Hold the production entrance predicate at its opening state without
+          // waiting on a real clock. The only contact action must stay available.
+          c.shadowRoot.querySelector('.workspace').setAttribute('data-reveal', '');
+        }, { slots, locale });
+        await settle();
+        const entrance = await sample();
+        assert.equal(Number(entrance.rowVisible) + Number(entrance.launched), 1, `${label}: exactly one action during entrance: ${JSON.stringify(entrance)}`);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.workspace').removeAttribute('data-reveal'));
+        await settle();
+        const after = await sample(); positive(after.frames);
+        assert.equal(Number(after.rowVisible) + Number(after.launched), 1, `${label}: exactly one settled contact action: ${JSON.stringify(after)}`);
+        assert.equal(after.rowVisible, slots === 'row-only' || (slots === 'both' && height >= 768), `${label}: row follows available slots`);
+        if (after.rowVisible) {
+          positive([after.row, after.content, after.button]);
+          assert.ok(after.button.height >= 44, `${label}: full contact button`);
+          assert.ok(after.content.top >= after.row.top - .5 && after.content.bottom <= after.row.bottom + .5, `${label}: full contact text and button: ${JSON.stringify(after)}`);
+          assert.ok(after.rowContentHeight <= after.rowHeight + .5, `${label}: no clipped contact content`);
+        } else {
+          const unfocusable = await page.$eval('aithema-session', c => {
+            const button = c.querySelector('[slot="sidebar-contact"] button');
+            button?.focus({ preventScroll: true }); return !button || document.activeElement !== button;
+          });
+          assert.ok(unfocusable, `${label}: absent row is unfocusable`);
+          positive([after.launcher]); assert.ok(after.launcher.height >= 44, `${label}: full launcher`);
+        }
+        positive([after.reading]);
+        assert.ok(after.reading.height / after.sidebarHeight >= .4, `${label}: reading retains 40%: ${JSON.stringify(after)}`);
+        assert.ok(after.foot.bottom <= after.sidebar.bottom + .5, `${label}: foot is not clipped: ${JSON.stringify(after)}`);
+        positive(entrance.frames);
+        const shiftPx = Math.max(...entrance.frames.flatMap((b, i) => ['x','y','width','height'].map(k => Math.abs(b[k] - after.frames[i][k]))));
+        assert.ok(shiftPx <= .5, `${label}: entrance predicate moves frames ${shiftPx}px`);
+        records.push({ label, entrance, after, shiftPx });
+        if (evidence) {
+          await writeFile(join(evidence, 'contact-variant-rects.json'), JSON.stringify(records, null, 2));
+          if (slots === 'row-only' && [1366,1280].includes(width) && ((locale === 'en' && theme === 'light') || (locale === 'de' && theme === 'dark'))) {
+            await mkdir(join(evidence, 'shots'), { recursive: true });
+            await page.screenshot({ path: join(evidence, 'shots', `${label}.png`), captureBeyondViewport: false });
+          }
+        }
+      });
+    }
+  }
+}
