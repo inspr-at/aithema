@@ -247,3 +247,7 @@ for (const copy of [en, de]) for (const reason of ['malformed', 'unsupported']) 
   assert.equal(sentence, copy === de ? 'broken.png ist kein lesbares Bild.' : 'broken.png is not a readable image.');
   assert.equal(sentence.includes('JPEG'), false);
 });
+
+for (const copy of [en, de]) test(`AIT-510 r15: ${copy.display.locale} supported-format sentence has its final full stop`, () => {
+  assert.ok(copy.uploadsSupported.endsWith('.'));
+});

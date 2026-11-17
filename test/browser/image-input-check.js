@@ -440,6 +440,61 @@ export function imageInputCheck(widths) {
       assert.ok(mixedReason.includes((locale === 'de' ? de : en).imageRefusals.unavailable));
       await clearances('mixed-pick'); await shot('mixed-pick');
 
+      await t.test('AIT-510 r15: document-only composers retain the main refusal without image formats or movement', async () => {
+        await inShadow(page, async c => {
+          const session = c.session;
+          session.featureMatrix.best.imageInput = { available: false, reason: 'image normalizer not configured' };
+          const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+          c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {},
+            ...(window.imageEntrance === 'combined' ? { host: { credits: true, verification: { delivery: true, privacyDocumentConfigured: true } } } : {}) });
+        });
+        await startTyping(page);
+        assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), false);
+        const before = await boxes();
+        await inShadow(page, c => {
+          const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'x.exe', { type: 'application/octet-stream' }));
+          c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+        });
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('x.exe'));
+        const notice = await inShadow(page, c => {
+          const el = c.shadowRoot.querySelector('.composer-reason'), r = el.getBoundingClientRect();
+          return { text: el.textContent, width: r.width, height: r.height, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
+        });
+        const after = await boxes();
+        await shot('no-image-input-document-notice');
+        if (evidence) await writeFile(join(evidence, `${prefix}-no-image-input-document-notice.json`), JSON.stringify({ before, after, notice }, null, 2));
+        assert.ok(notice.width > 0 && notice.height > 0, 'document-only notice has a positive box');
+        assert.ok(notice.scrollHeight <= notice.clientHeight, `document-only refusal fits in full: ${JSON.stringify(notice)}`);
+        assert.equal(notice.text, locale === 'en' ? 'Not attached: x.exe (file type not accepted).' : 'Nicht angehängt: x.exe (Dateityp wird nicht angenommen).', 'main refusal is unchanged and names no image formats');
+        for (const [selector, r] of Object.entries(after)) {
+          assert.ok(before[selector].w > 0 && before[selector].h > 0 && r.w > 0 && r.h > 0, `${selector}: positive document-only frame boxes`);
+          for (const edge of ['x', 'y', 'w', 'h', 'bottom']) assert.equal(r[edge], before[selector][edge], `${selector}.${edge}: document-only refusal has zero frame shift`);
+        }
+      });
+      await t.test('AIT-510 r15: long host-overridden image consent keeps its scrolling cap', async () => {
+        await inShadow(page, async c => {
+          window.imageGranted = false; window.imageFixtureConsent = true; window.imageUnavailableReason = null;
+          const session = c.session;
+          session.featureMatrix.best.imageInput = { available: false, reason: 'current processing consent required' };
+          const { [session.locale]: base } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+          const copy = { ...base, featureConsent: { ...base.featureConsent, imageInput: (base.featureConsent.imageInput + ' ').repeat(40) } };
+          c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {},
+            ...(window.imageEntrance === 'combined' ? { host: { credits: true, verification: { delivery: true, privacyDocumentConfigured: true } } } : {}) });
+        });
+        await startTyping(page); await choose();
+        await waitForShadow(page, '.composer-reason[data-consent-feature="imageInput"]');
+        const cap = await inShadow(page, c => {
+          const el = c.shadowRoot.querySelector('.composer-reason'), r = el.getBoundingClientRect(), css = getComputedStyle(el);
+          el.scrollTop = el.scrollHeight;
+          return { width: r.width, height: r.height, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, scrollTop: el.scrollTop, maxHeight: css.maxHeight, overflowY: css.overflowY };
+        });
+        if (evidence) await writeFile(join(evidence, `${prefix}-long-image-consent.json`), JSON.stringify(cap, null, 2));
+        assert.ok(cap.width > 0 && cap.height > 0, 'long consent has a positive box');
+        assert.equal(cap.maxHeight, '44px', 'upload notices alone lift the cap');
+        assert.ok(cap.height <= 44.5 && cap.scrollHeight > cap.clientHeight && cap.scrollTop > 0, `long consent stays inside its scrolling cap: ${JSON.stringify(cap)}`);
+        assert.match(cap.overflowY, /^(auto|scroll)$/u);
+      });
+
     });
   }
 }
