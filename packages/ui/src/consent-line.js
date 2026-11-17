@@ -4,6 +4,7 @@ import { node, setText } from './dom.js';
 import { reasonSeparator } from './reason-separator.js';
 
 export { reasonSeparator } from './reason-separator.js';
+const consentOpeners = new WeakMap();
 
 /** One native, underlined action for every reason line, including its first paint. */
 export function reasonAction(label, activate) {
@@ -32,10 +33,12 @@ export function paintNarrowText(label, text, textNarrow) {
 export function paintConsentLine(line, { copy, feature, verdict, text, open, separator = reasonSeparator }) {
   const blocked = !verdict.available && isConsentReason(verdict.rawReason ?? verdict.reason);
   if (!blocked) {
+    consentOpeners.delete(line);
     setText(line, text ?? ''); delete line.dataset.consentFeature; return false;
   }
+  consentOpeners.set(line, open);
   if (!line.querySelector('.consent-line-copy')) {
-    const label = node('span', 'consent-line-copy'), action = reasonAction('', open);
+    const label = node('span', 'consent-line-copy'), action = reasonAction('', opener => consentOpeners.get(line)?.(opener));
     line.replaceChildren(label, action); line.tabIndex = -1;
     line.dataset.focusKey = action.dataset.focusKey = `consent-${feature}`;
   }
