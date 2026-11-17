@@ -195,6 +195,55 @@ export async function transcriptComposerCases(t) {
     if (evidence) await page.screenshot({ path: join(evidence, `${label}.png`), captureBeyondViewport: false });
     return state;
   };
+  // Gate3 / r21: a list can fit while a later in-flow failure and Retry do
+  // not. Fill the measured pane deterministically; no observer race or timer.
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[1024, 600], [390, 844]]) {
+    await t.test(`reply-failure follow reveals Retry ${locale}/${theme}/${width}x${height}`, async () => {
+      await reset(width, height, locale, theme, { turns: 1 });
+      await shadow(page, async c => {
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        const shell = c.shadowRoot.querySelector('.transcript-shell'), list = shell.querySelector('ol');
+        const css = getComputedStyle(shell);
+        list.style.minHeight = `${shell.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom) - 4}px`;
+        const failure = { lane: 'reaction', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true };
+        c.receive({ type: 'lane.failed', data: failure });
+        c.receive({ type: 'lane.status', data: { inputRevision: failure.inputRevision, running: [],
+          failures: [failure, { ...failure, lane: 'understanding' }], lastFailure: failure } });
+      });
+      await settleEvidenceFrame(page);
+      const sample = () => shadow(page, c => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+        const box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
+        return { shell: box('.transcript-shell'), list: box('.transcript-shell > ol'),
+          notice: box('.reaction-failure'), retry: box('.reaction-failure > .retry'),
+          paddingBottom: parseFloat(getComputedStyle(shell).paddingBottom),
+          scrollTop: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight,
+          noticeHidden: r.querySelector('.reaction-failure').hidden, retryHidden: r.querySelector('.retry').hidden,
+          cardHidden: r.querySelector('.qcard').hidden };
+      });
+      await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; });
+      const before = await sample(), stem = `ait511-reply-failure-${locale}-${theme}-${width}x${height}`;
+      if (evidence) await page.screenshot({ path: join(evidence, `${stem}-before.png`), captureBeyondViewport: false });
+      await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
+      await settleEvidenceFrame(page);
+      const after = await sample(); records.push({ label: stem, before, after });
+      if (evidence) {
+        await page.screenshot({ path: join(evidence, `${stem}-after.png`), captureBeyondViewport: false });
+        await writeFile(join(evidence, `${stem}.json`), JSON.stringify({ before, after }, null, 2));
+      }
+      t.diagnostic(`${stem}: ${JSON.stringify({ before, after })}`);
+      for (const state of [before, after]) {
+        for (const name of ['shell', 'list', 'notice', 'retry']) positive(state[name], name);
+        assert.equal(state.cardHidden, true); assert.equal(state.noticeHidden, false); assert.equal(state.retryHidden, false);
+      }
+      assert.ok(before.list.bottom + before.paddingBottom <= before.shell.bottom + .5, 'the list alone fits the pane');
+      assert.ok(before.notice.bottom > before.shell.bottom + .5, 'the visible failure genuinely overflows');
+      assert.ok(before.retry.bottom > before.shell.bottom + .5, 'Retry starts clipped before follow');
+      assert.ok(after.scrollTop > 0, 'follow scrolls to the overflowing failure');
+      assert.ok(after.retry.top >= after.shell.top && after.retry.bottom <= after.shell.bottom + .5, 'follow fully reveals Retry');
+      assert.ok(after.notice.bottom <= after.shell.bottom + .5, 'follow fully reveals the failure notice');
+    });
+  }
   for (const [width, height] of [[1440, 900], [1280, 800], [1024, 640], [1024, 900], [900, 700], [768, 1024], [390, 844]]) {
     await t.test(`growth and reclaimed notice space ${width}x${height}`, async () => {
       await reset(width, height, 'en', 'light', { voice: true });
