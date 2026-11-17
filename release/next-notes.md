@@ -58,7 +58,8 @@
 
 - AIT-511/AIT-513: the transcript uses the remaining height and voice recovery
   notices appear as interactive transcript end content at every width. A voice
-  binding reserves no empty notice row. Image visuals retain their 44 px bar;
+  binding reserves no empty notice row. An active desktop call retains its
+  existing 108 px recovery region inside the transcript. Image visuals retain their 44 px bar;
   unbound visuals reserve none. Short transcripts align at the top without a
   visible question card, and beside their question when a card is present. Transcript
   scrolling remains contained and suppresses native boundary rebound. A visible

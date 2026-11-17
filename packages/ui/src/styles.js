@@ -166,6 +166,12 @@ svg { display:block; flex:none; }
 
 /* Notices are transcript end content. Empty text mode reserves no voice row. */
 .voice-notices { grid-column:1/-1; min-width:0; display:flex; flex-direction:column; height:auto; font-size:.8rem; line-height:1.4; }
+/* An admitted desktop call retains the existing recovery-region contract.
+   The notice region owns this space inside the transcript; an idle voice
+   binding reserves none, and no matching padding is added to the dock. */
+@media(min-width:601px) {
+  .workspace:has(.audio-rail[data-call="active"]) .voice-notices { min-height:108px; }
+}
 .voice-notice { flex:none; display:flex; align-items:center; gap:12px; min-width:0; min-height:24px; overflow-wrap:anywhere; color:var(--aithema-muted); }
 .voice-notice--user { min-height:36px; }
 .voice-notice--reply { min-height:48px; color:var(--aithema-ink); }

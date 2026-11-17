@@ -1519,7 +1519,8 @@ reveal included.
 
 The live transcript uses the remaining conversation height. Voice recovery notices
 are interactive end content in that scroll area; a voice binding alone reserves no
-empty row. Without a visible question card, short transcripts start at the top;
+empty row. An active desktop call retains its existing 108 px recovery region
+inside the transcript, keeping recovery changes stable. Without a visible question card, short transcripts start at the top;
 with a card, the latest reply stays beside its question. Unbound visuals reserve
 no concept bar; configured image visuals keep their 44 px row. The transcript keeps
 scroll gestures in its pane and suppresses boundary rebound.
@@ -1538,12 +1539,13 @@ failed sends, answer-chip sends and edits made during a pending send retain it.
 Typing the next draft while a reply is pending reserves room for its future
 question card, so that reply can arrive without resizing the draft.
 Combined entrance uses the same sizing owner before and after visitor input;
-drafting beside a host opener does not reveal the overview. Short desktop and
-keyboard layouts reserve compact, scrollable disclosure/status slots and pin
-Send and mic while the field grows. The card margin stays outside the reading
-pane, counted once. Combined desktop layout retains the band layout’s fixed
-footer clearance before and after entrance; short desktop feedback shares the
-reserved disclosure row.
+drafting beside a host opener does not reveal the overview. Combined disclosure,
+feedback and status slots retain their intrinsic reservations; the notice is
+anchored at the top and grows downward. Phones show its first sentence and a
+localized More action. Send and mic stay pinned while the field grows. The card
+margin stays outside the reading pane, counted once. Combined desktop layout
+reserves the fixed footer inside the configured component height before and
+after entrance.
 A visible header voice message uses free space above a short, top-aligned
 conversation without resizing the pane. Notice growth clears obsolete retained
 space; a deliberate transcript wheel gesture releases retained notice space.
