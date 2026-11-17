@@ -3483,10 +3483,9 @@ export class AithemaSession extends HTMLElement {
     this.#limitsLoad = load;
     return load;
   }
-  async #attach(files, retry = false) {
+  async #attach(files, retry = false, currentImageRefusals = []) {
     if (!files.length || !this.isConnected) return;
     let needsImages = files.some(isImageFile);
-    let currentImageRefusals = [];
     const image = this.#feature('imageInput', true), documents = this.#feature('uploads', true);
     if (needsImages && !image.available && !isConsentReason(image.rawReason ?? image.reason)) {
       const rawReason = image.rawReason ?? image.reason;
@@ -3499,7 +3498,7 @@ export class AithemaSession extends HTMLElement {
       if (!files.length) return;
     }
     if (needsImages && !image.available && isConsentReason(image.rawReason ?? image.reason) || files.some(file => !isImageFile(file)) && !documents.available && isConsentReason(documents.rawReason ?? documents.reason)) {
-      this.#imageIntent = { files, id: this.#session.id }; clearTimeout(this.#imageIntentTimer);
+      this.#imageIntent = { files, id: this.#session.id, refusals: currentImageRefusals.slice(-8) }; clearTimeout(this.#imageIntentTimer);
       this.#imageIntentTimer = setTimeout(() => { this.#imageIntent = null; this.#uploadNotice = plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), files.length); this.#render('composer'); }, 180000);
       this.#requestConsent('use', [...new Set([...(needsImages ? ['imageInput'] : []), ...(!documents.available ? ['uploads', 'text'] : [])])], 'attach');
       this.#render('composer'); return;
@@ -3566,7 +3565,7 @@ export class AithemaSession extends HTMLElement {
     if (!pending || pending.id !== this.#session.id || !this.isConnected) return;
     if (pending.files.some(isImageFile) && !this.#feature('imageInput').available || pending.files.some(file => !isImageFile(file)) && !this.#feature('uploads').available) return;
     this.#imageIntent = null; clearTimeout(this.#imageIntentTimer);
-    void this.#attach(pending.files);
+    void this.#attach(pending.files, false, pending.refusals);
   }
   #cancelUploads() {
     clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;

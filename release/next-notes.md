@@ -141,3 +141,5 @@
   Retained-file retry messages keep their existing facts and action order.
   Image-feedback measurement keeps the same width across text-consent and
   shortcut states, including 320/340 px, preserving the composer after a grant.
+  The same mixed selection retains its image refusal across document consent;
+  only eligible document handles and bounded refusal metadata continue.
