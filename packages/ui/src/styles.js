@@ -630,6 +630,9 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
   .workspace[data-contact]:is([data-stage="live"],[data-entrance="combined"]) .analysis-stack { container:analysis-pane / size; }
   @container analysis-pane (max-height:500px) {
     .workspace[data-contact] .analysis-content { padding-top:calc(max(0px,calc(28px + 1.16rem - var(--overview-status-height,2.32rem))) + var(--aithema-slack-top,0px)); }
+    /* A three-line status reserve still leaves the first signal clear of the
+       fade with the summary at its unchanged three-line minimum. */
+    .workspace[data-contact] .signals-section { padding-top:.5rem; }
     .workspace[data-contact] .overview-status { display:flex; align-items:flex-end; gap:.5rem; height:var(--overview-status-height,2.9em); min-height:var(--overview-status-height,2.9em); overflow:visible; margin-bottom:-1.15rem; }
     .workspace[data-contact] .overview-status .notice-text { flex:1; min-width:0; display:block; -webkit-line-clamp:unset; overflow:visible; }
     /* Include the consent action’s 24px pointer target in its flex line. */
