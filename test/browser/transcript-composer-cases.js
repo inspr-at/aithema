@@ -34,6 +34,7 @@ const geometry = async page => { const state = await shadow(page, c => {
   jump: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
   cardHidden: r.querySelector('.qcard').hidden,
   footerHidden: getComputedStyle(r.querySelector('.display-foot')).display === 'none',
+  attachHidden: getComputedStyle(r.querySelector('.attach')).display === 'none',
   pageLanguage: document.documentElement.lang,
   legalLabels: [...c.querySelectorAll('#demo-license, #demo-legal-source')].map(link => link.textContent),
   combinedReservations: Object.fromEntries(['.composer-feedback', '.composer-status-slot', '.composer-notice-slot']
@@ -106,7 +107,14 @@ export async function transcriptComposerCases(t) {
   await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.composerSeed = structuredClone(c.session); });
   const records = [], evidence = process.env.AITHEMA_EVIDENCE_DIR; let fittingChecks = 0;
-  if (evidence) await mkdir(evidence, { recursive: true });
+  if (evidence) {
+    await mkdir(evidence, { recursive: true });
+    t.after(async () => {
+      await writeFile(join(evidence, 'ait-511-513-rects.json'), JSON.stringify(records, null, 2));
+      await writeFile(join(evidence, 'ait-511-513-fitting.json'), JSON.stringify({ fittingChecks,
+        cases: records.filter(row => /^\d+x\d+$/.test(row.label)).map(row => ({ label: row.label, before: row.before })) }, null, 2));
+    });
+  }
   const reset = async (width, height, locale = 'en', theme = 'light', { voice = false, card = false, turns = 4, visuals = false, usedUp = false, entrance = 'choice', opener = false } = {}) => {
     await page.mouse.move(0, 0); await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -255,7 +263,23 @@ export async function transcriptComposerCases(t) {
         for (const [label, lines] of [['empty', 0], ['grown', 12], ['capped', 30]]) {
           await draft(page, lines); await settleEvidenceFrame(page);
           const followed = await geometry(page), followedContact = await contact();
-          stable(before, followed, `${entrance}/contact/${label}`);
+          records.push({ label: `contact-follow-${entrance}-${width}x${height}-${label}`, beforeContact, followedContact, ...followed });
+          t.diagnostic(`Contact follow ${entrance}/${width}x${height}/${label}: ${JSON.stringify({ scroll: followed.scroll, extent: followed.extent, client: followed.client, nativeGap: followed.extent - followed.client - followed.scroll, attachHidden: followed.attachHidden })}`);
+          if (entrance === 'choice') stable(before, followed, `${entrance}/contact/${label}`);
+          else {
+            // AIT-506's combined composer deliberately replaces Attach with
+            // its mic. Match the existing combined-card/late-question frame
+            // checks; never count the hidden Attach's 0x0 box as stable.
+            assert.equal(before.attachHidden, true, 'combined Attach is explicitly hidden');
+            assert.equal(followed.attachHidden, true, 'combined Attach is explicitly hidden');
+            for (const selector of [...frame.filter(selector => selector !== '.composer-actions .attach'), '.composer-mic']) {
+              const a = before.boxes[selector], b = followed.boxes[selector]; positive(a, selector); positive(b, selector);
+              for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(a[key] - b[key]) <= .5,
+                `${entrance}/contact/${label}/${selector}/${key}: ${a[key]} -> ${b[key]}`);
+            }
+            for (const state of [before, followed]) positive(state.boxes['.composer'], 'combined contact composer');
+            assert.ok(Math.abs(before.boxes['.composer'].bottom - followed.boxes['.composer'].bottom) <= .5, 'combined contact composer bottom stays pinned');
+          }
           pinned(beforeContact, followedContact, `${entrance}/growth/${label}`);
           noCardLatestClearance(followed, `${entrance}/contact/${label}/follow`);
           await shadow(page, c => {
@@ -643,7 +667,6 @@ export async function transcriptComposerCases(t) {
     await settleEvidenceFrame(page); assert.ok((await geometry(page)).boxes.textarea.height < before.boxes.textarea.height, 'device clears size');
   });
   assert.ok(fittingChecks >= 4, 'at least four measured size cases prove the fitting first-turn invariant');
-  if (evidence) await writeFile(join(evidence, 'ait-511-513-rects.json'), JSON.stringify(records, null, 2));
 
 }
 
