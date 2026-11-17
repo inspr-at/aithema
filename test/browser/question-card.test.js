@@ -80,6 +80,23 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 800, 390, 393]) {
       await t.test(`${locale}/${theme}/${width}`, async scene => {
         const label = `${locale}-${theme}-${width}`;
+        // Capture the asserted reading state without moving its parked pointer
+        // or blurring focus; either action would release the anchor being shown.
+        const readingShot = async state => {
+          if (!laneEvidenceDirectory || ![390, 1440].includes(width)) return;
+          const reading = await shadow(page, c => {
+            const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+            const selectors = ['.band', '.understanding', '.understanding > .foot', '.display-foot', '.composer', '.attach', '.send', '.transcript-shell'];
+            if (getComputedStyle(r.querySelector('.transcript-latest')).visibility === 'visible') selectors.push('.transcript-latest');
+            return { boxes: Object.fromEntries(selectors.map(selector => [selector, r.querySelector(selector).getBoundingClientRect().toJSON()])),
+              scroll: shell.scrollTop, extent: shell.scrollHeight, client: shell.clientHeight };
+          });
+          for (const [selector, box] of Object.entries(reading.boxes)) assert.ok(box.width > 0 && box.height > 0, `${state}/${selector}: positive box`);
+          await mkdir(laneEvidenceDirectory, { recursive: true });
+          const file = `ait-511-${label}-${state}`;
+          await writeFile(join(laneEvidenceDirectory, `${file}.json`), JSON.stringify({ label: file, ...reading }, null, 2));
+          await page.screenshot({ path: join(laneEvidenceDirectory, `${file}.png`), captureBeyondViewport: false });
+        };
         const shot = async (state, height) => { if (evidence) {
           if (!height && (!['card', 'bounded-options'].includes(state) || ![390, 1440].includes(width))) return;
           await page.mouse.move(-1, -1);
@@ -416,6 +433,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         await nextFrame(page);
         assert.deepEqual(await readingBox(), releaseBefore, 'releasing held card space keeps the reading anchor at exactly the same box');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'only the visible card reserves space');
+        await readingShot('restored-reader');
         // Reading anchors survive closing; no retained card band needs a later release.
         await page.mouse.move(-1, -1);
         await page.evaluate(() => globalThis.showQuestion()); await nextFrame(page);
@@ -434,6 +452,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the bottom gap stays released without new content or pointer movement');
         await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
+        await readingShot('latest-room');
         if (width <= 600) {
           await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
           await nextFrame(page);
