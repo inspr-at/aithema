@@ -29,7 +29,7 @@ ${selector} { --aithema-header-rail-height:90px; --aithema-header-rail-tracks:60
 // geometry independent of copy, fonts, account reads and conversation stage.
 export function headerGeometry(selector) {
   return `
-${selector} { --band-height:90px; box-sizing:border-box; display:grid; grid-template-columns:minmax(44px,max-content) minmax(0,1fr) var(--aithema-header-actions-width,216px);
+${selector} { --band-height:90px; box-sizing:border-box; display:grid; grid-template-columns:minmax(44px,max-content) minmax(0,1fr) var(--aithema-header-actions-width,calc(216px + var(--aithema-contact-launcher-width,0px)));
   grid-template-rows:60px; align-items:center; gap:12px 24px;
   padding:12px var(--aithema-gutter,clamp(1.25rem,4vw,3.5rem)) 18px 54px; min-height:90px; }
 ${selector} > .band-orb { width:44px; height:44px; }
@@ -47,7 +47,7 @@ ${selector} > .audio-rail { grid-column:2; grid-row:1; }
   ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }
 }
 @media(max-width:599px) {
-  ${selector} { --band-height:124px; grid-template-columns:minmax(0,1fr) var(--aithema-header-actions-width,88px); grid-template-rows:44px 80px; gap:0 8px; padding:0 8px 0 54px; }
+  ${selector} { --band-height:124px; grid-template-columns:minmax(0,1fr) var(--aithema-header-actions-width,calc(88px + var(--aithema-contact-launcher-width,0px))); grid-template-rows:44px 80px; gap:0 8px; padding:0 8px 0 54px; }
   ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }
   ${selector} > .header-actions { grid-column:2; grid-row:1; justify-self:end; }
 }
@@ -64,7 +64,13 @@ ${selector} > .audio-rail { grid-column:2; grid-row:1; }
 // :defined alone is too early because session loading may still be pending.
 export const firstPaintStyles = `
 .aithema-shell { container:aithema-shell / inline-size; }
-${headerRailReservation()}
+/* Both built-in defaults are equally weak: contact wins by order, while a
+   host's headerRailReservation override wins over either library default. */
+${headerRailReservation({ selector: ':where(.aithema-shell > :is(aithema-session,.aithema-first-paint))' })}
+/* An opt-in placeholder declares the same extra target before and after mount.
+   The mounted marker also keeps the reservation if a host removes its skeleton. */
+.aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint) { --aithema-contact-launcher-width:44px; }
+${headerRailReservation({ selector: ':where(.aithema-shell:has(> [data-contact-launcher]) > :is(aithema-session,.aithema-first-paint))', actionsWidth: '260px' })}
 ${headerGeometry('.aithema-first-paint')}
 .aithema-shell > aithema-session:not([data-aithema-mounted]) { display:none; }
 .aithema-shell:has(> aithema-session[data-aithema-mounted]) > .aithema-first-paint { display:none; }
@@ -79,18 +85,19 @@ ${headerGeometry('.aithema-first-paint')}
 .aithema-first-paint .band-identity .band-orb { flex:none; width:44px; height:44px; }
 .aithema-first-paint .wordmark { visibility:hidden; font:400 18px/1.25 var(--aithema-display,var(--display,Georgia)); letter-spacing:.005em; margin:0; }
 .aithema-first-paint .header-actions { display:flex; gap:4px; }
+.aithema-first-paint[data-contact-launcher] .header-actions > span:last-child { margin-inline-start:-4px; }
 .aithema-first-paint .header-actions > span { width:44px; height:44px; border-radius:10px; background:var(--line,rgba(16,43,66,.13)); }
 @media(min-width:600px) { .aithema-first-paint .header-actions > span:first-child { width:168px; } }
-@media(max-width:599px) { .aithema-first-paint .header-actions { gap:0; } .aithema-first-paint .band-identity { max-width:none; gap:10px; } .aithema-first-paint .wordmark { font-size:16.5px; } }
+@media(max-width:599px) { .aithema-first-paint .header-actions { gap:0; } .aithema-first-paint[data-contact-launcher] .header-actions > span:last-child { margin-inline-start:0; } .aithema-first-paint .band-identity { max-width:none; gap:10px; } .aithema-first-paint .wordmark { font-size:16.5px; } }
 `;
 
 // Decorative, static boxes: no duplicate buttons, focus targets or live text.
 // Hosts know their binding before serving HTML; omit voice placeholders as well
 // as the mounted rail when it is off. Keep the original export for bound hosts.
-export function firstPaintMarkupFor({ voice = true } = {}) {
-  return `<div class="aithema-first-paint" aria-hidden="true" inert>
+export function firstPaintMarkupFor({ voice = true, contactLauncher = false } = {}) {
+  return `<div class="aithema-first-paint"${contactLauncher ? ' data-contact-launcher' : ''} aria-hidden="true" inert>
   <div class="band-identity"><div class="band-orb"></div><span class="wordmark">Aithema</span></div>${voice ? '<div class="audio-rail"><span data-placeholder="output"></span><span></span><span data-placeholder="pause"></span><span data-placeholder="input"></span><span data-placeholder="close"></span></div>' : ''}
-  <div class="header-actions"><span></span><span></span></div>
+  <div class="header-actions"><span></span>${contactLauncher ? '<span></span>' : ''}<span></span></div>
 </div>`;
 }
 export const firstPaintMarkup = firstPaintMarkupFor();

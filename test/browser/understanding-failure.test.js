@@ -375,11 +375,13 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     const creditsAfterFailure = await credits();
     const failedAttempt = before.attempts.at(-1);
     assert.equal(failedAttempt.state, 'settled');
-    // AIT-503 adds 358 prompt bytes, AIT-510 adds 8 for untrusted images,
-    // and AIT-514 adds 231 for visitor-addressed summaries and signals.
-    // This fake charges one microdollar per serialized input byte.
+    // AIT-503 adds 358 serialized input bytes; AIT-515 adds 505 for direct address,
+    // basis and signalItems; the shared AIT-514 quotation rule adds 86,
+    // minus 30 serialized bytes from removing its duplicate sentence (AIT-515 gate3).
+    // AIT-510 adds 8 bytes for ", images" in the untrusted-input policy.
+    // This fake prices each serialized input byte at one microdollar.
     if (kind === '400') assert.equal(failedAttempt.settled_micro, 0, 'fully received 4xx without usage settles at zero');
-    else assert.equal(failedAttempt.settled_micro, kind === 'failed' ? 100_000 : locale === 'de' ? 803_164 : 803_165, 'exact usage or conservative provider settlement');
+    else assert.equal(failedAttempt.settled_micro, kind === 'failed' ? 100_000 : locale === 'de' ? 803_494 : 803_495, 'exact usage or conservative provider settlement');
     // Restart real handlers and reopen SQLite before the client reconnects.
     await page.evaluate(() => fetch('/restart'));
     // A healthy fake on reconnect makes a silent rerun finish deterministically.

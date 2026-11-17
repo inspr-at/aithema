@@ -24,3 +24,7 @@ test('AIT-301: host legal links remain visible through compact footer pointer an
 import { legalFooterFitCheck } from './compact-footer-check.js';
 test('AIT-309: legal hosts without credits respect every compact fit at 900/1024/1180/1440, DE/EN, light/dark',
   { timeout: 90_000 }, legalFooterFitCheck);
+
+import { contactSlotCheck } from './contact-slot-check.js';
+test('AIT-517: pinned host contact, reachable launcher and first-paint reservation in EN/DE light/dark',
+  { timeout: 180_000 }, contactSlotCheck);

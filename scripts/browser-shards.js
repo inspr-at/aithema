@@ -350,6 +350,25 @@ browserTestWeights['test/browser/start-journey.test.js'] = Math.max(
 browserTestWeights['test/browser/start-look.test.js'] = Math.max(
   browserTestWeights['test/browser/start-look.test.js'], 112);
 
+// AIT-515: complete understanding-failure remote run b86c217e10-4534:
+// 106.018906167s file work, including the 40-scene signals matrix and evidence.
+// ceil(*1.25)=133s. All new cases pass; the three AIT-221 failures match the
+// authorized baseline. This conservative diagnostic floor is not a trusted
+// timing sample; retain the sibling's rolling-main history unchanged.
+// R10: complete run 28583d1290-34712 at 28583d12 measured 107.054550459s,
+// including the new toggle geometry/focus/hit checks and 200 signal captures.
+// ceil(*1.25)=134s; all new cases pass, with the same three AIT-221 baseline failures.
+// Complete passing run ait-0c2e0381e26e47bb8d80ee17 at 1a202b3b measured
+// 178.881001943s for all 33/33 cases, including every baseline retry path.
+// Reserve ceil(*1.25)=224s for that full passing workload. Trusted samples stay unchanged.
+// R14: the unchanged signal matrix now runs in start-look; combined-opener
+// runs in demo. Complete run 18525f2d4c-80378: start-look 141/141 in 111.283s
+// (*1.25 -> 140s), demo 31/31 in 51.062s (*1.25 -> 64s), already covered by the
+// inherited 162s/80s floors. Remove only this ticket's 224s addition from the
+// source file; its complete inherited rolling-main 113.138s plan stays intact.
+// Its three known AIT-221 failures are not used to derive a lower reservation.
+// Keep every historical observation above and all trusted samples unchanged.
+
 // AIT-524: PR CI 43727987124, merge ref 0e2e784f, shard 8/9 completed
 // clarify-now 17/17 PASS before the later shard timeout. Top-level work:
 // 302.474510797s; ceil-to-ms, then 25% warmup = 378.094s. Source:
@@ -368,6 +387,37 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // ceil(*1.25)=86s raises the r10 floor, retaining twelve shards and all targets.
 browserTestWeights['test/browser/upload-capacity.test.js'] = Math.max(
   browserTestWeights['test/browser/upload-capacity.test.js'], 86);
+// AIT-517: preserve measured main history and reserve contact/RC25 coverage.
+// Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
+// 264.361s file wall time minus unchanged combined contact case 39.781s:
+// ceil(224.580s *1.25)=281s. Move that case to start-look, which retains its
+// 112s historical plan plus ceil(39.781s *1.25): ceil(161.726s)=162s.
+// Email: complete run 6f0a725418-45712 at 6f0a7254 measured 342.982s;
+// relocate its unchanged 73.381s inline-offer case: 269.601s *1.25 < 338s (ceiling 338s).
+// Host surface retains its 244.435s historical plan, plus all four moved/new
+// passing cases (120.273s *1.25): <395s (ceiling 395s). Its existing AIT-261
+// axe failure matches the permitted AIT-531 baseline; never use that truncated
+// test's file duration to lower the historical host-surface reservation.
+// These diagnostic floors do not overwrite trusted rolling-main samples.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 281);
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 162);
+browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-ask.test.js'], 338);
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 395);
+
+// AIT-517 R12: run ait-2c0ed87646cd4e3abec8ab7a at a060c81f measured
+// email-ask 70/70, 285.696125282s * 1.25 -> 358s. The first short fixture needed
+// a temporary 259s start-look floor. Its unchanged growth projection was red.
+// After reusing neutral documents and retaining all 56 cases/assertions,
+// complete run 989b524b88-7713 passed 84/84 in 87.788593125s (* 1.25 -> 110s).
+// The inherited 162s start-look floor already covers that complete workload;
+// remove only this ticket's temporary 259s addition, preserving older floors
+// and trusted main samples. PR diagnostics never replace main timing history.
+browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-ask.test.js'], 358);
 
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
@@ -439,27 +489,48 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
   if (Math.max(...totals) > browserShardHeadroomTarget &&
       totals.reduce((sum, total) => sum + total, 0) <= shardCount * browserShardHeadroomTarget) {
     const fitted = Array.from({ length: shardCount }, () => []);
-    const loads = Array(shardCount).fill(0);
-    const milliseconds = file => Math.ceil(weightOf(file) * 1000 - 1e-9);
+    const capacity = browserShardHeadroomTarget * 1000;
+    const entries = sortedFiles.map(file => ({ file, size: Math.ceil(weightOf(file) * 1000 - 1e-9) }));
     let remainingNodes = 100_000;
-    function place(index) {
+    // Complete a bin around the largest remaining file. Seeding each bin this
+    // way removes equivalent bin permutations; try fullest completions first.
+    function complete(remaining, bin) {
       if (--remainingNodes < 0) return false;
-      if (index === sortedFiles.length) return true;
-      const file = sortedFiles[index], seenLoads = new Set();
-      const bins = loads.map((_, bin) => bin).sort((a, b) => loads[a] - loads[b] || a - b);
-      for (const bin of bins) {
-        if (seenLoads.has(loads[bin]) || loads[bin] + milliseconds(file) > browserShardHeadroomTarget * 1000) continue;
-        seenLoads.add(loads[bin]);
-        loads[bin] += milliseconds(file);
-        fitted[bin].push(file);
-        if (place(index + 1)) return true;
-        fitted[bin].pop();
-        loads[bin] -= milliseconds(file);
+      if (!remaining.length) return bin === shardCount;
+      const binsLeft = shardCount - bin;
+      const total = remaining.reduce((sum, entry) => sum + entry.size, 0);
+      if (!binsLeft || remaining.length < binsLeft || total > binsLeft * capacity || remaining[0].size > capacity) return false;
+      if (binsLeft === 1) { fitted[bin] = remaining.map(entry => entry.file); return true; }
+      // A completion below this fill would leave more work than the other bins
+      // can hold. Reject it before exploring its remaining assignments.
+      const minimumFill = total - (binsLeft - 1) * capacity;
+      const options = [];
+      function collect(start, size, indices) {
+        if (--remainingNodes < 0) return;
+        if (size >= minimumFill && remaining.length - indices.length >= binsLeft - 1) options.push({ size, indices: [...indices] });
+        const seenSizes = new Set();
+        for (let next = start; next < remaining.length; next++) {
+          const value = remaining[next].size;
+          if (seenSizes.has(value) || size + value > capacity) continue;
+          seenSizes.add(value);
+          indices.push(next); collect(next + 1, size + value, indices); indices.pop();
+          if (remainingNodes < 0) return;
+        }
+      }
+      collect(1, remaining[0].size, [0]);
+      if (remainingNodes < 0) return false;
+      // Stable collection order resolves equal-fill completions deterministically.
+      options.sort((a, b) => b.size - a.size);
+      for (const option of options) {
+        const selected = new Set(option.indices);
+        fitted[bin] = option.indices.map(index => remaining[index].file);
+        if (complete(remaining.filter((_, index) => !selected.has(index)), bin + 1)) return true;
         if (remainingNodes < 0) return false;
       }
+      fitted[bin] = [];
       return false;
     }
-    if (place(0)) return { shards: fitted, totals: loads.map(load => load / 1000) };
+    if (complete(entries, 0)) return { shards: fitted, totals: fitted.map(files => files.reduce((sum, file) => sum + Math.ceil(weightOf(file) * 1000 - 1e-9), 0) / 1000) };
   }
   return { shards, totals };
 }

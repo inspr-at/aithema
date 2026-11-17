@@ -304,7 +304,9 @@ deterministic LPT across **twelve** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
-tries at most 100,000 nodes to meet that target. On failure it retains the
+tries at most 100,000 nodes to meet that target, completing bins around the
+largest remaining file and rejecting fills that leave insufficient remaining
+capacity. On failure it retains the
 original plan for the guard's diagnostics. `npm run test:browser-shards` checks
 complete, exactly-once coverage, a separate **405 s projected headroom target**, and the
 unchanged **420 s per-bin ceiling**; this leaves
@@ -349,6 +351,103 @@ passed 29/29 in remote run `de881507d5-19436` at head `de881507d5`.
 The complete file took 68.097062459 s, so `ceil(68.097062459 × 1.25) = 86`
 raises the diagnostic floor from 80 to 86 s. Twelve shards, the 405 s target,
 the 420 s ceiling and trusted rolling-main weights remain unchanged.
+AIT-515 keeps its 40-scene signal matrix in the existing understanding-failure
+file. Complete remote run `b86c217e10-4534` at `b86c217e10` measured
+106.018906167 s of file work, including 200 signal screenshots. Its 33 tests
+finished with 30 passing and the three authorized AIT-221 baseline failures;
+the new signal case and every exact settlement case pass. Reserve a temporary
+133 s floor (`ceil(106.018906167 × 1.25)`) outside trusted timing history.
+R10 run `28583d1290-34712` at `28583d12` measured 107.054550459 s for the
+complete file, including the added toggle geometry, focus and hit checks and
+200 signal captures. All new cases pass with the same three AIT-221 failures;
+raise the diagnostic reserve to 134 s (`ceil(107.054550459 × 1.25)`).
+The later complete passing run `ait-0c2e0381e26e47bb8d80ee17` at `1a202b3b`
+measured 178.881001943 s for all 33/33 cases, including every retry path that
+failed early in the baseline run. Reserve the full passing workload at 224 s
+(`ceil(178.881001943 × 1.25)`). This supersedes the 134 s diagnostic reserve.
+The sibling rolling-main samples, twelve bins, 405 s planning target, 420 s hard
+ceiling and required check names remain unchanged. Replace the diagnostic floor
+only when matching canonical-main measurements cover the changed workload.
+
+AIT-517 distributes combined email integration into host-surface and the new
+combined contact matrix into start-look, which already owns short-phone entrance
+coverage. All relocated bodies, assertions and timeouts remain unchanged.
+Diagnostic floors reserve 281 s for geometry, 162 s for start-look, 338 s for
+email-ask and 395 s for host-surface. Complete geometry run
+`ait-5e96229f4b684be182bea901` measured 264.361 s, including the unchanged
+39.781 s contact matrix: its remainder needs ceil(224.580 × 1.25) = 281 s.
+Start-look retains its historical 112 s plan plus that matrix's 25% margin,
+ceil(112 + 39.781 × 1.25) = 162 s. Run `6f0a725418-45712` measured email-ask
+at 342.982 s; moving its unchanged 73.381 s inline-offer case projects
+269.601 s, whose 25% ceiling is 338 s. Host-surface retains its historical
+244.435 s plan plus four moved/new passing cases totaling 120.273 s before
+their 25% margin, giving a 395 s ceiling. Its known AIT-531 `axe is not defined`
+failure truncates an existing case; the failed file's wall time is never used
+to lower its historical reservation. These measured ceilings supersede
+provisional rounded floors and remain outside trusted main history. The
+LPT placement and pairwise refinement, all inherited weights and floors, twelve shards, the 405 s
+target, the 420 s ceiling and all required check names remain unchanged.
+
+AIT-517 R12 remeasured both complete files after the RC25 merge and the new
+short-window contact matrix. Run `ait-2c0ed87646cd4e3abec8ab7a` at `a060c81f`
+passed **154/154**: start-look **84/84**, **207.185602063 s**; email-ask
+**70/70**, **285.696125282 s**. Their 25% margins require
+`ceil(207.185602063 × 1.25) = 259 s` and
+`ceil(285.696125282 × 1.25) = 358 s`. These raise the start-look/email-ask PR
+diagnostic reservations from 162/338 s to **259/358 s**. Every inherited floor
+and trusted main sample remains intact, with no case, assertion or timeout
+removed. The twelve shards, 405 s planner target and 420 s hard ceiling stay
+unchanged.
+
+The first R12 diagnostic increase made the unchanged AIT-532 growth projection
+red: **4917.039 s** against **12 × 405 = 4860 s**. The new contact fixture now
+reuses eight neutral documents with fresh component sessions, completes finite
+reduced-motion transitions deterministically, and captures the requested
+EN/DE/light/dark states plus a combined short phone. All **56 cases** and every
+assertion remain; the 352 original contact captures remain unchanged. Earlier
+expanded captures are retained with their evidence.
+Complete run `989b524b88-7713` at `989b524b` passed **84/84** in
+**87.788593125 s**. Its 25% requirement is `ceil(87.788593125 × 1.25) = 110 s`,
+already covered by the inherited **162 s** floor. Only the temporary R12
+**259 s** addition is removed; the **358 s** email reservation stays. All
+inherited floors and trusted main weights remain, along with the additional
+180 s growth reserve, twelve shards and unchanged 405/420 s limits. The
+aggregate growth workload becomes **4820.039 s**; the unchanged unit headroom
+guard verifies its actual placement.
+
+AIT-515 R14 keeps the earlier 133/134/224 s observations above as history and
+redistributes the unchanged signals matrix into start-look. The unchanged
+combined-opener check moves from start-look into demo; every body, assertion,
+scene and timeout is retained. Complete run `18525f2d4c-80378` at `18525f2d`
+measured start-look **141/141**, **111.282635542 s**, and demo **31/31**,
+**51.061707292 s**. Their ceilings are `ceil(111.282635542 × 1.25) = 140 s`
+and `ceil(51.061707292 × 1.25) = 64 s`, covered by the inherited **162/80 s**
+floors. Only AIT-515's temporary **224 s** source-file addition is removed;
+understanding-failure retains its complete inherited **113.138 s** rolling-main
+plan. Its three known AIT-221 failures are not timing evidence for lowering
+that inherited reservation. Before and after runs each execute **204 tests**,
+with **201 passing** and only those same three baseline failures. Before run
+`7a853d4676-59520` measured the signal matrix at **31.442748250 s**; after it
+remains complete at **31.020854583 s**, including all forty scenes and 200
+original signal captures. No sample or assertion is removed. The merged growth
+projection is `4930.901 - (224 - 113.138) = 4820.039 s`, fitting twelve bins
+at the unchanged **405 s** target and **420 s** ceiling. The actual placement
+is verified by the unchanged AIT-532 guard; trusted timing history stays intact.
+
+Explicit remote QA can add `test/browser/evidence-reporter.js` beside the spec
+reporter. It retains every nested failure and complete file summaries in
+`browser-complete.jsonl` under `AITHEMA_EVIDENCE_DIR`, even when the lane prints
+only a log tail. Bounded whole-suite batches keep the same committed head and
+serial test execution; the operator file retains its existing isolated force-exit
+run. This reporter does not change CI selection or reporting.
+
+AIT-510 r14 combines the AIT-515/AIT-517 reservations above with the 86 s
+upload-capacity floor. Against main's 71 s upload reservation, this adds 15 s:
+`4820.039 + (86 - 71) = 4835.039 s` in the growth projection, below
+`12 × 405 = 4860 s`. The unchanged deterministic whole-file refinement
+re-derives placement; remote shard-guard evidence records both actual totals.
+Every inherited floor and timing sample remains, with twelve shards and the
+unchanged 405/420 s limits.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`

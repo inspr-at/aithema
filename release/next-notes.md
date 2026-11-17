@@ -2,6 +2,46 @@
 
 ## Host notes
 
+- AIT-517 adds optional `sidebar-contact` and `contact-launcher` slots. Fill them
+  before mount/configure. The pinned row is outside scrolling analysis and the
+  E‑Mail ask pane; empty consumes zero height. It scrolls independently with a
+  30% desktop cap / 14rem stacked cap. The desktop reading pane retains at least
+  40% of the sidebar; contact scrolls within the remaining reserved space.
+  Late insertion or growth is outside the
+  reserved-geometry contract. The header launcher remains reachable before input,
+  during the sidebar reveal, when folded, below 60rem, or without pinned content;
+  while desktop pinned content is available in windows at least 48rem tall it
+  leaves Tab order but retains its 44 px reservation. Short desktop windows keep
+  the launcher visible and remove the pinned row from layout and Tab order
+  only when the launcher slot is filled; one condition switches both controls.
+  Row-only hosts retain the pinned contact through short desktop windows and
+  the sidebar entrance. Compact short-window spacing and sidebar chrome keep
+  the foot inside the frame.
+  The launcher fades and becomes inert during the About reveal, like Settings;
+  the phone contact row and personal-conversation action clear the fold chevron
+  with a 44 px left inset.
+- **First-paint contract:** launcher hosts reserve 44 px more in
+  `--aithema-header-actions-width` in render-blocking CSS on the placeholder and
+  component (defaults 216 → 260 px desktop, 88 → 132 px below 600 px), with the
+  matching `headerRailReservation({ actionsWidth: '260px' })` desktop threshold.
+  Alternatively serve `firstPaintStyles` with
+  `firstPaintMarkupFor({ contactLauncher: true })`, keeping its sibling placeholder
+  through mount. `voice: false` still works; existing defaults and exports remain.
+  Host CSS width overrides keep winning. The helper manages
+  `--aithema-contact-launcher-width` (0 px by default, 44 px when declared);
+  custom totals still use `--aithema-header-actions-width`. Both library rail defaults
+  have zero specificity so host `headerRailReservation` overrides win.
+- Contact content, click listeners, styling, accessible names, modal focus trap,
+  Escape and focus return belong to the host. Besides the first-paint flag,
+  there are no new configure options, event fields, contact events or exports.
+  The library adds no contact form, handover request, AI processing or consent
+  dependency. The mock demo keeps its CTA beside the neutral note in a compact
+  row; its header launcher is a plain icon with an EN/DE accessible name and its
+  local dialog sends nothing. The dialog shares the Settings top anchor; README
+  documents the recommended responsive offsets for host-owned dialogs. New EN/DE demo keys:
+  `copy.host.slots.contact`, `copy.host.slots.contactNote`; its close button reuses
+  `copy.host.outbox.close`. Host slot content and copy overrides retain ownership.
+
 - AIT-537 / AIT-538 supersede RC25's voice-opener rules: a prior call requires a durable `voice:` receipt, not a credential mint or lifecycle row. First contact uses one authorized snapshot, an empty or host-opener-only transcript and no active visitor/document input. Accepted/unreadable documents and withdrawn history keep their existing boundaries: withdrawal erases assistant origin/content, so the remaining erased host turn is not eligible canonical host-only history. An unheard first call can re-greet under both policies; no second host turn is inserted. This reverses B5 for empty connected calls, including switching from a locale without an opener. Explicit Resume keeps continuation copy; automatic repair stays silent.
 - AIT-538: additive `voice.presentation(locale, ctx)` field `ctx.hostOpener`, omitted outside eligible first contact or when disclosure fails. Return it verbatim as `{ agent: { language: locale, firstMessage: ctx.hostOpener } }` to select it. Exact text and locale are required; trims/wraps/language changes do not claim it. The reference `createElevenLabsVoiceHost` presentation does this automatically, so first-contact speech for hosts with an opener switches from voice-host `spokenOpeners` to handlers' `opener`. Custom presentations that ignore the field retain their speech.
 - AIT-538: presentations gate opener disclosure per locale at startup and revalidate the exact offered string per call. A failing locale falls back to the presentation's own disclosing greeting, with value-free `{ event: 'voice.host-opener-fallback', locale }` logs; startup continues, the undisclosed opener is never spoken and the greeting is never suppressed by this fallback. Without a presentation, invalid disclosure still fails closed at startup.
@@ -148,3 +188,40 @@
   The hidden feedback measurement node is mounted only for active image input;
   hosts without it retain their existing composer DOM and geometry.
   Repeated inactive paints skip feedback DOM writes.
+- AIT-515: `understanding.signals` remains `string[]` and is now newest-first by
+  first-seen server sequence, with stable provider-order ties. Current finals
+  hide omitted texts; rewordings are new keys, without replacement IDs or an
+  updated mark. Current lists retain the 24-item cap. First-N consumers and the
+  import payload now receive newest signals first.
+- Additive final-event/snapshot/export `understanding.signalItems` contains
+  `{key,text,firstSeen,basis?}`; draft/reset items may contain only text/basis
+  before final identity assignment. Model signals accept strict `{text,basis}` objects
+  (`visitor | assistant | document`) and compatible untagged plain strings.
+  Only assistant attribution shows an unconfirmed tag; it never confirms slots.
+  `signalKey(text)` is an additive core root/understanding export for exact NFKC,
+  lowercase, whitespace-collapsed identity.
+- The server-owned snapshot `signalLedger` lives outside `understanding`, includes
+  conservative `turnIds` / `uploadIds` dependencies and retains omitted identities.
+  It survives upload, correction, locale and grant-only resets; source erasure,
+  withdrawal and relevant consent withdrawal prune it. It uses erasable content
+  references in storage; raw ledger text is excluded from journal metadata.
+  Legacy snapshots seed identities from their current final. The historical
+  ledger is not exported; current signalItems and ordered strings are.
+- The signal overview starts at five, with a native total-count toggle and
+  conversation-local expansion. The toggle stays right-aligned in the heading
+  row with a stable box for both labels and an inset focus ring. The 32 px
+  action extends evenly around the natural heading row, including when a sixth
+  signal reveals it; compact list spacing also preserves clearance beside the
+  combined composer footer. The first signal stays clear of the summary pane
+  fade. The existing `signals` copy key uses “Signals” / “Signale” (DE previously “Was konkret
+  erkennbar war”); host overrides still win. Assistant basis uses a muted
+  “ · unconfirmed” / “ · unbestätigt” suffix with the shared nonbreaking
+  separator; arrival marks use tint alone.
+  Pointer/focus defer asynchronous list changes;
+  source removal redacts immediately. One to three new keys get a two-second
+  highlight (static with reduced motion); first/whole lists and reconnects stay
+  quiet. New host-overridable EN/DE keys: `signalsAll` = `Show all ({n})` /
+  `Alle anzeigen ({n})`, shared `showLess` = `Show less` / `Weniger anzeigen`,
+  `signalUnconfirmed` = `unconfirmed` / `unbestätigt`. Missing keys fall back to
+  the active locale. Summary/signal prompts use direct “you” / formal “Sie”,
+  avoid provenance prose and preserve quoted evidence.

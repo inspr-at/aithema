@@ -1,4 +1,5 @@
 import { stagedImage } from './image-input.js';
+import { projectSignals } from './signals.js';
 import { createConceptIntent, reduceConceptIntent } from './concept-intent.js';
 import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
@@ -55,7 +56,7 @@ export function createSession({ id = crypto.randomUUID(), locale = 'en', identif
   return { id, version: 1, seq: 0, locale, identified, demo, preset: createPreset(preset), actor, processingPreset,
     settings: normalizeSettings(settings),
     inputRevision: 0, consentRevision: 0, withdrawalRevision: 0, sessionRevision: 0,
-    paused: false, consentWithdrawn: false, tombstone: null, transcript: [], uploads: [], concepts: [],
+    paused: false, consentWithdrawn: false, tombstone: null, transcript: [], uploads: [], concepts: [], signalLedger: [],
     conceptIntent: createConceptIntent(), conceptStatus: { phase: 'idle' },
     understanding: { ...capBuildReadiness({}, [] , preset), origin: 'ai-generated', version: 1, inputRevision: null,
       locale, draft: false, questionHistory: [] } };
@@ -116,6 +117,9 @@ export function applyEvent(session, event) {
     next.questionRevision = event.seq;
     next.understanding = event.data.erased ? emptyUnderstanding(next) : withAITextOrigin(event.data);
     next.actor = event.data.erased ? null : event.data.actor;
+    if (!event.data.erased && !event.data.draft && !next.tombstone && !next.consentWithdrawn) {
+      Object.assign(next, projectSignals(next, next.understanding, event.seq));
+    }
   } else if (event.type === 'session.locale-changed') {
     if (!['en', 'de'].includes(event.data.locale)) throw new TypeError('Unsupported locale');
     next.locale = event.data.locale;
@@ -196,6 +200,17 @@ export function applyEvent(session, event) {
   } else if (event.type === 'concept.archived') {
     next.concepts = (next.concepts ?? []).map(c => c.id === event.data.artifactId ? { ...c, archived: true } : c);
   } else if (event.type !== 'session.created') throw new TypeError('Unknown durable event');
+  // Dependencies are deliberately conservative: the model provides basis, not
+  // exact source IDs. Every active input at the final is a potential source.
+  const allSignals = event.type === 'session.erased' || event.type === 'consent.revised' &&
+    (!event.data.granted || event.data.removed?.some(feature => ['text', 'analysis', 'uploads'].includes(feature)));
+  const removedTurn = event.type === 'turn.withdrawn' ? event.data.turnId
+    : event.type === 'turn.corrected' && (event.data.erased || event.data.withdrawn) ? event.data.id : null;
+  const removedUpload = event.type === 'upload.state' &&
+    (event.data.state === 'withdrawn' || event.data.erased || event.data.withdrawn) ? event.data.id : null;
+  next.signalLedger = (next.signalLedger ?? []).filter(item => !allSignals &&
+    !(removedTurn && item.turnIds.includes(removedTurn)) && !(removedUpload && item.uploadIds.includes(removedUpload)));
+  if (allSignals) next.understanding = emptyUnderstanding(next);
   if (next.focusedQuestion === null) next.questionFocus = null;
   if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
     const all = event.type === 'session.erased' || event.type === 'consent.revised' && !event.data.granted;

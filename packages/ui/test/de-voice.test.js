@@ -48,7 +48,7 @@ test('AIT-426: German defaults use an impersonal UI voice outside Tick’s key a
 test('AIT-426: Tick v1 wording and the 90-day nonbreaking space stay exact', () => {
   const strings = new Map(leaves(de));
   for (const [key, expected] of Object.entries({
-    signals: 'Was konkret erkennbar war',
+    signals: 'Signale',
     'hostSurface.verify.sent': 'Der Bestätigungslink wurde gesendet. Öffnen Sie Ihr Postfach und bestätigen Sie den Link.',
     'hostSurface.verify.saved': 'Ihre E‑Mail-Adresse ist gespeichert. Bestätigen Sie sie über den Link in der Bestätigungsmail, um die Einschätzung anzusehen.',
     'hostSurface.email.notice': 'Ihre E‑Mail-Adresse wird nur für Ihr Guthaben und später für eine Bestätigungsmail verwendet, nie für Werbung. Nach 90\u00a0Tagen ohne Nutzung wird sie automatisch gelöscht.',

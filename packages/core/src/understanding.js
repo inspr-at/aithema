@@ -1,3 +1,5 @@
+import { cleanSignals, signalKey } from './signals.js';
+export { signalKey } from './signals.js';
 // Adapted from START qualification.ts and api/analyze.ts; rights held by INSPR (D3).
 export const START_PRESET = Object.freeze({
   slots: Object.freeze(['operations', 'data', 'systems', 'reach', 'requirements']),
@@ -26,7 +28,7 @@ export function createPreset(overrides = {}) {
 export const safeReadiness = value => typeof value === 'number' && Number.isFinite(value)
   ? Math.min(1, Math.max(0, value)) : 0;
 export const displayedReadinessPercent = value => Math.floor(safeReadiness(value) * 100);
-const normalize = value => value.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
+const normalize = signalKey;
 const nonAnswers = new Set(['keine angabe', 'nicht angegeben', 'offen', 'unklar', 'unbekannt',
   'no answer', 'not provided', 'not specified', 'open', 'unclear', 'unknown']);
 const nonEvidence = /\b(?:keine angabe|nicht (?:bekannt|angegeben)|(?:weiß|weiss) ich nicht|no (?:answer|information)|not (?:known|specified|provided)|i (?:do not|don't) know)\b/u;
@@ -67,8 +69,9 @@ export function capBuildReadiness(raw, transcript, preset = START_PRESET) {
   const reading = (value, key, taxonomy) => value && taxonomy.includes(value[key]) &&
     ['stated', 'inferred', 'selected'].includes(value.evidence)
     ? { [key]: value[key], evidence: value.evidence, reasoning: text(value.reasoning, 500) } : null;
+  const signalItems = cleanSignals(raw.signals, raw.signalItems);
   return {
-    summary: text(raw.summary), signals: cleanQuestions(raw.signals), openQuestions: cleanQuestions(raw.openQuestions),
+    summary: text(raw.summary), signals: signalItems.map(item => item.text), signalItems, openQuestions: cleanQuestions(raw.openQuestions),
     constraints,
     progress: {
       talk: { value: safeReadiness(raw.progress?.talk?.value), reasoning: text(raw.progress?.talk?.reasoning, 500) },
@@ -107,7 +110,8 @@ export function understandingSchema(preset = START_PRESET) {
   const reading = (key, values) => ({ anyOf: [object({ [key]: { type: 'string', enum: values },
     evidence: { type: 'string', enum: ['stated', 'inferred'] }, reasoning: string }), { type: 'null' }] });
   const readiness = object({ value: { type: 'number', minimum: 0, maximum: 1 }, reasoning: string });
-  return object({ summary: string, signals: { type: 'array', items: string }, openQuestions: { type: 'array', items: string },
+  const signal = object({ text: string, basis: { type: 'string', enum: ['visitor', 'assistant', 'document'] } });
+  return object({ summary: string, signals: { type: 'array', items: { anyOf: [signal, string] } }, openQuestions: { type: 'array', items: string },
     constraints: object(Object.fromEntries(preset.slots.map(s => [s, answer]))),
     progress: object({ talk: readiness, build: readiness }), actor: reading('type', preset.actors),
     engagement: reading('kind', preset.engagements),

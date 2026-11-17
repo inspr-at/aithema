@@ -44,6 +44,18 @@ function paintDemoLegal() {
     } else if (id === 'demo-license') paintLicenseLabel(link, full); else link.textContent = full;
   }
 }
+// Fill before configure so the contact row reserves its final geometry at mount.
+function paintContact() {
+  const h = copy.host;
+  for (const button of document.querySelectorAll('.demo-contact-open')) {
+    button.setAttribute('aria-label', h.slots.contact);
+    if (!button.classList.contains('demo-contact-launcher')) button.textContent = h.slots.contact;
+  }
+  for (const note of document.querySelectorAll('.demo-contact-note')) note.textContent = h.slots.contactNote;
+  for (const [id, value] of [['demo-contact-title', h.slots.contact], ['demo-contact-close', h.outbox.close]]) {
+    const node = document.getElementById(id); if (node) node.textContent = value;
+  }
+}
 // The page always speaks the current conversation's language.
 function paintPage() {
   const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
@@ -58,6 +70,7 @@ function paintPage() {
   // The component's host slots (AIT-104 B2), filled with labelled demo content only while the demo host runs.
   if (binding.demoHost === true) {
     paintDemoLegal();
+    paintContact();
     for (const [selector, value] of [['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit],
       ['#demo-footer', h.slots.footer], ['#outbox-open', h.outbox.open], ['#outbox-title', h.outbox.title],
       ['#outbox-note', h.outbox.note], ['#ai-notice', aiNotice(component.session?.locale).text], ['#outbox-close', h.outbox.close]]) text(selector, value);
@@ -105,6 +118,7 @@ async function adopt(session) {
   try {
     remember(key, session.id);
     copy = bundles[session.locale] ?? en;
+    paintContact();
     if (binding.voiceMode === 'fake') {
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
       fakeVoice = createFakeVoice({ ...ports, copy: () => copy });
@@ -140,6 +154,10 @@ async function adopt(session) {
 }
 const binding = await fetch('/demo/config').then(r => r.json());
 const narrowLegal = document.defaultView.matchMedia('(width < 600px)');
+// The host owns this local overlay. Opening it has no conversation or delivery effect.
+for (const button of document.querySelectorAll('.demo-contact-open')) {
+  button.addEventListener('click', () => document.querySelector('#demo-contact-dialog').showModal());
+}
 if (binding.demoHost === true) narrowLegal.addEventListener('change', paintDemoLegal);
 // Demo slot fills and the fake outbox speak for the local demo host only: a live provider host shows none of them.
 for (const demoOnly of document.querySelectorAll('[data-demo-only]')) {

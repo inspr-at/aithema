@@ -359,6 +359,7 @@ export const en = {
   controlFailed: 'Could not save this change. Try again.',
   composerNoticeMore: 'More',
   composer: 'Your message', placeholder: 'Type your next message here\u00a0…', placeholderCompact: 'Your message …', placeholderVoice: 'Just start talking – or type.', placeholderFullHold: 'Just keep talking.', send: 'Send',
+  signalsAll: 'Show all ({n})', signalUnconfirmed: 'unconfirmed',
   shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Understood so far',
   summaryMore: 'Read more', showLess: 'Show less', signals: 'Signals', questions: 'Open questions',
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
@@ -708,7 +709,8 @@ export const en = {
     consentFailed: 'Could not save consent. Try again.', restoreFailed: 'Could not restore the demo. Reload to retry.',
     visualsOff: 'No visual concepts',
     // Demo fills for the component's host slots and the fake mail outbox (AIT-104 B2); a real host supplies its own.
-    slots: { account: 'Account (demo)', accountNote: 'Demo only: there is no real sign-in. Your conversations belong to this browser.',
+    slots: { contact: 'Contact', contactNote: 'Demo only: this overlay sends no data. No contact request is created.',
+      account: 'Account (demo)', accountNote: 'Demo only: there is no real sign-in. Your conversations belong to this browser.',
       source: 'Source code', handoverOffer: 'Demo only: the request goes to a local test recipient. Nobody contacts you.',
       creditsLimit: 'Demo only: there is no top-up here. The limit applies to all your conversations in this browser, so a new conversation does not lift it.',
       legal: 'Legal (demo)', license: 'Licence: AGPL-3.0-only', legalSource: 'Source and notices',

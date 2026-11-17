@@ -535,8 +535,64 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .upload .upload-withdraw { margin-top:0; } .upload-withdraw[aria-disabled="true"] { opacity:.5; cursor:wait; }
 
 /* Understanding (START .v2__analysis): a card beside the conversation, absent until the first input. */
-.understanding { --inset:clamp(.9rem,2vw,1.35rem); position:relative; min-width:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; overflow:hidden;
+.understanding { --inset:clamp(.9rem,2vw,1.35rem); position:relative; min-width:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) fit-content(30%) auto; overflow:hidden;
   padding:var(--inset); border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); background:color-mix(in srgb,var(--aithema-surface) 70%,transparent); }
+/* Host content is a separate, bounded row, outside analysis and its email overlay. */
+/* Rounded grid tracks can overflow by a pixel. Focus/scrollIntoView must not
+   scroll the pinned frame itself; only the analysis and contact rows scroll. */
+.workspace[data-contact] .understanding { overflow:clip; }
+.sidebar-contact { min-height:0; min-width:0; overflow:auto; }
+.sidebar-contact[hidden] { display:none; }
+slot[name="sidebar-contact"]::slotted(*) { margin:0; max-width:100%; box-sizing:border-box; }
+/* Keep the declared 44 px even while the pinned slot is available. Visibility
+   removes the duplicate from hit testing and Tab order without shifting chrome. */
+.contact-launcher { flex:0 0 44px; width:44px; height:44px; margin-inline-start:-4px; }
+.contact-launcher[hidden] { display:none; }
+slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; height:44px; }
+@media(min-width:60rem) {
+  /* Keep 40% of the padded sidebar for reading, including when the declared
+     launcher reserves a second header row. The contact row gives up space
+     first; its 30% cap and independent scrolling still apply. Grid percentages
+     exclude padding, hence 40% of both insets and a pixel for track rounding. */
+  .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .understanding { grid-template-rows:auto auto minmax(calc(40% + .8 * var(--inset) + 1px),1fr) fit-content(30%) auto; }
+  .workspace[data-contact] .sidebar-contact { grid-row:4; }
+  .workspace[data-contact]:has(.contact-launcher:not([hidden])) .sidebar-contact { display:none; visibility:var(--_contact-row-visibility,hidden); }
+  .workspace[data-contact] .understanding > .foot { grid-row:5; }
+  .workspace[data-contact] .contact-launcher { visibility:var(--_contact-launcher-visibility,visible); }
+}
+/* Tall desktops reserve the contact track throughout the sidebar entrance.
+   One condition switches row/launcher visibility without moving that track.
+   With a launcher, short desktops remove the row from layout and Tab order.
+   Compact chrome preserves the foot and reading allocation; a row-only host
+   keeps its sole action through entrance and short desktop windows. */
+@media(min-width:60rem) and (min-height:48rem) {
+  .workspace[data-contact]:has(.contact-launcher:not([hidden])) .sidebar-contact { display:block; }
+  .workspace[data-contact][data-understanding="present"]:has(.contact-launcher:not([hidden])):not([data-folded]):not([data-reveal]):not(:has(.understanding[hidden])) {
+    --_contact-row-visibility:visible;
+    --_contact-launcher-visibility:hidden;
+  }
+}
+@media(min-width:60rem) and (max-height:47.99rem) {
+  .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .understanding { --inset:.75rem; }
+  .workspace:is([data-contact],:has(.contact-launcher:not([hidden]))) .readiness { padding-bottom:.25rem; }
+  /* A row-only host has no fallback action. Recover the outer row gaps and
+     compact decorative scale spacing and foot padding for complete EN/DE
+     contact content beside the 40% pane, preserving the scale and target sizes. */
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) { row-gap:0; }
+  /* The shared host footer keeps its two-line retry reservation. Recover
+     sidebar insets rather than squeezing that reserved track or its controls. */
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .understanding { --inset:.5rem; }
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .readiness { padding:0; }
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .scale { margin:.1rem 0; }
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .scale-labels { height:auto; line-height:1.2; }
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .understanding > .foot { padding-top:0; }
+}
+@media(max-width:599px) {
+  .sidebar-contact { padding-inline-start:44px; }
+  .workspace[data-contact] .handover-request { padding-inline-start:44px; }
+}
+@media(max-width:59.99rem) { .sidebar-contact { max-height:14rem; } }
+@media(max-width:44rem) { .contact-launcher { margin-inline-start:0; } }
 .understanding > .head { align-items:center; min-height:2.8rem; }
 .understanding h2 { font-size:.75rem; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--aithema-muted); }
 .concept-tab { display:inline-flex; align-items:center; min-height:2.75rem; font-size:.78rem; }
@@ -595,6 +651,22 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .question-notice svg { width:13px; height:13px; margin-top:.2em; }
 .question-notice:not([data-on]) { visibility:hidden; }
 .questions-heading:has(.question-notice[data-on]) h3 { visibility:hidden; }
+/* Preserve first-signal fade clearance with the combined footer too. */
+.analysis-content .signals-section { gap:.4rem; }
+.signals-heading { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,max-content); align-items:center; gap:.5rem; }
+/* The natural heading owns row height; the 32px action overflows symmetrically. */
+.signals-toggle-slot { display:grid; align-content:center; height:0; min-width:0; }
+.signals-toggle { display:grid; justify-self:end; min-width:0; max-width:100%; min-height:32px; padding:.25rem .3rem; font-size:.8125rem; color:var(--aithema-accent); font-weight:600; text-align:right; }
+.signals-toggle > span, .signals-toggle::before, .signals-toggle::after { grid-area:1/1; }
+.signals-toggle::before { content:attr(data-all-label); visibility:hidden; }
+.signals-toggle::after { content:attr(data-less-label); visibility:hidden; }
+.signals-toggle:focus-visible { outline-offset:-2px; }
+.signal-text { color:var(--aithema-ink); }
+.signal-basis { display:inline; font-size:.75rem; color:var(--aithema-muted); }
+.signals li[data-signal-new] { border-radius:.3rem; background:color-mix(in srgb,var(--aithema-accent) 12%,transparent); animation:signal-arrival 2s ease-out; }
+@keyframes signal-arrival { from { background:color-mix(in srgb,var(--aithema-accent) 24%,transparent); } to { background:color-mix(in srgb,var(--aithema-accent) 12%,transparent); } }
+:host([motion="off"]) .signals li[data-signal-new] { animation:none; }
+@media(prefers-reduced-motion:reduce) { .signals li[data-signal-new] { animation:none; } }
 .analysis-content .questions { gap:2px; container-type:inline-size; }
 .analysis-content .open-question { display:grid; grid-template-columns:6px minmax(0,1fr); column-gap:12px; padding:7px 10px 0; margin-inline:-10px; border-radius:12px; }
 .open-question::before { background:var(--aithema-amber) !important; position:static !important; width:6px !important; height:6px !important; margin-top:.62em; }

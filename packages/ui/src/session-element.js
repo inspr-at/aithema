@@ -1,6 +1,8 @@
 import { ImageInputView } from './image-input.js';
 import { stagedImage } from '../../core/src/image-input.js';
 import { isImageFile } from './uploads.js';
+import { SignalList } from './signal-list.js';
+import { serverEvents } from './session-events.js';
 import { emailOfferStyles } from './email-offer.js';
 import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
@@ -62,21 +64,6 @@ function spareSpace(pane) {
   const end = last.getBoundingClientRect().bottom + parseFloat(getComputedStyle(last).marginBottom) + parseFloat(getComputedStyle(pane).paddingBottom);
   return Math.max(0, pane.getBoundingClientRect().top + pane.clientTop + pane.clientHeight - end);
 }
-// Server-sent events from a fetch body, one parsed event at a time.
-async function* serverEvents(reader) {
-  let buffer = ''; const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read(); if (done) return;
-    buffer += decoder.decode(value, { stream: true });
-    if (buffer.length > 2_000_000) throw new Error('Event stream too large');
-    let boundary;
-    while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-      const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
-      const data = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5)).join('\n');
-      if (data) yield JSON.parse(data);
-    }
-  }
-}
 // Tick's approved 16 px state glyphs (the action itself retains a 44 px target).
 const CLARIFY_ICONS = Object.fromEntries(Object.entries({
   ask: '<path d="M14 7.7a5.7 5.7 0 0 1-8.3 5.1L2.2 13.8l1-3.3A5.7 5.7 0 1 1 14 7.7z"/>',
@@ -111,6 +98,7 @@ export class AithemaSession extends HTMLElement {
   #consentRefresh;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
+  #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
   #clarifyDiagnostics = new Map();
@@ -181,6 +169,8 @@ export class AithemaSession extends HTMLElement {
       if (this.#concept) this.#concept.sessionToken = sessionToken;
       this.#repaintLocale(copy); return;
     }
+    this.#signalState = this.#session?.id === session.id ? this.#signals?.state : undefined;
+    this.#signals?.destroy(); this.#signalLiveSeq = null;
     if (session.id !== this.#session?.id) this.#summaryExpanded = false;
     this.#summaryView?.disconnect();
     const returningStart = this.#session ? null : this.#readStartIntent(session.id, options.entrance === 'combined');
@@ -275,6 +265,7 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    this.#signals?.suspend();
     this.#summaryView?.disconnect();
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
@@ -757,7 +748,7 @@ export class AithemaSession extends HTMLElement {
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
             <div class="conversations-recent" role="group"></div><button class="library-open-dialog" type="button" role="menuitem" tabindex="-1" aria-haspopup="dialog"></button></div></div></div>
-        <div class="host-account" data-reveal><slot name="account"></slot></div><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
+        <div class="host-account" data-reveal><slot name="account"></slot></div><div class="contact-launcher" data-reveal hidden><slot name="contact-launcher"></slot></div><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
         <div class="edge-column"><button class="motion-toggle" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z"/></svg></button>
           <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div></header>
       <section class="conversation" id="conversation-middle" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
@@ -782,11 +773,12 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice overview-status" role="status" aria-atomic="true"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><div class="summary-heading"><h3 id="summary-title" data-copy="summary"></h3><span class="summary-toggle-slot"><span class="summary-toggle-more" aria-hidden="true"></span><span class="summary-toggle-less" aria-hidden="true"></span><button class="summary-toggle" type="button" aria-expanded="false" aria-controls="summary-text" hidden></button></span></div><p class="summary-text" id="summary-text"></p></section>
-          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
+          <section class="signals-section" hidden><div class="signals-heading"><h3 id="signals-title" data-copy="signals"></h3><span class="signals-toggle-slot"><button class="signals-toggle" type="button" aria-controls="signals-list" aria-expanded="false" hidden><span></span></button></span></div><ul class="signals" id="signals-list" aria-labelledby="signals-title"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
             <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><div class="handover__state-slot"><p class="handover__state" id="handover-state" role="status"></p></div></div></div></div><div class="email-ask-pane"></div><button class="email-ask-fold" type="button" inert></button></div>
+        <div class="sidebar-contact" hidden><slot name="sidebar-contact"></slot></div>
         <footer class="foot"><a class="export">${icon('download')}<span data-copy="export"></span></a><button class="retry" type="button" data-copy="retry" hidden></button><small class="export-reason" id="export-reason" data-copy="deviceExportUnavailable"></small></footer></aside>
       <section class="fold-view" hidden><button class="fold-strip" type="button"><span class="fold-identity"><i class="speaker-sign" aria-hidden="true"></i><span class="fold-who"></span></span><span class="fold-text"></span><span class="fold-question" hidden></span></button>
         <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
@@ -822,6 +814,7 @@ export class AithemaSession extends HTMLElement {
     }
     const textReplyDialog = root.querySelector('.voice-reply-dialog');
     textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
+    this.#signals = new SignalList(root.querySelector('.signals-section'), { state: this.#signalState, anchor: update => this.#anchored(update) });
     this.#summaryView = new SummaryView({ root, expanded: this.#summaryExpanded,
       onChange: expanded => { this.#summaryExpanded = expanded; }, anchor: update => this.#anchored(update) });
     this.#summaryView.connect();
@@ -861,6 +854,8 @@ export class AithemaSession extends HTMLElement {
     legal.addEventListener('slotchange', syncLegal); syncLegal();
     root.querySelector('slot[name="brand"]').addEventListener('slotchange', () => this.#watchBrand());
     this.#watchBrand();
+    for (const slot of root.querySelectorAll('slot[name="sidebar-contact"], slot[name="contact-launcher"]')) slot.addEventListener('slotchange', this.#syncContactSlots);
+    this.#syncContactSlots();
     this.#fold = new ConversationFold({ root, copy: this.#copy, canFold: () => this.#concept?.canShowCanvas() ?? false, onChange: folded => {
       if (folded) void this.#concept?.paintCanvas();
       else this.#concept?.suspendCanvas();
@@ -1602,6 +1597,7 @@ export class AithemaSession extends HTMLElement {
     this.#clearStartIntent();
     this.#summaryExpanded = false; this.#summaryView?.freeze();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
+    this.#signals.clear();
     const remembered = this.#erasedIds.get(id);
     this.#erased = { id, via, stage: workspace.dataset.stage, understanding: workspace.dataset.understanding,
       usedUp: this.#host?.usedUp ?? false, endReason: this.#host?.endReason ?? null,
@@ -2506,7 +2502,6 @@ export class AithemaSession extends HTMLElement {
     for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
     const summary = u.summary.trim();
     root.querySelector('.summary').hidden ||= !summary;
-    root.querySelector('.signals-section').hidden ||= !u.signals.length;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
     const scale = root.querySelector('.scale');
     const readiness = u.readinessAssessed ? [
@@ -2647,8 +2642,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     setText(root.querySelector('.summary-text'), summary ? u.summary : '');
-    reconcile(root.querySelector('.signals'), textKeys(u.signals),
-      () => element('li'), (row, value) => setText(row, value));
+    this.#signals.update(this.#session, copy, { live: this.#signalLiveSeq === this.#session.seq, available: !locked && (analysis.available || cached) && u.readinessAssessed });
     this.#summaryView.render(copy, this.#session.locale);
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
@@ -2791,6 +2785,15 @@ export class AithemaSession extends HTMLElement {
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
     band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < required);
   }
+  #syncContactSlots = () => {
+    const root = this.shadowRoot;
+    const contact = root.querySelector('slot[name="sidebar-contact"]').assignedElements().length > 0;
+    const launcher = root.querySelector('slot[name="contact-launcher"]').assignedElements().length > 0;
+    root.querySelector('.sidebar-contact').hidden = !contact;
+    root.querySelector('.contact-launcher').hidden = !launcher;
+    root.querySelector('.workspace').toggleAttribute('data-contact', contact);
+    this.toggleAttribute('data-contact-launcher', launcher);
+  };
   #observePanes() {
     this.#paneObserver?.disconnect();
     const Observer = this.ownerDocument.defaultView?.ResizeObserver;
@@ -3701,6 +3704,7 @@ export class AithemaSession extends HTMLElement {
   }
   receive(event) { this.#anchored(() => this.#receive(event)); }
   #receive(event) {
+    const live = !this.#signalReplay.has(event);
     if (this.#erased) return;
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.type === 'session.not-found') { void this.#observeResponse(event.data.url, event.data.response); return; }
@@ -3757,6 +3761,7 @@ export class AithemaSession extends HTMLElement {
       }
       const presetBefore = this.#session.processingPreset, settingsBefore = this.#session.settings;
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
+      if (event.type === 'understanding.updated' && !event.data.draft) this.#signalLiveSeq = live ? event.seq : null;
       // Every acknowledged journal event is a floor for older snapshot responses, including
       // the locale acknowledgement and a first turn arriving while that response is in flight.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
@@ -4098,6 +4103,7 @@ export class AithemaSession extends HTMLElement {
     while (!signal.aborted) {
       let reader;
       try {
+        this.#signalLiveSeq = null; this.#signals?.quiet();
         this.#connectionStatus(attempt ? this.#copy.reconnecting : this.#copy.connecting);
         const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/events`, {
           signal, headers: this.#headers({ 'Last-Event-ID': String(this.#cursor) }),
@@ -4108,7 +4114,17 @@ export class AithemaSession extends HTMLElement {
         this.#connectionStatus(this.#copy.connected); reader = response.body.getReader();
         // A reconnect may follow a host restart: grants held in memory may be gone (D6).
         if (attempt++ > 0) void this.#refreshFeatures();
-        for await (const event of serverEvents(reader)) { if (signal.aborted) break; this.receive(event); }
+        let replaying = true;
+        for await (const event of serverEvents(reader)) {
+          if (signal.aborted) break;
+          // Preserve the public delivery path for hosts that observe or delay
+          // receive(). Replay provenance follows the event if delivery is held.
+          if (replaying) this.#signalReplay.add(event);
+          this.receive(event);
+          // The reference server sends status after synchronous durable replay.
+          if ((!event.sessionId || event.sessionId === this.#session.id) && event.type === 'lane.status' &&
+            event.data.inputRevision === inputRevision(this.#session)) replaying = false;
+        }
       } catch { if (signal.aborted) return; }
       finally { await reader?.cancel().catch(() => {}); }
       if (signal.aborted) return;
