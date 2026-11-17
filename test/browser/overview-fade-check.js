@@ -16,6 +16,50 @@ const settle = page => shadow(page, async () => {
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 });
 
+// Independent geometry oracle for AIT-290: natural real copy/action variants,
+// measured without reading the production reservation or its CSS variable.
+export async function compactStatusMaximum(page) {
+  return shadow(page, async c => {
+    const r = c.shadowRoot, slot = r.querySelector('.overview-status');
+    const pane = r.querySelector('.analysis-stack').getBoundingClientRect();
+    const compact = r.querySelector('.workspace').hasAttribute('data-contact') &&
+      innerWidth >= 60 * parseFloat(getComputedStyle(document.documentElement).fontSize) && pane.height <= 500;
+    if (!compact) return null;
+    const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
+    const variants = ['empty', 'stale', 'preparingOverview', 'reasoningFailed', 'overviewPendingReply',
+      'noProjectDetails', 'draft', 'overviewCurrent', 'paused', 'notConfigured'].map(key => ({ text: copy[key] }));
+    variants.push({ text: copy.understandingFailed + '.' }, { text: copy.reasons['admission deadline'] },
+      { text: copy.understandingFailed, retry: true }, { text: copy.staleIdle, retry: true }, { consent: true });
+    const probe = slot.cloneNode(false), width = slot.getBoundingClientRect().width;
+    Object.assign(probe.style, { position: 'fixed', left: '-10000px', top: '0', width: `${width}px`,
+      height: 'auto', minHeight: '0', overflow: 'visible', visibility: 'hidden', margin: '0' });
+    probe.removeAttribute('role'); probe.setAttribute('aria-hidden', 'true'); probe.inert = true; slot.after(probe);
+    let maximum = 0;
+    try {
+      for (const state of variants) {
+        const text = document.createElement('span'); text.className = 'notice-text'; probe.replaceChildren(text);
+        if (state.consent) {
+          text.dataset.consentFeature = 'analysis';
+          const label = document.createElement('span'); label.className = 'consent-line-copy'; label.textContent = copy.featureConsent.analysis;
+          const action = document.createElement('button'); action.className = 'consent-action'; action.textContent = copy.featureConsent.action;
+          text.append(label, action);
+        } else text.textContent = state.text;
+        if (state.retry) {
+          const retry = document.createElement('button'); retry.className = 'overview-retry'; retry.textContent = copy.understandingRetry; probe.append(retry);
+        }
+        for (const n of probe.querySelectorAll('.notice-text, .consent-line-copy')) {
+          n.style.webkitLineClamp = 'none'; n.style.overflow = 'visible';
+          if (!n.hasAttribute('data-consent-feature')) n.style.display = 'block';
+        }
+        const b = probe.getBoundingClientRect();
+        if (!(b.width > 0 && b.height > 0)) throw new Error('positive natural status probe');
+        maximum = Math.max(maximum, b.height);
+      }
+    } finally { probe.remove(); }
+    return maximum;
+  });
+}
+
 export async function overviewFadeCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-overview-fade-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
@@ -170,7 +214,7 @@ export async function compactStatusCheck(t) {
   for (const [width, height, font] of [[1024, 600], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1024, 768, 'Verdana'], [1280, 800, 'Verdana']])
     for (const slots of ['row-only', 'both-slots']) for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
       await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
-      let baseline;
+      let baseline; const group = [];
       for (const state of ['current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reasoning-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'paused', 'reconciling', 'empty']) {
         await shadow(page, async (c, locale, theme, slots, state, manifest, font) => {
           const { createSession, inputRevision, applyEvent } = await import('/packages/core/src/session.js');
@@ -230,27 +274,29 @@ export async function compactStatusCheck(t) {
           }
           slot.after(probe);
           const naturalTexts = [...probe.querySelectorAll('.notice-text, .consent-line-copy')].map(n => n.getBoundingClientRect().toJSON());
+          const naturalSlot = probe.getBoundingClientRect().toJSON();
           probe.remove();
           const measureText = n => { const b = n.getBoundingClientRect(), style = getComputedStyle(n); return { box: b.toJSON(),
             scrollHeight: n.scrollHeight, clientHeight: n.clientHeight, scrollWidth: n.scrollWidth, clientWidth: n.clientWidth,
-            font: style.fontFamily, ellipsis: style.textOverflow === 'ellipsis', lineHeight: parseFloat(style.lineHeight) }; };
+            font: style.fontFamily, clamp: style.webkitLineClamp, ellipsis: style.textOverflow === 'ellipsis', lineHeight: parseFloat(style.lineHeight) }; };
           return { slot: box.toJSON(), pane: pane.toJSON(), text: text.textContent,
             compact: r.querySelector('.workspace').hasAttribute('data-contact') && innerWidth >= 60 * parseFloat(getComputedStyle(document.documentElement).fontSize) && pane.height <= 500,
-            expectedHeight: parseFloat(getComputedStyle(slot).fontSize) * (innerWidth >= 960 && pane.height <= 500 ? 2.9 : 4.35),
-            naturalTexts, textBoxes: [text, ...text.querySelectorAll('.consent-line-copy')].map(measureText),
+            normalHeight: parseFloat(getComputedStyle(slot).fontSize) * 4.35,
+            naturalSlot, naturalTexts, textBoxes: [text, ...text.querySelectorAll('.consent-line-copy')].map(measureText),
             actions: [...slot.querySelectorAll('button:not([hidden])')].map(n => ({ text: n.textContent, ...n.getBoundingClientRect().toJSON() })) };
         });
         const name = `${width}x${height}-${slots}-${locale}-${theme}-${font || 'default'}-${state}`;
-        records.push({ name, state, ...geometry });
+        records.push({ name, state, ...geometry }); group.push({ name, geometry });
         positive(geometry.slot, `${name}: slot`); positive(geometry.pane, `${name}: pane`);
         baseline ??= geometry.slot;
         const problems = [];
-        if (Math.abs(geometry.slot.height - geometry.expectedHeight) > .5) problems.push('incorrect exact slot height');
+        positive(geometry.naturalSlot, `${name}: natural slot`);
+        if (!geometry.compact && Math.abs(geometry.slot.height - geometry.normalHeight) > .5) problems.push('incorrect exact slot height');
         for (const axis of ['x', 'y', 'width', 'height']) if (Math.abs(geometry.slot[axis] - baseline[axis]) > .5) problems.push(`status ${axis} shifted`);
         for (const [i, text] of geometry.textBoxes.entries()) {
           positive(text.box, `${name}: text ${i}`); positive(geometry.naturalTexts[i], `${name}: unclamped text ${i}`);
           if (geometry.compact && (text.box.top < geometry.slot.top - .5 || text.box.bottom > geometry.slot.bottom + .5 || text.box.left < geometry.slot.left - .5 || text.box.right > geometry.slot.right + .5)) problems.push(`text ${i} outside slot`);
-          if (geometry.compact && (text.scrollHeight > text.clientHeight || text.scrollWidth > text.clientWidth || text.ellipsis || geometry.naturalTexts[i].height > text.box.height + .5 || text.box.height > text.lineHeight * 2 + .5)) problems.push(`text ${i} clipped or ellipsized`);
+          if (geometry.compact && (text.scrollHeight > text.clientHeight || text.scrollWidth > text.clientWidth || text.ellipsis || text.clamp !== 'none' || geometry.naturalTexts[i].height > text.box.height + .5)) problems.push(`text ${i} clipped or ellipsized`);
         }
         if (font) assert.equal(geometry.textBoxes[0].font, font, `${name}: stress font is applied`);
         if (state === 'reasoning-failed') assert.equal(geometry.text, (locale === 'de' ? de : en).reasoningFailed);
@@ -260,9 +306,64 @@ export async function compactStatusCheck(t) {
           if (action.top < geometry.slot.top - .5 || action.bottom > geometry.slot.bottom + .5 || action.left < geometry.slot.left - .5 || action.right > geometry.slot.right + .5) problems.push('action outside slot');
         }
         if (problems.length) failures.push({ name, problems, geometry });
+        // A live state update must reuse the already measured reservation,
+        // rather than measuring only the newly displayed message.
+        if (state === 'current' && width === 1024 && height === 768 && slots === 'both-slots' && locale === 'de' && !font) {
+          await shadow(page, c => {
+            window.statusProbeInsertions = 0;
+            window.statusProbeObserver = new MutationObserver(changes => {
+              for (const change of changes) for (const node of change.addedNodes)
+                if (node.nodeType === 1 && node.matches('.overview-status[aria-hidden="true"]')) window.statusProbeInsertions++;
+            });
+            window.statusProbeObserver.observe(c.shadowRoot, { childList: true, subtree: true });
+          });
+          for (const next of ['failed', 'updating', 'current']) {
+            await shadow(page, (c, next) => {
+              const operations = structuredClone(c.session.operations);
+              const failure = { lane: 'understanding', error: 'reasoning-unavailable', retryable: true };
+              operations.running = next === 'updating' ? ['understanding'] : [];
+              operations.failures = next === 'failed' ? [failure] : []; operations.lastFailure = operations.failures[0] ?? null;
+              c.receive({ type: 'lane.status', data: operations });
+            }, next);
+            await settle(page);
+            const live = await shadow(page, c => {
+              const slot = c.shadowRoot.querySelector('.overview-status'), text = slot.querySelector('.notice-text');
+              return { box: slot.getBoundingClientRect().toJSON(), scrollHeight: text.scrollHeight, clientHeight: text.clientHeight };
+            });
+            positive(live.box, `${name}/${next}: live slot`);
+            for (const axis of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(live.box[axis] - geometry.slot[axis]) <= .5, `${name}/${next}: live ${axis} moves 0px`);
+            assert.ok(live.scrollHeight <= live.clientHeight, `${name}/${next}: live text is complete`);
+            records.push({ name: `${name}-live-${next}`, ...live });
+          }
+          const insertions = await shadow(page, () => { window.statusProbeObserver.disconnect(); return window.statusProbeInsertions; });
+          assert.equal(insertions, 0, `${name}: state changes never remeasure the reservation`);
+          // Resize and an actual font lifecycle notification do recompute it.
+          for (const wider of [true, false]) {
+            await page.setViewport(wider ? { width: 1280, height: 800 } : { width, height }); await settle(page);
+            const expected = await compactStatusMaximum(page);
+            const resized = await shadow(page, c => c.shadowRoot.querySelector('.overview-status').getBoundingClientRect().toJSON());
+            positive(resized, `${name}: resized slot`);
+            assert.ok(Math.abs(resized.height - expected) <= .5, `${name}: resize uses the exact natural maximum`);
+          }
+          for (const stress of [true, false]) {
+            await shadow(page, (c, stress) => {
+              if (stress) { window.statusHostFont = c.style.getPropertyValue('--aithema-font'); c.style.setProperty('--aithema-font', 'Verdana'); }
+              else c.style.setProperty('--aithema-font', window.statusHostFont);
+              document.fonts.dispatchEvent(new Event('loadingdone'));
+            }, stress);
+            await settle(page);
+            const expected = await compactStatusMaximum(page);
+            const loaded = await shadow(page, c => c.shadowRoot.querySelector('.overview-status').getBoundingClientRect().toJSON());
+            positive(loaded, `${name}: font-loaded slot`);
+            assert.ok(Math.abs(loaded.height - expected) <= .5, `${name}: font load uses the exact natural maximum`);
+          }
+        }
         // Keep all failing states, plus the requested compact-state TICK packet.
         if (evidence && (width >= 1366 || font || problems.length)) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false });
       }
+      const maximum = Math.max(...group.map(({ geometry }) => geometry.naturalSlot.height));
+      for (const { name, geometry } of group) if (geometry.compact && Math.abs(geometry.slot.height - maximum) > .5)
+        failures.push({ name, problems: ['slot differs from the measured longest real state'], maximum, geometry });
     }
   for (const [width, height] of [[1366, 768], [1440, 900]]) for (const slots of ['row-only', 'both-slots'])
     for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
@@ -298,5 +399,5 @@ export async function compactStatusCheck(t) {
       assert.ok(lock.lock.top >= lock.pane.top - .5 && lock.lock.bottom <= lock.pane.bottom + .5, `${name}: complete verification form inside pane`);
     }
   t.diagnostic(`AIT-547 real status states: ${records.length} scenes, ${failures.length} clipped/unstable states`);
-  assert.deepEqual(failures, [], 'every real compact overview status fits two lines without clipping; actions stay inside the constant slot');
+  assert.deepEqual(failures, [], 'every real compact overview status fits the exact measured maximum without clipping; actions stay inside the constant slot');
 }

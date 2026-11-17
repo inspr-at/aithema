@@ -48,6 +48,7 @@ import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { SummaryView } from './summary-view.js';
+import { OverviewStatusSize } from './overview-status-size.js';
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
@@ -118,7 +119,7 @@ export class AithemaSession extends HTMLElement {
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
   #savedTimer; #saved = false; #savedAnnouncement = false; #savedAnnouncedAt = -Infinity; #sendFailed = false;
-  #summaryView; #summaryExpanded = false;
+  #overviewStatusSize; #summaryView; #summaryExpanded = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
@@ -168,7 +169,7 @@ export class AithemaSession extends HTMLElement {
     this.#signalState = this.#session?.id === session.id ? this.#signals?.state : undefined;
     this.#signals?.destroy(); this.#signalLiveSeq = null;
     if (session.id !== this.#session?.id) this.#summaryExpanded = false;
-    this.#summaryView?.disconnect();
+    this.#overviewStatusSize?.disconnect(); this.#summaryView?.disconnect();
     const returningStart = this.#session ? null : this.#readStartIntent(session.id, options.entrance === 'combined');
     if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
@@ -254,14 +255,14 @@ export class AithemaSession extends HTMLElement {
     this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
-    this.#questionCard?.connect(); this.#summaryView?.connect();
+    this.#questionCard?.connect(); this.#overviewStatusSize?.connect(); this.#summaryView?.connect();
     this.#observePanes(); this.#syncReconciling();
     if (this.#laneStatusPending !== null) this.#awaitLaneStatus();
     this.#render('composer');
   }
   disconnectedCallback() {
     this.#signals?.suspend();
-    this.#summaryView?.disconnect();
+    this.#overviewStatusSize?.disconnect(); this.#summaryView?.disconnect();
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
@@ -810,6 +811,7 @@ export class AithemaSession extends HTMLElement {
     const textReplyDialog = root.querySelector('.voice-reply-dialog');
     textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
     this.#signals = new SignalList(root.querySelector('.signals-section'), { state: this.#signalState, anchor: update => this.#anchored(update) });
+    this.#overviewStatusSize = new OverviewStatusSize(root); this.#overviewStatusSize.connect();
     this.#summaryView = new SummaryView({ root, expanded: this.#summaryExpanded,
       onChange: expanded => { this.#summaryExpanded = expanded; }, anchor: update => this.#anchored(update) });
     this.#summaryView.connect();
@@ -2581,6 +2583,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     setText(root.querySelector('.summary-text'), summary ? u.summary : '');
     this.#signals.update(this.#session, copy, { live: this.#signalLiveSeq === this.#session.seq, available: !locked && (analysis.available || cached) && u.readinessAssessed });
+    this.#overviewStatusSize.render(copy, this.#session.locale);
     this.#summaryView.render(copy, this.#session.locale);
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);

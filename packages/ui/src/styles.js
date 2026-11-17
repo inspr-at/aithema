@@ -622,19 +622,19 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 .overview-status .consent-line-copy { -webkit-line-clamp:2; }
 .overview-status .overview-retry, .overview-status .consent-action { display:block; width:max-content; max-width:100%; margin-inline-start:0; }
 /* The contact track can leave a short reading pane even on a tall desktop.
-   Keep two status lines in every state, with Retry alongside the copy. Bottom
+   Reserve the measured longest status, with Retry alongside the copy. Bottom
    alignment spends spare status room above the line instead of below it.
-   Offset the extra status line above the copy to retain its resting baseline.
+   Spend spare room above the copy to retain its resting baseline when it fits.
    The summary heading supplies its own separation; do not add a grid gap. */
 @media(min-width:60rem) {
   .workspace[data-contact]:is([data-stage="live"],[data-entrance="combined"]) .analysis-stack { container:analysis-pane / size; }
   @container analysis-pane (max-height:500px) {
-    .workspace[data-contact] .analysis-content { padding-top:calc(28px - 1.16rem + var(--aithema-slack-top,0px)); }
-    .workspace[data-contact] .overview-status { display:flex; align-items:flex-end; gap:.5rem; height:2.9em; min-height:2.9em; margin-bottom:-1.15rem; }
-    .workspace[data-contact] .overview-status .notice-text { flex:1; min-width:0; -webkit-line-clamp:2; }
+    .workspace[data-contact] .analysis-content { padding-top:max(0px,calc(28px + 1.16rem - var(--overview-status-height,2.32rem) + var(--aithema-slack-top,0px))); }
+    .workspace[data-contact] .overview-status { display:flex; align-items:flex-end; gap:.5rem; height:var(--overview-status-height,2.9em); min-height:var(--overview-status-height,2.9em); overflow:visible; margin-bottom:-1.15rem; }
+    .workspace[data-contact] .overview-status .notice-text { flex:1; min-width:0; display:block; -webkit-line-clamp:unset; overflow:visible; }
     /* Include the consent action’s 24px pointer target in its flex line. */
     .workspace[data-contact] .overview-status .notice-text[data-consent-feature] { display:flex; align-items:center; min-height:24px; gap:.5rem; }
-    .workspace[data-contact] .overview-status .consent-line-copy { flex:1; min-width:0; }
+    .workspace[data-contact] .overview-status .consent-line-copy { flex:1; min-width:0; display:block; -webkit-line-clamp:unset; overflow:visible; }
     .workspace[data-contact] .overview-status :is(.overview-retry,.consent-action) { flex:none; max-width:45%; }
   }
 }

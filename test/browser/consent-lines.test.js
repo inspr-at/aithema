@@ -11,6 +11,7 @@ import { comparePhoneConsentBase } from '../consent-base-comparison.js';
 import { CONSENT_ITEMS } from '../../demo/processing-consent.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
+import { compactStatusMaximum } from './overview-fade-check.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 
 const features = { uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
@@ -759,7 +760,8 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
     await page.mouse.move(-10, -10); await frame(page);
     const overviewBefore = await boxes(page, overviewSelectors);
     for (const [i, box] of overviewBefore.entries()) assert.ok(box[2] > 0 && box[3] > 0, `positive ${overviewSelectors[i]} baseline`);
-    const overview = await shadow(page, c => {
+    const maximum = await compactStatusMaximum(page);
+    const overview = await shadow(page, (c, maximum) => {
       const r = c.shadowRoot, section = r.querySelector('.summary'), heading = r.getElementById(section.getAttribute('aria-labelledby'));
       const summary = r.querySelector('.summary-text').getBoundingClientRect();
       const divider = r.querySelector('.readiness').getBoundingClientRect();
@@ -773,17 +775,17 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
       return { dividerVisible: divider.top >= 90 && divider.bottom <= innerHeight, summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
         noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
         compact, contact, paneWidth: pane.width, paneHeight: pane.height,
-        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: (compact ? 2.9 : 4.35) * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: (compact ? 0 : parseFloat(contentStyle.rowGap)) + heading.getBoundingClientRect().height + parseFloat(getComputedStyle(section).rowGap),
+        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: compact ? maximum : 4.35 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: (compact ? 0 : parseFloat(contentStyle.rowGap)) + heading.getBoundingClientRect().height + parseFloat(getComputedStyle(section).rowGap),
         statusRole: notice.getAttribute('role'), statusName: notice.getAttribute('aria-label'), statusText: notice.textContent,
         headingWidth: heading.getBoundingClientRect().width, headingHeight: heading.getBoundingClientRect().height, regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
-    });
+    }, maximum);
     assert.equal(overview.noticeVisible, true, 'current overview keeps the quiet status visible');
     assert.equal(overview.statusText, locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.equal(overview.statusRole, 'status'); assert.ok(overview.statusName?.trim(), 'status slot has an accessible name');
     assert.ok(overview.statusWidth > 0 && overview.statusHeight > 0, 'status slot has a positive box');
     assert.ok(overview.paneWidth > 0 && overview.paneHeight > 0, 'layout is derived from a positive pane box');
     if (height === 1100) assert.equal(overview.compact, false, 'tall desktop exercises the normal-layout 4.35em contract');
-    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}/${height}: status reserves exactly ${overview.compact ? 2.9 : 4.35}em: ${JSON.stringify(overview)}`);
+    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}/${height}: status reserves exactly ${overview.compact ? 'the measured longest state' : '4.35em'}: ${JSON.stringify(overview)}`);
     assert.equal(overview.summaryVisible, true);
     assert.ok(overview.headingWidth > 1 && overview.headingHeight > 1, 'AIT-514 summary heading is visible with a positive box');
     assert.equal(overview.dividerVisible, true, 'readiness divider is visible below the sticky header');
