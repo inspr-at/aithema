@@ -107,6 +107,27 @@ export async function transcriptComposerCases(t) {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }, { locale, theme, voice, card, turns, visuals, usedUp, entrance, opener });
     await settleEvidenceFrame(page);
+    // This fixture configures the component directly, bypassing the demo's
+    // session-language path. Paint its host-owned legal slot after breakpoint
+    // listeners have settled, using the same labels and licence helper.
+    await shadow(page, async (c, locale) => {
+      const { [locale]: bundle } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { withDemoConsentCopy } = await import('/demo/consent-copy.js');
+      const { paintLicenseLabel } = await import('/demo/license-label.js');
+      const slots = withDemoConsentCopy(bundle).host.slots;
+      for (const [id, full, short] of [['demo-license', slots.license, slots.licenseShort], ['demo-legal-source', slots.legalSource, slots.legalSourceShort]]) {
+        const link = document.getElementById(id);
+        link.setAttribute('aria-label', full); link.title = full;
+        if (matchMedia('(width < 600px)').matches) {
+          const label = document.createElement('span'); label.className = 'demo-legal-short'; label.textContent = short;
+          link.replaceChildren(label);
+        } else if (id === 'demo-license') paintLicenseLabel(link, full);
+        else link.textContent = full;
+      }
+      document.querySelector('#demo-legal').setAttribute('aria-label', slots.legal);
+      window.dispatchEvent(new Event('resize'));
+    }, locale);
+    await settleEvidenceFrame(page);
     const legal = await page.$$eval('#demo-license, #demo-legal-source', links => links.map(link => link.getAttribute('aria-label') ?? link.textContent));
     assert.deepEqual(legal, locale === 'en' ? ['Licence: AGPL-3.0-only', 'Source and notices']
       : ['Lizenz: AGPL-3.0-only', 'Quellcode und Hinweise'], 'capture fixture legal labels follow the page language');
