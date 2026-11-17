@@ -1441,7 +1441,9 @@ export class AithemaSession extends HTMLElement {
     if (mini) mini.hidden = true;
     signal?.removeAttribute('data-read-full');
     let held = false;
-    if (latest && latest.dataset.id !== this.#tailReply && (!this.shadowRoot.querySelector('.qcard').hidden || this.#navigation && !latest.classList.contains('user'))) {
+    // Until the send receipt appends its turn, an offer can still be the last
+    // item. Keep its entry visible instead of holding the previous reply.
+    if (latest && !(offer && this.#sending) && latest.dataset.id !== this.#tailReply && (!this.shadowRoot.querySelector('.qcard').hidden || this.#navigation && !latest.classList.contains('user'))) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
       if (latest.getBoundingClientRect().height > room) {
