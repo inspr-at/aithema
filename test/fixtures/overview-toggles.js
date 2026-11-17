@@ -102,8 +102,9 @@ test('AIT-515 r13: both overview heading toggles, stable actions and scroll reac
       const name = `${entrance}-${locale}-${theme}-${width}x${height}`;
       if (width === 1366) {
         const mature = await measure(); positive(mature.signal, 'mature first signal'); positive(mature.pane, 'mature pane');
-        assert.ok(mature.signal.bottom <= mature.pane.bottom - 44, `${name}: mature first signal clears 44px bottom fade`);
         records.push({ name, state: 'mature-fade', geometry: mature });
+        if (evidence && mature.signal.bottom > mature.pane.bottom - 44) await page.screenshot({ path: join(evidence, 'overview', `${name}-mature-fade-failure.png`) });
+        assert.ok(mature.signal.bottom <= mature.pane.bottom - 44, `${name}: mature first signal clears 44px bottom fade`);
       }
       for (const [summaryExpanded, signalsExpanded] of [[false, false], [false, true], [true, true], [true, false], [false, false]]) {
         const desired = { summary: summaryExpanded, signals: signalsExpanded };
