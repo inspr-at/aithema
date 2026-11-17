@@ -565,6 +565,32 @@ test('AIT-404: takeback clears the composer in the listening tick with zero move
               await finishWorkspaceEntry(page);
             }
             const file = touch || width === 1440 ? await capture('settled', frameWidth) : null;
+            if (touch && width === 390 && frameWidth === 1024) {
+              // AIT-511 r19 / D511a: hidden notice and Latest reservations must
+              // not make follow clip otherwise-fitting short content. Calling
+              // the existing Latest action exercises #scrollToLatest directly,
+              // independent of resize-observer ordering or lane timing.
+              const followed = await shadow(page, c => {
+                const root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
+                const box = node => { const r = node.getBoundingClientRect(); return { top:r.top, bottom:r.bottom, width:r.width, height:r.height }; };
+                const rows = [...shell.querySelector('ol').children, ...shell.querySelectorAll('.voice-notices > .voice-notice')]
+                  .filter(node => !node.hidden && node.textContent.trim() && node.checkVisibility({ visibilityProperty:true, opacityProperty:true }));
+                const contentEnd = Math.max(...rows.map(node => box(node).bottom + shell.scrollTop - box(shell).top));
+                const visibleContentFits = contentEnd + parseFloat(getComputedStyle(shell).paddingBottom) <= shell.clientHeight + .5;
+                const nativeOverflow = shell.scrollHeight - shell.clientHeight;
+                root.querySelector('.transcript-latest').click();
+                return { visibleContentFits, nativeOverflow, scrollTop:shell.scrollTop,
+                  shell:box(shell), first:box(shell.querySelector('.turn')), header:box(root.querySelector('.band')) };
+              });
+              if (evidence) {
+                await writeFile(join(evidence, `ait511-short-follow-${locale}.json`), JSON.stringify(followed, null, 2));
+                await page.screenshot({ path:join(evidence, `ait511-short-follow-${locale}.png`), fullPage:false });
+              }
+              for (const name of ['shell', 'first', 'header']) assert.ok(followed[name].width > 0 && followed[name].height > 0, `AIT-511: positive ${name} box before comparison`);
+              assert.equal(followed.visibleContentFits, true, 'AIT-511: the fixture visible content fits without hidden end reservations');
+              assert.equal(followed.scrollTop, 0, 'AIT-511: explicit follow keeps fitting short content top-anchored');
+              assert.ok(followed.first.top >= followed.header.bottom, 'AIT-511: explicit follow leaves the first bubble below the sticky header');
+            }
             const clearance = await shadow(page, (c, scrollProof) => {
               const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = shell.querySelector('.turn');
               return { shellTop: shell.getBoundingClientRect().top, bubbleTop: bubble.getBoundingClientRect().top,
