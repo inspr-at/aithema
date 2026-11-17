@@ -1398,14 +1398,19 @@ export class AithemaSession extends HTMLElement {
     // scrolled conversation. Keep the notice minimum and AIT-400 Latest slot
     // intact; only genuinely overflowing content follows their native end.
     if (this.shadowRoot.querySelector('.qcard').hidden && end > shell.clientHeight) {
-      const pane = shell.getBoundingClientRect(), list = shell.querySelector('ol').getBoundingClientRect();
+      const pane = shell.getBoundingClientRect(), listElement = shell.querySelector('ol');
+      const list = listElement.getBoundingClientRect();
+      // A hidden, detached or not-yet-measured nonempty list cannot prove fit.
+      // Preserve native-end following until both list dimensions are positive.
+      const measured = list.width > 0 && list.height > 0;
       const visibleEnds = [...shell.querySelectorAll(':scope > .voice-notices > .voice-notice')]
         .filter(row => !row.hidden)
         .map(row => row.getBoundingClientRect())
         .filter(box => box.width > 0 && box.height > 0).map(box => box.bottom);
       const contentEnd = Math.max(list.bottom, ...visibleEnds) + shell.scrollTop - pane.top;
       const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingBottom) || 0;
-      if (pane.width > 0 && pane.height > 0 && contentEnd + padding <= shell.clientHeight + .5) end = 0;
+      if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
+        && contentEnd + padding <= shell.clientHeight + .5) end = 0;
     }
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
