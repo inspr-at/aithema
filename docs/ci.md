@@ -441,13 +441,18 @@ only a log tail. Bounded whole-suite batches keep the same committed head and
 serial test execution; the operator file retains its existing isolated force-exit
 run. This reporter does not change CI selection or reporting.
 
-AIT-510 r14 combines the AIT-515/AIT-517 reservations above with the 86 s
-upload-capacity floor. Against main's 71 s upload reservation, this adds 15 s:
-`4820.039 + (86 - 71) = 4835.039 s` in the growth projection, below
-`12 × 405 = 4860 s`. The unchanged deterministic whole-file refinement
-re-derives placement; remote shard-guard evidence records both actual totals.
-Every inherited floor and timing sample remains, with twelve shards and the
-unchanged 405/420 s limits.
+AIT-510 r14 retains all AIT-515/AIT-517 reservations and timing history.
+Main's upload reservation is 36.093 s, so retaining the temporary 86 s
+image-matrix floor gives `4820.039 + (86 - 36.093) = 4869.946 s` in the
+growth projection, 9.946 s above `12 × 405 = 4860 s`. This corrects the
+merge's stale 71 s assumption. No limit or trusted sample changes.
+Complete remote run `15065fafa0-71174` at `15065faf` passes upload **29/29**
+in **71.807831958 s** and start-look **141/141** in **107.323856625 s**.
+The unchanged eight 1024-width image scenes move into start-look through
+`image-input-check.js`; upload retains all sixteen 390/1440 scenes. The
+combined workload remains 170 tests, with every assertion and capture.
+The temporary source-file floor stays 86 s until a complete after-run
+qualifies both files and the unchanged twelve-bin 405/420 s guards.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
