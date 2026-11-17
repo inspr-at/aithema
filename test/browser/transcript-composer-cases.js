@@ -58,7 +58,7 @@ const noCardClearance = (state, label) => {
   assert.equal(state.cardHidden, true, `${label}: no-card clearance case`);
   for (const selector of ['.composer', '.transcript-shell', '.transcript-shell > ol', '.transcript-latest', '.turn:last-child']) positive(state.boxes[selector], selector);
   const composer = state.boxes['.composer'], pane = state.boxes['.transcript-shell'], last = state.boxes['.turn:last-child'];
-  const { paddingBottom, latestSlotUsed, unused } = state.noCardClearance;
+  const { paddingBottom, latestSlot, latestSlotUsed, unused } = state.noCardClearance;
   const gap = composer.top - pane.bottom + paddingBottom;
   const rawGap = composer.top - last.bottom;
   const extraGap = rawGap - unused - latestSlotUsed - state.noticeHeight;
