@@ -396,6 +396,12 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // 125 pause-phone tests in 177.878909750s, including 32 new refusal/cap checks.
 // ceil(observed *1.25)=223s raises only the PR diagnostic floor from 220s.
 // Keep twelve shards, 405/420s targets and all trusted timing history.
+// AIT-510 r16: the unchanged no-upload regression moves from host-surface to
+// upload-capacity, preserving the host's 395s reservation. Its remote red run
+// ait-dbb1325f89ae45a8b9b8da52 at 9d07e6da measured 16.159237637s.
+// Reserve the inherited upload plan plus ceil(case *1.25): 36.093 +21=57.093s.
+browserTestWeights['test/browser/upload-capacity.test.js'] = Math.max(
+  browserTestWeights['test/browser/upload-capacity.test.js'], 57.093);
 browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
   browserTestWeights['test/browser/pause-phone.test.js'], 223);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.

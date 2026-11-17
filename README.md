@@ -4267,8 +4267,10 @@ file is chosen. Image-capable composers append the supported-format help sentenc
 with its final full stop and without a trailing separator, reserve that full
 localized notice, and show it without the two-line cap. Composers without image
 input keep the existing document refusal without image-format help. Combined
-composers reserve the existing two-line feedback capacity before intake, so a
-wrapped document-only refusal keeps the controls fixed. The expanded
+composers with document intake reserve the existing two-line feedback capacity
+before intake, so a wrapped document-only refusal keeps the controls fixed.
+That session reserve survives pause and consent changes; combined composers
+without uploads retain their natural feedback height. The expanded
 notice cap applies only to upload notices; long host-overridden image-consent
 copy remains scrollable inside its 44 px cap. Malformed image copy
 (`imageRefusals.malformed`) follows the file name: “is not a readable image.” / “ist kein lesbares Bild.”; host overrides

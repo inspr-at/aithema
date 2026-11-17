@@ -500,6 +500,14 @@ remains within its inherited **162 s** floor. Trusted rolling-main samples,
 twelve shards, the **405 s** target, **420 s** ceiling and every existing
 assertion remain unchanged. Remote shard guards qualify the actual placement.
 
+AIT-510 r16 places the unchanged no-upload feedback regression in
+`upload-capacity.test.js` instead of expanding the 395 s host-surface plan.
+Remote red run `ait-dbb1325f89ae45a8b9b8da52` at `9d07e6da` measured the
+new case at **16.159237637 s**. Its temporary diagnostic reservation adds
+`ceil(16.159237637 × 1.25) = 21 s` to the inherited **36.093 s** upload plan,
+for **57.093 s**. Existing assertions, trusted timing history, twelve shards
+and the **405/420 s** limits remain unchanged.
+
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.

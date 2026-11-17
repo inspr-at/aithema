@@ -3477,6 +3477,10 @@ export class AithemaSession extends HTMLElement {
   // Unavailable (consent, preset, extractors, pause) stays focusable and says why when pressed.
   #paintAttach() {
     const root = this.shadowRoot, attach = root.querySelector('.attach');
+    const documents = this.#feature('uploads', true, { ignorePause: true }), composer = root.querySelector('.composer');
+    // Keep an admitted intake slot through pauses and consent changes in this
+    // session; a newly configured composer starts from its own capabilities.
+    composer.toggleAttribute('data-document-input', composer.hasAttribute('data-document-input') || documents.available || isConsentReason(documents.rawReason ?? documents.reason));
     const limits = limitsText(this.#copy, this.#limits, this.#session.locale);
     const unavailable = this.#attachRefusal();
     attach.setAttribute('aria-disabled', String(Boolean(this.#attachRefusal())));

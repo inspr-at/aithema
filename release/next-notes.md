@@ -208,8 +208,10 @@
   share the measured image feedback reserve and wrap without the two-line cap
   or a trailing separator. The format sentence ends with a full stop in EN/DE.
   Composers without image input keep the existing document refusal, without
-  image-format help. Combined feedback reserves its existing two-line capacity
-  before intake so wrapped document-only refusals cannot move the controls.
+  image-format help. Combined composers with document intake reserve the existing
+  two-line feedback capacity before intake and retain it through pause/consent
+  changes. This keeps wrapped document-only refusals stable while composers
+  without uploads retain their natural feedback height.
   Only upload notices lift the reason cap; long host image-
   consent overrides still scroll inside their 44 px cap.
   `imageRefusals.malformed` now follows the filename with “is not a readable

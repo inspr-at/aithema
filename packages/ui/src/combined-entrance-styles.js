@@ -43,9 +43,9 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-actions { display:contents; }
 .workspace[data-entrance="combined"] .attach { display:none; }
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:center; }
-/* Document-only refusals use the existing two-line reason cap as well.
-   Reserve it before intake so a wrapped localized notice cannot move controls. */
-.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; min-height:2.6em; }
+.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
+/* Reserve wrapped document refusals only where document intake is configured. */
+.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:2.6em; }
 /* Image refusals reserve the longest real localized reason before intake. */
 .workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:44px; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }

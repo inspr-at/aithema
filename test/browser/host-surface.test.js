@@ -1387,8 +1387,7 @@ test('AIT-486: resync countdown jumps down without moving Resend or its slot', {
   assert.deepEqual(problems, []);
 });
 
-import { noUploadsFeedbackCheck, combinedOfferCheck, openerEmailCheck, contactOfferCheck, inlineOfferCheck } from './contact-email-check.js';
-test('AIT-510 r16: combined without uploads keeps main feedback geometry', { timeout: 120_000 }, noUploadsFeedbackCheck);
+import { combinedOfferCheck, openerEmailCheck, contactOfferCheck, inlineOfferCheck } from './contact-email-check.js';
 test('AIT-506 combined offer: a saved address keeps the capture row stable', { timeout: 120_000 }, combinedOfferCheck);
 test('AIT-507 integration: persisted opener alone exposes no email action or lock', { timeout: 180_000 }, openerEmailCheck);
 test('AIT-517: pinned contact preserves the combined inline email offer', { timeout: 180_000 }, contactOfferCheck);
