@@ -32,7 +32,6 @@ const geometry = async page => { const state = await shadow(page, c => {
       const node = r.querySelector(selector), css = getComputedStyle(node);
       return [selector, { box: node.getBoundingClientRect().toJSON(), rowGap: css.rowGap, text: node.innerText }];
     })) };
-
 });
   for (const selector of ['.composer', 'textarea', '.transcript-shell', '.turn:first-child', '.turn:last-child']) positive(state.boxes[selector], selector);
   return state;
@@ -108,9 +107,12 @@ export async function transcriptComposerCases(t) {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }, { locale, theme, voice, card, turns, visuals, usedUp, entrance, opener });
     await settleEvidenceFrame(page);
-    const legal = await page.$$eval('#demo-license, #demo-legal-source', links => links.map(link => link.textContent));
+    const legal = await page.$$eval('#demo-license, #demo-legal-source', links => links.map(link => link.getAttribute('aria-label') ?? link.textContent));
     assert.deepEqual(legal, locale === 'en' ? ['Licence: AGPL-3.0-only', 'Source and notices']
       : ['Lizenz: AGPL-3.0-only', 'Quellcode und Hinweise'], 'capture fixture legal labels follow the page language');
+    const visibleLegal = await page.$$eval('#demo-license, #demo-legal-source', links => links.map(link => link.textContent));
+    assert.deepEqual(visibleLegal, width >= 600 ? legal
+      : ['AGPL-3.0', locale === 'en' ? 'Source' : 'Quellcode'], 'fixture preserves full desktop and abbreviated phone legal labels');
   };
   const capture = async label => {
     const state = await geometry(page); records.push({ label, ...state });
