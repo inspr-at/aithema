@@ -204,7 +204,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     if (width !== 390) {
       await page.evaluate(() => { window.replayUnavailable = false; });
       await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').click());
-      await until(page, () => window.replayRail.notices.playing && !window.replayAudio.paused);
+      await until(page, () => window.replayRail.notices.playing && !window.replayRail.notices.pending && !window.replayAudio.paused);
       const playingSentence = await sentenceGeometry();
       // Drive the fixture audio sink's real completion callback, rather than
       // setting the notice's state directly. No provider or wall-clock wait.
