@@ -1,4 +1,3 @@
-import { imageInputCheck } from './image-input-check.js';
 import { mockConsent } from './consent-helpers.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -436,5 +435,3 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
     assert.deepEqual(problems, []);
   });
 
-// Keep phone image scenes here; tablet/desktop scenes share start-look.
-imageInputCheck([390]);

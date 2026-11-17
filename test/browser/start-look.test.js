@@ -1,5 +1,5 @@
 import { imageInputCheck } from './image-input-check.js';
-imageInputCheck([1024, 1440]);
+imageInputCheck([1024]);
 import './signals-check.js';
 // AIT-128: START's look in a real browser, on the reference host (AIT-129): the page's theme choice, a new
 // conversation, the entrance, the host's consent page and back, readiness with its explicit start, the

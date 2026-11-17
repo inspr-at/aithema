@@ -469,6 +469,16 @@ inherited destination floor can only increase. The final growth projection
 is `4820.039 + (50 - 36.093) + (178 - 162) = 4849.946 s`, leaving
 10.054 s below aggregate capacity. Actual whole-file placement still must
 pass the unchanged twelve-shard 405 s headroom and 420 s hard guards.
+Remote guard at `aaacadfa` fails the existing growth check, with all other
+42 checks passing. Aggregate fit alone is insufficient: host-surface (395 s)
+and the growth journey (385 s) can use only the 10.025/4.364/2.332 s files.
+Their combined unused capacity is at least
+`2 × 405 - 395 - 385 - 10.025 - 4.364 - 2.332 = 13.279 s`, already above
+the aggregate 10.054 s spare. The bounded algorithm and its node limit remain
+unchanged. Move the same sixteen 390/1440 scenes into pause-phone, which
+already covers both widths and reserves 220 s; leave eight 1024 scenes in
+start-look and the five document/retry cases in upload. Complete measurement
+of all three files must qualify this placement before removing additions.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
