@@ -2412,7 +2412,8 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.notice').hidden = locked;
     const u = this.#session.understanding, stale = u.inputRevision !== inputRevision(this.#session);
     // Assessments reveal only populated summary/signals; hidden sections own no grid space.
-    for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
+    // SignalList owns deferred visibility; never transiently reveal its empty section.
+    for (const section of root.querySelectorAll('.analysis-content section:not(.signals-section)')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
     const summary = u.summary.trim();
     root.querySelector('.summary').hidden ||= !summary;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
