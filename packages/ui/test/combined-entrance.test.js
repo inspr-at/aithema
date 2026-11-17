@@ -4,6 +4,7 @@ import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { AudioRail } from '../src/audio-rail.js';
+import { PhoneComposerViewport } from '../src/layout.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { fixture as voiceFixture, invocationOptions } from '../../../plugins/elevenlabs/test/fixtures.js';
 const window = new Window({ url: 'https://example.test' });
@@ -220,3 +221,18 @@ for (const origin of ['own click', 'server retention', 'other tab']) for (const 
     await f.grant(); assert.equal(f.sends.length, 0); assert.equal(f.starts.length, 0);
   });
 }
+
+for (const boundary of ['expiry', 'withdrawal', 'erasure']) test(`AIT-513: ${boundary} refits a discarded combined draft immediately`, t => {
+  const f = fixture(t);
+  f.input('A draft\nwith several\nlines'); f.send();
+  assert.ok(sessionStorage.getItem('aithema-start-intent'), 'draft is waiting for consent');
+  const cleared = [];
+  t.mock.method(PhoneComposerViewport.prototype, 'sizeComposer', function () {
+    cleared.push(this.root.querySelector('textarea').value);
+  });
+  if (boundary === 'expiry') f.advance(180_000);
+  if (boundary === 'withdrawal') f.c.receive({ seq: f.c.session.seq + 1, type: 'consent.revised', data: { granted: false } });
+  if (boundary === 'erasure') f.c.receive({ seq: f.c.session.seq + 1, type: 'session.erased', data: { at: new Date(Date.now()).toISOString() } });
+  assert.equal(f.c.shadowRoot.querySelector('textarea').value, '');
+  assert.ok(cleared.includes(''), 'the sizing owner sees the empty field in the discard transaction');
+});

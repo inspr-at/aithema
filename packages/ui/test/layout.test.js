@@ -284,3 +284,26 @@ test('AIT-299 r2: five compact timer ticks perform zero layout reads; a new digi
   f.label.textContent = '1234:05'; await new Promise(resolve => setImmediate(resolve));
   assert.ok(f.counts().probeReads > 0, 'a changed timer width still invalidates natural geometry');
 });
+
+for (const boundary of ['call state', 'card visibility']) test(`AIT-511: CSS-only ${boundary} refreshes the notice reservation`, async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="audio-rail" data-call="active"></div>
+    <div class="transcript-shell"><ol></ol><div class="voice-notices"><div>Recovery notice</div></div></div>
+    <div class="composer-dock"><div class="qcard" hidden></div></div>
+    <footer class="display-foot"><div class="display-foot__row"></div></footer></div>`;
+  const rail = root.querySelector('.audio-rail'), card = root.querySelector('.qcard'), notices = root.querySelector('.voice-notices');
+  let contentHeight = 44;
+  notices.getBoundingClientRect = () => ({ width: 300, height: Math.max(parseFloat(notices.style.minHeight) || 0,
+    rail.dataset.call === 'active' && card.hidden ? 108 : contentHeight) });
+  const viewport = new PhoneComposerViewport(root, { followsTranscript: () => false });
+  t.after(() => viewport.destroy());
+  assert.equal(viewport.noticeHeight, 108);
+  if (boundary === 'call state') rail.dataset.call = 'idle';
+  else card.hidden = false;
+  viewport.paint();
+  assert.equal(viewport.noticeHeight, 44, 'paint records the current CSS region without waiting for notice DOM changes');
+  contentHeight = 24; notices.firstElementChild.textContent = 'Short notice';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(parseFloat(notices.style.minHeight), 44, 'later shrink holds the real previous region, never a stale 108px region');
+});
