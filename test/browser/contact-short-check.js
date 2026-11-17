@@ -230,6 +230,7 @@ export async function contactSlotVariantsCheck(t) {
       content: content && box(content), button: button && box(button), rowHeight: row.clientHeight, rowContentHeight: row.scrollHeight,
       sidebar: box(r.querySelector('.understanding')), sidebarHeight: r.querySelector('.understanding').clientHeight,
       reading: box(r.querySelector('.analysis-content')), foot: box(r.querySelector('.understanding > .foot')),
+      layout: { inset: getComputedStyle(r.querySelector('.understanding')).getPropertyValue('--inset'), footerHeight: getComputedStyle(r.querySelector('.understanding > .foot')).height, footerMinHeight: getComputedStyle(r.querySelector('.understanding > .foot')).minHeight },
       frames: ['.band', '.audio-rail', '.understanding', '.understanding > .foot', '.display-foot'].map(s => box(r.querySelector(s))) };
   });
   const positive = boxes => boxes.forEach(b => assert.ok(b.width > 0 && b.height > 0, `positive variant box: ${JSON.stringify(b)}`));
@@ -287,7 +288,7 @@ export async function contactSlotVariantsCheck(t) {
         records.push({ label, entrance, after, shiftPx });
         if (evidence) {
           await writeFile(join(evidence, 'contact-variant-rects.json'), JSON.stringify(records, null, 2));
-          if (slots === 'row-only' && [1366,1280].includes(width) && ((locale === 'en' && theme === 'light') || (locale === 'de' && theme === 'dark'))) {
+          if (slots === 'row-only' && ([1366,1280].includes(width) || (width === 1024 && height === 600)) && ((locale === 'en' && theme === 'light') || (locale === 'de' && theme === 'dark'))) {
             await mkdir(join(evidence, 'shots'), { recursive: true });
             await page.screenshot({ path: join(evidence, 'shots', `${label}.png`), captureBeyondViewport: false });
           }

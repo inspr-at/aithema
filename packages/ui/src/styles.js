@@ -577,6 +577,9 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
      compact decorative scale spacing and foot padding for complete EN/DE
      contact content beside the 40% pane, preserving the scale and target sizes. */
   .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) { row-gap:0; }
+  /* The shared host footer keeps its two-line retry reservation. Recover
+     sidebar insets rather than squeezing that reserved track or its controls. */
+  .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .understanding { --inset:.5rem; }
   .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .readiness { padding:0; }
   .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .scale { margin:.1rem 0; }
   .workspace[data-contact]:not(:has(.contact-launcher:not([hidden]))) .scale-labels { height:auto; line-height:1.2; }
