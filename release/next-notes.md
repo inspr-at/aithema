@@ -137,3 +137,5 @@
   accepted formats; image-limit copy resolves host overrides and locale fallbacks.
   Composer growth retains transcript follow and whole-item reading alignment;
   the combined short-phone transcript reserves eight pixels below its content.
+  Successful document uploads preserve image refusals from the same selection.
+  Retained-file retry messages keep their existing facts and action order.

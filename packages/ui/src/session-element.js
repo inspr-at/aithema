@@ -1385,7 +1385,13 @@ export class AithemaSession extends HTMLElement {
     // A phone can return to page scroll zero before the voice band finishes
     // fitting. Refresh its actual occlusion before revealing the whole offer;
     // a stale inset otherwise wastes readable conversation space.
-    if (offer && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) this.#syncBandScroll();
+    if (this.#combined && this.#imageLayout && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) {
+      // Composer growth shrinks the outer reading surface. Reveal the transcript
+      // in that surface before measuring an item inside its own scroller.
+      const scroll = this.shadowRoot.querySelector('.conversation-scroll');
+      scroll.scrollTop += shell.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+      this.#syncBandScroll();
+    } else if (offer && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) this.#syncBandScroll();
     // Recompute only our prior whole-item reading space; pointer anchoring owns
     // any other slack and keeps its separate lifetime.
     const readingSlack = Number(shell.dataset.imageReadingSlack) || 0;
@@ -3478,12 +3484,14 @@ export class AithemaSession extends HTMLElement {
   async #attach(files, retry = false) {
     if (!files.length || !this.isConnected) return;
     let needsImages = files.some(isImageFile);
+    let currentImageRefusals = [];
     const image = this.#feature('imageInput', true), documents = this.#feature('uploads', true);
     if (needsImages && !image.available && !isConsentReason(image.rawReason ?? image.reason)) {
       const rawReason = image.rawReason ?? image.reason;
       const reason = this.#session.paused || this.#session.pauseReason === 'purpose' || rawReason === 'session paused' || rawReason === 'paused' ? 'paused'
         : rawReason === 'image input not supported' ? 'model' : 'unavailable';
-      this.#images.refuse(files.filter(isImageFile).map(file => ({ name: file.name, reason })));
+      currentImageRefusals = files.filter(isImageFile).map(file => ({ name: file.name, reason }));
+      this.#images.refuse(currentImageRefusals);
       files = files.filter(file => !isImageFile(file)); needsImages = false;
       this.#render('composer');
       if (!files.length) return;
@@ -3512,13 +3520,12 @@ export class AithemaSession extends HTMLElement {
       // out of that lifecycle, including when one selection contains both kinds.
       const documentPlan = { ...plan, refused: plan.refused.filter(record => !imageRefusals.includes(record)),
         blocked: plan.blocked === 'images' || (needsImages && files.every(isImageFile)) ? null : plan.blocked };
-      const notices = [replacement, refusalText(copy, documentPlan, this.#session.locale),
-        ...(documentPlan.refused.some(record => record.reason === 'type') ? [resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale)] : [])], count = plan.batches.flat().length;
+      const notices = [replacement, refusalText(copy, documentPlan, this.#session.locale)], count = plan.batches.flat().length;
       if (count) {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0;
         for (const batch of plan.batches) {
-          const failure = await this.#postUploads(batch, controller.signal);
+          const failure = await this.#postUploads(batch, controller.signal, currentImageRefusals);
           if (!current()) return;
           if (failure) {
             // Earlier batches are already attached; keep only the refused and unattempted files.
@@ -3533,6 +3540,9 @@ export class AithemaSession extends HTMLElement {
       }
       if (imageRefusals.length || plan.blocked && needsImages) this.#images.refuse([...imageRefusals.map(record => ({ ...record, reason: record.reason === 'type' ? 'unsupported' : record.reason })),
         ...(plan.blocked && needsImages ? [{ reason: plan.blocked === 'images' || plan.blocked === 'count' ? 'limit' : 'session' }] : [])]);
+      // Retained-file retry facts keep their established copy and action order.
+      if (!this.#retryFiles.length && documentPlan.refused.some(record => record.reason === 'type'))
+        notices.push(resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale));
       this.#uploadNotice = notices.filter(Boolean).join(reasonSeparator);
     } finally {
       if (this.#uploadController === controller) {
@@ -3577,7 +3587,7 @@ export class AithemaSession extends HTMLElement {
     });
   }
   /** One multipart request, with at most three attempts for busy; keep the same receipt ID on retries. */
-  async #postUploads(files, signal) {
+  async #postUploads(files, signal, currentImageRefusals = []) {
     const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
     const current = () => !signal.aborted && sessionId === this.#session.id && this.isConnected;
     form.append('clientEventId', crypto.randomUUID());
@@ -3599,6 +3609,8 @@ export class AithemaSession extends HTMLElement {
     if (!current()) return '';
     if (response.ok && body) {
       this.#images?.clear();
+      // Success clears older feedback, while this pick's refused images remain readable.
+      this.#images?.refuse(currentImageRefusals);
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);
       return '';

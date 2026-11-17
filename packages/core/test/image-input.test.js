@@ -60,5 +60,5 @@ test('AIT-510 G-M2: a device preset keeps recent sent images as earlier-image te
   session.uploads.push({ id: 'sent', kind: 'image', state: 'sent', filename: 'screen.png', digest: 'fixture', w: 2, h: 1, mediaType: 'image/png' });
   const request = reasoningRequest(session, 'reaction');
   assert.deepEqual(request.messages.flatMap(message => message.images ?? []), []);
-  assert.equal(request.messages.find(message => message.role === 'user').content, '[image: "screen.png", sent earlier]');
+  assert.equal(request.messages.filter(message => message.role === 'user')[1].content, '[image: "screen.png", sent earlier]');
 });

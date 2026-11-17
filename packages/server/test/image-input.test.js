@@ -215,7 +215,7 @@ for (const lane of ['reaction', 'understanding']) test(`AIT-510 G-M2: ${lane} co
   assert.equal(request.messages.flatMap(message => message.images ?? []).length, 1, 'sent image is still inside the recent-turn window');
   const admitted = await runtime.admit({ session, lane, operation, request, options: { deadlineAt: clock + 25000, signal: new AbortController().signal } });
   assert.deepEqual(request.messages.flatMap(message => message.images ?? []), [], 'current text-only binding receives no pixel references');
-  assert.match(request.messages.find(message => message.role === 'user').content, /\[image: "fixture.png", sent earlier\]/u);
+  assert.match(request.messages.filter(message => message.role === 'user')[1].content, /\[image: "fixture.png", sent earlier\]/u);
   assert.equal(admitted.options.resolveImage, undefined, 'no byte resolver is admitted');
   await admitted.options.attempt.consume();
   admitted.options.report({ attemptId: admitted.options.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 1, outputTokens: 1 } });

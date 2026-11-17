@@ -4122,7 +4122,9 @@ Document-only continuations use the existing upload-consent wording and editor.
 Paused conversations and unavailable normalizers have their own refusal copy;
 only a missing model capability uses the unsupported-model wording. An enabled
 Attach control describes selection even before consent, and asks only after a
-file is chosen. Unknown file refusals include the supported-format help line.
+file is chosen. Unknown file refusals include the supported-format help line;
+retained-file retry messages preserve their refusal facts and retry action order.
+A successful document in a mixed pick keeps that pick's image refusal visible.
 
 The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,
 `imageUpload` (normalized bytes in `imageBytes`), and `expireStagedUploads`;
