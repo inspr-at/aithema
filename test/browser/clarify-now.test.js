@@ -1,4 +1,5 @@
 // AIT-274: one page and one browser; all state-only contracts live in unit tests.
+import './overview-fade-check.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
