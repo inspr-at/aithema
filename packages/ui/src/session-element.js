@@ -91,7 +91,7 @@ const startIntentTTL = mode => mode === 'voice' ? 60_000 : 180_000;
 
 export class AithemaSession extends HTMLElement {
   #erased = null; #erasedIds = new Map(); #confirmations = new Map(); #anchorDepth = 0; #erasureJournal = null; #erasedCreating = false;
-  #consentRefresh;
+  #consentRefresh; #consentRequestId = null;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
@@ -165,6 +165,7 @@ export class AithemaSession extends HTMLElement {
     }
     if (session.id !== this.#session?.id) this.#summaryExpanded = false;
     this.#summaryView?.disconnect();
+    this.#consentRequestId = null;
     const returningStart = this.#session ? null : this.#readStartIntent(session.id, options.entrance === 'combined');
     if (this.#session) this.#clearStartIntent();
     this.ownerDocument.defaultView?.removeEventListener('resize', this.#releaseErasedHeights);
@@ -256,6 +257,7 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    this.#consentRequestId = null;
     this.#summaryView?.disconnect();
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
@@ -1207,6 +1209,9 @@ export class AithemaSession extends HTMLElement {
   #pageshow = () => {
     if (this.#rail) this.#rail.unloading = false; this.#syncBandScroll();
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? (this.#startFromNavigation ? null : this.#startIntent?.tabId) ?? null);
+    // A cached-page return settles the draft even when admission cannot be read.
+    // Reuse the same-tab proof and draft-only restore used by a fresh mount.
+    if (this.#combined && this.#startIntent && this.#startFromNavigation) void this.#checkRestoredStart();
     if (this.#startIntent) void this.#refreshFeatures();
   };
   #syncBandScroll = () => {
@@ -1846,9 +1851,23 @@ export class AithemaSession extends HTMLElement {
     if (intent !== 'start') this.#clearStartIntent();
     if (intent !== 'concept') this.#concept?.cancelConsent();
     const mode = intent === 'start' && this.#combined ? this.#startIntent?.mode ?? this.#mode() : this.#mode(), required = features.filter(f => f === (mode === 'voice' ? 'voice' : 'text'));
+    const requestId = this.#consentRequestId = crypto.randomUUID(), sessionId = this.#session.id,
+      consentRevision = this.#session.consentRevision, settingsRevision = this.#session.settings.revision,
+      startId = intent === 'start' ? this.#startIntent?.tabId : null,
+      conceptRequestId = this.#session.conceptStatus?.consentRequest?.id,
+      expiresAt = (intent === 'start' ? this.#startIntent?.expiresAt : null) ?? Date.now() + startIntentTTL(intent === 'concept' ? 'text' : mode);
+    const cancel = () => {
+      // A retained callback belongs only to this request, before a grant or expiry.
+      if (this.#consentRequestId !== requestId || this.#session.id !== sessionId ||
+        this.#session.consentRevision !== consentRevision || this.#session.settings.revision !== settingsRevision ||
+        Date.now() >= expiresAt) return;
+      this.#consentRequestId = null;
+      if (intent === 'start' && startId && this.#startIntent?.tabId === startId) this.#clearStartIntent();
+      if (intent === 'concept' && this.#session.conceptStatus?.consentRequest?.id === conceptRequestId) this.#concept?.cancelConsent();
+    };
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
-    this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId: this.#session.id, reason, features: [...features], intent, mode, required },
+    this.dispatchEvent(new CustomEvent('aithema-consent', { detail: { sessionId, reason, features: [...features], intent, mode, required, requestId, cancel },
       bubbles: true, composed: true }));
   }
   // Apply a journal snapshot without opening a stream or scheduling any work.
